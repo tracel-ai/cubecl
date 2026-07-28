@@ -256,7 +256,7 @@ shared_ty!(IndexType, |_, ctx| {
     ctx.address_type().unsigned_type().to_type(ctx).to_cpp(ctx)
 });
 
-/// Vector of three unsigned integers. This is the only native vector type that's actually revelant
+/// Vector of three unsigned integers. This is the only native vector type that's actually relevant
 /// for codegen, so we can just special case it and only use it where necessary (builtin types).
 #[pliron_type(
     name = "cpp.uvec3",
