@@ -1,5 +1,7 @@
 use super::prelude::*;
-use cubecl_core::ir::dialect::vector::{self, VectorBroadcastOp, VectorExtractOp, VectorInsertOp};
+use cubecl_core::ir::dialect::vector::{
+    self, VectorBroadcastOp, VectorExtractOp, VectorInsertDynamicOp, VectorInsertOp,
+};
 
 /// Broadcast `scalar` to every lane of `vec_ty`, with the poison/insertelement/shufflevector idiom
 /// LLVM folds back into a splat.
@@ -57,6 +59,26 @@ impl ToLLVMDialect for VectorInsertOp {
         let index = insert_i32_const(ctx, rewriter, index);
 
         let inserted = llvm::InsertElementOp::new(ctx, self.vector(ctx), self.value(ctx), index);
+        rewriter.insert_op(ctx, &inserted);
+        rewriter.replace_operation_with_values(
+            ctx,
+            self.get_operation(),
+            vec![inserted.get_result(ctx)],
+        );
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToLLVMDialect for VectorInsertDynamicOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let inserted =
+            llvm::InsertElementOp::new(ctx, self.vector(ctx), self.value(ctx), self.index(ctx));
         rewriter.insert_op(ctx, &inserted);
         rewriter.replace_operation_with_values(
             ctx,

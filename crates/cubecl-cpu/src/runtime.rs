@@ -5,8 +5,8 @@ use cubecl_core::{
     client::ComputeClient,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        DeviceProperties, HardwareProperties, MemoryDeviceProperties, TargetProperties, VectorSize,
-        features::Features,
+        AddressType, DeviceProperties, HardwareProperties, MemoryDeviceProperties,
+        TargetProperties, VectorSize, features::Features,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides},
@@ -72,7 +72,7 @@ impl DeviceService for CpuServer {
             alignment: ALIGNMENT,
         };
 
-        let device_props = DeviceProperties::new(
+        let mut device_props = DeviceProperties::new(
             Features {
                 unaligned_io: true,
                 ..Default::default()
@@ -81,6 +81,8 @@ impl DeviceService for CpuServer {
             topology.clone(),
             TimingMethod::Device,
         );
+        device_props.register_address_type(AddressType::U32);
+        device_props.register_address_type(AddressType::U64);
 
         let utilities = ServerUtilities::new(
             device_props,

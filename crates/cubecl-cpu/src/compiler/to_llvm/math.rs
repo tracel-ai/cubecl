@@ -170,6 +170,8 @@ lower_int_bin_arith!(BoolOrOp => llvm::OrOp);
 lower_int_bin_arith!(BitwiseAndOp => llvm::AndOp);
 lower_int_bin_arith!(BitwiseOrOp => llvm::OrOp);
 lower_int_bin_arith!(BitwiseXorOp => llvm::XorOp);
+lower_int_bin_arith!(UDivOp => llvm::UDivOp);
+lower_int_bin_arith!(URemOp => llvm::URemOp);
 
 #[op_interface_impl]
 impl ToLLVMDialect for ShiftRightOp {
