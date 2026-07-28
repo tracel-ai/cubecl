@@ -36,15 +36,13 @@ fn cast_int_to_int(
     } else if in_width == out_width {
         rewriter.replace_operation_with_values(ctx, old_op, vec![input]);
     } else if out_width > in_width {
-        if is_signed {
-            let op = llvm::SExtOp::new(ctx, input, out_ty);
-            rewriter.insert_op(ctx, &op);
-            rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+        let op: &dyn OneResultInterface = if is_signed {
+            &llvm::SExtOp::new(ctx, input, out_ty)
         } else {
-            let op = llvm::ZExtOp::new_with_nneg(ctx, input, out_ty, false);
-            rewriter.insert_op(ctx, &op);
-            rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
-        }
+            &llvm::ZExtOp::new_with_nneg(ctx, input, out_ty, false)
+        };
+        rewriter.insert_op(ctx, op);
+        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
     } else {
         let op = llvm::TruncOp::new(ctx, input, out_ty);
         rewriter.insert_op(ctx, &op);
@@ -64,15 +62,32 @@ fn cast_float_to_int(
     let input = cast_op.input(ctx);
     let old_op = cast_op.get_operation();
 
-    if is_signed {
-        let op = llvm::FPToSIOp::new(ctx, input, res_ty);
-        rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+    let op: &dyn OneResultInterface = if is_signed {
+        &llvm::FPToSIOp::new(ctx, input, res_ty)
     } else {
-        let op = llvm::FPToUIOp::new(ctx, input, res_ty);
-        rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+        &llvm::FPToUIOp::new(ctx, input, res_ty)
     };
+    rewriter.insert_op(ctx, op);
+    rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+}
+
+fn cast_int_to_float(
+    cast_op: &CastOp,
+    is_signed: bool,
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+) {
+    let res_ty = cube_type_to_llvm(ctx, cast_op.result_type(ctx));
+    let input = cast_op.input(ctx);
+    let old_op = cast_op.get_operation();
+
+    let op: &dyn OneResultInterface = if is_signed {
+        &llvm::SIToFPOp::new(ctx, input, res_ty)
+    } else {
+        &llvm::UIToFPOp::new_with_nneg(ctx, input, res_ty, false)
+    };
+    rewriter.insert_op(ctx, op);
+    rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
 }
 
 fn extract_elem_type(ctx: &Context, ty: TypeHandle) -> TypeHandle {
@@ -91,9 +106,11 @@ impl ToLLVMDialect for CastOp {
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
-        _operands_info: &OperandsInfo,
+        operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let in_ty = self.input(ctx).get_type(ctx);
+        let in_ty = operands_info
+            .lookup_most_recent_type(self.input(ctx))
+            .unwrap_or(self.input(ctx).get_type(ctx));
         let in_ty = extract_elem_type(ctx, in_ty);
         let out_ty = self.get_result(ctx).get_type(ctx);
         let out_ty = extract_elem_type(ctx, out_ty);
@@ -104,15 +121,16 @@ impl ToLLVMDialect for CastOp {
             return cast_int_to_int(self, in_signed, in_width, out_width, ctx, rewriter);
         }
 
-        let is_float = |ty: TypeHandle| {
-            let ty = ty.deref(ctx);
-            ty.is::<FP16Type>() || ty.is::<FP32Type>() || ty.is::<FP64Type>()
-        };
-
-        if is_float(in_ty)
+        if in_ty.is_float(ctx)
             && let Some((_, out_signed)) = int_repr(ctx, out_ty)
         {
             cast_float_to_int(self, out_signed, ctx, rewriter);
+        }
+
+        if let Some((_, out_signed)) = int_repr(ctx, in_ty)
+            && out_ty.is_float(ctx)
+        {
+            cast_int_to_float(self, out_signed, ctx, rewriter);
         }
 
         Ok(())

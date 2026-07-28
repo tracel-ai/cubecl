@@ -1,4 +1,5 @@
 use cubecl_core as cubecl;
+use cubecl_core::ir::dialect::bitwise::FindFirstSetOp;
 use cubecl_core::ir::dialect::math::{
     ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, HypotOp, Log1pOp, PowiOp,
     RadiansOp, RecipOp, RhypotOp, RsqrtOp, SNegOp,
@@ -170,3 +171,14 @@ pub fn normalize<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 }
 
 lower_unary_math_arith!(NormalizeOp => normalize);
+
+#[cube]
+pub fn find_first_set<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    select_many(
+        x.equal(&Vector::zero()),
+        Vector::zero(),
+        x.trailing_zeros() + Vector::one(),
+    )
+}
+
+lower_unary_math_arith!(FindFirstSetOp => find_first_set);

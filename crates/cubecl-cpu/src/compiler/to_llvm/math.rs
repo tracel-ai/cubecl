@@ -1,7 +1,5 @@
 use super::prelude::*;
-use cubecl_core::ir::dialect::bitwise::{
-    BitwiseAndOp, BitwiseOrOp, BitwiseXorOp, ShiftLeftOp, ShiftRightOp,
-};
+use cubecl_core::ir::dialect::bitwise::*;
 use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp};
 use cubecl_core::ir::dialect::general::{BoolAndOp, BoolNotOp, BoolOrOp};
 use cubecl_core::ir::dialect::math::*;
@@ -54,6 +52,68 @@ lower_unary_intrinsic_arith!(RoundOp => "llvm.round");
 lower_unary_intrinsic_arith!(FloorOp => "llvm.floor");
 lower_unary_intrinsic_arith!(CeilOp => "llvm.ceil");
 lower_unary_intrinsic_arith!(TruncOp => "llvm.trunc");
+lower_unary_intrinsic_arith!(ReverseBitsOp => "llvm.bitreverse");
+
+/// Width of an integer type, or of the elements of an integer vector type.
+fn int_elem_width(ctx: &Context, ty: TypeHandle) -> u32 {
+    let elem_ty = ty
+        .deref(ctx)
+        .downcast_ref::<LlvmVectorType>()
+        .map(|vector| vector.elem_type())
+        .unwrap_or(ty);
+    elem_ty
+        .deref(ctx)
+        .downcast_ref::<IntegerType>()
+        .expect("bit counting intrinsics only apply to integers")
+        .width()
+}
+
+macro_rules! lower_count_bits_intrinsic {
+    ($cube_op:ty => $llvm_op:expr) => {
+        #[op_interface_impl]
+        impl ToLLVMDialect for $cube_op {
+            fn rewrite(
+                &self,
+                ctx: &mut Context,
+                rewriter: &mut DialectConversionRewriter,
+                _operands_info: &OperandsInfo,
+            ) -> Result<()> {
+                let input = self.input(ctx);
+                let elem_ty = input.get_type(ctx);
+                let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
+
+                let params = vec![elem_ty];
+                let args = vec![input];
+                let intrinsic_type = FuncType::get(ctx, elem_ty, params, false);
+
+                let op = llvm::CallIntrinsicOp::new(ctx, $llvm_op.into(), intrinsic_type, args);
+                rewriter.insert_op(ctx, &op);
+
+                let count = op.get_result(ctx);
+                let in_width = int_elem_width(ctx, elem_ty);
+                let out_width = int_elem_width(ctx, res_ty);
+                let count = if in_width == out_width {
+                    count
+                } else if in_width > out_width {
+                    let trunc = llvm::TruncOp::new(ctx, count, res_ty);
+                    rewriter.insert_op(ctx, &trunc);
+                    trunc.get_result(ctx)
+                } else {
+                    let zext = llvm::ZExtOp::new_with_nneg(ctx, count, res_ty, false);
+                    rewriter.insert_op(ctx, &zext);
+                    zext.get_result(ctx)
+                };
+
+                rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![count]);
+                Ok(())
+            }
+        }
+    };
+}
+
+lower_count_bits_intrinsic!(CountOnesOp => "llvm.ctpop");
+lower_count_bits_intrinsic!(LeadingZerosBitsOp => "llvm.ctlz");
+lower_count_bits_intrinsic!(TrailingZerosBitsOp => "llvm.cttz");
 
 // See https://llvm.org/docs/LangRef.html#id1822 for more info
 const IS_NAN: i32 = 0x0003;

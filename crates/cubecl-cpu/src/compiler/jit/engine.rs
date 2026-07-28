@@ -48,6 +48,9 @@ impl PlironEngine {
 
         let llvm_ctx = Arc::new(LLVMContext::default());
         let llvm_module = to_llvm_ir::convert_module(ctx, &llvm_ctx, module)?;
+        if std::env::var("CUBECL_DEBUG_LLVM_IR").is_ok() {
+            println!("{llvm_module}");
+        }
 
         let lljit = LLVMLLJIT::new_with_default_builder().expect("failed to create LLJIT");
         lljit
