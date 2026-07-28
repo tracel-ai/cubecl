@@ -96,12 +96,13 @@ macro_rules! CanMaterialize {
         impl $crate::interfaces::MaterializableOp for $ty {
             fn materialize(
                 &self,
-                ctx: &mut Context,
-                result_ty: Vec<TypeHandle>,
+                ctx: &mut pliron::context::Context,
+                result_ty: Vec<pliron::r#type::TypeHandle>,
                 operands: Vec<Value>,
-                attributes: AttributeDict,
-            ) -> Ptr<Operation> {
-                let op = Operation::new(
+                attributes: pliron::attribute::AttributeDict,
+            ) -> pliron::context::Ptr<pliron::operation::Operation> {
+                use pliron::op::Op;
+                let op = pliron::operation::Operation::new(
                     ctx,
                     Self::get_concrete_op_info(),
                     result_ty,
@@ -222,7 +223,7 @@ macro_rules! NoSideEffects {
     ($ty: ty) => {
         #[::pliron::derive::op_interface_impl]
         impl pliron::opts::dce::SideEffects for $ty {
-            fn has_side_effects(&self, _ctx: &Context) -> bool {
+            fn has_side_effects(&self, _ctx: &pliron::context::Context) -> bool {
                 false
             }
         }

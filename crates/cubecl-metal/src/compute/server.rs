@@ -14,8 +14,8 @@ use cubecl_core::{
     future::DynFut,
     prelude::*,
     server::{
-        Binding, CopyDescriptor, IoError, KernelArguments, LaunchError, ProfileError,
-        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, LaunchError,
+        ProfileError, ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
 };
 use cubecl_runtime::{
@@ -35,7 +35,7 @@ use std::sync::Arc;
 
 enum DispatchInfo {
     Static(u32, u32, u32),
-    Dynamic(Binding),
+    Dynamic(BufferBinding),
 }
 
 /// Metal compute server.
@@ -86,7 +86,7 @@ unsafe impl Send for MetalServer {}
 /// buffer only lives in its origin's manager.
 fn resolve_origin_resource(
     resolved: &mut ResolvedStreams<'_, MetalStreamBackend>,
-    binding: &Binding,
+    binding: &BufferBinding,
 ) -> Result<(MetalBufferHandle, u64), IoError> {
     let stream = resolved.get(&binding.stream);
 
@@ -340,13 +340,11 @@ impl ComputeServer for MetalServer {
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: KernelArguments,
-        mode: ExecutionMode,
         stream_id: StreamId,
     ) {
         use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder, MTLDevice, MTLResourceOptions};
 
-        let mut kernel_id = kernel.id();
-        kernel_id.mode(mode);
+        let kernel_id = kernel.id();
 
         if let Err(err) =
             cubecl_runtime::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)
@@ -364,7 +362,6 @@ impl ComputeServer for MetalServer {
         let compiled = match self.context.compile_kernel(
             &kernel_id,
             kernel,
-            mode,
             self.utilities.properties.hardware.max_shared_memory_size,
             self.utilities.logger.clone(),
         ) {
@@ -384,19 +381,30 @@ impl ComputeServer for MetalServer {
         // waits on each binding's origin stream before dispatching.
         let mut resolved = match self.streams.resolve(
             stream_id,
-            bindings.buffers.iter().chain(match &dispatch_info {
-                DispatchInfo::Dynamic(binding) => Some(binding),
-                DispatchInfo::Static(..) => None,
-            }),
+            bindings
+                .resources
+                .iter()
+                .map(|res| match res {
+                    KernelResource::Buffer(binding) => binding,
+                    KernelResource::TensorMap(_) => panic!("Tensor maps not supported on Metal"),
+                })
+                .chain(match &dispatch_info {
+                    DispatchInfo::Dynamic(binding) => Some(binding),
+                    DispatchInfo::Static(..) => None,
+                }),
             false,
         ) {
             Ok(r) => r,
             Err(_) => return,
         };
 
-        let mut resources = Vec::with_capacity(bindings.buffers.len());
+        let mut resources = Vec::with_capacity(bindings.resources.len());
         let mut total_buffer_bytes: usize = 0;
-        for binding in bindings.buffers.iter() {
+        for binding in bindings.resources.iter() {
+            let binding = match binding {
+                KernelResource::Buffer(binding) => binding,
+                KernelResource::TensorMap(_) => panic!("Tensor maps not supported on Metal"),
+            };
             let (resource, offset) = match resolve_origin_resource(&mut resolved, binding) {
                 Ok(r) => r,
                 Err(_) => return,
@@ -622,7 +630,7 @@ impl ComputeServer for MetalServer {
 
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<<MetalStorage as ComputeStorage>::Resource>, ServerError> {
         let mut resolved = self

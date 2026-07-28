@@ -8,24 +8,32 @@ use cubecl_core::{
     prelude::*,
 };
 
-use crate::{metal::metal_op_with_out, shared::lowering::LowerOp, target::Metal};
+use crate::{
+    metal::metal_op_with_out,
+    shared::{lowering::LowerOp, unroll::unrolling},
+    target::Metal,
+};
 
+unrolling!(SaturatingSAddOp);
 metal_op_with_out!(SaturatingSAddOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
     let rhs = op.rhs(ctx).name(ctx);
     format!("addsat({lhs}, {rhs})")
 });
+unrolling!(SaturatingUAddOp);
 metal_op_with_out!(SaturatingUAddOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
     let rhs = op.rhs(ctx).name(ctx);
     format!("addsat({lhs}, {rhs})")
 });
 
+unrolling!(SaturatingSSubOp);
 metal_op_with_out!(SaturatingSSubOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
     let rhs = op.rhs(ctx).name(ctx);
     format!("subsat({lhs}, {rhs})")
 });
+unrolling!(SaturatingUSubOp);
 metal_op_with_out!(SaturatingUSubOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
     let rhs = op.rhs(ctx).name(ctx);
@@ -85,7 +93,7 @@ metal_op_with_out!(HypotOp, |op, ctx| {
 metal_op_with_out!(RhypotOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
     let rhs = op.rhs(ctx).name(ctx);
-    format!("rsqrt({lhs} * {lhs} + {rhs} * {rhs}))")
+    format!("rsqrt({lhs} * {lhs} + {rhs} * {rhs})")
 });
 
 #[op_interface_impl]

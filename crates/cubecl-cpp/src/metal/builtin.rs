@@ -1,11 +1,27 @@
+use std::collections::{HashMap, HashSet};
+
 use cubecl_core::{
     frontend::HasValue,
-    ir::{Builtin, Scope, dialect::general::ReadBuiltinOp, prelude::*},
+    ir::{
+        Builtin, Scope,
+        attributes::{FuncInterface, IndexAttr},
+        dialect::general::ReadBuiltinOp,
+        ident,
+        prelude::*,
+    },
 };
-use pliron::{irbuild::match_rewrite::MatchRewrite, value::Value};
+use pliron::{
+    builtin::{
+        ops::FuncOp,
+        types::{IntegerType, Signedness},
+    },
+    debug_info::set_block_arg_name,
+    irbuild::{listener::DummyListener, match_rewrite::MatchRewrite},
+    value::Value,
+};
 
 use crate::{
-    metal::metal_op_with_out,
+    metal::{BuiltInAttr, metal_op_with_out, signature::ATTR_BUILTIN_ATTRIBUTE},
     shared::{
         CompilationState,
         builtin::{LowerBuiltins, absolute_pos, constant, cube_count, cube_pos},
@@ -13,8 +29,15 @@ use crate::{
     target::Metal,
 };
 
-metal_op_with_out!(ReadBuiltinOp, |op, ctx| {
-    op.builtin(ctx).0.display().into()
+#[cube_op(name = "msl.read_dim3_builtin")]
+#[result_ty(argument)]
+pub struct ReadDim3BuiltinOp {
+    pub builtin: Value,
+    pub dim: IndexAttr,
+}
+
+metal_op_with_out!(ReadDim3BuiltinOp, |op, ctx| {
+    format!("{}[{}]", op.builtin(ctx).name(ctx), op.dim(ctx).0)
 });
 
 impl MatchRewrite for LowerBuiltins<Metal> {
@@ -38,36 +61,10 @@ impl MatchRewrite for LowerBuiltins<Metal> {
 }
 
 trait MetalBuiltin {
-    fn display(&self) -> &'static str;
     fn maybe_lower_metal(&self, scope: &Scope) -> Option<Value>;
 }
 
 impl MetalBuiltin for Builtin {
-    fn display(&self) -> &'static str {
-        match self {
-            Builtin::UnitPos => "thread_index_in_threadgroup",
-            Builtin::UnitPosX => "thread_pos_in_threadgroup.x",
-            Builtin::UnitPosY => "thread_pos_in_threadgroup.y",
-            Builtin::UnitPosZ => "thread_pos_in_threadgroup.z",
-            Builtin::CubePosX => "threadgroup_pos_in_grid.x",
-            Builtin::CubePosY => "threadgroup_pos_in_grid.y",
-            Builtin::CubePosZ => "threadgroup_pos_in_grid.z",
-            Builtin::CubeDimX => "threads_per_threadgroup.x",
-            Builtin::CubeDimY => "threads_per_threadgroup.y",
-            Builtin::CubeDimZ => "threads_per_threadgroup.z",
-            Builtin::CubeCountX => "threadgroups_per_grid.x",
-            Builtin::CubeCountY => "threadgroups_per_grid.y",
-            Builtin::CubeCountZ => "threadgroups_per_grid.z",
-            Builtin::PlaneDim => "simd_size",
-            Builtin::PlanePos => "simd_group_id",
-            Builtin::UnitPosPlane => "simd_lane_id",
-            Builtin::AbsolutePosX => "thread_pos_in_grid.x",
-            Builtin::AbsolutePosY => "thread_pos_in_grid.y",
-            Builtin::AbsolutePosZ => "thread_pos_in_grid.z",
-            _ => unreachable!("Should be lowered"),
-        }
-    }
-
     fn maybe_lower_metal(&self, scope: &Scope) -> Option<Value> {
         let cube_dim = scope.ctx().aux_ty::<CompilationState>().cube_dim;
         match self {
@@ -100,5 +97,88 @@ impl MetalBuiltin for Builtin {
             Builtin::AbsolutePos => Some(absolute_pos::expand(scope).value(scope)),
             Builtin::AbsolutePosX | Builtin::AbsolutePosY | Builtin::AbsolutePosZ => None,
         }
+    }
+}
+
+pub fn append_msl_builtins(ctx: &mut Context, entry_func: FuncOp) {
+    let op = entry_func.get_operation();
+    let mut used = HashSet::new();
+    let mut read_ops = HashSet::new();
+    let state = &mut (&mut used, &mut read_ops);
+    visit_all_ops_of_type::<ReadBuiltinOp, _>(ctx, state, op, |ctx, (used, ops), op| {
+        ops.insert(op);
+        used.insert(built_in_attr(op.builtin(ctx).0));
+    });
+
+    let values = used
+        .into_iter()
+        .map(|attr| {
+            let entry = entry_func.get_entry_block(ctx);
+            let i = entry_func.push_argument(ctx, attr.ty(ctx));
+            entry_func.set_arg_attr(ctx, i, &ATTR_BUILTIN_ATTRIBUTE, Box::new(attr));
+            set_block_arg_name(ctx, entry, i, Some(ident(attr.to_string())));
+            let value = entry.deref(ctx).get_argument(i);
+            (attr, value)
+        })
+        .collect::<HashMap<_, _>>();
+
+    let mut rewriter = IRRewriter::<DummyListener>::default();
+
+    for op in read_ops {
+        rewriter.set_insertion_point_before_operation(op.get_operation());
+
+        let builtin = op.builtin(ctx).0;
+        let attr = built_in_attr(builtin);
+        let value = values[&attr];
+        match builtin {
+            Builtin::UnitPos | Builtin::PlaneDim | Builtin::PlanePos | Builtin::UnitPosPlane => {
+                rewriter.replace_operation_with_values(ctx, op.get_operation(), vec![value]);
+            }
+            Builtin::UnitPosX | Builtin::CubePosX | Builtin::CubeCountX | Builtin::AbsolutePosX => {
+                read_dim3(ctx, &mut rewriter, op, value, 0);
+            }
+            Builtin::UnitPosY | Builtin::CubePosY | Builtin::CubeCountY | Builtin::AbsolutePosY => {
+                read_dim3(ctx, &mut rewriter, op, value, 1);
+            }
+            Builtin::UnitPosZ | Builtin::CubePosZ | Builtin::CubeCountZ | Builtin::AbsolutePosZ => {
+                read_dim3(ctx, &mut rewriter, op, value, 2);
+            }
+            other => unreachable!("{other:?} should be lowered"),
+        }
+    }
+}
+
+fn read_dim3(
+    ctx: &mut Context,
+    rewriter: &mut impl Rewriter,
+    op: ReadBuiltinOp,
+    value: Value,
+    dim: usize,
+) {
+    let u32 = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle();
+    let new_op = ReadDim3BuiltinOp::new(ctx, u32, value, dim);
+    rewriter.append_op(ctx, &new_op);
+    rewriter.replace_operation(ctx, op.get_operation(), new_op.get_operation());
+}
+
+fn built_in_attr(builtin: Builtin) -> BuiltInAttr {
+    match builtin {
+        Builtin::UnitPos => BuiltInAttr::ThreadIndexInThreadgroup,
+        Builtin::UnitPosX | Builtin::UnitPosY | Builtin::UnitPosZ => {
+            BuiltInAttr::ThreadPositionInThreadgroup
+        }
+        Builtin::CubePosX | Builtin::CubePosY | Builtin::CubePosZ => {
+            BuiltInAttr::ThreadgroupPositionInGrid
+        }
+        Builtin::CubeCountX | Builtin::CubeCountY | Builtin::CubeCountZ => {
+            BuiltInAttr::ThreadgroupsPerGrid
+        }
+        Builtin::PlaneDim => BuiltInAttr::ThreadsPerSIMDgroup,
+        Builtin::PlanePos => BuiltInAttr::SIMDgroupIndexInThreadgroup,
+        Builtin::UnitPosPlane => BuiltInAttr::ThreadIndexInSIMDgroup,
+        Builtin::AbsolutePosX | Builtin::AbsolutePosY | Builtin::AbsolutePosZ => {
+            BuiltInAttr::ThreadPositionInGrid
+        }
+        other => unreachable!("{other:?} should be lowered"),
     }
 }

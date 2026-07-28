@@ -13,7 +13,7 @@ pub trait UnrollingOp: MaterializableOp + OneResultInterface {
 
 macro_rules! unrolling {
     ($ty: ty) => {
-        #[op_interface_impl]
+        #[pliron::derive::op_interface_impl]
         impl crate::shared::unroll::UnrollingOp for $ty {}
     };
 }
