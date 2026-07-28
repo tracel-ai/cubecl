@@ -1,20 +1,7 @@
-use super::ToLLVMDialect;
+use super::prelude::*;
 use cubecl_core::ir::attributes::{BoolAttr, FloatAttr, IndexAttr};
-use cubecl_core::ir::interfaces::TypedExt;
-use cubecl_core::ir::prelude::*;
 use half::f16;
-use pliron::attribute::AttrObj;
-use pliron::builtin::attributes::{FPDoubleAttr, FPHalfAttr, FPSingleAttr};
-use pliron::builtin::{
-    attributes::IntegerAttr,
-    ops::ConstantOp,
-    types::{IntegerType, Signedness},
-};
 use pliron::utils::apfloat::{self, Float};
-use pliron::utils::apint::{APInt, bw};
-use pliron_llvm::ops as llvm;
-
-use crate::compiler::to_llvm::ty::INDEX_WIDTH;
 
 /// Width LLVM expects for vector lane indices, intrinsic flags and `alloca` sizes.
 pub const I32_WIDTH: u32 = 32;
@@ -64,7 +51,7 @@ pub fn insert_bool_const(ctx: &mut Context, rewriter: &mut impl Inserter, value:
 }
 
 #[op_interface_impl]
-impl ToLLVMDialect for ConstantOp {
+impl ToLLVMDialect for llvm::ConstantOp {
     fn rewrite(
         &self,
         ctx: &mut Context,

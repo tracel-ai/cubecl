@@ -1,19 +1,7 @@
-use super::ToLLVMDialect;
-use crate::compiler::to_llvm::constant::{I32_WIDTH, insert_bool_const, insert_i32_const};
-use crate::compiler::to_llvm::ty::cube_type_to_llvm;
-use crate::compiler::to_llvm::vector::insert_splat;
+use super::prelude::*;
 use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp};
 use cubecl_core::ir::dialect::general::{BoolAndOp, BoolNotOp, BoolOrOp};
 use cubecl_core::ir::dialect::math::*;
-use cubecl_core::ir::interfaces::TypedExt;
-use cubecl_core::ir::prelude::*;
-use pliron::builtin::types::{IntegerType, Signedness};
-use pliron_llvm::attributes::FastmathFlagsAttr;
-use pliron_llvm::op_interfaces::{BinArithOp, FloatBinArithOpWithFastMathFlags};
-use pliron_llvm::types::{FuncType, VectorType, VectorTypeKind};
-use pliron_llvm::{
-    attributes::IntegerOverflowFlagsAttr, op_interfaces::IntBinArithOpWithOverflowFlag, ops as llvm,
-};
 
 macro_rules! lower_unary_intrinsic_arith {
     ($cube_op:ty => $llvm_op:expr) => {
@@ -84,10 +72,10 @@ macro_rules! lower_float_fpclass {
                 let val = insert_i32_const(ctx, rewriter, $bitmask);
 
                 let mut bool_ty = IntegerType::get(ctx, 1, Signedness::Signless).into();
-                if let Some(vector) = elem_ty.deref(ctx).downcast_ref::<VectorType>() {
+                if let Some(vector) = elem_ty.deref(ctx).downcast_ref::<LlvmVectorType>() {
                     let num_elems = vector.num_elements();
                     bool_ty =
-                        VectorType::get(ctx, bool_ty, num_elems, VectorTypeKind::Fixed).into();
+                        LlvmVectorType::get(ctx, bool_ty, num_elems, VectorTypeKind::Fixed).into();
                 }
                 let intrinsic_type =
                     FuncType::get(ctx, bool_ty, vec![elem_ty, int_ty.into()], true);
