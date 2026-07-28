@@ -53,6 +53,25 @@ pub fn insert_bool_const(ctx: &mut Context, rewriter: &mut impl Inserter, value:
     insert_int_const(ctx, rewriter, 1, value as i128)
 }
 
+pub fn convert_attr(ctx: &mut Context, value: AttrObj) -> AttrObj {
+    if let Some(int) = value.downcast_ref::<IntegerAttr>() {
+        let width = int.get_type().deref(ctx).width();
+        IntegerAttr::new(
+            IntegerType::get(ctx, width, Signedness::Signless),
+            int.value(),
+        )
+        .into()
+    } else if let Some(bool_attr) = value.downcast_ref::<BoolAttr>() {
+        int_attr(ctx, 1, bool_attr.0 as i128).into()
+    } else if let Some(index_attr) = value.downcast_ref::<IndexAttr>() {
+        int_attr(ctx, INDEX_WIDTH, index_attr.0 as i128).into()
+    } else if let Some(float) = value.downcast_ref::<FloatAttr>() {
+        float_attr(ctx, float.ty, apfloat::double_to_f64(float.val)).unwrap()
+    } else {
+        unreachable!("Attr should be covered")
+    }
+}
+
 #[op_interface_impl]
 impl ToLLVMDialect for ConstantOp {
     fn rewrite(
@@ -62,27 +81,7 @@ impl ToLLVMDialect for ConstantOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let value = self.get_value(ctx);
-        let result_ty = self.get_result(ctx).get_type(ctx);
-
-        let const_value: AttrObj = if let Some(int) = value.downcast_ref::<IntegerAttr>() {
-            let width = int.get_type().deref(ctx).width();
-            IntegerAttr::new(
-                IntegerType::get(ctx, width, Signedness::Signless),
-                int.value(),
-            )
-            .into()
-        } else if let Some(bool_attr) = value.downcast_ref::<BoolAttr>() {
-            int_attr(ctx, 1, bool_attr.0 as i128).into()
-        } else if let Some(index_attr) = value.downcast_ref::<IndexAttr>() {
-            int_attr(ctx, INDEX_WIDTH, index_attr.0 as i128).into()
-        } else if let Some(float) = value.downcast_ref::<FloatAttr>() {
-            match float_attr(ctx, result_ty, apfloat::double_to_f64(float.val)) {
-                Some(attr) => attr,
-                None => return Ok(()),
-            }
-        } else {
-            return Ok(());
-        };
+        let const_value = convert_attr(ctx, value);
 
         let llvm_const = llvm::ConstantOp::new(ctx, const_value);
         rewriter.insert_operation(ctx, llvm_const.get_operation());

@@ -1,5 +1,7 @@
 use super::prelude::*;
-use cubecl_core::ir::dialect::bitwise::{BitwiseAndOp, ShiftRightOp};
+use cubecl_core::ir::dialect::bitwise::{
+    BitwiseAndOp, BitwiseOrOp, BitwiseXorOp, ShiftLeftOp, ShiftRightOp,
+};
 use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp};
 use cubecl_core::ir::dialect::general::{BoolAndOp, BoolNotOp, BoolOrOp};
 use cubecl_core::ir::dialect::math::*;
@@ -165,8 +167,33 @@ macro_rules! lower_int_bin_arith {
 lower_int_bin_arith!(BoolAndOp => llvm::AndOp);
 lower_int_bin_arith!(BoolOrOp => llvm::OrOp);
 
-lower_int_bin_arith!(ShiftRightOp => llvm::AShrOp);
 lower_int_bin_arith!(BitwiseAndOp => llvm::AndOp);
+lower_int_bin_arith!(BitwiseOrOp => llvm::OrOp);
+lower_int_bin_arith!(BitwiseXorOp => llvm::XorOp);
+
+#[op_interface_impl]
+impl ToLLVMDialect for ShiftRightOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let lhs = self.lhs(ctx);
+        let rhs = self.rhs(ctx);
+        let original_lhs_ty = *operands_info.lookup_operand_history(lhs).first().unwrap();
+        let op: &dyn OneResultInterface = if original_lhs_ty.is_signed_int(ctx) {
+            &llvm::AShrOp::new(ctx, lhs, rhs)
+        } else {
+            &llvm::LShrOp::new(ctx, lhs, rhs)
+        };
+        rewriter.insert_op(ctx, op);
+        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
+        Ok(())
+    }
+}
+
+lower_int_bin_arith!(ShiftLeftOp => llvm::ShlOp);
 
 // LLVM has no boolean negation, so `!x` becomes `x ^ true`.
 #[op_interface_impl]

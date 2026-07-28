@@ -40,6 +40,7 @@ impl ToLLVMDialect for DeclareVariableOp {
 
         let initializer = self.initializer(ctx).map(|initializer| initializer.clone());
         if let Some(initializer) = initializer {
+            let initializer = convert_attr(ctx, initializer);
             let constant = llvm::ConstantOp::new(ctx, initializer);
             rewriter.insert_op(ctx, &constant);
 

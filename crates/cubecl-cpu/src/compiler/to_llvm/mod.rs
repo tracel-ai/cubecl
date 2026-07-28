@@ -10,7 +10,8 @@ use prelude::*;
 
 pub mod prelude {
     pub use super::constant::{
-        I32_WIDTH, float_attr, insert_bool_const, insert_i32_const, insert_int_const, int_attr,
+        I32_WIDTH, convert_attr, float_attr, insert_bool_const, insert_i32_const, insert_int_const,
+        int_attr,
     };
     pub use super::ty::{INDEX_WIDTH, cube_type_to_llvm};
     pub use super::vector::insert_splat;
