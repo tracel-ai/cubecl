@@ -118,10 +118,10 @@ pub fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 #[cube]
 pub fn expm1<T: Float, N: Size>(x: Vector<T, N>) -> Vector<T, N> {
     let sq = x * x;
-    let a = sq * Vector::new(T::new(0.5));
-    let b = sq * x * Vector::new(T::new(1.0 / 6.0));
+    let a = sq * Vector::new(T::new(0.5_f32));
+    let b = sq * x * Vector::new(T::new(1.0_f32 / 6.0_f32));
     let taylor = x + a + b;
-    let is_small = x.abs().less_than(&Vector::new(T::new(1e-5)));
+    let is_small = x.abs().less_than(&Vector::new(T::new(1e-5_f32)));
     select_many(is_small, taylor, x.exp() - Vector::one())
 }
 
@@ -147,7 +147,7 @@ fn simple_pow<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vecto
 
 #[cube]
 pub fn powf<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vector<T, N> {
-    let modulo = exp.mod_floor(Vector::new(T::new(2.0)));
+    let modulo = exp.mod_floor(Vector::new(T::new(2.0_f32)));
     let is_even = modulo.equal(&Vector::zero());
     let is_odd = modulo.equal(&Vector::one());
     let is_neg_base = base.less_than(&Vector::zero());

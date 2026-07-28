@@ -105,18 +105,18 @@ impl Verify for TmaLoadOp {
                     format!("{} {}", expected.get_type_id(), expected.disp(ctx)),
                     format!("{} {}", barrier_ty.get_type_id(), barrier_ty.disp(ctx))
                 )
-            )?;
+            );
         }
 
         if dest_ty.address_space != AddressSpace::Shared {
             return verify_err!(
                 loc,
                 TmaOpError::InvalidAddressSpace("destination", "Shared", dest_ty.address_space)
-            )?;
+            );
         }
 
         if !(1..=5).contains(&self.rank(ctx)) {
-            return verify_err!(loc, TmaOpError::UnsupportedRank(self.rank(ctx), 1..=5))?;
+            return verify_err!(loc, TmaOpError::UnsupportedRank(self.rank(ctx), 1..=5));
         }
 
         Ok(())
@@ -211,18 +211,18 @@ impl Verify for TmaLoadIm2colOp {
                     format!("{} {}", expected.get_type_id(), expected.disp(ctx)),
                     format!("{} {}", barrier_ty.get_type_id(), barrier_ty.disp(ctx))
                 )
-            )?;
+            );
         }
 
         if dest_ty.address_space != AddressSpace::Shared {
             return verify_err!(
                 loc,
                 TmaOpError::InvalidAddressSpace("destination", "Shared", dest_ty.address_space)
-            )?;
+            );
         }
 
         if !(3..=5).contains(&self.rank(ctx)) {
-            return verify_err!(loc, TmaOpError::UnsupportedRank(self.rank(ctx), 3..=5))?;
+            return verify_err!(loc, TmaOpError::UnsupportedRank(self.rank(ctx), 3..=5));
         }
 
         Ok(())
@@ -285,11 +285,11 @@ impl Verify for TmaStoreOp {
             return verify_err!(
                 loc,
                 TmaOpError::InvalidAddressSpace("source", "Shared", src_ty.address_space)
-            )?;
+            );
         }
 
         if !(1..=5).contains(&self.rank(ctx)) {
-            return verify_err!(loc, TmaOpError::UnsupportedRank(self.rank(ctx), 1..=5))?;
+            return verify_err!(loc, TmaOpError::UnsupportedRank(self.rank(ctx), 1..=5));
         }
 
         Ok(())
