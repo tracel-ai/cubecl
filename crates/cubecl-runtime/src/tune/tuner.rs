@@ -18,7 +18,9 @@ use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_
 use crate::{client::ComputeClient, runtime::Runtime};
 use cubecl_common::config::RuntimeConfig;
 
-use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneInputs};
+use super::{
+    AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TuneInputs, TunePlan,
+};
 
 #[derive(Debug)]
 /// Runs autotune benchmarks for a single device and caches the results.
@@ -114,6 +116,36 @@ struct PendingBench {
     launch: Option<Duration>,
 }
 
+/// Everything a benchmarking strategy needs, prepared once by [`Tuner::check_tune`] and handed to
+/// whichever strategy runs. `'t` borrows the tunable set, `'i` the benchmark inputs.
+struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
+    key: K,
+    autotunables: Vec<&'t TuneFn<F, Out>>,
+    test_inputs: <F as TuneInputs>::At<'i>,
+    plan: TunePlan,
+    results: Vec<AutotuneResult>,
+    #[cfg(not(target_family = "wasm"))]
+    limit: Option<Duration>,
+    #[cfg(not(target_family = "wasm"))]
+    short_circuit: bool,
+    #[cfg(std_io)]
+    checksum: String,
+    log_context: Option<crate::tune::AutotuneLogContext>,
+}
+
+impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
+    fn into_request(self, pending: Vec<PendingBench>) -> TuneRequest<K> {
+        TuneRequest {
+            key: self.key,
+            results: self.results,
+            #[cfg(std_io)]
+            checksum: self.checksum,
+            log_context: self.log_context,
+            pending,
+        }
+    }
+}
+
 /// A queued tuning job: all data needed to resolve samples and commit the result.
 /// Holds no references so it's trivially `Send + 'static` for the wasm spawn path.
 struct TuneRequest<K: AutotuneKey> {
@@ -189,7 +221,7 @@ impl<K: AutotuneKey> Tuner<K> {
         log::info!("Tuning {key}");
 
         let autotunables = tunables.autotunables().collect::<Vec<_>>();
-        let mut results: Vec<AutotuneResult> = autotunables
+        let results: Vec<AutotuneResult> = autotunables
             .iter()
             .map(|a| {
                 AutotuneResult::error(AutotuneError::Skip {
@@ -208,59 +240,12 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         let test_inputs = tunables.generate_inputs(key, inputs);
-        let mut plan = tunables.plan(key);
+        let plan = tunables.plan(key);
         let bounds = tunables.bounds(key, inputs);
         let limit = bounds.as_ref().and_then(|bounds| bounds.time_limit());
 
         log_context.set_bounds(bounds);
         log_context.set_limit(limit);
-
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let config = crate::config::CubeClRuntimeConfig::get();
-
-            if config.autotune.bench.adaptive {
-                let schedule = crate::tune::schedule::Schedule {
-                    config: config.autotune.bench.clone(),
-                    limit,
-                    short_circuit: limit.is_some()
-                        && tunables.is_short_circuit_enabled()
-                        && !config.autotune.disable_short_circuit,
-                    track_steps: log_context.is_some(),
-                };
-
-                let (steps, short_circuit) = schedule.run_plan(
-                    key,
-                    &mut plan,
-                    &autotunables,
-                    &test_inputs,
-                    client,
-                    &mut results,
-                );
-
-                for (name, duration) in steps {
-                    log_context.push_tuning_step(name, duration);
-                }
-                if let Some(name) = short_circuit {
-                    log_context.push_short_circuit(name);
-                }
-
-                let request = TuneRequest {
-                    key: key.clone(),
-                    results,
-                    #[cfg(std_io)]
-                    checksum,
-                    log_context,
-                    pending: Vec::new(),
-                };
-
-                return cubecl_common::future::block_on(process_request(
-                    request,
-                    &self.cache,
-                    &self.logger,
-                ));
-            }
-        }
 
         // The slowest median duration still considered close enough to peak throughput.
         // Only used on native, where a benchmark can be resolved inline to exit early.
@@ -271,6 +256,87 @@ impl<K: AutotuneKey> Tuner<K> {
                 .autotune
                 .disable_short_circuit;
 
+        let job = TuneJob {
+            key: key.clone(),
+            autotunables,
+            test_inputs,
+            plan,
+            results,
+            #[cfg(not(target_family = "wasm"))]
+            limit,
+            #[cfg(not(target_family = "wasm"))]
+            short_circuit,
+            #[cfg(std_io)]
+            checksum,
+            log_context,
+        };
+
+        #[cfg(not(target_family = "wasm"))]
+        if crate::config::CubeClRuntimeConfig::get()
+            .autotune
+            .bench
+            .adaptive
+        {
+            return self.tune_adaptive(job, client);
+        }
+
+        self.tune_fixed_samples(job, client)
+    }
+
+    /// Round robin the candidates, eliminating them as the evidence allows. Native only: the
+    /// driver has to resolve samples between rounds, which it cannot do on the browser event loop.
+    #[cfg(not(target_family = "wasm"))]
+    fn tune_adaptive<'i, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+        &self,
+        mut job: TuneJob<'_, 'i, K, F, Out>,
+        client: &ComputeClient<R>,
+    ) -> TuneCacheResult
+    where
+        <F as TuneInputs>::At<'i>: Clone + Send,
+    {
+        let schedule = crate::tune::schedule::Schedule {
+            config: crate::config::CubeClRuntimeConfig::get()
+                .autotune
+                .bench
+                .clone(),
+            limit: job.limit,
+            short_circuit: job.short_circuit,
+            track_steps: job.log_context.is_some(),
+        };
+
+        let (steps, short_circuit) = schedule.run_plan(
+            &job.key,
+            &mut job.plan,
+            &job.autotunables,
+            &job.test_inputs,
+            client,
+            &mut job.results,
+        );
+
+        for (name, duration) in steps {
+            job.log_context.push_tuning_step(name, duration);
+        }
+        if let Some(name) = short_circuit {
+            job.log_context.push_short_circuit(name);
+        }
+
+        cubecl_common::future::block_on(process_request(
+            job.into_request(Vec::new()),
+            &self.cache,
+            &self.logger,
+        ))
+    }
+
+    /// Benchmark every candidate with a fixed sample count, resolving the samples afterwards.
+    /// This is the only strategy available on wasm, where nothing can be awaited inline.
+    fn tune_fixed_samples<'i, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+        &self,
+        mut job: TuneJob<'_, 'i, K, F, Out>,
+        client: &ComputeClient<R>,
+    ) -> TuneCacheResult
+    where
+        <F as TuneInputs>::At<'i>: Clone + Send,
+    {
         // The batch-retry check below reads this through `cfg!`, which keeps
         // the name alive on wasm too; the assignment is native-only, so it
         // simply stays false there.
@@ -285,22 +351,25 @@ impl<K: AutotuneKey> Tuner<K> {
         // batch failed to queue anything.
         let mut pending = Vec::<PendingBench>::new();
         loop {
-            let tunable_indices = plan.next();
+            let tunable_indices = job.plan.next();
 
             if tunable_indices.is_empty() {
+                let key = &job.key;
                 panic!(
-                    "Can't execute the autotune plan for key: {key:?}\n - plan: {plan:?}\n - results: {results:?}"
+                    "Can't execute the autotune plan for key: {key:?}\n - plan: {:?}\n - results: {:?}",
+                    job.plan, job.results
                 );
             }
 
             for index in tunable_indices {
-                let op = autotunables[index];
+                let op = job.autotunables[index];
 
-                let start_time = log_context
+                let start_time = job
+                    .log_context
                     .is_some()
                     .then(cubecl_common::profile::Instant::now);
 
-                match tune_benchmark(op, test_inputs.clone(), client.clone()) {
+                match tune_benchmark(op, job.test_inputs.clone(), client.clone()) {
                     Ok(profiles) => {
                         let bench = PendingBench {
                             index,
@@ -310,24 +379,25 @@ impl<K: AutotuneKey> Tuner<K> {
                         };
 
                         #[cfg(not(target_family = "wasm"))]
-                        if short_circuit {
+                        if job.short_circuit {
                             let result = cubecl_common::future::block_on(resolve_bench(bench));
 
                             // short_circuit is only true when limit.is_some() => unwrap is fine.
                             let close_enough = result
                                 .outcome
                                 .as_ref()
-                                .is_ok_and(|out| out.computation.median <= limit.unwrap());
+                                .is_ok_and(|out| out.computation.median <= job.limit.unwrap());
 
                             batch_success |= result.outcome.is_ok();
-                            results[index] = result;
+                            job.results[index] = result;
 
                             if let Some(start) = start_time {
-                                log_context.push_tuning_step(op.name.to_string(), start.elapsed());
+                                job.log_context
+                                    .push_tuning_step(op.name.to_string(), start.elapsed());
                             }
 
                             if close_enough {
-                                log_context.push_short_circuit(op.name.to_string());
+                                job.log_context.push_short_circuit(op.name.to_string());
                                 break;
                             }
 
@@ -339,9 +409,10 @@ impl<K: AutotuneKey> Tuner<K> {
                         pending.push(bench);
                     }
                     Err(err) => {
-                        results[index] = AutotuneResult::error(err);
+                        job.results[index] = AutotuneResult::error(err);
                         if let Some(start) = start_time {
-                            log_context.push_tuning_step(op.name.to_string(), start.elapsed());
+                            job.log_context
+                                .push_tuning_step(op.name.to_string(), start.elapsed());
                         }
                     }
                 }
@@ -357,14 +428,7 @@ impl<K: AutotuneKey> Tuner<K> {
             }
         }
 
-        let request = TuneRequest {
-            key: key.clone(),
-            results,
-            #[cfg(std_io)]
-            checksum,
-            log_context,
-            pending,
-        };
+        let request = job.into_request(pending);
 
         // Resolve samples and commit the result. On wasm this runs on the browser
         // event loop; elsewhere it blocks inline.
