@@ -102,7 +102,7 @@ impl Parsable for DeclareVariableOp {
 
         let ctx = &mut input.state.ctx;
         if arg.len() != 1 {
-            return input_err!(
+            input_err!(
                 cur_loc,
                 "Expected 1 result, got {} during parsing",
                 arg.len()
@@ -288,7 +288,7 @@ impl Verify for StoreOp {
         let ptr_value_ty = ptr_value_ty(ctx, &self.ptr(ctx));
         let value_ty = self.value(ctx).get_type(ctx);
         if ptr_value_ty != value_ty {
-            return verify_err!(
+            verify_err!(
                 loc,
                 StoreOpError::MismatchedValueType(
                     ptr_value_ty.disp(ctx).to_string(),

@@ -79,6 +79,6 @@ fn simple_tanh<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 
 #[cube]
 fn safe_tanh<T: Float, N: Size>(x: Vector<T, N>) -> Vector<T, N> {
-    let threshold = Vector::new(T::new(43.0));
+    let threshold = Vector::new(T::new(43.0_f32));
     select(x > threshold, Vector::one(), simple_tanh(x))
 }

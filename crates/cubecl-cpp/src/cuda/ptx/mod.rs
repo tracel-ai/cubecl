@@ -79,7 +79,7 @@ impl Verify for BarrierNativeHandleOp {
                 AddressSpace::Shared,
             )
             .to_handle();
-            return verify_err!(
+            verify_err!(
                 loc,
                 OperandNOfTypeError::AllOperandsOfTypeVerifyErr(
                     expected.disp(ctx).to_string(),

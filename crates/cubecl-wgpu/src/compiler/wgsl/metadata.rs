@@ -36,7 +36,7 @@ pub static DYNAMIC_META: LazyLock<Identifier> =
 wgsl_op_with_out!(ReadScalarOp; |op, ctx| {
     let ty = op.ty(ctx).get_type(ctx).deref(ctx);
     let elem = try_cast_ty!(ty, ctx, dyn ScalarType).elem_type(ctx);
-    format!("{}.scalars_{elem}[{}]", &*INFO_VAR, op.id(ctx).0)
+    format!("{}.scalars_{elem}[{}]", *INFO_VAR, op.id(ctx).0)
 });
 
 #[cube_op(name = "wgsl.read_static_meta")]
@@ -48,7 +48,7 @@ pub struct ReadStaticMetaOp {
 
 wgsl_op_with_out!(ReadStaticMetaOp; |op, ctx| {
     let field = &*STATIC_META;
-    format!("{}.{field}[{}]", &*INFO_VAR, op.idx(ctx).0)
+    format!("{}.{field}[{}]", *INFO_VAR, op.idx(ctx).0)
 });
 
 #[cube_op(name = "wgsl.read_dynamic_meta")]
@@ -60,7 +60,7 @@ pub struct ReadDynamicMetaOp {
 
 wgsl_op_with_out!(ReadDynamicMetaOp; |op, ctx| {
     let field = &*DYNAMIC_META;
-    format!("{}.{field}[{}]", &*INFO_VAR, op.idx(ctx).name(ctx))
+    format!("{}.{field}[{}]", *INFO_VAR, op.idx(ctx).name(ctx))
 });
 
 #[pliron_attr(name = "wgsl.field", format = "`@` $name `: ` $ty", verifier = "succ")]

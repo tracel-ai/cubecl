@@ -55,7 +55,7 @@ impl Verify for VectorInitOp {
             return verify_err!(
                 self.loc(ctx),
                 VectorInitError::ParameterTypeMismatch(vec, num_opds)
-            )?;
+            );
         }
         Ok(())
     }
@@ -85,7 +85,7 @@ impl Verify for VectorBroadcastOp {
                     scalar_ty.disp(ctx).to_string(),
                     value_ty.disp(ctx).to_string()
                 )
-            )?;
+            );
         }
         Ok(())
     }
@@ -121,7 +121,7 @@ impl Verify for VectorInsertOp {
         let index = self.index(ctx).0;
         let vectorization = self.vector(ctx).vector_size(ctx);
         if index >= vectorization {
-            return verify_err!(loc, VectorOpError::IndexOutOfRange(index, vectorization))?;
+            return verify_err!(loc, VectorOpError::IndexOutOfRange(index, vectorization));
         }
         let scalar_ty = self.vector(ctx).scalar_ty(ctx);
         let value_ty = self.value(ctx).get_type(ctx);
@@ -132,7 +132,7 @@ impl Verify for VectorInsertOp {
                     scalar_ty.disp(ctx).to_string(),
                     value_ty.disp(ctx).to_string()
                 )
-            )?;
+            );
         }
         Ok(())
     }
@@ -157,7 +157,7 @@ impl Verify for VectorExtractOp {
         let index = self.index(ctx).0;
         let vectorization = self.vector(ctx).vector_size(ctx);
         if index >= vectorization {
-            return verify_err!(loc, VectorOpError::IndexOutOfRange(index, vectorization))?;
+            return verify_err!(loc, VectorOpError::IndexOutOfRange(index, vectorization));
         }
         Ok(())
     }
@@ -183,7 +183,7 @@ impl Verify for VectorInsertDynamicOp {
         let scalar_ty = self.vector(ctx).scalar_ty(ctx);
         let value_ty = self.value(ctx).get_type(ctx);
         if scalar_ty != value_ty {
-            return verify_err!(
+            verify_err!(
                 loc,
                 VectorOpError::MismatchedScalarType(
                     scalar_ty.disp(ctx).to_string(),
