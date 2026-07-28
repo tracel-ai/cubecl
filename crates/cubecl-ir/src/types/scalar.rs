@@ -264,8 +264,8 @@ impl FloatTypeInterface for Float4E2M1Type {
     }
 }
 
-/// `IeeeFloat::from_bits` assumes the presence of a sign bit and will overflow when extracing this
-/// non-existant bit. So we need to do custom conversion here.
+/// `IeeeFloat::from_bits` assumes the presence of a sign bit and will overflow when extracting this
+/// non-existent bit. So we need to do custom conversion here.
 #[type_interface_impl]
 impl APFloatType for Float8E8M0Type {
     fn value_to_f64(&self, val: APFloat) -> f64 {

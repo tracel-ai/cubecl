@@ -12,6 +12,8 @@ extend-ignore-identifiers-re = [
 
 [default.extend-identifiers]
 Olt = "Olt"
-Sned = "Sned" # Intentional typo example in obfuscation.rs's macro docs.
+Sned = "Sned"     # Intentional typo example in obfuscation.rs's macro docs.
 arange = "arange"
-cpy = "cpy" # Shorthand for "copy" (CUDA_MEMCPY2D_st locals).
+cpy = "cpy"       # Shorthand for "copy" (CUDA_MEMCPY2D_st locals).
+
+ue8m0x2 = "ue8m0x2"
