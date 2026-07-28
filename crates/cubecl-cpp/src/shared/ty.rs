@@ -248,6 +248,7 @@ shared_ty!(IntegerType, |ty, _| match ty.signedness() {
 });
 shared_ty!(BoolType, |_, _| "bool".into());
 
+shared_ty!(FloatFlex32Type, |_, _| "float".into());
 shared_ty!(Float32Type, |_, _| "float".into());
 shared_ty!(Float64Type, |_, _| "double".into());
 

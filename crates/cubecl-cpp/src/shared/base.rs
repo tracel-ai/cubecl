@@ -6,7 +6,8 @@ use crate::{
         lowering::LowerOpsCppPass,
         metadata::LowerInfoPass,
         signature::{
-            CollectIncludesPass, DeclareInfoTypeOp, DeclareVectorTypesPass, shared_memory_size,
+            CollectIncludesPass, DeclareInfoTypeOp, DeclareVectorTypesPass, buffers,
+            shared_memory_size,
         },
         unroll::CppUnrollPass,
     },
@@ -153,7 +154,7 @@ where
     fn compile_ir(self, value: KernelDefinition) -> ComputeKernel {
         let module = value.body.state().module;
         let module_op = module.get_operation();
-        let entry_func = value.body.state().entry_func.get_operation();
+        let entry_func = value.body.state().entry_func;
         let mut ctx = value.body.into_context().expect("Should be owned scope");
 
         let state = CompilationState {
@@ -174,7 +175,9 @@ where
         // This is an op so it can be inserted after the includes, which is important for scalars
         // that need includes. I wish C++ didn't have ordering dependent declarations...
         let decl_types = DeclareInfoTypeOp::new(&mut ctx);
-        decl_types.get_operation().insert_before(&ctx, entry_func);
+        decl_types
+            .get_operation()
+            .insert_before(&ctx, entry_func.get_operation());
 
         let config = PMConfig {
             print_after_all: true,
@@ -206,7 +209,11 @@ where
         }
 
         func_passes.add_pass(RemoveTrivialOpsPass::default());
-        func_passes.add_pass(PackOpsPass::default());
+
+        if T::target() == Target::Cuda {
+            func_passes.add_pass(PackOpsPass::default());
+        }
+
         func_passes.add_pass(CppUnrollPass::default());
         func_passes.add_pass(LowerBuiltinsPass::<T>::default());
 
@@ -239,13 +246,25 @@ where
         )
         .unwrap();
 
+        #[cfg(feature = "metal")]
+        if T::target() == Target::Metal {
+            crate::metal::builtin::append_msl_builtins(&mut ctx, entry_func);
+            std::fs::write(
+                "target/after_append_builtins.plir",
+                format!("{}", module.disp(&ctx)),
+            )
+            .unwrap();
+        }
+
         verify_operation(module.get_operation(), &ctx).expect("Failed to verify after passes");
 
         let shared_memory_size = shared_memory_size(&ctx, module_op);
+        let buffers = buffers(&ctx, entry_func);
 
         ComputeKernel {
             ctx,
             shared_memory_size,
+            buffers,
         }
     }
 }

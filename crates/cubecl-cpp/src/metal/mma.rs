@@ -4,6 +4,7 @@ use cubecl_core::{
     cmma::{MatrixLayout, MatrixShape, MatrixType},
     ir::{
         dialect::matrix::{CastOp, FillOp, LoadOp, MultiplyAccumulateOp, StoreOp},
+        interfaces::TypedExt,
         prelude::*,
     },
 };
@@ -13,7 +14,7 @@ use crate::{
     shared::{
         CppValue, DeclareMatrixOp,
         ty::{TypeExtCPP, TypeToCPP},
-        wmma_api_base,
+        wmma_api_base::{self, as_scalar_ptr},
     },
     target::Metal,
 };
@@ -45,28 +46,28 @@ metal_op!(FillOp, |op, ctx| {
     let value = op.value(ctx).name(ctx);
     let ty = op.value(ctx).get_type(ctx).to_cpp(ctx);
 
-    format!("*{mat} = make_filled_simdgroup_matrix<{ty}, 8, 8>({value});",)
+    format!("*{mat} = make_filled_simdgroup_matrix<{ty}, 8, 8>({value});\n",)
 });
 
 metal_op!(LoadOp, |op, ctx| {
     let frag = op.matrix(ctx).name(ctx);
-    let ptr = op.source(ctx).name(ctx);
+    let ptr = as_scalar_ptr(ctx, op.source(ctx));
     let stride = op.stride(ctx).name(ctx);
     let mat_ty = matrix_ty(ctx, op.matrix(ctx));
     let transpose = match mat_ty.layout {
         MatrixLayout::RowMajor | MatrixLayout::Undefined => false,
         MatrixLayout::ColMajor => true,
     };
-    format!("simdgroup_load(*{frag}, {ptr}, {stride}, 0, {transpose});")
+    format!("simdgroup_load(*{frag}, {ptr}, {stride}, 0, {transpose});\n")
 });
 
 metal_op!(StoreOp, |op, ctx| {
     let mat = op.matrix(ctx).name(ctx);
-    let destination = op.destination(ctx).name(ctx);
+    let destination = as_scalar_ptr(ctx, op.destination(ctx));
     let stride = op.stride(ctx).name(ctx);
     format!(
         "
-simdgroup_store({mat}, {destination}, {stride});
+simdgroup_store(*{mat}, {destination}, {stride});
 simdgroup_barrier(mem_flags::mem_none);"
     )
 });
@@ -76,7 +77,7 @@ metal_op!(MultiplyAccumulateOp, |op, ctx| {
     let b = op.mat_b(ctx).name(ctx);
     let c = op.mat_c(ctx).name(ctx);
     let d = op.mat_d(ctx).name(ctx);
-    format!("simdgroup_multiply_accumulate(*{d}, {a}, {b}, {c});")
+    format!("simdgroup_multiply_accumulate(*{d}, *{a}, *{b}, *{c});\n")
 });
 
 metal_op!(CastOp, |op, ctx| {
@@ -87,13 +88,13 @@ metal_op!(CastOp, |op, ctx| {
         "
 simdgroup_barrier(mem_flags::mem_none);
 for(int e=0; e<8; e++) {{
-    {output}->thread_elements()[e] = {ty}({input}.thread_elements()[e]);
+    {output}->thread_elements()[e] = {ty}({input}->thread_elements()[e]);
 }}"
     )
 });
 
 fn matrix_ty(ctx: &Context, ty: impl Typed) -> Ref<'_, MatrixType> {
-    let ty = ty.get_type(ctx).deref(ctx);
+    let ty = ty.unwrap_ptr(ctx).deref(ctx);
     Ref::map(ty, |ty| {
         ty.downcast_ref::<MatrixType>().expect("Should be matrix")
     })

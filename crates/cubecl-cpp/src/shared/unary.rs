@@ -118,7 +118,7 @@ shared_op_with_out!(FAbsOp, |op, ctx| {
     } else if input.is_half2(ctx) {
         format!("__habs2({})", input.name(ctx))
     } else {
-        format!("abs({})", input.name(ctx))
+        format!("fabs({})", input.name(ctx))
     }
 });
 unrolling!(FAbsOp);
@@ -230,13 +230,25 @@ shared_op!(StoreOp, |op, ctx| {
 
 macro_rules! lower_unop {
     ($ty: ty, $name: ident, $pred: expr) => {
-        #[op_interface_impl]
-        impl $crate::shared::lowering::LowerOp for $ty {
-            fn should_lower(&self, ctx: &Context) -> bool {
+        $crate::shared::unary::lower_target_unop!($ty, $name, $crate::target::Shared, $pred);
+    };
+    ($ty: ty, $name: ident) => {
+        $crate::shared::unary::lower_unop!($ty, $name, |_, _| true);
+    };
+}
+pub(crate) use lower_unop;
+
+macro_rules! lower_target_unop {
+    ($ty: ty, $name: ident, $target: ty, $pred: expr) => {
+        #[::pliron::derive::op_interface_impl]
+        impl $crate::shared::lowering::LowerOp<$target> for $ty {
+            fn should_lower(&self, ctx: &pliron::context::Context) -> bool {
                 $crate::shared::closure_inference_hack::<$ty, bool>(self, ctx, $pred)
             }
 
-            fn lower(&self, scope: &Scope) -> Vec<Value> {
+            fn lower(&self, scope: &cubecl_core::ir::Scope) -> Vec<pliron::value::Value> {
+                use cubecl_core::ir::prelude::*;
+                use cubecl_core::prelude::*;
                 define_scalar!(T);
                 define_size!(S);
                 let input = self.get_operand(scope.ctx());
@@ -245,11 +257,11 @@ macro_rules! lower_unop {
             }
         }
     };
-    ($ty: ty, $name: ident) => {
-        lower_unop!($ty, $name, |_, _| true);
+    ($ty: ty, $name: ident, $target: ty) => {
+        lower_target_unop!($ty, $name, $target, |_, _| true);
     };
 }
-pub(super) use lower_unop;
+pub(crate) use lower_target_unop;
 
 #[cube]
 fn to_degrees<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
@@ -263,8 +275,8 @@ fn to_radians<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 
 #[cube]
 fn find_first_set<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
-    let bits = Vector::new(comptime!(T::size_bits() as u32));
-    let out = bits - (input & (!input - Vector::one())).leading_zeros();
+    let bits = Vector::new(T::size_bits().comptime() as u32);
+    let out = bits - (input & (!input + Vector::one())).leading_zeros();
     select_many(input.equal(&Vector::zero()), Vector::zero(), out)
 }
 

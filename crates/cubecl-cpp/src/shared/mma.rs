@@ -154,7 +154,7 @@ pub mod wmma_api_base {
         )
     }
 
-    fn as_scalar_ptr(ctx: &Context, value: Value) -> String {
+    pub fn as_scalar_ptr(ctx: &Context, value: Value) -> String {
         let PointerType {
             inner,
             address_space,
