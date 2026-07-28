@@ -109,6 +109,9 @@ struct PendingBench {
     index: usize,
     name: String,
     profiles: Vec<ProfileDuration>,
+    /// Time spent launching, when steps are being logged. The samples are still unresolved at
+    /// that point, so the resolution wait is added in [`process_request`] before it is reported.
+    launch: Option<Duration>,
 }
 
 /// A queued tuning job: all data needed to resolve samples and commit the result.
@@ -212,6 +215,53 @@ impl<K: AutotuneKey> Tuner<K> {
         log_context.set_bounds(bounds);
         log_context.set_limit(limit);
 
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let config = crate::config::CubeClRuntimeConfig::get();
+
+            if config.autotune.bench.adaptive {
+                let schedule = crate::tune::schedule::Schedule {
+                    config: config.autotune.bench.clone(),
+                    limit,
+                    short_circuit: limit.is_some()
+                        && tunables.is_short_circuit_enabled()
+                        && !config.autotune.disable_short_circuit,
+                    track_steps: log_context.is_some(),
+                };
+
+                let (steps, short_circuit) = schedule.run_plan(
+                    key,
+                    &mut plan,
+                    &autotunables,
+                    &test_inputs,
+                    client,
+                    &mut results,
+                );
+
+                for (name, duration) in steps {
+                    log_context.push_tuning_step(name, duration);
+                }
+                if let Some(name) = short_circuit {
+                    log_context.push_short_circuit(name);
+                }
+
+                let request = TuneRequest {
+                    key: key.clone(),
+                    results,
+                    #[cfg(std_io)]
+                    checksum,
+                    log_context,
+                    pending: Vec::new(),
+                };
+
+                return cubecl_common::future::block_on(process_request(
+                    request,
+                    &self.cache,
+                    &self.logger,
+                ));
+            }
+        }
+
         // The slowest median duration still considered close enough to peak throughput.
         // Only used on native, where a benchmark can be resolved inline to exit early.
         #[cfg(not(target_family = "wasm"))]
@@ -256,6 +306,7 @@ impl<K: AutotuneKey> Tuner<K> {
                             index,
                             name: op.name.clone(),
                             profiles,
+                            launch: start_time.map(|start| start.elapsed()),
                         };
 
                         #[cfg(not(target_family = "wasm"))]
@@ -283,11 +334,9 @@ impl<K: AutotuneKey> Tuner<K> {
                             continue;
                         }
 
+                        // The step is reported once `process_request` has resolved the samples,
+                        // so the logged duration covers benchmarking and not just the launch.
                         pending.push(bench);
-
-                        if let Some(start) = start_time {
-                            log_context.push_tuning_step(op.name.to_string(), start.elapsed());
-                        }
                     }
                     Err(err) => {
                         results[index] = AutotuneResult::error(err);
@@ -345,6 +394,7 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
         index,
         name,
         profiles,
+        launch: _,
     } = bench;
 
     let Some(first) = profiles.first() else {
@@ -383,13 +433,21 @@ async fn process_request<K: AutotuneKey>(
         mut results,
         #[cfg(std_io)]
         checksum,
-        log_context,
+        mut log_context,
         pending,
     } = request;
 
     for bench in pending {
         let index = bench.index;
+        let launch = bench.launch;
+        let name = bench.name.clone();
+
+        let started = cubecl_common::profile::Instant::now();
         let result = resolve_bench(bench).await;
+
+        if let Some(launch) = launch {
+            log_context.push_tuning_step(name, launch + started.elapsed());
+        }
 
         results[index] = result;
     }

@@ -33,6 +33,9 @@ mod key_generator;
 mod local;
 mod log;
 mod operation;
+mod sampler;
+#[cfg(not(target_family = "wasm"))]
+mod schedule;
 mod tune_benchmark;
 mod tune_cache;
 mod tune_inputs;

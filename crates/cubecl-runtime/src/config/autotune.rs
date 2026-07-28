@@ -36,6 +36,53 @@ pub struct AutotuneConfig {
     /// Whether to disable the short circuit logic during autotuning.
     #[serde(default)]
     pub disable_short_circuit: bool,
+
+    /// Sampling budget and elimination thresholds used while benchmarking candidates.
+    #[serde(default)]
+    pub bench: BenchConfig,
+}
+
+/// Controls how many samples autotune collects per candidate and when candidates are dropped.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct BenchConfig {
+    /// Samples every surviving candidate gets before any elimination happens.
+    pub min_samples: usize,
+
+    /// Upper bound on samples collected for a single candidate.
+    pub max_samples: usize,
+
+    /// Samples that must independently land under the time limit to short circuit.
+    ///
+    /// A short circuit decision is written to the persistent cache and reused on later runs, so
+    /// it is confirmed rather than taken from a single possibly-lucky sample.
+    pub short_circuit_samples: usize,
+
+    /// How many times slower than the current best a candidate may be before elimination.
+    pub speed_factor: f64,
+
+    /// Whether to use the adaptive round robin benchmark instead of a fixed sample count.
+    pub adaptive: bool,
+}
+
+impl Default for BenchConfig {
+    fn default() -> Self {
+        Self {
+            min_samples: 3,
+            max_samples: 10,
+            short_circuit_samples: 2,
+            speed_factor: 1.5,
+            adaptive: true,
+        }
+    }
+}
+
+impl BenchConfig {
+    /// The sample budget, clamped so the range is always usable.
+    pub fn samples(&self) -> (usize, usize) {
+        let min = self.min_samples.max(1);
+        (min, self.max_samples.max(min))
+    }
 }
 
 /// Log levels for autotune logging in `CubeCL`.
