@@ -1,5 +1,14 @@
-use super::prelude::*;
+use super::ToLLVMDialect;
 use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp};
+use cubecl_core::ir::interfaces::{AlignedType, ScalarizableType};
+use cubecl_core::ir::prelude::*;
+use cubecl_core::ir::types::{ArrayType as CubeArrayType, PointerType as CubePointerType};
+use pliron::builtin::ops::ConstantOp;
+use pliron_llvm::op_interfaces::AlignableOpInterface;
+use pliron_llvm::ops as llvm;
+
+use crate::compiler::to_llvm::constant::insert_i32_const;
+use crate::compiler::to_llvm::ty::cube_type_to_llvm;
 
 fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
     let scalar = {
@@ -40,7 +49,7 @@ impl ToLLVMDialect for DeclareVariableOp {
 
         let initializer = self.initializer(ctx).map(|initializer| initializer.clone());
         if let Some(initializer) = initializer {
-            let constant = llvm::ConstantOp::new(ctx, initializer);
+            let constant = ConstantOp::new(ctx, initializer);
             rewriter.insert_op(ctx, &constant);
 
             let store = llvm::StoreOp::new(ctx, constant.get_result(ctx), alloca.get_result(ctx));

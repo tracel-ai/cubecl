@@ -1,5 +1,16 @@
-use super::prelude::*;
-use cubecl_core::ir::dialect::cmp::*;
+use super::ToLLVMDialect;
+use cubecl_core::ir::dialect::cmp::{
+    BoolEqualOp, BoolNotEqualOp, FEqualOp, FGreaterThanOp, FGreaterThanOrEqualOp, FLessThanOp,
+    FLessThanOrEqualOp, FNotEqualOp,
+};
+use cubecl_core::ir::dialect::cmp::{
+    IEqualOp, INotEqualOp, SGreaterThanOp, SGreaterThanOrEqualOp, SLessThanOp, SLessThanOrEqualOp,
+    UGreaterThanOp, UGreaterThanOrEqualOp, ULessThanOp, ULessThanOrEqualOp,
+};
+use cubecl_core::ir::prelude::*;
+use pliron_llvm::attributes::{FCmpPredicateAttr, FastmathFlagsAttr, ICmpPredicateAttr};
+use pliron_llvm::op_interfaces::FastMathFlags;
+use pliron_llvm::ops::{FCmpOp, ICmpOp};
 
 /// Lower an integer/index comparison op to `llvm.icmp` with the given predicate.
 macro_rules! lower_int_cmp {
@@ -14,7 +25,7 @@ macro_rules! lower_int_cmp {
             ) -> Result<()> {
                 let lhs = self.lhs(ctx);
                 let rhs = self.rhs(ctx);
-                let op = llvm::ICmpOp::new(ctx, ICmpPredicateAttr::$pred, lhs, rhs);
+                let op = ICmpOp::new(ctx, ICmpPredicateAttr::$pred, lhs, rhs);
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(
                     ctx,
@@ -53,7 +64,7 @@ macro_rules! lower_float_cmp {
             ) -> Result<()> {
                 let lhs = self.lhs(ctx);
                 let rhs = self.rhs(ctx);
-                let op = llvm::FCmpOp::new(ctx, FCmpPredicateAttr::$pred, lhs, rhs);
+                let op = FCmpOp::new(ctx, FCmpPredicateAttr::$pred, lhs, rhs);
                 op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(

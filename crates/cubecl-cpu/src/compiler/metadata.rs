@@ -92,9 +92,7 @@ impl Pass for LowerEntryAbiPass {
             let gep = llvm::GetElementPtrOp::new(
                 ctx,
                 meta_ptr,
-                vec![llvm::GepIndex::Constant(
-                    (meta_prefix_slots + *buffer_idx) as u32,
-                )],
+                vec![llvm::GepIndex::Constant((meta_prefix_slots + *buffer_idx) as u32)],
                 i64_ty,
             );
             gep.get_operation().insert_before(ctx, *bl_op);
