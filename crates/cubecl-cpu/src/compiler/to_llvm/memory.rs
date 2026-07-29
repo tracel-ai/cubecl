@@ -1,18 +1,7 @@
+use crate::compiler::to_llvm::ty::scalar_alignment;
+
 use super::prelude::*;
 use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp};
-
-fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
-    let scalar = {
-        let ty = ty.deref(ctx);
-        type_cast::<dyn ScalarizableType>(&*ty).map(|s| s.scalar_type(ctx))
-    }
-    .unwrap_or(ty);
-
-    let scalar = scalar.deref(ctx);
-    type_cast::<dyn AlignedType>(&*scalar)
-        .expect("load/store value type must implement AlignedType")
-        .align(ctx) as u32
-}
 
 #[op_interface_impl]
 impl ToLLVMDialect for DeclareVariableOp {

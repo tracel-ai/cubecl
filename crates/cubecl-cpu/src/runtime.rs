@@ -5,8 +5,9 @@ use cubecl_core::{
     client::ComputeClient,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        AddressType, DeviceProperties, HardwareProperties, MemoryDeviceProperties,
-        TargetProperties, VectorSize, features::Features,
+        AddressType, DeviceProperties, ElemType, FloatKind, HardwareProperties, IntKind,
+        MemoryDeviceProperties, TargetProperties, Type, UIntKind, VectorSize,
+        features::{AtomicUsage, Features, TypeUsage},
     },
     server::ServerUtilities,
     zspace::{Shape, Strides},
@@ -26,6 +27,50 @@ pub struct RuntimeOptions {
 pub struct CpuRuntime;
 
 pub type CpuCompiler = PlironCompiler;
+
+fn register_supported_types(props: &mut DeviceProperties) {
+    props.register_address_type(AddressType::U32);
+    props.register_address_type(AddressType::U64);
+
+    let supported_types = [
+        ElemType::Index,
+        ElemType::UInt(UIntKind::U8),
+        ElemType::UInt(UIntKind::U16),
+        ElemType::UInt(UIntKind::U32),
+        ElemType::UInt(UIntKind::U64),
+        ElemType::Int(IntKind::I8),
+        ElemType::Int(IntKind::I16),
+        ElemType::Int(IntKind::I32),
+        ElemType::Int(IntKind::I64),
+        ElemType::Float(FloatKind::F16),
+        ElemType::Float(FloatKind::F32),
+        ElemType::Float(FloatKind::F64),
+        ElemType::Bool,
+    ];
+
+    let supported_atomic_types = [
+        ElemType::Int(IntKind::I8),
+        ElemType::Int(IntKind::I16),
+        ElemType::Int(IntKind::I32),
+        ElemType::Int(IntKind::I64),
+        ElemType::UInt(UIntKind::U8),
+        ElemType::UInt(UIntKind::U16),
+        ElemType::UInt(UIntKind::U32),
+        ElemType::UInt(UIntKind::U64),
+        ElemType::Float(FloatKind::F16),
+        ElemType::Float(FloatKind::F32),
+        ElemType::Float(FloatKind::F64),
+        ElemType::Bool,
+    ];
+
+    for ty in supported_types {
+        props.register_type_usage(ty, TypeUsage::all());
+    }
+
+    for ty in supported_atomic_types {
+        props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
+    }
+}
 
 impl DeviceService for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
@@ -81,8 +126,7 @@ impl DeviceService for CpuServer {
             topology.clone(),
             TimingMethod::Device,
         );
-        device_props.register_address_type(AddressType::U32);
-        device_props.register_address_type(AddressType::U64);
+        register_supported_types(&mut device_props);
 
         let utilities = ServerUtilities::new(
             device_props,

@@ -1,3 +1,4 @@
+pub mod atomic;
 pub mod cmp;
 pub mod constant;
 pub mod general;

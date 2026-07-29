@@ -359,6 +359,10 @@ lower_binary_intrinsic_arith!(ArcTan2Op => "llvm.atan2");
 lower_binary_intrinsic_arith!(PowfOp => "llvm.pow");
 lower_binary_intrinsic_arith!(FMinOp => "llvm.minnum");
 lower_binary_intrinsic_arith!(FMaxOp => "llvm.maxnum");
+lower_binary_intrinsic_arith!(SaturatingSAddOp => "llvm.sadd.sat");
+lower_binary_intrinsic_arith!(SaturatingUAddOp => "llvm.uadd.sat");
+lower_binary_intrinsic_arith!(SaturatingSSubOp => "llvm.ssub.sat");
+lower_binary_intrinsic_arith!(SaturatingUSubOp => "llvm.usub.sat");
 
 #[op_interface_impl]
 impl ToLLVMDialect for FNegOp {

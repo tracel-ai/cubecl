@@ -2,11 +2,15 @@ use cubecl_core as cubecl;
 use cubecl_core::ir::dialect::bitwise::FindFirstSetOp;
 use cubecl_core::ir::dialect::math::{
     ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, HypotOp, Log1pOp, PowiOp,
-    RadiansOp, RecipOp, RhypotOp, RsqrtOp, SNegOp,
+    RadiansOp, RecipOp, RhypotOp, RsqrtOp, SMulHiOp, SNegOp, UMulHiOp,
 };
 use cubecl_core::ir::dialect::vector::{FDotOp, MagnitudeOp, NormalizeOp, SDotOp, UDotOp};
+use cubecl_core::ir::interfaces::TypedExt;
 use cubecl_core::ir::prelude::*;
-use cubecl_core::prelude::polyfills::{erf, expm1, log1p, recip, to_degrees, to_radians};
+use cubecl_core::prelude::polyfills::{
+    erf, expand_himul_sim, expand_s_himul_64, expand_u_himul_64, expm1, log1p, recip, to_degrees,
+    to_radians,
+};
 use cubecl_core::prelude::*;
 
 use cubecl_core::ir::{Scope, dialect::base::OperationPtrExt};
@@ -182,3 +186,31 @@ pub fn find_first_set<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
 }
 
 lower_unary_math_arith!(FindFirstSetOp => find_first_set);
+
+#[op_interface_impl]
+impl LowerOp for SMulHiOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        let lhs = self.lhs(ctx);
+        let val = if lhs.is_int_of_width(ctx, 32) {
+            expand_s_himul_64(scope, lhs, self.rhs(ctx))
+        } else {
+            expand_himul_sim(scope, lhs, self.rhs(ctx))
+        };
+        vec![val]
+    }
+}
+
+#[op_interface_impl]
+impl LowerOp for UMulHiOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        let lhs = self.lhs(ctx);
+        let val = if lhs.is_int_of_width(ctx, 32) {
+            expand_u_himul_64(scope, lhs, self.rhs(ctx))
+        } else {
+            expand_himul_sim(scope, lhs, self.rhs(ctx))
+        };
+        vec![val]
+    }
+}

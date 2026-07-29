@@ -1,5 +1,8 @@
 use super::prelude::*;
-use cubecl_core::ir::types::scalar::{Float16Type, Float32Type, Float64Type, FloatFlex32Type};
+use cubecl_core::ir::types::{
+    AtomicType,
+    scalar::{Float16Type, Float32Type, Float64Type, FloatFlex32Type},
+};
 
 /// LLVM width of a `cube.index`. `IndexType` is `size_of::<u64>()`, so it maps to `i64`.
 pub const INDEX_WIDTH: u32 = 64;
@@ -24,6 +27,7 @@ impl_cube_to_llvm_type!(FloatFlex32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(Float16Type, self, ctx => FP16Type::get(ctx));
 impl_cube_to_llvm_type!(CubePointerType, self, ctx => LlvmPointerType::get(ctx, 0));
 impl_cube_to_llvm_type!(CubeVectorType, self, ctx => LlvmVectorType::get(ctx, cube_type_to_llvm(ctx, self.inner), self.vectorization as u32, VectorTypeKind::Fixed));
+impl_cube_to_llvm_type!(AtomicType, self, ctx => cube_type_to_llvm(ctx, self.inner));
 
 /// Convert a cubecl type to its LLVM-dialect equivalent, or return it unchanged when no
 /// conversion applies.
@@ -31,4 +35,17 @@ pub fn cube_type_to_llvm(ctx: &Context, ty: TypeHandle) -> TypeHandle {
     type_cast::<dyn CubeToLLVMType>(&*ty.deref(ctx))
         .map(|convertible| convertible.convert(ctx))
         .unwrap_or(ty)
+}
+
+pub fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
+    let scalar = {
+        let ty = ty.deref(ctx);
+        type_cast::<dyn ScalarizableType>(&*ty).map(|s| s.scalar_type(ctx))
+    }
+    .unwrap_or(ty);
+
+    let scalar = scalar.deref(ctx);
+    type_cast::<dyn AlignedType>(&*scalar)
+        .expect("load/store value type must implement AlignedType")
+        .align(ctx) as u32
 }
