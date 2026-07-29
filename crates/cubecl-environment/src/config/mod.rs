@@ -282,14 +282,11 @@ mod tests {
         }
     }
 
-    fn scratch(name: &str, file: &str, content: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(alloc::format!(
-            "cubecl-config-{name}-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(file), content).unwrap();
+    /// A directory holding one config file, removed when the returned handle
+    /// drops.
+    fn scratch(file: &str, content: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(file), content).unwrap();
         dir
     }
 
@@ -298,47 +295,43 @@ mod tests {
     /// every setting in it is dropped. It has to surface as an error rather
     /// than a `None`-shaped miss.
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn a_wrongly_typed_field_fails_the_whole_file() {
-        let dir = scratch("typed", "probe.toml", "cache = \"target\"\n");
+        let dir = scratch("probe.toml", "cache = \"target\"\n");
 
-        let err = Probe::from_file_path(dir.join("probe.toml")).unwrap_err();
+        let err = Probe::from_file_path(dir.path().join("probe.toml")).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Same, one level in: the section exists but does not deserialize.
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn a_wrongly_typed_field_fails_the_whole_section() {
-        let dir = scratch("section", "host.toml", "[probe]\ncache = \"target\"\n");
+        let dir = scratch("host.toml", "[probe]\ncache = \"target\"\n");
 
-        let err = Probe::from_section_file_path(dir.join("host.toml"), "probe").unwrap_err();
+        let err = Probe::from_section_file_path(dir.path().join("host.toml"), "probe").unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A host file that simply has no section for us is ordinary, not an error
     /// worth reporting — that is how a shared `burn.toml` looks to a crate it
     /// says nothing about.
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn a_missing_section_is_quiet() {
-        let dir = scratch("missing", "host.toml", "[other]\nvalue = 1\n");
+        let dir = scratch("host.toml", "[other]\nvalue = 1\n");
 
-        let err = Probe::from_section_file_path(dir.join("host.toml"), "probe").unwrap_err();
+        let err = Probe::from_section_file_path(dir.path().join("host.toml"), "probe").unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The good path still reads the value through.
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn a_well_formed_section_parses() {
-        let dir = scratch("ok", "host.toml", "[probe]\ncache = true\n");
+        let dir = scratch("host.toml", "[probe]\ncache = true\n");
 
-        let config = Probe::from_section_file_path(dir.join("host.toml"), "probe").unwrap();
+        let config = Probe::from_section_file_path(dir.path().join("host.toml"), "probe").unwrap();
         assert!(config.cache);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -22,9 +22,15 @@ pub use alloc::sync::Arc;
 pub use portable_atomic_util::Arc;
 
 #[cfg(target_has_atomic = "ptr")]
-pub use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+pub use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering};
 #[cfg(not(target_has_atomic = "ptr"))]
-pub use portable_atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+pub use portable_atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering};
+
+// No `AtomicU64`: `target_has_atomic = "ptr"` says nothing about 64-bit
+// atomics, and a 32-bit target can have pointer-width CAS without them
+// (thumbv7m). Its one user is behind `stream_local`, which is `std`, and every
+// std target has them — so it takes `core`'s directly rather than making this
+// shim carry a width it cannot provide on both arms.
 
 /// A mutual exclusion primitive useful for protecting shared data
 ///
