@@ -176,6 +176,18 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             }
         }
 
+        if let Ok(val) = std::env::var("CUBECL_AUTOTUNE_BENCH_ADAPTIVE") {
+            match val.as_str() {
+                "true" | "1" | "on" => {
+                    self.autotune.bench.adaptive = true;
+                }
+                "false" | "0" | "off" => {
+                    self.autotune.bench.adaptive = false;
+                }
+                _ => {}
+            }
+        }
+
         self
     }
 }
