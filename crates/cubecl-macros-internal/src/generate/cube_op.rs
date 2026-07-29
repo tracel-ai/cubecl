@@ -133,7 +133,7 @@ impl CubeOp {
                 let result_ty = #result_ty;
                 let values = vec![#(#values),*];
                 let op = Self {
-                    op: Operation::new(
+                    op: ::pliron::operation::Operation::new(
                         ctx,
                         Self::get_concrete_op_info(),
                         result_ty,
@@ -175,9 +175,11 @@ impl CubeOp {
             let use_ident = format_ident!("{ident}_as_use");
             quote! {
                 #vis fn #ident(&self, ctx: &::pliron::context::Context) -> #ty {
+                    use ::pliron::op::Op;
                     self.get_operation().deref(ctx).get_operand(#idx)
                 }
                 #vis fn #use_ident(&self, ctx: &::pliron::context::Context) -> ::pliron::value::Use<#ty> {
+                    use ::pliron::op::Op;
                     self.get_operation().deref(ctx).get_operand_as_use(#idx)
                 }
             }
@@ -236,6 +238,7 @@ impl CubeOp {
             let attr_key = self.qualified_attribute_key(ident, args);
             quote! {
                 #vis fn #remove(&self, ctx: &::pliron::context::Context) {
+                    use ::pliron::op::Op;
                     self.get_operation().deref_mut(ctx).attributes.0.remove(&*#attr_key);
                 }
             }

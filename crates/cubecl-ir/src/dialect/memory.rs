@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use ::pliron::parsable::ParseResult;
 use alloc::string::{String, ToString};
 use cubecl_macros_internal::cube_op;
@@ -35,7 +37,7 @@ use crate::{
     AddressSpace, CanMaterialize, NoSideEffects, Pure,
     attributes::IndexAttr,
     dialect::{general::PoisonOp, ptr_value_ty},
-    interfaces::{IndexableType, aliasing::AliasingOp},
+    interfaces::{IndexableType, TriviallyUnrollable, aliasing::AliasingOp},
     prelude::*,
     types::{PointerType, scalar::IndexType},
 };
@@ -100,7 +102,7 @@ impl Parsable for DeclareVariableOp {
 
         let ctx = &mut input.state.ctx;
         if arg.len() != 1 {
-            return input_err!(
+            input_err!(
                 cur_loc,
                 "Expected 1 result, got {} during parsing",
                 arg.len()
@@ -221,7 +223,7 @@ pub struct UnrelatedAllocInfo;
 
 #[cube_op(name = "memory.load")]
 #[result_ty(from_inputs = ptr_value_ty)]
-#[op_interfaces(OperandNOfType<0, PointerType>)]
+#[op_interfaces(OperandNOfType<0, PointerType>, TriviallyUnrollable)]
 #[op_traits(CanMaterialize, NoSideEffects)]
 pub struct LoadOp {
     #[operand(ptr_read)]
@@ -256,15 +258,23 @@ impl PromotableOpInterface for LoadOp {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum StoreError {
-    #[error("Value type doesn't match the inner type of the pointer: expected {_0}, got {_1}")]
+#[derive(Error)]
+pub enum StoreOpError {
+    #[error(
+        "[StoreOp]: Value type doesn't match the inner type of the pointer: expected {_0}, got {_1}"
+    )]
     MismatchedValueType(String, String),
+}
+
+impl Debug for StoreOpError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self}")
+    }
 }
 
 #[cube_op(name = "memory.store", verifier = "custom")]
 #[result_ty(none)]
-#[op_interfaces(OperandNOfType<0, PointerType>)]
+#[op_interfaces(OperandNOfType<0, PointerType>, TriviallyUnrollable)]
 #[op_traits(CanMaterialize)]
 pub struct StoreOp {
     #[operand(ptr_write)]
@@ -278,9 +288,9 @@ impl Verify for StoreOp {
         let ptr_value_ty = ptr_value_ty(ctx, &self.ptr(ctx));
         let value_ty = self.value(ctx).get_type(ctx);
         if ptr_value_ty != value_ty {
-            return verify_err!(
+            verify_err!(
                 loc,
-                StoreError::MismatchedValueType(
+                StoreOpError::MismatchedValueType(
                     ptr_value_ty.disp(ctx).to_string(),
                     value_ty.disp(ctx).to_string()
                 )

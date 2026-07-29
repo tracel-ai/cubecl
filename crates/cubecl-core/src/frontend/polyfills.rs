@@ -1,12 +1,13 @@
 use alloc::vec;
 use core::f32::consts::PI;
 
-use cubecl_ir::{Type, cube_op, interfaces::TypedExt, prelude::*};
+use cubecl_ir::{Type, cube_op, prelude::*};
 use num_traits::One;
 
 use crate::prelude::*;
 use crate::{self as cubecl, unexpanded};
 
+define_scalar!(ElemA);
 define_size!(SizeA);
 
 /// Change the meaning of the given cube primitive type during compilation.
@@ -56,14 +57,14 @@ fn erf_positive<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 }
 
 #[cube]
-fn himul_i64<N: Size>(lhs: Vector<i32, N>, rhs: Vector<i32, N>) -> Vector<i32, N> {
+fn himul_i64<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
     let shift = Vector::new(32);
     let mul = (Vector::<i64, N>::cast_from(lhs) * Vector::<i64, N>::cast_from(rhs)) >> shift;
     Vector::cast_from(mul)
 }
 
 #[cube]
-pub fn himul_u64<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N> {
+pub fn himul_u64<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
     let shift = Vector::new(32);
     let mul = (Vector::<u64, N>::cast_from(lhs) * Vector::<u64, N>::cast_from(rhs)) >> shift;
     Vector::cast_from(mul)
@@ -71,20 +72,20 @@ pub fn himul_u64<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u3
 
 #[allow(missing_docs)]
 pub fn expand_s_himul_64(scope: &Scope, lhs: Value, rhs: Value) -> Value {
-    scope.register_size::<SizeA>(lhs.vector_size(scope.ctx()));
-    himul_i64::expand::<SizeA>(scope, lhs.into(), rhs.into()).value(scope)
+    scope.register_value_type::<ElemA, SizeA>(lhs);
+    himul_i64::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
 }
 
 #[allow(missing_docs)]
 pub fn expand_u_himul_64(scope: &Scope, lhs: Value, rhs: Value) -> Value {
-    scope.register_size::<SizeA>(lhs.vector_size(scope.ctx()));
-    himul_u64::expand::<SizeA>(scope, lhs.into(), rhs.into()).value(scope)
+    scope.register_value_type::<ElemA, SizeA>(lhs);
+    himul_u64::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
 }
 
 #[cube]
 fn himul_sim<T: Int, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
-    let half_bits = comptime!(T::size_bits() / 2);
-    let low_mask = Vector::new(T::new(comptime!((1 << half_bits) - 1)));
+    let half_bits = T::size_bits().comptime() / 2;
+    let low_mask = Vector::new(T::new(comptime!((1i64 << half_bits) - 1)));
     let shift = Vector::new(T::new(half_bits as i64));
 
     let lhs_low = lhs & low_mask;
@@ -106,12 +107,8 @@ fn himul_sim<T: Int, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T,
 
 #[allow(missing_docs)]
 pub fn expand_himul_sim(scope: &Scope, lhs: Value, rhs: Value) -> Value {
-    scope.register_size::<SizeA>(lhs.vector_size(scope.ctx()));
-    if lhs.is_int_of_width(scope.ctx(), 32) {
-        himul_sim::expand::<u32, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
-    } else {
-        himul_sim::expand::<u64, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
-    }
+    scope.register_value_type::<ElemA, SizeA>(lhs);
+    himul_sim::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
 }
 
 #[cube]
@@ -122,10 +119,10 @@ pub fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 #[cube]
 pub fn expm1<T: Float, N: Size>(x: Vector<T, N>) -> Vector<T, N> {
     let sq = x * x;
-    let a = sq * Vector::new(T::new(0.5f32));
-    let b = sq * x * Vector::new(T::new(1.0f32 / 6.0f32));
+    let a = sq * Vector::new(T::new(0.5_f32));
+    let b = sq * x * Vector::new(T::new(1.0_f32 / 6.0_f32));
     let taylor = x + a + b;
-    let is_small = x.abs().less_than(&Vector::new(T::new(1e-5f32)));
+    let is_small = x.abs().less_than(&Vector::new(T::new(1e-5_f32)));
     select_many(is_small, taylor, x.exp() - Vector::one())
 }
 
@@ -151,7 +148,7 @@ fn simple_pow<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vecto
 
 #[cube]
 pub fn powf<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vector<T, N> {
-    let modulo = exp.mod_floor(Vector::new(T::new(2.0f32)));
+    let modulo = exp.mod_floor(Vector::new(T::new(2.0_f32)));
     let is_even = modulo.equal(&Vector::zero());
     let is_odd = modulo.equal(&Vector::one());
     let is_neg_base = base.less_than(&Vector::zero());
@@ -185,10 +182,64 @@ pub fn recip<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
 
 #[cube]
 pub fn to_degrees<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    input * Vector::new(T::new(comptime!(180.0f32 / PI)))
+    input * Vector::new(T::new(comptime!(180.0_f32 / PI)))
 }
 
 #[cube]
 pub fn to_radians<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    input * Vector::new(T::new(comptime!(PI / 180.0f32)))
+    input * Vector::new(T::new(comptime!(PI / 180.0_f32)))
+}
+
+pub mod bitwise {
+    use super::*;
+
+    #[cube]
+    pub fn u64_leading_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+        let shift = Vector::new(I::new(32));
+
+        let low = Vector::<u32, N>::cast_from(x);
+        let high = Vector::<u32, N>::cast_from(x >> shift);
+        let low_zeros = Vector::leading_zeros(low);
+        let high_zeros = Vector::leading_zeros(high);
+
+        select_many(
+            high_zeros.equal(&Vector::new(32)),
+            low_zeros + high_zeros,
+            high_zeros,
+        )
+    }
+
+    #[cube]
+    pub fn u64_trailing_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+        let shift = Vector::new(I::new(32));
+
+        let low = Vector::<u32, N>::cast_from(x);
+        let high = Vector::<u32, N>::cast_from(x >> shift);
+        let low_tz = Vector::trailing_zeros(low);
+        let high_tz = Vector::trailing_zeros(high);
+
+        let high_tz = select_many(
+            high_tz.equal(&Vector::new(32)),
+            Vector::new(64),
+            high_tz + Vector::new(32),
+        );
+        select_many(low_tz.equal(&Vector::new(32)), high_tz, low_tz)
+    }
+
+    #[cube]
+    pub fn u64_ffs<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+        let shift = Vector::new(I::new(32));
+
+        let low = Vector::<u32, N>::cast_from(x);
+        let high = Vector::<u32, N>::cast_from(x >> shift);
+        let low_ffs = Vector::find_first_set(low);
+        let high_ffs = Vector::find_first_set(high);
+
+        let high_ffs = select_many(
+            high_ffs.equal(&Vector::new(0)),
+            high_ffs,
+            high_ffs + Vector::new(32),
+        );
+        select_many(low_ffs.equal(&Vector::new(0)), high_ffs, low_ffs)
+    }
 }

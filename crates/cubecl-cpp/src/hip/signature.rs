@@ -1,15 +1,28 @@
 use cubecl_core::ir::{attributes::EntrypointInterface, interfaces::TypedExt, prelude::*};
 use itertools::Itertools;
-use pliron::builtin::{ops::FuncOp, types::FunctionType};
+use pliron::builtin::{
+    ops::{FuncOp, ModuleOp},
+    types::FunctionType,
+};
 
 use crate::{
     hip::hip_op,
     shared::{
         CppValue,
         branch::block_to_cpp,
+        define_array_polyfill,
         ty::{TypeExtCPP, TypedExtCPP},
+        type_definitions,
     },
 };
+
+hip_op!(ModuleOp, |op, ctx| {
+    let mut out = String::new();
+    type_definitions(&mut out, "long long").unwrap();
+    define_array_polyfill(&mut out).unwrap();
+    out.push_str(&block_to_cpp(ctx, op.get_body(ctx, 0)));
+    out
+});
 
 hip_op!(FuncOp, |op, ctx| {
     let func_name = op.get_symbol_name(ctx);

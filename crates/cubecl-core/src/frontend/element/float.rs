@@ -19,41 +19,41 @@ mod tensor_float;
 pub trait Float:
     Numeric
     + FloatOps
-    + CubeNeg
-    + Exp
-    + Log
-    + Log1p
-    + Expm1
-    + Cos
-    + Sin
-    + Tan
-    + Tanh
-    + Sinh
-    + Cosh
-    + ArcCos
-    + ArcSin
-    + ArcTan
-    + ArcSinh
-    + ArcCosh
-    + ArcTanh
-    + Degrees
-    + Radians
-    + ArcTan2
-    + Powf
+    + ScalarNeg
+    + ScalarExp
+    + ScalarLog
+    + ScalarLog1p
+    + ScalarExpm1
+    + ScalarCos
+    + ScalarSin
+    + ScalarTan
+    + ScalarTanh
+    + ScalarSinh
+    + ScalarCosh
+    + ScalarArcCos
+    + ScalarArcSin
+    + ScalarArcTan
+    + ScalarArcSinh
+    + ScalarArcCosh
+    + ScalarArcTanh
+    + ScalarDegrees
+    + ScalarRadians
+    + ScalarArcTan2
+    + ScalarPowf
     + Powi<i32>
-    + Hypot
-    + Rhypot
-    + Sqrt
-    + InverseSqrt
-    + Round
-    + Floor
-    + Ceil
-    + Trunc
-    + Erf
-    + Recip
-    + Magnitude
+    + ScalarHypot
+    + ScalarRhypot
+    + ScalarSqrt
+    + ScalarInverseSqrt
+    + ScalarRound
+    + ScalarFloor
+    + ScalarCeil
+    + ScalarTrunc
+    + ScalarErf
+    + ScalarRecip
+    + ScalarMagnitude
     + Normalize
-    + Dot
+    + ScalarDot
     + IsNan
     + IsInf
     + Into<Self::ExpandType>

@@ -7,10 +7,7 @@ use num_traits::Float;
 use pliron::{
     attribute::AttrObj,
     builtin::{attributes::IntegerAttr, types::IntegerType},
-    utils::{
-        apfloat::f64_to_double,
-        apint::{APInt, bw},
-    },
+    utils::apint::{APInt, bw},
 };
 
 use crate::{
@@ -229,12 +226,12 @@ const_eval!(FAddOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs + rhs
 });
 simplify!(FAddOp, {
-    |lhs, _| match lhs?.as_const_val(ctx) {
-        ConstantValue::Float(0.0) => Some(self.rhs(ctx)),
+    |lhs, _| match lhs?.float_as_f64(ctx) {
+        Some(0.0) => Some(self.rhs(ctx)),
         _ => None?,
     },
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Float(0.0) => Some(self.lhs(ctx)),
+    |_, rhs| match rhs?.float_as_f64(ctx) {
+        Some(0.0) => Some(self.lhs(ctx)),
         _ => None?,
     }
 });
@@ -294,7 +291,7 @@ const_eval!(FSubOp, {
     // x - x -> 0
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(float_attr(self.result_type(ctx), 0.0))
+            Some(float_attr(ctx, self.result_type(ctx), 0.0))
         } else {
             None
         }
@@ -302,7 +299,7 @@ const_eval!(FSubOp, {
 });
 simplify!(FSubOp, {
     |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Float(0.0) => Some(self.lhs(ctx)),
+        ConstantValue::Float(val) if val.to_bits() == 0 => Some(self.lhs(ctx)),
         _ => None?,
     }
 });
@@ -362,19 +359,19 @@ const_eval!(FMulOp, {
     // 0 * x -> 0; x * 0 -> 0
     custom: |lhs, rhs| {
         let const_val = lhs.or(rhs)?;
-        Some(match const_val.as_const_val(ctx) {
-            ConstantValue::Float(0.0) => float_attr( const_val.get_type(ctx), 0.0),
+        Some(match const_val.float_as_f64(ctx) {
+            Some(0.0) => float_attr(ctx, const_val.get_type(ctx), 0.0),
             _ => None?
         })
     }
 });
 simplify!(FMulOp, {
-    |lhs, _| match lhs?.as_const_val(ctx) {
-        ConstantValue::Float(1.0) => Some(self.rhs(ctx)),
+    |lhs, _| match lhs?.float_as_f64(ctx) {
+        Some(1.0) => Some(self.rhs(ctx)),
         _ => None?,
     },
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Float(1.0) => Some(self.lhs(ctx)),
+    |_, rhs| match rhs?.float_as_f64(ctx) {
+        Some(1.0) => Some(self.lhs(ctx)),
         _ => None?,
     }
 });
@@ -450,15 +447,15 @@ const_eval!(FDivOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs / rhs,
     // 0 / x -> 0
     custom: |lhs, _| {
-        Some(match lhs?.as_const_val(ctx) {
-            ConstantValue::Float(0.0) => float_attr(lhs?.get_type(ctx), 0.0),
+        Some(match lhs?.float_as_f64(ctx) {
+            Some(0.0) => float_attr(ctx, lhs?.get_type(ctx), 0.0),
             _ => None?
         })
     },
 });
 simplify!(FDivOp, {
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Float(1.0) => Some(self.lhs(ctx)),
+    |_, rhs| match rhs?.float_as_f64(ctx) {
+        Some(1.0) => Some(self.lhs(ctx)),
         _ => None?,
     }
 });
@@ -562,15 +559,15 @@ const_eval!(FRemOp, {
     [FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| lhs % rhs,
     // 0 % x -> 0
     custom: |lhs, _| {
-        Some(match lhs?.as_const_val(ctx) {
-            ConstantValue::Float(0.0) => float_attr( lhs?.get_type(ctx), 0.0),
+        Some(match lhs?.float_as_f64(ctx) {
+            Some(0.0) => float_attr(ctx, lhs?.get_type(ctx), 0.0),
             _ => None?
         })
     },
 });
 simplify!(FRemOp, {
-    |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Float(1.0) => Some(self.lhs(ctx)),
+    |_, rhs| match rhs?.float_as_f64(ctx) {
+        Some(1.0) => Some(self.lhs(ctx)),
         _ => None?,
     }
 });
@@ -606,8 +603,8 @@ const_eval!(FModFloorOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - (lhs / rhs).floor() * rhs,
     // 0 % x -> 0
     custom: |lhs, _| {
-        Some(match lhs?.as_const_val(ctx) {
-            ConstantValue::Float(0.0) => float_attr( lhs?.get_type(ctx), 0.0),
+        Some(match lhs?.float_as_f64(ctx) {
+            Some(0.0) => float_attr(ctx, lhs?.get_type(ctx), 0.0),
             _ => None?
         })
     },
@@ -677,8 +674,8 @@ pub(super) fn int_attr(ctx: &Context, ty: TypeHandle, val: i128) -> AttrObj {
     }
 }
 
-pub(super) fn float_attr(ty: TypeHandle, val: f64) -> AttrObj {
-    AttrObj::from(FloatAttr::new(ty, f64_to_double(val)))
+pub(super) fn float_attr(ctx: &Context, ty: TypeHandle, val: f64) -> AttrObj {
+    AttrObj::from(FloatAttr::from_f64(ctx, ty, val))
 }
 
 #[cube_op(name = "math.fma")]

@@ -396,6 +396,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
         // automatically when the guard drops.
         let mut shared_inputs = self.shared_bindings_pool.acquire();
+        // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
         args.resources.iter().for_each(|resource| match resource {
             KernelResource::Buffer(b) => {
                 self.streams_pool.push(b.stream);

@@ -1,10 +1,5 @@
-use cubecl_ir::pliron::value::Value;
-
 use crate::prelude::*;
 use crate::{self as cubecl};
-
-define_scalar!(ElemA);
-define_size!(SizeA);
 
 /// Computes the hypotenuse of a right triangle given the lengths of the other two sides.
 ///
@@ -40,10 +35,4 @@ pub fn rhypot<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector
     let t = min_val / max_val_safe;
 
     fma(t, t, one).inverse_sqrt() / max_val
-}
-
-#[allow(missing_docs)]
-pub fn expand_rhypot(scope: &Scope, lhs: Value, rhs: Value) -> Value {
-    scope.register_value_type::<ElemA, SizeA>(lhs);
-    rhypot::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
 }

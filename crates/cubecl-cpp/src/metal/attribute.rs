@@ -1,5 +1,13 @@
-use pliron::derive::format;
+use derive_more::Display;
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    context::Context,
+    derive::pliron_attr,
+    r#type::TypeHandle,
+};
 use std::fmt::Display;
+
+use crate::shared::ty::Uvec3Type;
 
 pub enum BufferAttribute {
     Buffer,
@@ -23,62 +31,41 @@ impl Display for BufferAttribute {
     }
 }
 
-#[format]
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum BuiltInAttribute {
+#[pliron_attr(name = "msl.builtin", format, verifier = "succ")]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Display)]
+pub enum BuiltInAttr {
+    #[display("simdgroup_index_in_threadgroup")]
     SIMDgroupIndexInThreadgroup,
+    #[display("thread_index_in_simdgroup")]
     ThreadIndexInSIMDgroup,
+    #[display("thread_index_in_threadgroup")]
     ThreadIndexInThreadgroup,
+    #[display("thread_position_in_grid")]
     ThreadPositionInGrid,
+    #[display("thread_position_in_threadgroup")]
     ThreadPositionInThreadgroup,
+    #[display("threadgroup_position_in_grid")]
     ThreadgroupPositionInGrid,
+    #[display("threadgroups_per_grid")]
     ThreadgroupsPerGrid,
+    #[display("threads_per_simdgroup")]
     ThreadsPerSIMDgroup,
-    ThreadsPerThreadgroup,
-    None,
 }
 
-impl BuiltInAttribute {
-    pub fn cpp_ty(&self) -> &'static str {
+impl BuiltInAttr {
+    pub fn ty(&self, ctx: &Context) -> TypeHandle {
         match self {
-            BuiltInAttribute::SIMDgroupIndexInThreadgroup
-            | BuiltInAttribute::ThreadIndexInSIMDgroup
-            | BuiltInAttribute::ThreadIndexInThreadgroup
-            | BuiltInAttribute::ThreadsPerSIMDgroup => "uint",
+            BuiltInAttr::SIMDgroupIndexInThreadgroup
+            | BuiltInAttr::ThreadIndexInSIMDgroup
+            | BuiltInAttr::ThreadIndexInThreadgroup
+            | BuiltInAttr::ThreadsPerSIMDgroup => {
+                IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle()
+            }
 
-            BuiltInAttribute::ThreadPositionInGrid
-            | BuiltInAttribute::ThreadPositionInThreadgroup
-            | BuiltInAttribute::ThreadgroupPositionInGrid
-            | BuiltInAttribute::ThreadgroupsPerGrid
-            | BuiltInAttribute::ThreadsPerThreadgroup => "uint3",
-            BuiltInAttribute::None => "",
-        }
-    }
-}
-
-impl Display for BuiltInAttribute {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            BuiltInAttribute::SIMDgroupIndexInThreadgroup => {
-                f.write_str("[[simdgroup_index_in_threadgroup]]")
-            }
-            BuiltInAttribute::ThreadIndexInSIMDgroup => {
-                f.write_str("[[thread_index_in_simdgroup]]")
-            }
-            BuiltInAttribute::ThreadIndexInThreadgroup => {
-                f.write_str("[[thread_index_in_threadgroup]]")
-            }
-            BuiltInAttribute::ThreadPositionInGrid => f.write_str("[[thread_position_in_grid]]"),
-            BuiltInAttribute::ThreadPositionInThreadgroup => {
-                f.write_str("[[thread_position_in_threadgroup]]")
-            }
-            BuiltInAttribute::ThreadgroupPositionInGrid => {
-                f.write_str("[[threadgroup_position_in_grid]]")
-            }
-            BuiltInAttribute::ThreadgroupsPerGrid => f.write_str("[[threadgroups_per_grid]]"),
-            BuiltInAttribute::ThreadsPerSIMDgroup => f.write_str("[[threads_per_simdgroup]]"),
-            BuiltInAttribute::ThreadsPerThreadgroup => f.write_str("[[threads_per_threadgroup]]"),
-            BuiltInAttribute::None => Ok(()),
+            BuiltInAttr::ThreadPositionInGrid
+            | BuiltInAttr::ThreadPositionInThreadgroup
+            | BuiltInAttr::ThreadgroupPositionInGrid
+            | BuiltInAttr::ThreadgroupsPerGrid => Uvec3Type::get(ctx).to_handle(),
         }
     }
 }

@@ -5,11 +5,11 @@ use crate::compiler::wgsl::{block_to_wgsl, to_wgsl::wgsl_op, value::WgslValue};
 
 wgsl_op!(YieldOp, |_, _| String::new());
 
-wgsl_op!(UnreachableOp, |_, _| "return;".into());
+wgsl_op!(UnreachableOp, |_, _| "return;\n".into());
 wgsl_op!(ReturnOp, |op, ctx| {
     match op.value(ctx) {
-        Some(value) => format!("return {};", value.name(ctx)),
-        None => "return;".into(),
+        Some(value) => format!("return {};\n", value.name(ctx)),
+        None => "return;\n".into(),
     }
 });
 

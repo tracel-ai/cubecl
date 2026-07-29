@@ -180,7 +180,7 @@ impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Shared<[T]>> {
 impl<T: CubePrimitive> Vectorized for Shared<[T]> {}
 impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Shared<[T]>> {
     fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
-        self.value(scope).vector_size(scope.ctx())
+        self.__extract_list(scope).vector_size(scope.ctx())
     }
 }
 

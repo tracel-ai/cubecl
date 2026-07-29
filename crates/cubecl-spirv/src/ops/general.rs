@@ -26,7 +26,6 @@ use crate::{
     types::ty_to_spirv_dialect,
 };
 
-unop_to_spirv_dialect!(general::CopyOp => ops::CopyObjectOp);
 binop_to_spirv_dialect!(general::BoolAndOp => ops::LogicalAndOp);
 binop_to_spirv_dialect!(general::BoolOrOp => ops::LogicalOrOp);
 unop_to_spirv_dialect!(general::BoolNotOp => ops::LogicalNotOp);

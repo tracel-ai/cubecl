@@ -1,7 +1,9 @@
 use core::marker::PhantomData;
 
 use cubecl_core::ir::{
-    ContextExt, cube_op,
+    ContextExt,
+    attributes::{ATTR_BUFFER_IO, BufferIOAttr, FuncInterface},
+    cube_op,
     dialect::OperationPtrExt,
     interfaces::{AlignedType, HasElementType},
     prelude::*,
@@ -9,12 +11,13 @@ use cubecl_core::ir::{
     types::{ArrayType, PointerType, RuntimeArrayType, VectorType, scalar::IndexType},
 };
 use cubecl_opt::passes::alloc_shared_memory::AllocSharedOp;
+use cubecl_runtime::kernel::Visibility;
 use itertools::Itertools;
 use pliron::{
     builtin::{
         attributes::{StringAttr, TypeAttr},
         op_interfaces::SingleBlockRegionInterface,
-        ops::ModuleOp,
+        ops::{FuncOp, ModuleOp},
     },
     graph::walkers::uninterruptible::immutable::walk_op,
     pass::Pass,
@@ -23,28 +26,28 @@ use pliron::{
 
 use crate::{
     shared::{
-        CompilationState, CppValue,
-        branch::block_to_cpp,
-        shared_op, shared_op_with_out,
+        CompilationState, CppValue, shared_op, shared_op_with_out,
         ty::{InfoStructType, TypeExtCPP, UniformPointerType},
-        type_definitions, type_info_definition_sized,
+        type_info_definition_sized,
     },
     target::*,
 };
 
-shared_op!(ModuleOp, |op, ctx| {
+#[cube_op(name = "cpp.declare_types")]
+#[result_ty(none)]
+pub struct DeclareInfoTypeOp {}
+
+shared_op!(DeclareInfoTypeOp, |_, ctx| {
     let state = ctx.aux_ty::<CompilationState>();
     let mut out = String::new();
-    type_definitions(&mut out, ctx).unwrap();
     type_info_definition_sized(&mut out, ctx, &state.info).unwrap();
-    out.push_str(&block_to_cpp(ctx, op.get_body(ctx, 0)));
     out
 });
 
 #[cube_op(name = "cpp.load_info")]
 #[result_ty(fixed = InfoStructType::get(ctx).into())]
 pub struct LoadInfoOp {
-    ptr: Value,
+    pub ptr: Value,
 }
 
 #[cube_op(name = "cpp.load_dynamic_meta")]
@@ -82,7 +85,7 @@ shared_op!(DeclareVectorOp, |op, ctx| {
     let inner_ty = vector.inner.to_cpp(ctx);
     let vec = vector.vectorization;
     let fields = (0..vec).map(|i| format!("{inner_ty} i_{i};")).join(" ");
-    format!("struct __align__({align}) {inner_ty}_{vec} {{ {fields} }};\n")
+    format!("struct alignas({align}) {inner_ty}_{vec} {{ {fields} }};\n")
 });
 
 #[cube_op(name = "cpp.include", format = "attr($header, $StringAttr)")]
@@ -315,4 +318,19 @@ pub fn shared_memory_size(ctx: &Context, module: Ptr<Operation>) -> usize {
         *size += op.size(ctx).0;
     });
     size
+}
+
+pub fn buffers(ctx: &Context, entry_func: FuncOp) -> Vec<Visibility> {
+    let entry = entry_func.get_entry_block(ctx);
+    let num_args = entry.deref(ctx).get_num_arguments();
+    let mut out = vec![];
+    for i in 0..num_args {
+        if let Some(io) = entry_func.get_arg_attr::<BufferIOAttr>(ctx, i, &ATTR_BUFFER_IO) {
+            out.push(match io.is_writable() {
+                true => Visibility::ReadWrite,
+                false => Visibility::Read,
+            });
+        }
+    }
+    out
 }

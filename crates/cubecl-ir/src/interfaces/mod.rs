@@ -96,12 +96,13 @@ macro_rules! CanMaterialize {
         impl $crate::interfaces::MaterializableOp for $ty {
             fn materialize(
                 &self,
-                ctx: &mut Context,
-                result_ty: Vec<TypeHandle>,
+                ctx: &mut pliron::context::Context,
+                result_ty: Vec<pliron::r#type::TypeHandle>,
                 operands: Vec<Value>,
-                attributes: AttributeDict,
-            ) -> Ptr<Operation> {
-                let op = Operation::new(
+                attributes: pliron::attribute::AttributeDict,
+            ) -> pliron::context::Ptr<pliron::operation::Operation> {
+                use pliron::op::Op;
+                let op = pliron::operation::Operation::new(
                     ctx,
                     Self::get_concrete_op_info(),
                     result_ty,
@@ -222,7 +223,7 @@ macro_rules! NoSideEffects {
     ($ty: ty) => {
         #[::pliron::derive::op_interface_impl]
         impl pliron::opts::dce::SideEffects for $ty {
-            fn has_side_effects(&self, _ctx: &Context) -> bool {
+            fn has_side_effects(&self, _ctx: &pliron::context::Context) -> bool {
                 false
             }
         }
@@ -328,17 +329,36 @@ pub trait SimplifyInterface {
 pub trait ConstantAttr: TypedAttrInterface {
     verify_attr_succ!();
     fn as_const_val(&self, ctx: &Context) -> ConstantValue;
+    fn float_as_f64(&self, _ctx: &Context) -> Option<f64> {
+        None
+    }
 }
 
 #[macro_export]
 macro_rules! try_cast_ty {
     ($ty: expr, $ctx: expr, $interface: ty) => {
-        type_cast::<$interface>(&*$ty)
+        $crate::prelude::type_cast::<$interface>(&*$ty)
             .ok_or_else(|| {
                 $crate::alloc::format!(
                     "Expected type {} {} to implement {}",
                     $ty.get_type_id(),
                     $ty.disp($ctx),
+                    stringify!($interface)
+                )
+            })
+            .unwrap()
+    };
+}
+
+#[macro_export]
+macro_rules! try_cast_op {
+    ($op: expr, $ctx: expr, $interface: ty) => {
+        $crate::prelude::op_cast::<$interface>(&*$op)
+            .ok_or_else(|| {
+                $crate::alloc::format!(
+                    "Expected op {} {} to implement {}",
+                    $op.get_opid(),
+                    $op.disp($ctx),
                     stringify!($interface)
                 )
             })

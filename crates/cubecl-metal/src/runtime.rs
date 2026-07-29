@@ -11,8 +11,7 @@ use cubecl_core::{
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
-    DialectWmmaCompiler,
-    metal::{MslDialect, arch::MetalArchitecture},
+    metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
     shared::register_wmma_features,
 };
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
@@ -227,7 +226,7 @@ fn register_types(props: &mut DeviceProperties) {
 
 /// Register WMMA (`simdgroup_matrix`) features for Metal.
 fn register_wmma(props: &mut DeviceProperties) {
-    let combinations = MslDialect::supported_wmma_combinations(&MetalArchitecture::Metal3);
+    let combinations = supported_cmma_combinations_metal(&MetalArchitecture::Metal3);
     register_wmma_features(combinations, props);
 }
 

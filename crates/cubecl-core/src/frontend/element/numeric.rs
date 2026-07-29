@@ -1,14 +1,11 @@
-use cubecl_ir::{ConstantValue, ExpandValue, dialect::general::ReadScalarOp};
+use cubecl_ir::{ConstantValue, ElemType, ExpandValue, dialect::general::ReadScalarOp};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
+use crate::unexpanded;
 use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder, frontend::*};
 use crate::{compute::KernelLauncher, frontend::AtomicNumeric};
 use crate::{frontend::CubeType, prelude::InputScalar};
-use crate::{
-    frontend::{Abs, ModFloor, VectorSum},
-    unexpanded,
-};
 use crate::{ir::Scope, prelude::Scalar};
 
 use super::{LaunchArg, NativeAssign, NativeExpand};
@@ -17,21 +14,21 @@ use super::{LaunchArg, NativeAssign, NativeExpand};
 /// Used in kernels that should work for both.
 pub trait Numeric:
     Copy
-    + Abs
-    + VectorSum
-    + CubeAdd
-    + CubeSub
-    + CubeMul
-    + CubeDiv
-    + CubeRem
-    + ModFloor
+    + ScalarAbs
+    + ScalarVectorSum
+    + ScalarAdd
+    + ScalarSub
+    + ScalarMul
+    + ScalarDiv
+    + ScalarRem
+    + ScalarModFloor
     + Scalar
     + AtomicNumeric
     + PlaneNumeric
     + NativeAssign
     + Into<NativeExpand<Self>>
     + Into<ConstantValue>
-    + CubePartialOrd
+    + ScalarPartialOrd
     + num_traits::NumCast
     + num_traits::NumAssign
     + core::fmt::Debug
@@ -112,7 +109,7 @@ impl<E: ScalarArgType> ScalarArgSettings for E {
 impl ScalarArgSettings for usize {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
         let value = InputScalar::new(*self, launcher.settings.address_type.unsigned_type());
-        InputScalar::register(value, launcher);
+        launcher.register_scalar_raw(value.as_bytes(), ElemType::Index);
     }
 }
 

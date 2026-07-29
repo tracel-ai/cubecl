@@ -1,46 +1,35 @@
-use crate::{
-    shared::{OpToCPP, ty::TypeExtCPP},
-    target::{CtxTarget, Target},
-};
+use crate::shared::{OpExtCPP, ty::TypeExtCPP};
 
 use cubecl_core::ir::{ContextExt, GlobalState, metadata::Info};
-use pliron::context::Context;
+use cubecl_runtime::kernel::Visibility;
+use pliron::{context::Context, op::Op};
 
 use core::fmt::{Display, Write};
 
 pub struct ComputeKernel {
     pub ctx: Context,
     pub shared_memory_size: usize,
+    pub buffers: Vec<Visibility>,
 }
 
 impl Display for ComputeKernel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let module = self.ctx.aux_ty::<GlobalState>().module;
-        let module = module.to_cpp(&self.ctx);
+        let module = module.get_operation().to_cpp(&self.ctx).unwrap();
         f.write_str(&module)
     }
 }
 
-pub fn type_definitions(f: &mut dyn Write, ctx: &Context) -> std::fmt::Result {
+pub fn type_definitions(f: &mut dyn Write, long: &str) -> std::fmt::Result {
     writeln!(f, "typedef unsigned int uint32_t;")?;
     writeln!(f, "typedef unsigned char uint8_t;")?;
     writeln!(f, "typedef unsigned short uint16_t;")?;
-    writeln!(f, "typedef unsigned long long int uint64_t;")?;
+    writeln!(f, "typedef unsigned {long} int uint64_t;")?;
 
     writeln!(f, "typedef signed char int8_t;")?;
     writeln!(f, "typedef signed short int16_t;")?;
     writeln!(f, "typedef signed int int32_t;")?;
-    writeln!(f, "typedef signed long long int int64_t;")?;
-
-    if ctx.target() != Target::Metal {
-        define_array_polyfill(f)?;
-    }
-
-    // This is fine to generate even on old cards, it's just an opaque block of memory
-    // The headers are dumb and only work in NVCC so we just need to define it ourselves
-    if ctx.target() == Target::Cuda {
-        define_tensormap_opaque(f)?;
-    }
+    writeln!(f, "typedef signed {long} int int64_t;")?;
 
     Ok(())
 }
@@ -78,7 +67,7 @@ pub fn type_info_definition_sized(
         .iter()
         .map(|field| {
             let ty = field.ty.to_type(ctx).to_cpp(ctx);
-            format!("{ty} scalars_{ty}[{}];", field.padded_size(ctx))
+            format!("{ty} scalars_{}[{}];", field.ty, field.padded_size(ctx))
         })
         .collect::<Vec<_>>()
         .join("\n");

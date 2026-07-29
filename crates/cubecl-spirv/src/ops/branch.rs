@@ -1,6 +1,6 @@
 use cubecl_core::{
     define_scalar,
-    frontend::{AddNativeExpand, PartialOrdScalarExpand},
+    frontend::{AddNativeExpand, PartialOrdNativeExpand},
     ir::{
         NoMemoryEffect,
         dialect::branch::{IfOp, YieldOp},

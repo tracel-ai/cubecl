@@ -20,27 +20,25 @@ use crate::compiler::wgsl::{
     value::WgslValue,
 };
 
-wgsl_op_with_out!(CopyOp, |op, ctx| op.value(ctx).name(ctx).into());
-
-wgsl_op_with_out!(BoolAndOp, |op, ctx| {
+wgsl_op_with_out!(BoolAndOp; |op, ctx| {
     format!("{} && {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
 });
-wgsl_op_with_out!(BoolOrOp, |op, ctx| {
+wgsl_op_with_out!(BoolOrOp; |op, ctx| {
     format!("{} || {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
 });
-wgsl_op_with_out!(BoolNotOp, |op, ctx| {
+wgsl_op_with_out!(BoolNotOp; |op, ctx| {
     format!("!{}", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(CastOp, |op, ctx| {
+wgsl_op_with_out!(CastOp; |op, ctx| {
     fmt_cast_to(ctx, op.input(ctx), op.result_type(ctx))
 });
-wgsl_op_with_out!(ReinterpretCastOp, |op, ctx| {
+wgsl_op_with_out!(ReinterpretCastOp; |op, ctx| {
     let ty = op.result_type(ctx).to_wgsl(ctx);
     format!("bitcast<{ty}>({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(SelectOp, |op, ctx| {
+wgsl_op_with_out!(SelectOp; |op, ctx| {
     let t = op.true_value(ctx).name(ctx);
     let f = op.false_value(ctx).name(ctx);
     format!("select({f}, {t}, {})", op.condition(ctx).name(ctx))
@@ -51,13 +49,13 @@ wgsl_op!(PrintfOp, |_, _| String::new()); // Unsupported
 wgsl_op!(CommentOp, |op, ctx| {
     let comment = op.comment(ctx).as_str().to_owned();
     if comment.contains('\n') {
-        format!("/* {comment} */")
+        format!("/* {comment} */\n")
     } else {
-        format!("// {comment}")
+        format!("// {comment}\n")
     }
 });
 
-wgsl_op_with_out!(ConstantOp, |op, ctx| attr_to_wgsl(ctx, &*op.get_value(ctx)));
+wgsl_op_with_out!(ConstantOp; |op, ctx| attr_to_wgsl(ctx, &*op.get_value(ctx)));
 
 pub fn attr_to_wgsl(ctx: &Context, attr: &dyn Attribute) -> String {
     let Some(attr) = attr_cast::<dyn AttrToWgsl>(attr) else {
@@ -90,7 +88,8 @@ impl AttrToWgsl for IntegerAttr {
         } else if ty.is_signed_int(ctx) && val.to_i64() == i64::MIN {
             "(i64(-9223372036854775807) - 1)".into()
         } else {
-            format!("{}({})", ty.to_wgsl(ctx), val.to_i128())
+            let val = val.to_string_decimal(ty.is_signed_int(ctx));
+            format!("{}({val})", ty.to_wgsl(ctx))
         }
     }
 }
@@ -98,7 +97,8 @@ impl AttrToWgsl for IntegerAttr {
 #[attr_interface_impl]
 impl AttrToWgsl for FloatAttr {
     fn to_wgsl(&self, ctx: &Context) -> String {
-        format!("{}({})", self.ty.to_wgsl(ctx), self.val)
+        let val = self.float_type(ctx).value_to_string(self.val);
+        format!("{}({val})", self.ty.to_wgsl(ctx))
     }
 }
 

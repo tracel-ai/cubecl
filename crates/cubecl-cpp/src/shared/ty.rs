@@ -2,7 +2,9 @@ use core::cell::Ref;
 
 use cubecl_core::ir::{
     AddressSpace, ContextExt, GlobalState,
-    attributes::{ATTR_BUFFER_BINDING, ATTR_READONLY, BufferBindingAttr, FuncInterface},
+    attributes::{
+        ATTR_BUFFER_BINDING, ATTR_BUFFER_IO, BufferBindingAttr, BufferIOAttr, FuncInterface,
+    },
     interfaces::TypedExt,
     match_ty,
     prelude::*,
@@ -224,7 +226,8 @@ fn find_global_constness(ctx: &Context, idx: usize) -> bool {
         .filter_map(|i| Some((i, func.get_arg_attr(ctx, i, &ATTR_BUFFER_BINDING)?)))
         .find(|(_, binding): &(_, Ref<'_, BufferBindingAttr>)| binding.buffer_pos == idx)
         .expect("Should exist");
-    func.has_arg_attr(ctx, arg_pos.0, &ATTR_READONLY)
+    let io = func.get_arg_attr::<BufferIOAttr>(ctx, arg_pos.0, &ATTR_BUFFER_IO);
+    !io.expect("Should have IO attribute").is_writable()
 }
 
 #[pliron_type(
@@ -245,6 +248,7 @@ shared_ty!(IntegerType, |ty, _| match ty.signedness() {
 });
 shared_ty!(BoolType, |_, _| "bool".into());
 
+shared_ty!(FloatFlex32Type, |_, _| "float".into());
 shared_ty!(Float32Type, |_, _| "float".into());
 shared_ty!(Float64Type, |_, _| "double".into());
 
@@ -252,7 +256,7 @@ shared_ty!(IndexType, |_, ctx| {
     ctx.address_type().unsigned_type().to_type(ctx).to_cpp(ctx)
 });
 
-/// Vector of three unsigned integers. This is the only native vector type that's actually revelant
+/// Vector of three unsigned integers. This is the only native vector type that's actually relevant
 /// for codegen, so we can just special case it and only use it where necessary (builtin types).
 #[pliron_type(
     name = "cpp.uvec3",

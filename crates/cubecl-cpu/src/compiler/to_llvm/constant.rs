@@ -66,7 +66,8 @@ pub fn convert_attr(ctx: &mut Context, value: AttrObj) -> AttrObj {
     } else if let Some(index_attr) = value.downcast_ref::<IndexAttr>() {
         int_attr(ctx, INDEX_WIDTH, index_attr.0 as i128).into()
     } else if let Some(float) = value.downcast_ref::<FloatAttr>() {
-        float_attr(ctx, float.ty, apfloat::double_to_f64(float.val)).unwrap()
+        let val = float.float_type(ctx).value_to_f64(float.val);
+        float_attr(ctx, float.ty, val).unwrap()
     } else {
         unreachable!("Attr should be covered")
     }

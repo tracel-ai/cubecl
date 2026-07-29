@@ -7,7 +7,7 @@ use cubecl_zspace::{Shape, Strides};
 use crate::{
     self as cubecl,
     compute::{KernelBuilder, KernelLauncher},
-    frontend::container::slice,
+    frontend::container::{buffer_len::expand_buffer_length_native, slice},
     prelude::*,
 };
 

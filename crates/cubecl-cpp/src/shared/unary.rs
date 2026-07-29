@@ -1,18 +1,17 @@
 use cubecl_core::{
     self as cubecl,
-    frontend::polyfills::{erf, log1p, to_degrees, to_radians},
+    frontend::polyfills::{erf, log1p, recip, to_degrees, to_radians},
     ir::{
         dialect::{
             atomic::AtomicLoadOp,
-            base::ptr_value_ty,
             bitwise::{
                 BitwiseNotOp, CountOnesOp, FindFirstSetOp, LeadingZerosBitsOp, ReverseBitsOp,
                 TrailingZerosBitsOp,
             },
-            general::{BoolNotOp, CastOp, ReinterpretCastOp},
+            general::{BoolNotOp, CastOp, FreeOp, ReinterpretCastOp},
             math::*,
             memory::{LoadOp, StoreOp},
-            plane::UniformLoadOp,
+            plane::{AtomicUniformLoadOp, UniformLoadOp},
         },
         interfaces::TypedExt,
         prelude::*,
@@ -108,6 +107,8 @@ shared_op_with_out!(SAbsOp, |op, ctx| {
 unrolling!(SAbsOp);
 promotes_int!(SAbsOp);
 
+shared_op!(FreeOp, |_, _| String::new());
+
 shared_op_with_out!(FAbsOp, |op, ctx| {
     let input = op.input(ctx);
     if input.is_half(ctx) {
@@ -115,7 +116,7 @@ shared_op_with_out!(FAbsOp, |op, ctx| {
     } else if input.is_half2(ctx) {
         format!("__habs2({})", input.name(ctx))
     } else {
-        format!("abs({})", input.name(ctx))
+        format!("fabs({})", input.name(ctx))
     }
 });
 unrolling!(FAbsOp);
@@ -227,13 +228,25 @@ shared_op!(StoreOp, |op, ctx| {
 
 macro_rules! lower_unop {
     ($ty: ty, $name: ident, $pred: expr) => {
-        #[op_interface_impl]
-        impl $crate::shared::lowering::LowerOp for $ty {
-            fn should_lower(&self, ctx: &Context) -> bool {
+        $crate::shared::unary::lower_target_unop!($ty, $name, $crate::target::Shared, $pred);
+    };
+    ($ty: ty, $name: ident) => {
+        $crate::shared::unary::lower_unop!($ty, $name, |_, _| true);
+    };
+}
+pub(crate) use lower_unop;
+
+macro_rules! lower_target_unop {
+    ($ty: ty, $name: ident, $target: ty, $pred: expr) => {
+        #[::pliron::derive::op_interface_impl]
+        impl $crate::shared::lowering::LowerOp<$target> for $ty {
+            fn should_lower(&self, ctx: &pliron::context::Context) -> bool {
                 $crate::shared::closure_inference_hack::<$ty, bool>(self, ctx, $pred)
             }
 
-            fn lower(&self, scope: &Scope) -> Vec<Value> {
+            fn lower(&self, scope: &cubecl_core::ir::Scope) -> Vec<pliron::value::Value> {
+                use cubecl_core::ir::prelude::*;
+                use cubecl_core::prelude::*;
                 define_scalar!(T);
                 define_size!(S);
                 let input = self.get_operand(scope.ctx());
@@ -242,16 +255,16 @@ macro_rules! lower_unop {
             }
         }
     };
-    ($ty: ty, $name: ident) => {
-        lower_unop!($ty, $name, |_, _| true);
+    ($ty: ty, $name: ident, $target: ty) => {
+        lower_target_unop!($ty, $name, $target, |_, _| true);
     };
 }
-pub(super) use lower_unop;
+pub(crate) use lower_target_unop;
 
 #[cube]
 fn find_first_set<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
-    let bits = Vector::new(comptime!(T::size_bits() as u32));
-    let out = bits - (input & (!input - Vector::one())).leading_zeros();
+    let bits = Vector::new(T::size_bits().comptime() as u32);
+    let out = bits - (input & (!input + Vector::one())).leading_zeros();
     select_many(input.equal(&Vector::zero()), Vector::zero(), out)
 }
 
@@ -272,6 +285,7 @@ fn count_ones<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
     Vector::<u32, N>::cast_from(Vector::<u32, N>::cast_from(input).count_ones())
 }
 
+lower_unop!(RecipOp, recip);
 lower_unop!(Log1pOp, log1p);
 lower_unop!(DegreesOp, to_degrees);
 lower_unop!(RadiansOp, to_radians);
@@ -320,13 +334,14 @@ unrolling!(IsInfOp);
 impl LowerOp for UniformLoadOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let ptr = self.ptr(scope.ctx());
-        let val = if ptr_value_ty(scope.ctx(), &ptr).is_atomic(scope.ctx()) {
-            let op = AtomicLoadOp::new(scope.ctx_mut(), ptr);
-            scope.register_with_result(&op)
-        } else {
-            let op = LoadOp::new(scope.ctx_mut(), ptr);
-            scope.register_with_result(&op)
-        };
-        vec![val]
+        vec![scope.register_with_result(&LoadOp::new(scope.ctx_mut(), ptr))]
+    }
+}
+
+#[op_interface_impl]
+impl LowerOp for AtomicUniformLoadOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ptr = self.ptr(scope.ctx());
+        vec![scope.register_with_result(&AtomicLoadOp::new(scope.ctx_mut(), ptr))]
     }
 }

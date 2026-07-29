@@ -7,12 +7,15 @@ use cubecl_ir::{
 
 use crate::io::*;
 
-pub struct ApplyCheckedIo {
+pub type CheckedIoPass = MatchRewritePass<CheckedIo>;
+
+#[derive(new)]
+pub struct CheckedIo {
     mode: ExecutionMode,
     kernel_name: String,
 }
 
-impl MatchRewrite for ApplyCheckedIo {
+impl MatchRewrite for CheckedIo {
     fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
         Operation::get_op::<IndexOp>(op, ctx)
             .is_some_and(|it| it.checked(ctx) && is_runtime_array(ctx, it.base(ctx)))

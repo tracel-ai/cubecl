@@ -1,11 +1,7 @@
-use cubecl_core::{
-    e2m1, e4m3, e5m2,
-    ir::{
-        attributes::{BoolAttr, FloatAttr, IndexAttr},
-        types::{barrier::BarrierTokenType, scalar::*},
-        verify_attr_succ,
-    },
-    ue8m0,
+use cubecl_core::ir::{
+    attributes::{BoolAttr, FloatAttr, IndexAttr},
+    types::barrier::BarrierTokenType,
+    verify_attr_succ,
 };
 use pliron::{
     attribute::{AttrObj, attr_cast},
@@ -15,7 +11,6 @@ use pliron::{
     derive::{attr_interface, attr_interface_impl},
     identifier::Identifier,
     r#type::{TypeHandle, Typed},
-    utils::apfloat::double_to_f64,
     value::Value,
 };
 
@@ -55,24 +50,38 @@ pub trait CppConstantAttr {
     fn to_cpp(&self, ctx: &Context) -> String;
 }
 
-macro_rules! const_attr {
-    ($ty: ty, $val: expr) => {
-        #[attr_interface_impl]
-        impl CppConstantAttr for $ty {
-            fn as_f64(&self, ctx: &Context) -> f64 {
-                $crate::shared::closure_inference_hack::<Self, _>(self, ctx, $val) as f64
-            }
-            fn to_cpp(&self, ctx: &Context) -> String {
-                let val = $crate::shared::closure_inference_hack::<Self, _>(self, ctx, $val);
-                format!("{val}")
-            }
-        }
-    };
+#[attr_interface_impl]
+impl CppConstantAttr for IndexAttr {
+    fn as_f64(&self, _ctx: &Context) -> f64 {
+        self.0 as f64
+    }
+    fn to_cpp(&self, _ctx: &Context) -> String {
+        format!("{}", self.0)
+    }
 }
 
-const_attr!(IntegerAttr, |attr, _| attr.value().to_i128());
-const_attr!(FloatAttr, |attr, _| double_to_f64(attr.val));
-const_attr!(IndexAttr, |attr, _| attr.0);
+#[attr_interface_impl]
+impl CppConstantAttr for IntegerAttr {
+    fn as_f64(&self, _ctx: &Context) -> f64 {
+        self.value().to_i128() as f64
+    }
+    fn to_cpp(&self, ctx: &Context) -> String {
+        let is_signed = self.get_type().deref(ctx).is_signed();
+        self.value().to_string_decimal(is_signed)
+    }
+}
+
+#[attr_interface_impl]
+impl CppConstantAttr for FloatAttr {
+    fn as_f64(&self, ctx: &Context) -> f64 {
+        self.float_type(ctx).value_to_f64(self.val)
+    }
+    fn to_cpp(&self, ctx: &Context) -> String {
+        // I would prefer to print the bits and use `bit_cast` but that's not well-supported. Keep
+        // an eye on this to make sure it doesn't cause issues.
+        self.float_type(ctx).value_to_string(self.val)
+    }
+}
 
 #[attr_interface_impl]
 impl CppConstantAttr for BoolAttr {
@@ -89,19 +98,22 @@ shared_op_with_out!(ConstantOp, |op, ctx| {
 });
 
 pub(crate) fn format_const(ctx: &Context, value: AttrObj, ty: TypeHandle) -> String {
-    let value = attr_cast::<dyn CppConstantAttr>(&*value).expect("Should be constant attr");
-    // minifloats are represented as raw bits, so use special handling
-    if ty.deref(ctx).is::<Float4E2M1Type>() {
-        format!("{}", e2m1::from_f64(value.as_f64(ctx)).to_bits())
-    } else if ty.is_float6(ctx) {
-        todo!("FP6 constants are not yet supported")
-    } else if ty.deref(ctx).is::<Float8E4M3Type>() {
-        format!("{}", e4m3::from_f64(value.as_f64(ctx)).to_bits())
-    } else if ty.deref(ctx).is::<Float8E5M2Type>() {
-        format!("{}", e5m2::from_f64(value.as_f64(ctx)).to_bits())
-    } else if ty.deref(ctx).is::<Float8E8M0Type>() {
-        format!("{}", ue8m0::from_f64(value.as_f64(ctx)).to_bits())
+    let const_attr = attr_cast::<dyn CppConstantAttr>(&*value).expect("Should be constant attr");
+    if let Some(attr) = value.downcast_ref::<FloatAttr>() {
+        let val = attr.float_type(ctx).value_to_f64(attr.val);
+        // minifloats are represented as raw bits, so use special handling
+        if ty.is_fp8_fp6_fp4(ctx) {
+            format!("{}", attr.val.to_bits())
+        } else if val.is_nan() {
+            "(0.0f/0.0f)".into()
+        } else if val.is_infinite() && val.is_sign_positive() {
+            "(1.0f/0.0f)".into()
+        } else if val.is_infinite() {
+            "(-1.0f/0.0f)".into()
+        } else {
+            attr.to_cpp(ctx)
+        }
     } else {
-        value.to_cpp(ctx)
+        const_attr.to_cpp(ctx)
     }
 }

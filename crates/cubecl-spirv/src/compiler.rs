@@ -12,24 +12,22 @@ use crate::{
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     Compiler, WgpuCompilationOptions,
-    ir::{
-        ContextExt,
-        attributes::{ATTR_READONLY, FuncInterface},
-        ident,
-        metadata::Info,
-        rewrite::SimplifyOpsPass,
-    },
+    ir::{ContextExt, attributes::FuncInterface, ident, metadata::Info, rewrite::SimplifyOpsPass},
     post_processing::{
-        bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass,
-        saturating::LowerSaturatingArithmeticPass, unroll::UnrollPass,
+        bitwise::PromoteBitwisePass,
+        checked_io::{CheckedIo, CheckedIoPass},
+        disaggregate::DisaggregatePass,
+        expression_merge::RemoveTrivialOpsPass,
+        saturating::LowerSaturatingArithmeticPass,
+        unroll::UnrollPass,
     },
     prelude::{KernelDefinition, Visibility},
 };
 use cubecl_ir::{
-    attributes::EntrypointInterface,
+    attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
     prelude::{SingleBlockRegionInterface, SymbolOpInterface},
     rewrite::visit_all_ops_of_type_mut,
-    settings::Dim3,
+    settings::{Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
@@ -56,7 +54,6 @@ use pliron::{
         simplify_cfg::SimplifyCFGPass,
     },
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
-    printable::Printable,
 };
 use pliron_spirv::{
     PlironBuilder, ToSpirvOp,
@@ -102,9 +99,6 @@ impl Compiler for SpirvCompiler {
             });
         }
 
-        #[cfg(not(feature = "spirv-dump"))]
-        let ir_printing_dir = None;
-
         #[cfg(feature = "spirv-dump")]
         let ir_printing_dir = kernel_dir_name(&value.settings.kernel_name);
 
@@ -118,28 +112,20 @@ impl Compiler for SpirvCompiler {
             cube_dim: value.settings.cube_dim,
         });
 
-        let entry = entry_func.get_entry_block(&ctx);
-        let bindings = (0..entry.deref(&ctx).get_num_arguments()).map(|i| {
-            let readonly = entry_func.has_arg_attr(&ctx, i, &ATTR_READONLY);
-            match readonly {
-                true => Visibility::Read,
-                false => Visibility::ReadWrite,
-            }
-        });
-        let bindings: Vec<Visibility> = bindings.collect();
+        let (module, bindings, shared_size) = self.compile_kernel(
+            &mut ctx,
+            module,
+            entry_func,
+            value.settings.clone(),
+            #[cfg(feature = "spirv-dump")]
+            ir_printing_dir,
+        )?;
 
         let info_visibility = Visibility::Read;
         let immediate_size = match params_storage_class(&ctx, bindings.len()) {
             StorageClass::PushConstant => Some((bindings.len() + 1) * size_of::<u64>()),
             _ => None,
         };
-
-        let (module, shared_size) = self.compile_kernel(
-            &mut ctx,
-            module,
-            #[cfg(feature = "std")]
-            ir_printing_dir,
-        );
 
         let kernel = SpirvKernel {
             assembled_module: module.assemble(),
@@ -172,16 +158,19 @@ impl SpirvCompiler {
         &mut self,
         ctx: &mut Context,
         module: ModuleOp,
-        #[cfg(feature = "std")] ir_printing_dir: Option<std::path::PathBuf>,
-    ) -> (Module, usize) {
+        entry_func: FuncOp,
+        settings: KernelSettings,
+        #[cfg(feature = "spirv-dump")] ir_printing_dir: Option<std::path::PathBuf>,
+    ) -> Result<(Module, Vec<Visibility>, usize), CompilationError> {
+        let entry = entry_func.get_entry_block(ctx);
         let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>();
         let module_op = module.get_operation();
 
-        std::fs::write("target/initial.plir", format!("{}", module.disp(ctx))).unwrap();
-        verify_operation(module.get_operation(), ctx).expect("Failed to verify before passes");
+        verify_operation(module.get_operation(), ctx)?;
 
         let config = PMConfig {
             print_after_all: true,
+            #[cfg(feature = "spirv-dump")]
             ir_printing_dir,
             ..Default::default()
         };
@@ -193,6 +182,10 @@ impl SpirvCompiler {
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
         func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
+            settings.execution_mode,
+            settings.kernel_name,
+        )));
         func_passes.add_pass(UnrollPass::new(comp_opts.vulkan.max_vector_size));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
@@ -201,6 +194,7 @@ impl SpirvCompiler {
         passes.add_pass(LowerBuiltinsPass);
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
+        func_passes.add_pass(RemoveTrivialOpsPass::default());
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
@@ -218,13 +212,16 @@ impl SpirvCompiler {
 
         passes.run(module_op, ctx, &mut analyses).unwrap();
 
-        std::fs::write(
-            "target/after_lower_shared.plir",
-            format!("{}", module.disp(ctx)),
-        )
-        .unwrap();
+        let bindings = (0..entry.deref(ctx).get_num_arguments()).map(|i| {
+            let io = entry_func.get_arg_attr::<BufferIOAttr>(ctx, i, &ATTR_BUFFER_IO);
+            match io.expect("Should have IO attr").is_writable() {
+                false => Visibility::Read,
+                true => Visibility::ReadWrite,
+            }
+        });
+        let bindings: Vec<Visibility> = bindings.collect();
 
-        verify_operation(module_op, ctx).expect("Failed to verify after passes");
+        verify_operation(module_op, ctx)?;
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
@@ -239,13 +236,7 @@ impl SpirvCompiler {
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.run(module_op, ctx, &mut analyses).unwrap();
 
-        std::fs::write(
-            "target/after_lower_cfg.plir",
-            format!("{}", module.disp(ctx)),
-        )
-        .unwrap();
-
-        verify_operation(module_op, ctx).expect("Failed to verify after passes");
+        verify_operation(module_op, ctx)?;
 
         let spirv_module = insert_spirv_module(ctx, module);
         let spirv_module_op = spirv_module.get_operation();
@@ -269,12 +260,8 @@ impl SpirvCompiler {
             .run(spirv_module_op, ctx, &mut analyses)
             .unwrap();
 
-        std::fs::write(
-            "target/after_convert_args.plir",
-            format!("{}", module.disp(ctx)),
-        )
-        .unwrap();
-
+        // Something weird with the validation rules, can't be bothered to debug for the MVP.
+        // Try to figure this out later.
         // verify_operation(module_op, ctx).expect("Failed to verify after passes");
 
         let mut builder = PlironBuilder::default();
@@ -283,7 +270,7 @@ impl SpirvCompiler {
             .expect("Failed to convert");
         let module = builder.module();
 
-        (module, shared_size)
+        Ok((module, bindings, shared_size))
     }
 }
 

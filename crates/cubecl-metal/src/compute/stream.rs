@@ -4,7 +4,7 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{MemoryManagement, MemoryManagementOptions},
-    server::Binding,
+    server::BufferBinding,
     stream::EventStreamBackend,
 };
 use objc2::rc::Retained;
@@ -368,10 +368,10 @@ impl EventStreamBackend for MetalStreamBackend {
 
         // While profiling, collect command buffers that actually carried dispatches; skip
         // empty signal-only buffers (ops_in_batch == 0) so they don't widen the measured span.
-        if ops_in_batch > 0 {
-            if let Some(buffers) = stream.profiling.as_mut() {
-                buffers.push(command_buffer.clone());
-            }
+        if ops_in_batch > 0
+            && let Some(buffers) = stream.profiling.as_mut()
+        {
+            buffers.push(command_buffer.clone());
         }
 
         stream.last_command_buffer = Some(command_buffer);
@@ -384,7 +384,7 @@ impl EventStreamBackend for MetalStreamBackend {
         MetalEvent::new(stream.shared_event.clone(), signal_value)
     }
 
-    fn handle_cursor(stream: &Self::Stream, handle: &Binding) -> u64 {
+    fn handle_cursor(stream: &Self::Stream, handle: &BufferBinding) -> u64 {
         // The slice cursor the sync logic compares against the origin stream's `last_synced`
         // to decide whether to wait. A freed/reallocated slice falls back to `u64::MAX`,
         // which conservatively forces a wait.

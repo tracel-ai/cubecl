@@ -6,7 +6,9 @@ use cubecl_core::ir::{
 use itertools::Itertools;
 use pliron::{
     builtin::{
-        op_interfaces::SymbolOpInterface, ops::FuncOp, type_interfaces::FunctionTypeInterface,
+        op_interfaces::{SingleBlockRegionInterface, SymbolOpInterface},
+        ops::{FuncOp, ModuleOp},
+        type_interfaces::FunctionTypeInterface,
         types::FunctionType,
     },
     context::Context,
@@ -20,11 +22,26 @@ use crate::{
     shared::{
         CppValue,
         branch::block_to_cpp,
+        define_array_polyfill, define_tensormap_opaque,
         ty::{TypeExtCPP, TypedExtCPP},
+        type_definitions,
     },
 };
 
 dict_key!(ATTR_GRID_CONSTANT, "grid_constant");
+
+cuda_op!(ModuleOp, |op, ctx| {
+    let mut out = String::new();
+    type_definitions(&mut out, "long long").unwrap();
+    define_array_polyfill(&mut out).unwrap();
+
+    // This is fine to generate even on old cards, it's just an opaque block of memory
+    // The headers are dumb and only work in NVCC so we just need to define it ourselves
+    define_tensormap_opaque(&mut out).unwrap();
+
+    out.push_str(&block_to_cpp(ctx, op.get_body(ctx, 0)));
+    out
+});
 
 cuda_op!(FuncOp, |op, ctx| {
     let func_name = op.get_symbol_name(ctx);

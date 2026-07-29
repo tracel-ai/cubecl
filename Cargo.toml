@@ -147,7 +147,7 @@ winapi = { version = "^0.3.9", features = ["processthreadsapi", "winbase"] }
 
 inflections = "1"
 pliron = { path = "../pliron", default-features = false }
-# pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "3190215a8f0fb8d9b7ace9e700b512709a078cac", default-features = false }
+# pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "4159dc0000a5e6c12bdbdf4a44c99cc5a839b2ae", default-features = false }
 pliron-llvm = { path = "../pliron/pliron-llvm", default-features = false }
 
 cudarc = { version = "0.19.6", features = [
@@ -163,6 +163,8 @@ cudarc = { version = "0.19.6", features = [
 # CubeCL-SPIR-V
 pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
 rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
+# pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "4d21e74cf1c49fff2307c620c13bd00b27121355" }
+# rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "4d21e74cf1c49fff2307c620c13bd00b27121355", package = "tracel-rspirv" }
 rustc_apfloat = "0.2"
 
 # CubeCL-WGPU

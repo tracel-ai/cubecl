@@ -1,10 +1,12 @@
 use cubecl_core::ir::{
     CanMaterialize, Pure,
-    attributes::{ATTR_READONLY, FuncInterface, IndexAttr},
+    attributes::{FuncInterface, IndexAttr},
     dialect::general::{BufferLenOp, ReadScalarOp, ShapeOp, StrideOp},
     ident,
+    interfaces::ScalarType,
     prelude::*,
     rewrite::RewriteOp,
+    try_cast_ty,
     types::scalar::IndexType,
 };
 use pliron::{
@@ -18,7 +20,7 @@ use crate::{
     shared::{
         CompilationOptions, CompilationState, shared_op_with_out,
         signature::{LoadDynMetaOp, LoadInfoOp},
-        ty::{InfoStructType, TypeExtCPP, UniformPointerType},
+        ty::{InfoStructType, UniformPointerType},
     },
 };
 
@@ -52,8 +54,9 @@ pub struct CppReadDynamicMetaOp {
 }
 
 shared_op_with_out!(CppReadScalarOp, |op, ctx| {
+    let ty = op.ty(ctx).get_type(ctx).deref(ctx);
+    let elem = try_cast_ty!(ty, ctx, dyn ScalarType).elem_type(ctx);
     let base = op.base(ctx).name(ctx);
-    let elem = op.ty(ctx).to_cpp(ctx);
     let offset = op.id(ctx).0;
     format!("{base}.scalars_{elem}[{offset}]")
 });
@@ -101,7 +104,6 @@ impl Pass for LowerInfoPass {
                 let usize = IndexType::get(ctx).to_handle();
                 let index_ptr = UniformPointerType::get(ctx, usize);
                 let id = func.push_argument(ctx, index_ptr.to_handle());
-                func.set_arg_attr_unit(ctx, id, &ATTR_READONLY);
                 insert_block_arg_name(ctx, entry_block, id, Some(dyn_meta_name));
                 let value = entry_block.deref(ctx).get_argument(id);
                 dyn_meta = Some(value);
@@ -110,7 +112,6 @@ impl Pass for LowerInfoPass {
             if has_info {
                 let id = func.push_argument(ctx, InfoStructType::get(ctx).into());
                 func.set_arg_attr_unit(ctx, id, &ATTR_GRID_CONSTANT);
-                func.set_arg_attr_unit(ctx, id, &ATTR_READONLY);
                 insert_block_arg_name(ctx, entry_block, id, Some(info_name));
                 let value = entry_block.deref(ctx).get_argument(id);
                 info_st = Some(value);
@@ -119,7 +120,6 @@ impl Pass for LowerInfoPass {
             let info_st_ty = InfoStructType::get(ctx).to_handle();
             let info_ptr = UniformPointerType::get(ctx, info_st_ty);
             let id = func.push_argument(ctx, info_ptr.to_handle());
-            func.set_arg_attr_unit(ctx, id, &ATTR_READONLY);
 
             let ptr = entry_block.deref(ctx).get_argument(id);
 
