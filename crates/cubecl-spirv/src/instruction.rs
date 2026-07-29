@@ -389,6 +389,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&output, write_id);
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
+            Operator::Real(_) | Operator::Imag(_) => {
+                unimplemented!("Real/Imag not supported on SPIRV")
+            }
             Operator::ReadBuiltin(builtin) => {
                 let out = self.compile_value(out);
                 let value = self.compile_builtin(builtin, &out.item());

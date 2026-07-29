@@ -4,7 +4,11 @@ use cubecl_ir::{
 };
 use cubecl_macros::cube;
 
-use crate::{self as cubecl, prelude::*};
+use crate::{
+    self as cubecl,
+    frontend::{validate_complex_assign_operation, validate_complex_operation},
+    prelude::*,
+};
 
 pub(crate) fn read_value(scope: &Scope, val: Value) -> Value {
     if let Type::Pointer(inner, _) = val.ty {
@@ -30,7 +34,8 @@ where
 
     let output = scope.create_value(item);
 
-    let op = func(BinaryOperands { lhs, rhs });
+    let op = func(BinaryOperands { lhs, rhs }).into();
+    validate_complex_operation(scope, &op);
 
     scope.register(Instruction::new(op, output));
 
@@ -66,7 +71,8 @@ where
     F: Fn(BinaryOperands) -> Arithmetic,
 {
     let out = scope.create_value(out_item);
-    let op = func(BinaryOperands { lhs, rhs });
+    let op = func(BinaryOperands { lhs, rhs }).into();
+    validate_complex_operation(scope, &op);
 
     scope.register(Instruction::new(op, out));
 
@@ -86,7 +92,8 @@ where
 
     let out = scope.create_value(out_item);
 
-    let op = func(BinaryOperands { lhs, rhs });
+    let op = func(BinaryOperands { lhs, rhs }).into();
+    validate_complex_operation(scope, &op);
 
     scope.register(Instruction::new(op, out));
 
@@ -114,7 +121,9 @@ pub(crate) fn assign_op_expand<T: CubeType, Op>(
     let op = func(BinaryOperands {
         lhs: lhs_value,
         rhs,
-    });
+    })
+    .into();
+    validate_complex_assign_operation(scope, &op);
 
     scope.register(Instruction::new(op, tmp));
     assign::expand_element(scope, tmp, lhs);
@@ -129,7 +138,8 @@ where
 
     let out = scope.create_value(item);
 
-    let op = func(UnaryOperands { input });
+    let op = func(UnaryOperands { input }).into();
+    validate_complex_operation(scope, &op);
 
     scope.register(Instruction::new(op, out));
 
@@ -148,7 +158,8 @@ where
 {
     let output = scope.create_value(out_item);
 
-    let op = func(UnaryOperands { input });
+    let op = func(UnaryOperands { input }).into();
+    validate_complex_operation(scope, &op);
 
     scope.register(Instruction::new(op, output));
 
@@ -195,13 +206,13 @@ pub fn assign_binary_op_expand<
     let rhs: Value = rhs.into();
     let out = scope.create_value(lhs.expand.ty);
 
-    scope.register(Instruction::new(
-        func(BinaryOperands {
-            lhs: lhs_value,
-            rhs,
-        }),
-        out,
-    ));
+    let op = func(BinaryOperands {
+        lhs: lhs_value,
+        rhs,
+    })
+    .into();
+    validate_complex_assign_operation(scope, &op);
+    scope.register(Instruction::new(op, out));
     lhs.__expand_assign_method(scope, out.into());
 }
 

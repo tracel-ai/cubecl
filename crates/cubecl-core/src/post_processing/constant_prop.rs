@@ -393,9 +393,10 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
 
         Arithmetic::Abs(op) => {
             use ConstantValue::*;
-            op.input.as_const().map(|input| match input {
-                Int(input) => ConstantValue::Int(input.abs()),
-                Float(input) => ConstantValue::Float(input.abs()),
+            op.input.as_const().and_then(|input| match input {
+                Int(input) => Some(ConstantValue::Int(input.abs())),
+                Float(input) => Some(ConstantValue::Float(input.abs())),
+                Complex(_, _) => None,
                 _ => unreachable!(),
             })
         }
@@ -485,6 +486,7 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
         Arithmetic::Erf(_)
         | Arithmetic::Magnitude(_)
         | Arithmetic::Normalize(_)
+        | Arithmetic::Conj(_)
         | Arithmetic::VectorSum(_) => None,
     }
 }
@@ -501,6 +503,7 @@ fn try_const_eval_cmp(op: &mut Comparison) -> Option<ConstantValue> {
             use ConstantValue::*;
             op.input.as_const().map(|input| match input {
                 Float(val) => Bool(val.is_nan()),
+                Complex(re, im) => Bool(re.is_nan() || im.is_nan()),
                 // Integers, bools, uints can't be NaN, so always false
                 Int(_) | UInt(_) | Bool(_) => Bool(false),
             })
@@ -509,6 +512,7 @@ fn try_const_eval_cmp(op: &mut Comparison) -> Option<ConstantValue> {
             use ConstantValue::*;
             op.input.as_const().map(|input| match input {
                 Float(val) => Bool(val.is_infinite()),
+                Complex(re, im) => Bool(re.is_infinite() || im.is_infinite()),
                 // Integers, bools, uints can't be infinite, so always false
                 Int(_) | UInt(_) | Bool(_) => Bool(false),
             })
@@ -570,6 +574,8 @@ fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<Co
         | Operator::InsertComponent(_)
         | Operator::ExtractComponent(_)
         | Operator::Reinterpret(_)
+        | Operator::Real(_)
+        | Operator::Imag(_)
         | Operator::Select(_)
         | Operator::ReadBuiltin(_)
         | Operator::ReadScalar(_) => None,

@@ -11,6 +11,7 @@ pub mod cluster;
 pub mod cmma;
 pub mod cmma2;
 pub mod comparison;
+pub mod complex;
 pub mod const_match;
 pub mod debug;
 pub mod different_rank;

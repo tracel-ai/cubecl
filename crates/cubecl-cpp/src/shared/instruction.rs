@@ -258,6 +258,9 @@ pub enum Instruction<D: Dialect> {
         out: Value<D>,
     },
     Neg(UnaryInstruction<D>),
+    Conj(UnaryInstruction<D>),
+    Real(UnaryInstruction<D>),
+    Imag(UnaryInstruction<D>),
     Magnitude(UnaryInstruction<D>),
     FastMagnitude(UnaryInstruction<D>),
     Normalize(UnaryInstruction<D>),
@@ -646,6 +649,25 @@ for (*{i} = {start}; *{i} {cmp} {end}; {increment}) {{
             }
             Instruction::Rem(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::Neg(UnaryInstruction { input, out }) => Neg::format(f, input, out),
+            Instruction::Conj(UnaryInstruction { input, out }) => {
+                let elem = out.elem();
+                let out_left = out.fmt_left();
+                // cuComplex structs have fields .x (real) and .y (imag).
+                let make_fn = match elem {
+                    Elem::CF32 => "make_cuFloatComplex",
+                    Elem::CF64 => "make_cuDoubleComplex",
+                    _ => unreachable!("Conj lowering requires a complex element type"),
+                };
+                writeln!(f, "{out_left} = {make_fn}({input}.x, -{input}.y);")
+            }
+            Instruction::Real(UnaryInstruction { input, out }) => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {input}.x;")
+            }
+            Instruction::Imag(UnaryInstruction { input, out }) => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {input}.y;")
+            }
             Instruction::Normalize(inst) => {
                 Normalize::<D, InverseSqrt>::format(f, &inst.input, &inst.out)
             }

@@ -2,7 +2,7 @@ use cubecl_common::{e2m1, e2m1x2, e4m3, e5m2, flex32, tf32, ue8m0};
 use cubecl_ir::StorageType;
 
 use crate::{
-    ir::{ElemType, FloatKind, IntKind, UIntKind},
+    ir::{ComplexKind, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{Numeric, Scalar},
 };
 
@@ -436,5 +436,47 @@ impl CubeElement for e2m1x2 {
     fn minimum_value() -> Self {
         let min = e2m1::MIN.to_bits() as u8;
         e2m1x2::from_bits(min << 4 | min)
+    }
+}
+
+impl CubeElement for num_complex::Complex<f32> {
+    fn type_name() -> &'static str {
+        "cf32"
+    }
+    fn as_bytes(slice: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(slice)
+    }
+    fn from_bytes(bytes: &[u8]) -> &[Self] {
+        bytemuck::cast_slice(bytes)
+    }
+    fn cube_type() -> StorageType {
+        ElemType::Complex(ComplexKind::C32).into()
+    }
+    fn maximum_value() -> Self {
+        num_complex::Complex::new(f32::MAX, 0.0)
+    }
+    fn minimum_value() -> Self {
+        num_complex::Complex::new(f32::MIN, 0.0)
+    }
+}
+
+impl CubeElement for num_complex::Complex<f64> {
+    fn type_name() -> &'static str {
+        "cf64"
+    }
+    fn as_bytes(slice: &[Self]) -> &[u8] {
+        bytemuck::cast_slice(slice)
+    }
+    fn from_bytes(bytes: &[u8]) -> &[Self] {
+        bytemuck::cast_slice(bytes)
+    }
+    fn cube_type() -> StorageType {
+        ElemType::Complex(ComplexKind::C64).into()
+    }
+    fn maximum_value() -> Self {
+        num_complex::Complex::new(f64::MAX, 0.0)
+    }
+    fn minimum_value() -> Self {
+        num_complex::Complex::new(f64::MIN, 0.0)
     }
 }

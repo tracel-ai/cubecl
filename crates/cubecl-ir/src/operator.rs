@@ -27,6 +27,10 @@ pub enum Operator {
     Cast(UnaryOperands),
     #[operation(pure)]
     Reinterpret(UnaryOperands),
+    #[operation(pure)]
+    Real(UnaryOperands),
+    #[operation(pure)]
+    Imag(UnaryOperands),
     /// A select statement/ternary
     #[operation(pure)]
     Select(SelectOperands),
@@ -59,6 +63,8 @@ impl Display for Operator {
             }
             Operator::Cast(op) => write!(f, "cast({})", op.input),
             Operator::Reinterpret(op) => write!(f, "reinterpret({})", op.input),
+            Operator::Real(op) => write!(f, "{}.real()", op.input),
+            Operator::Imag(op) => write!(f, "{}.imag()", op.input),
             Operator::ReadBuiltin(builtin) => write!(f, "read_builtin({builtin:?})"),
             Operator::ReadScalar(id) => write!(f, "read_scalar({id})"),
         }
