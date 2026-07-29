@@ -4,6 +4,7 @@ use super::storage::{WgpuResource, WgpuStorage};
 use crate::WgpuCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
+use cubecl_common::pool::LeasePool;
 use cubecl_common::{
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
@@ -31,7 +32,7 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(feature = "spirv")]
 use cubecl_runtime::compiler::{compilation_store, store_compiled};
-use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage};
+use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage, SharedMemoryBindings};
 use cubecl_runtime::{
     compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -75,6 +76,8 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
+    /// Reusable buffers for the cross-stream input bindings of each launch.
+    shared_bindings_pool: LeasePool<SharedMemoryBindings>,
     _compiler: PhantomData<C>,
 }
 
@@ -134,6 +137,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             ),
             backend,
             utilities: Arc::new(utilities),
+            shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
             _compiler: PhantomData,
         }
     }
@@ -379,9 +383,16 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         };
 
         self.streams_pool.clear();
-        args.buffers
-            .iter()
-            .for_each(|b| self.streams_pool.push(b.stream));
+        // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
+        // automatically when the guard drops.
+        let mut shared_inputs = self.shared_bindings_pool.acquire();
+        // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
+        args.buffers.iter().for_each(|b| {
+            self.streams_pool.push(b.stream);
+            if b.stream != stream_id {
+                shared_inputs.push(b.memory.clone());
+            }
+        });
 
         let resources = match self.prepare_bindings(args, compiler_info) {
             Ok(val) => val,
@@ -396,6 +407,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             pipeline,
             count,
             resources,
+            shared_inputs,
         };
 
         self.scheduler.register(stream_id, task, &self.streams_pool);

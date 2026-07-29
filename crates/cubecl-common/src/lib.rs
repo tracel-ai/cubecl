@@ -40,6 +40,9 @@ pub mod benchmark;
 /// Module for profiling any executable part
 pub mod profile;
 
+/// A dynamically-growing pool that leases exclusive, reusable single-cell items.
+pub mod pool;
+
 /// Quantization primitives required outside of `cubecl-quant`
 pub mod quant;
 

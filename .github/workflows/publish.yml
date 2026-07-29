@@ -186,12 +186,27 @@ jobs:
     secrets:
       CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
 
+  publish-cubecl-metal:
+    needs:
+      - publish-cubecl-common
+      - publish-cubecl-core
+      - publish-cubecl-cpp
+      - publish-cubecl-ir
+      - publish-cubecl-runtime
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    with:
+      crate: cubecl-metal
+      dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
+    secrets:
+      CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
+
   publish-cubecl:
     needs:
       - publish-cubecl-core
       - publish-cubecl-cuda
       - publish-cubecl-wgpu
       - publish-cubecl-cpu
+      - publish-cubecl-metal
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
     with:
       crate: cubecl

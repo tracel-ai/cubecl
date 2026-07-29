@@ -1,5 +1,5 @@
 use crate::memory_management::MemoryHandle;
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec::Vec};
 use core::cell::Cell;
 
 /// Managed Memory handle
@@ -14,6 +14,13 @@ pub struct ManagedMemoryHandle {
 #[derive(Debug)]
 pub struct ManagedMemoryBinding {
     descriptor: Arc<ManagedMemoryDescriptor>,
+}
+
+/// A list of bindings that are shared across multiple streams.
+#[derive(Debug, Default)]
+pub struct SharedMemoryBindings {
+    /// The bindings.
+    pub bindings: Vec<ManagedMemoryBinding>,
 }
 
 impl Clone for ManagedMemoryHandle {
@@ -216,6 +223,29 @@ impl MemoryHandle<ManagedMemoryBinding> for ManagedMemoryHandle {
 
     fn binding(self) -> ManagedMemoryBinding {
         self.binding()
+    }
+}
+
+impl SharedMemoryBindings {
+    /// Clears the shared bindings list.
+    pub fn clear(&mut self) {
+        self.bindings.clear();
+    }
+
+    /// Returns true if the shared bindings list is empty.
+    pub fn is_empty(&self) -> bool {
+        self.bindings.is_empty()
+    }
+
+    /// Push a memory binding to the list of shared bindings.
+    pub fn push(&mut self, binding: ManagedMemoryBinding) {
+        self.bindings.push(binding)
+    }
+}
+
+impl cubecl_common::pool::Reclaim for SharedMemoryBindings {
+    fn reclaim(&mut self) {
+        self.clear();
     }
 }
 
