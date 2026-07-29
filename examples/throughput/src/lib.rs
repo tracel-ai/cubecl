@@ -1,7 +1,7 @@
 use cubecl::{
     ir::{ElemType, FloatKind},
     prelude::*,
-    std::throughput::{measure_launch_overhead, measure_peak_throughput},
+    std::throughput::measure_peak_throughput,
     throughput::{CmmaDims, ComputeCmmaConfig, ThroughputKey, ThroughputMode},
 };
 
@@ -27,7 +27,7 @@ macro_rules! dispatch {
             type $runtime = cubecl::cpu::CpuRuntime;
             $body;
         }
-        #[cfg(feature = "metal-native")]
+        #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
         {
             type $runtime = cubecl::metal::MetalRuntime;
             $body;
@@ -59,18 +59,20 @@ pub fn memory<R: Runtime>(device: &R::Device) {
 
 /// Measures the fixed cost of a single kernel launch.
 pub fn launch_overhead<R: Runtime>(device: &R::Device) {
-    let client = R::client(device);
-    let duration = measure_launch_overhead::<R>(&client);
-    println!("Launch overhead: {:?}", duration);
+    run::<R>(device, &[launch_overhead_key()]);
 }
 
 /// Runs every throughput benchmark and prints them as a table.
 pub fn all<R: Runtime>(device: &R::Device) {
     run::<R>(
         device,
-        &[compute_direct_key(), compute_cmma_key(), memory_key()],
+        &[
+            compute_direct_key(),
+            compute_cmma_key(),
+            memory_key(),
+            launch_overhead_key(),
+        ],
     );
-    launch_overhead::<R>(device);
 }
 
 fn run<R: Runtime>(device: &R::Device, keys: &[ThroughputKey]) {
@@ -92,46 +94,59 @@ fn run<R: Runtime>(device: &R::Device, keys: &[ThroughputKey]) {
 /// Describes the operands of a benchmark: input dtype, plus CMMA shape and accumulator.
 fn describe(key: &ThroughputKey) -> String {
     match key.mode {
-        ThroughputMode::ComputeCmma(cfg) => format!(
+        ThroughputMode::ComputeCmma {
+            dtype: input_dtype,
+            config: cfg,
+        } => format!(
             "{}→{} {}×{}×{}",
-            key.dtype, cfg.accumulator_type, cfg.cmma_dims.m, cfg.cmma_dims.n, cfg.cmma_dims.k,
+            input_dtype, cfg.accumulator_type, cfg.cmma_dims.m, cfg.cmma_dims.n, cfg.cmma_dims.k,
         ),
-        _ => key.dtype.to_string(),
+        ThroughputMode::ComputeDirect { .. } => key.dtype().to_string(),
+        ThroughputMode::Memory | ThroughputMode::Launch => String::new(),
     }
 }
 
 fn mode_label(mode: &ThroughputMode) -> &'static str {
     match mode {
-        ThroughputMode::ComputeDirect => "compute-direct",
-        ThroughputMode::ComputeCmma(_) => "compute-cmma",
+        ThroughputMode::ComputeDirect { .. } => "compute-direct",
+        ThroughputMode::ComputeCmma { .. } => "compute-cmma",
         ThroughputMode::Memory => "memory",
+        ThroughputMode::Launch => "launch",
     }
 }
 
 fn compute_direct_key() -> ThroughputKey {
     ThroughputKey {
-        mode: ThroughputMode::ComputeDirect,
-        dtype: ElemType::Float(FloatKind::F16),
+        mode: ThroughputMode::ComputeDirect {
+            dtype: ElemType::Float(FloatKind::F16),
+        },
     }
 }
 
 fn compute_cmma_key() -> ThroughputKey {
     ThroughputKey {
-        mode: ThroughputMode::ComputeCmma(ComputeCmmaConfig {
-            cmma_dims: CmmaDims {
-                m: 16,
-                n: 16,
-                k: 16,
+        mode: ThroughputMode::ComputeCmma {
+            dtype: ElemType::Float(FloatKind::F16),
+            config: ComputeCmmaConfig {
+                cmma_dims: CmmaDims {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                },
+                accumulator_type: ElemType::Float(FloatKind::F16),
             },
-            accumulator_type: ElemType::Float(FloatKind::F16),
-        }),
-        dtype: ElemType::Float(FloatKind::F16),
+        },
     }
 }
 
 fn memory_key() -> ThroughputKey {
     ThroughputKey {
         mode: ThroughputMode::Memory,
-        dtype: ElemType::Float(FloatKind::F16),
+    }
+}
+
+fn launch_overhead_key() -> ThroughputKey {
+    ThroughputKey {
+        mode: ThroughputMode::Launch,
     }
 }
