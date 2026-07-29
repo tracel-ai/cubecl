@@ -10,6 +10,24 @@ use portable_atomic_util::Arc;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+/// Reports a configuration file that exists but could not be read into the
+/// configuration type.
+///
+/// Goes to stderr as well as `log`. A malformed file is silently replaced by
+/// [`Default`], and configuration is resolved on first use — typically before
+/// the application has installed a `log` sink, so a `log`-only warning is
+/// usually written to nothing at all. That combination is how a single stale
+/// field turns every setting in a file into its default with nothing to notice.
+///
+/// Only reached when a file is present *and* malformed, which is always a
+/// mistake worth interrupting for. A missing file, or one without the section
+/// being looked for, is ordinary and stays quiet.
+#[cfg(std_io)]
+fn report_malformed(message: &str) {
+    log::warn!("{message}");
+    std::eprintln!("cubecl config: {message}");
+}
+
 /// Trait for runtime configurations potentially loaded from a TOML file.
 ///
 /// Implementors provide a global storage slot and the set of file names to search for;
@@ -190,7 +208,9 @@ pub trait RuntimeConfig:
         match toml::from_str(&content) {
             Ok(config) => Ok(config),
             Err(err) => {
-                log::warn!("Ignoring {path:?}, which doesn't have the right format => {err}");
+                report_malformed(&alloc::format!(
+                    "Ignoring {path:?}, which doesn't have the right format => {err}"
+                ));
                 Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
             }
         }
@@ -208,7 +228,9 @@ pub trait RuntimeConfig:
         let mut table: toml::Table = match toml::from_str(&content) {
             Ok(val) => val,
             Err(err) => {
-                log::warn!("Ignoring {path:?}, which doesn't have the right format => {err}");
+                report_malformed(&alloc::format!(
+                    "Ignoring {path:?}, which doesn't have the right format => {err}"
+                ));
                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err));
             }
         };
@@ -226,12 +248,97 @@ pub trait RuntimeConfig:
         match value.try_into() {
             Ok(config) => Ok(config),
             Err(err) => {
-                log::warn!(
+                report_malformed(&alloc::format!(
                     "Ignoring section '{section}' of {path:?}, which doesn't have the right \
                      format => {err}"
-                );
+                ));
                 Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
             }
         }
+    }
+}
+
+#[cfg(all(test, std_io))]
+mod tests {
+    use super::*;
+
+    #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
+    struct Probe {
+        #[serde(default)]
+        cache: bool,
+    }
+
+    static PROBE: crate::sync::Mutex<Option<Arc<Probe>>> = crate::sync::Mutex::new(None);
+
+    impl RuntimeConfig for Probe {
+        fn storage() -> &'static crate::sync::Mutex<Option<Arc<Self>>> {
+            &PROBE
+        }
+        fn file_names() -> &'static [&'static str] {
+            &["probe.toml"]
+        }
+        fn section_file_names() -> &'static [(&'static str, &'static str)] {
+            &[("host.toml", "probe")]
+        }
+    }
+
+    fn scratch(name: &str, file: &str, content: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(alloc::format!(
+            "cubecl-config-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(file), content).unwrap();
+        dir
+    }
+
+    /// A field whose *type* changed is the failure mode that silently reverts a
+    /// whole file to defaults: the file is found, so nothing looks wrong, but
+    /// every setting in it is dropped. It has to surface as an error rather
+    /// than a `None`-shaped miss.
+    #[test]
+    fn a_wrongly_typed_field_fails_the_whole_file() {
+        let dir = scratch("typed", "probe.toml", "cache = \"target\"\n");
+
+        let err = Probe::from_file_path(dir.join("probe.toml")).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Same, one level in: the section exists but does not deserialize.
+    #[test]
+    fn a_wrongly_typed_field_fails_the_whole_section() {
+        let dir = scratch("section", "host.toml", "[probe]\ncache = \"target\"\n");
+
+        let err = Probe::from_section_file_path(dir.join("host.toml"), "probe").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A host file that simply has no section for us is ordinary, not an error
+    /// worth reporting — that is how a shared `burn.toml` looks to a crate it
+    /// says nothing about.
+    #[test]
+    fn a_missing_section_is_quiet() {
+        let dir = scratch("missing", "host.toml", "[other]\nvalue = 1\n");
+
+        let err = Probe::from_section_file_path(dir.join("host.toml"), "probe").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The good path still reads the value through.
+    #[test]
+    fn a_well_formed_section_parses() {
+        let dir = scratch("ok", "host.toml", "[probe]\ncache = true\n");
+
+        let config = Probe::from_section_file_path(dir.join("host.toml"), "probe").unwrap();
+        assert!(config.cache);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
