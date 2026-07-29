@@ -1,5 +1,11 @@
 use super::prelude::*;
-use cubecl_core::ir::dialect::general::{CastOp, SelectOp};
+use cubecl_core::ir::dialect::{
+    barrier::{
+        ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, ExpectTxOp, InitOp,
+        WaitOp, WaitParityOp,
+    },
+    general::{CastOp, CommentOp, FreeOp, SelectOp},
+};
 
 fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
     let ty = ty.deref(ctx);
@@ -160,3 +166,31 @@ impl ToLLVMDialect for SelectOp {
         Ok(())
     }
 }
+
+macro_rules! erase_op {
+    ($cube_op:ty) => {
+        #[op_interface_impl]
+        impl ToLLVMDialect for $cube_op {
+            fn rewrite(
+                &self,
+                ctx: &mut Context,
+                rewriter: &mut DialectConversionRewriter,
+                _operands_info: &OperandsInfo,
+            ) -> Result<()> {
+                rewriter.erase_operation(ctx, self.get_operation());
+                Ok(())
+            }
+        }
+    };
+}
+
+erase_op!(CommentOp);
+erase_op!(FreeOp);
+erase_op!(InitOp);
+erase_op!(ArriveOp);
+erase_op!(ArriveAndExpectTxOp);
+erase_op!(CommitCopyAsyncOp);
+erase_op!(ExpectTxOp);
+erase_op!(WaitOp);
+erase_op!(WaitParityOp);
+erase_op!(ArriveAndWaitOp);

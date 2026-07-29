@@ -6,10 +6,15 @@
 //! CPU-private ops carry the ordering they must be lowered with, and become their `llvm` dialect
 //! counterpart in [`to_llvm::atomic`](super::to_llvm::atomic).
 
+use cubecl_core::ir::dialect::atomic::AtomicLoadOp;
+use cubecl_core::ir::dialect::memory::LoadOp;
+use cubecl_core::ir::dialect::plane::{AtomicUniformLoadOp, UniformLoadOp};
 use cubecl_core::ir::prelude::*;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use pliron_llvm::attributes::AtomicOrderingAttr;
+
+use crate::compiler::polyfill::LowerOp;
 
 /// Atomic load, i.e. `atomic.load` with an explicit ordering.
 #[cube_op(name = "cpu.ordered_atomic_load")]
@@ -71,4 +76,20 @@ pub fn atomic_fetch_add_acq_rel(atomic: &Atomic<u32>, value: u32) -> u32 {
             OrderedAtomicFetchAddOp::new(scope.ctx_mut(), ptr, value, AtomicOrderingAttr::AcqRel);
         scope.register_with_result(&op).into()
     })
+}
+
+#[op_interface_impl]
+impl LowerOp for UniformLoadOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ptr = self.ptr(scope.ctx());
+        vec![scope.register_with_result(&LoadOp::new(scope.ctx_mut(), ptr))]
+    }
+}
+
+#[op_interface_impl]
+impl LowerOp for AtomicUniformLoadOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ptr = self.ptr(scope.ctx());
+        vec![scope.register_with_result(&AtomicLoadOp::new(scope.ctx_mut(), ptr))]
+    }
 }

@@ -1,7 +1,10 @@
 use crate::compiler::to_llvm::ty::scalar_alignment;
 
 use super::prelude::*;
-use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp};
+use cubecl_core::ir::{
+    dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp},
+    types::barrier::BarrierType,
+};
 
 #[op_interface_impl]
 impl ToLLVMDialect for DeclareVariableOp {
@@ -12,6 +15,13 @@ impl ToLLVMDialect for DeclareVariableOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let value_ty = self.value_ty(ctx).get_type(ctx);
+
+        if value_ty.deref(ctx).is::<BarrierType>() {
+            // Only there to replace by something easy to optimize out
+            let useless = insert_i32_const(ctx, rewriter, 0);
+            rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![useless]);
+            return Ok(());
+        }
 
         let (elem_ty, count) = {
             let value_ty = value_ty.deref(ctx);
