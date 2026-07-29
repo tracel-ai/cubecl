@@ -59,6 +59,24 @@ mod tests {
         out[idx] = mem[0];
     }
 
+    // Two shared memories of different alignments must each be shared by the whole cube, and
+    // must not overlap.
+    #[cube(launch)]
+    fn sync_cube_two_shared(out: &mut [u32]) {
+        let mut units = Shared::new_slice(4usize);
+        let mut scaled = Shared::new_slice(4usize);
+        let idx = UNIT_POS as usize;
+        units[idx] = UNIT_POS + 1;
+        scaled[idx] = 10u64 * (UNIT_POS as u64 + 1);
+        sync_cube();
+
+        let mut sum = 0u32;
+        for i in 0..4 {
+            sum += units[i] + scaled[i] as u32;
+        }
+        out[idx] = sum;
+    }
+
     #[cube(launch)]
     fn sync_cube_all_reduce(out: &mut [u32]) {
         let mut mem = Shared::new_slice(8usize);
@@ -158,6 +176,26 @@ mod tests {
         let bytes = client.read_one_unchecked(out);
         let actual = u32::from_bytes(&bytes);
         assert_eq!(actual, &[10u32; 4]);
+    }
+
+    #[test]
+    fn test_sync_cube_two_shared_cpu() {
+        let client = TestRuntime::client(&Default::default());
+        let out = client.empty(4 * core::mem::size_of::<u32>());
+
+        unsafe {
+            sync_cube_two_shared::launch::<TestRuntime>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_1d(4),
+                BufferArg::from_raw_parts(out.clone(), 4),
+            )
+        }
+
+        let bytes = client.read_one_unchecked(out);
+        let actual = u32::from_bytes(&bytes);
+        // (1 + 2 + 3 + 4) + (10 + 20 + 30 + 40)
+        assert_eq!(actual, &[110u32; 4]);
     }
 
     #[test]

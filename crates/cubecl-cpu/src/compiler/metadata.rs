@@ -1,5 +1,6 @@
 //! Rewrites the kernel entry ABI to what the JIT host calls.
 
+use core::cell::RefCell;
 use cubecl_core::ir::attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface};
 use cubecl_core::ir::dialect::general::{BufferLenOp, ReadScalarOp, ShapeOp, StrideOp};
 use cubecl_core::ir::dialect::math::IAddOp;
@@ -13,7 +14,9 @@ use pliron::builtin::types::{FunctionType, IntegerType, Signedness};
 use pliron_llvm::op_interfaces::CastOpWithNNegInterface;
 use pliron_llvm::ops as llvm;
 use pliron_llvm::types::PointerType as LlvmPointerType;
+use std::rc::Rc;
 
+use crate::compiler::shared_memory::{SharedDeclarations, SharedMemories};
 use crate::compiler::to_llvm::ty::{INDEX_WIDTH, cube_type_to_llvm};
 
 /// `(op, buffer_idx, result)` for each `cube.buffer_len`, gathered during the walk so the ops
@@ -32,17 +35,22 @@ struct ReadScalars(Vec<(Ptr<Operation>, TypeHandle, usize, Value)>);
 #[derive(Default)]
 struct DynMetaReads(Vec<(Ptr<Operation>, usize, Value, Value)>);
 
-/// Collapses buffer args behind `%buffer_ptrs`, lowers `cube.buffer_len`, `cube.read_scalar`,
-/// `cube.shape` and `cube.stride` against `%metadata`. The info buffer is laid out as
-/// `[scalars | static meta | dynamic meta]`, so scalar reads index straight from its front while
-/// metadata reads must skip the scalar prefix.
+/// Collapses buffer args and shared memories behind `%buffer_ptrs`, lowers `cube.buffer_len`,
+/// `cube.read_scalar`, `cube.shape` and `cube.stride` against `%metadata`. The info buffer is
+/// laid out as `[scalars | static meta | dynamic meta]`, so scalar reads index straight from its
+/// front while metadata reads must skip the scalar prefix.
 pub struct LowerEntryAbiPass {
     info: Info,
+    /// Filled in with the shared memory the host must reserve, see [`SharedMemories`].
+    shared_memories: Rc<RefCell<SharedMemories>>,
 }
 
 impl LowerEntryAbiPass {
-    pub fn new(info: Info) -> Self {
-        Self { info }
+    pub fn new(info: Info, shared_memories: Rc<RefCell<SharedMemories>>) -> Self {
+        Self {
+            info,
+            shared_memories,
+        }
     }
 }
 
@@ -71,6 +79,8 @@ impl Pass for LowerEntryAbiPass {
                 buffers.push((i, pos, entry.deref(ctx).get_argument(i)));
             }
         }
+
+        let shared = SharedDeclarations::collect(ctx, op);
 
         let mut buffer_lens = BufferLens::default();
         visit_all_ops_of_type::<BufferLenOp, _>(ctx, &mut buffer_lens, op, |ctx, state, bl| {
@@ -204,8 +214,13 @@ impl Pass for LowerEntryAbiPass {
             Operation::erase(*rs_op, ctx);
         }
 
-        // Collapse buffers behind a single leading `%buffer_ptrs`.
-        if !buffers.is_empty() {
+        // Collapse buffers and shared memories behind a single leading `%buffer_ptrs`. The
+        // shared memories take the slots after the last buffer.
+        let shared_base = (buffers.iter())
+            .map(|(_, buffer_pos, _)| buffer_pos + 1)
+            .max()
+            .unwrap_or(0);
+        if !buffers.is_empty() || !shared.is_empty() {
             BasicBlock::insert_argument(entry, ctx, 0, ptr_ty);
             let buffer_ptrs = entry.deref(ctx).get_argument(0);
             let terminator = entry
@@ -224,6 +239,14 @@ impl Pass for LowerEntryAbiPass {
                 let load = llvm::LoadOp::new(ctx, gep.get_result(ctx), ptr_ty);
                 load.get_operation().insert_before(ctx, terminator);
                 old_val.replace_all_uses_with(ctx, &load.get_result(ctx));
+            }
+
+            let blocks = shared.lower(ctx, buffer_ptrs, shared_base, terminator);
+            if !blocks.is_empty() {
+                *self.shared_memories.borrow_mut() = SharedMemories {
+                    base: shared_base,
+                    blocks,
+                };
             }
 
             let mut removed: Vec<usize> = buffers.iter().map(|(i, _, _)| i + 1).collect();

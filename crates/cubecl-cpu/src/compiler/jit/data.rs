@@ -4,16 +4,13 @@ use std::sync::atomic::AtomicU32;
 
 use crate::compiler::polyfill::synchronization::SYNC_CUBE_STATE_LEN;
 
-/// Data shared by every unit of a launch: the buffer data pointers (indexed by binding
-/// position), the metadata array, the shared memory block and the cube barrier counters. All but
-/// the counters point into server-owned storage that must outlive the launch.
+/// Data shared by every unit of a launch: the pointer table (the buffer data pointers indexed by
+/// binding position, then the shared memory blocks), the metadata array and the cube barrier
+/// counters. All but the counters point into server-owned storage that must outlive the launch.
 #[derive(Default)]
 pub struct SharedData {
     pub buffer_ptrs: Vec<*mut c_void>,
     pub metadata: Vec<u64>,
-    /// Shared memory of the launch, laid out by the shared memory pass. Null when the kernel
-    /// declares none.
-    pub shared_memory: *mut u8,
     /// Counters backing `sync_cube`, shared by the units taking part in the barrier. They start
     /// at zero and every barrier leaves them back at zero.
     pub sync_cube_state: [AtomicU32; SYNC_CUBE_STATE_LEN],
@@ -31,17 +28,11 @@ pub struct PlironData {
 }
 
 impl PlironData {
-    pub fn new(
-        buffer_ptrs: Vec<*mut c_void>,
-        metadata: Vec<u64>,
-        shared_memory: *mut u8,
-        cube_count: [u32; 3],
-    ) -> Self {
+    pub fn new(buffer_ptrs: Vec<*mut c_void>, metadata: Vec<u64>, cube_count: [u32; 3]) -> Self {
         Self {
             shared: Arc::new(SharedData {
                 buffer_ptrs,
                 metadata,
-                shared_memory,
                 sync_cube_state: Default::default(),
             }),
             builtins: [cube_count[0], cube_count[1], cube_count[2], 0, 0, 0],

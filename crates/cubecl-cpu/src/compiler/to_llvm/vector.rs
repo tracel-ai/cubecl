@@ -130,7 +130,7 @@ impl ToLLVMDialect for vector::FSumOp {
         let zero_const = llvm::ConstantOp::new(ctx, attr);
         rewriter.insert_op(ctx, &zero_const);
 
-        let intrinsic_type = FuncType::get(ctx, res_ty, vec![res_ty.into(), elem_ty], false);
+        let intrinsic_type = FuncType::get(ctx, res_ty, vec![res_ty, elem_ty], false);
 
         let op = llvm::CallIntrinsicOp::new(
             ctx,

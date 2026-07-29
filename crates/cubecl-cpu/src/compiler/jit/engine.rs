@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 use std::fmt::Display;
+use std::rc::Rc;
 use std::sync::{Arc, Once};
 
 use pliron::builtin::ops::ModuleOp;
@@ -10,22 +11,21 @@ use pliron_llvm::llvm_sys::target::initialize_native;
 use pliron_llvm::to_llvm_ir;
 
 use super::data::PlironData;
-use crate::compiler::shared_memory::SharedMemoryLayout;
+use crate::compiler::shared_memory::SharedMemories;
 
-/// Host ABI of a JIT'd kernel: `(buffer_ptrs, cube_count_x/y/z, unit_pos_x/y/z, shared_memory,
-/// sync_cube_state, metadata)`. The variable-count buffers are hidden behind `buffer_ptrs` (an
-/// array of data pointers), while the builtins and the three pointers are passed directly.
-type KernelFn =
-    extern "C" fn(*mut *mut c_void, u32, u32, u32, u32, u32, u32, *mut u8, *mut u32, *mut u64);
+/// Host ABI of a JIT'd kernel: `(buffer_ptrs, cube_count_x/y/z, unit_pos_x/y/z, sync_cube_state,
+/// metadata)`. The variable-count pointers — the buffers and then the shared memories — are
+/// hidden behind `buffer_ptrs`, while the builtins and both other pointers are passed directly.
+type KernelFn = extern "C" fn(*mut *mut c_void, u32, u32, u32, u32, u32, u32, *mut u32, *mut u64);
 
 /// What the host has to provide to launch a kernel, beyond its arguments.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct KernelRequirements {
     /// Whether the kernel synchronizes its cube, in which case each of its units needs a thread
     /// of its own to run on.
     pub needs_parallelism: bool,
-    /// The shared memory block to reserve for a launch.
-    pub shared_memory: SharedMemoryLayout,
+    /// The shared memory to reserve for a launch, and where its pointers go.
+    pub shared_memories: SharedMemories,
 }
 
 /// A JIT-compiled kernel. Fields drop in declaration order, so the JIT is torn down before the
@@ -35,7 +35,7 @@ struct JitKernel {
     func: KernelFn,
     requirements: KernelRequirements,
     _lljit: LLVMLLJIT,
-    _llvm_ctx: Arc<LLVMContext>,
+    _llvm_ctx: Rc<LLVMContext>,
 }
 
 /// Safety: The kernel is immutable machine code plus the JIT/context that keep it alive.
@@ -60,7 +60,7 @@ impl PlironEngine {
             initialize_native().expect("failed to initialize native target");
         });
 
-        let llvm_ctx = Arc::new(LLVMContext::default());
+        let llvm_ctx = Rc::new(LLVMContext::default());
         let llvm_module = to_llvm_ir::convert_module(ctx, &llvm_ctx, module)?;
         if std::env::var("CUBECL_DEBUG_LLVM_IR").is_ok() {
             println!("{llvm_module}");
@@ -85,15 +85,14 @@ impl PlironEngine {
     }
 
     /// What the host has to provide to launch this kernel, see [`KernelRequirements`].
-    pub(crate) fn requirements(&self) -> KernelRequirements {
-        self.0.requirements
+    pub(crate) fn requirements(&self) -> &KernelRequirements {
+        &self.0.requirements
     }
 
     pub(crate) fn run_kernel(&self, data: &mut PlironData) {
         let b = data.builtins;
         let buffer_ptrs = data.shared.buffer_ptrs.as_ptr() as *mut *mut c_void;
         let metadata = data.shared.metadata.as_ptr() as *mut u64;
-        let shared_memory = data.shared.shared_memory;
         let sync_cube_state = data.shared.sync_cube_state.as_ptr() as *mut u32;
         (self.0.func)(
             buffer_ptrs,
@@ -103,7 +102,6 @@ impl PlironEngine {
             b[3],
             b[4],
             b[5],
-            shared_memory,
             sync_cube_state,
             metadata,
         );

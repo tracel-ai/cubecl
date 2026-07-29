@@ -14,7 +14,6 @@ use pliron::linked_list::ContainsLinkedList;
 use pliron_llvm::types::PointerType as LlvmPointerType;
 
 use crate::compiler::polyfill::synchronization::ATTR_SYNC_CUBE_STATE;
-use crate::compiler::shared_memory::ATTR_SHARED_MEMORY;
 
 pub const CPU_RUNTIME_BUILTINS: [Builtin; 6] = [
     Builtin::CubeCountX,
@@ -176,14 +175,11 @@ impl Pass for InsertConstantEmulationPass {
                 builtins.set(builtin, value);
             }
 
-            // The blocks the host reserves per launch: shared memory and the cube barrier
-            // counters. A kernel that uses neither simply ignores both arguments, so the host
-            // ABI stays the same for every kernel.
+            // The cube barrier counters, reserved per launch by the host. Kernels that never
+            // synchronize simply ignore the argument, so the host ABI stays the same for all.
             let ptr_ty = LlvmPointerType::get(scope.ctx_mut(), 0).into();
-            for runtime_block in [&ATTR_SHARED_MEMORY, &ATTR_SYNC_CUBE_STATE] {
-                let arg = func.push_argument(scope.ctx(), ptr_ty);
-                func.set_arg_attr_unit(scope.ctx(), arg, runtime_block);
-            }
+            let state_arg = func.push_argument(scope.ctx(), ptr_ty);
+            func.set_arg_attr_unit(scope.ctx(), state_arg, &ATTR_SYNC_CUBE_STATE);
 
             insert_skeleton(&scope, &mut builtins, cube_dim, cluster_dim)
         };

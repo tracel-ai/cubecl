@@ -6,7 +6,7 @@ pub mod polyfill;
 pub mod shared_memory;
 pub mod to_llvm;
 
-use core::cell::Cell;
+use core::cell::RefCell;
 use std::rc::Rc;
 
 use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
@@ -40,7 +40,7 @@ use crate::compiler::{
     jit::engine::{KernelRequirements, PlironEngine},
     metadata::LowerEntryAbiPass,
     polyfill::{LowerComplexOpPass, synchronization::uses_cube_barrier},
-    shared_memory::{LowerSharedMemoryPass, SharedMemoryLayout},
+    shared_memory::SharedMemories,
     to_llvm::CubeToLLVMPass,
 };
 
@@ -92,8 +92,8 @@ impl PlironCompiler {
         // scheduler must not queue two units of such a kernel behind each other.
         let needs_parallelism =
             kernel.settings.cube_dim.num_elems() > 1 && uses_cube_barrier(&ctx, module_op);
-        // Filled in by the shared memory pass, which is where the block gets laid out.
-        let shared_memory = Rc::new(Cell::new(SharedMemoryLayout::default()));
+        // Filled in by the entry ABI pass, which is where the shared memories get their slot.
+        let shared_memories = Rc::new(RefCell::new(SharedMemories::default()));
 
         #[cfg(not(feature = "pliron-dump"))]
         let ir_printing_dir = None;
@@ -117,15 +117,15 @@ impl PlironCompiler {
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(LowerComplexOpPass::default());
-        // Before the ABI pass: it shuffles the kernel arguments around, which would leave the
-        // marker the shared memory block is found by on the wrong one.
-        func_passes.add_pass(LowerSharedMemoryPass::new(shared_memory.clone()));
         func_passes.add_pass(CfToLlvmConversionPass::default());
         func_passes.add_pass(SimplifyCFGPass);
         func_passes.add_pass(DCEPass);
-        func_passes.add_pass(LowerEntryAbiPass::new(kernel.info.clone()));
+        func_passes.add_pass(LowerEntryAbiPass::new(
+            kernel.info.clone(),
+            shared_memories.clone(),
+        ));
         func_passes.add_pass(CubeToLLVMPass::default());
-        func_passes.add_pass(Mem2RegPass::default());
+        func_passes.add_pass(Mem2RegPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(builtin_to_llvm_pass());
@@ -136,7 +136,7 @@ impl PlironCompiler {
 
         let requirements = KernelRequirements {
             needs_parallelism,
-            shared_memory: shared_memory.get(),
+            shared_memories: shared_memories.take(),
         };
 
         PlironEngine::compile(&ctx, module, &kernel.settings.kernel_name, requirements)

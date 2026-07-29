@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock, atomic::AtomicU64};
 
 use crate::{
     compiler::jit::{data::PlironData, engine::PlironEngine},
-    compiler::shared_memory::SharedMemoryLayout,
+    compiler::shared_memory::SharedMemories,
     compute::{
         schedule::BindingsResource,
         threadpool::{
@@ -55,17 +55,17 @@ impl Threadpool {
         next_counter_step: u64,
         atomic_counter: &Arc<CachePadded<AtomicU64>>,
     ) {
-        let requirements = pliron_engine.requirements();
+        let requirements = pliron_engine.requirements().clone();
 
         let BindingsResource { resources, info } = bindings;
-        let buffer_ptrs = resources
+        let mut buffer_ptrs: Vec<*mut std::ffi::c_void> = resources
             .iter()
             .map(|resource| {
                 resource.resource().get_write_ptr_and_length().0 as *mut std::ffi::c_void
             })
             .collect();
-        let shared_memory = reserve_shared_memory(memory, requirements.shared_memory);
-        let base_data = PlironData::new(buffer_ptrs, info.data, shared_memory, cube_count);
+        reserve_shared_memories(memory, &requirements.shared_memories, &mut buffer_ptrs);
+        let base_data = PlironData::new(buffer_ptrs, info.data, cube_count);
 
         // A cube barrier only completes if every unit of the cube is running, so such a kernel
         // needs as many workers as the cube has units.
@@ -96,28 +96,41 @@ impl Threadpool {
     }
 }
 
-/// Reserves the shared memory block of a launch out of the stream's shared memory pool, aligned
-/// the way the kernel laid it out. The pool guarantees no alignment of its own, so the block is
+/// Reserves the shared memory of a launch out of the stream's dedicated pool, and writes each
+/// block into the slot of `table` the kernel reads it from. Those slots follow the buffers, so
+/// the table is padded first when the kernel takes fewer buffers than the launch provides.
+///
+/// The pool guarantees an alignment of its own too small for a vector, so a block is
 /// over-reserved and its base rounded up.
 ///
-/// Launches of a stream never overlap (a stream flushes before enqueuing), so the reservation is
-/// released right away: the block is the pool's to hand out again once this launch is done with
-/// it.
-fn reserve_shared_memory(
+/// Launches of a stream never overlap (a stream flushes before enqueuing), so the reservations
+/// are released right away: the blocks are the pool's to hand out again once this launch is done
+/// with them.
+fn reserve_shared_memories(
     memory: &mut MemoryManagement<BytesStorage>,
-    layout: SharedMemoryLayout,
-) -> *mut u8 {
-    if layout.size == 0 {
-        return core::ptr::null_mut();
+    shared_memories: &SharedMemories,
+    table: &mut Vec<*mut std::ffi::c_void>,
+) {
+    let end = shared_memories.base + shared_memories.blocks.len();
+    if table.len() < end {
+        table.resize(end, core::ptr::null_mut());
     }
 
-    let handle = memory
-        .reserve((layout.size + layout.align - 1) as u64)
-        .expect("Failed to reserve the shared memory of the launch");
-    let block = memory
-        .get_resource(handle.binding(), None, None)
-        .expect("Failed to resolve the shared memory of the launch");
+    // The handles are held until every block is reserved: releasing one right away would let
+    // the pool hand the same memory out to the next shared memory of the same launch.
+    let mut handles = Vec::with_capacity(shared_memories.blocks.len());
 
-    let (ptr, _) = block.get_write_ptr_and_length();
-    ptr.wrapping_add(ptr.align_offset(layout.align))
+    for (slot, block) in shared_memories.blocks.iter().enumerate() {
+        let handle = memory
+            .reserve((block.size + block.align - 1) as u64)
+            .expect("Failed to reserve the shared memory of the launch");
+        let reserved = memory
+            .get_resource(handle.clone().binding(), None, None)
+            .expect("Failed to resolve the shared memory of the launch");
+        handles.push(handle);
+
+        let (ptr, _) = reserved.get_write_ptr_and_length();
+        let ptr = ptr.wrapping_add(ptr.align_offset(block.align));
+        table[shared_memories.base + slot] = ptr as *mut std::ffi::c_void;
+    }
 }
