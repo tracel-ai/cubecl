@@ -17,6 +17,11 @@ pub use async_channel::{
 /// handle that target explicitly. Await the receiver instead — that works
 /// everywhere. The blocking receive is only used from `multi_threading` code
 /// paths.
+///
+/// Absent on a target whose atomics carry no compare-and-swap (thumbv6m):
+/// `oneshot` needs it and has no fallback. Every consumer needs `std` or the
+/// browser, so nothing that could run there loses anything.
+#[cfg(target_has_atomic = "ptr")]
 pub mod oneshot {
     // A glob because the error types are conditionally compiled on the
     // underlying crate's features; naming them would break feature combinations

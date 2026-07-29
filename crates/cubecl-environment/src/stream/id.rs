@@ -1,7 +1,7 @@
 #[cfg(stream_local)]
-use core::cell::Cell;
+use crate::sync::AtomicU64;
 #[cfg(stream_local)]
-use core::sync::atomic::AtomicU64;
+use core::cell::Cell;
 
 #[cfg(stream_local)]
 use super::StreamPolicy;
@@ -102,7 +102,7 @@ impl StreamId {
         #[cfg(stream_local)]
         {
             Self {
-                value: STREAM_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed),
+                value: STREAM_COUNT.fetch_add(1, crate::sync::Ordering::Relaxed),
             }
         }
 

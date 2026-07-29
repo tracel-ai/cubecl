@@ -22,10 +22,10 @@
 //! reopened against the new environment. Detection is one atomic load on the
 //! store's read path, so an environment that never switches costs nothing.
 
+use crate::sync::{AtomicU32, Ordering};
 use alloc::string::{String, ToString};
 #[cfg(std_io)]
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::persistence::{StoreKey, StoreValue};
 use crate::sync::{Arc, Lazy, Mutex};

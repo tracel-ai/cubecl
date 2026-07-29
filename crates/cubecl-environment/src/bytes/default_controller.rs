@@ -311,7 +311,7 @@ fn buffer_grow(
     // If in the future requesting an alignment change for an existing is available, this can be removed.
     #[cfg(target_has_atomic = "8")]
     mod alignment_assumption {
-        use core::sync::atomic::{AtomicBool, Ordering};
+        use crate::sync::{AtomicBool, Ordering};
         static SPECULATE: AtomicBool = AtomicBool::new(true);
         pub fn speculate() -> bool {
             // We load and store with relaxed order, since worst case this leads to a few more memcopies

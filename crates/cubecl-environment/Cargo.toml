@@ -55,7 +55,6 @@ tracing = ["dep:tracing"]
 
 [dependencies]
 log = { workspace = true }
-oneshot = { workspace = true, default-features = false }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
 # ** Please make sure all dependencies support no_std when std is disabled **
@@ -86,12 +85,33 @@ backtrace = { workspace = true, optional = true, features = ["std"] }
 parking_lot = { workspace = true, optional = true }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
+# `oneshot` reaches for compare-and-swap with no way to route around its
+# absence (it has no `portable-atomic` option), so it is only available where
+# the target has it. Everything that uses it needs `std` or the browser anyway,
+# and neither exists on a target without CAS.
+oneshot = { workspace = true, default-features = false }
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
 # extra-platforms covers targets without native atomics.
 bytes = { workspace = true, features = ["extra-platforms"], optional = true }
-portable-atomic = { workspace = true }
+# `async-channel` reaches `core`'s atomics by default, and on a target whose
+# atomics are load/store only (thumbv6m) those carry no compare-and-swap: its
+# queue and event listener fail to compile. This routes them through
+# `portable-atomic` instead, which can emulate CAS.
+#
+# *How* it emulates it is the consumer's call, and the two ways are mutually
+# exclusive (`portable-atomic` fails the build when both are on): a
+# `critical-section` implementation, or the
+# `portable_atomic_unsafe_assume_single_core` cfg, which is what burn's no-std
+# CI passes for this target. Neither is selected here — picking one would take
+# the other away from every downstream build.
+async-channel = { workspace = true, default-features = false, features = [
+    "portable-atomic",
+] }
+# `fallback` provides the widths the target lacks natively (the workspace turns
+# default features off, and that is where it lives).
+portable-atomic = { workspace = true, features = ["fallback"] }
 portable-atomic-util = { workspace = true }
 spin = { workspace = true, features = [
     "mutex",

@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicU8, Ordering};
+use crate::sync::{AtomicU8, Ordering};
 
 /// How the current stream is derived when no explicit override is active.
 ///
