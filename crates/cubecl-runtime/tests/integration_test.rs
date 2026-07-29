@@ -129,21 +129,42 @@ fn autotune_resets_when_the_environment_switches() {
     let key = set.generate_key(&handles);
 
     let tuner: Tuner<String> = Tuner::new("environment-switch", "device0");
-    tuner.check_tune(&key, &handles, &set, || set.compute_checksum(), &client, None);
+    tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
     assert!(matches!(tuner.fastest(&key), TuneCacheResult::Hit { .. }));
 
     // The pick was tuned under `first`: after the switch it must not be
     // served, and tuning again fills `second`.
     cubecl_environment::environment::set_root(second.path());
     assert!(matches!(tuner.fastest(&key), TuneCacheResult::Miss));
-    tuner.check_tune(&key, &handles, &set, || set.compute_checksum(), &client, None);
+    tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
     assert!(matches!(tuner.fastest(&key), TuneCacheResult::Hit { .. }));
 
     // Switching back serves `first`'s persisted result through hydration and
     // checksum validation, with no third tune.
     cubecl_environment::environment::set_root(first.path());
     assert!(matches!(tuner.fastest(&key), TuneCacheResult::Miss));
-    let rehydrated = tuner.check_tune(&key, &handles, &set, || set.compute_checksum(), &client, None);
+    let rehydrated = tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
     assert!(matches!(rehydrated, TuneCacheResult::Hit { .. }));
 }
 

@@ -290,8 +290,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
                         #[cfg(not(target_family = "wasm"))]
                         if short_circuit {
-                            let result =
-                                cubecl_environment::future::block_on(resolve_bench(bench));
+                            let result = cubecl_environment::future::block_on(resolve_bench(bench));
 
                             // short_circuit is only true when limit.is_some() => unwrap is fine.
                             let close_enough = result
