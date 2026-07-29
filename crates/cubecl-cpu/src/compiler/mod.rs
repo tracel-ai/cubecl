@@ -2,8 +2,12 @@ pub mod branch;
 pub mod entrypoint;
 pub mod jit;
 pub mod metadata;
-pub mod polyfill_math;
+pub mod polyfill;
+pub mod shared_memory;
 pub mod to_llvm;
+
+use core::cell::Cell;
+use std::rc::Rc;
 
 use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 #[cfg(feature = "pliron-dump")]
@@ -31,8 +35,12 @@ use pliron::{
 };
 
 use crate::compiler::{
-    branch::CfToLlvmConversionPass, entrypoint::InsertConstantEmulationPass,
-    jit::engine::PlironEngine, metadata::LowerEntryAbiPass, polyfill_math::LowerComplexMathPass,
+    branch::CfToLlvmConversionPass,
+    entrypoint::InsertConstantEmulationPass,
+    jit::engine::{KernelRequirements, PlironEngine},
+    metadata::LowerEntryAbiPass,
+    polyfill::{LowerComplexOpPass, synchronization::uses_cube_barrier},
+    shared_memory::{LowerSharedMemoryPass, SharedMemoryLayout},
     to_llvm::CubeToLLVMPass,
 };
 
@@ -80,6 +88,13 @@ impl PlironCompiler {
         let module_op = module.get_operation();
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
+        // The barrier only completes when every unit of the cube runs on its own thread, so the
+        // scheduler must not queue two units of such a kernel behind each other.
+        let needs_parallelism =
+            kernel.settings.cube_dim.num_elems() > 1 && uses_cube_barrier(&ctx, module_op);
+        // Filled in by the shared memory pass, which is where the block gets laid out.
+        let shared_memory = Rc::new(Cell::new(SharedMemoryLayout::default()));
+
         #[cfg(not(feature = "pliron-dump"))]
         let ir_printing_dir = None;
         #[cfg(feature = "pliron-dump")]
@@ -101,7 +116,10 @@ impl PlironCompiler {
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
-        func_passes.add_pass(LowerComplexMathPass::default());
+        func_passes.add_pass(LowerComplexOpPass::default());
+        // Before the ABI pass: it shuffles the kernel arguments around, which would leave the
+        // marker the shared memory block is found by on the wrong one.
+        func_passes.add_pass(LowerSharedMemoryPass::new(shared_memory.clone()));
         func_passes.add_pass(CfToLlvmConversionPass::default());
         func_passes.add_pass(SimplifyCFGPass);
         func_passes.add_pass(DCEPass);
@@ -116,7 +134,12 @@ impl PlironCompiler {
 
         verify_operation(module_op, &ctx).expect("Failed to verify after control-flow lowering");
 
-        PlironEngine::compile(&ctx, module, &kernel.settings.kernel_name)
+        let requirements = KernelRequirements {
+            needs_parallelism,
+            shared_memory: shared_memory.get(),
+        };
+
+        PlironEngine::compile(&ctx, module, &kernel.settings.kernel_name, requirements)
             .expect("Failed to convert to LLVM IR")
     }
 }

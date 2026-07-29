@@ -13,43 +13,8 @@ use cubecl_core::prelude::polyfills::{
 };
 use cubecl_core::prelude::*;
 
-use cubecl_core::ir::{Scope, dialect::base::OperationPtrExt};
-
-#[op_interface]
-pub trait LowerOp {
-    verify_op_succ!();
-    fn should_lower(&self, _ctx: &Context) -> bool {
-        true
-    }
-    fn lower(&self, scope: &Scope) -> Vec<Value>;
-}
-
-pub type LowerComplexMathPass = MatchRewritePass<LowerComplexMath>;
-
-#[derive(new, Default, Clone, Copy)]
-pub struct LowerComplexMath;
-
-impl MatchRewrite for LowerComplexMath {
-    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
-        op_cast::<dyn LowerOp>(&*op.dyn_op(ctx)).is_some_and(|it| it.should_lower(ctx))
-    }
-
-    fn rewrite(
-        &mut self,
-        ctx: &mut Context,
-        rewriter: &mut DialectConversionRewriter,
-        op: Ptr<Operation>,
-    ) -> Result<()> {
-        let dyn_op = op.dyn_op(ctx);
-        let scope = Scope::from_context_and_inserter(ctx, rewriter);
-        let lower = op_cast::<dyn LowerOp>(&*dyn_op).unwrap();
-        let new_values = lower.lower(&scope);
-        transfer_result_names(ctx, op, &new_values);
-        rewriter.replace_operation_with_values(ctx, op, new_values);
-
-        Ok(())
-    }
-}
+use crate::compiler::polyfill::LowerOp;
+use cubecl_core::ir::Scope;
 
 macro_rules! lower_unary_math_arith {
     ($cube_op:ty => $polyfill:ident) => {
@@ -192,7 +157,7 @@ impl LowerOp for SMulHiOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let ctx = scope.ctx();
         let lhs = self.lhs(ctx);
-        let val = if lhs.is_int_of_width(ctx, 32) {
+        let val = if lhs.size_bits(ctx) == 32 {
             expand_s_himul_64(scope, lhs, self.rhs(ctx))
         } else {
             expand_himul_sim(scope, lhs, self.rhs(ctx))
@@ -206,7 +171,7 @@ impl LowerOp for UMulHiOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let ctx = scope.ctx();
         let lhs = self.lhs(ctx);
-        let val = if lhs.is_int_of_width(ctx, 32) {
+        let val = if lhs.size_bits(ctx) == 32 {
             expand_u_himul_64(scope, lhs, self.rhs(ctx))
         } else {
             expand_himul_sim(scope, lhs, self.rhs(ctx))

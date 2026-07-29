@@ -1,4 +1,4 @@
-use cubecl_core::ir::attributes::EntrypointInterface;
+use cubecl_core::ir::attributes::{EntrypointInterface, FuncInterface};
 use cubecl_core::ir::dialect::branch::{RangeLoopOp, YieldOp};
 use cubecl_core::ir::dialect::general::ReadBuiltinOp;
 use cubecl_core::ir::dialect::memory::LoadOp;
@@ -9,7 +9,12 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use pliron::basic_block::BasicBlock;
 use pliron::builtin::ops::FuncOp;
+use pliron::identifier::Identifier;
 use pliron::linked_list::ContainsLinkedList;
+use pliron_llvm::types::PointerType as LlvmPointerType;
+
+use crate::compiler::polyfill::synchronization::ATTR_SYNC_CUBE_STATE;
+use crate::compiler::shared_memory::ATTR_SHARED_MEMORY;
 
 pub const CPU_RUNTIME_BUILTINS: [Builtin; 6] = [
     Builtin::CubeCountX,
@@ -171,6 +176,15 @@ impl Pass for InsertConstantEmulationPass {
                 builtins.set(builtin, value);
             }
 
+            // The blocks the host reserves per launch: shared memory and the cube barrier
+            // counters. A kernel that uses neither simply ignores both arguments, so the host
+            // ABI stays the same for every kernel.
+            let ptr_ty = LlvmPointerType::get(scope.ctx_mut(), 0).into();
+            for runtime_block in [&ATTR_SHARED_MEMORY, &ATTR_SYNC_CUBE_STATE] {
+                let arg = func.push_argument(scope.ctx(), ptr_ty);
+                func.set_arg_attr_unit(scope.ctx(), arg, runtime_block);
+            }
+
             insert_skeleton(&scope, &mut builtins, cube_dim, cluster_dim)
         };
 
@@ -199,6 +213,16 @@ impl Pass for InsertConstantEmulationPass {
         res.ir_changed = IRStatus::Changed;
         Ok(res)
     }
+}
+
+/// The kernel argument marked with `key`, i.e. one of the per launch blocks appended above.
+pub fn runtime_arg(ctx: &Context, func: FuncOp, key: &Identifier) -> Value {
+    let entry = func.get_entry_block(ctx);
+    let num_args = entry.deref(ctx).get_num_arguments();
+    (0..num_args)
+        .find(|idx| func.has_arg_attr(ctx, *idx, key))
+        .map(|idx| entry.deref(ctx).get_argument(idx))
+        .unwrap_or_else(|| panic!("entry point must carry the '{key}' argument"))
 }
 
 fn insert_skeleton(

@@ -10,17 +10,30 @@ use pliron_llvm::llvm_sys::target::initialize_native;
 use pliron_llvm::to_llvm_ir;
 
 use super::data::PlironData;
+use crate::compiler::shared_memory::SharedMemoryLayout;
 
-/// Host ABI of a JIT'd kernel: `(buffer_ptrs, cube_count_x/y/z, unit_pos_x/y/z, metadata)`.
-/// The variable-count buffers are hidden behind `buffer_ptrs` (an array of data pointers),
-/// while the builtins and the metadata pointer are passed directly.
-type KernelFn = extern "C" fn(*mut *mut c_void, u32, u32, u32, u32, u32, u32, *mut u64);
+/// Host ABI of a JIT'd kernel: `(buffer_ptrs, cube_count_x/y/z, unit_pos_x/y/z, shared_memory,
+/// sync_cube_state, metadata)`. The variable-count buffers are hidden behind `buffer_ptrs` (an
+/// array of data pointers), while the builtins and the three pointers are passed directly.
+type KernelFn =
+    extern "C" fn(*mut *mut c_void, u32, u32, u32, u32, u32, u32, *mut u8, *mut u32, *mut u64);
+
+/// What the host has to provide to launch a kernel, beyond its arguments.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct KernelRequirements {
+    /// Whether the kernel synchronizes its cube, in which case each of its units needs a thread
+    /// of its own to run on.
+    pub needs_parallelism: bool,
+    /// The shared memory block to reserve for a launch.
+    pub shared_memory: SharedMemoryLayout,
+}
 
 /// A JIT-compiled kernel. Fields drop in declaration order, so the JIT is torn down before the
 /// `LLVMContext` it was built in is disposed.
 #[repr(C)]
 struct JitKernel {
     func: KernelFn,
+    requirements: KernelRequirements,
     _lljit: LLVMLLJIT,
     _llvm_ctx: Arc<LLVMContext>,
 }
@@ -41,6 +54,7 @@ impl PlironEngine {
         ctx: &Context,
         module: ModuleOp,
         kernel_name: &str,
+        requirements: KernelRequirements,
     ) -> pliron::result::Result<Self> {
         INIT_NATIVE.call_once(|| {
             initialize_native().expect("failed to initialize native target");
@@ -64,16 +78,35 @@ impl PlironEngine {
 
         Ok(PlironEngine(Arc::new(JitKernel {
             func,
+            requirements,
             _lljit: lljit,
             _llvm_ctx: llvm_ctx,
         })))
+    }
+
+    /// What the host has to provide to launch this kernel, see [`KernelRequirements`].
+    pub(crate) fn requirements(&self) -> KernelRequirements {
+        self.0.requirements
     }
 
     pub(crate) fn run_kernel(&self, data: &mut PlironData) {
         let b = data.builtins;
         let buffer_ptrs = data.shared.buffer_ptrs.as_ptr() as *mut *mut c_void;
         let metadata = data.shared.metadata.as_ptr() as *mut u64;
-        (self.0.func)(buffer_ptrs, b[0], b[1], b[2], b[3], b[4], b[5], metadata);
+        let shared_memory = data.shared.shared_memory;
+        let sync_cube_state = data.shared.sync_cube_state.as_ptr() as *mut u32;
+        (self.0.func)(
+            buffer_ptrs,
+            b[0],
+            b[1],
+            b[2],
+            b[3],
+            b[4],
+            b[5],
+            shared_memory,
+            sync_cube_state,
+            metadata,
+        );
     }
 }
 

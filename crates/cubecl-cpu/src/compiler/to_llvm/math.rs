@@ -255,7 +255,7 @@ impl ToLLVMDialect for ShiftRightOp {
     }
 }
 
-lower_int_bin_arith!(ShiftLeftOp => llvm::ShlOp);
+lower_int_bin_with_overflow_arith!(ShiftLeftOp => llvm::ShlOp);
 
 // LLVM has no boolean negation, so `!x` becomes `x ^ true`.
 #[op_interface_impl]

@@ -5,6 +5,7 @@ use std::sync::{Arc, OnceLock, atomic::AtomicU64};
 
 use crate::{
     compiler::jit::{data::PlironData, engine::PlironEngine},
+    compiler::shared_memory::SharedMemoryLayout,
     compute::{
         schedule::BindingsResource,
         threadpool::{
@@ -50,10 +51,12 @@ impl Threadpool {
         bindings: BindingsResource,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
-        _memory: &mut MemoryManagement<BytesStorage>,
+        memory: &mut MemoryManagement<BytesStorage>,
         next_counter_step: u64,
         atomic_counter: &Arc<CachePadded<AtomicU64>>,
     ) {
+        let requirements = pliron_engine.requirements();
+
         let BindingsResource { resources, info } = bindings;
         let buffer_ptrs = resources
             .iter()
@@ -61,7 +64,14 @@ impl Threadpool {
                 resource.resource().get_write_ptr_and_length().0 as *mut std::ffi::c_void
             })
             .collect();
-        let base_data = PlironData::new(buffer_ptrs, info.data, cube_count);
+        let shared_memory = reserve_shared_memory(memory, requirements.shared_memory);
+        let base_data = PlironData::new(buffer_ptrs, info.data, shared_memory, cube_count);
+
+        // A cube barrier only completes if every unit of the cube is running, so such a kernel
+        // needs as many workers as the cube has units.
+        if requirements.needs_parallelism {
+            self.scheduler.ensure_workers(cube_dim.num_elems() as usize);
+        }
 
         let mut i = 0;
         for unit_pos_x in 0..cube_dim.x {
@@ -84,4 +94,30 @@ impl Threadpool {
             }
         }
     }
+}
+
+/// Reserves the shared memory block of a launch out of the stream's shared memory pool, aligned
+/// the way the kernel laid it out. The pool guarantees no alignment of its own, so the block is
+/// over-reserved and its base rounded up.
+///
+/// Launches of a stream never overlap (a stream flushes before enqueuing), so the reservation is
+/// released right away: the block is the pool's to hand out again once this launch is done with
+/// it.
+fn reserve_shared_memory(
+    memory: &mut MemoryManagement<BytesStorage>,
+    layout: SharedMemoryLayout,
+) -> *mut u8 {
+    if layout.size == 0 {
+        return core::ptr::null_mut();
+    }
+
+    let handle = memory
+        .reserve((layout.size + layout.align - 1) as u64)
+        .expect("Failed to reserve the shared memory of the launch");
+    let block = memory
+        .get_resource(handle.binding(), None, None)
+        .expect("Failed to resolve the shared memory of the launch");
+
+    let (ptr, _) = block.get_write_ptr_and_length();
+    ptr.wrapping_add(ptr.align_offset(layout.align))
 }
