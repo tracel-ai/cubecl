@@ -1,10 +1,24 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use super::prelude::*;
 use cubecl_core::ir::dialect::{
     barrier::{
         ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, ExpectTxOp, InitOp,
         WaitOp, WaitParityOp,
     },
-    general::{CastOp, CommentOp, FreeOp, SelectOp},
+    general::{CastOp, CommentOp, FreeOp, PrintfOp, SelectOp},
+};
+use pliron::{
+    builtin::{
+        attributes::StringAttr,
+        op_interfaces::{CallOpCallable, SymbolOpInterface},
+        ops::ModuleOp,
+    },
+    identifier::Identifier,
+    symbol_table::SymbolTableCollection,
+};
+use pliron_llvm::{
+    attributes::LinkageAttr, function_call_utils::lookup_or_insert_function, types::ArrayType,
 };
 
 fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
@@ -163,6 +177,142 @@ impl ToLLVMDialect for SelectOp {
             self.get_operation(),
             vec![new_op.get_result(ctx)],
         );
+        Ok(())
+    }
+}
+
+/// The C library function a lowered [`PrintfOp`] calls. The JIT resolves it out of the host
+/// process, which is already linked against libc.
+const PRINTF: &str = "printf";
+
+/// Walk up from `op` to the [`ModuleOp`] it lives in, which is where the `printf` declaration
+/// and the format string globals go.
+fn parent_module(ctx: &Context, op: Ptr<Operation>) -> Option<ModuleOp> {
+    let mut current = Some(op);
+    while let Some(op) = current {
+        if let Some(module) = Operation::get_op::<ModuleOp>(op, ctx) {
+            return Some(module);
+        }
+        current = op.deref(ctx).get_parent_op(ctx);
+    }
+    None
+}
+
+/// Get the module-level global holding `format_string`, creating it on first use. The name is
+/// derived from the contents, so kernels that print the same string share one global.
+fn lookup_or_insert_format_string(
+    ctx: &mut Context,
+    symbol_tables: &mut SymbolTableCollection,
+    module: ModuleOp,
+    format_string: &str,
+) -> Result<Identifier> {
+    let mut hasher = DefaultHasher::new();
+    format_string.hash(&mut hasher);
+    let name: Identifier = format!("cube_printf_fmt_{:016x}", hasher.finish())
+        .try_into()
+        .expect("Generated name is a valid identifier");
+
+    let symbol_table = symbol_tables.get_symbol_table(ctx, Box::new(module));
+    if symbol_table.lookup(&name).is_some() {
+        return Ok(name);
+    }
+
+    // The initializer is NUL-terminated on the way to LLVM, hence the extra byte.
+    let byte_ty = IntegerType::get(ctx, 8, Signedness::Signless).into();
+    let array_ty = ArrayType::get(ctx, byte_ty, format_string.len() as u64 + 1).into();
+    let global = llvm::GlobalOp::new(ctx, name.clone(), array_ty);
+    global.set_initializer_value(ctx, StringAttr::new(format_string.to_string()).into());
+    global.set_attr_llvm_global_linkage(ctx, LinkageAttr::PrivateLinkage);
+    symbol_tables
+        .get_symbol_table(ctx, Box::new(module))
+        .insert(ctx, Box::new(global), None)?;
+
+    Ok(name)
+}
+
+/// Apply the C default argument promotions to a value passed through `printf`'s ellipsis:
+/// floats narrower than `double` widen to `double`, integers narrower than `int` widen to
+/// `int`.
+fn promote_vararg(
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+    value: Value,
+    ty: TypeHandle,
+) -> Value {
+    if ty.is_float(ctx) {
+        if ty.is_float64(ctx) {
+            return value;
+        }
+        let op = llvm::FPExtOp::new(ctx, value, FP64Type::get(ctx).into());
+        op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
+        rewriter.insert_op(ctx, &op);
+        return op.get_result(ctx);
+    }
+
+    if let Some((width, is_signed)) = int_repr(ctx, ty)
+        && width < I32_WIDTH
+    {
+        let i32_ty = IntegerType::get(ctx, I32_WIDTH, Signedness::Signless).into();
+        let op: &dyn OneResultInterface = if is_signed {
+            &llvm::SExtOp::new(ctx, value, i32_ty)
+        } else {
+            &llvm::ZExtOp::new_with_nneg(ctx, value, i32_ty, false)
+        };
+        rewriter.insert_op(ctx, op);
+        return op.get_result(ctx);
+    }
+
+    value
+}
+
+#[op_interface_impl]
+impl ToLLVMDialect for PrintfOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let old_op = self.get_operation();
+        let module = parent_module(ctx, old_op).expect("Printf op should be inside a module");
+        let mut symbol_tables = SymbolTableCollection::new();
+
+        let format_string = self.format_string(ctx).as_str().to_string();
+        let global_name =
+            lookup_or_insert_format_string(ctx, &mut symbol_tables, module, &format_string)?;
+
+        let ptr_ty = LlvmPointerType::get(ctx, 0).into();
+        let i32_ty = IntegerType::get(ctx, I32_WIDTH, Signedness::Signless).into();
+        let printf = lookup_or_insert_function(
+            ctx,
+            &mut symbol_tables,
+            Box::new(module),
+            PRINTF.try_into().expect("`printf` is a valid identifier"),
+            i32_ty,
+            vec![ptr_ty],
+            true,
+        )?;
+
+        let format_ptr = llvm::AddressOfOp::new(ctx, global_name, 0);
+        rewriter.insert_op(ctx, &format_ptr);
+
+        let mut args = vec![format_ptr.get_result(ctx)];
+        for arg in self.args(ctx) {
+            let ty = operands_info
+                .lookup_most_recent_type(arg)
+                .unwrap_or(arg.get_type(ctx));
+            args.push(promote_vararg(ctx, rewriter, arg, ty));
+        }
+
+        let call = llvm::CallOp::new(
+            ctx,
+            CallOpCallable::Direct(printf.get_symbol_name(ctx)),
+            printf.get_type(ctx),
+            args,
+        );
+        rewriter.insert_op(ctx, &call);
+        rewriter.erase_operation(ctx, old_op);
+
         Ok(())
     }
 }
