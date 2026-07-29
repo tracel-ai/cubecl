@@ -122,7 +122,7 @@ impl ElemType {
             QuantParam::F16 => Self::Float(FloatKind::F16),
             QuantParam::BF16 => Self::Float(FloatKind::BF16),
             QuantParam::UE8M0 => Self::Float(FloatKind::UE8M0),
-            QuantParam::UE4M3 => Self::Float(FloatKind::UE8M0),
+            QuantParam::UE4M3 => Self::Float(FloatKind::E4M3),
         }
     }
 
