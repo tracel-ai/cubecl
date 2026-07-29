@@ -124,6 +124,15 @@ impl<T> RwLock<T> {
     }
 }
 
+/// An opaque thread identifier.
+///
+/// This is a stub when no std is available to swap with `std::thread::ThreadId`.
+/// There is no way to obtain one on such targets, so it exists only to keep
+/// thread-keyed types nameable.
+#[allow(dead_code)]
+#[derive(Eq, PartialEq, Clone, Copy, Hash, Debug)]
+pub struct ThreadId(core::num::NonZeroU64);
+
 /// A cell that provides lazy one-time initialization that implements [Sync] and [Send].
 ///
 /// This module is a stub when no std is available to swap with [`std::sync::OnceLock`].
