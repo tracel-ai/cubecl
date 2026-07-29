@@ -5,9 +5,9 @@ use core::{
     cell::{Ref, RefCell, RefMut},
     fmt::Display,
 };
+use cubecl_environment::collections::{HashMap, HashSet};
 use derive_more::{Eq, PartialEq};
 use enumset::EnumSet;
-use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 
 use crate::{

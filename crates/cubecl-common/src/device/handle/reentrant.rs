@@ -4,8 +4,8 @@ use core::{
     any::{Any, TypeId},
     marker::PhantomData,
 };
+use cubecl_environment::sync::reentrant::{ReentrantMutex, ReentrantMutexGuard};
 use hashbrown::HashMap;
-use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use std::sync::Arc;
 
 use crate::device::handle::{DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError};

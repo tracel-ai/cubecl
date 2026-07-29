@@ -1,13 +1,11 @@
 //! A version of [`bytemuck::BoxBytes`] that is cloneable and allows trailing uninitialized elements.
 
-use crate::{
-    bytes::{
-        AccessError, AccessPolicy, Reader, Writer,
-        default_controller::{self, NativeAllocationController},
-        shared_arc::SharedAllocationController,
-    },
-    stub::Arc,
+use crate::bytes::{
+    AccessError, AccessPolicy, Reader, Writer,
+    default_controller::{self, NativeAllocationController},
+    shared_arc::SharedAllocationController,
 };
+use crate::sync::Arc;
 use alloc::{boxed::Box, vec::Vec};
 use core::{
     alloc::LayoutError,
@@ -389,7 +387,7 @@ impl Bytes {
     /// # Example
     ///
     /// ```
-    /// use cubecl_common::bytes::{Bytes, AllocationProperty};
+    /// use cubecl_environment::bytes::{Bytes, AllocationProperty};
     ///
     /// // Memory-mapped file data - use File property for optimized GPU transfers
     /// let mmap_bytes = bytes::Bytes::from_static(&[1, 2, 3, 4]); // pretend this is mmap
@@ -802,7 +800,8 @@ impl PartialEq for Bytes {
 
 impl Eq for Bytes {}
 
-#[cfg(test)]
+// The type is no-std; its tests need std (test_log, std collections).
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::{Bytes, SplitPolicy, ViewError};
     use alloc::{vec, vec::Vec};

@@ -4,7 +4,7 @@ use alloc::{
     vec::Vec,
 };
 use core::fmt::Display;
-use hashbrown::HashMap;
+use cubecl_environment::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub(crate) struct Profiled {

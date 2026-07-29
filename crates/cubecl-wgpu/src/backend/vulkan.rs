@@ -8,11 +8,11 @@ use ash::vk::{
 };
 use cubecl_core::{
     ExecutionMode, MemoryConfiguration, WgpuCompilationOptions,
-    backtrace::BackTrace,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CompiledKernel, Visibility},
     server::{ComputeServer, IoError, KernelArguments},
 };
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{DeviceProperties, Type, features::*};
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};

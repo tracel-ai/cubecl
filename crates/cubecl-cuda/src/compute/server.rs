@@ -9,13 +9,10 @@ use crate::{
         sync::Fence,
     },
 };
-use cubecl_common::{
-    backtrace::BackTrace, bytes::Bytes, profile::ProfileDuration, stream_id::StreamId,
-};
+use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
     device::DeviceId,
-    future::{self, DynFut},
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
@@ -24,6 +21,9 @@ use cubecl_core::{
         ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
     },
 };
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::future::{self, DynFut};
+use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
     compiler::CubeTask,
@@ -195,7 +195,7 @@ impl ComputeServer for CudaServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        cubecl_common::future::block_on(self.sync(stream_id))?;
+        cubecl_environment::future::block_on(self.sync(stream_id))?;
         Ok(self.ctx.timestamps.start())
     }
 
@@ -204,7 +204,7 @@ impl ComputeServer for CudaServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+        if let Err(err) = cubecl_environment::future::block_on(self.sync(stream_id)) {
             self.ctx
                 .timestamps
                 .error(ProfileError::Server(Box::new(err)));
@@ -329,7 +329,7 @@ impl ServerCommunication for CudaServer {
                 e.insert(comm.assume_init());
             }
 
-            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+            let mut initialized_comms = self.utilities.initialized_comms.write();
             initialized_comms.insert(id);
         }
 

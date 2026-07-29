@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{AddressSpace, CopyMemoryOperands, Instruction, Memory, Operation, Type, Value};
-use hashbrown::{HashMap, HashSet};
 
 use crate::{
     AtomicCounter, Function, GlobalState,

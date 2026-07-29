@@ -1,9 +1,9 @@
 use crate::{WgpuResource, WgpuStorage};
-use cubecl_common::stub::Arc;
 use cubecl_core::{
     MemoryConfiguration,
     server::{Binding, IoError},
 };
+use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,

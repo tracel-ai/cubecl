@@ -6,8 +6,8 @@ use crate::config::{
 use alloc::{sync::Arc, vec::Vec};
 use core::fmt::Display;
 
-use cubecl_common::config::logger::LoggerSinks;
-pub(crate) use cubecl_common::config::logger::{LogLevel, LoggerConfig};
+use cubecl_environment::config::logger::LoggerSinks;
+pub(crate) use cubecl_environment::config::logger::{LogLevel, LoggerConfig};
 
 /// Central logging utility for `CubeCL`, managing multiple log outputs.
 #[derive(Debug)]

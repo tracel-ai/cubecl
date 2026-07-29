@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
+use cubecl_environment::collections::HashMap;
 use cubecl_ir::{Builtin, OpCode, Type, Value};
-use hashbrown::HashMap;
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
 

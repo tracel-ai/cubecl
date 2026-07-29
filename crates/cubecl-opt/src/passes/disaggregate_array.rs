@@ -1,9 +1,9 @@
 use alloc::vec::Vec;
+use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
     AddressSpace, Id, Instruction, Memory, Operation, Operator, StoreOperands, Type, UnaryOperands,
     Value, ValueKind,
 };
-use hashbrown::HashMap;
 
 use crate::{
     AtomicCounter, Function, GlobalState,

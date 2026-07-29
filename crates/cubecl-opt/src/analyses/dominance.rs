@@ -2,7 +2,7 @@ use alloc::{collections::VecDeque, vec::Vec};
 use core::ops::Deref;
 
 use crate::{Function, GlobalState, NodeIndex};
-use hashbrown::{HashMap, HashSet};
+use cubecl_environment::collections::{HashMap, HashSet};
 use petgraph::algo::dominators;
 
 use super::Analysis;

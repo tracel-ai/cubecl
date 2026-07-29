@@ -10,6 +10,24 @@ use portable_atomic_util::Arc;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+/// Reports a configuration file that exists but could not be read into the
+/// configuration type.
+///
+/// Goes to stderr as well as `log`. A malformed file is silently replaced by
+/// [`Default`], and configuration is resolved on first use — typically before
+/// the application has installed a `log` sink, so a `log`-only warning is
+/// usually written to nothing at all. That combination is how a single stale
+/// field turns every setting in a file into its default with nothing to notice.
+///
+/// Only reached when a file is present *and* malformed, which is always a
+/// mistake worth interrupting for. A missing file, or one without the section
+/// being looked for, is ordinary and stays quiet.
+#[cfg(std_io)]
+fn report_malformed(message: &str) {
+    log::warn!("{message}");
+    std::eprintln!("cubecl config: {message}");
+}
+
 /// Trait for runtime configurations potentially loaded from a TOML file.
 ///
 /// Implementors provide a global storage slot and the set of file names to search for;
@@ -25,7 +43,7 @@ pub trait RuntimeConfig:
     ///
     /// Each implementor must declare its own `static` slot, because Rust traits
     /// cannot own statics directly.
-    fn storage() -> &'static spin::Mutex<Option<Arc<Self>>>;
+    fn storage() -> &'static crate::sync::Mutex<Option<Arc<Self>>>;
 
     /// File names searched in each directory during [`Config::from_current_dir`].
     ///
@@ -48,6 +66,18 @@ pub trait RuntimeConfig:
     fn override_from_env(self) -> Self {
         self
     }
+
+    /// Hook invoked exactly once, when the configuration singleton is first
+    /// initialized — whether loaded from disk in [`RuntimeConfig::get`] or
+    /// installed with [`RuntimeConfig::set`] / [`RuntimeConfig::try_set`].
+    ///
+    /// Use it to apply configuration to global state (stream policy, bundle
+    /// installation, ...). Runs while the storage lock is held so that no
+    /// concurrent [`RuntimeConfig::get`] can observe the configuration before
+    /// the hook completed. Consequently the hook must not call
+    /// [`RuntimeConfig::get`], [`RuntimeConfig::set`] or
+    /// [`RuntimeConfig::try_set`] — that would deadlock.
+    fn on_loaded(&self) {}
 
     /// Retrieves the current configuration, loading it from the current directory if not set.
     ///
@@ -72,7 +102,13 @@ pub trait RuntimeConfig:
                 }
             }
 
-            *state = Some(Arc::new(config));
+            let config = Arc::new(config);
+            *state = Some(config.clone());
+            // Still under the lock: a concurrent `get` must not observe the
+            // configuration before the hook has run.
+            config.on_loaded();
+
+            return config;
         }
 
         state.as_ref().cloned().unwrap()
@@ -104,7 +140,10 @@ pub trait RuntimeConfig:
         if state.is_some() {
             return false;
         }
-        *state = Some(Arc::new(config));
+        let config = Arc::new(config);
+        *state = Some(config.clone());
+        // Still under the lock: see `get`.
+        config.on_loaded();
         true
     }
 
@@ -129,7 +168,11 @@ pub trait RuntimeConfig:
     /// is reached. Returns a default configuration if no file is found.
     #[cfg(std_io)]
     fn from_current_dir() -> Self {
-        let mut dir = std::env::current_dir().unwrap();
+        // A deleted or unreadable cwd is not a reason to abort: there is simply
+        // no configuration file to find from here.
+        let Ok(mut dir) = std::env::current_dir() else {
+            return Self::default();
+        };
 
         loop {
             for name in Self::file_names() {
@@ -153,15 +196,24 @@ pub trait RuntimeConfig:
     }
 
     /// Loads configuration from a specified file path.
+    ///
+    /// A file that does not parse is reported and skipped rather than fatal:
+    /// configuration keys change between releases, and a stale `cubecl.toml`
+    /// left in a checkout must not abort the application that reads it.
     #[cfg(std_io)]
     fn from_file_path<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Self> {
+        let path = path.as_ref();
         let content = std::fs::read_to_string(path)?;
-        let config: Self = match toml::from_str(&content) {
-            Ok(val) => val,
-            Err(err) => panic!("The file provided doesn't have the right format => {err}"),
-        };
 
-        Ok(config)
+        match toml::from_str(&content) {
+            Ok(config) => Ok(config),
+            Err(err) => {
+                report_malformed(&alloc::format!(
+                    "Ignoring {path:?}, which doesn't have the right format => {err}"
+                ));
+                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+            }
+        }
     }
 
     /// Loads configuration from a specific TOML section of the file at the given path.
@@ -170,10 +222,17 @@ pub trait RuntimeConfig:
         path: P,
         section: &str,
     ) -> std::io::Result<Self> {
+        let path = path.as_ref();
         let content = std::fs::read_to_string(path)?;
+
         let mut table: toml::Table = match toml::from_str(&content) {
             Ok(val) => val,
-            Err(err) => panic!("The file provided doesn't have the right format => {err}"),
+            Err(err) => {
+                report_malformed(&alloc::format!(
+                    "Ignoring {path:?}, which doesn't have the right format => {err}"
+                ));
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err));
+            }
         };
 
         let value = match table.remove(section) {
@@ -186,13 +245,93 @@ pub trait RuntimeConfig:
             }
         };
 
-        let config: Self = match value.try_into() {
-            Ok(val) => val,
+        match value.try_into() {
+            Ok(config) => Ok(config),
             Err(err) => {
-                panic!("The section '{section}' doesn't have the right format => {err}")
+                report_malformed(&alloc::format!(
+                    "Ignoring section '{section}' of {path:?}, which doesn't have the right \
+                     format => {err}"
+                ));
+                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
             }
-        };
+        }
+    }
+}
 
-        Ok(config)
+#[cfg(all(test, std_io))]
+mod tests {
+    use super::*;
+
+    #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
+    struct Probe {
+        #[serde(default)]
+        cache: bool,
+    }
+
+    static PROBE: crate::sync::Mutex<Option<Arc<Probe>>> = crate::sync::Mutex::new(None);
+
+    impl RuntimeConfig for Probe {
+        fn storage() -> &'static crate::sync::Mutex<Option<Arc<Self>>> {
+            &PROBE
+        }
+        fn file_names() -> &'static [&'static str] {
+            &["probe.toml"]
+        }
+        fn section_file_names() -> &'static [(&'static str, &'static str)] {
+            &[("host.toml", "probe")]
+        }
+    }
+
+    /// A directory holding one config file, removed when the returned handle
+    /// drops.
+    fn scratch(file: &str, content: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(file), content).unwrap();
+        dir
+    }
+
+    /// A field whose *type* changed is the failure mode that silently reverts a
+    /// whole file to defaults: the file is found, so nothing looks wrong, but
+    /// every setting in it is dropped. It has to surface as an error rather
+    /// than a `None`-shaped miss.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn a_wrongly_typed_field_fails_the_whole_file() {
+        let dir = scratch("probe.toml", "cache = \"target\"\n");
+
+        let err = Probe::from_file_path(dir.path().join("probe.toml")).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    /// Same, one level in: the section exists but does not deserialize.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn a_wrongly_typed_field_fails_the_whole_section() {
+        let dir = scratch("host.toml", "[probe]\ncache = \"target\"\n");
+
+        let err = Probe::from_section_file_path(dir.path().join("host.toml"), "probe").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    /// A host file that simply has no section for us is ordinary, not an error
+    /// worth reporting — that is how a shared `burn.toml` looks to a crate it
+    /// says nothing about.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn a_missing_section_is_quiet() {
+        let dir = scratch("host.toml", "[other]\nvalue = 1\n");
+
+        let err = Probe::from_section_file_path(dir.path().join("host.toml"), "probe").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    /// The good path still reads the value through.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn a_well_formed_section_parses() {
+        let dir = scratch("host.toml", "[probe]\ncache = true\n");
+
+        let config = Probe::from_section_file_path(dir.path().join("host.toml"), "probe").unwrap();
+        assert!(config.cache);
     }
 }

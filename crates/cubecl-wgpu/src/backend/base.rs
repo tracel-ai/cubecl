@@ -30,7 +30,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     )]
     #[allow(unused_variables)]
     pub fn load_cached_pipeline(
-        &self,
+        &mut self,
         kernel_id: &KernelId,
         bindings: &KernelArguments,
         mode: ExecutionMode,
@@ -41,9 +41,9 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         #[cfg(not(feature = "spirv"))]
         let res = Ok(None);
         #[cfg(feature = "spirv")]
-        let res = if let Some(cache) = &self.spirv_cache {
+        let res = if let Some(cache) = self.spirv_cache.as_mut() {
             let key = (self.utilities.properties_hash, kernel_id.stable_hash());
-            if let Some(entry) = cache.get(&key) {
+            if let Some(entry) = cache.remove(&key) {
                 use crate::ParamsTransfer;
 
                 log::trace!("Using SPIR-V cache");
@@ -146,7 +146,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 let err_future = error_scope.pop();
 
                 #[cfg(not(target_family = "wasm"))]
-                if let Some(err) = cubecl_common::future::block_on(err_future) {
+                if let Some(err) = cubecl_environment::future::block_on(err_future) {
                     log::error!(
                         "[cubecl-wgpu] WGSL compilation failed for kernel `{entrypoint_name}`:\n{err}\n--- shader source ({} bytes) ---\n{source}\n--- end shader ---",
                         source.len()
@@ -155,7 +155,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                         reason: format!(
                             "WGSL compilation failed for kernel `{entrypoint_name}`: {err}"
                         ),
-                        backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                        backtrace: cubecl_environment::backtrace::BackTrace::capture(),
                     });
                 }
 

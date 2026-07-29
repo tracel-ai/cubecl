@@ -1,5 +1,5 @@
-use crate::stub::Arc;
 use core::{any::Any, cmp::Ordering};
+use cubecl_environment::sync::Arc;
 
 /// The device id.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, new)]

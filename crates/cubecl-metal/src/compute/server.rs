@@ -7,17 +7,17 @@ use crate::{
 use cubecl_common::{
     bytes::Bytes,
     profile::{Duration, Instant, ProfileDuration, ProfileTicks},
-    stream_id::StreamId,
 };
 use cubecl_core::{
     MemoryConfiguration,
-    future::DynFut,
     prelude::*,
     server::{
         Binding, CopyDescriptor, IoError, KernelArguments, LaunchError, ProfileError,
         ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
 };
+use cubecl_environment::future::DynFut;
+use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
     compiler::CubeTask,
@@ -159,7 +159,7 @@ impl MetalServer {
         if !errors.is_empty() {
             self.timestamps.error(ProfileError::Unknown {
                 reason: format!("{errors:?}"),
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
             });
         }
 
@@ -173,7 +173,7 @@ impl MetalServer {
             Err(err) => unreachable!("{err}"),
         };
         let error = ServerError::Launch(err);
-        resolved.current().errors.lock().unwrap().push(error);
+        resolved.current().errors.lock().push(error);
     }
 }
 
@@ -202,7 +202,7 @@ impl ComputeServer for MetalServer {
     ) -> Result<Vec<Bytes>, ServerError> {
         // Unnecessary: shared storage gives direct CPU access to GPU buffers.
         Err(IoError::UnsupportedIoOperation {
-            backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            backtrace: cubecl_environment::backtrace::BackTrace::capture(),
         }
         .into())
     }
@@ -237,7 +237,7 @@ impl ComputeServer for MetalServer {
             return Box::pin(async move {
                 Err(ServerError::ServerUnhealthy {
                     errors,
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
                 })
             });
         }
@@ -520,7 +520,7 @@ impl ComputeServer for MetalServer {
             return Box::pin(async move {
                 Err(ServerError::ServerUnhealthy {
                     errors,
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
                 })
             });
         }
@@ -539,7 +539,7 @@ impl ComputeServer for MetalServer {
         if !errors.is_empty() {
             return Err(ServerError::ServerUnhealthy {
                 errors,
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
             });
         }
 
@@ -550,7 +550,7 @@ impl ComputeServer for MetalServer {
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         // Drain prior work so the window only contains command buffers committed from here on.
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+        if let Err(err) = cubecl_environment::future::block_on(self.sync(stream_id)) {
             log::warn!("{err}");
         }
         // Begin collecting this window's work-bearing command buffers on the stream.
@@ -566,14 +566,14 @@ impl ComputeServer for MetalServer {
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
         // Flush the final encoder and wait for GPU completion so timestamps are valid.
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+        if let Err(err) = cubecl_environment::future::block_on(self.sync(stream_id)) {
             // Drop any collected buffers so a retry can't accumulate stale work.
             if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
                 resolved.current().profiling = None;
             }
             self.timestamps.error(ProfileError::Unknown {
                 reason: format!("{err}"),
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
             });
         }
 

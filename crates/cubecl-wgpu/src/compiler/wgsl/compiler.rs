@@ -3,7 +3,6 @@ use super::Subgroup;
 use super::shader::ComputeShader;
 use crate::compiler::wgsl::{self, SharedValue};
 
-use cubecl_common::backtrace::BackTrace;
 use cubecl_core::ir::{Processor, UIntKind};
 use cubecl_core::{
     Info,
@@ -18,10 +17,11 @@ use cubecl_core::{
     prelude::expand_erf,
 };
 use cubecl_core::{post_processing::disaggregate::DisaggregateVisitor, prelude::*};
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
 use cubecl_ir::AddressSpace;
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
-use hashbrown::HashMap;
 
 pub const MAX_VECTOR_SIZE: usize = 4;
 

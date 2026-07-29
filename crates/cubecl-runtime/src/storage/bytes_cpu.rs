@@ -2,8 +2,8 @@ use crate::server::IoError;
 
 use super::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::alloc::{Layout, alloc_zeroed, dealloc};
-use cubecl_common::backtrace::BackTrace;
-use hashbrown::HashMap;
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
 
 /// The bytes storage maps ids to pointers of bytes in a contiguous layout.
 #[derive(Default)]
