@@ -14,7 +14,7 @@ pub fn build_kernel<R: Runtime>(
     config: LaunchConfig,
 ) -> KernelConfig {
     let client = client.clone();
-    let dtype = key.dtype;
+    let dtype = key.dtype();
 
     let line_bytes = config.vector_size * dtype.size();
 
@@ -28,22 +28,27 @@ pub fn build_kernel<R: Runtime>(
     let in_handle = client.empty(bytes);
     let out_handle = client.empty(bytes);
 
-    let kernel = Box::new(move |iterations: usize| unsafe {
-        memory_direct_throughput::launch_unchecked(
-            &client,
-            CubeCount::Static(config.cube_count as u32, 1, 1),
-            CubeDim::new(&client, config.cube_dim),
-            config.vector_size,
-            BufferArg::from_raw_parts(in_handle.clone(), num_lines),
-            BufferArg::from_raw_parts(out_handle.clone(), num_lines),
-            iterations,
-            dtype.into(),
-        )
+    let sample = Box::new(move |iterations: usize| {
+        let start = cubecl_common::profile::Instant::now();
+        unsafe {
+            memory_direct_throughput::launch_unchecked(
+                &client,
+                CubeCount::Static(config.cube_count as u32, 1, 1),
+                CubeDim::new(&client, config.cube_dim),
+                config.vector_size,
+                BufferArg::from_raw_parts(in_handle.clone(), num_lines),
+                BufferArg::from_raw_parts(out_handle.clone(), num_lines),
+                iterations,
+                dtype.into(),
+            )
+        };
+        let _ = cubecl_core::future::block_on(client.sync());
+        start.elapsed()
     });
 
     let ops_count = 2 * num_lines * config.vector_size;
 
-    KernelConfig { kernel, ops_count }
+    KernelConfig { sample, ops_count }
 }
 
 #[cube(launch_unchecked)]

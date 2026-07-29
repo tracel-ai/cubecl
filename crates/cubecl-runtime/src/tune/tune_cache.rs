@@ -49,7 +49,8 @@ pub(crate) struct PersistentCacheValue {
 #[derive(Debug, Clone)]
 /// The result of an autotune job.
 pub struct AutotuneResult {
-    pub(crate) outcome: Result<AutotuneOutcome, AutotuneError>,
+    /// The outcome of the benchmark.
+    pub outcome: Result<AutotuneOutcome, AutotuneError>,
 }
 
 impl AutotuneResult {

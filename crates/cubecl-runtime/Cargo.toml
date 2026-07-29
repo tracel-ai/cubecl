@@ -55,7 +55,7 @@ etcetera = { workspace = true, optional = true }
 enumset = { workspace = true }
 hashbrown = { workspace = true }
 itertools = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true, optional = true }
 web-time = { workspace = true }
 

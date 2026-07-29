@@ -7,7 +7,7 @@ Small benchmarks that measure a device's **peak throughput** for a few workloads
 | `compute_direct`  | peak arithmetic throughput (non-CMMA, f32)        |
 | `compute_cmma`    | peak tensor-core (CMMA) throughput (f16 → f32)    |
 | `memory`          | peak memory (copy) bandwidth                      |
-| `launch_overhead` | fixed per-launch dispatch latency                 |
+| `launch_overhead` | peak launch throughput (dispatch rate)          |
 | `all`             | runs all of the above and prints them as a table  |
 
 ## Running
@@ -29,8 +29,8 @@ Example output:
 Peak throughput — wgpu<wgsl>
   compute-direct f32                          6.4877 TOPS/s
   compute-cmma   f16→f16 16×16×16               unsupported
-  memory         f32                      131.5563 Gbytes/s
-Launch overhead: 32.4µs
+  memory                                  131.5563 Gbytes/s
+  launch                                       32.4µs/launch
 ```
 
 CMMA needs a tensor-core backend. On backends without it (e.g. WGSL) it prints
@@ -66,5 +66,3 @@ CUBECL_THROUGHPUT_CACHE=off cargo run --release -p throughput --example all --fe
 Accepted values: `on` / `1` / `true` to enable (the default), `off` / `0` /
 `false` to disable.
 
-`launch_overhead` is memoized per device in memory only (it is not persisted and
-is unaffected by `CUBECL_THROUGHPUT_CACHE`), so it is re-measured each run.
