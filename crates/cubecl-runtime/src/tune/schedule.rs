@@ -107,8 +107,9 @@ impl Schedule {
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
         let fallback = indices.clone();
-        let run =
-            || cubecl_environment::future::block_on(self.drive(indices, autotunables, inputs, client));
+        let run = || {
+            cubecl_environment::future::block_on(self.drive(indices, autotunables, inputs, client))
+        };
 
         match client.clone().exclusive(run) {
             Ok(outcome) => outcome,
