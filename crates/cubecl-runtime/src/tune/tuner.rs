@@ -130,7 +130,7 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     limit: Option<Duration>,
     #[cfg(not(target_family = "wasm"))]
     short_circuit: bool,
-    #[cfg(std_io)]
+    #[cfg(autotune_persistence)]
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
 }
@@ -138,13 +138,13 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
 impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
     fn into_request(self, pending: Vec<PendingBench>) -> TuneRequest<K> {
         TuneRequest {
-            key: key.clone(),
-            results,
+            key: self.key,
+            results: self.results,
             #[cfg(autotune_persistence)]
-            checksum,
-            log_context,
+            checksum: self.checksum,
+            log_context: self.log_context,
             pending,
-        };
+        }
     }
 }
 
@@ -296,7 +296,7 @@ impl<K: AutotuneKey> Tuner<K> {
             limit,
             #[cfg(not(target_family = "wasm"))]
             short_circuit,
-            #[cfg(std_io)]
+            #[cfg(autotune_persistence)]
             checksum,
             log_context,
         };

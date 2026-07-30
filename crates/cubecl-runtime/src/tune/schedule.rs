@@ -108,7 +108,7 @@ impl Schedule {
     {
         let fallback = indices.clone();
         let run =
-            || cubecl_common::future::block_on(self.drive(indices, autotunables, inputs, client));
+            || cubecl_environment::future::block_on(self.drive(indices, autotunables, inputs, client));
 
         match client.clone().exclusive(run) {
             Ok(outcome) => outcome,
