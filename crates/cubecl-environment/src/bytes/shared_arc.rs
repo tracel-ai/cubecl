@@ -11,7 +11,7 @@
 //! # Example
 //!
 //! ```
-//! use cubecl_common::bytes::Bytes;
+//! use cubecl_environment::bytes::Bytes;
 //!
 //! let bytes = Bytes::from_elems(vec![1u32, 2, 3, 4]);
 //! let shared = bytes.shared();
@@ -24,7 +24,7 @@ use super::{
     AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes, SplitError,
     default_controller::{MAX_ALIGN, NativeAllocationController},
 };
-use crate::stub::Arc;
+use crate::sync::Arc;
 use alloc::boxed::Box;
 use core::mem::MaybeUninit;
 use spin::Once;
@@ -204,7 +204,8 @@ impl AllocationController for SharedAllocationController {
     }
 }
 
-#[cfg(test)]
+// The type is no-std; its tests need std (test_log, std collections).
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::super::{AccessError, Bytes, Reader, SplitPolicy, Writer};
     use alloc::vec;

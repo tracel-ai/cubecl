@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```
-//! use cubecl_common::bytes::{Bytes, AllocationProperty};
+//! use cubecl_environment::bytes::{Bytes, AllocationProperty};
 //!
 //! // Zero-copy from static data
 //! static DATA: &[u8] = &[1, 2, 3, 4];
@@ -68,7 +68,7 @@ impl SharedBytesAllocationController {
     /// # Example
     ///
     /// ```
-    /// use cubecl_common::bytes::{SharedBytesAllocationController, AllocationProperty};
+    /// use cubecl_environment::bytes::{SharedBytesAllocationController, AllocationProperty};
     ///
     /// // From static data (zero-copy, no heap allocation)
     /// let static_bytes = bytes::Bytes::from_static(&[1, 2, 3, 4]);
@@ -264,7 +264,8 @@ impl AllocationController for SharedBytesAllocationController {
     }
 }
 
-#[cfg(test)]
+// The type is no-std; its tests need std (test_log, std collections).
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::super::{Bytes, SplitPolicy};
     use super::*;

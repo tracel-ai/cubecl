@@ -6,11 +6,12 @@ use crate::{
     contiguous_strides,
 };
 use cubecl_common::device::{Device, DeviceService};
-use cubecl_common::{future, profile::TimingMethod};
+use cubecl_common::profile::TimingMethod;
 use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
+use cubecl_environment::future;
 use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(not(feature = "vulkan-validate"))]
@@ -182,7 +183,7 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
 #[cfg(not(target_family = "wasm"))]
 fn enumerate_all_adapters(instance: wgpu::Instance, backend: wgpu::Backend) -> Vec<wgpu::Adapter> {
     // `enumerate_adapters` is now async & available on WebGPU
-    cubecl_common::future::block_on(instance.enumerate_adapters(backend.into()))
+    cubecl_environment::future::block_on(instance.enumerate_adapters(backend.into()))
 }
 
 /// The values that control how a WGPU Runtime will perform its calculations.

@@ -6,16 +6,15 @@ use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
 use cubecl_common::pool::LeasePool;
 use cubecl_common::{
-    backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
-    stream_id::StreamId,
 };
+#[cfg(feature = "spirv")]
+use cubecl_core::hash::StableHash;
 use cubecl_core::server::{Binding, StreamErrorMode};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
-    future::DynFut,
     prelude::*,
     server::{
         CopyDescriptor, IoError, KernelArguments, LaunchError, ProfileError, ProfilingToken,
@@ -23,10 +22,16 @@ use cubecl_core::{
     },
     zspace::{Strides, strides},
 };
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::future::DynFut;
 #[cfg(feature = "spirv")]
-use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
+use cubecl_environment::persistence::Store;
+use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
+#[cfg(feature = "spirv")]
+use cubecl_runtime::compiler::{compilation_store, store_compiled};
 use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage, SharedMemoryBindings};
 use cubecl_runtime::{
     compiler::CubeTask,
@@ -41,7 +46,6 @@ use cubecl_runtime::{
     },
     validation::{validate_cube_dim, validate_units},
 };
-use hashbrown::HashMap;
 use wgpu::ComputePipeline;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,8 +72,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pipelines: HashMap<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
-    pub(crate) spirv_cache:
-        Option<CompilationCache<(u64, StableHash), cubecl_spirv::SpirvCacheEntry>>,
+    pub(crate) spirv_cache: Option<Store<(u64, StableHash), cubecl_spirv::SpirvCacheEntry>>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
@@ -128,18 +131,10 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 },
             ),
             #[cfg(feature = "spirv")]
-            spirv_cache: {
-                let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if let Some(cache) = &config.compilation.cache {
-                    let root = cache.root();
-                    Some(CompilationCache::new(
-                        format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
-                        CacheOption::default().name("vulkan").root(root),
-                    ))
-                } else {
-                    None
-                }
-            },
+            spirv_cache: compilation_store(
+                "vulkan",
+                format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
+            ),
             backend,
             utilities: Arc::new(utilities),
             shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
@@ -249,13 +244,11 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             && let Some(crate::AutoRepresentation::SpirV(kernel)) = auto_repr
         {
             let cache = self.spirv_cache.as_mut().unwrap();
-            let result = cache.insert(
+            store_compiled(
+                cache,
                 key,
                 cubecl_spirv::SpirvCacheEntry::new(compiled.entrypoint_name, kernel),
             );
-            if let Err(err) = result {
-                log::warn!("Unable to save the SPIR-V {err:?}");
-            }
         }
 
         Ok((pipeline, compiler_info))

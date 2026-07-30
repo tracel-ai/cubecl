@@ -26,17 +26,17 @@ use core::{
     hash::{Hash, Hasher},
 };
 use cubecl_common::{
-    backtrace::BackTrace,
     bytes::Bytes,
     device::{self, DeviceId},
-    future::DynFut,
     profile::ProfileDuration,
-    stream_id::StreamId,
-    stub::RwLock,
 };
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashSet;
+use cubecl_environment::future::DynFut;
+use cubecl_environment::stream::StreamId;
+use cubecl_environment::sync::RwLock;
 use cubecl_ir::{DeviceProperties, ElemType, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
-use hashbrown::HashSet;
 use itertools::Itertools;
 use thiserror::Error;
 
@@ -83,7 +83,7 @@ impl core::fmt::Debug for ProfileError {
 pub struct ServerUtilities<Server: ComputeServer> {
     /// The time when `profile-tracy` is activated.
     #[cfg(feature = "profile-tracy")]
-    pub epoch_time: web_time::Instant,
+    pub epoch_time: cubecl_environment::time::Instant,
     /// The GPU client when `profile-tracy` is activated.
     #[cfg(feature = "profile-tracy")]
     pub gpu_client: tracy_client::GpuContext,
@@ -159,7 +159,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
                 )
                 .unwrap(),
             #[cfg(feature = "profile-tracy")]
-            epoch_time: web_time::Instant::now(),
+            epoch_time: cubecl_environment::time::Instant::now(),
             info,
             layout_policy: allocator,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,

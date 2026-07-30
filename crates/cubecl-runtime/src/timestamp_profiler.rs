@@ -1,8 +1,6 @@
-use cubecl_common::{
-    backtrace::BackTrace,
-    profile::{Instant, ProfileDuration},
-};
-use hashbrown::HashMap;
+use cubecl_common::profile::{Instant, ProfileDuration};
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
 
 use crate::server::{ProfileError, ProfilingToken};
 

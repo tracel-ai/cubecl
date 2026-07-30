@@ -40,7 +40,7 @@ fn install_completion_handler(
     let temporaries = Mutex::new(Some(temporaries));
     let block = block2::RcBlock::new(
         move |cmd_buf: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
-            let _ = temporaries.lock().unwrap().take();
+            let _ = temporaries.lock().take();
 
             let cmd_buf = unsafe { cmd_buf.as_ref() };
             if cmd_buf.status() == MTLCommandBufferStatus::Error {
@@ -51,9 +51,9 @@ fn install_completion_handler(
                     ),
                     None => "Metal command buffer failed with an unknown error".to_string(),
                 };
-                errors.lock().unwrap().push(ServerError::Generic {
+                errors.lock().push(ServerError::Generic {
                     reason,
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
                 });
 
                 // Metal leaves encoded events unsignaled on fault; signal manually
@@ -140,7 +140,7 @@ impl MetalStream {
 
     /// Drains GPU command-buffer faults recorded asynchronously by completion handlers.
     pub fn take_errors(&self) -> Vec<ServerError> {
-        core::mem::take(&mut self.errors.lock().unwrap())
+        core::mem::take(&mut self.errors.lock())
     }
 
     /// Waits on a previously submitted command buffer if total queued ops
@@ -189,7 +189,7 @@ impl MetalEvent {
         if !result {
             return Err(ServerError::Generic {
                 reason: "Metal event wait timed out".to_string(),
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
             });
         }
         std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
@@ -395,7 +395,7 @@ impl EventStreamBackend for MetalStreamBackend {
     }
 
     fn is_healthy(stream: &Self::Stream) -> bool {
-        stream.errors.lock().unwrap().is_empty()
+        stream.errors.lock().is_empty()
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
@@ -432,9 +432,9 @@ mod tests {
         let stream = test_stream();
         assert!(MetalStreamBackend::is_healthy(&stream));
 
-        stream.errors.lock().unwrap().push(ServerError::Generic {
+        stream.errors.lock().push(ServerError::Generic {
             reason: "injected fault".to_string(),
-            backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            backtrace: cubecl_environment::backtrace::BackTrace::capture(),
         });
         assert!(!MetalStreamBackend::is_healthy(&stream));
 

@@ -62,7 +62,7 @@ impl ComputeStorage for MetalStorage {
             .newBufferWithLength_options(size as usize, MTLResourceOptions::StorageModeShared)
             .ok_or_else(|| cubecl_core::server::IoError::Unknown {
                 description: format!("Failed to allocate Metal buffer of size {}", size),
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
             })?;
 
         self.buffers.insert(id, MetalBufferHandle::new(buffer));

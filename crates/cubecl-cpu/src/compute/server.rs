@@ -6,12 +6,9 @@ use crate::{
         schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
     },
 };
-use cubecl_common::{
-    backtrace::BackTrace, bytes::Bytes, profile::ProfileDuration, stream_id::StreamId,
-};
+use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     CompilationError, CubeCount, ExecutionMode, MemoryConfiguration, MemoryUsage,
-    future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
         Binding, ComputeServer, CopyDescriptor, IoError, KernelArguments, ProfileError,
@@ -19,6 +16,9 @@ use cubecl_core::{
     },
     zspace::{Shape, Strides, strides},
 };
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::future::DynFut;
+use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
     compiler::CubeTask,

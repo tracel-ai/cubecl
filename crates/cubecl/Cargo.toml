@@ -33,6 +33,9 @@ template = ["cubecl-core/template"]
 
 profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 
+browser-cache = ["cubecl-core/browser-cache"]
+tokio = ["cubecl-core/tokio"]
+
 tracing = [
     "cubecl-core/tracing",
     "cubecl-cuda?/tracing",
@@ -64,6 +67,7 @@ test-runtime = ["cubecl-wgpu"]
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.1", default-features = false }
 cubecl-cpu = { path = "../cubecl-cpu", version = "=0.11.0-pre.1", default-features = false, optional = true }
 cubecl-cuda = { path = "../cubecl-cuda", version = "=0.11.0-pre.1", default-features = false, optional = true }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.1", default-features = false }
 cubecl-hip = { path = "../cubecl-hip", version = "=0.11.0-pre.1", default-features = false, optional = true }
 cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.1", default-features = false }
 cubecl-metal = { path = "../cubecl-metal", version = "=0.11.0-pre.1", default-features = false, optional = true }

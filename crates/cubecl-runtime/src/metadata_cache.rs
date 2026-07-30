@@ -40,7 +40,7 @@
 //! 3. on a miss, create the value and [`insert`](MetadataInfoCache::insert) it.
 
 use alloc::vec::Vec;
-use hashbrown::{HashMap, HashSet};
+use cubecl_environment::collections::{HashMap, HashSet};
 
 use crate::id::GraphId;
 

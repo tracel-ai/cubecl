@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::{string::String, sync::Arc, vec, vec::Vec};
 use core::sync::atomic::{AtomicU32, Ordering};
-use hashbrown::HashMap;
+use cubecl_environment::collections::HashMap;
 
 /// A single candidate for autotune: a named [`TuneFn`] plus the [groups](TuneGroup) it
 /// belongs to. A tunable is autotuned whenever any of its groups is prioritized.

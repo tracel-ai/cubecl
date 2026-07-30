@@ -6,8 +6,9 @@ use crate::{
     stream::{StreamFactory, StreamPool},
 };
 use core::any::Any;
-use cubecl_common::{backtrace::BackTrace, stream_id::StreamId};
-use hashbrown::HashMap;
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::stream::StreamId;
 use std::{
     boxed::Box,
     format,
@@ -126,7 +127,7 @@ impl<B: EventStreamBackend> GcThread<B> {
     fn new() -> GcThread<B> {
         let (sender, recv) = std::sync::mpsc::sync_channel::<GcTask<B>>(8);
 
-        std::thread::spawn(move || {
+        cubecl_environment::thread::spawn(move || {
             while let Ok(event) = recv.recv() {
                 B::wait_event_sync(event.event).unwrap();
                 core::mem::drop(event.to_drop);

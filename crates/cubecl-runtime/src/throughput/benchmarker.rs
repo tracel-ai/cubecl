@@ -4,8 +4,9 @@ use crate::{
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use cubecl_common::{config::RuntimeConfig, profile::Duration};
-use spin::Mutex;
+use cubecl_common::profile::Duration;
+use cubecl_environment::config::RuntimeConfig;
+use cubecl_environment::sync::Mutex;
 
 type Cache = Arc<Mutex<ThroughputCache>>;
 

@@ -25,6 +25,6 @@ pub fn try_read_sync<F: Future<Output = T>, T>(f: F) -> Option<T> {
     }
     #[cfg(not(target_family = "wasm"))]
     {
-        Some(super::future::block_on(f))
+        Some(super::block_on(f))
     }
 }
