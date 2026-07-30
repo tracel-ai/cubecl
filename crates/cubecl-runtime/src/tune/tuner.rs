@@ -126,8 +126,10 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     test_inputs: <F as TuneInputs>::At<'i>,
     plan: TunePlan,
     results: Vec<AutotuneResult>,
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(any(not(target_family = "wasm"), autotune_persistence))]
     limit: Option<Duration>,
+    #[cfg(autotune_persistence)]
+    bounds: Option<crate::tune::Bounds>,
     #[cfg(not(target_family = "wasm"))]
     short_circuit: bool,
     #[cfg(autotune_persistence)]
@@ -144,6 +146,10 @@ impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
             checksum: self.checksum,
             log_context: self.log_context,
             pending,
+            #[cfg(autotune_persistence)]
+            limit: self.limit,
+            #[cfg(autotune_persistence)]
+            bounds: self.bounds,
         }
     }
 }
@@ -157,6 +163,10 @@ struct TuneRequest<K: AutotuneKey> {
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
     pending: Vec<PendingBench>,
+    #[cfg(autotune_persistence)]
+    limit: Option<Duration>,
+    #[cfg(autotune_persistence)]
+    bounds: Option<crate::tune::Bounds>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -274,7 +284,7 @@ impl<K: AutotuneKey> Tuner<K> {
         let bounds = tunables.bounds(key, inputs);
         let limit = bounds.as_ref().and_then(|bounds| bounds.time_limit());
 
-        log_context.set_bounds(bounds);
+        log_context.set_bounds(bounds.clone());
         log_context.set_limit(limit);
 
         // The slowest median duration still considered close enough to peak throughput.
@@ -292,8 +302,10 @@ impl<K: AutotuneKey> Tuner<K> {
             test_inputs,
             plan,
             results,
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(any(not(target_family = "wasm"), autotune_persistence))]
             limit,
+            #[cfg(autotune_persistence)]
+            bounds,
             #[cfg(not(target_family = "wasm"))]
             short_circuit,
             #[cfg(autotune_persistence)]
@@ -529,6 +541,10 @@ async fn process_request<K: AutotuneKey>(
         checksum,
         mut log_context,
         pending,
+        #[cfg(autotune_persistence)]
+        limit,
+        #[cfg(autotune_persistence)]
+        bounds,
     } = request;
 
     for bench in pending {
@@ -574,7 +590,7 @@ async fn process_request<K: AutotuneKey>(
         #[cfg(autotune_persistence)]
         cache
             .lock()
-            .persistent_cache_insert(key, checksum, fastest_index, results);
+            .persistent_cache_insert(key, checksum, fastest_index, results, bounds, limit);
     }
 
     TuneCacheResult::Hit { fastest_index }

@@ -43,6 +43,8 @@ pub(crate) struct PersistentCacheKey<K> {
 pub(crate) struct PersistentCacheValue {
     fastest_index: usize,
     results: Vec<AutotuneResult>,
+    bounds: Option<crate::tune::Bounds>,
+    limit: Option<core::time::Duration>,
 }
 
 #[cfg_attr(autotune_persistence, derive(Serialize, Deserialize))]
@@ -314,6 +316,8 @@ impl<K: AutotuneKey> TuneCache<K> {
         checksum: String,
         fastest_index: usize,
         results: Vec<AutotuneResult>,
+        bounds: Option<crate::tune::Bounds>,
+        limit: Option<core::time::Duration>,
     ) {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
             return;
@@ -324,6 +328,8 @@ impl<K: AutotuneKey> TuneCache<K> {
             PersistentCacheValue {
                 fastest_index,
                 results,
+                bounds,
+                limit,
             },
         ) {
             match err {
