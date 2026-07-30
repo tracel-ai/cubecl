@@ -122,9 +122,24 @@ impl<'a> Command<'a> {
     /// * `Err(IoError)` - If the allocation fails.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
-        let handle = self.streams.current().memory_management_gpu.reserve(size)?;
-
-        Ok(handle)
+        match self.streams.current().memory_management_gpu.reserve(size) {
+            Ok(handle) => Ok(handle),
+            // The allocation can never fit; reclaiming would not change that.
+            Err(err @ IoError::BufferTooBig { .. }) => Err(err),
+            // Out of memory *right now* is not out of memory for good: pool
+            // pages whose slices have all been dropped are still resident, and
+            // the frees that would release them may sit in the deferred drop
+            // queue. Reclaim this stream's memory and retry once; only a
+            // failure after that is reported. Without the retry, a transient
+            // peak — a model build holding float weights while their quantized
+            // copies allocate, an autotune sample on a full device — becomes a
+            // never-initialized handle whose every downstream use fails.
+            Err(err) => {
+                log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
+                self.memory_cleanup();
+                self.streams.current().memory_management_gpu.reserve(size)
+            }
+        }
     }
 
     /// Get the stream cursor.

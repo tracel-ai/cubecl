@@ -885,7 +885,7 @@ pub enum IoError {
     },
 
     /// Unknown error happened during execution
-    #[error("Unknown error happened during execution\n{backtrace}")]
+    #[error("Unknown error happened during execution: {description}\n{backtrace}")]
     Unknown {
         /// Details of the error
         description: String,
