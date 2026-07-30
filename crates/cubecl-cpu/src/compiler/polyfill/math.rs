@@ -1,5 +1,5 @@
 use cubecl_core as cubecl;
-use cubecl_core::ir::dialect::bitwise::FindFirstSetOp;
+use cubecl_core::ir::dialect::bitwise::{BitwiseNotOp, FindFirstSetOp};
 use cubecl_core::ir::dialect::cmp::{FClampOp, SClampOp, UClampOp};
 use cubecl_core::ir::dialect::math::{
     ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, FModFloorOp, HypotOp, Log1pOp,
@@ -146,14 +146,14 @@ fn neg<I: Int, N: Size>(x: Vector<I, N>) -> Vector<I, N> {
 lower_unary_math_arith!(SNegOp => neg);
 
 #[cube]
-pub fn magnitude<F: Float, N: Size>(x: Vector<F, N>) -> F {
+fn magnitude<F: Float, N: Size>(x: Vector<F, N>) -> F {
     (x * x).vector_sum().sqrt()
 }
 
 lower_unary_math_arith!(MagnitudeOp => magnitude);
 
 #[cube]
-pub fn normalize<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
+fn normalize<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let magnitude = Vector::new((x * x).vector_sum().sqrt());
     x / magnitude
 }
@@ -170,6 +170,13 @@ pub fn find_first_set<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
 }
 
 lower_unary_math_arith!(FindFirstSetOp => find_first_set);
+
+#[cube]
+fn bitwise_not<I: Int, N: Size>(x: Vector<I, N>) -> Vector<I, N> {
+    x ^ Vector::from_int(-1)
+}
+
+lower_unary_math_arith!(BitwiseNotOp => bitwise_not);
 
 #[op_interface_impl]
 impl LowerOp for SMulHiOp {

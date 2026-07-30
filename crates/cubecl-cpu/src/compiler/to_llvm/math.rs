@@ -48,7 +48,7 @@ lower_unary_intrinsic_arith!(ArcSinOp => "llvm.asin");
 lower_unary_intrinsic_arith!(ArcCosOp => "llvm.acos");
 lower_unary_intrinsic_arith!(ArcTanOp => "llvm.atan");
 lower_unary_intrinsic_arith!(SqrtOp => "llvm.sqrt");
-lower_unary_intrinsic_arith!(RoundOp => "llvm.round");
+lower_unary_intrinsic_arith!(RoundOp => "llvm.roundeven");
 lower_unary_intrinsic_arith!(FloorOp => "llvm.floor");
 lower_unary_intrinsic_arith!(CeilOp => "llvm.ceil");
 lower_unary_intrinsic_arith!(TruncOp => "llvm.trunc");
@@ -359,12 +359,12 @@ macro_rules! lower_binary_intrinsic_arith {
 
 lower_binary_intrinsic_arith!(ArcTan2Op => "llvm.atan2");
 lower_binary_intrinsic_arith!(PowfOp => "llvm.pow");
-lower_binary_intrinsic_arith!(FMinOp => "llvm.minnum");
+lower_binary_intrinsic_arith!(FMinOp => "llvm.minimum");
 lower_binary_intrinsic_arith!(UMinOp => "llvm.umin");
 lower_binary_intrinsic_arith!(SMinOp => "llvm.smin");
 lower_binary_intrinsic_arith!(UMaxOp => "llvm.umax");
 lower_binary_intrinsic_arith!(SMaxOp => "llvm.smax");
-lower_binary_intrinsic_arith!(FMaxOp => "llvm.maxnum");
+lower_binary_intrinsic_arith!(FMaxOp => "llvm.maximum");
 lower_binary_intrinsic_arith!(SaturatingSAddOp => "llvm.sadd.sat");
 lower_binary_intrinsic_arith!(SaturatingUAddOp => "llvm.uadd.sat");
 lower_binary_intrinsic_arith!(SaturatingSSubOp => "llvm.ssub.sat");

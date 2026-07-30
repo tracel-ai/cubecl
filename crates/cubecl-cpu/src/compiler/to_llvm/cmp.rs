@@ -67,9 +67,9 @@ macro_rules! lower_float_cmp {
     };
 }
 
-lower_float_cmp!(FLessThanOp => ULT);
-lower_float_cmp!(FLessThanOrEqualOp => ULE);
-lower_float_cmp!(FGreaterThanOp => UGT);
-lower_float_cmp!(FGreaterThanOrEqualOp => UGE);
-lower_float_cmp!(FEqualOp => UEQ);
+lower_float_cmp!(FLessThanOp => OLT);
+lower_float_cmp!(FLessThanOrEqualOp => OLE);
+lower_float_cmp!(FGreaterThanOp => OGT);
+lower_float_cmp!(FGreaterThanOrEqualOp => OGE);
+lower_float_cmp!(FEqualOp => OEQ);
 lower_float_cmp!(FNotEqualOp => UNE);
