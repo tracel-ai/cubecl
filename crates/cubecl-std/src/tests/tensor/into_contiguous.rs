@@ -129,6 +129,55 @@ pub fn test_into_contiguous_packed_halving<R: Runtime>(device: &R::Device) {
     run_repack_case::<R>(device, &[8192, 32], 0, 8, 4);
 }
 
+pub fn test_into_contiguous_rank_mismatch<R: Runtime>(device: &R::Device) {
+    let client = R::client(device);
+    let dtype = f32::cube_type();
+
+    // Layout produced by max_pool1d: NHWC storage viewed as NCHW [1, 2, 4, 1].
+    let shape = vec![1usize, 2, 4, 1];
+    let strides = vec![8usize, 1, 2, 2];
+    let num_elems = 8;
+
+    let data: Vec<f32> = (0..num_elems).map(|i| i as f32 + 1.0).collect();
+    let input = TensorHandle::<R>::new(
+        client.create_from_slice(f32::as_bytes(&data)),
+        shape.clone(),
+        strides.clone(),
+        dtype,
+    );
+    // Same elements in linear order, but with the unit dim dropped.
+    let out_shape = vec![1usize, 2, 4];
+    let output = TensorHandle::<R>::new_contiguous(
+        out_shape.clone(),
+        client.empty(num_elems * size_of::<f32>()),
+        dtype,
+    );
+    copy_into(&client, input.binding(), output.clone().binding(), dtype);
+
+    let bytes = client.read_one_unchecked_tensor(output.handle.clone().copy_descriptor(
+        output.shape().clone(),
+        output.strides().clone(),
+        size_of::<f32>(),
+    ));
+    let actual = f32::from_bytes(&bytes);
+
+    let in_strides = contiguous_strides(&shape);
+    let expected: Vec<f32> = (0..num_elems)
+        .map(|q| {
+            let src: usize = (0..shape.len())
+                .map(|d| (q / in_strides[d]) % shape[d] * strides[d])
+                .sum();
+            data[src]
+        })
+        .collect();
+
+    assert_eq!(
+        actual,
+        &expected[..],
+        "rank-mismatched copy ({shape:?} strides {strides:?} -> {out_shape:?})",
+    );
+}
+
 /// Copy a permuted (non-contiguous) view of a contiguous buffer into a contiguous output and
 /// compare against a CPU reference. `perm[d]` is the source axis that becomes output axis `d`.
 fn run_permuted_case<R: Runtime, E: CubeElement + From<u8> + PartialEq>(
@@ -145,7 +194,9 @@ fn run_permuted_case<R: Runtime, E: CubeElement + From<u8> + PartialEq>(
     let strides: Vec<usize> = perm.iter().map(|&p| base_strides[p]).collect();
 
     // Deterministic payload; every element is distinct modulo 251 so a misplaced write shows up.
-    let data: Vec<E> = (0..num_elems).map(|i| E::from((i % 251 + 1) as u8)).collect();
+    let data: Vec<E> = (0..num_elems)
+        .map(|i| E::from((i % 251 + 1) as u8))
+        .collect();
 
     let input = TensorHandle::<R>::new(
         client.create_from_slice(E::as_bytes(&data)),
@@ -158,12 +209,7 @@ fn run_permuted_case<R: Runtime, E: CubeElement + From<u8> + PartialEq>(
         client.empty(num_elems * size_of::<E>()),
         dtype,
     );
-    copy_into(
-        &client,
-        input.binding(),
-        output.clone().binding(),
-        dtype,
-    );
+    copy_into(&client, input.binding(), output.clone().binding(), dtype);
 
     let bytes = client.read_one_unchecked_tensor(output.handle.clone().copy_descriptor(
         output.shape().clone(),
