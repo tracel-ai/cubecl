@@ -1,23 +1,27 @@
 //! Rewrites the kernel entry ABI to what the JIT host calls.
 
 use core::cell::RefCell;
-use cubecl_core::ir::attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface};
-use cubecl_core::ir::dialect::general::{BufferLenOp, ReadScalarOp, ShapeOp, StrideOp};
+use cubecl_core::ir::attributes::{
+    ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface, IndexAttr,
+};
+use cubecl_core::ir::dialect::general::{
+    BufferLenOp, CastOp, ReadScalarOp, ReinterpretCastOp, ShapeOp, StrideOp,
+};
 use cubecl_core::ir::dialect::math::IAddOp;
+use cubecl_core::ir::dialect::memory::{IndexOp, LoadOp};
 use cubecl_core::ir::metadata::Info;
 use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::ElemType;
+use cubecl_core::ir::types::scalar::IndexType;
+use cubecl_core::ir::types::{BytesType, PointerType, RuntimeArrayType};
+use cubecl_core::ir::{AddressSpace, ElemType};
 use pliron::basic_block::BasicBlock;
 use pliron::builtin::attributes::TypeAttr;
-use pliron::builtin::ops::FuncOp;
-use pliron::builtin::types::{FunctionType, IntegerType, Signedness};
-use pliron_llvm::op_interfaces::CastOpWithNNegInterface;
-use pliron_llvm::ops as llvm;
-use pliron_llvm::types::PointerType as LlvmPointerType;
+use pliron::builtin::ops::{ConstantOp, FuncOp};
+use pliron::builtin::types::FunctionType;
 use std::rc::Rc;
 
 use crate::compiler::shared_memory::{SharedDeclarations, SharedMemories};
-use crate::compiler::to_llvm::ty::{INDEX_WIDTH, cube_type_to_llvm};
+use crate::compiler::to_llvm::ty::cube_type_to_llvm;
 
 /// `(op, buffer_idx, result)` for each `cube.buffer_len`, gathered during the walk so the ops
 /// can be rewritten once the walker no longer holds them borrowed.
@@ -127,62 +131,38 @@ impl Pass for LowerEntryAbiPass {
                 }))
                 .collect();
 
-        let ptr_ty: TypeHandle = LlvmPointerType::get(ctx, 0).into();
-        let i8_ty: TypeHandle = IntegerType::get(ctx, 8, Signedness::Signless).into();
-        let index_ty: TypeHandle = IntegerType::get(ctx, INDEX_WIDTH, Signedness::Signless).into();
-        // `cube.index` always lowers to `i64`, but the host stores anything index-shaped —
-        // metadata slots and `usize` scalars — at the kernel's address width.
-        let addr_width = 8 * ctx.address_type().size() as u32;
-        let slot_ty: TypeHandle = IntegerType::get(ctx, addr_width, Signedness::Signless).into();
+        let address_type = ctx.address_type();
+        let slot_ty = address_type.unsigned_type().to_type(ctx);
+        let slot_size = address_type.size();
 
-        let meta_idx = BasicBlock::push_argument(entry, ctx, ptr_ty);
-        let meta_ptr = entry.deref(ctx).get_argument(meta_idx);
+        let info_ty = ptr_to(ctx, BytesType::get(ctx).into());
+        let meta_idx = BasicBlock::push_argument(entry, ctx, info_ty);
+        let info = entry.deref(ctx).get_argument(meta_idx);
 
-        // The metadata regions sit behind the scalar prefix, so byte-step past it first.
-        let static_offset = self.info.sized_meta.map_or(0, |field| field.offset);
+        let static_base = elem_index(
+            self.info.sized_meta.map_or(0, |field| field.offset),
+            slot_size,
+        );
         for (bl_op, buffer_idx, result) in &buffer_lens.0 {
-            let slot = self.info.buffer_len_index(*buffer_idx);
-            let base = byte_offset(ctx, meta_ptr, static_offset, i8_ty, *bl_op);
-            let len = load_slot(
-                ctx,
-                base,
-                llvm::GepIndex::Constant(slot as u32),
-                slot_ty,
-                index_ty,
-                *bl_op,
-            );
+            let slot = static_base + self.info.buffer_len_index(*buffer_idx);
+            let slot = index_const(ctx, slot, *bl_op);
+            let len = load_info(ctx, info, slot_ty, slot, *bl_op);
+            let len = to_index(ctx, len, *bl_op);
             result.replace_all_uses_with(ctx, &len);
             Operation::erase(*bl_op, ctx);
         }
 
+        let dyn_base = elem_index(self.info.dynamic_meta_offset, slot_size);
         for (read_op, slot, dim, result) in &dyn_meta_reads {
-            let static_base = byte_offset(ctx, meta_ptr, static_offset, i8_ty, *read_op);
-            let tensor_offset = load_slot(
-                ctx,
-                static_base,
-                llvm::GepIndex::Constant(*slot as u32),
-                slot_ty,
-                index_ty,
-                *read_op,
-            );
-            let idx = IAddOp::new(ctx, tensor_offset, *dim);
-            idx.get_operation().insert_before(ctx, *read_op);
+            let slot = index_const(ctx, static_base + *slot, *read_op);
+            let tensor_offset = load_info(ctx, info, slot_ty, slot, *read_op);
+            let tensor_offset = to_index(ctx, tensor_offset, *read_op);
 
-            let dyn_base = byte_offset(
-                ctx,
-                meta_ptr,
-                self.info.dynamic_meta_offset,
-                i8_ty,
-                *read_op,
-            );
-            let value = load_slot(
-                ctx,
-                dyn_base,
-                llvm::GepIndex::Value(idx.get_result(ctx)),
-                slot_ty,
-                index_ty,
-                *read_op,
-            );
+            let index = index_add(ctx, tensor_offset, *dim, *read_op);
+            let dyn_base = index_const(ctx, dyn_base, *read_op);
+            let index = index_add(ctx, index, dyn_base, *read_op);
+            let value = load_info(ctx, info, slot_ty, index, *read_op);
+            let value = to_index(ctx, value, *read_op);
             result.replace_all_uses_with(ctx, &value);
             Operation::erase(*read_op, ctx);
         }
@@ -196,32 +176,28 @@ impl Pass for LowerEntryAbiPass {
                 .unwrap_or_else(|| panic!("cube.read_scalar has no matching scalar in the info"));
             let stored_ty = match field.ty {
                 ElemType::Index => slot_ty,
-                _ => cube_type_to_llvm(ctx, *elem_ty),
+                _ => *elem_ty,
             };
-            let offset = field.offset;
+            let stored_size = field.ty.expand_size(address_type);
 
-            // Byte-step to the type group's base, then step `id` elements into it.
-            let group = byte_offset(ctx, meta_ptr, offset, i8_ty, *rs_op);
-            let scalar = load_slot(
-                ctx,
-                group,
-                llvm::GepIndex::Constant(*id as u32),
-                stored_ty,
-                cube_type_to_llvm(ctx, *elem_ty),
-                *rs_op,
-            );
+            let index = elem_index(field.offset, stored_size) + *id;
+            let index = index_const(ctx, index, *rs_op);
+            let scalar = load_info(ctx, info, stored_ty, index, *rs_op);
+            let scalar = match field.ty {
+                ElemType::Index => to_index(ctx, scalar, *rs_op),
+                _ => scalar,
+            };
             result.replace_all_uses_with(ctx, &scalar);
             Operation::erase(*rs_op, ctx);
         }
 
-        // Collapse buffers and shared memories behind a single leading `%buffer_ptrs`. The
-        // shared memories take the slots after the last buffer.
         let shared_base = (buffers.iter())
             .map(|(_, buffer_pos, _)| buffer_pos + 1)
             .max()
             .unwrap_or(0);
         if !buffers.is_empty() || !shared.is_empty() {
-            BasicBlock::insert_argument(entry, ctx, 0, ptr_ty);
+            let table_ty = table_ty(ctx);
+            BasicBlock::insert_argument(entry, ctx, 0, table_ty);
             let buffer_ptrs = entry.deref(ctx).get_argument(0);
             let terminator = entry
                 .deref(ctx)
@@ -229,16 +205,9 @@ impl Pass for LowerEntryAbiPass {
                 .expect("entry block must be terminated");
 
             for (_idx, buffer_pos, old_val) in &buffers {
-                let gep = llvm::GetElementPtrOp::new(
-                    ctx,
-                    buffer_ptrs,
-                    vec![llvm::GepIndex::Constant(*buffer_pos as u32)],
-                    ptr_ty,
-                );
-                gep.get_operation().insert_before(ctx, terminator);
-                let load = llvm::LoadOp::new(ctx, gep.get_result(ctx), ptr_ty);
-                load.get_operation().insert_before(ctx, terminator);
-                old_val.replace_all_uses_with(ctx, &load.get_result(ctx));
+                let buffer_ty = old_val.get_type(ctx);
+                let buffer = load_table(ctx, buffer_ptrs, *buffer_pos, buffer_ty, terminator);
+                old_val.replace_all_uses_with(ctx, &buffer);
             }
 
             let blocks = shared.lower(ctx, buffer_ptrs, shared_base, terminator);
@@ -257,7 +226,10 @@ impl Pass for LowerEntryAbiPass {
         }
 
         let arg_values: Vec<Value> = entry.deref(ctx).arguments().collect();
-        let arg_types: Vec<TypeHandle> = arg_values.iter().map(|a| a.get_type(ctx)).collect();
+        let arg_types: Vec<TypeHandle> = arg_values
+            .iter()
+            .map(|arg| cube_type_to_llvm(ctx, arg.get_type(ctx)))
+            .collect();
         let res_types = func
             .get_type(ctx)
             .deref(ctx)
@@ -272,43 +244,92 @@ impl Pass for LowerEntryAbiPass {
     }
 }
 
-/// Byte-step `bytes` past `ptr`, inserting the walk before `before`.
-fn byte_offset(
-    ctx: &mut Context,
-    ptr: Value,
-    bytes: usize,
-    i8_ty: TypeHandle,
-    before: Ptr<Operation>,
-) -> Value {
-    let gep = llvm::GetElementPtrOp::new(
-        ctx,
-        ptr,
-        vec![llvm::GepIndex::Constant(bytes as u32)],
-        i8_ty,
-    );
-    gep.get_operation().insert_before(ctx, before);
-    gep.get_result(ctx)
+/// `cube.ptr<inner>` into the memory the host owns.
+fn ptr_to(ctx: &Context, inner: TypeHandle) -> TypeHandle {
+    PointerType::get(ctx, inner, AddressSpace::Global(0)).into()
 }
 
-/// Load the `stored_ty` slot at `index` from `base`, widening it to the `result_ty` the kernel
-/// expects. The two only differ for index-shaped values under 32-bit addressing.
-fn load_slot(
+/// `cube.ptr<cube.runtime_array<elem>>`, the view `memory.index` walks to reach an element.
+fn array_ptr_to(ctx: &Context, elem: TypeHandle) -> TypeHandle {
+    ptr_to(ctx, RuntimeArrayType::get(ctx, elem).into())
+}
+
+/// Type of `%buffer_ptrs`, the table holding one pointer per buffer and then per shared memory.
+/// What each of them points at is up to the slot's owner, so the table holds them opaquely.
+fn table_ty(ctx: &Context) -> TypeHandle {
+    array_ptr_to(ctx, ptr_to(ctx, BytesType::get(ctx).into()))
+}
+
+/// The element `bytes` bytes into an array of `elem_size` wide elements. The host aligns every
+/// region of the info buffer to `INFO_ALIGN`, so no region starts inside an element.
+fn elem_index(bytes: usize, elem_size: usize) -> usize {
+    debug_assert_eq!(
+        bytes % elem_size,
+        0,
+        "info regions are aligned, so they start on an element boundary"
+    );
+    bytes / elem_size
+}
+
+/// Insert a `cube.index` constant before `before`.
+fn index_const(ctx: &mut Context, value: usize, before: Ptr<Operation>) -> Value {
+    let constant = ConstantOp::new(ctx, Box::new(IndexAttr::new(value)));
+    constant.get_operation().insert_before(ctx, before);
+    constant.get_result(ctx)
+}
+
+/// Insert `lhs + rhs` before `before`, both being indices.
+fn index_add(ctx: &mut Context, lhs: Value, rhs: Value, before: Ptr<Operation>) -> Value {
+    let add = IAddOp::new(ctx, lhs, rhs);
+    add.get_operation().insert_before(ctx, before);
+    add.get_result(ctx)
+}
+
+/// Widen a stored slot to the `cube.index` the kernel computes with. The cast folds away when the
+/// kernel addresses memory at 64 bits, where the two have the same width.
+fn to_index(ctx: &mut Context, value: Value, before: Ptr<Operation>) -> Value {
+    let index_ty = IndexType::get(ctx).into();
+    let cast = CastOp::new(ctx, index_ty, value);
+    cast.get_operation().insert_before(ctx, before);
+    cast.get_result(ctx)
+}
+
+/// Load the element at `index` of the info buffer, read as an array of `elem_ty`.
+fn load_info(
     ctx: &mut Context,
-    base: Value,
-    index: llvm::GepIndex,
-    stored_ty: TypeHandle,
-    result_ty: TypeHandle,
+    info: Value,
+    elem_ty: TypeHandle,
+    index: Value,
     before: Ptr<Operation>,
 ) -> Value {
-    let gep = llvm::GetElementPtrOp::new(ctx, base, vec![index], stored_ty);
-    gep.get_operation().insert_before(ctx, before);
-    let load = llvm::LoadOp::new(ctx, gep.get_result(ctx), stored_ty);
-    load.get_operation().insert_before(ctx, before);
+    let view_ty = array_ptr_to(ctx, elem_ty);
+    let view = ReinterpretCastOp::new(ctx, view_ty, info);
+    view.get_operation().insert_before(ctx, before);
+    load_elem(ctx, view.get_result(ctx), index, before)
+}
 
-    if stored_ty == result_ty {
-        return load.get_result(ctx);
-    }
-    let zext = llvm::ZExtOp::new_with_nneg(ctx, load.get_result(ctx), result_ty, true);
-    zext.get_operation().insert_before(ctx, before);
-    zext.get_result(ctx)
+/// Load the element at `index` of the array `base` points at.
+fn load_elem(ctx: &mut Context, base: Value, index: Value, before: Ptr<Operation>) -> Value {
+    let elem = IndexOp::new(ctx, base, index, None);
+    elem.get_operation().insert_before(ctx, before);
+    let load = LoadOp::new(ctx, elem.get_result(ctx));
+    load.get_operation().insert_before(ctx, before);
+    load.get_result(ctx)
+}
+
+/// Read slot `slot` of the pointer table as a `ptr_ty`, which is how a buffer or a shared memory
+/// reaches the block the host reserved for it. The table holds its pointers opaquely, so what a
+/// slot holds is only known to its owner.
+pub fn load_table(
+    ctx: &mut Context,
+    table: Value,
+    slot: usize,
+    ptr_ty: TypeHandle,
+    before: Ptr<Operation>,
+) -> Value {
+    let slot = index_const(ctx, slot, before);
+    let ptr = load_elem(ctx, table, slot, before);
+    let cast = ReinterpretCastOp::new(ctx, ptr_ty, ptr);
+    cast.get_operation().insert_before(ctx, before);
+    cast.get_result(ctx)
 }

@@ -6,7 +6,7 @@ use cubecl_core::ir::dialect::{
         ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, ExpectTxOp, InitOp,
         WaitOp, WaitParityOp,
     },
-    general::{CastOp, CommentOp, FreeOp, PrintfOp, SelectOp},
+    general::{CastOp, CommentOp, FreeOp, PrintfOp, ReinterpretCastOp, SelectOp},
 };
 use pliron::{
     builtin::{
@@ -153,6 +153,32 @@ impl ToLLVMDialect for CastOp {
             cast_int_to_float(self, out_signed, ctx, rewriter);
         }
 
+        Ok(())
+    }
+}
+
+/// LLVM pointers are opaque, so reinterpreting one is a change of type and nothing else. Any other
+/// value keeps its bit pattern across the two types, which is what a bitcast is.
+#[op_interface_impl]
+impl ToLLVMDialect for ReinterpretCastOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let input = self.input(ctx);
+        let out_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
+        let old_op = self.get_operation();
+
+        if out_ty.deref(ctx).is::<LlvmPointerType>() {
+            rewriter.replace_operation_with_values(ctx, old_op, vec![input]);
+            return Ok(());
+        }
+
+        let bitcast = llvm::BitcastOp::new(ctx, input, out_ty);
+        rewriter.insert_op(ctx, &bitcast);
+        rewriter.replace_operation_with_values(ctx, old_op, vec![bitcast.get_result(ctx)]);
         Ok(())
     }
 }

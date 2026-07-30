@@ -3,6 +3,7 @@ use cubecl_core::ir::types::{
     AtomicType,
     scalar::{Float16Type, Float32Type, Float64Type, FloatFlex32Type},
 };
+use pliron::printable::Printable;
 
 /// LLVM width of a `cube.index`. `IndexType` is `size_of::<u64>()`, so it maps to `i64`.
 pub const INDEX_WIDTH: u32 = 64;
@@ -45,7 +46,11 @@ pub fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
     .unwrap_or(ty);
 
     let scalar = scalar.deref(ctx);
-    type_cast::<dyn AlignedType>(&*scalar)
+    let scalar = type_cast::<dyn AlignedType>(&*scalar);
+    if scalar.is_none() {
+        println!("{}", ty.disp(ctx));
+    }
+    scalar
         .expect("load/store value type must implement AlignedType")
         .align(ctx) as u32
 }

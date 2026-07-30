@@ -44,7 +44,7 @@ impl ToLLVMDialect for DeclareVariableOp {
             rewriter.insert_op(ctx, &constant);
 
             let store = llvm::StoreOp::new(ctx, constant.get_result(ctx), alloca.get_result(ctx));
-            store.set_alignment(ctx, scalar_alignment(ctx, self.value_ty(ctx).get_type(ctx)));
+            store.set_alignment(ctx, self.alignment(ctx).0 as u32);
             rewriter.insert_op(ctx, &store);
         }
 
@@ -96,10 +96,13 @@ impl ToLLVMDialect for LoadOp {
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
-        _operands_info: &OperandsInfo,
+        operands_info: &OperandsInfo,
     ) -> Result<()> {
         let ptr = self.ptr(ctx);
-        let res_cube_ty = self.get_result(ctx).get_type(ctx);
+        let result = self.get_result(ctx);
+        let res_cube_ty = operands_info
+            .lookup_most_recent_type(result)
+            .unwrap_or_else(|| result.get_type(ctx));
         let align = scalar_alignment(ctx, res_cube_ty);
         let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
 

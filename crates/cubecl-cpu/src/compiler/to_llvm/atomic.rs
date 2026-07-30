@@ -56,11 +56,14 @@ impl ToLLVMDialect for AtomicLoadOp {
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
-        _operands_info: &OperandsInfo,
+        operands_info: &OperandsInfo,
     ) -> Result<()> {
         let ptr = self.ptr(ctx);
         let ordering = AtomicOrderingAttr::Monotonic;
-        let res_cube_ty = self.get_result(ctx).get_type(ctx);
+        let result = self.get_result(ctx);
+        let res_cube_ty = operands_info
+            .lookup_most_recent_type(result)
+            .unwrap_or_else(|| result.get_type(ctx));
         let align = scalar_alignment(ctx, res_cube_ty);
         let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
 
@@ -102,11 +105,14 @@ impl ToLLVMDialect for OrderedAtomicLoadOp {
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
-        _operands_info: &OperandsInfo,
+        operands_info: &OperandsInfo,
     ) -> Result<()> {
         let ptr = self.ptr(ctx);
         let ordering = self.ordering(ctx).clone();
-        let res_cube_ty = self.get_result(ctx).get_type(ctx);
+        let result = self.get_result(ctx);
+        let res_cube_ty = operands_info
+            .lookup_most_recent_type(result)
+            .unwrap_or_else(|| result.get_type(ctx));
         let align = scalar_alignment(ctx, res_cube_ty);
         let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
 

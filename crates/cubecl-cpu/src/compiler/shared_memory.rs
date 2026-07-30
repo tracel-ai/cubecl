@@ -14,8 +14,8 @@ use cubecl_core::ir::AddressSpace;
 use cubecl_core::ir::dialect::memory::DeclareVariableOp;
 use cubecl_core::ir::interfaces::SizedType;
 use cubecl_core::ir::prelude::*;
-use pliron_llvm::ops as llvm;
-use pliron_llvm::types::PointerType as LlvmPointerType;
+
+use crate::compiler::metadata::load_table;
 
 /// A block of shared memory the host must reserve to launch the kernel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,23 +81,14 @@ impl SharedDeclarations {
         base: usize,
         before: Ptr<Operation>,
     ) -> Vec<SharedMemoryBlock> {
-        let ptr_ty: TypeHandle = LlvmPointerType::get(ctx, 0).into();
-
         self.0
             .into_iter()
             .enumerate()
             .map(|(offset, (decl, result, block))| {
-                let slot = llvm::GetElementPtrOp::new(
-                    ctx,
-                    table,
-                    vec![llvm::GepIndex::Constant((base + offset) as u32)],
-                    ptr_ty,
-                );
-                slot.get_operation().insert_before(ctx, before);
-                let ptr = llvm::LoadOp::new(ctx, slot.get_result(ctx), ptr_ty);
-                ptr.get_operation().insert_before(ctx, before);
+                let ptr_ty = result.get_type(ctx);
+                let ptr = load_table(ctx, table, base + offset, ptr_ty, before);
 
-                result.replace_all_uses_with(ctx, &ptr.get_result(ctx));
+                result.replace_all_uses_with(ctx, &ptr);
                 Operation::erase(decl, ctx);
                 block
             })

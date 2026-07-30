@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::ir::dialect::bitwise::FindFirstSetOp;
 use cubecl_core::ir::dialect::math::{
-    ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, HypotOp, Log1pOp, PowiOp,
-    RadiansOp, RecipOp, RhypotOp, RsqrtOp, SMulHiOp, SNegOp, UMulHiOp,
+    ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, FModFloorOp, HypotOp, Log1pOp,
+    PowiOp, RadiansOp, RecipOp, RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp, UMulHiOp,
 };
 use cubecl_core::ir::dialect::vector::{FDotOp, MagnitudeOp, NormalizeOp, SDotOp, UDotOp};
 use cubecl_core::ir::interfaces::TypedExt;
@@ -85,6 +85,24 @@ pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vecto
 lower_binary_math_arith!(PowiOp => powi);
 
 #[cube]
+fn f_mod_floor<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<F, N> {
+    lhs - rhs * (lhs / rhs).floor()
+}
+
+lower_binary_math_arith!(FModFloorOp => f_mod_floor);
+
+#[cube]
+fn s_mod_floor<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
+    let zero = Vector::<I, N>::zero();
+    let rem = lhs % rhs;
+    let signs_differ = rem.less_than(&zero).not_equal(&rhs.less_than(&zero));
+    let needs_fixup = rem.not_equal(&zero).vec_and(signs_differ);
+    select_many(needs_fixup, rem + rhs, rem)
+}
+
+lower_binary_math_arith!(SModFloorOp => s_mod_floor);
+
+#[cube]
 fn arc_sinh<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     (x + (x * x + Vector::one()).sqrt()).ln()
 }
@@ -120,7 +138,7 @@ lower_unary_math_arith!(ErfOp => erf);
 lower_unary_math_arith!(RecipOp => recip);
 
 #[cube]
-fn neg<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
+fn neg<I: Int, N: Size>(x: Vector<I, N>) -> Vector<I, N> {
     Vector::zero() - x
 }
 

@@ -1,6 +1,6 @@
 use super::prelude::*;
 use cubecl_core::ir::dialect::bitwise::*;
-use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp};
+use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp};
 use cubecl_core::ir::dialect::general::{BoolAndOp, BoolNotOp, BoolOrOp};
 use cubecl_core::ir::dialect::math::*;
 
@@ -232,6 +232,8 @@ lower_int_bin_arith!(BitwiseOrOp => llvm::OrOp);
 lower_int_bin_arith!(BitwiseXorOp => llvm::XorOp);
 lower_int_bin_arith!(UDivOp => llvm::UDivOp);
 lower_int_bin_arith!(URemOp => llvm::URemOp);
+lower_int_bin_arith!(SDivOp => llvm::SDivOp);
+lower_int_bin_arith!(SRemOp => llvm::SRemOp);
 
 #[op_interface_impl]
 impl ToLLVMDialect for ShiftRightOp {
@@ -358,6 +360,10 @@ macro_rules! lower_binary_intrinsic_arith {
 lower_binary_intrinsic_arith!(ArcTan2Op => "llvm.atan2");
 lower_binary_intrinsic_arith!(PowfOp => "llvm.pow");
 lower_binary_intrinsic_arith!(FMinOp => "llvm.minnum");
+lower_binary_intrinsic_arith!(UMinOp => "llvm.umin");
+lower_binary_intrinsic_arith!(SMinOp => "llvm.smin");
+lower_binary_intrinsic_arith!(UMaxOp => "llvm.umax");
+lower_binary_intrinsic_arith!(SMaxOp => "llvm.smax");
 lower_binary_intrinsic_arith!(FMaxOp => "llvm.maxnum");
 lower_binary_intrinsic_arith!(SaturatingSAddOp => "llvm.sadd.sat");
 lower_binary_intrinsic_arith!(SaturatingUAddOp => "llvm.uadd.sat");
