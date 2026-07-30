@@ -32,19 +32,24 @@ pub(crate) enum ChecksumState {
 /// Persistent cache key
 #[cfg(autotune_persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
-pub(crate) struct PersistentCacheKey<K> {
-    key: K,
+pub struct PersistentCacheKey<K> {
+    /// The autotune key identifying the operation.
+    pub key: K,
     checksum: String,
 }
 
 /// Persistent cache entry
 #[cfg(autotune_persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub(crate) struct PersistentCacheValue {
-    fastest_index: usize,
-    results: Vec<AutotuneResult>,
-    bounds: Option<crate::tune::Bounds>,
-    limit: Option<core::time::Duration>,
+pub struct PersistentCacheValue {
+    /// Index of the fastest candidate operation.
+    pub fastest_index: usize,
+    /// Benchmarking results for all autotune candidates.
+    pub results: Vec<AutotuneResult>,
+    /// Optional input size bounds for which the autotune result applies.
+    pub bounds: Option<crate::tune::Bounds>,
+    /// Optional execution time limit for the autotune process.
+    pub limit: Option<core::time::Duration>,
 }
 
 #[cfg_attr(autotune_persistence, derive(Serialize, Deserialize))]
