@@ -317,3 +317,46 @@ fn exclusive_stays_recoverable_on_task_panic() {
         Ok(()) => panic!("expected exclusive to return Err on a task panic, not Ok"),
     }
 }
+
+/// A tunable that rejects its own configuration fails identically on every call, so the
+/// benchmark must stop at the first rejection rather than paying a profile round trip for
+/// every warmup and sample before reporting it.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn autotune_stops_sampling_a_rejected_candidate() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_rejected_candidate");
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_set = calls.clone();
+
+    // The persistent cache outlives the process, so the key has to be new on every run for the
+    // candidates to actually be benchmarked.
+    let uid = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+        .to_string();
+
+    let test_set = TUNER.init(move || {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::addition_set_with_rejected_candidate(client, shapes, uid.clone(), calls_set.clone())
+    });
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    // The rejected candidate is dropped after its first failure, and the surviving `add`
+    // kernel still wins the tuning.
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}

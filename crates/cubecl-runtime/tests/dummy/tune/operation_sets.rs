@@ -1,4 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use cubecl_runtime::{
     server::Handle,
@@ -137,4 +143,30 @@ pub fn bounded_addition_set_no_short_circuit(
         }
     }))
     .with_short_circuit(false)
+}
+
+/// Addition set whose first candidate always rejects its own configuration, standing in for a
+/// kernel a backend refuses before compilation. `calls` counts how often the rejecting closure
+/// runs, so a test can assert the benchmark gives up on the first failure.
+///
+/// `uid` is mixed into the autotune key so every run is a cache miss: the persistent cache
+/// would otherwise answer from a previous run and no candidate would be benchmarked at all.
+pub fn addition_set_with_rejected_candidate(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+    calls: Arc<AtomicUsize>,
+) -> TestSet {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| format!("add_rejected-{uid}-{}", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add_rejected", move |_inputs| {
+        calls.fetch_add(1, Ordering::Relaxed);
+        Result::<(), String>::Err("unsupported by this device".to_string())
+    }))
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
 }

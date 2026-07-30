@@ -93,39 +93,11 @@ fn profile_exclusive<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
     let mut durations = Vec::new();
 
     for _ in 0..num_samples {
-        let result: Result<
-            (Result<Out, AutotuneError>, ProfileDuration),
-            crate::server::ProfileError,
-        > = {
-            let inputs = inputs.clone();
-
-            client.profile(
-                move || {
-                    // It is important to return the output since otherwise deadcode elimination
-                    // might optimize away code that needs to be profiled.
-                    operation.execute(inputs)
-                },
-                &operation.name,
-            )
-        };
-
-        let result = match result {
-            Ok((out, duration)) => match out {
-                Ok(_) => Some(duration),
-                Err(err) => {
-                    log::trace!("Error while autotuning {err}");
-                    None
-                }
-            },
-            Err(err) => {
-                log::trace!("Error while autotuning {err}");
-                None
-            }
-        };
-
-        if let Some(item) = result {
-            durations.push(item);
-        }
+        // A candidate that fails once is disqualified regardless of how the remaining samples
+        // go, so the loop stops on the first error and hands it back untouched. Sampling on
+        // would only pay more device round trips to reach the same verdict, with the reason
+        // for the failure replaced by `InvalidSamples`.
+        durations.push(sample_once(operation, inputs.clone(), &client)?);
     }
 
     if durations.is_empty() {
@@ -153,6 +125,10 @@ fn warmup<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
         let profiled = client.profile(move || operation.execute(inputs), &operation.name);
 
         match profiled {
+            // The tunable rejected its own configuration, which it will do identically on
+            // every call, so the remaining warmups and the whole sampling loop are skipped.
+            // The error is propagated as-is to keep the reason it was rejected.
+            Ok((Err(err), _)) => return Err(err),
             Ok(_) => {}
             Err(err) => errors.push(err),
         }
