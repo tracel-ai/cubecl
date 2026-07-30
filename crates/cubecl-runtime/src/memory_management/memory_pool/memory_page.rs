@@ -10,7 +10,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
-use cubecl_common::backtrace::BackTrace;
+use cubecl_environment::backtrace::BackTrace;
 
 /// A memory page is responsible to reserve [slices](Slice) of data based on a fixed [storage buffer](StorageHandle).
 pub struct MemoryPage {

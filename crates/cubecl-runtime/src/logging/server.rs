@@ -6,9 +6,9 @@ use crate::config::{Logger, compilation::CompilationLogLevel, profiling::Profili
 use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;
-use async_channel::{Receiver, Sender};
-use cubecl_common::future::spawn_detached_fut;
 use cubecl_common::profile::ProfileDuration;
+use cubecl_environment::future::channel::{Receiver, Sender};
+use cubecl_environment::future::spawn_detached;
 
 use super::{ProfileLevel, Profiled};
 
@@ -78,7 +78,7 @@ impl Default for ServerLogger {
         let log_streaming = logger.config.streaming.logger.level;
         let log_memory = logger.config.memory.logger.level;
 
-        let (send, rec) = async_channel::unbounded();
+        let (send, rec) = cubecl_environment::future::channel::unbounded();
 
         // Spawn the logger as a detached task.
         let async_logger = AsyncLogger {
@@ -87,7 +87,7 @@ impl Default for ServerLogger {
             profiled: Default::default(),
         };
         // Spawn the future in the background to logs messages / durations.
-        spawn_detached_fut(async_logger.process());
+        spawn_detached(async_logger.process());
 
         Self {
             profile_level,

@@ -6,7 +6,6 @@ use crate::{
     target::{GLCompute, SpirvTarget},
     transformers::{BitwiseTransform, ErfTransform, HypotTransform, RhypotTransform},
 };
-use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     Compiler, CubeDim, Info, Metadata, WgpuCompilationOptions,
     ir::{self as core, ElemType, Id, InstructionModes, StorageType, UIntKind, features::EnumSet},
@@ -17,6 +16,7 @@ use cubecl_core::{
     prelude::{FastMath, KernelDefinition, Visibility},
     server::ExecutionMode,
 };
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::{
     BasicBlock, Function, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity,
 };

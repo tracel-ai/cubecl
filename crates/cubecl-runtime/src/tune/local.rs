@@ -1,4 +1,6 @@
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
+#[cfg(feature = "autotune-checks")]
+use crate::tune::AutotuneLoggerExt;
 use crate::{client::ComputeClient, runtime::Runtime, tune::TuneCacheResult};
 use alloc::string::ToString;
 use alloc::sync::Arc;
@@ -7,15 +9,15 @@ use core::{
     fmt::Display,
     hash::Hash,
 };
-use hashbrown::HashMap;
-use spin::Mutex;
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::sync::{Mutex, RwLock};
 
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
 pub struct LocalTuner<AK: AutotuneKey, ID> {
     state: Mutex<Option<HashMap<ID, Arc<Tuner<AK>>>>>,
     name: &'static str,
-    sets: spin::RwLock<Option<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
+    sets: RwLock<Option<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
 }
 
 /// Create a local tuner with the provided name.
@@ -41,7 +43,7 @@ where
         Self {
             state: Mutex::new(None),
             name,
-            sets: spin::RwLock::new(None),
+            sets: RwLock::new(None),
         }
     }
 
@@ -101,7 +103,8 @@ where
         &self,
         operations: &TunableSet<AK, I, Out>,
         inputs: &<I as TuneInputs>::At<'a>,
-    ) where
+    ) -> alloc::vec::Vec<crate::tune::log::CheckResult>
+    where
         <I as TuneInputs>::At<'a>: Clone + Send,
     {
         use alloc::vec::Vec;
@@ -110,9 +113,9 @@ where
         for i in 0..operations.len() {
             let op = operations.fastest(i);
             let result = op.execute(inputs.clone());
-            checks_outputs.push(result);
+            checks_outputs.push((op.name.to_string(), result));
         }
-        super::check_autotune_outputs(checks_outputs);
+        super::check_autotune_outputs(checks_outputs)
     }
 
     /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
@@ -142,10 +145,16 @@ where
                 .clone()
         };
 
-        // First, check for a cache hit under a read lock.
+        #[allow(unused_mut)]
+        let mut log_context = crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
+
+        #[cfg(feature = "autotune-checks")]
+        log_context.set_checks(|| self.checks::<I, Out>(&operations, &inputs));
+
+        // Fast path: a cached hit skips straight to the fastest operation.
+        // `fastest` also resets the tuner cache if the environment switched, so
+        // a miss here falls through to `check_tune`, which re-hydrates.
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
-            #[cfg(feature = "autotune-checks")]
-            self.checks::<I, Out>(&operations, &inputs);
             return operations
                 .fastest(fastest_index)
                 .execute(inputs)
@@ -158,19 +167,15 @@ where
             &operations,
             || operations.compute_checksum(),
             client,
+            log_context,
         );
 
         // Run the execution depending on the cache state.
         match fastest {
-            TuneCacheResult::Hit { fastest_index } => {
-                #[cfg(feature = "autotune-checks")]
-                self.checks::<I, Out>(&operations, &inputs);
-
-                operations
-                    .fastest(fastest_index)
-                    .execute(inputs)
-                    .expect("Should run when selected by autotune.")
-            }
+            TuneCacheResult::Hit { fastest_index } => operations
+                .fastest(fastest_index)
+                .execute(inputs)
+                .expect("Should run when selected by autotune."),
             TuneCacheResult::Unchecked | TuneCacheResult::Miss => {
                 panic!(
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."

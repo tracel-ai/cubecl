@@ -1,10 +1,10 @@
 use alloc::{vec, vec::Vec};
+use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperands, CoopMma, GlobalState, IndexOperands, Instruction,
     MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Scope, Type, Value,
     ValueKind, VectorInsertOperands, VectorSize,
 };
-use hashbrown::HashMap;
 
 use crate::post_processing::{
     analysis_helper::GlobalAnalyses,

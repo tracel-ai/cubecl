@@ -2,7 +2,7 @@ use std::vec::Vec;
 
 use super::*;
 use crate::device::{Device, DeviceId, DeviceService};
-use crate::stub::Arc;
+use cubecl_environment::sync::Arc;
 
 #[test]
 fn test_concurrent_increment() {

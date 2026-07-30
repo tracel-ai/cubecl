@@ -2,13 +2,13 @@ use std::fmt::Display;
 
 use cubecl_core::{
     Compiler, ExecutionMode, WgpuCompilationOptions,
-    backtrace::BackTrace,
     ir::StorageType,
     prelude::{CompiledKernel, KernelDefinition},
     server::{ComputeServer, LaunchError, ResourceLimitError},
 };
 #[cfg(feature = "msl")]
 use cubecl_cpp::shared::MslComputeKernel;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::DeviceProperties;
 use cubecl_runtime::compiler::CompilationError;
 use derive_more::derive::From;

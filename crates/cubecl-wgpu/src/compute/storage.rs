@@ -1,6 +1,6 @@
 use cubecl_core::server::IoError;
+use cubecl_environment::collections::HashMap;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
-use hashbrown::HashMap;
 use std::num::NonZeroU64;
 use wgpu::BufferUsages;
 

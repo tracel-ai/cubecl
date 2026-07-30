@@ -47,12 +47,12 @@ use cubecl_core::{
         visitor::InstructionVisitor,
     },
 };
+use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
     self as ir, AddressSpace, Allocator, Branch, Id, Instruction, Operation, Processor, Scope,
     Type, Value,
 };
 use gvn::GvnPass;
-use hashbrown::HashMap;
 use passes::{
     EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables,
     EmptyBranchToSelect, InlineCopies, MergeBlocks, MergeSameExpressions, OptimizerPass,

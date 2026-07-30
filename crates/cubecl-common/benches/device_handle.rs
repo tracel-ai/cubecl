@@ -1,5 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use cubecl_common::{device::DeviceService, device_handle::DeviceHandle, stub::Mutex};
+use cubecl_common::{device::DeviceService, device_handle::DeviceHandle};
+use cubecl_environment::sync::Mutex;
 
 use std::{hint::black_box, sync::Arc};
 
@@ -65,10 +66,10 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             for _ in 0..black_box(1000) {
                 let data = [1; DATA_SIZE];
-                let mut device = device.lock().unwrap();
+                let mut device = device.lock();
                 device.compute(data);
             }
-            black_box(device.lock().unwrap().id);
+            black_box(device.lock().id);
         })
     });
     c.bench_function("device handle multi-threads", |b| {
@@ -107,7 +108,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 let device_cloned = device.clone();
                 let thread = std::thread::spawn(move || {
                     for _ in 0..black_box(count) {
-                        let mut device = device_cloned.lock().unwrap();
+                        let mut device = device_cloned.lock();
                         let data = [1; DATA_SIZE];
                         device.compute(data);
                     }
@@ -119,25 +120,10 @@ fn criterion_benchmark(c: &mut Criterion) {
                 handle.join().unwrap();
             }
 
-            black_box(device.lock().unwrap().id);
+            black_box(device.lock().id);
         })
     });
 }
 
 criterion_group!(benches, criterion_benchmark);
 criterion_main!(benches);
-
-// fn main() {
-//     println!("Start");
-//     let device_handle = DeviceHandle::<TestService>::new(cubecl_common::device::DeviceId {
-//         type_id: 0,
-//         index_id: 0,
-//     });
-//     let device = device_handle.clone();
-//     for _ in 0..black_box(1000) {
-//         device.submit(|service| service.compute());
-//     }
-//     let total = device.submit_blocking(|service| service.id).unwrap();
-//     black_box(total);
-//     println!("Completed");
-// }

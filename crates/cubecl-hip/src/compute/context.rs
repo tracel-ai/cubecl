@@ -1,17 +1,18 @@
 use super::storage::gpu::GpuResource;
 use crate::runtime::HipCompiler;
 use crate::{compute::stream::Stream, runtime::HipComputeKernel};
-use cubecl_common::backtrace::BackTrace;
-use cubecl_common::cache::CacheOption;
 use cubecl_common::hash::StableHash;
 use cubecl_core::{
-    compilation_cache::CompilationCache,
     server::ResourceLimitError,
     {ir::DeviceProperties, prelude::*},
 };
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::persistence::Store;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
+use cubecl_runtime::compiler::{compilation_store, store_compiled};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     compiler::CompilationError,
@@ -20,7 +21,6 @@ use cubecl_runtime::{
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use serde::Deserialize;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::sync::Arc;
@@ -31,7 +31,7 @@ pub(crate) struct HipContext {
     pub timestamps: TimestampProfiler,
     pub compilation_options: CompilationOptions,
     pub properties: DeviceProperties,
-    pub compilation_cache: Option<CompilationCache<StableHash, CompilationCacheEntry>>,
+    pub compilation_cache: Option<Store<StableHash, CompilationCacheEntry>>,
 }
 
 #[derive(Debug)]
@@ -50,24 +50,18 @@ pub struct CompilationCacheEntry {
 }
 
 impl HipContext {
-    pub fn new(compilation_options: CompilationOptions, properties: DeviceProperties) -> Self {
+    pub fn new(
+        compilation_options: CompilationOptions,
+        properties: DeviceProperties,
+        arch_name: String,
+    ) -> Self {
         Self {
             module_names: HashMap::new(),
             timestamps: TimestampProfiler::default(),
             compilation_options,
-            compilation_cache: {
-                use cubecl_runtime::config::RuntimeConfig;
-                let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if let Some(cache) = &config.compilation.cache {
-                    let root = cache.root();
-                    Some(CompilationCache::new(
-                        "hip-kernel",
-                        CacheOption::default().name("hip").root(root),
-                    ))
-                } else {
-                    None
-                }
-            },
+            // `arch_name` keeps its target-feature suffix
+            // (`gfx90a:sramecc+:xnack-`), which the code object encodes.
+            compilation_cache: compilation_store("hip", format!("hip-kernel_{arch_name}")),
             properties,
         }
     }
@@ -80,14 +74,14 @@ impl HipContext {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let hash = if let Some(cache) = self.compilation_cache.as_ref() {
+        let hash = if let Some(cache) = self.compilation_cache.as_mut() {
             let hash = kernel_id.stable_hash();
-            if let Some(entry) = cache.get(&hash) {
+            if let Some(entry) = cache.remove(&hash) {
                 log::trace!("Using compilation cache");
                 self.load_compiled_binary(
-                    entry.binary.clone(),
+                    entry.binary,
                     kernel_id.clone(),
-                    entry.entrypoint_name.clone(),
+                    entry.entrypoint_name,
                     kernel_id.cube_dim,
                     entry.shared_mem_bytes,
                 )?;
@@ -245,16 +239,15 @@ impl HipContext {
         let repr = jitc_kernel.repr.unwrap();
 
         if let Some(cache) = self.compilation_cache.as_mut() {
-            cache
-                .insert(
-                    hash.unwrap(),
-                    CompilationCacheEntry {
-                        entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                        shared_mem_bytes: repr.shared_memory_size(),
-                        binary: code.clone(),
-                    },
-                )
-                .unwrap();
+            store_compiled(
+                cache,
+                hash.unwrap(),
+                CompilationCacheEntry {
+                    entrypoint_name: jitc_kernel.entrypoint_name.clone(),
+                    shared_mem_bytes: repr.shared_memory_size(),
+                    binary: code.clone(),
+                },
+            );
         }
 
         self.load_compiled_binary(

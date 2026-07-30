@@ -4,15 +4,15 @@ use cubecl_core::{
     device::DeviceId,
     ir::ElemType,
     server::{CommunicationId, ReduceOperation},
-    stub::Mutex,
 };
+use cubecl_environment::sync::Mutex;
 
 /// Global state map from [`CommunicationId`] to boxed [`cudarc::nccl::sys::ncclUniqueId`].
 static UNIQUE_IDS_MAP: OnceLock<Mutex<HashMap<CommunicationId, cudarc::nccl::sys::ncclUniqueId>>> =
     OnceLock::new();
 
 pub(crate) fn get_nccl_comm_id(device_ids: Vec<DeviceId>) -> cudarc::nccl::sys::ncclUniqueId {
-    let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock().unwrap();
+    let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock();
     let comm_id = CommunicationId::from(device_ids);
     match unique_ids_map.get_mut(&comm_id) {
         Some(id) => *id,

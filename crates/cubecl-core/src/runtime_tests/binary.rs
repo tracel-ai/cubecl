@@ -4,7 +4,8 @@ use core::f32;
 
 use core::fmt::Display;
 
-use crate::{self as cubecl, as_type, stub::Lazy};
+use crate::{self as cubecl, as_type};
+use cubecl_environment::sync::Lazy;
 
 use cubecl::prelude::*;
 use cubecl_runtime::server::Handle;

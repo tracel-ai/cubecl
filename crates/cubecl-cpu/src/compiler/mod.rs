@@ -7,7 +7,7 @@ pub mod module;
 pub mod passes;
 pub(super) mod visitor;
 
-use cubecl_common::backtrace::BackTrace;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_runtime::compiler::CompilationError;
 use passes::shared_memories::SharedMemories;
 pub use visitor::elem::register_supported_types;

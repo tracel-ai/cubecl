@@ -28,7 +28,7 @@ fn empty_window_reports_zero_device_time() {
     let (_, profile) = client.profile(|| {}, "empty").unwrap();
     assert_eq!(profile.timing_method(), TimingMethod::Device);
 
-    let ticks = cubecl_common::future::block_on(profile.resolve());
+    let ticks = cubecl_environment::future::block_on(profile.resolve());
     assert_eq!(
         ticks.duration(),
         Duration::ZERO,
@@ -59,7 +59,7 @@ fn kernel_window_reports_positive_device_time() {
         .unwrap();
     assert_eq!(profile.timing_method(), TimingMethod::Device);
 
-    let ticks = cubecl_common::future::block_on(profile.resolve());
+    let ticks = cubecl_environment::future::block_on(profile.resolve());
     let dur = ticks.duration();
     assert!(dur > Duration::ZERO, "real GPU work must measure > 0");
     assert!(dur < Duration::from_secs(5), "implausibly large: {dur:?}");

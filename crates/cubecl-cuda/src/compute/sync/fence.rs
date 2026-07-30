@@ -1,5 +1,5 @@
-use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::ServerError;
+use cubecl_environment::backtrace::BackTrace;
 use cudarc::driver::sys::{CUevent_flags, CUevent_st, CUevent_wait_flags, CUstream_st};
 
 /// A fence is simply an [event](CUevent_st) created on a [stream](CUevent_st) that you can wait

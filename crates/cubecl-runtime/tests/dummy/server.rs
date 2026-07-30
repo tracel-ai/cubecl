@@ -1,6 +1,8 @@
 use super::DummyKernel;
 use crate::dummy::DummyCompiler;
-use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
+use cubecl_environment::future::DynFut;
+use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
     DeviceProperties, ElemType, HardwareProperties, MemoryDeviceProperties, StorageType, UIntKind,
     VectorSize, features::Features,
