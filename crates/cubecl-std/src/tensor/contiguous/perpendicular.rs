@@ -148,7 +148,18 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
         &output.strides,
         rank - 1,
     );
-    let vector_size = min(vector_size_perpendicular, vector_size_parallel);
+    // The gather loads `vector_size` consecutive elements along the input's unit-stride axis,
+    // so that axis must be vectorizable on its own.
+    let vector_size_axis = tensor_vector_size_parallel(
+        client.io_optimized_vector_sizes(dtype.size()),
+        &input.shape,
+        &input.strides,
+        axis,
+    );
+    let vector_size = min(
+        min(vector_size_perpendicular, vector_size_parallel),
+        vector_size_axis,
+    );
 
     let num_elems = output.shape.iter().product::<usize>();
     let working_units = num_elems / (vector_size as usize * output.shape[rank - 1]);

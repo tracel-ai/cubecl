@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::ir::dialect::bitwise::FindFirstSetOp;
+use cubecl_core::ir::dialect::cmp::{FClampOp, SClampOp, UClampOp};
 use cubecl_core::ir::dialect::math::{
     ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, FModFloorOp, HypotOp, Log1pOp,
     PowiOp, RadiansOp, RecipOp, RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp, UMulHiOp,
@@ -197,3 +198,46 @@ impl LowerOp for UMulHiOp {
         vec![val]
     }
 }
+
+macro_rules! lower_clamp_math_arith {
+    ($cube_op:ty => $polyfill:ident) => {
+        #[op_interface_impl]
+        impl LowerOp for $cube_op {
+            fn lower(&self, scope: &Scope) -> Vec<Value> {
+                define_scalar!(T);
+                define_size!(S);
+                let ctx = scope.ctx();
+                let input = self.input(ctx);
+                let min = self.min(ctx);
+                let max = self.max(ctx);
+                scope.register_value_type::<T, S>(input);
+                let val = $polyfill::expand::<T, S>(scope, input.into(), min.into(), max.into())
+                    .read_value(scope);
+                vec![val]
+            }
+        }
+    };
+}
+
+#[cube]
+fn clamp_op<T: Int, N: Size>(
+    value: Vector<T, N>,
+    min: Vector<T, N>,
+    max: Vector<T, N>,
+) -> Vector<T, N> {
+    value.min(max).max(min)
+}
+
+lower_clamp_math_arith!(SClampOp => clamp_op);
+lower_clamp_math_arith!(UClampOp => clamp_op);
+
+#[cube]
+fn f_clamp_op<T: Float, N: Size>(
+    value: Vector<T, N>,
+    min: Vector<T, N>,
+    max: Vector<T, N>,
+) -> Vector<T, N> {
+    value.min(max).max(min)
+}
+
+lower_clamp_math_arith!(FClampOp => f_clamp_op);

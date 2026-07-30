@@ -5,6 +5,7 @@ use cubecl_core::ir::{
     dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp},
     types::barrier::BarrierType,
 };
+use pliron::{basic_block::BasicBlock, builtin::ops::FuncOp, irbuild::inserter::OpInsertionPoint};
 
 #[op_interface_impl]
 impl ToLLVMDialect for DeclareVariableOp {
@@ -32,10 +33,18 @@ impl ToLLVMDialect for DeclareVariableOp {
         };
         let elem_ty = cube_type_to_llvm(ctx, elem_ty);
 
+        let entry_block = enclosing_entry_block(ctx, self.get_operation());
+        let insertion_point = rewriter.get_insertion_point();
+        rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(entry_block));
+
         let size = insert_i32_const(ctx, rewriter, count as i32);
 
         let alloca = llvm::AllocaOp::new(ctx, elem_ty, size);
+        let size_op = size.defining_op().expect("constant defines its result");
+        rewriter.set_insertion_point(OpInsertionPoint::AfterOperation(size_op));
         rewriter.insert_op(ctx, &alloca);
+
+        rewriter.set_insertion_point(insertion_point);
 
         let initializer = self.initializer(ctx).map(|initializer| initializer.clone());
         if let Some(initializer) = initializer {
@@ -54,6 +63,20 @@ impl ToLLVMDialect for DeclareVariableOp {
             vec![alloca.get_result(ctx)],
         );
         Ok(())
+    }
+}
+
+/// The entry block of the function `op` lives in.
+fn enclosing_entry_block(ctx: &Context, op: Ptr<Operation>) -> Ptr<BasicBlock> {
+    let mut op = op;
+    loop {
+        op = op
+            .deref(ctx)
+            .get_parent_op(ctx)
+            .expect("declaration must be inside a function");
+        if let Some(func) = Operation::get_op::<FuncOp>(op, ctx) {
+            return func.get_entry_block(ctx);
+        }
     }
 }
 

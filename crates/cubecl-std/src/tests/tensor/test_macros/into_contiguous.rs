@@ -8,6 +8,7 @@ macro_rules! testgen_tensor_into_contiguous {
             use $crate::tests::tensor::into_contiguous::{
                 test_into_contiguous_packed_halving, test_into_contiguous_packed_multi_vector,
                 test_into_contiguous_packed_repack, test_into_contiguous_packed_vector_size_one,
+                test_into_contiguous_permuted_sweep, test_into_contiguous_permuted_unaligned_axis,
             };
 
             #[$crate::tests::test_log::test]
@@ -28,6 +29,16 @@ macro_rules! testgen_tensor_into_contiguous {
             #[$crate::tests::test_log::test]
             pub fn test_packed_halving() {
                 test_into_contiguous_packed_halving::<TestRuntime>(&Default::default());
+            }
+
+            #[$crate::tests::test_log::test]
+            pub fn test_permuted_unaligned_axis() {
+                test_into_contiguous_permuted_unaligned_axis::<TestRuntime>(&Default::default());
+            }
+
+            #[$crate::tests::test_log::test]
+            pub fn test_permuted_sweep() {
+                test_into_contiguous_permuted_sweep::<TestRuntime>(&Default::default());
             }
         }
     };

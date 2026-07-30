@@ -6,11 +6,11 @@ use cubecl_core::ir::dialect::{
         ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, ExpectTxOp, InitOp,
         WaitOp, WaitParityOp,
     },
-    general::{CastOp, CommentOp, FreeOp, PrintfOp, ReinterpretCastOp, SelectOp},
+    general::{CastOp, CommentOp, CopyOp, FreeOp, PrintfOp, ReinterpretCastOp, SelectOp},
 };
 use pliron::{
     builtin::{
-        attributes::StringAttr,
+        attributes::BytesAttr,
         op_interfaces::{CallOpCallable, SymbolOpInterface},
         ops::ModuleOp,
     },
@@ -157,6 +157,22 @@ impl ToLLVMDialect for CastOp {
     }
 }
 
+/// A copy declares a new name for a value that keeps the same type, which SSA gives for free:
+/// every use of the result becomes a use of the copied value.
+#[op_interface_impl]
+impl ToLLVMDialect for CopyOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let value = self.value(ctx);
+        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![value]);
+        Ok(())
+    }
+}
+
 /// LLVM pointers are opaque, so reinterpreting one is a change of type and nothing else. Any other
 /// value keeps its bit pattern across the two types, which is what a bitcast is.
 #[op_interface_impl]
@@ -243,11 +259,14 @@ fn lookup_or_insert_format_string(
         return Ok(name);
     }
 
-    // The initializer is NUL-terminated on the way to LLVM, hence the extra byte.
+    // `printf` reads the format up to a NUL, so it has to be part of the initializer.
+    let mut bytes = format_string.as_bytes().to_vec();
+    bytes.push(0);
+
     let byte_ty = IntegerType::get(ctx, 8, Signedness::Signless).into();
-    let array_ty = ArrayType::get(ctx, byte_ty, format_string.len() as u64 + 1).into();
+    let array_ty = ArrayType::get(ctx, byte_ty, bytes.len() as u64).into();
     let global = llvm::GlobalOp::new(ctx, name.clone(), array_ty);
-    global.set_initializer_value(ctx, StringAttr::new(format_string.to_string()).into());
+    global.set_initializer_value(ctx, BytesAttr::new(bytes).into());
     global.set_attr_llvm_global_linkage(ctx, LinkageAttr::PrivateLinkage);
     symbol_tables
         .get_symbol_table(ctx, Box::new(module))

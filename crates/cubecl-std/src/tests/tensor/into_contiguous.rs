@@ -1,6 +1,6 @@
 use cubecl_core::{CubeElement, prelude::Runtime};
 
-use crate::tensor::{TensorHandle, into_contiguous_packed};
+use crate::tensor::{TensorHandle, copy_into, into_contiguous_packed};
 
 /// Contiguous, row-major strides for the given shape.
 fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
@@ -127,4 +127,123 @@ pub fn test_into_contiguous_packed_multi_vector<R: Runtime>(device: &R::Device) 
 /// exercising the halving reduction of `num_elems_per_unit`.
 pub fn test_into_contiguous_packed_halving<R: Runtime>(device: &R::Device) {
     run_repack_case::<R>(device, &[8192, 32], 0, 8, 4);
+}
+
+/// Copy a permuted (non-contiguous) view of a contiguous buffer into a contiguous output and
+/// compare against a CPU reference. `perm[d]` is the source axis that becomes output axis `d`.
+fn run_permuted_case<R: Runtime, E: CubeElement + From<u8> + PartialEq>(
+    device: &R::Device,
+    base_shape: &[usize],
+    perm: &[usize],
+) {
+    let client = R::client(device);
+    let dtype = E::cube_type();
+    let base_strides = contiguous_strides(base_shape);
+    let num_elems: usize = base_shape.iter().product();
+
+    let shape: Vec<usize> = perm.iter().map(|&p| base_shape[p]).collect();
+    let strides: Vec<usize> = perm.iter().map(|&p| base_strides[p]).collect();
+
+    // Deterministic payload; every element is distinct modulo 251 so a misplaced write shows up.
+    let data: Vec<E> = (0..num_elems).map(|i| E::from((i % 251 + 1) as u8)).collect();
+
+    let input = TensorHandle::<R>::new(
+        client.create_from_slice(E::as_bytes(&data)),
+        shape.clone(),
+        strides.clone(),
+        dtype,
+    );
+    let output = TensorHandle::<R>::new_contiguous(
+        shape.clone(),
+        client.empty(num_elems * size_of::<E>()),
+        dtype,
+    );
+    copy_into(
+        &client,
+        input.binding(),
+        output.clone().binding(),
+        dtype,
+    );
+
+    let bytes = client.read_one_unchecked_tensor(output.handle.clone().copy_descriptor(
+        output.shape().clone(),
+        output.strides().clone(),
+        size_of::<E>(),
+    ));
+    let actual = E::from_bytes(&bytes);
+
+    let out_strides = contiguous_strides(&shape);
+    let expected: Vec<E> = (0..num_elems)
+        .map(|q| {
+            let src: usize = (0..shape.len())
+                .map(|d| (q / out_strides[d]) % shape[d] * strides[d])
+                .sum();
+            data[src]
+        })
+        .collect();
+
+    assert_eq!(
+        actual,
+        &expected[..],
+        "permuted copy mismatch (base shape {base_shape:?}, perm {perm:?}, \
+         view shape {shape:?}, view strides {strides:?})",
+    );
+}
+
+/// Repro for a bool `swap_dims(0, 2)` in Burn: the perpendicular copy kernel gathers
+/// `vector_size` consecutive elements along the input's unit-stride axis, whose shape (3) is
+/// not a multiple of the vector size picked for `u8` (2).
+pub fn test_into_contiguous_permuted_unaligned_axis<R: Runtime>(device: &R::Device) {
+    run_permuted_case::<R, u8>(device, &[2, 2, 3], &[2, 1, 0]);
+}
+
+/// Sweep small shapes and every permutation, for a 1-byte and a 4-byte element type, so a
+/// vector size is only used when it is actually valid for the layout.
+pub fn test_into_contiguous_permuted_sweep<R: Runtime>(device: &R::Device) {
+    let shapes: &[&[usize]] = &[
+        &[2, 3],
+        &[3, 2],
+        &[4, 6],
+        &[6, 4],
+        &[2, 2, 3],
+        &[3, 2, 2],
+        &[2, 3, 4],
+        &[4, 3, 2],
+        &[8, 3, 4],
+        &[3, 8, 5],
+        &[16, 5],
+        &[5, 16],
+        &[8, 8],
+        &[16, 16],
+        &[32, 2, 3],
+        &[2, 3, 4, 5],
+    ];
+
+    for shape in shapes {
+        for perm in permutations(shape.len()) {
+            run_permuted_case::<R, u8>(device, shape, &perm);
+            run_permuted_case::<R, u32>(device, shape, &perm);
+        }
+    }
+}
+
+/// All permutations of `0..rank`.
+fn permutations(rank: usize) -> Vec<Vec<usize>> {
+    let mut out = Vec::new();
+    let mut current = Vec::with_capacity(rank);
+    fn recurse(rank: usize, current: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
+        if current.len() == rank {
+            out.push(current.clone());
+            return;
+        }
+        for axis in 0..rank {
+            if !current.contains(&axis) {
+                current.push(axis);
+                recurse(rank, current, out);
+                current.pop();
+            }
+        }
+    }
+    recurse(rank, &mut current, &mut out);
+    out
 }
