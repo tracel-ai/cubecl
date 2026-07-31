@@ -1,8 +1,10 @@
 use crate::{
+    id::KernelId,
     kernel::{CompiledKernel, KernelDefinition, KernelMetadata},
     server::ExecutionMode,
 };
 use alloc::string::String;
+use cubecl_common::hash::StableHash;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::{
     CacheOption, Namespace, Store, StoreKey, StoreOptions, StoreValue,
@@ -60,14 +62,45 @@ pub fn store_compiled<K: StoreKey, V: StoreValue>(store: &mut Store<K, V>, key: 
 /// Kernel trait with the `ComputeShader` that will be compiled and cached based on the
 /// provided id.
 pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
-    /// Compile a kernel and return the compiled form with an optional non-text representation
+    /// Expand the kernel into its [definition](KernelDefinition).
+    ///
+    /// Kept separate from [`CubeTask::compile`] so a server can hash the definition to key the
+    /// compilation cache, then hand the same definition back on a miss instead of expanding twice.
+    fn define(&self) -> KernelDefinition;
+
+    /// Compile a kernel definition and return the compiled form with an optional non-text
+    /// representation.
     fn compile(
         &self,
+        definition: KernelDefinition,
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
         address_type: StorageType,
     ) -> Result<CompiledKernel<C>, CompilationError>;
+}
+
+/// Key for an entry in the persistent compilation cache.
+///
+/// The [id](KernelId) alone doesn't describe what a kernel does: it covers the kernel type, its
+/// comptime arguments and its launch settings, but nothing of the body. Pairing it with a hash of
+/// the expanded IR is what lets a cached artifact be invalidated when the code behind it changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct KernelCacheKey {
+    /// Hash of the [kernel id](KernelId).
+    pub id: StableHash,
+    /// Hash of the [kernel definition](KernelDefinition).
+    pub ir: StableHash,
+}
+
+impl KernelCacheKey {
+    /// Create a key from a kernel id and its expanded definition.
+    pub fn new(id: &KernelId, definition: &KernelDefinition) -> Self {
+        Self {
+            id: id.stable_hash(),
+            ir: definition.stable_hash(),
+        }
+    }
 }
 
 /// JIT compilation error.

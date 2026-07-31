@@ -9,7 +9,7 @@ use ash::vk::{
 use cubecl_core::{
     ExecutionMode, MemoryConfiguration, WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
-    prelude::{CompiledKernel, Visibility},
+    prelude::{CompiledKernel, KernelDefinition, Visibility},
     server::{ComputeServer, IoError, KernelArguments},
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -741,6 +741,7 @@ pub(crate) fn compile<C>(
     dyn_comp: &mut C,
     server: &mut WgpuServer<C>,
     kernel: <WgpuServer<C> as ComputeServer>::Kernel,
+    definition: KernelDefinition,
     mode: ExecutionMode,
 ) -> Result<CompiledKernel<C>, CompilationError>
 where
@@ -748,6 +749,7 @@ where
 {
     log::debug!("Compiling {}", kernel.name());
     let compiled = kernel.compile(
+        definition,
         dyn_comp,
         &server.compilation_options,
         mode,

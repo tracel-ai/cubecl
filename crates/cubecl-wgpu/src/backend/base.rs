@@ -2,11 +2,15 @@ use super::wgsl;
 use crate::WgpuServer;
 use crate::{AutoRepresentationRef, CompilerInfo, WgpuCompiler};
 use cubecl_core::{
-    CubeDim, ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
+    CubeDim, ExecutionMode, WgpuCompilationOptions, prelude::KernelDefinition,
+    server::KernelArguments,
 };
 use cubecl_core::{MemoryConfiguration, prelude::Visibility};
 use cubecl_ir::DeviceProperties;
-use cubecl_runtime::{compiler::CompilationError, id::KernelId};
+use cubecl_runtime::{
+    compiler::{CompilationError, KernelCacheKey},
+    id::KernelId,
+};
 use std::{borrow::Cow, sync::Arc};
 use wgpu::{
     Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
@@ -32,17 +36,21 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     pub fn load_cached_pipeline(
         &mut self,
         kernel_id: &KernelId,
+        definition: &KernelDefinition,
         bindings: &KernelArguments,
         mode: ExecutionMode,
     ) -> Result<
-        Option<Result<(Arc<ComputePipeline>, CompilerInfo), (u64, StableHash)>>,
+        Option<Result<(Arc<ComputePipeline>, CompilerInfo), (u64, KernelCacheKey)>>,
         CompilationError,
     > {
         #[cfg(not(feature = "spirv"))]
         let res = Ok(None);
         #[cfg(feature = "spirv")]
         let res = if let Some(cache) = self.spirv_cache.as_mut() {
-            let key = (self.utilities.properties_hash, kernel_id.stable_hash());
+            let key = (
+                self.utilities.properties_hash,
+                KernelCacheKey::new(kernel_id, definition),
+            );
             if let Some(entry) = cache.remove(&key) {
                 use crate::ParamsTransfer;
 

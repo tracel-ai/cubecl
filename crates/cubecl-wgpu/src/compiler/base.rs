@@ -192,10 +192,12 @@ impl WgpuCompiler for AutoCompiler {
         &mut self,
         server: &mut WgpuServer<AutoCompiler>,
         kernel: <WgpuServer<AutoCompiler> as ComputeServer>::Kernel,
+        definition: KernelDefinition,
         mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         match self {
             AutoCompiler::Wgsl(_) => kernel.compile(
+                definition,
                 self,
                 &server.compilation_options,
                 mode,
@@ -205,7 +207,7 @@ impl WgpuCompiler for AutoCompiler {
             AutoCompiler::SpirV(_) => {
                 #[cfg(feature = "spirv-dump")]
                 let (name, id) = (kernel.name().to_string(), kernel.id());
-                let compiled = crate::vulkan::compile(self, server, kernel, mode)?;
+                let compiled = crate::vulkan::compile(self, server, kernel, definition, mode)?;
                 #[cfg(feature = "spirv-dump")]
                 if let Some(spirv) = compiled.repr.as_ref().and_then(|r| r.as_spirv()) {
                     crate::vulkan::dump_spirv(spirv, &name, id);
@@ -214,6 +216,7 @@ impl WgpuCompiler for AutoCompiler {
             }
             #[cfg(feature = "msl")]
             AutoCompiler::Msl(_) => kernel.compile(
+                definition,
                 self,
                 &server.compilation_options,
                 mode,
@@ -278,9 +281,11 @@ impl WgpuCompiler for WgslCompiler {
         &mut self,
         server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
+        definition: KernelDefinition,
         mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         kernel.compile(
+            definition,
             self,
             &server.compilation_options,
             mode,
@@ -319,11 +324,18 @@ impl WgpuCompiler for MslCompiler {
         &mut self,
         _server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
+        definition: KernelDefinition,
         mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         // The MSL compiler uses its own CompilationOptions, not WgpuCompilationOptions.
         let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
-        kernel.compile(self, &compilation_options, mode, kernel.address_type())
+        kernel.compile(
+            definition,
+            self,
+            &compilation_options,
+            mode,
+            kernel.address_type(),
+        )
     }
 
     fn lang_tag(&self) -> &'static str {
@@ -357,11 +369,12 @@ impl<T: cubecl_spirv::SpirvTarget> WgpuCompiler for cubecl_spirv::SpirvCompiler<
         &mut self,
         server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
+        definition: KernelDefinition,
         mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         #[cfg(feature = "spirv-dump")]
         let (name, id) = (kernel.name().to_string(), kernel.id());
-        let compiled = crate::vulkan::compile(self, server, kernel, mode)?;
+        let compiled = crate::vulkan::compile(self, server, kernel, definition, mode)?;
         #[cfg(feature = "spirv-dump")]
         if let Some(spirv) = compiled.repr.as_ref() {
             crate::vulkan::dump_spirv(spirv, &name, id);
@@ -450,6 +463,7 @@ pub trait WgpuCompiler: Compiler {
         &mut self,
         server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
+        definition: KernelDefinition,
         mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError>;
 
