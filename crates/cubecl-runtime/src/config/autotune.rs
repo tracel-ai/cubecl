@@ -36,25 +36,45 @@ pub struct AutotuneConfig {
 }
 
 /// Controls how many samples autotune collects per candidate and when candidates are dropped.
+///
+/// Only [`max_samples`](Self::max_samples) and [`adaptive`](Self::adaptive) mean anything to the
+/// fixed-count pass; the rest describe elimination, which only the adaptive scheduler performs.
+/// Each field says so, because a knob that silently does nothing on the strategy actually running
+/// is worse than no knob at all — and `adaptive` is native-only, so on wasm that is every run.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct BenchConfig {
     /// Samples every surviving candidate gets before any elimination happens.
+    ///
+    /// Adaptive only: the fixed-count pass eliminates nothing, so every candidate gets
+    /// [`max_samples`](Self::max_samples) regardless.
     pub min_samples: usize,
 
     /// Upper bound on samples collected for a single candidate.
+    ///
+    /// Read by both strategies: the ceiling for the adaptive scheduler, and the flat count for
+    /// the fixed pass, which has no elimination to spend a smaller budget on.
     pub max_samples: usize,
 
     /// Samples that must independently land under the time limit to short circuit.
     ///
     /// A short circuit decision is written to the persistent cache and reused on later runs, so
     /// it is confirmed rather than taken from a single possibly-lucky sample.
+    ///
+    /// Adaptive only: the fixed pass has the whole sample set in hand before it tests the limit,
+    /// so it has nothing to confirm.
     pub short_circuit_samples: usize,
 
     /// How many times slower than the current best a candidate may be before elimination.
+    ///
+    /// Adaptive only. Values below `1.0` are read as `1.0`, which eliminates every candidate
+    /// slower than the leader that the survivor floor allows.
     pub speed_factor: f64,
 
     /// Whether to use the adaptive round robin benchmark instead of a fixed sample count.
+    ///
+    /// Ignored on wasm, which cannot resolve samples between rounds and so always takes the
+    /// fixed-count pass.
     pub adaptive: bool,
 }
 
@@ -70,11 +90,23 @@ impl Default for BenchConfig {
     }
 }
 
+/// Every knob is read through an accessor that clamps it into its usable range, so a config file
+/// can hold a nonsensical value without any single call site having to remember the repair.
 impl BenchConfig {
     /// The sample budget, clamped so the range is always usable.
     pub fn samples(&self) -> (usize, usize) {
         let min = self.min_samples.max(1);
         (min, self.max_samples.max(min))
+    }
+
+    /// How many samples must land under the limit, clamped so a short circuit always needs one.
+    pub fn short_circuit_samples(&self) -> usize {
+        self.short_circuit_samples.max(1)
+    }
+
+    /// The elimination threshold, clamped so it can never sit below the leader's own time.
+    pub fn speed_factor(&self) -> f64 {
+        self.speed_factor.max(1.0)
     }
 }
 

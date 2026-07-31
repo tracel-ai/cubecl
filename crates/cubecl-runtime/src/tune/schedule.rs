@@ -248,7 +248,7 @@ impl Schedule {
             return false;
         }
 
-        let required = self.config.short_circuit_samples.max(1);
+        let required = self.config.short_circuit_samples();
         while candidate.samples.len() < required {
             if !self.take_sample(operation, inputs, client, candidate).await {
                 return false;
@@ -292,7 +292,7 @@ impl Schedule {
             return None;
         }
 
-        let required = self.config.short_circuit_samples.max(1);
+        let required = self.config.short_circuit_samples();
         let hit = candidates
             .iter()
             .find(|c| c.live && c.samples.confirmed_under(limit, required))?;
@@ -314,7 +314,7 @@ impl Schedule {
             return;
         };
 
-        let threshold = best.mul_f64(self.config.speed_factor.max(1.0));
+        let threshold = best.mul_f64(self.config.speed_factor());
         let live = candidates.iter().filter(|c| c.live).count();
         let budget = live.saturating_sub(MIN_SURVIVORS);
         if budget == 0 {
