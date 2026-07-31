@@ -3,13 +3,6 @@ use core::time::Duration;
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 use cubecl_common::profile::TimingMethod;
 
-/// Total samples required before the warmup-biased first sample is discarded.
-const DISCARD_THRESHOLD: usize = 3;
-/// Relative improvement below which a new sample counts as no progress.
-const CONVERGENCE_EPSILON: f64 = 0.02;
-/// Consecutive non-improving samples before a candidate is considered converged.
-const CONVERGENCE_ROUNDS: u8 = 2;
-
 /// The timings collected for one candidate, plus the small amount of state needed to decide
 /// whether it is still worth sampling.
 ///
@@ -95,6 +88,13 @@ impl SampleSet {
         ))
     }
 }
+
+/// Total samples required before the warmup-biased first sample is discarded.
+const DISCARD_THRESHOLD: usize = 3;
+/// Relative improvement below which a new sample counts as no progress.
+const CONVERGENCE_EPSILON: f64 = 0.02;
+/// Consecutive non-improving samples before a candidate is considered converged.
+const CONVERGENCE_ROUNDS: u8 = 2;
 
 #[cfg(test)]
 mod tests {

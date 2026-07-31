@@ -12,59 +12,6 @@ use crate::tune::{
     AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, TuneFn, TuneInputs, TunePlan,
 };
 
-/// Candidates kept alive no matter how far behind they are, so a batch never narrows to a
-/// single kernel that was never compared against anything.
-const MIN_SURVIVORS: usize = 2;
-
-/// One candidate kernel and the evidence gathered about it so far.
-#[derive(Debug)]
-struct Candidate {
-    index: usize,
-    name: String,
-    samples: SampleSet,
-    method: Option<TimingMethod>,
-    error: Option<AutotuneError>,
-    elapsed: Duration,
-    live: bool,
-}
-
-impl Candidate {
-    fn new(index: usize, name: String) -> Self {
-        Self {
-            index,
-            name,
-            samples: SampleSet::default(),
-            method: None,
-            error: None,
-            elapsed: Duration::ZERO,
-            live: true,
-        }
-    }
-
-    fn fail(&mut self, error: AutotuneError) {
-        self.error = Some(error);
-        self.live = false;
-    }
-
-    fn into_result(self) -> AutotuneResult {
-        // A candidate that failed at any point is disqualified even if earlier samples
-        // succeeded, so a kernel that crashes sporadically can never win on its good runs.
-        if let Some(error) = self.error {
-            return AutotuneResult::error(error);
-        }
-
-        if self.samples.is_empty() {
-            return AutotuneResult::error(AutotuneError::Skip { name: self.name });
-        }
-
-        let computation = self
-            .samples
-            .computation(self.method.unwrap_or(TimingMethod::System));
-
-        AutotuneResult::success(AutotuneOutcome::new(self.name, self.index, computation))
-    }
-}
-
 /// The outcome of benchmarking one batch of the [`TunePlan`].
 #[derive(Debug)]
 pub(crate) struct BatchOutcome {
@@ -428,6 +375,59 @@ impl Schedule {
                 return (steps, outcome.short_circuit);
             }
         }
+    }
+}
+
+/// Candidates kept alive no matter how far behind they are, so a batch never narrows to a
+/// single kernel that was never compared against anything.
+const MIN_SURVIVORS: usize = 2;
+
+/// One candidate kernel and the evidence gathered about it so far.
+#[derive(Debug)]
+struct Candidate {
+    index: usize,
+    name: String,
+    samples: SampleSet,
+    method: Option<TimingMethod>,
+    error: Option<AutotuneError>,
+    elapsed: Duration,
+    live: bool,
+}
+
+impl Candidate {
+    fn new(index: usize, name: String) -> Self {
+        Self {
+            index,
+            name,
+            samples: SampleSet::default(),
+            method: None,
+            error: None,
+            elapsed: Duration::ZERO,
+            live: true,
+        }
+    }
+
+    fn fail(&mut self, error: AutotuneError) {
+        self.error = Some(error);
+        self.live = false;
+    }
+
+    fn into_result(self) -> AutotuneResult {
+        // A candidate that failed at any point is disqualified even if earlier samples
+        // succeeded, so a kernel that crashes sporadically can never win on its good runs.
+        if let Some(error) = self.error {
+            return AutotuneResult::error(error);
+        }
+
+        if self.samples.is_empty() {
+            return AutotuneResult::error(AutotuneError::Skip { name: self.name });
+        }
+
+        let computation = self
+            .samples
+            .computation(self.method.unwrap_or(TimingMethod::System));
+
+        AutotuneResult::success(AutotuneOutcome::new(self.name, self.index, computation))
     }
 }
 
