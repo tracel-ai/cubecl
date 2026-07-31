@@ -120,7 +120,9 @@ impl ComputeServer for HipServer {
             Err(err) => unreachable!("{err}"),
         };
 
-        let reserved = command.reserve(size).unwrap();
+        let reserved = command
+            .reserve(size)
+            .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of device memory: {err}"));
         command.bind(reserved, memory);
     }
 
