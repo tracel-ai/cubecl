@@ -9,8 +9,6 @@ use cubecl_common::{
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
 };
-#[cfg(feature = "spirv")]
-use cubecl_core::hash::StableHash;
 use cubecl_core::server::{Binding, StreamErrorMode};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
@@ -31,7 +29,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(feature = "spirv")]
-use cubecl_runtime::compiler::{compilation_store, store_compiled};
+use cubecl_runtime::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage, SharedMemoryBindings};
 use cubecl_runtime::{
     compiler::CubeTask,
@@ -72,7 +70,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pipelines: HashMap<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
-    pub(crate) spirv_cache: Option<Store<(u64, StableHash), cubecl_spirv::SpirvCacheEntry>>,
+    pub(crate) spirv_cache: Option<Store<(u64, KernelCacheKey), cubecl_spirv::SpirvCacheEntry>>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
@@ -177,7 +175,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             return Ok(pipeline.clone());
         }
 
-        let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
+        let definition = kernel.define();
+        let cached = self.load_cached_pipeline(&kernel_id, &definition, bindings, mode)?;
 
         if let Some(Ok(pipeline)) = cached {
             self.pipelines.insert(kernel_id, pipeline.clone());
@@ -188,7 +187,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         validate_units(&self.utilities.properties, &kernel_id)?;
 
         let mut compiler = C::init(self.backend, &self.compilation_options);
-        let mut compiled = compiler.compile_kernel(self, kernel, mode)?;
+        let mut compiled = compiler.compile_kernel(self, kernel, definition, mode)?;
 
         if self.scheduler.logger.compilation_source_activated() {
             compiled.debug_info = Some(DebugInformation::new(

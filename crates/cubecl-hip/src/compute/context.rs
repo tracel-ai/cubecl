@@ -1,7 +1,6 @@
 use super::storage::gpu::GpuResource;
 use crate::runtime::HipCompiler;
 use crate::{compute::stream::Stream, runtime::HipComputeKernel};
-use cubecl_common::hash::StableHash;
 use cubecl_core::{
     server::ResourceLimitError,
     {ir::DeviceProperties, prelude::*},
@@ -18,7 +17,10 @@ use cubecl_runtime::{
     compiler::CompilationError,
     validation::{validate_cube_dim, validate_units},
 };
-use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
+use cubecl_runtime::{
+    compiler::{CubeTask, KernelCacheKey},
+    logging::ServerLogger,
+};
 use serde::Deserialize;
 use serde::Serialize;
 use std::ffi::CStr;
@@ -31,7 +33,7 @@ pub(crate) struct HipContext {
     pub timestamps: TimestampProfiler,
     pub compilation_options: CompilationOptions,
     pub properties: DeviceProperties,
-    pub compilation_cache: Option<Store<StableHash, CompilationCacheEntry>>,
+    pub compilation_cache: Option<Store<KernelCacheKey, CompilationCacheEntry>>,
 }
 
 #[derive(Debug)]
@@ -74,9 +76,11 @@ impl HipContext {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let hash = if let Some(cache) = self.compilation_cache.as_mut() {
-            let hash = kernel_id.stable_hash();
-            if let Some(entry) = cache.remove(&hash) {
+        let definition = cube_kernel.define();
+
+        let key = if let Some(cache) = self.compilation_cache.as_mut() {
+            let key = KernelCacheKey::new(kernel_id, &definition);
+            if let Some(entry) = cache.remove(&key) {
                 log::trace!("Using compilation cache");
                 self.load_compiled_binary(
                     entry.binary,
@@ -87,7 +91,7 @@ impl HipContext {
                 )?;
                 return Ok(());
             }
-            Some(hash)
+            Some(key)
         } else {
             None
         };
@@ -98,6 +102,7 @@ impl HipContext {
         // CubeCL compilation
         // jitc = just-in-time compiled
         let mut jitc_kernel = cube_kernel.compile(
+            definition,
             &mut Default::default(),
             &self.compilation_options,
             mode,
@@ -241,7 +246,7 @@ impl HipContext {
         if let Some(cache) = self.compilation_cache.as_mut() {
             store_compiled(
                 cache,
-                hash.unwrap(),
+                key.unwrap(),
                 CompilationCacheEntry {
                     entrypoint_name: jitc_kernel.entrypoint_name.clone(),
                     shared_mem_bytes: repr.shared_memory_size(),

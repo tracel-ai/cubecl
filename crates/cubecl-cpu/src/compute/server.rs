@@ -143,7 +143,9 @@ impl CpuServer {
         let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
             kernel
         } else {
+            let definition = kernel.define();
             let kernel = kernel.compile(
+                definition,
                 &mut Default::default(),
                 &MlirCompilerOptions::default(),
                 kind,

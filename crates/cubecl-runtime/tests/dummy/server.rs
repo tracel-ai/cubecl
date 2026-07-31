@@ -60,8 +60,21 @@ impl core::fmt::Display for KernelTask {
 }
 
 impl CubeTask<DummyCompiler> for KernelTask {
+    fn define(&self) -> cubecl_runtime::kernel::KernelDefinition {
+        // The dummy server compiles directly and never keys a cache, so nothing here is observed.
+        cubecl_runtime::kernel::KernelDefinition {
+            buffers: Vec::new(),
+            tensor_maps: Vec::new(),
+            scalars: Vec::new(),
+            cube_dim: CubeDim::new_single(),
+            body: cubecl_ir::Scope::root(false),
+            options: Default::default(),
+        }
+    }
+
     fn compile(
         &self,
+        _definition: cubecl_runtime::kernel::KernelDefinition,
         _compiler: &mut DummyCompiler,
         _compilation_options: &<DummyCompiler as cubecl_runtime::compiler::Compiler>::CompilationOptions,
         _mode: ExecutionMode,
@@ -210,7 +223,13 @@ impl ComputeServer for DummyServer {
 
         let mut resources: Vec<_> = resources.iter_mut().collect();
         let kernel = kernel
-            .compile(&mut DummyCompiler, &(), mode, kernel.address_type())
+            .compile(
+                kernel.define(),
+                &mut DummyCompiler,
+                &(),
+                mode,
+                kernel.address_type(),
+            )
             .unwrap();
         kernel.repr.unwrap().compute(resources.as_mut_slice());
     }

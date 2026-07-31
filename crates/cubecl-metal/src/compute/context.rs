@@ -3,7 +3,10 @@ use cubecl_core::prelude::*;
 use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
-use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
+use cubecl_runtime::{
+    compiler::{CubeTask, KernelCacheKey},
+    logging::ServerLogger,
+};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
@@ -37,7 +40,7 @@ pub struct MetalContext {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
     compiled_kernels: HashMap<KernelId, CompiledKernel>,
     /// On-disk MSL source cache for faster recompilation across runs.
-    msl_cache: Option<Store<String, MslCacheEntry>>,
+    msl_cache: Option<Store<KernelCacheKey, MslCacheEntry>>,
     compilation_options: cubecl_cpp::shared::CompilationOptions,
     msl_compile_options: Retained<MTLCompileOptions>,
 }
@@ -84,8 +87,10 @@ impl MetalContext {
             return Ok(compiled.clone());
         }
 
+        let definition = kernel.define();
+        let cache_key = KernelCacheKey::new(kernel_id, &definition);
+
         if let Some(cache) = self.msl_cache.as_mut() {
-            let cache_key = kernel_id.stable_format();
             if let Some(entry) = cache.remove(&cache_key) {
                 log::trace!("Using MSL cache");
 
@@ -108,6 +113,7 @@ impl MetalContext {
         log::trace!("Compiling kernel to MSL");
 
         let mut kernel_compiled = kernel.compile(
+            definition,
             &mut Default::default(),
             &self.compilation_options,
             mode,
@@ -147,7 +153,7 @@ impl MetalContext {
         if let Some(cache) = &mut self.msl_cache {
             store_compiled(
                 cache,
-                kernel_id.stable_format(),
+                cache_key,
                 MslCacheEntry {
                     entrypoint_name,
                     cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
