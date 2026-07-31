@@ -39,6 +39,12 @@ pub struct PersistentCacheKey<K> {
 }
 
 /// Persistent cache entry
+///
+/// Only [`fastest_index`](Self::fastest_index) is read back: hydration seeds the in-memory cache
+/// from it and nothing else. Everything below it is stored so a cache entry can be inspected after
+/// the fact — why a kernel won, against which measurements, and under which bounds — which is the
+/// question that cannot be answered from a live process once tuning is over. That is also why the
+/// type is `pub`: reading an entry back is the point.
 #[cfg(autotune_persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct PersistentCacheValue {
@@ -47,8 +53,15 @@ pub struct PersistentCacheValue {
     /// Benchmarking results for all autotune candidates.
     pub results: Vec<AutotuneResult>,
     /// Optional input size bounds for which the autotune result applies.
+    ///
+    /// Defaulted, so entries written before this field existed still decode. Without it every
+    /// cached key on every existing installation would fail to read and re-tune from scratch.
+    #[serde(default)]
     pub bounds: Option<crate::tune::Bounds>,
     /// Optional execution time limit for the autotune process.
+    ///
+    /// Defaulted for the same reason as [`bounds`](Self::bounds).
+    #[serde(default)]
     pub limit: Option<core::time::Duration>,
 }
 
