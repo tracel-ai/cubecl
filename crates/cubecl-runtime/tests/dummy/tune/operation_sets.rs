@@ -170,3 +170,43 @@ pub fn addition_set_with_rejected_candidate(
     }))
     .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
 }
+
+/// Addition set with one candidate that sleeps per element, far enough behind the other two to be
+/// eliminated on the numbers. Three candidates because the survivor floor keeps two alive no
+/// matter what, so a two-candidate set can never eliminate anything.
+///
+/// Each closure counts its own calls, which is how a test sees that sampling actually stopped for
+/// the slow one rather than merely that the fast one won. `uid` keeps the key a cache miss, as in
+/// [`addition_set_with_rejected_candidate`].
+pub fn addition_set_with_slow_candidate(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+    fast_calls: Arc<AtomicUsize>,
+    slow_calls: Arc<AtomicUsize>,
+) -> TestSet {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    let op_add_other =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    let op_add_slow = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionSlowWrong),
+        client.clone(),
+    );
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| format!("add_slow-{uid}-{}", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add", move |inputs| {
+        fast_calls.fetch_add(1, Ordering::Relaxed);
+        op_add.run(inputs)
+    }))
+    .with(Tunable::new("add_other", move |inputs| {
+        op_add_other.run(inputs)
+    }))
+    .with(Tunable::new("add_slow_wrong", move |inputs| {
+        slow_calls.fetch_add(1, Ordering::Relaxed);
+        op_add_slow.run(inputs)
+    }))
+}
