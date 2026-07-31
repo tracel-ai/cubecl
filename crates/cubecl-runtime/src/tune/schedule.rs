@@ -108,6 +108,8 @@ impl Schedule {
     {
         let fallback = indices.clone();
         let run = || {
+            let _real_run = crate::dry_run::RealRun::new();
+
             cubecl_environment::future::block_on(self.drive(indices, autotunables, inputs, client))
         };
 
