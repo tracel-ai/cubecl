@@ -1563,21 +1563,20 @@ impl<D: Dialect> CppCompiler<D> {
                 self.flags.elem_f16 = true;
                 self.flags.elem_bf16 = true;
                 let vec_in = op.input.ty.vector_size();
+                let vec_out = out.ty.vector_size();
                 let packing = out.storage_type().packing_factor();
                 self.compile_type(op.input.ty.with_vector_size(packing));
-                self.compile_type(
-                    ir::Type::scalar(ir::ElemType::Float(FloatKind::F16)).with_vector_size(vec_in),
-                );
-                self.compile_type(
-                    ir::Type::scalar(ir::ElemType::Float(FloatKind::BF16)).with_vector_size(vec_in),
-                );
-                self.compile_type(
-                    ir::Type::scalar(ir::ElemType::Float(FloatKind::F16)).with_vector_size(packing),
-                );
-                self.compile_type(
-                    ir::Type::scalar(ir::ElemType::Float(FloatKind::BF16))
-                        .with_vector_size(packing),
-                );
+                // `special_cast` builds its half intermediates while formatting, long after the
+                // declared type set is frozen, so they have to be registered here instead. Its
+                // width follows the source, the destination or the packing factor depending on
+                // the direction of the conversion, so declare all three.
+                for width in [vec_in, vec_out, packing] {
+                    for kind in [FloatKind::F16, FloatKind::BF16] {
+                        self.compile_type(
+                            ir::Type::scalar(ir::ElemType::Float(kind)).with_vector_size(width),
+                        );
+                    }
+                }
 
                 let inst = self.compile_unary(op, out);
 
