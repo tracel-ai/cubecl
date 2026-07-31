@@ -24,28 +24,28 @@ broken_intra_doc_links = "warn"
 invalid_html_tags = "warn"
 
 [workspace.dependencies]
-bitflags = { version = "2.9.1", features = ["serde"] }
+bitflags = { version = "2.13.1", features = ["serde"] }
 derive-new = { version = "0.7.0", default-features = false }
 derive_more = { version = "2", default-features = false }
 num = "0.4"
 oneshot = { version = "0.2.1", default-features = false }
 tynm = { version = "0.2" }
 
-clap = { version = "4.5.53" }
+clap = { version = "4.6" }
 
 log = { default-features = false, version = "^0.4.22" }
 
-tokio = { version = "^1.47.1" }
+tokio = { version = "^1.53.1" }
 
 test-log = { version = "^0.2", default-features = false }
 
 tracing = { version = "^0.1.43", default-features = false }
-tracing-opentelemetry = "^0.32.0"
+tracing-opentelemetry = "^0.33.0"
 tracing-subscriber = "^0.3.20"
 
-opentelemetry = "^0.31.0"
-opentelemetry-otlp = "^0.31.0"
-opentelemetry_sdk = "^0.31.0"
+opentelemetry = "^0.32.0"
+opentelemetry-otlp = "^0.32.0"
+opentelemetry_sdk = "^0.32.0"
 
 
 ciborium = { version = "0.2.2", default-features = false, features = ["std"] }
@@ -87,7 +87,7 @@ web-time = "1.1.0"
 
 # Testing
 rstest = "0.26"
-serial_test = "3.1.1"
+serial_test = "4"
 
 bytemuck = "1.16.1"
 bytes = { version = "1.10", default-features = false }
@@ -107,10 +107,12 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 bumpalo = "3"
 cfg-if = "1.0.0"
 darling = "0.23.0"
-enumset = { version = "1.1.12", default-features = false }
+enumset = { version = "1.1", default-features = false }
 ident_case = "1"
 internment = "0.8"
-itertools = "0.14"
+itertools = { version = "0.15", default-features = false, features = [
+    "use_alloc",
+] }
 paste = "1"
 proc-macro2 = "1"
 quote = "1"
@@ -118,7 +120,7 @@ syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
 thiserror = { version = "2", default-features = false }
 tracy-client = { version = "0.18.0" }
 
-portable-atomic = { version = "1.11", default-features = false, features = [
+portable-atomic = { version = "1.14", default-features = false, features = [
     "serde",
 ] }
 portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
@@ -132,7 +134,7 @@ futures-util = { version = "0.3.32", default-features = false, features = [
 ] }
 
 # CubeCL-CPU
-sysinfo = "0.38"
+sysinfo = "0.39"
 tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "82401e3c00a35a3fb7d5e2b415e79692e09e1079", features = [
     "mlir-helpers",
 ] }
@@ -179,7 +181,8 @@ wgpu-hal = "^30.0.0"
 renderdoc = "0.12"
 
 # Build deps
-cfg_aliases = "0.2.1"
+cfg_aliases = "0.2.2"
+
 
 [profile.dev.build-override]
 opt-level = 3
