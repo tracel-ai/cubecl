@@ -41,6 +41,7 @@ use crate::compiler::{
     metadata::LowerEntryAbiPass,
     polyfill::{LowerComplexOpPass, synchronization::uses_cube_barrier},
     shared_memory::SharedMemories,
+    shared_memory::declares_shared_memory,
     to_llvm::CubeToLLVMPass,
 };
 
@@ -88,10 +89,8 @@ impl PlironCompiler {
         let module_op = module.get_operation();
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
-        // The barrier only completes when every unit of the cube runs on its own thread, so the
-        // scheduler must not queue two units of such a kernel behind each other.
-        let needs_parallelism =
-            kernel.settings.cube_dim.num_elems() > 1 && uses_cube_barrier(&ctx, module_op);
+        let needs_parallelism = kernel.settings.cube_dim.num_elems() > 1
+            && (uses_cube_barrier(&ctx, module_op) || declares_shared_memory(&ctx, module_op));
         // Filled in by the entry ABI pass, which is where the shared memories get their slot.
         let shared_memories = Rc::new(RefCell::new(SharedMemories::default()));
 

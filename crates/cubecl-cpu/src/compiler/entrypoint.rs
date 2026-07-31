@@ -2,6 +2,7 @@ use cubecl_core::ir::attributes::{EntrypointInterface, FuncInterface};
 use cubecl_core::ir::dialect::branch::{RangeLoopOp, YieldOp};
 use cubecl_core::ir::dialect::general::ReadBuiltinOp;
 use cubecl_core::ir::dialect::memory::LoadOp;
+use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope};
 use cubecl_core::ir::prelude::*;
 use cubecl_core::ir::settings::Dim3;
 use cubecl_core::ir::{Builtin, OpInserter, Scope};
@@ -14,6 +15,7 @@ use pliron::linked_list::ContainsLinkedList;
 use pliron_llvm::types::PointerType as LlvmPointerType;
 
 use crate::compiler::polyfill::synchronization::ATTR_SYNC_CUBE_STATE;
+use crate::compiler::shared_memory::declares_shared_memory;
 
 pub const CPU_RUNTIME_BUILTINS: [Builtin; 6] = [
     Builtin::CubeCountX,
@@ -147,6 +149,8 @@ impl Pass for InsertConstantEmulationPass {
         let cube_dim = abi.cube_dim;
         let cluster_dim = abi.cluster_dim.unwrap_or(Dim3::new_single());
 
+        let fence_cubes = cube_dim.num_elems() > 1 && declares_shared_memory(ctx, op);
+
         let entry_block = func.get_entry_block(ctx);
         let terminator = entry_block
             .deref(ctx)
@@ -186,6 +190,11 @@ impl Pass for InsertConstantEmulationPass {
 
         for body_op in body_ops {
             body_op.insert_at_back(body_block, ctx);
+        }
+        if fence_cubes {
+            SyncOp::new(ctx, SyncScope::Cube)
+                .get_operation()
+                .insert_at_back(body_block, ctx);
         }
         YieldOp::new(ctx)
             .get_operation()

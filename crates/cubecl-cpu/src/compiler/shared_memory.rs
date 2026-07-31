@@ -32,6 +32,16 @@ pub struct SharedMemories {
     pub blocks: Vec<SharedMemoryBlock>,
 }
 
+/// Whether `op` declares any shared memory, i.e. whether its cube iterations share state that
+/// must not be written by a unit racing ahead into the next cube.
+pub fn declares_shared_memory(ctx: &Context, op: Ptr<Operation>) -> bool {
+    let mut found = false;
+    visit_all_ops_of_type::<DeclareVariableOp, _>(ctx, &mut found, op, |ctx, found, d| {
+        *found |= d.addr_space(ctx).0 == AddressSpace::Shared;
+    });
+    found
+}
+
 /// `(op, result, block)` for each shared declaration, gathered during the walk so the ops can be
 /// rewritten once the walker no longer holds them borrowed.
 #[derive(Default)]

@@ -400,6 +400,26 @@ impl ToLLVMDialect for FmaOp {
         let a_ty = a.get_type(ctx);
         let b_ty = b.get_type(ctx);
         let c_ty = c.get_type(ctx);
+
+        if self.result_type(ctx).is_int(ctx) {
+            let mul =
+                llvm::MulOp::new_with_overflow_flag(ctx, a, b, IntegerOverflowFlagsAttr::default());
+            rewriter.insert_op(ctx, &mul);
+            let add = llvm::AddOp::new_with_overflow_flag(
+                ctx,
+                mul.get_result(ctx),
+                c,
+                IntegerOverflowFlagsAttr::default(),
+            );
+            rewriter.insert_op(ctx, &add);
+            rewriter.replace_operation_with_values(
+                ctx,
+                self.get_operation(),
+                vec![add.get_result(ctx)],
+            );
+            return Ok(());
+        }
+
         let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
         let intrinsic_type = FuncType::get(ctx, res_ty, vec![a_ty, b_ty, c_ty], false);
 
