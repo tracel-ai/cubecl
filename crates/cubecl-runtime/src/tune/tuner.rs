@@ -138,7 +138,7 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
-    fn into_request(self, pending: Vec<PendingBench>) -> TuneRequest<K> {
+    fn into_request(self, pending: Vec<PendingBench>, decided: Option<usize>) -> TuneRequest<K> {
         TuneRequest {
             key: self.key,
             results: self.results,
@@ -146,6 +146,7 @@ impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
             checksum: self.checksum,
             log_context: self.log_context,
             pending,
+            decided,
             #[cfg(autotune_persistence)]
             limit: self.limit,
             #[cfg(autotune_persistence)]
@@ -163,6 +164,9 @@ struct TuneRequest<K: AutotuneKey> {
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
     pending: Vec<PendingBench>,
+    /// The winner, when the strategy already picked one. `None` means the results are all
+    /// comparable and the fastest is whichever scores best.
+    decided: Option<usize>,
     #[cfg(autotune_persistence)]
     limit: Option<Duration>,
     #[cfg(autotune_persistence)]
@@ -346,7 +350,7 @@ impl<K: AutotuneKey> Tuner<K> {
             track_steps: job.log_context.is_some(),
         };
 
-        let (steps, short_circuit) = schedule.run_plan(
+        let outcome = schedule.run_plan(
             &job.key,
             &mut job.plan,
             &job.autotunables,
@@ -355,18 +359,16 @@ impl<K: AutotuneKey> Tuner<K> {
             &mut job.results,
         );
 
-        for (name, duration) in steps {
+        for (name, duration) in outcome.steps {
             job.log_context.push_tuning_step(name, duration);
         }
-        if let Some(name) = short_circuit {
+        if let Some(name) = outcome.short_circuit {
             job.log_context.push_short_circuit(name);
         }
 
-        cubecl_environment::future::block_on(process_request(
-            job.into_request(Vec::new()),
-            &self.cache,
-            &self.logger,
-        ))
+        let request = job.into_request(Vec::new(), outcome.decided);
+
+        cubecl_environment::future::block_on(process_request(request, &self.cache, &self.logger))
     }
 
     /// Benchmark every candidate with a fixed sample count, resolving the samples afterwards.
@@ -470,7 +472,9 @@ impl<K: AutotuneKey> Tuner<K> {
             }
         }
 
-        let request = job.into_request(pending);
+        // Every candidate here carries the same sample count, so scoring them against each other
+        // is a fair comparison and `process_request` can make the call.
+        let request = job.into_request(pending, None);
 
         // Resolve samples and commit the result. On wasm this runs on the browser
         // event loop; elsewhere it blocks inline.
@@ -541,6 +545,7 @@ async fn process_request<K: AutotuneKey>(
         checksum,
         mut log_context,
         pending,
+        decided,
         #[cfg(autotune_persistence)]
         limit,
         #[cfg(autotune_persistence)]
@@ -576,13 +581,21 @@ async fn process_request<K: AutotuneKey>(
         a.cmp(&b)
     });
 
-    let fastest_index = results
-        .first()
-        .expect("At least one kernel needed.")
-        .outcome
-        .as_ref()
-        .expect("At least one kernel has to succeed.")
-        .index;
+    // The sort above orders what gets logged and persisted. It does not pick the winner when the
+    // strategy already did: a scheduler that eliminates candidates leaves results built from
+    // different sample counts behind, and `score` reads a short sample set as a stable one.
+    let fastest_index = match decided {
+        Some(index) => index,
+        None => {
+            results
+                .first()
+                .expect("At least one kernel needed.")
+                .outcome
+                .as_ref()
+                .expect("At least one kernel has to succeed.")
+                .index
+        }
+    };
 
     {
         log_context.log_result(&mut logger.lock(), &key, &results);

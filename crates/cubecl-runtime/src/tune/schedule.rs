@@ -19,6 +19,9 @@ pub(crate) struct BatchOutcome {
     pub(crate) steps: Vec<(String, Duration)>,
     pub(crate) short_circuit: Option<String>,
     pub(crate) any_success: bool,
+    /// The index the round robin picked, when it produced one. See [`Schedule::outcome`] for why
+    /// the caller must not re-derive it by comparing the results.
+    pub(crate) decided: Option<usize>,
 }
 
 /// Round robin benchmarking with early elimination.
@@ -82,6 +85,7 @@ impl Schedule {
                 steps: Vec::new(),
                 short_circuit: None,
                 any_success: false,
+                decided: None,
             },
         }
     }
@@ -201,17 +205,41 @@ impl Schedule {
             }
         }
 
+        self.outcome(candidates, short_circuit)
+    }
+
+    /// Fold the finished candidates into the batch outcome, naming the winner.
+    ///
+    /// The winner is picked here rather than left to the caller's comparison of the results,
+    /// because by this point the candidates no longer hold comparable evidence: an eliminated one
+    /// stopped at `min_samples` while a survivor kept sampling, and `BenchmarkComputations::score`
+    /// inflates with observed spread, which grows with the sample count. Scoring them against each
+    /// other would hand a candidate an advantage for having been dropped early. Elimination
+    /// decides who is eligible; the score only ranks the survivors.
+    fn outcome(&self, candidates: Vec<Candidate>, short_circuit: Option<String>) -> BatchOutcome {
         let mut steps = Vec::new();
         let mut results = Vec::with_capacity(candidates.len());
         let mut any_success = false;
+        let mut decided: Option<(usize, u64)> = None;
 
         for candidate in candidates {
             if self.track_steps {
                 steps.push((candidate.name.clone(), candidate.elapsed));
             }
+
             let index = candidate.index;
+            let survived = candidate.live;
             let result = candidate.into_result();
-            any_success |= result.outcome.is_ok();
+
+            if let Ok(outcome) = result.outcome.as_ref() {
+                any_success = true;
+
+                let score = outcome.computation.score();
+                if survived && decided.is_none_or(|(_, best)| score < best) {
+                    decided = Some((index, score));
+                }
+            }
+
             results.push((index, result));
         }
 
@@ -220,6 +248,7 @@ impl Schedule {
             steps,
             short_circuit,
             any_success,
+            decided: decided.map(|(index, _)| index),
         }
     }
 
@@ -349,7 +378,7 @@ impl Schedule {
         inputs: &<F as TuneInputs>::At<'a>,
         client: &ComputeClient<R>,
         results: &mut [AutotuneResult],
-    ) -> (Vec<(String, Duration)>, Option<String>)
+    ) -> PlanOutcome
     where
         K: core::fmt::Debug,
         R: Runtime,
@@ -376,10 +405,22 @@ impl Schedule {
             steps.extend(outcome.steps);
 
             if outcome.any_success {
-                return (steps, outcome.short_circuit);
+                return PlanOutcome {
+                    steps,
+                    short_circuit: outcome.short_circuit,
+                    decided: outcome.decided,
+                };
             }
         }
     }
+}
+
+/// What walking the whole [`TunePlan`] produced: everything the tuner has to report or commit.
+#[derive(Debug)]
+pub(crate) struct PlanOutcome {
+    pub(crate) steps: Vec<(String, Duration)>,
+    pub(crate) short_circuit: Option<String>,
+    pub(crate) decided: Option<usize>,
 }
 
 /// Candidates kept alive no matter how far behind they are, so a batch never narrows to a
@@ -578,6 +619,53 @@ mod tests {
             result.outcome,
             Err(AutotuneError::InvalidSamples { .. })
         ));
+    }
+
+    #[test]
+    fn an_eliminated_candidate_never_wins_on_its_shorter_sample_set() {
+        // Elimination froze candidate 1 at three tight samples while candidate 0 kept sampling
+        // and picked up spread, so candidate 1 scores better on the arithmetic alone. It was
+        // dropped on the evidence, and the evidence is what decides.
+        let mut eliminated = candidate(1, [10, 10, 10]);
+        eliminated.live = false;
+
+        let survivor = candidate(0, [50, 900, 60, 800, 55]);
+        assert!(
+            eliminated.samples.computation(TimingMethod::System).score()
+                < survivor.samples.computation(TimingMethod::System).score(),
+            "the test is pointless unless the eliminated candidate scores better"
+        );
+
+        let outcome = schedule(1.5).outcome(vec![survivor, eliminated], None);
+
+        assert_eq!(outcome.decided, Some(0));
+        assert!(outcome.any_success);
+    }
+
+    #[test]
+    fn the_fastest_survivor_is_the_one_declared() {
+        let candidates = vec![
+            candidate(0, [100, 100, 100]),
+            candidate(1, [40, 40, 40]),
+            candidate(2, [70, 70, 70]),
+        ];
+
+        assert_eq!(schedule(1.5).outcome(candidates, None).decided, Some(1));
+    }
+
+    #[test]
+    fn no_survivor_leaves_the_decision_open() {
+        // Every candidate failed, so there is nothing to declare and the caller falls back to
+        // its own comparison rather than being handed an index that measured nothing.
+        let mut failed = candidate(0, [10, 10, 10]);
+        failed.fail(AutotuneError::InvalidSamples {
+            name: "k0".to_string(),
+        });
+
+        let outcome = schedule(1.5).outcome(vec![failed, candidate(1, [])], None);
+
+        assert_eq!(outcome.decided, None);
+        assert!(!outcome.any_success);
     }
 
     #[test]
