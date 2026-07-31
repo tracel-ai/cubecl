@@ -552,16 +552,28 @@ async fn process_request<K: AutotuneKey>(
         bounds,
     } = request;
 
-    for bench in pending {
+    // Resolved concurrently, and each benchmark timed individually rather than timing the loop:
+    // the profiles were all queued before any of them was polled, so awaiting them in turn would
+    // charge the first benchmark for draining the whole device queue and report the rest as
+    // free.
+    let resolved = futures_util::future::join_all(pending.into_iter().map(|bench| {
         let index = bench.index;
-        let launch = bench.launch;
         let name = bench.name.clone();
+        let launch = bench.launch;
 
-        let started = cubecl_common::profile::Instant::now();
-        let result = resolve_bench(bench).await;
+        async move {
+            let started = cubecl_common::profile::Instant::now();
+            let result = resolve_bench(bench).await;
+            let step = launch.map(|launch| (name, launch + started.elapsed()));
 
-        if let Some(launch) = launch {
-            log_context.push_tuning_step(name, launch + started.elapsed());
+            (index, step, result)
+        }
+    }))
+    .await;
+
+    for (index, step, result) in resolved {
+        if let Some((name, duration)) = step {
+            log_context.push_tuning_step(name, duration);
         }
 
         results[index] = result;
