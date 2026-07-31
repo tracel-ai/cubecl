@@ -28,6 +28,7 @@ use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
     compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
+    dry_run::LaunchMode,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     server::ComputeServer,
@@ -153,8 +154,10 @@ impl ComputeServer for CudaServer {
         bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
+        launch_mode: LaunchMode,
     ) {
-        if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
+        if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id, launch_mode)
+        {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
@@ -661,6 +664,7 @@ impl CudaServer {
         bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
+        launch_mode: LaunchMode,
     ) -> Result<(), ServerError> {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
@@ -904,6 +908,7 @@ impl CudaServer {
             &resources,
             info_const,
             logger,
+            launch_mode,
         )?;
 
         Ok(())

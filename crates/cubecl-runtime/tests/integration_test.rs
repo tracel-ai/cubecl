@@ -28,7 +28,11 @@ fn empty_allocates_memory() {
     assert_eq!(empty_resource.len(), 4);
 }
 
+// Dry runs are process-wide, so a test asserting that a launch really ran must
+// not overlap one. `parallel` still runs alongside the other parallel tests; it
+// only excludes the `serial` ones.
 #[test_log::test]
+#[serial_test::parallel]
 fn execute_elementwise_addition() {
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);
@@ -236,6 +240,7 @@ fn autotune_bounds_unreachable_limit_benchmarks_all() {
 /// all candidates and the faster correct `add` wins.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
 fn autotune_short_circuit_disabled_benchmarks_all() {
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_short_circuit_disabled");
 
@@ -359,4 +364,102 @@ fn autotune_stops_sampling_a_rejected_candidate() {
     // kernel still wins the tuning.
     assert_eq!(calls.load(Ordering::Relaxed), 1);
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
+/// A dry run drops an ordinary launch: the server still compiles the kernel,
+/// exactly as it would otherwise, and then never runs it.
+///
+/// This is the mode's whole promise and its whole hazard in one assertion — a
+/// pass under it runs for the shapes it provokes, and anything it reads back
+/// is meaningless.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_dry_run_drops_an_ordinary_launch() {
+    use cubecl_runtime::dry_run::DryRun;
+
+    let client = test_client(&DummyDevice);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.create_from_slice(&[9, 9, 9]);
+
+    let add = |out: &cubecl_runtime::server::Handle| {
+        client.launch(
+            Box::new(KernelTask::new(DummyElementwiseAddition)),
+            CubeCount::Static(1, 1, 1),
+            KernelArguments::new().with_buffers(vec![
+                lhs.clone().binding(),
+                rhs.clone().binding(),
+                out.clone().binding(),
+            ]),
+        );
+    };
+
+    {
+        let _dry_run = DryRun::new();
+        add(&out);
+
+        assert_eq!(
+            client.read_one(out.clone()).unwrap().to_vec(),
+            Vec::from([9, 9, 9]),
+            "the launch was compiled and then dropped, so the output is untouched"
+        );
+    }
+
+    // The very same launch runs once the mode is off: nothing was poisoned by
+    // having been skipped, and the compiled artifact is reused.
+    add(&out);
+
+    assert_eq!(client.read_one(out).unwrap().to_vec(), Vec::from([4, 5, 6]));
+}
+
+/// The exception that makes the mode worth having: autotune still executes,
+/// because its launches *are* the measurement.
+///
+/// Tuning happens inside the dry run; the winner is then executed outside it. A
+/// tuner whose candidates had all been skipped would have nothing to tell them
+/// apart, and the slow kernel — which writes `[0, 1, 2]` — would win as often
+/// as not.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_dry_run_still_autotunes() {
+    use cubecl_runtime::dry_run::DryRun;
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("a_dry_run_still_autotunes");
+
+    let client = test_client(&DummyDevice);
+    let test_set = TUNER.init(|| {
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::addition_set(test_client(&DummyDevice), shapes)
+    });
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+
+    {
+        let _dry_run = DryRun::new();
+        TUNER.execute(
+            &"test".to_string(),
+            &client,
+            test_set.clone(),
+            vec![lhs.clone(), rhs.clone(), out.clone()],
+        );
+    }
+
+    // Cached now, so this is the fast path: it executes the winner and nothing
+    // else.
+    TUNER.execute(
+        &"test".to_string(),
+        &client,
+        test_set,
+        vec![lhs, rhs, out.clone()],
+    );
+
+    assert_eq!(
+        client.read_one(out).unwrap().to_vec(),
+        Vec::from([4, 5, 6]),
+        "the candidates were measured inside the dry run, so the fast one won"
+    );
 }

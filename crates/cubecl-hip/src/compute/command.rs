@@ -25,6 +25,7 @@ use cubecl_hip_sys::{
 };
 use cubecl_runtime::{
     compiler::CubeTask,
+    dry_run::LaunchMode,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
@@ -122,9 +123,24 @@ impl<'a> Command<'a> {
     /// * `Err(IoError)` - If the allocation fails.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
-        let handle = self.streams.current().memory_management_gpu.reserve(size)?;
-
-        Ok(handle)
+        match self.streams.current().memory_management_gpu.reserve(size) {
+            Ok(handle) => Ok(handle),
+            // The allocation can never fit; reclaiming would not change that.
+            Err(err @ IoError::BufferTooBig { .. }) => Err(err),
+            // Out of memory *right now* is not out of memory for good: pool
+            // pages whose slices have all been dropped are still resident, and
+            // the frees that would release them may sit in the deferred drop
+            // queue. Reclaim this stream's memory and retry once; only a
+            // failure after that is reported. Without the retry, a transient
+            // peak — a model build holding float weights while their quantized
+            // copies allocate, an autotune sample on a full device — becomes a
+            // never-initialized handle whose every downstream use fails.
+            Err(err) => {
+                log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
+                self.memory_cleanup();
+                self.streams.current().memory_management_gpu.reserve(size)
+            }
+        }
     }
 
     /// Get the stream cursor.
@@ -369,7 +385,8 @@ impl<'a> Command<'a> {
         current.drop_queue.push(data);
 
         // Defer fenced flushes while capturing — a host sync aborts the capture.
-        if should_flush && !current.capturing.is_recording() {
+        if (should_flush || current.drop_queue.should_flush()) && !current.capturing.is_recording()
+        {
             current.drop_queue.flush(|| Fence::new(current.sys));
         }
 
@@ -436,6 +453,7 @@ impl<'a> Command<'a> {
     /// # Panics
     ///
     /// * If the execution fails, with an error message or profiling error.
+    #[allow(clippy::too_many_arguments)]
     pub fn kernel(
         &mut self,
         kernel_id: KernelId,
@@ -444,9 +462,14 @@ impl<'a> Command<'a> {
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
         logger: Arc<ServerLogger>,
+        launch_mode: LaunchMode,
     ) -> Result<(), LaunchError> {
-        if !self.ctx.module_names.contains_key(&kernel_id) {
+        if !self.ctx.is_loaded(&kernel_id) {
             self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
+        }
+
+        if launch_mode.is_skipped() {
+            return Ok(());
         }
 
         let stream = self.streams.current();

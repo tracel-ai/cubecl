@@ -1,7 +1,6 @@
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashMap;
 use cubecl_runtime::{
     compiler::CompilationError,
     validation::{validate_cube_dim, validate_units},
@@ -14,13 +13,15 @@ use crate::{
     install::{cccl_include_path, include_path},
 };
 use cubecl_core::{
-    hash::StableHash,
     server::ResourceLimitError,
     {ir::DeviceProperties, prelude::*},
 };
 use cubecl_environment::persistence::Store;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
-use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
+use cubecl_runtime::{
+    compiler::{CubeTask, KernelCacheKey},
+    logging::ServerLogger,
+};
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
@@ -30,13 +31,17 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-use cubecl_runtime::compiler::{compilation_store, store_compiled};
+use cubecl_runtime::compiler::{CompilationCache, compilation_store, store_compiled};
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
-    pub module_names: HashMap<KernelId, CompiledKernel>,
-    ptx_cache: Option<Store<StableHash, PtxCacheEntry>>,
+    /// The modules loaded on the device, in front of [`Self::ptx_cache`].
+    ///
+    /// An environment switch drops these, and nothing unloads the modules they
+    /// name: see [`CudaContext::is_loaded`].
+    modules: CompilationCache<KernelId, CompiledKernel>,
+    ptx_cache: Option<Store<KernelCacheKey, PtxCacheEntry>>,
     pub timestamps: TimestampProfiler,
     pub arch: CudaArchitecture,
     pub compilation_options: CompilationOptions,
@@ -64,15 +69,31 @@ impl CudaContext {
         context: *mut CUctx_st,
         arch: CudaArchitecture,
     ) -> Self {
+        let ptx_cache = compilation_store("cuda", format!("ptx_sm{}", arch.version));
+
         Self {
             context,
-            module_names: HashMap::new(),
-            ptx_cache: compilation_store("cuda", format!("ptx_sm{}", arch.version)),
+            modules: CompilationCache::mirroring(&ptx_cache),
+            ptx_cache,
             arch,
             timestamps: TimestampProfiler::default(),
             compilation_options,
             properties,
         }
+    }
+
+    /// Whether `kernel_id` is already loaded on the device.
+    ///
+    /// An environment switch drops the whole cache, so the new environment's
+    /// PTX store is filled rather than bypassed. The modules those entries
+    /// named stay resident: nothing calls `cuModuleUnload`, here or anywhere
+    /// else in this context, and unloading one a stream still has queued work
+    /// against would be unsound. A process that switches environments a handful
+    /// of times at startup pays a bounded price; one that switches repeatedly
+    /// grows its resident modules without bound — see
+    /// [`cubecl_environment::environment::activate`].
+    pub fn is_loaded(&mut self, kernel_id: &KernelId) -> bool {
+        self.modules.contains(kernel_id)
     }
 
     /// Switches the current CUDA context to this context.
@@ -89,10 +110,12 @@ impl CudaContext {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let hash = if let Some(cache) = self.ptx_cache.as_mut() {
-            let hash = kernel_id.stable_hash();
+        let definition = kernel.define();
 
-            if let Some(entry) = cache.remove(&hash) {
+        let key = if let Some(cache) = self.ptx_cache.as_mut() {
+            let key = KernelCacheKey::new(kernel_id, &definition);
+
+            if let Some(entry) = cache.remove(&key) {
                 log::trace!("Using PTX cache");
 
                 self.load_ptx(
@@ -104,7 +127,7 @@ impl CudaContext {
                 )?;
                 return Ok(());
             }
-            Some(hash)
+            Some(key)
         } else {
             None
         };
@@ -115,6 +138,7 @@ impl CudaContext {
         validate_units(&self.properties, kernel_id)?;
 
         let mut kernel_compiled = kernel.compile(
+            definition,
             &mut Default::default(),
             &self.compilation_options,
             mode,
@@ -179,16 +203,8 @@ impl CudaContext {
                         message += format!("\n    {line}").as_str();
                     }
                 }
-                let source = kernel
-                    .compile(
-                        &mut Default::default(),
-                        &self.compilation_options,
-                        mode,
-                        kernel.address_type(),
-                    )?
-                    .source;
                 Err(CompilationError::Generic {
-                    reason: format!("{message}\n[Source]  \n{source}"),
+                    reason: format!("{message}\n[Source]  \n{}", kernel_compiled.source),
                     backtrace: BackTrace::capture(),
                 })?;
             };
@@ -203,7 +219,7 @@ impl CudaContext {
         if let Some(cache) = &mut self.ptx_cache {
             store_compiled(
                 cache,
-                hash.unwrap(),
+                key.unwrap(),
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
                     shared_mem_bytes: repr.shared_memory_size(),
@@ -248,7 +264,7 @@ impl CudaContext {
             })?
         };
 
-        self.module_names.insert(
+        self.modules.insert(
             kernel_id.clone(),
             CompiledKernel {
                 cube_dim,
@@ -276,7 +292,7 @@ impl CudaContext {
         bindings.extend(resources.iter().map(|memory| memory.binding));
         bindings.extend(const_info);
 
-        let kernel = self.module_names.get(&kernel_id).unwrap();
+        let kernel = self.modules.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         // SAFETY: `kernel.func` is a valid function handle from a loaded module.
         // `stream.sys` is a valid CUDA stream. `bindings` contains valid device pointers

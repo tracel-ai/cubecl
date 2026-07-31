@@ -2,8 +2,10 @@ use crate::MetalCompiler;
 use cubecl_core::prelude::*;
 use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashMap;
-use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
+use cubecl_runtime::{
+    compiler::{CubeTask, KernelCacheKey},
+    logging::ServerLogger,
+};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
@@ -14,7 +16,7 @@ use objc2_metal::{
 use std::sync::Arc;
 
 use cubecl_environment::persistence::Store;
-use cubecl_runtime::compiler::{compilation_store, store_compiled};
+use cubecl_runtime::compiler::{CompilationCache, compilation_store, store_compiled};
 
 #[derive(Debug, Clone)]
 pub struct CompiledKernel {
@@ -35,9 +37,10 @@ pub struct MslCacheEntry {
 #[derive(Debug)]
 pub struct MetalContext {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
-    compiled_kernels: HashMap<KernelId, CompiledKernel>,
+    /// The pipelines built so far, in front of [`Self::msl_cache`].
+    compiled_kernels: CompilationCache<KernelId, CompiledKernel>,
     /// On-disk MSL source cache for faster recompilation across runs.
-    msl_cache: Option<Store<String, MslCacheEntry>>,
+    msl_cache: Option<Store<KernelCacheKey, MslCacheEntry>>,
     compilation_options: cubecl_cpp::shared::CompilationOptions,
     msl_compile_options: Retained<MTLCompileOptions>,
 }
@@ -62,9 +65,11 @@ impl MetalContext {
         // sources built for another GPU.
         let device_key = device.name().to_string();
 
+        let msl_cache = compilation_store("metal", format!("msl_{device_key}"));
+
         Self {
-            compiled_kernels: HashMap::new(),
-            msl_cache: compilation_store("metal", format!("msl_{device_key}")),
+            compiled_kernels: CompilationCache::mirroring(&msl_cache),
+            msl_cache,
             device,
             compilation_options,
             msl_compile_options,
@@ -84,8 +89,10 @@ impl MetalContext {
             return Ok(compiled.clone());
         }
 
+        let definition = kernel.define();
+        let cache_key = KernelCacheKey::new(kernel_id, &definition);
+
         if let Some(cache) = self.msl_cache.as_mut() {
-            let cache_key = kernel_id.stable_format();
             if let Some(entry) = cache.remove(&cache_key) {
                 log::trace!("Using MSL cache");
 
@@ -108,6 +115,7 @@ impl MetalContext {
         log::trace!("Compiling kernel to MSL");
 
         let mut kernel_compiled = kernel.compile(
+            definition,
             &mut Default::default(),
             &self.compilation_options,
             mode,
@@ -147,7 +155,7 @@ impl MetalContext {
         if let Some(cache) = &mut self.msl_cache {
             store_compiled(
                 cache,
-                kernel_id.stable_format(),
+                cache_key,
                 MslCacheEntry {
                     entrypoint_name,
                     cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
@@ -222,7 +230,10 @@ impl MetalContext {
     }
 
     /// Returns the compiled kernel for `kernel_id`, if present.
-    pub fn get_kernel(&self, kernel_id: &KernelId) -> Option<&CompiledKernel> {
+    ///
+    /// Takes `&mut self` because a lookup drops the cache first when the
+    /// environment switched.
+    pub fn get_kernel(&mut self, kernel_id: &KernelId) -> Option<&CompiledKernel> {
         self.compiled_kernels.get(kernel_id)
     }
 }

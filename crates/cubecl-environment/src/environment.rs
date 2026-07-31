@@ -107,6 +107,13 @@ fn active_state() -> Active {
 ///
 /// Takes effect immediately: stores bound to the previous environment reset
 /// on their next access and reopen against this one.
+///
+/// A switch is not free to repeat. Backends also drop the compiled artifacts
+/// they memoized for the old environment, and on CUDA and HIP the modules those
+/// entries named stay resident, because nothing can safely unload a module a
+/// stream may still have queued work against. Switching a handful of times at
+/// startup costs a bounded amount of device memory and one recompilation per
+/// kernel; switching per request grows resident modules without bound.
 pub fn activate<N: AsRef<str>>(name: N) {
     let name = sanitize(name.as_ref());
     log::debug!("Activating environment '{name}'");

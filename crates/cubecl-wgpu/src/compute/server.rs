@@ -9,8 +9,6 @@ use cubecl_common::{
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
 };
-#[cfg(feature = "spirv")]
-use cubecl_core::hash::StableHash;
 use cubecl_core::server::{Binding, StreamErrorMode};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
@@ -23,7 +21,6 @@ use cubecl_core::{
     zspace::{Strides, strides},
 };
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashMap;
 use cubecl_environment::future::DynFut;
 #[cfg(feature = "spirv")]
 use cubecl_environment::persistence::Store;
@@ -31,11 +28,12 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(feature = "spirv")]
-use cubecl_runtime::compiler::{compilation_store, store_compiled};
+use cubecl_runtime::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage, SharedMemoryBindings};
 use cubecl_runtime::{
-    compiler::CubeTask,
+    compiler::{CompilationCache, CubeTask},
     config::{CubeClRuntimeConfig, RuntimeConfig},
+    dry_run::LaunchMode,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
@@ -69,10 +67,12 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pub(crate) device: wgpu::Device,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
-    pipelines: HashMap<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
+    /// The pipelines built so far, in front of the SPIR-V store when there is
+    /// one.
+    pipelines: CompilationCache<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
-    pub(crate) spirv_cache: Option<Store<(u64, StableHash), cubecl_spirv::SpirvCacheEntry>>,
+    pub(crate) spirv_cache: Option<Store<(u64, KernelCacheKey), cubecl_spirv::SpirvCacheEntry>>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
@@ -116,11 +116,24 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
+        #[cfg(feature = "spirv")]
+        let spirv_cache = compilation_store(
+            "vulkan",
+            format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
+        );
+
+        // WGSL is compiled by the driver on every run, so without the SPIR-V
+        // store there is nothing persisted for a switch to invalidate.
+        #[cfg(feature = "spirv")]
+        let pipelines = CompilationCache::mirroring(&spirv_cache);
+        #[cfg(not(feature = "spirv"))]
+        let pipelines = CompilationCache::unbound();
+
         Self {
             compilation_options,
             streams_pool: Vec::new(),
             device,
-            pipelines: HashMap::new(),
+            pipelines,
             scheduler: SchedulerMultiStream::new(
                 utilities.logger.clone(),
                 backend_scheduler,
@@ -131,10 +144,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 },
             ),
             #[cfg(feature = "spirv")]
-            spirv_cache: compilation_store(
-                "vulkan",
-                format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
-            ),
+            spirv_cache,
             backend,
             utilities: Arc::new(utilities),
             shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
@@ -177,7 +187,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             return Ok(pipeline.clone());
         }
 
-        let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
+        let definition = kernel.define();
+        let cached = self.load_cached_pipeline(&kernel_id, &definition, bindings, mode)?;
 
         if let Some(Ok(pipeline)) = cached {
             self.pipelines.insert(kernel_id, pipeline.clone());
@@ -188,7 +199,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         validate_units(&self.utilities.properties, &kernel_id)?;
 
         let mut compiler = C::init(self.backend, &self.compilation_options);
-        let mut compiled = compiler.compile_kernel(self, kernel, mode)?;
+        let mut compiled = compiler.compile_kernel(self, kernel, definition, mode)?;
 
         if self.scheduler.logger.compilation_source_activated() {
             compiled.debug_info = Some(DebugInformation::new(
@@ -371,6 +382,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         args: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
+        launch_mode: LaunchMode,
     ) {
         let (pipeline, compiler_info) = match self.pipeline(kernel, &args, mode) {
             Ok(val) => val,
@@ -381,6 +393,10 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 return;
             }
         };
+
+        if launch_mode.is_skipped() {
+            return;
+        }
 
         self.streams_pool.clear();
         // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
