@@ -2,7 +2,6 @@ use crate::MetalCompiler;
 use cubecl_core::prelude::*;
 use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashMap;
 use cubecl_runtime::{
     compiler::{CubeTask, KernelCacheKey},
     logging::ServerLogger,
@@ -17,7 +16,7 @@ use objc2_metal::{
 use std::sync::Arc;
 
 use cubecl_environment::persistence::Store;
-use cubecl_runtime::compiler::{CompilationEnvironment, compilation_store, store_compiled};
+use cubecl_runtime::compiler::{CompilationCache, compilation_store, store_compiled};
 
 #[derive(Debug, Clone)]
 pub struct CompiledKernel {
@@ -38,10 +37,8 @@ pub struct MslCacheEntry {
 #[derive(Debug)]
 pub struct MetalContext {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
-    compiled_kernels: HashMap<KernelId, CompiledKernel>,
-    /// The environment [`Self::compiled_kernels`] was built under; a switch
-    /// drops it so the new environment's store is filled rather than bypassed.
-    compiled_environment: CompilationEnvironment,
+    /// The pipelines built so far, in front of [`Self::msl_cache`].
+    compiled_kernels: CompilationCache<KernelId, CompiledKernel>,
     /// On-disk MSL source cache for faster recompilation across runs.
     msl_cache: Option<Store<KernelCacheKey, MslCacheEntry>>,
     compilation_options: cubecl_cpp::shared::CompilationOptions,
@@ -71,10 +68,7 @@ impl MetalContext {
         let msl_cache = compilation_store("metal", format!("msl_{device_key}"));
 
         Self {
-            compiled_kernels: HashMap::new(),
-            // The pipeline map mirrors the MSL store, so it is bound to the
-            // environment exactly when that store exists.
-            compiled_environment: CompilationEnvironment::new(msl_cache.is_some()),
+            compiled_kernels: CompilationCache::mirroring(&msl_cache),
             msl_cache,
             device,
             compilation_options,
@@ -91,14 +85,6 @@ impl MetalContext {
         max_shared_memory_size: usize,
         logger: Arc<ServerLogger>,
     ) -> Result<CompiledKernel, LaunchError> {
-        // A switched environment invalidates what is memoized here: serving a
-        // pipeline from the old environment would also keep it out of the new
-        // one's store, which a bundle exported from it would then be missing.
-        if self.compiled_environment.switched() {
-            log::debug!("Environment switched, dropping the compiled pipeline cache");
-            self.compiled_kernels.clear();
-        }
-
         if let Some(compiled) = self.compiled_kernels.get(kernel_id) {
             return Ok(compiled.clone());
         }
@@ -244,7 +230,10 @@ impl MetalContext {
     }
 
     /// Returns the compiled kernel for `kernel_id`, if present.
-    pub fn get_kernel(&self, kernel_id: &KernelId) -> Option<&CompiledKernel> {
+    ///
+    /// Takes `&mut self` because a lookup drops the cache first when the
+    /// environment switched.
+    pub fn get_kernel(&mut self, kernel_id: &KernelId) -> Option<&CompiledKernel> {
         self.compiled_kernels.get(kernel_id)
     }
 }

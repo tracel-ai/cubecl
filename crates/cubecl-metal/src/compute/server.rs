@@ -21,7 +21,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
     compiler::CubeTask,
-    dispatch::Dispatch,
+    dry_run::LaunchMode,
     logging::ServerLogger,
     memory_management::ManagedMemoryHandle,
     server::ComputeServer,
@@ -343,7 +343,7 @@ impl ComputeServer for MetalServer {
         bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
-        dispatch: Dispatch,
+        launch_mode: LaunchMode,
     ) {
         use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder, MTLDevice, MTLResourceOptions};
 
@@ -377,9 +377,7 @@ impl ComputeServer for MetalServer {
             }
         };
 
-        // The pipeline is built and cached above; compile-only stops here,
-        // before any encoder is opened.
-        if dispatch.is_compile_only() {
+        if launch_mode.is_skipped() {
             return;
         }
 

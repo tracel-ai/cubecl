@@ -197,7 +197,7 @@ impl ComputeServer for DummyServer {
         bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
-        dispatch: cubecl_runtime::dispatch::Dispatch,
+        launch_mode: cubecl_runtime::dry_run::LaunchMode,
     ) {
         let mut resources: Vec<_> = bindings
             .buffers
@@ -233,9 +233,8 @@ impl ComputeServer for DummyServer {
             )
             .unwrap();
 
-        // Compiled above, exactly as a real server does; compile-only stops
-        // before the work runs.
-        if dispatch.is_compile_only() {
+        // Compiled above, exactly as a real server does.
+        if launch_mode.is_skipped() {
             return;
         }
 

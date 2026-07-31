@@ -3,7 +3,7 @@ use crate::{
     client::ComputeClient,
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
-    dispatch::Dispatch,
+    dry_run::LaunchMode,
     id::GraphId,
     kernel::KernelMetadata,
     logging::ServerLogger,
@@ -416,11 +416,11 @@ where
     /// Kernels have mutable access to every resource they are given
     /// and are responsible of determining which should be read or written.
     ///
-    /// `dispatch` says whether the kernel actually runs. On
-    /// [`Dispatch::CompileOnly`] the server must still do everything a first
-    /// launch does short of dispatching — expand, compile, validate, fill its
-    /// caches — and then drop the launch; skipping the compilation instead
-    /// would defeat the whole point of the mode.
+    /// `launch_mode` says whether the kernel actually runs. On
+    /// [`LaunchMode::Skip`] the server must still do everything a first launch
+    /// does short of dispatching — expand, compile, validate, fill its caches —
+    /// and then drop the launch; skipping the compilation instead would defeat
+    /// the whole point of a [dry run](crate::dry_run).
     ///
     /// # Safety
     ///
@@ -432,7 +432,7 @@ where
         bindings: KernelArguments,
         kind: ExecutionMode,
         stream_id: StreamId,
-        dispatch: Dispatch,
+        launch_mode: LaunchMode,
     );
 
     /// Flush all outstanding tasks in the server.

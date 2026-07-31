@@ -21,7 +21,6 @@ use cubecl_core::{
     zspace::{Strides, strides},
 };
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashMap;
 use cubecl_environment::future::DynFut;
 #[cfg(feature = "spirv")]
 use cubecl_environment::persistence::Store;
@@ -32,9 +31,9 @@ use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_runtime::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage, SharedMemoryBindings};
 use cubecl_runtime::{
-    compiler::{CompilationEnvironment, CubeTask},
+    compiler::{CompilationCache, CubeTask},
     config::{CubeClRuntimeConfig, RuntimeConfig},
-    dispatch::Dispatch,
+    dry_run::LaunchMode,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
@@ -68,10 +67,9 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pub(crate) device: wgpu::Device,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
-    pipelines: HashMap<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
-    /// The environment [`Self::pipelines`] was built under; a switch drops it
-    /// so the new environment's store is filled rather than bypassed.
-    pipelines_environment: CompilationEnvironment,
+    /// The pipelines built so far, in front of the SPIR-V store when there is
+    /// one.
+    pipelines: CompilationCache<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
     pub(crate) spirv_cache: Option<Store<(u64, KernelCacheKey), cubecl_spirv::SpirvCacheEntry>>,
@@ -123,19 +121,19 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             "vulkan",
             format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
         );
-        // The pipeline map mirrors the SPIR-V store, so it is bound to the
-        // environment exactly when that store exists.
+
+        // WGSL is compiled by the driver on every run, so without the SPIR-V
+        // store there is nothing persisted for a switch to invalidate.
         #[cfg(feature = "spirv")]
-        let persistent = spirv_cache.is_some();
+        let pipelines = CompilationCache::mirroring(&spirv_cache);
         #[cfg(not(feature = "spirv"))]
-        let persistent = false;
+        let pipelines = CompilationCache::unbound();
 
         Self {
             compilation_options,
             streams_pool: Vec::new(),
             device,
-            pipelines: HashMap::new(),
-            pipelines_environment: CompilationEnvironment::new(persistent),
+            pipelines,
             scheduler: SchedulerMultiStream::new(
                 utilities.logger.clone(),
                 backend_scheduler,
@@ -184,14 +182,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     ) -> Result<(Arc<ComputePipeline>, CompilerInfo), LaunchError> {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
-
-        // A switched environment invalidates what is memoized here: serving a
-        // pipeline from the old environment would also keep it out of the new
-        // one's store, which a bundle exported from it would then be missing.
-        if self.pipelines_environment.switched() {
-            log::debug!("Environment switched, dropping the compiled pipeline cache");
-            self.pipelines.clear();
-        }
 
         if let Some(pipeline) = self.pipelines.get(&kernel_id) {
             return Ok(pipeline.clone());
@@ -392,7 +382,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         args: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
-        dispatch: Dispatch,
+        launch_mode: LaunchMode,
     ) {
         let (pipeline, compiler_info) = match self.pipeline(kernel, &args, mode) {
             Ok(val) => val,
@@ -404,9 +394,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             }
         };
 
-        // The pipeline is built and cached above; compile-only stops here,
-        // before anything is scheduled.
-        if dispatch.is_compile_only() {
+        if launch_mode.is_skipped() {
             return;
         }
 

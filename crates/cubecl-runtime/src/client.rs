@@ -877,7 +877,7 @@ impl<R: Runtime> ComputeClient<R> {
         // Decided here, on the issuing thread, because that is the only place
         // that still knows whether this launch is an autotune measurement — by
         // the time it reaches the server thread, that context is gone.
-        let dispatch = crate::dispatch::dispatch();
+        let launch_mode = crate::dry_run::launch_mode();
 
         let level = self.utilities.logger.profile_level();
 
@@ -886,7 +886,7 @@ impl<R: Runtime> ComputeClient<R> {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
                     let name = kernel.name();
-                    unsafe { state.launch(kernel, count, bindings, mode, stream_id, dispatch) };
+                    unsafe { state.launch(kernel, count, bindings, mode, stream_id, launch_mode) };
 
                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                         let info = type_name_format(name, TypeNameFormatLevel::Balanced);
@@ -910,7 +910,7 @@ impl<R: Runtime> ComputeClient<R> {
                                         bindings,
                                         mode,
                                         stream_id,
-                                        dispatch,
+                                        launch_mode,
                                     )
                                 })
                                 .unwrap_or_resume()

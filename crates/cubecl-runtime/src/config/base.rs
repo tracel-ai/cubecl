@@ -154,59 +154,36 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             }
         }
 
-        if let Ok(val) = std::env::var("CUBECL_THROUGHPUT_CACHE") {
-            match val.as_str() {
-                "true" | "1" | "on" => {
-                    self.throughput.disable_cache = false;
-                }
-                "false" | "0" | "off" => {
-                    self.throughput.disable_cache = true;
-                }
-                _ => {}
-            }
+        if let Some(enabled) = env_bool("CUBECL_THROUGHPUT_CACHE") {
+            self.throughput.disable_cache = !enabled;
         }
 
         if let Ok(val) = std::env::var("CUBECL_ENVIRONMENT") {
             self.environment.name = val;
         }
 
-        if let Ok(val) = std::env::var("CUBECL_AUTOTUNE_CACHE") {
-            match val.as_str() {
-                "true" | "1" | "on" => {
-                    self.autotune.disable_cache = false;
-                }
-                "false" | "0" | "off" => {
-                    self.autotune.disable_cache = true;
-                }
-                _ => {}
-            }
+        if let Some(enabled) = env_bool("CUBECL_AUTOTUNE_CACHE") {
+            self.autotune.disable_cache = !enabled;
         }
 
-        if let Ok(val) = std::env::var("CUBECL_COMPILE_ONLY") {
-            match val.as_str() {
-                "true" | "1" | "on" => {
-                    self.compilation.compile_only = true;
-                }
-                "false" | "0" | "off" => {
-                    self.compilation.compile_only = false;
-                }
-                _ => {}
-            }
-        }
-
-        if let Ok(val) = std::env::var("CUBECL_AUTOTUNE_SHORT_CIRCUIT") {
-            match val.as_str() {
-                "true" | "1" | "on" => {
-                    self.autotune.disable_short_circuit = false;
-                }
-                "false" | "0" | "off" => {
-                    self.autotune.disable_short_circuit = true;
-                }
-                _ => {}
-            }
+        if let Some(enabled) = env_bool("CUBECL_AUTOTUNE_SHORT_CIRCUIT") {
+            self.autotune.disable_short_circuit = !enabled;
         }
 
         self
+    }
+}
+
+/// A boolean environment variable, or `None` when it is unset or unreadable.
+///
+/// An unrecognized value is `None` rather than an error: the variable is an
+/// override, so failing to parse it means leaving the configured value alone.
+#[cfg(std_io)]
+fn env_bool(name: &str) -> Option<bool> {
+    match std::env::var(name).ok()?.as_str() {
+        "true" | "1" | "on" => Some(true),
+        "false" | "0" | "off" => Some(false),
+        _ => None,
     }
 }
 

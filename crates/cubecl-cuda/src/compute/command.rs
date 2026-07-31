@@ -22,7 +22,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     compiler::CubeTask,
-    dispatch::Dispatch,
+    dry_run::LaunchMode,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
@@ -512,15 +512,13 @@ impl<'a> Command<'a> {
         resources: &[GpuResource],
         const_info: Option<*mut c_void>,
         logger: Arc<ServerLogger>,
-        dispatch: Dispatch,
+        launch_mode: LaunchMode,
     ) -> Result<(), LaunchError> {
         if !self.ctx.is_loaded(&kernel_id) {
             self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
         }
 
-        // The module is compiled and loaded above; compile-only stops here,
-        // before the kernel reaches a stream.
-        if dispatch.is_compile_only() {
+        if launch_mode.is_skipped() {
             return Ok(());
         }
 

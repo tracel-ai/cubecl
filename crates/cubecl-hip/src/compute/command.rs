@@ -25,7 +25,7 @@ use cubecl_hip_sys::{
 };
 use cubecl_runtime::{
     compiler::CubeTask,
-    dispatch::Dispatch,
+    dry_run::LaunchMode,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
@@ -461,15 +461,13 @@ impl<'a> Command<'a> {
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
         logger: Arc<ServerLogger>,
-        dispatch: Dispatch,
+        launch_mode: LaunchMode,
     ) -> Result<(), LaunchError> {
         if !self.ctx.is_loaded(&kernel_id) {
             self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
         }
 
-        // The module is compiled and loaded above; compile-only stops here,
-        // before the kernel reaches a stream.
-        if dispatch.is_compile_only() {
+        if launch_mode.is_skipped() {
             return Ok(());
         }
 

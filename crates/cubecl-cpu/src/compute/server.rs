@@ -23,7 +23,7 @@ use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
     compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
-    dispatch::Dispatch,
+    dry_run::LaunchMode,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
@@ -295,7 +295,7 @@ impl ComputeServer for CpuServer {
         bindings: KernelArguments,
         kind: ExecutionMode,
         stream_id: StreamId,
-        dispatch: Dispatch,
+        launch_mode: LaunchMode,
     ) {
         self.streams_pool.clear();
         bindings
@@ -305,9 +305,7 @@ impl ComputeServer for CpuServer {
         let bindings = self.prepare_bindings(bindings);
         let task = self.prepare_task(kernel, count, bindings, kind).unwrap();
 
-        // The kernel is compiled by `prepare_task` above; compile-only stops
-        // here, before anything is scheduled.
-        if dispatch.is_compile_only() {
+        if launch_mode.is_skipped() {
             return;
         }
 

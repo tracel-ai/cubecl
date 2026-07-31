@@ -51,8 +51,9 @@ pub mod tma;
 
 /// Compiler trait and related types
 pub mod compiler;
-/// Whether a launch reaches the device, or is only compiled.
-pub mod dispatch;
+/// Running a workload for the compilation and tuning it provokes, without
+/// running the workload itself.
+pub mod dry_run;
 /// Runtime trait and related types
 pub mod runtime;
 /// Simple system profiling using timestamps.
