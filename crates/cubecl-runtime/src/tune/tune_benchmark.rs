@@ -3,6 +3,7 @@ use crate::{client::ComputeClient, runtime::Runtime};
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
+use cubecl_environment::config::RuntimeConfig;
 
 /// The trait to be implemented by an autotune output.
 pub trait AutotuneOutput: Send + 'static {
@@ -94,7 +95,13 @@ fn profile_exclusive<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
 
     warmup(operation, inputs.clone(), client.clone())?;
 
-    let num_samples = 10;
+    // The same budget the adaptive scheduler reads. This pass takes the ceiling: with no
+    // elimination, there is nothing for a smaller budget to buy, and a candidate that stops early
+    // here would just be measured on less evidence than its rivals.
+    let (_, num_samples) = crate::config::CubeClRuntimeConfig::get()
+        .autotune
+        .bench
+        .samples();
     let mut durations = Vec::new();
 
     for _ in 0..num_samples {
