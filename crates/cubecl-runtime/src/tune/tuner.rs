@@ -588,9 +588,16 @@ async fn process_request<K: AutotuneKey>(
         log_context.log_result(&mut logger.lock(), &key, &results);
         cache.lock().cache_insert(key.clone(), fastest_index);
         #[cfg(autotune_persistence)]
-        cache
-            .lock()
-            .persistent_cache_insert(key, checksum, fastest_index, results, bounds, limit);
+        cache.lock().persistent_cache_insert(
+            key,
+            checksum,
+            crate::tune::PersistentCacheValue {
+                fastest_index,
+                results,
+                bounds,
+                limit,
+            },
+        );
     }
 
     TuneCacheResult::Hit { fastest_index }

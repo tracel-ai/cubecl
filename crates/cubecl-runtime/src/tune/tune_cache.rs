@@ -319,24 +319,13 @@ impl<K: AutotuneKey> TuneCache<K> {
         &mut self,
         key: K,
         checksum: String,
-        fastest_index: usize,
-        results: Vec<AutotuneResult>,
-        bounds: Option<crate::tune::Bounds>,
-        limit: Option<core::time::Duration>,
+        value: PersistentCacheValue,
     ) {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
             return;
         };
 
-        if let Err(err) = persistent_cache.insert(
-            PersistentCacheKey { key, checksum },
-            PersistentCacheValue {
-                fastest_index,
-                results,
-                bounds,
-                limit,
-            },
-        ) {
+        if let Err(err) = persistent_cache.insert(PersistentCacheKey { key, checksum }, value) {
             match err {
                 StoreError::DuplicatedKey {
                     key,
