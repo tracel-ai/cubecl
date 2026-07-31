@@ -1203,8 +1203,14 @@ mod tests {
             hash(Type::Pointer(f32_ty.intern(), AddressSpace::Local))
         );
         assert_eq!(
-            hash(Type::Aggregate(AggregateKind::ptr(f32_ty, MetadataKind::Slice))),
-            hash(Type::Aggregate(AggregateKind::ptr(f32_ty, MetadataKind::Slice)))
+            hash(Type::Aggregate(AggregateKind::ptr(
+                f32_ty,
+                MetadataKind::Slice
+            ))),
+            hash(Type::Aggregate(AggregateKind::ptr(
+                f32_ty,
+                MetadataKind::Slice
+            )))
         );
     }
 
@@ -1224,8 +1230,14 @@ mod tests {
         let u32_ty = Type::scalar(ElemType::UInt(UIntKind::U32));
 
         assert_ne!(
-            hash(Type::Aggregate(AggregateKind::ptr(f32_ty, MetadataKind::Slice))),
-            hash(Type::Aggregate(AggregateKind::ptr(u32_ty, MetadataKind::Slice)))
+            hash(Type::Aggregate(AggregateKind::ptr(
+                f32_ty,
+                MetadataKind::Slice
+            ))),
+            hash(Type::Aggregate(AggregateKind::ptr(
+                u32_ty,
+                MetadataKind::Slice
+            )))
         );
     }
 }
