@@ -82,6 +82,12 @@ impl SampleSet {
         self.durations.iter().filter(|d| **d <= limit).count() >= required
     }
 
+    /// Whether any sample at all landed under `limit` — the cheap gate before a candidate is
+    /// worth spending confirmation samples on.
+    pub(crate) fn any_under(&self, limit: Duration) -> bool {
+        self.durations.iter().any(|d| *d <= limit)
+    }
+
     pub(crate) fn computation(&self, method: TimingMethod) -> BenchmarkComputations {
         BenchmarkComputations::new(&BenchmarkDurations::from_durations(
             method,

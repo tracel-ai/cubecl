@@ -8,7 +8,6 @@ use crate::client::ComputeClient;
 use crate::config::autotune::BenchConfig;
 use crate::runtime::Runtime;
 use crate::tune::sampler::SampleSet;
-use crate::tune::tune_benchmark::{sample_once, warmup_once};
 use crate::tune::{
     AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, TuneFn, TuneInputs, TunePlan,
 };
@@ -18,6 +17,7 @@ use crate::tune::{
 const MIN_SURVIVORS: usize = 2;
 
 /// One candidate kernel and the evidence gathered about it so far.
+#[derive(Debug)]
 struct Candidate {
     index: usize,
     name: String,
@@ -66,6 +66,7 @@ impl Candidate {
 }
 
 /// The outcome of benchmarking one batch of the [`TunePlan`].
+#[derive(Debug)]
 pub(crate) struct BatchOutcome {
     pub(crate) results: Vec<(usize, AutotuneResult)>,
     pub(crate) steps: Vec<(String, Duration)>,
@@ -83,6 +84,7 @@ pub(crate) struct BatchOutcome {
 ///
 /// The sample cap bounds the work at `max_samples` per candidate, so a batch can never cost more
 /// than a fixed-sample-count pass over the same candidates.
+#[derive(Debug)]
 pub(crate) struct Schedule {
     pub(crate) config: BenchConfig,
     pub(crate) limit: Option<Duration>,
@@ -196,7 +198,7 @@ impl Schedule {
 
                 let launched = self.track_steps.then(Instant::now);
 
-                match sample_once(autotunables[candidate.index], inputs.clone(), client) {
+                match autotunables[candidate.index].sample_once(inputs.clone(), client) {
                     Ok(profile) => {
                         candidate.method.get_or_insert(profile.timing_method());
                         pending.push((slot, profile));
@@ -282,7 +284,7 @@ impl Schedule {
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        if let Err(err) = warmup_once(operation, inputs.clone(), client) {
+        if let Err(err) = operation.warmup_once(inputs.clone(), client) {
             candidate.fail(err);
             return false;
         }
@@ -295,7 +297,7 @@ impl Schedule {
             return false;
         };
 
-        if !candidate.samples.confirmed_under(limit, 1) {
+        if !candidate.samples.any_under(limit) {
             return false;
         }
 
@@ -320,7 +322,7 @@ impl Schedule {
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        match sample_once(operation, inputs.clone(), client) {
+        match operation.sample_once(inputs.clone(), client) {
             Ok(profile) => {
                 candidate.method.get_or_insert(profile.timing_method());
                 candidate.samples.push(profile.resolve().await.duration());

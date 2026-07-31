@@ -170,16 +170,8 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             self.autotune.disable_short_circuit = !enabled;
         }
 
-        if let Ok(val) = std::env::var("CUBECL_AUTOTUNE_BENCH_ADAPTIVE") {
-            match val.as_str() {
-                "true" | "1" | "on" => {
-                    self.autotune.bench.adaptive = true;
-                }
-                "false" | "0" | "off" => {
-                    self.autotune.bench.adaptive = false;
-                }
-                _ => {}
-            }
+        if let Some(enabled) = env_bool("CUBECL_AUTOTUNE_BENCH_ADAPTIVE") {
+            self.autotune.bench.adaptive = enabled;
         }
 
         self

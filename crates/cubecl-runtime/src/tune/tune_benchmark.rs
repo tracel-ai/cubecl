@@ -38,47 +38,41 @@ pub fn tune_benchmark<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
         })?
 }
 
-/// Run the operation once without measuring it, to trigger compilation.
-///
-/// Expects to already hold exclusive device access; the adaptive driver takes it once for the
-/// whole round robin rather than once per candidate.
-pub(crate) fn warmup_once<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
-    operation: &TuneFn<F, Out>,
-    inputs: <F as TuneInputs>::At<'a>,
-    client: &ComputeClient<R>,
-) -> Result<(), AutotuneError> {
-    let _errs = client.flush();
+impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
+    /// Run the operation once without measuring it, to trigger compilation.
+    ///
+    /// Expects to already hold exclusive device access; the adaptive driver takes it once for
+    /// the whole round robin rather than once per candidate.
+    pub(crate) fn warmup_once<'a, R: Runtime>(
+        &self,
+        inputs: <F as TuneInputs>::At<'a>,
+        client: &ComputeClient<R>,
+    ) -> Result<(), AutotuneError> {
+        // We make sure the server is in a correct state.
+        let _errs = client.flush();
 
-    // The inner result carries a failure to compile or launch, which is exactly what this call
-    // exists to surface, so it is unwrapped rather than dropped along with the timing.
-    let profiled = client.profile(move || operation.execute(inputs), &operation.name);
-
-    match profiled {
-        Ok((Ok(_), _)) => Ok(()),
-        Ok((Err(err), _)) => Err(err),
-        Err(err) => Err(AutotuneError::Unknown {
-            name: operation.name.to_string(),
-            err: err.to_string(),
-        }),
+        // The profile is dropped without being resolved: a warmup only exists to surface a
+        // failure to compile or launch, which is what the error carries.
+        self.sample_once(inputs, client).map(|_| ())
     }
-}
 
-/// Queue a single measured execution. See [`warmup_once`] for the locking expectation.
-pub(crate) fn sample_once<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
-    operation: &TuneFn<F, Out>,
-    inputs: <F as TuneInputs>::At<'a>,
-    client: &ComputeClient<R>,
-) -> Result<ProfileDuration, AutotuneError> {
-    // The output is returned so dead code elimination can't drop the work being profiled.
-    let profiled = client.profile(move || operation.execute(inputs), &operation.name);
+    /// Queue a single measured execution. See [`Self::warmup_once`] for the locking expectation.
+    pub(crate) fn sample_once<'a, R: Runtime>(
+        &self,
+        inputs: <F as TuneInputs>::At<'a>,
+        client: &ComputeClient<R>,
+    ) -> Result<ProfileDuration, AutotuneError> {
+        // The output is returned so dead code elimination can't drop the work being profiled.
+        let profiled = client.profile(move || self.execute(inputs), &self.name);
 
-    match profiled {
-        Ok((Ok(_), duration)) => Ok(duration),
-        Ok((Err(err), _)) => Err(err),
-        Err(err) => Err(AutotuneError::Unknown {
-            name: operation.name.to_string(),
-            err: err.to_string(),
-        }),
+        match profiled {
+            Ok((Ok(_), duration)) => Ok(duration),
+            Ok((Err(err), _)) => Err(err),
+            Err(err) => Err(AutotuneError::Unknown {
+                name: self.name.to_string(),
+                err: err.to_string(),
+            }),
+        }
     }
 }
 
@@ -108,7 +102,7 @@ fn profile_exclusive<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
         // go, so the loop stops on the first error and hands it back untouched. Sampling on
         // would only pay more device round trips to reach the same verdict, with the reason
         // for the failure replaced by `InvalidSamples`.
-        durations.push(sample_once(operation, inputs.clone(), &client)?);
+        durations.push(operation.sample_once(inputs.clone(), &client)?);
     }
 
     if durations.is_empty() {
