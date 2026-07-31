@@ -6,14 +6,17 @@ use crate::throughput::{ThroughputKey, ThroughputValue};
 use crate::tune::TuneInputs;
 
 /// A set of [`AutotuneBound`]s for a given key and reference inputs, with a launch overhead.
-#[derive(Debug, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
 pub struct Bounds {
     /// The bounds for autotuning.
     pub bounds: Vec<AutotuneBound>,
     /// The launch overhead for autotuning.
     pub launch_overhead: Duration,
 }
+
+// Sound because [`AutotuneBound`] compares its floats bitwise, so equality stays reflexive.
+impl Eq for Bounds {}
 
 /// Produces a set of [`AutotuneBound`]s for a given key and reference inputs.
 #[diagnostic::on_unimplemented(
@@ -47,7 +50,7 @@ pub trait TimeBound {
 
 /// A bound for autotuning a throughput kernel, specifying the key, threshold, and number of operations.
 #[derive(Debug, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
 pub struct AutotuneBound {
     /// Peak throughput of the reference kernel, in ops (or bytes) per second.
     pub throughput: f64,
@@ -56,6 +59,18 @@ pub struct AutotuneBound {
     /// The number of operations the kernel will run.
     pub ops_count: usize,
 }
+
+/// Bitwise comparison of the measured throughputs, so that equality is reflexive even if a
+/// degenerate measurement ever produces a `NaN`, which is what makes the [`Eq`] below sound.
+impl PartialEq for AutotuneBound {
+    fn eq(&self, other: &Self) -> bool {
+        self.throughput.to_bits() == other.throughput.to_bits()
+            && self.threshold.to_bits() == other.threshold.to_bits()
+            && self.ops_count == other.ops_count
+    }
+}
+
+impl Eq for AutotuneBound {}
 
 /// Standardizes the creation of compute and memory [`AutotuneBound`]s.
 pub fn calculate_bounds(

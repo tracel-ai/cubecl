@@ -1,4 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use cubecl_runtime::{
     server::Handle,
@@ -137,4 +143,70 @@ pub fn bounded_addition_set_no_short_circuit(
         }
     }))
     .with_short_circuit(false)
+}
+
+/// Addition set whose first candidate always rejects its own configuration, standing in for a
+/// kernel a backend refuses before compilation. `calls` counts how often the rejecting closure
+/// runs, so a test can assert the benchmark gives up on the first failure.
+///
+/// `uid` is mixed into the autotune key so every run is a cache miss: the persistent cache
+/// would otherwise answer from a previous run and no candidate would be benchmarked at all.
+pub fn addition_set_with_rejected_candidate(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+    calls: Arc<AtomicUsize>,
+) -> TestSet {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| format!("add_rejected-{uid}-{}", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add_rejected", move |_inputs| {
+        calls.fetch_add(1, Ordering::Relaxed);
+        Result::<(), String>::Err("unsupported by this device".to_string())
+    }))
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+}
+
+/// Addition set with one candidate that sleeps per element, far enough behind the other two to be
+/// eliminated on the numbers. Three candidates because the survivor floor keeps two alive no
+/// matter what, so a two-candidate set can never eliminate anything.
+///
+/// Each closure counts its own calls, which is how a test sees that sampling actually stopped for
+/// the slow one rather than merely that the fast one won. `uid` keeps the key a cache miss, as in
+/// [`addition_set_with_rejected_candidate`].
+pub fn addition_set_with_slow_candidate(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+    fast_calls: Arc<AtomicUsize>,
+    slow_calls: Arc<AtomicUsize>,
+) -> TestSet {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    let op_add_other =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    let op_add_slow = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionSlowWrong),
+        client.clone(),
+    );
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| format!("add_slow-{uid}-{}", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add", move |inputs| {
+        fast_calls.fetch_add(1, Ordering::Relaxed);
+        op_add.run(inputs)
+    }))
+    .with(Tunable::new("add_other", move |inputs| {
+        op_add_other.run(inputs)
+    }))
+    .with(Tunable::new("add_slow_wrong", move |inputs| {
+        slow_calls.fetch_add(1, Ordering::Relaxed);
+        op_add_slow.run(inputs)
+    }))
 }

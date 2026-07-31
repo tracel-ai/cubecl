@@ -32,17 +32,37 @@ pub(crate) enum ChecksumState {
 /// Persistent cache key
 #[cfg(autotune_persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
-pub(crate) struct PersistentCacheKey<K> {
-    key: K,
+pub struct PersistentCacheKey<K> {
+    /// The autotune key identifying the operation.
+    pub key: K,
     checksum: String,
 }
 
 /// Persistent cache entry
+///
+/// Only [`fastest_index`](Self::fastest_index) is read back: hydration seeds the in-memory cache
+/// from it and nothing else. Everything below it is stored so a cache entry can be inspected after
+/// the fact — why a kernel won, against which measurements, and under which bounds — which is the
+/// question that cannot be answered from a live process once tuning is over. That is also why the
+/// type is `pub`: reading an entry back is the point.
 #[cfg(autotune_persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub(crate) struct PersistentCacheValue {
-    fastest_index: usize,
-    results: Vec<AutotuneResult>,
+pub struct PersistentCacheValue {
+    /// Index of the fastest candidate operation.
+    pub fastest_index: usize,
+    /// Benchmarking results for all autotune candidates.
+    pub results: Vec<AutotuneResult>,
+    /// Optional input size bounds for which the autotune result applies.
+    ///
+    /// Defaulted, so entries written before this field existed still decode. Without it every
+    /// cached key on every existing installation would fail to read and re-tune from scratch.
+    #[serde(default)]
+    pub bounds: Option<crate::tune::Bounds>,
+    /// Optional execution time limit for the autotune process.
+    ///
+    /// Defaulted for the same reason as [`bounds`](Self::bounds).
+    #[serde(default)]
+    pub limit: Option<core::time::Duration>,
 }
 
 #[cfg_attr(autotune_persistence, derive(Serialize, Deserialize))]
@@ -312,20 +332,13 @@ impl<K: AutotuneKey> TuneCache<K> {
         &mut self,
         key: K,
         checksum: String,
-        fastest_index: usize,
-        results: Vec<AutotuneResult>,
+        value: PersistentCacheValue,
     ) {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
             return;
         };
 
-        if let Err(err) = persistent_cache.insert(
-            PersistentCacheKey { key, checksum },
-            PersistentCacheValue {
-                fastest_index,
-                results,
-            },
-        ) {
+        if let Err(err) = persistent_cache.insert(PersistentCacheKey { key, checksum }, value) {
             match err {
                 StoreError::DuplicatedKey {
                     key,
