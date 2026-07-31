@@ -84,7 +84,7 @@ pub fn expand_validate_index(scope: &Scope, list: Value, index: Value, kernel_na
     let buffer_name = list.given_name(scope.ctx());
     let buffer_name = buffer_name
         .as_ref()
-        .map(|it| it.as_str())
+        .map(|it| it.as_ref())
         .unwrap_or("buffer");
     let index = validate_index::expand(scope, buffer_name, index.into(), len.into(), kernel_name);
     index_expand(scope, list, index.value(scope), false)

@@ -48,7 +48,6 @@ use pliron::{
     operation::verify_operation,
     opts::{constants::sccp::SCCPPass, dce::DCEPass, mem2reg::Mem2RegPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
-    printable::Printable,
 };
 use std::fmt::Debug;
 
@@ -104,9 +103,8 @@ impl Default for CompilationOptions {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct CppCompiler<T: CppTarget> {
-    compilation_options: CompilationOptions,
     _target: PhantomData<T>,
 }
 
@@ -136,10 +134,7 @@ where
             });
         }
 
-        self.compilation_options = *compilation_options;
-
-        let ir = self.clone().compile_ir(kernel);
-        Ok(ir)
+        self.compile_ir(kernel, *compilation_options)
     }
 
     fn extension(&self) -> &'static str {
@@ -151,26 +146,29 @@ impl<T: CppTarget> CppCompiler<T>
 where
     LowerBuiltins<T>: MatchRewrite,
 {
-    fn compile_ir(self, value: KernelDefinition) -> ComputeKernel {
-        let module = value.body.state().module;
+    fn compile_ir(
+        self,
+        kernel: KernelDefinition,
+        compilation_options: CompilationOptions,
+    ) -> Result<ComputeKernel, CompilationError> {
+        let module = kernel.body.state().module;
         let module_op = module.get_operation();
-        let entry_func = value.body.state().entry_func;
-        let mut ctx = value.body.into_context().expect("Should be owned scope");
+        let entry_func = kernel.body.state().entry_func;
+        let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
         let state = CompilationState {
-            cube_dim: value.settings.cube_dim,
-            cluster_dim: value.settings.cluster_dim.unwrap_or(Dim3::new_single()),
-            info: value.info,
+            cube_dim: kernel.settings.cube_dim,
+            cluster_dim: kernel.settings.cluster_dim.unwrap_or(Dim3::new_single()),
+            info: kernel.info,
         };
 
-        ctx.set_aux_ty(self.compilation_options);
+        ctx.set_aux_ty(compilation_options);
         ctx.set_aux_ty(state);
         ctx.set_aux_ty(T::target());
 
         ctx.set_aux_ty(CudaCmmaCompiler::Cpp);
 
-        std::fs::write("target/initial.plir", format!("{}", module.disp(&ctx))).unwrap();
-        verify_operation(module.get_operation(), &ctx).expect("Failed to verify before passes");
+        verify_operation(module.get_operation(), &ctx)?;
 
         // This is an op so it can be inserted after the includes, which is important for scalars
         // that need includes. I wish C++ didn't have ordering dependent declarations...
@@ -180,7 +178,7 @@ where
             .insert_before(&ctx, entry_func.get_operation());
 
         let config = PMConfig {
-            print_after_all: true,
+            ir_printing_dir: kernel_dir_name(&kernel.settings.kernel_name),
             ..Default::default()
         };
 
@@ -193,8 +191,8 @@ where
         func_passes.add_pass(LowerInfoPass);
         func_passes.add_pass(DisaggregatePass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
-            value.settings.execution_mode,
-            value.settings.kernel_name,
+            kernel.settings.execution_mode,
+            kernel.settings.kernel_name,
         )));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
 
@@ -240,32 +238,21 @@ where
 
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
-        std::fs::write(
-            "target/after_lower_shared.plir",
-            format!("{}", module.disp(&ctx)),
-        )
-        .unwrap();
-
         #[cfg(feature = "metal")]
         if T::target() == Target::Metal {
             crate::metal::builtin::append_msl_builtins(&mut ctx, entry_func);
-            std::fs::write(
-                "target/after_append_builtins.plir",
-                format!("{}", module.disp(&ctx)),
-            )
-            .unwrap();
         }
 
-        verify_operation(module.get_operation(), &ctx).expect("Failed to verify after passes");
+        verify_operation(module.get_operation(), &ctx)?;
 
         let shared_memory_size = shared_memory_size(&ctx, module_op);
         let buffers = buffers(&ctx, entry_func);
 
-        ComputeKernel {
+        Ok(ComputeKernel {
             ctx,
             shared_memory_size,
             buffers,
-        }
+        })
     }
 }
 
@@ -311,5 +298,22 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
             _ => AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
         };
         props.register_atomic_type_usage(Type::atomic(ty), usage);
+    }
+}
+
+pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
+        let path = sanitize_filename::sanitize_with_options(
+            name,
+            sanitize_filename::Options {
+                replacement: "_",
+                ..Default::default()
+            },
+        );
+        let dir = std::path::PathBuf::from(dir).join(&path);
+        std::fs::create_dir_all(&dir).unwrap();
+        Some(dir)
+    } else {
+        None
     }
 }
