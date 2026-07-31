@@ -43,6 +43,12 @@ fn profile_exclusive<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
     inputs: <F as TuneInputs>::At<'a>,
     client: ComputeClient<R>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
+    // These launches are the measurement, so they run even in compile-only
+    // mode — that mode exists to skip the *workload*, not the tuning it is
+    // there to provoke. The guard covers the warm-up too: a candidate measured
+    // without one is measured on its slowest run.
+    let _measuring = crate::dispatch::Measuring::new();
+
     warmup(operation, inputs.clone(), client.clone())?;
 
     let num_samples = 10;

@@ -182,6 +182,18 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             }
         }
 
+        if let Ok(val) = std::env::var("CUBECL_COMPILE_ONLY") {
+            match val.as_str() {
+                "true" | "1" | "on" => {
+                    self.compilation.compile_only = true;
+                }
+                "false" | "0" | "off" => {
+                    self.compilation.compile_only = false;
+                }
+                _ => {}
+            }
+        }
+
         if let Ok(val) = std::env::var("CUBECL_AUTOTUNE_SHORT_CIRCUIT") {
             match val.as_str() {
                 "true" | "1" | "on" => {

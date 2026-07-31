@@ -11,7 +11,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::persistence::Store;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
-use cubecl_runtime::compiler::{compilation_store, store_compiled};
+use cubecl_runtime::compiler::{CompilationEnvironment, compilation_store, store_compiled};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     compiler::CompilationError,
@@ -30,6 +30,9 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub(crate) struct HipContext {
     pub module_names: HashMap<KernelId, HipCompiledKernel>,
+    /// The environment [`Self::module_names`] was built under; a switch drops
+    /// it so the new environment's store is filled rather than bypassed.
+    module_environment: CompilationEnvironment,
     pub timestamps: TimestampProfiler,
     pub compilation_options: CompilationOptions,
     pub properties: DeviceProperties,
@@ -57,15 +60,36 @@ impl HipContext {
         properties: DeviceProperties,
         arch_name: String,
     ) -> Self {
+        // `arch_name` keeps its target-feature suffix
+        // (`gfx90a:sramecc+:xnack-`), which the code object encodes.
+        let compilation_cache = compilation_store("hip", format!("hip-kernel_{arch_name}"));
+
         Self {
             module_names: HashMap::new(),
+            // The module map mirrors the compilation store, so it is bound to
+            // the environment exactly when that store exists.
+            module_environment: CompilationEnvironment::new(compilation_cache.is_some()),
             timestamps: TimestampProfiler::default(),
             compilation_options,
-            // `arch_name` keeps its target-feature suffix
-            // (`gfx90a:sramecc+:xnack-`), which the code object encodes.
-            compilation_cache: compilation_store("hip", format!("hip-kernel_{arch_name}")),
+            compilation_cache,
             properties,
         }
+    }
+
+    /// Whether `kernel_id` is already loaded on the device.
+    ///
+    /// Drops every loaded module first when the environment switched: one
+    /// served from here would also never reach the new environment's store,
+    /// leaving a bundle exported from it short of that kernel. The dropped
+    /// modules stay resident — nothing unloads them, here or anywhere else in
+    /// this context — which is the price of a switch, paid once per switch.
+    pub fn is_loaded(&mut self, kernel_id: &KernelId) -> bool {
+        if self.module_environment.switched() {
+            log::debug!("Environment switched, dropping the compiled module cache");
+            self.module_names.clear();
+        }
+
+        self.module_names.contains_key(kernel_id)
     }
 
     /// Compiles a kernel.

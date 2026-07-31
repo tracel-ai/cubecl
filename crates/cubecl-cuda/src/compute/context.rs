@@ -32,12 +32,15 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-use cubecl_runtime::compiler::{compilation_store, store_compiled};
+use cubecl_runtime::compiler::{CompilationEnvironment, compilation_store, store_compiled};
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
     pub module_names: HashMap<KernelId, CompiledKernel>,
+    /// The environment [`Self::module_names`] was built under; a switch drops
+    /// it so the new environment's store is filled rather than bypassed.
+    module_environment: CompilationEnvironment,
     ptx_cache: Option<Store<KernelCacheKey, PtxCacheEntry>>,
     pub timestamps: TimestampProfiler,
     pub arch: CudaArchitecture,
@@ -66,15 +69,36 @@ impl CudaContext {
         context: *mut CUctx_st,
         arch: CudaArchitecture,
     ) -> Self {
+        let ptx_cache = compilation_store("cuda", format!("ptx_sm{}", arch.version));
+
         Self {
             context,
             module_names: HashMap::new(),
-            ptx_cache: compilation_store("cuda", format!("ptx_sm{}", arch.version)),
+            // The module map mirrors the PTX store, so it is bound to the
+            // environment exactly when that store exists.
+            module_environment: CompilationEnvironment::new(ptx_cache.is_some()),
+            ptx_cache,
             arch,
             timestamps: TimestampProfiler::default(),
             compilation_options,
             properties,
         }
+    }
+
+    /// Whether `kernel_id` is already loaded on the device.
+    ///
+    /// Drops every loaded module first when the environment switched: one
+    /// served from here would also never reach the new environment's store,
+    /// leaving a bundle exported from it short of that kernel. The dropped
+    /// modules stay resident — nothing unloads them, here or anywhere else in
+    /// this context — which is the price of a switch, paid once per switch.
+    pub fn is_loaded(&mut self, kernel_id: &KernelId) -> bool {
+        if self.module_environment.switched() {
+            log::debug!("Environment switched, dropping the compiled module cache");
+            self.module_names.clear();
+        }
+
+        self.module_names.contains_key(kernel_id)
     }
 
     /// Switches the current CUDA context to this context.

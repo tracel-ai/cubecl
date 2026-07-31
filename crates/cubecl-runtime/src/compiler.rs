@@ -103,6 +103,59 @@ impl KernelCacheKey {
     }
 }
 
+/// The environment an in-memory compilation cache was built under.
+///
+/// A server memoizes its compiled artifacts — pipelines, loaded modules — in a
+/// plain map consulted *before* the persistent [`compilation_store`]. That map
+/// is bound to an environment exactly as the store is, and an environment
+/// switch has to reach it: entries served from it describe the environment that
+/// is gone, and, worse, a kernel answered from memory is never written to the
+/// new environment's store, so a bundle exported from that environment would
+/// silently be missing it.
+///
+/// Hold one beside the map and consult [`switched`](Self::switched) before the
+/// lookup; `true` means clear the map and compile again. This is the same
+/// contract [`Store`] applies to itself, for the state a store cannot see —
+/// see [`cubecl_environment::environment::generation`].
+#[derive(Debug)]
+pub struct CompilationEnvironment {
+    /// `None` when the map mirrors no store, and so is unbound.
+    generation: Option<u32>,
+}
+
+impl CompilationEnvironment {
+    /// Binds to the active environment when `persistent`, i.e. when the map
+    /// this guards mirrors a [`compilation_store`].
+    ///
+    /// Unbound otherwise: with nothing persisted, a switch changes nothing
+    /// about what the map holds, so resetting it would only buy a redundant
+    /// compilation — the same reason the autotune cache survives a switch when
+    /// its persistent cache is off.
+    pub fn new(persistent: bool) -> Self {
+        Self {
+            generation: persistent.then(cubecl_environment::environment::generation),
+        }
+    }
+
+    /// Whether the environment switched since the last call.
+    ///
+    /// Adopts the new generation, so one switch is reported exactly once and
+    /// the caller clears its map exactly once.
+    pub fn switched(&mut self) -> bool {
+        let Some(generation) = self.generation else {
+            return false;
+        };
+
+        let current = cubecl_environment::environment::generation();
+        if current == generation {
+            return false;
+        }
+
+        self.generation = Some(current);
+        true
+    }
+}
+
 /// JIT compilation error.
 #[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]

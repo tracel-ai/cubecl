@@ -32,8 +32,9 @@ use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_runtime::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage, SharedMemoryBindings};
 use cubecl_runtime::{
-    compiler::CubeTask,
+    compiler::{CompilationEnvironment, CubeTask},
     config::{CubeClRuntimeConfig, RuntimeConfig},
+    dispatch::Dispatch,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
@@ -68,6 +69,9 @@ pub struct WgpuServer<C: WgpuCompiler> {
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
     pipelines: HashMap<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
+    /// The environment [`Self::pipelines`] was built under; a switch drops it
+    /// so the new environment's store is filled rather than bypassed.
+    pipelines_environment: CompilationEnvironment,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
     pub(crate) spirv_cache: Option<Store<(u64, KernelCacheKey), cubecl_spirv::SpirvCacheEntry>>,
@@ -114,11 +118,24 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
+        #[cfg(feature = "spirv")]
+        let spirv_cache = compilation_store(
+            "vulkan",
+            format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
+        );
+        // The pipeline map mirrors the SPIR-V store, so it is bound to the
+        // environment exactly when that store exists.
+        #[cfg(feature = "spirv")]
+        let persistent = spirv_cache.is_some();
+        #[cfg(not(feature = "spirv"))]
+        let persistent = false;
+
         Self {
             compilation_options,
             streams_pool: Vec::new(),
             device,
             pipelines: HashMap::new(),
+            pipelines_environment: CompilationEnvironment::new(persistent),
             scheduler: SchedulerMultiStream::new(
                 utilities.logger.clone(),
                 backend_scheduler,
@@ -129,10 +146,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 },
             ),
             #[cfg(feature = "spirv")]
-            spirv_cache: compilation_store(
-                "vulkan",
-                format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
-            ),
+            spirv_cache,
             backend,
             utilities: Arc::new(utilities),
             shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
@@ -170,6 +184,14 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     ) -> Result<(Arc<ComputePipeline>, CompilerInfo), LaunchError> {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
+
+        // A switched environment invalidates what is memoized here: serving a
+        // pipeline from the old environment would also keep it out of the new
+        // one's store, which a bundle exported from it would then be missing.
+        if self.pipelines_environment.switched() {
+            log::debug!("Environment switched, dropping the compiled pipeline cache");
+            self.pipelines.clear();
+        }
 
         if let Some(pipeline) = self.pipelines.get(&kernel_id) {
             return Ok(pipeline.clone());
@@ -370,6 +392,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         args: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
+        dispatch: Dispatch,
     ) {
         let (pipeline, compiler_info) = match self.pipeline(kernel, &args, mode) {
             Ok(val) => val,
@@ -380,6 +403,12 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 return;
             }
         };
+
+        // The pipeline is built and cached above; compile-only stops here,
+        // before anything is scheduled.
+        if dispatch.is_compile_only() {
+            return;
+        }
 
         self.streams_pool.clear();
         // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
