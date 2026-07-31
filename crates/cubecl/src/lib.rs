@@ -39,6 +39,21 @@ pub use cubecl_environment::bundle;
 /// Which named environment caches are warmed into, and where it lives.
 pub use cubecl_environment::environment;
 
+/// Whether launches reach the device, or are only compiled.
+///
+/// This is what makes producing a [`bundle`] affordable: under
+/// [`CompileOnly`](dispatch::CompileOnly) the work you run to provoke
+/// compilation and tuning is compiled and tuned without also being executed.
+/// Buffers are left uninitialized, so it only suits a pass driven by the
+/// *shapes* it produces.
+///
+/// ```no_run
+/// # fn warm_up() {}
+/// let _compile_only = cubecl::dispatch::CompileOnly::new();
+/// warm_up();
+/// ```
+pub use cubecl_runtime::dispatch;
+
 #[cfg(feature = "wgpu")]
 pub use cubecl_wgpu as wgpu;
 
