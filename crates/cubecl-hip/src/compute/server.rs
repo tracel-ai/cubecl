@@ -26,6 +26,7 @@ use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
     compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
+    dry_run::LaunchMode,
     id::GraphId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
@@ -172,8 +173,10 @@ impl ComputeServer for HipServer {
         bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
+        launch_mode: LaunchMode,
     ) {
-        if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
+        if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id, launch_mode)
+        {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
@@ -645,6 +648,7 @@ impl HipServer {
         bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
+        launch_mode: LaunchMode,
     ) -> Result<(), ServerError> {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
@@ -743,7 +747,15 @@ impl HipServer {
                 .expect("Resource to exist."),
         );
 
-        command.kernel(kernel_id, kernel, mode, count, &resources, logger)?;
+        command.kernel(
+            kernel_id,
+            kernel,
+            mode,
+            count,
+            &resources,
+            logger,
+            launch_mode,
+        )?;
 
         Ok(())
     }

@@ -25,6 +25,7 @@ use cubecl_hip_sys::{
 };
 use cubecl_runtime::{
     compiler::CubeTask,
+    dry_run::LaunchMode,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
@@ -451,6 +452,7 @@ impl<'a> Command<'a> {
     /// # Panics
     ///
     /// * If the execution fails, with an error message or profiling error.
+    #[allow(clippy::too_many_arguments)]
     pub fn kernel(
         &mut self,
         kernel_id: KernelId,
@@ -459,9 +461,14 @@ impl<'a> Command<'a> {
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
         logger: Arc<ServerLogger>,
+        launch_mode: LaunchMode,
     ) -> Result<(), LaunchError> {
-        if !self.ctx.module_names.contains_key(&kernel_id) {
+        if !self.ctx.is_loaded(&kernel_id) {
             self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
+        }
+
+        if launch_mode.is_skipped() {
+            return Ok(());
         }
 
         let stream = self.streams.current();

@@ -197,6 +197,7 @@ impl ComputeServer for DummyServer {
         bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
+        launch_mode: cubecl_runtime::dry_run::LaunchMode,
     ) {
         let mut resources: Vec<_> = bindings
             .buffers
@@ -231,6 +232,12 @@ impl ComputeServer for DummyServer {
                 kernel.address_type(),
             )
             .unwrap();
+
+        // Compiled above, exactly as a real server does.
+        if launch_mode.is_skipped() {
+            return;
+        }
+
         kernel.repr.unwrap().compute(resources.as_mut_slice());
     }
 

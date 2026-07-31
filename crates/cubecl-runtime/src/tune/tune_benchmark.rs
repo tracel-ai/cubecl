@@ -43,6 +43,17 @@ fn profile_exclusive<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
     inputs: <F as TuneInputs>::At<'a>,
     client: ComputeClient<R>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
+    // These launches are the measurement, so they run even inside a dry run:
+    // that mode exists to skip the *workload*, not the tuning it is there to
+    // provoke. The guard covers the warm-up too, since a candidate measured
+    // without one is measured on its slowest run.
+    //
+    // It has to live here rather than around the `exclusive` call in
+    // `tune_benchmark`: the guard is thread-local, and `exclusive` runs this
+    // body on the device thread, which is where the launches below are issued
+    // from.
+    let _real_run = crate::dry_run::RealRun::new();
+
     warmup(operation, inputs.clone(), client.clone())?;
 
     let num_samples = 10;

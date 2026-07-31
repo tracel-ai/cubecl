@@ -1,7 +1,6 @@
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashMap;
 use cubecl_runtime::{
     compiler::CompilationError,
     validation::{validate_cube_dim, validate_units},
@@ -32,12 +31,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-use cubecl_runtime::compiler::{compilation_store, store_compiled};
+use cubecl_runtime::compiler::{CompilationCache, compilation_store, store_compiled};
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
-    pub module_names: HashMap<KernelId, CompiledKernel>,
+    /// The modules loaded on the device, in front of [`Self::ptx_cache`].
+    ///
+    /// An environment switch drops these, and nothing unloads the modules they
+    /// name: see [`CudaContext::is_loaded`].
+    modules: CompilationCache<KernelId, CompiledKernel>,
     ptx_cache: Option<Store<KernelCacheKey, PtxCacheEntry>>,
     pub timestamps: TimestampProfiler,
     pub arch: CudaArchitecture,
@@ -66,15 +69,31 @@ impl CudaContext {
         context: *mut CUctx_st,
         arch: CudaArchitecture,
     ) -> Self {
+        let ptx_cache = compilation_store("cuda", format!("ptx_sm{}", arch.version));
+
         Self {
             context,
-            module_names: HashMap::new(),
-            ptx_cache: compilation_store("cuda", format!("ptx_sm{}", arch.version)),
+            modules: CompilationCache::mirroring(&ptx_cache),
+            ptx_cache,
             arch,
             timestamps: TimestampProfiler::default(),
             compilation_options,
             properties,
         }
+    }
+
+    /// Whether `kernel_id` is already loaded on the device.
+    ///
+    /// An environment switch drops the whole cache, so the new environment's
+    /// PTX store is filled rather than bypassed. The modules those entries
+    /// named stay resident: nothing calls `cuModuleUnload`, here or anywhere
+    /// else in this context, and unloading one a stream still has queued work
+    /// against would be unsound. A process that switches environments a handful
+    /// of times at startup pays a bounded price; one that switches repeatedly
+    /// grows its resident modules without bound — see
+    /// [`cubecl_environment::environment::activate`].
+    pub fn is_loaded(&mut self, kernel_id: &KernelId) -> bool {
+        self.modules.contains(kernel_id)
     }
 
     /// Switches the current CUDA context to this context.
@@ -245,7 +264,7 @@ impl CudaContext {
             })?
         };
 
-        self.module_names.insert(
+        self.modules.insert(
             kernel_id.clone(),
             CompiledKernel {
                 cube_dim,
@@ -273,7 +292,7 @@ impl CudaContext {
         bindings.extend(resources.iter().map(|memory| memory.binding));
         bindings.extend(const_info);
 
-        let kernel = self.module_names.get(&kernel_id).unwrap();
+        let kernel = self.modules.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         // SAFETY: `kernel.func` is a valid function handle from a loaded module.
         // `stream.sys` is a valid CUDA stream. `bindings` contains valid device pointers

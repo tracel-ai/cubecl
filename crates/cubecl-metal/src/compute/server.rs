@@ -21,6 +21,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
     compiler::CubeTask,
+    dry_run::LaunchMode,
     logging::ServerLogger,
     memory_management::ManagedMemoryHandle,
     server::ComputeServer,
@@ -342,6 +343,7 @@ impl ComputeServer for MetalServer {
         bindings: KernelArguments,
         mode: ExecutionMode,
         stream_id: StreamId,
+        launch_mode: LaunchMode,
     ) {
         use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder, MTLDevice, MTLResourceOptions};
 
@@ -374,6 +376,10 @@ impl ComputeServer for MetalServer {
                 return;
             }
         };
+
+        if launch_mode.is_skipped() {
+            return;
+        }
 
         let dispatch_info = match count {
             CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),

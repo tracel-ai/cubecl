@@ -22,6 +22,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     compiler::CubeTask,
+    dry_run::LaunchMode,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
@@ -511,9 +512,14 @@ impl<'a> Command<'a> {
         resources: &[GpuResource],
         const_info: Option<*mut c_void>,
         logger: Arc<ServerLogger>,
+        launch_mode: LaunchMode,
     ) -> Result<(), LaunchError> {
-        if !self.ctx.module_names.contains_key(&kernel_id) {
+        if !self.ctx.is_loaded(&kernel_id) {
             self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
+        }
+
+        if launch_mode.is_skipped() {
+            return Ok(());
         }
 
         let stream = self.streams.current();

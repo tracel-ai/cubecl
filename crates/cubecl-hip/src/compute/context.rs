@@ -8,10 +8,9 @@ use cubecl_core::{
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashMap;
 use cubecl_environment::persistence::Store;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
-use cubecl_runtime::compiler::{compilation_store, store_compiled};
+use cubecl_runtime::compiler::{CompilationCache, compilation_store, store_compiled};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     compiler::CompilationError,
@@ -29,7 +28,12 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub(crate) struct HipContext {
-    pub module_names: HashMap<KernelId, HipCompiledKernel>,
+    /// The modules loaded on the device, in front of
+    /// [`Self::compilation_cache`].
+    ///
+    /// An environment switch drops these, and nothing unloads the modules they
+    /// name: see [`HipContext::is_loaded`].
+    modules: CompilationCache<KernelId, HipCompiledKernel>,
     pub timestamps: TimestampProfiler,
     pub compilation_options: CompilationOptions,
     pub properties: DeviceProperties,
@@ -57,15 +61,31 @@ impl HipContext {
         properties: DeviceProperties,
         arch_name: String,
     ) -> Self {
+        // `arch_name` keeps its target-feature suffix
+        // (`gfx90a:sramecc+:xnack-`), which the code object encodes.
+        let compilation_cache = compilation_store("hip", format!("hip-kernel_{arch_name}"));
+
         Self {
-            module_names: HashMap::new(),
+            modules: CompilationCache::mirroring(&compilation_cache),
             timestamps: TimestampProfiler::default(),
             compilation_options,
-            // `arch_name` keeps its target-feature suffix
-            // (`gfx90a:sramecc+:xnack-`), which the code object encodes.
-            compilation_cache: compilation_store("hip", format!("hip-kernel_{arch_name}")),
+            compilation_cache,
             properties,
         }
+    }
+
+    /// Whether `kernel_id` is already loaded on the device.
+    ///
+    /// An environment switch drops the whole cache, so the new environment's
+    /// store is filled rather than bypassed. The modules those entries named
+    /// stay resident: nothing calls `hipModuleUnload`, here or anywhere else in
+    /// this context, and unloading one a stream still has queued work against
+    /// would be unsound. A process that switches environments a handful of
+    /// times at startup pays a bounded price; one that switches repeatedly
+    /// grows its resident modules without bound — see
+    /// [`cubecl_environment::environment::activate`].
+    pub fn is_loaded(&mut self, kernel_id: &KernelId) -> bool {
+        self.modules.contains(kernel_id)
     }
 
     /// Compiles a kernel.
@@ -307,7 +327,7 @@ impl HipContext {
         }
 
         // register module
-        self.module_names.insert(
+        self.modules.insert(
             kernel_id.clone(),
             HipCompiledKernel {
                 _module: module,
@@ -333,7 +353,7 @@ impl HipContext {
             .map(|memory| memory.binding)
             .collect::<Vec<_>>();
 
-        let kernel = self.module_names.get(&kernel_id).unwrap();
+        let kernel = self.modules.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
 
         // SAFETY: `kernel.func` is a valid function handle from a loaded module.

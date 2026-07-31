@@ -4,8 +4,10 @@ use crate::{
     server::ExecutionMode,
 };
 use alloc::string::String;
+use core::hash::Hash;
 use cubecl_common::hash::StableHash;
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
 use cubecl_environment::persistence::{
     CacheOption, Namespace, Store, StoreKey, StoreOptions, StoreValue,
 };
@@ -100,6 +102,89 @@ impl KernelCacheKey {
             id: id.stable_hash(),
             ir: definition.stable_hash(),
         }
+    }
+}
+
+/// A server's in-memory compilation cache: the compiled artifacts it memoizes
+/// — pipelines, loaded modules — in front of a persistent [`compilation_store`].
+///
+/// Entries are dropped when the environment switches, because the map is bound
+/// to an environment exactly as the store it mirrors is. One served after a
+/// switch would describe the environment that is gone, and, worse, would never
+/// be written to the new environment's store, so a bundle exported from that
+/// environment would silently be missing that kernel. This is the same contract
+/// [`Store`] applies to itself, for the state a store cannot see — see
+/// [`cubecl_environment::environment::generation`].
+///
+/// Every accessor resets before it answers, so a backend has nothing to
+/// remember beyond using this in place of a plain map.
+#[derive(Debug)]
+pub struct CompilationCache<K, V> {
+    entries: HashMap<K, V>,
+    /// The generation the entries were built under, or `None` when the cache
+    /// mirrors no store and so is unbound.
+    generation: Option<u32>,
+}
+
+impl<K: Eq + Hash, V> CompilationCache<K, V> {
+    /// An empty cache in front of `store`, bound to the active environment
+    /// exactly when that store exists.
+    ///
+    /// Unbound otherwise: with nothing persisted, a switch changes nothing
+    /// about what the cache holds, so resetting it would only buy a redundant
+    /// compilation — the same reason the autotune cache survives a switch when
+    /// its persistent cache is off.
+    pub fn mirroring<SK: StoreKey, SV: StoreValue>(store: &Option<Store<SK, SV>>) -> Self {
+        Self {
+            entries: HashMap::new(),
+            generation: store
+                .is_some()
+                .then(cubecl_environment::environment::generation),
+        }
+    }
+
+    /// An empty cache that no environment switch ever resets, for a backend
+    /// with no persistent store to mirror.
+    pub fn unbound() -> Self {
+        Self {
+            entries: HashMap::new(),
+            generation: None,
+        }
+    }
+
+    /// The artifact compiled for `key`, if it is still valid.
+    pub fn get(&mut self, key: &K) -> Option<&V> {
+        self.reset_if_switched();
+        self.entries.get(key)
+    }
+
+    /// Whether an artifact for `key` is cached and still valid.
+    pub fn contains(&mut self, key: &K) -> bool {
+        self.reset_if_switched();
+        self.entries.contains_key(key)
+    }
+
+    /// Records a freshly compiled artifact.
+    pub fn insert(&mut self, key: K, value: V) {
+        self.reset_if_switched();
+        self.entries.insert(key, value);
+    }
+
+    /// Drops every entry when the environment switched since the last access,
+    /// adopting the new generation so one switch costs one reset.
+    fn reset_if_switched(&mut self) {
+        let Some(generation) = self.generation else {
+            return;
+        };
+
+        let current = cubecl_environment::environment::generation();
+        if current == generation {
+            return;
+        }
+
+        log::debug!("Environment switched, dropping the in-memory compilation cache");
+        self.generation = Some(current);
+        self.entries.clear();
     }
 }
 
