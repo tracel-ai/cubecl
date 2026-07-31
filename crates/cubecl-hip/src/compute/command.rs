@@ -385,7 +385,8 @@ impl<'a> Command<'a> {
         current.drop_queue.push(data);
 
         // Defer fenced flushes while capturing — a host sync aborts the capture.
-        if should_flush && !current.capturing.is_recording() {
+        if (should_flush || current.drop_queue.should_flush()) && !current.capturing.is_recording()
+        {
             current.drop_queue.flush(|| Fence::new(current.sys));
         }
 

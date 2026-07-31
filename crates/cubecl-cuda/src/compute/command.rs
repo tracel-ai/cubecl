@@ -432,7 +432,7 @@ impl<'a> Command<'a> {
 
         current.drop_queue.push(data);
 
-        if should_flush {
+        if should_flush || current.drop_queue.should_flush() {
             current.drop_queue.flush(|| Fence::new(current.sys));
         }
 
