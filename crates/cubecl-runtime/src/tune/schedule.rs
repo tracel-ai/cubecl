@@ -29,8 +29,12 @@ pub(crate) struct BatchOutcome {
 /// resolving per sample would serialize a device round trip per measurement, which for short
 /// kernels costs more than the samples it saves.
 ///
-/// The sample cap bounds the work at `max_samples` per candidate, so a batch can never cost more
-/// than a fixed-sample-count pass over the same candidates.
+/// The sample cap bounds the work at `max_samples` per candidate, so the sampling itself can never
+/// cost more than a fixed-count pass. The batch still can: the short circuit exits on the first
+/// candidate confirmed under the limit, and eliminating cheap candidates early can push that exit
+/// past kernels a fixed pass would have accepted and stopped at. Measured at +13.6% total tuning
+/// cost on one card and −20% on another, both dominated by where the short circuit fires rather
+/// than by the sample budget.
 #[derive(Debug)]
 pub(crate) struct Schedule {
     pub(crate) config: BenchConfig,
