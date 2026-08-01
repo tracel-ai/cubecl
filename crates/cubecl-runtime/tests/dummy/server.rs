@@ -4,7 +4,8 @@ use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
-    DeviceProperties, ElemType, HardwareProperties, MemoryDeviceProperties, StorageType, UIntKind,
+    DeviceIdentity, DeviceProperties, ElemType, HardwareProperties, MemoryDeviceProperties,
+    StorageType, UIntKind,
     VectorSize, features::Features,
 };
 use cubecl_runtime::{
@@ -294,7 +295,16 @@ impl DummyServer {
         };
         let features = Features::default();
         let timing_method = cubecl_common::profile::TimingMethod::System;
-        let props = DeviceProperties::new(features, mem_props, hardware, timing_method);
+        let props = DeviceProperties::new(
+            features,
+            mem_props,
+            hardware,
+            timing_method,
+            DeviceIdentity {
+                name: "dummy".to_string(),
+                fingerprint: "dummy".to_string(),
+            },
+        );
         let logger = Arc::new(ServerLogger::default());
 
         let utilities = Arc::new(ServerUtilities::new(

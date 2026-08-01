@@ -12,7 +12,7 @@ use cubecl_core::{
     MemoryConfiguration, Runtime,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        ContiguousElements, DeviceProperties, HardwareProperties, MatrixLayout,
+        ContiguousElements, DeviceIdentity, DeviceProperties, HardwareProperties, MatrixLayout,
         MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, features::Plane,
     },
     server::ServerUtilities,
@@ -54,6 +54,12 @@ impl DeviceService for HipServer {
         let mut prop_warp_size = 0;
         #[allow(unused_assignments)]
         let mut prop_arch_name = "";
+        // Owned, unlike `prop_arch_name`: the marketing name is only ever
+        // copied out, so there is no reason to keep a borrow of the property
+        // struct alive for it. Left uninitialized rather than given a dummy —
+        // the block below is straight-line code that always assigns it, and a
+        // placeholder would only be something to forget to replace.
+        let prop_name;
         #[allow(unused_assignments)]
         let mut prop_max_shared_memory_size = 0;
         #[allow(unused_assignments)]
@@ -77,6 +83,11 @@ impl DeviceService for HipServer {
             prop_arch_name = CStr::from_ptr(ll_device_props.gcnArchName.as_ptr())
                 .to_str()
                 .unwrap();
+            // Lossy: a device name is for display, and a driver returning
+            // something not valid UTF-8 must not take the runtime down with it.
+            prop_name = CStr::from_ptr(ll_device_props.name.as_ptr())
+                .to_string_lossy()
+                .into_owned();
             prop_max_shared_memory_size = ll_device_props.sharedMemPerBlock;
             max_cube_count = (
                 ll_device_props.maxGridSize[0] as u32,
@@ -156,11 +167,23 @@ impl DeviceService for HipServer {
             cube_mma_reserved_shared_memory: 0,
         };
 
+        // The full `gcnArchName`, target-feature suffix included: HIP RTC gets
+        // no `--offload-arch`, so the code object it emits carries this exact
+        // string and a loader rejects it on a device that differs by so much as
+        // `xnack`. Built once here and handed to both the identity and the
+        // compilation cache, so the two can never disagree about what a kernel
+        // was built for.
+        let fingerprint = format!("hip-kernel_{prop_arch_name}");
+
         let mut device_props = DeviceProperties::new(
             Default::default(),
             mem_properties.clone(),
             topology,
             TimingMethod::System,
+            DeviceIdentity {
+                name: prop_name,
+                fingerprint: fingerprint.clone(),
+            },
         );
         register_supported_types(&mut device_props);
 
@@ -187,10 +210,7 @@ impl DeviceService for HipServer {
                 ..Default::default()
             },
         };
-        // The full `gcnArchName`, target-feature suffix included: HIP RTC gets no
-        // `--offload-arch`, so the code object it emits carries this exact string
-        // and a loader rejects it on a device that differs by so much as `xnack`.
-        let hip_ctx = HipContext::new(comp_opts, device_props.clone(), prop_arch_name.to_string());
+        let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let utilities = ServerUtilities::new(device_props, logger, (), policy);

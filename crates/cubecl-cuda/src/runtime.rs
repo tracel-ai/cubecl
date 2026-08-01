@@ -11,7 +11,7 @@ use cubecl_core::{
     MemoryConfiguration, Runtime,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
+        BarrierLevel, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
         HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
         StorageType, TargetProperties, Type, VectorSize,
         features::{AtomicUsage, Plane, Tma, TypeUsage},
@@ -167,11 +167,24 @@ impl DeviceService for CudaServer {
             }
         };
 
+        // The compute capability is what PTX is emitted against, so it is both
+        // the compilation namespace and the identity. Built once and shared
+        // with `CudaContext` below, so the two cannot disagree.
+        let fingerprint = format!("ptx_sm{arch_version}");
+        // Display only, and a driver that declines to name its device is not a
+        // reason to fail initialization.
+        let device_name = cudarc::driver::result::device::get_name(device_ptr)
+            .unwrap_or_else(|_| "unknown CUDA device".to_string());
+
         let mut device_props = DeviceProperties::new(
             Default::default(),
             mem_properties.clone(),
             hardware_props,
             TimingMethod::System,
+            DeviceIdentity {
+                name: device_name,
+                fingerprint: fingerprint.clone(),
+            },
         );
         register_supported_types(&mut device_props);
         device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
