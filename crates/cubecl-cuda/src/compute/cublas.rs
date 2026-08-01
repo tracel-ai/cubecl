@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::ffi::c_void;
 
-use cubecl_common::backtrace::BackTrace;
 #[cfg(cuda_12050)]
 use cubecl_core::server::GroupedGemmDescriptor;
 use cubecl_core::{
     ir::{ElemType, FloatKind},
     server::{GemmDescriptor, GemmMatrix, ServerError},
 };
+use cubecl_environment::backtrace::BackTrace;
 use cudarc::cublas::sys::cublasOperation_t;
 #[cfg(cuda_12050)]
 use cudarc::cublas::{result as blas, sys as blas_sys};

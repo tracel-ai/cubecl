@@ -1,10 +1,10 @@
-use cubecl_common::future;
 use cubecl_core::{
     Runtime,
     ir::{ElemType, FloatKind},
     server::{GemmDescriptor, GemmMatrix},
 };
 use cubecl_cuda::{CudaDevice, CudaRuntime};
+use cubecl_environment::future;
 use half::bf16;
 use std::time::Instant;
 

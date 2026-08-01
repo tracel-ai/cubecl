@@ -1,4 +1,3 @@
-use cubecl_common::{future, stream_id::StreamId};
 use cubecl_core as cubecl;
 use cubecl_core::{
     Runtime,
@@ -7,6 +6,7 @@ use cubecl_core::{
     server::{Binding, GemmDescriptor, GemmMatrix, GroupedGemmDescriptor, Handle},
 };
 use cubecl_cuda::{CudaDevice, CudaRuntime};
+use cubecl_environment::{future, stream::StreamId};
 use half::bf16;
 
 #[cube(launch)]
