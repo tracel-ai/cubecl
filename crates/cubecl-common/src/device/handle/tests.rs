@@ -28,21 +28,6 @@ fn test_concurrent_increment() {
     let count = context.submit_blocking(move |state| state.counter).unwrap();
     assert_eq!(count, thread_count);
 }
-
-#[test]
-fn test_flush_queue_dispatches_partial_batch() {
-    let device = TestDevice::<3>::new(0);
-    let context = DeviceHandle::<TestDeviceState<3>>::new(device.to_id());
-    let (sender, receiver) = std::sync::mpsc::channel();
-
-    context.submit(move |_state| sender.send(()).unwrap());
-    context.flush_queue();
-
-    receiver
-        .recv_timeout(std::time::Duration::from_secs(1))
-        .expect("partial batch was not dispatched");
-}
-
 #[test]
 fn test_recursive_execution_different_state() {
     let device_id = DeviceId {

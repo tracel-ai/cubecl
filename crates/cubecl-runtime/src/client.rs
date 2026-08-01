@@ -388,16 +388,6 @@ impl<R: Runtime> ComputeClient<R> {
             .submit(move |server| server.grouped_gemm(descriptor, stream_id));
     }
 
-    /// Dispatches the current partial client-side command batch without waiting for it.
-    ///
-    /// This does not flush or synchronize the device stream. It only makes commands queued in
-    /// the runtime's batching channel available to the device service thread immediately. It is
-    /// useful when a host-side dependency has just drained the channel and the next command would
-    /// otherwise wait for a full command batch before being dispatched.
-    pub fn flush_dispatch_queue(&self) {
-        self.device.flush_queue();
-    }
-
     fn do_create_from_slices(
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,
