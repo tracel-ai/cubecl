@@ -80,6 +80,10 @@ serde_json = { workspace = true, features = ["std"] }
 # Tracy if enabled.
 tracy-client = { workspace = true, optional = true }
 
+# The tuner resolves async autotune samples on the browser event loop.
+[target.'cfg(target_family = "wasm")'.dependencies]
+wasm-bindgen-futures = { workspace = true }
+
 [dev-dependencies]
 rand = { workspace = true, features = ["thread_rng"] }
 serde_json = { workspace = true, features = ["std"] }
