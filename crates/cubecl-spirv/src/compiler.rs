@@ -25,13 +25,15 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
+    dialect::scf::BranchToSCFPass,
     prelude::{SingleBlockRegionInterface, SymbolOpInterface},
     rewrite::visit_all_ops_of_type_mut,
     settings::{Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
-    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, simple_cse::SimpleCSEPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, mem2reg::Mem2RegPass,
+    simple_cse::SimpleCSEPass,
 };
 use cubecl_runtime::compiler::CompilationError;
 use pliron::{
@@ -50,7 +52,7 @@ use pliron::{
     op::Op,
     operation::verify_operation,
     opts::{
-        constants::sccp::SCCPPass, dce::DCEPass, mem2reg::Mem2RegPass,
+        constants::sccp::SCCPPass, container_stats::ContainerStatsPass, dce::DCEPass,
         simplify_cfg::SimplifyCFGPass,
     },
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
@@ -166,6 +168,8 @@ impl SpirvCompiler {
         let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>();
         let module_op = module.get_operation();
 
+        let stats_dir = ir_printing_dir.clone().unwrap();
+
         verify_operation(module.get_operation(), ctx)?;
 
         let config = PMConfig {
@@ -180,6 +184,8 @@ impl SpirvCompiler {
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
 
+        passes.add_pass(ContainerStatsPass(stats_dir.join("stats-initial.csv")));
+
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
         func_passes.add_pass(DisaggregatePass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
@@ -189,6 +195,7 @@ impl SpirvCompiler {
         func_passes.add_pass(UnrollPass::new(comp_opts.vulkan.max_vector_size));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
+        func_passes.add_pass(BranchToSCFPass::default());
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(LowerBuiltinsPass);
@@ -249,6 +256,7 @@ impl SpirvCompiler {
 
         passes.add_pass(ConvertArgsPass);
         passes.add_pass(NestedOpsPass::new(func_passes));
+        passes.add_pass(ContainerStatsPass(stats_dir.join("stats-spirv.csv")));
 
         passes.run(spirv_module_op, ctx, &mut analyses).unwrap();
 

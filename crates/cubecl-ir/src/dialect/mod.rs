@@ -10,6 +10,7 @@ pub mod math;
 pub mod matrix;
 pub mod memory;
 pub mod plane;
+pub mod scf;
 pub mod spirv;
 pub mod synchronization;
 pub mod tma;

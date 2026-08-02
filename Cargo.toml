@@ -153,8 +153,8 @@ libc = "^0.2.186"
 winapi = { version = "^0.3.9", features = ["processthreadsapi", "winbase"] }
 
 inflections = "1"
-# pliron = { path = "../pliron", default-features = false }
-pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "4159dc0000a5e6c12bdbdf4a44c99cc5a839b2ae", default-features = false }
+pliron = { path = "../pliron", default-features = false }
+# pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "a4390be145f151b1a18a0c0e64a0f1137f091b91", default-features = false }
 
 cudarc = { version = "0.19.6", features = [
     "std",
@@ -167,10 +167,10 @@ cudarc = { version = "0.19.6", features = [
 ], default-features = false } # CubeCL-CUDA
 
 # CubeCL-SPIR-V
-# pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
-# rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
-pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "4d21e74cf1c49fff2307c620c13bd00b27121355" }
-rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "4d21e74cf1c49fff2307c620c13bd00b27121355", package = "tracel-rspirv" }
+pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
+rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
+# pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "4d21e74cf1c49fff2307c620c13bd00b27121355" }
+# rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "4d21e74cf1c49fff2307c620c13bd00b27121355", package = "tracel-rspirv" }
 rustc_apfloat = "0.2"
 
 # CubeCL-WGPU
