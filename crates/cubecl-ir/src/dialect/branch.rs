@@ -36,7 +36,7 @@ pub enum YieldOpVerifyErr {
     MissingParentOp,
 }
 
-#[pliron_op(name = "branch.yield", format = "")]
+#[pliron_op(name = "branch.yield", format = "`(` operands(CharSpace(`,`)) `)`")]
 #[op_interfaces(IsTerminatorInterface)]
 #[op_traits(CanMaterialize, NoMemoryEffect)]
 pub struct YieldOp;
@@ -142,7 +142,7 @@ impl DeadRegionOp {
     }
 }
 
-fn block_side_effects(ctx: &Context, block: Ptr<BasicBlock>) -> bool {
+pub(super) fn block_side_effects(ctx: &Context, block: Ptr<BasicBlock>) -> bool {
     block.deref(ctx).iter(ctx).any(|op| {
         // Yield should not count as an effect in a region, but also can't implement
         // `SideEffects = true` because then it would immediately get eliminated

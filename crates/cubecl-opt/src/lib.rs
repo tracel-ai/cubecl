@@ -34,7 +34,6 @@ extern crate std;
 use cubecl_ir::{AddressSpace, interfaces::TypedExt};
 
 pub mod analyses;
-// mod gvn;
 pub mod passes;
 pub mod scoped_map;
 
