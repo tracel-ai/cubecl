@@ -11,6 +11,7 @@ use std::{
     cell::RefCell,
     marker::PhantomData,
     panic::{AssertUnwindSafe, catch_unwind},
+    vec::Vec,
 };
 
 use custom_channel::DeviceClient;
@@ -103,6 +104,10 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
         let current = StreamId::current();
         self.run_scoped(move || current.executes(task))
+    }
+
+    fn shutdown(device_id: DeviceId) {
+        shutdown_device(device_id);
     }
 }
 
@@ -247,7 +252,14 @@ struct RunnerId {
     stage: DeviceServiceStage,
 }
 
-static RUNNERS: spin::Mutex<Option<HashMap<RunnerId, DeviceClient>>> = spin::Mutex::new(None);
+/// A registered runner: the client used to reach it plus the join handle of
+/// its server thread, kept so [`shutdown_device`] can wait for the exit.
+struct RunnerEntry {
+    client: DeviceClient,
+    thread: std::thread::JoinHandle<()>,
+}
+
+static RUNNERS: spin::Mutex<Option<HashMap<RunnerId, RunnerEntry>>> = spin::Mutex::new(None);
 /// Device/service map. The lock is held across the entire `init` sequence so `S::init` runs
 /// once per `(DeviceId, TypeId)` pair. This serializes channel creation across all
 /// backends.
@@ -290,6 +302,7 @@ impl ChannelDeviceState {
             runners
                 .entry(runner_id)
                 .or_insert_with(|| DeviceRunner::start(runner_id))
+                .client
                 .clone()
         };
 
@@ -375,10 +388,11 @@ impl ChannelService {
 }
 
 impl DeviceRunner {
-    /// Spawns a new thread, marks it with the `device_id`, and returns a `DeviceClient`.
-    pub fn start(runner_id: RunnerId) -> DeviceClient {
+    /// Spawns a new thread, marks it with the `device_id`, and returns the
+    /// client together with the thread's join handle.
+    pub fn start(runner_id: RunnerId) -> RunnerEntry {
         let (sender_init, recv_init) = oneshot::channel();
-        let channel = DeviceClient::new(runner_id, move || {
+        let (client, thread) = DeviceClient::new(runner_id, move || {
             SERVER_THREAD.with_borrow_mut(|cell| *cell = Some(runner_id));
             sender_init.send(()).unwrap();
         });
@@ -387,7 +401,69 @@ impl DeviceRunner {
             panic!("Failed to synchronize device runner thread initialization");
         }
 
-        channel
+        RunnerEntry { client, thread }
+    }
+}
+
+/// Stops every runner thread of `device_id`, blocking until they exit.
+///
+/// Queued tasks run before the threads stop. Live handles keep their runner
+/// alive, so this blocks until the last handle for the device is dropped.
+/// New handles created for the device afterwards spawn fresh runner threads.
+pub(crate) fn shutdown_device(device_id: DeviceId) {
+    // A runner joining itself would deadlock.
+    SERVER_THREAD.with_borrow(|current| {
+        if let Some(runner) = current {
+            assert_ne!(
+                runner.device, device_id,
+                "cannot shut down a device from its own runner thread"
+            );
+        }
+    });
+
+    // Removed entries are dropped outside the locks: each cached state holds
+    // a client clone that must go away before the servers can exit.
+    let channels = {
+        let mut guard = CHANNELS.lock();
+        match guard.as_mut() {
+            Some(map) => {
+                let keys: Vec<_> = map
+                    .keys()
+                    .filter(|(runner_id, _)| runner_id.device == device_id)
+                    .copied()
+                    .collect();
+                keys.into_iter()
+                    .filter_map(|key| map.remove(&key))
+                    .collect()
+            }
+            None => Vec::new(),
+        }
+    };
+    drop(channels);
+
+    let runners = {
+        let mut guard = RUNNERS.lock();
+        match guard.as_mut() {
+            Some(map) => {
+                let keys: Vec<_> = map
+                    .keys()
+                    .filter(|runner_id| runner_id.device == device_id)
+                    .copied()
+                    .collect();
+                keys.into_iter()
+                    .filter_map(|key| map.remove(&key))
+                    .collect()
+            }
+            None => Vec::new(),
+        }
+    };
+
+    for runner in runners {
+        runner.client.request_shutdown();
+        drop(runner.client);
+        if runner.thread.join().is_err() {
+            log::warn!("Device runner thread for {device_id:?} panicked during shutdown");
+        }
     }
 }
 
@@ -543,25 +619,35 @@ mod normal_channel {
             &self.runner_id
         }
         /// Creates a new channel and spawns a server thread to process it.
-        pub fn new<I: FnOnce() + Send + 'static>(runner_id: RunnerId, init: I) -> Self {
+        pub fn new<I: FnOnce() + Send + 'static>(
+            runner_id: RunnerId,
+            init: I,
+        ) -> (Self, std::thread::JoinHandle<()>) {
             let (sender, recv) = std::sync::mpsc::sync_channel::<Box<dyn FnOnce() + Send + 'static>>(
                 CHANNEL_MAX_TASK,
             );
 
-            std::thread::spawn(move || {
+            let thread = std::thread::spawn(move || {
                 init();
-                loop {
-                    if let Ok(item) = recv.recv() {
-                        item()
-                    }
+                // `Err` means every sender is gone and the queue is drained:
+                // no task can ever arrive again.
+                while let Ok(item) = recv.recv() {
+                    item()
                 }
             });
 
-            Self {
-                state: sender,
-                runner_id,
-            }
+            (
+                Self {
+                    state: sender,
+                    runner_id,
+                },
+                thread,
+            )
         }
+
+        /// Nothing to do: the server stops once every client is dropped and
+        /// the queue is drained.
+        pub fn request_shutdown(&self) {}
 
         /// Atomically reserves a slot in the buffer and writes the task.
         pub fn enqueue<F: FnOnce() + Send + 'static>(&self, func: F) -> Result<(), CallError> {
@@ -589,7 +675,7 @@ mod custom_channel {
     };
     use core::{
         hint::spin_loop,
-        sync::atomic::{AtomicPtr, AtomicU32, Ordering},
+        sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
         time::Duration,
     };
     use std::{sync::Arc, vec::Vec};
@@ -641,11 +727,14 @@ mod custom_channel {
             &self.state.runner_id
         }
         /// Creates a new channel and spawns a server thread to process it.
-        pub fn new<I: FnOnce() + Send + 'static>(runner_id: RunnerId, init: I) -> Self {
+        pub fn new<I: FnOnce() + Send + 'static>(
+            runner_id: RunnerId,
+            init: I,
+        ) -> (Self, std::thread::JoinHandle<()>) {
             let mut server = Server::new(runner_id);
             let state = server.state.clone();
 
-            std::thread::Builder::new()
+            let thread = std::thread::Builder::new()
                 .name(std::format!(
                     "DS{}-{}-{}",
                     match runner_id.stage {
@@ -661,7 +750,14 @@ mod custom_channel {
                 })
                 .unwrap();
 
-            Self { state }
+            (Self { state }, thread)
+        }
+
+        /// Signals the server to run any remaining tasks and stop once every
+        /// client is dropped. Queued tasks may themselves hold clients, so the
+        /// server keeps draining until the last one is gone.
+        pub fn request_shutdown(&self) {
+            self.state.shutdown.store(true, Ordering::Release);
         }
 
         /// Atomically reserves a slot in the buffer and writes the task.
@@ -728,6 +824,9 @@ mod custom_channel {
         available_index: AtomicU32,
         /// Number of tasks successfully written and ready for processing.
         enqueued_count: AtomicU32,
+        /// Set by [`DeviceClient::request_shutdown`]; the server winds down
+        /// once it is set and every client is dropped.
+        shutdown: AtomicBool,
         /// The runner id (for debugging purposes).
         runner_id: RunnerId,
     }
@@ -785,6 +884,7 @@ mod custom_channel {
                 queue_ptr: AtomicPtr::new(buffers[0].tasks.as_mut_ptr()),
                 available_index: AtomicU32::new(0),
                 enqueued_count: AtomicU32::new(0),
+                shutdown: AtomicBool::new(false),
                 runner_id,
             });
 
@@ -815,13 +915,55 @@ mod custom_channel {
 
                 if idle_count < SPIN_BUDGET_SERVER {
                     spin_loop();
-                } else if idle_count < SPIN_BUDGET_SERVER + YIELD_BUDGET_SERVER {
-                    std::thread::yield_now();
                 } else {
-                    std::thread::sleep(SLEEP_STEP_SERVER);
+                    // Past the hot window, so this costs nothing on the fast
+                    // path. A strong count of one means this server owns the
+                    // only reference to the state: every client is gone and no
+                    // new task can arrive.
+                    if (self.state.shutdown.load(Ordering::Acquire)
+                        || Arc::strong_count(&self.state) == 1)
+                        && self.try_shutdown()
+                    {
+                        return;
+                    }
+                    if idle_count < SPIN_BUDGET_SERVER + YIELD_BUDGET_SERVER {
+                        std::thread::yield_now();
+                    } else {
+                        std::thread::sleep(SLEEP_STEP_SERVER);
+                    }
                 }
                 idle_count = idle_count.saturating_add(1);
             }
+        }
+
+        /// Winds the server down once no more work can arrive.
+        ///
+        /// Returns `true` when the queue is empty and this server holds the
+        /// last reference to its state, meaning the thread can stop. When
+        /// tasks are still queued, pads the buffer with no-ops exactly like a
+        /// client flush so the main loop executes them, and returns `false`.
+        /// Queued tasks may hold client clones, which is why draining must
+        /// happen before the strong count can reach one.
+        fn try_shutdown(&mut self) -> bool {
+            if self.state.enqueued_count.load(Ordering::Acquire) > 0 {
+                let index_start = self
+                    .state
+                    .available_index
+                    .fetch_add(CHANNEL_MAX_TASK as u32, Ordering::Acquire)
+                    as usize;
+
+                if index_start < CHANNEL_MAX_TASK {
+                    for index in index_start..CHANNEL_MAX_TASK {
+                        self.state.init_task_at(index, || ());
+                    }
+                    self.state
+                        .enqueued_count
+                        .fetch_add((CHANNEL_MAX_TASK - index_start) as u32, Ordering::SeqCst);
+                }
+                return false;
+            }
+
+            Arc::strong_count(&self.state) == 1
         }
 
         fn execute_tasks(&mut self) {
@@ -858,6 +1000,9 @@ mod custom_channel {
 #[cfg(test)]
 mod tests {
     use crate::device::handle::CallResultExt;
+    use crate::device::handle::ShutdownGuard;
+    // Only the `cfg(not(miri))` flushing test uses this.
+    #[cfg(not(miri))]
     use crate::device::handle::channel::custom_channel::CHANNEL_MAX_TASK;
 
     use super::*;
@@ -887,6 +1032,7 @@ mod tests {
             type_id: 0,
             index_id: 1,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         // Task 1: Increment the counter
@@ -915,6 +1061,7 @@ mod tests {
             type_id: 0,
             index_id: 3,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let local_val = 42; // This lives on the test stack
@@ -942,6 +1089,7 @@ mod tests {
             type_id: 0,
             index_id: 4,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
 
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
         let completed_count = Arc::new(AtomicUsize::new(0));
@@ -967,6 +1115,7 @@ mod tests {
             type_id: 0,
             index_id: 5,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
         let (tx, rx) = oneshot::channel();
 
@@ -990,6 +1139,7 @@ mod tests {
             type_id: 0,
             index_id: 6,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
 
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
@@ -1033,6 +1183,7 @@ mod tests {
             type_id: 0,
             index_id: 7,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let big_data = [42u8; 128]; // 128 bytes > 48 byte inline limit
@@ -1053,6 +1204,7 @@ mod tests {
             type_id: 0,
             index_id: 8,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let huge_data = [7u8; 8192]; // 8KB > 4096 byte arena limit
@@ -1070,6 +1222,7 @@ mod tests {
             type_id: 0,
             index_id: 9,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
         let drop_count = Arc::new(AtomicUsize::new(0));
 
@@ -1127,6 +1280,7 @@ mod tests {
             type_id: 0,
             index_id: 77,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
 
         let barrier = Arc::new(Barrier::new(THREADS));
         let mut handles = Vec::new();
@@ -1156,6 +1310,7 @@ mod tests {
             type_id: 0,
             index_id: 10,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
         let drop_count = Arc::new(AtomicUsize::new(0));
 
@@ -1196,6 +1351,7 @@ mod tests {
             type_id: 0,
             index_id: 11,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
         let drop_count = Arc::new(AtomicUsize::new(0));
 
@@ -1230,6 +1386,7 @@ mod tests {
             type_id: 0,
             index_id: 14,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let result = handle.submit_blocking(|_state| {
@@ -1247,6 +1404,7 @@ mod tests {
             type_id: 0,
             index_id: 15,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         #[derive(Debug, PartialEq)]
@@ -1283,6 +1441,7 @@ mod tests {
             type_id: 0,
             index_id: 16,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let result = handle.submit_blocking(|_state| {
@@ -1306,6 +1465,7 @@ mod tests {
             type_id: 0,
             index_id: 17,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let result = handle.submit_blocking(|_state| {
@@ -1333,6 +1493,7 @@ mod tests {
             type_id: 0,
             index_id: 18,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let result = handle.submit_blocking(|_state| {
@@ -1356,6 +1517,7 @@ mod tests {
             type_id: 0,
             index_id: 19,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let result = handle.submit_blocking(|_state| {
@@ -1386,6 +1548,7 @@ mod tests {
             type_id: 0,
             index_id: 20,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         #[derive(Debug, PartialEq)]
@@ -1424,6 +1587,7 @@ mod tests {
             type_id: 0,
             index_id: 21,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let first = handle.submit_blocking(|_state| panic!("first"));
@@ -1451,6 +1615,7 @@ mod tests {
             type_id: 0,
             index_id: 22,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let reraised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1481,6 +1646,7 @@ mod tests {
             type_id: 0,
             index_id: 23,
         };
+        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         #[derive(Debug, PartialEq)]

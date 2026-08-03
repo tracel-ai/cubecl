@@ -80,6 +80,43 @@ impl<S: DeviceService> DeviceHandle<S> {
     pub fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
         self.handle.exclusive(task)
     }
+
+    /// Stops the background runner threads for `device_id`, blocking until they
+    /// exit. Queued tasks run before the threads stop. Live handles keep their
+    /// runner alive, so all handles for the device should be dropped first.
+    ///
+    /// Only meaningful for handle implementations with background threads; a
+    /// no-op otherwise.
+    pub fn shutdown(device_id: DeviceId) {
+        <Inner<S> as DeviceHandleSpec<S>>::shutdown(device_id)
+    }
+}
+
+/// Test helper that shuts a device's runner down when dropped.
+///
+/// Declare it before the handles in a test so the handles drop first;
+/// otherwise the shutdown blocks until they do.
+#[cfg(test)]
+pub(crate) struct ShutdownGuard {
+    device_id: DeviceId,
+    shutdown: fn(DeviceId),
+}
+
+#[cfg(test)]
+impl ShutdownGuard {
+    pub(crate) fn new(device_id: DeviceId, shutdown: fn(DeviceId)) -> Self {
+        Self {
+            device_id,
+            shutdown,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for ShutdownGuard {
+    fn drop(&mut self) {
+        (self.shutdown)(self.device_id);
+    }
 }
 
 #[cfg(test)]

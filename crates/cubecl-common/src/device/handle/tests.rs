@@ -7,6 +7,7 @@ use cubecl_environment::sync::Arc;
 #[test]
 fn test_concurrent_increment() {
     let device = TestDevice::<1>::new(0);
+    let _shutdown = ShutdownGuard::new(device.to_id(), DeviceHandle::<TestDeviceState<1>>::shutdown);
     let context = DeviceHandle::<TestDeviceState<1>>::new(device.to_id());
 
     let thread_count = 10;
@@ -30,10 +31,13 @@ fn test_concurrent_increment() {
 }
 #[test]
 fn test_recursive_execution_different_state() {
+    // Unique across the whole crate: the channel implementation keys its
+    // global runner registry by device id, so tests must not share one.
     let device_id = DeviceId {
         type_id: 0,
-        index_id: 5,
+        index_id: 55,
     };
+    let _shutdown = ShutdownGuard::new(device_id, DeviceHandle::<TestDeviceState<1>>::shutdown);
     let context = DeviceHandle::<TestDeviceState<1>>::new(device_id);
     let context_second = DeviceHandle::<TestDeviceState<2>>::new(device_id);
 

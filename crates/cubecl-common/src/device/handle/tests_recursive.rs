@@ -7,6 +7,7 @@ fn test_recursive_execution_same_state() {
         type_id: 10,
         index_id: 5,
     };
+    let _shutdown = ShutdownGuard::new(device_id, DeviceHandle::<TestDeviceState<1>>::shutdown);
     let handle = DeviceHandle::<TestDeviceState<1>>::new(device_id);
     let handle_cloned = handle.clone();
 
