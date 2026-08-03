@@ -4,6 +4,7 @@ use cubecl_runtime::{
     runtime::Runtime,
     server::CubeDim,
     throughput::{ThroughputKey, ThroughputMode, ThroughputValue},
+    tune::{Bounds, Thresholds, Work, calculate_bounds},
 };
 
 use crate::throughput::{compute_cmma, compute_direct, launch_overhead, memory_direct};
@@ -50,6 +51,34 @@ pub fn measure_peak_throughput<R: Runtime>(
     client.memory_cleanup();
 
     value
+}
+
+/// Calculates roofline autotune bounds for a given [`Work`] amount and compute throughput key.
+///
+/// Measures compute and memory peak throughputs along with launch overhead for the runtime client.
+pub fn roofline_bounds<R: Runtime>(
+    client: &ComputeClient<R>,
+    compute_key: ThroughputKey,
+    work: Work,
+    thresholds: Thresholds,
+) -> Bounds {
+    let memory_key = ThroughputKey {
+        mode: ThroughputMode::Memory,
+    };
+    let launch_key = ThroughputKey {
+        mode: ThroughputMode::Launch,
+    };
+
+    Bounds {
+        bounds: calculate_bounds(
+            work,
+            thresholds,
+            &measure_peak_throughput(client, compute_key),
+            &measure_peak_throughput(client, memory_key),
+            &memory_key,
+        ),
+        launch_overhead: measure_peak_throughput(client, launch_key).duration_per_op(),
+    }
 }
 
 /// Hardware execution parameters for launching a compute kernel.
