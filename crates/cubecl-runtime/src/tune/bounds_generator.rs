@@ -72,26 +72,62 @@ impl PartialEq for AutotuneBound {
 
 impl Eq for AutotuneBound {}
 
+/// Work required by a problem, specified in minimum compute operations and byte transfers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub struct Work {
+    /// Compute operations required.
+    pub compute_ops: usize,
+    /// Memory bytes transferred (reads and writes).
+    pub bytes: usize,
+}
+
+/// Target fractions of modeled peak compute and memory roofline throughput.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub struct Thresholds {
+    /// Fraction of peak compute throughput expected.
+    pub compute: f32,
+    /// Fraction of peak memory bandwidth expected.
+    pub memory: f32,
+}
+
+impl Thresholds {
+    /// The same fraction for both bounds.
+    pub const fn uniform(fraction: f32) -> Self {
+        Self {
+            compute: fraction,
+            memory: fraction,
+        }
+    }
+}
+
+impl Default for Thresholds {
+    /// The roofline itself: a candidate is expected to reach 100% of the modeled peak, which
+    /// is the only fraction that needs no justification.
+    fn default() -> Self {
+        Self::uniform(1.0)
+    }
+}
+
 /// Standardizes the creation of compute and memory [`AutotuneBound`]s.
 pub fn calculate_bounds(
+    work: Work,
+    thresholds: Thresholds,
     compute_throughput: &ThroughputValue,
-    compute_ops: usize,
-    compute_threshold: f32,
     memory_throughput: &ThroughputValue,
     memory_key: &ThroughputKey,
-    memory_bytes: usize,
-    memory_threshold: f32,
 ) -> Vec<AutotuneBound> {
     alloc::vec![
         AutotuneBound {
-            ops_count: compute_ops,
+            ops_count: work.compute_ops,
             throughput: compute_throughput.ops_per_s(),
-            threshold: compute_threshold,
+            threshold: thresholds.compute,
         },
         AutotuneBound {
-            ops_count: memory_bytes,
+            ops_count: work.bytes,
             throughput: memory_throughput.bytes_per_s(memory_key),
-            threshold: memory_threshold,
+            threshold: thresholds.memory,
         },
     ]
 }
@@ -124,6 +160,8 @@ impl TimeBound for Bounds {
 
 #[cfg(test)]
 mod tests {
+    use crate::throughput::ThroughputMode;
+
     use super::*;
     use alloc::vec;
 
@@ -179,6 +217,40 @@ mod tests {
             launch_overhead: Duration::from_millis(500),
         };
         assert_eq!(bounds.time_limit(), Some(Duration::from_millis(2500)));
+    }
+
+    #[test]
+    fn calculate_bounds_applies_a_threshold_per_resource() {
+        let work = Work {
+            compute_ops: 8,
+            bytes: 16,
+        };
+        let thresholds = Thresholds {
+            compute: 0.5,
+            memory: 1.0,
+        };
+        let key = ThroughputKey {
+            mode: ThroughputMode::Memory,
+        };
+
+        let bounds = calculate_bounds(
+            work,
+            thresholds,
+            &ThroughputValue::ZERO,
+            &ThroughputValue::ZERO,
+            &key,
+        );
+
+        assert_eq!(bounds[0].ops_count, 8);
+        assert_eq!(bounds[0].threshold, 0.5);
+        assert_eq!(bounds[1].ops_count, 16);
+        assert_eq!(bounds[1].threshold, 1.0);
+    }
+
+    #[test]
+    fn the_default_threshold_is_the_roofline_itself() {
+        assert_eq!(Thresholds::default(), Thresholds::uniform(1.0));
+        assert_eq!(Thresholds::default().compute, 1.0);
     }
 
     #[test]
