@@ -11,6 +11,10 @@ pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF:
     scale: S,
     #[comptime] scheme: QuantScheme,
 ) -> Vector<F, NF> {
+    // Every read from a quantized view lands here, so this is where an unsupported level has to be
+    // caught: the static constructors take a scheme without inspecting it.
+    comptime!(crate::quant::assert_level_supported(scheme.level));
+
     let q_values = match scheme.store {
         QuantStore::Native | QuantStore::PackedNative(_) => Vector::<F, NF>::cast_from(value),
         QuantStore::PackedU32(_) => unpack_cast_u32::<F, NQ, NF>(Vector::cast_from(value), scheme),
@@ -99,5 +103,32 @@ fn cast_masked<F: Numeric, N: Size>(value: u32, #[comptime] scheme: QuantScheme)
             let signed_value = raw_i32 - (is_negative * two_pow_n);
             Vector::<F, N>::cast_from(signed_value)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_core::define_size;
+    use cubecl_core::ir::{ElemType, Scope, UIntKind};
+
+    define_size!(N1);
+
+    /// Expanding is where an unsupported level has to be caught: the static constructors take a
+    /// scheme without inspecting it, so a guard on the dynamic dispatcher alone leaves them open.
+    #[test]
+    #[should_panic(expected = "two-level quantization is not supported")]
+    fn expanding_a_two_level_scheme_panics() {
+        // A root scope carries no typemap; the launcher normally picks the index width.
+        let scope = Scope::root(false);
+        scope.register_size::<N1>(1);
+        scope.register_type::<usize>(ElemType::UInt(UIntKind::U32).into());
+
+        let one = f32::__expand_new(&scope, 1.0);
+        let value = Vector::<f32, N1>::__expand_new(&scope, one);
+        let scheme =
+            QuantScheme::default().with_level(QuantLevel::block_tensor([32], QuantParam::F32));
+
+        dequantize_aligned::expand::<f32, f32, f32, N1, N1>(&scope, value, one, scheme);
     }
 }

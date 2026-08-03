@@ -289,6 +289,10 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
 /// Run a function with the quantization storage type and scale. Useful when concrete types are
 /// required but aren't available, and only the dynamic schema is known.
 pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) -> F::Output {
+    // Caught again on the dequantization path, but reporting it here names the launch that asked
+    // for it rather than a kernel being expanded.
+    assert_level_supported(scheme.level);
+
     fn run_with_q<F: RunWithQuantType, Q: Scalar>(func: F, scheme: QuantScheme) -> F::Output {
         match scheme.param {
             QuantParam::F32 => func.execute::<Q, f32>(),
@@ -388,7 +392,33 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
 
 #[cfg(test)]
 mod tests {
-    use super::quant_vector_size_q;
+    use super::{RunWithQuantType, quant_vector_size_q, run_with_quant_type};
+    use cubecl_common::quant::scheme::{QuantLevel, QuantParam, QuantScheme};
+    use cubecl_core::prelude::Scalar;
+
+    struct Dispatched;
+
+    impl RunWithQuantType for Dispatched {
+        type Output = bool;
+
+        fn execute<Q: Scalar, S: Scalar>(self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn one_level_scheme_dispatches() {
+        assert!(run_with_quant_type(Dispatched, QuantScheme::default()));
+    }
+
+    #[test]
+    #[should_panic(expected = "two-level quantization is not supported")]
+    fn two_level_scheme_is_rejected() {
+        let scheme =
+            QuantScheme::default().with_level(QuantLevel::block_tensor([32], QuantParam::F32));
+        // Would otherwise dequantize against the block scales alone, dropping the per-tensor factor.
+        run_with_quant_type(Dispatched, scheme);
+    }
 
     #[test]
     fn vector_size_q_exact_multiple() {
