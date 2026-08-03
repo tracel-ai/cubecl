@@ -32,6 +32,9 @@ pub struct DummyServer {
     memory_management: MemoryManagement<BytesStorage>,
     timestamps: TimestampProfiler,
     utilities: Arc<ServerUtilities<Self>>,
+    /// Errors are handled lazily, as on a real server: a failed launch records its error
+    /// here and in the profiler, and it surfaces at the next `flush`/`sync`/`end_profile`.
+    errors: Vec<ServerError>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +83,10 @@ impl CubeTask<DummyCompiler> for KernelTask {
         _mode: ExecutionMode,
         _addr_type: StorageType,
     ) -> Result<cubecl_runtime::kernel::CompiledKernel<DummyCompiler>, CompilationError> {
+        if let Some(err) = self.kernel.compilation_error() {
+            return Err(err);
+        }
+
         Ok(CompiledKernel {
             entrypoint_name: self.kernel.name().to_string(),
             debug_name: None,
@@ -173,7 +180,8 @@ impl ComputeServer for DummyServer {
     }
 
     fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
-        Box::pin(async move { Ok(()) })
+        let result = self.take_pending_error();
+        Box::pin(async move { result })
     }
 
     fn get_resource(
@@ -223,15 +231,21 @@ impl ComputeServer for DummyServer {
         });
 
         let mut resources: Vec<_> = resources.iter_mut().collect();
-        let kernel = kernel
-            .compile(
-                kernel.define(),
-                &mut DummyCompiler,
-                &(),
-                mode,
-                kernel.address_type(),
-            )
-            .unwrap();
+        let kernel = match kernel.compile(
+            kernel.define(),
+            &mut DummyCompiler,
+            &(),
+            mode,
+            kernel.address_type(),
+        ) {
+            Ok(kernel) => kernel,
+            Err(err) => {
+                let err = cubecl_runtime::server::LaunchError::from(err);
+                self.timestamps.error(ProfileError::Launch(err.clone()));
+                self.errors.push(err.into());
+                return;
+            }
+        };
 
         // Compiled above, exactly as a real server does.
         if launch_mode.is_skipped() {
@@ -242,8 +256,7 @@ impl ComputeServer for DummyServer {
     }
 
     fn flush(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
-        // Nothing to do with dummy backend.
-        Ok(())
+        self.take_pending_error()
     }
 
     fn memory_usage(&mut self, _stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
@@ -317,7 +330,19 @@ impl DummyServer {
             memory_management,
             utilities,
             timestamps: TimestampProfiler::default(),
+            errors: Vec::new(),
         }
+    }
+
+    /// Drains the pending errors, returning the first one, as `flush`/`sync` do on a
+    /// real server.
+    fn take_pending_error(&mut self) -> Result<(), ServerError> {
+        if self.errors.is_empty() {
+            return Ok(());
+        }
+        let err = self.errors.remove(0);
+        self.errors.clear();
+        Err(err)
     }
 
     /// Utility to create a new buffer and immediately copy contiguous data into it

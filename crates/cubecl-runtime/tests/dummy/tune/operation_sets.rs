@@ -16,7 +16,7 @@ use crate::dummy::{
     DummyElementwiseMultiplicationSlowWrong, KernelTask, OneKernelAutotuneOperation,
 };
 
-use super::DummyElementwiseAdditionSlowWrong;
+use super::{DummyElementwiseAdditionBrokenCompilation, DummyElementwiseAdditionSlowWrong};
 
 type TestSet = TunableSet<String, Vec<Handle>, ()>;
 
@@ -209,4 +209,34 @@ pub fn addition_set_with_slow_candidate(
         slow_calls.fetch_add(1, Ordering::Relaxed);
         op_add_slow.run(inputs)
     }))
+}
+
+/// Addition set whose first candidate uses a kernel that fails to compile. The server
+/// records the failure and returns it lazily at `end_profile`, which is how a real
+/// backend reports a kernel it cannot compile: the tuner must skip the candidate on
+/// that returned error, with no panic involved, and the surviving `add` wins.
+///
+/// `uid` keeps the key a cache miss, as in [`addition_set_with_rejected_candidate`].
+pub fn addition_set_with_failing_compilation(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+) -> TestSet {
+    let op_broken = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionBrokenCompilation),
+        client.clone(),
+    );
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| {
+            format!("add_no_compile-{uid}-{}", log_shape_input_key(&shapes))
+        },
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add_no_compile", move |inputs| {
+        op_broken.run(inputs)
+    }))
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
 }

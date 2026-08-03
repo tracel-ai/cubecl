@@ -366,6 +366,46 @@ fn autotune_stops_sampling_a_rejected_candidate() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
+/// A candidate whose kernel fails to compile is handled lazily, with no unwinding
+/// anywhere: the server records the launch failure and returns it at `end_profile`, the
+/// tuner drops the candidate on that error, the surviving kernel wins, and the device
+/// keeps serving afterwards.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn autotune_skips_a_candidate_that_fails_compilation() {
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_failing_compilation");
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+
+    let uid = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+        .to_string();
+
+    let test_set = TUNER.init(move || {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::addition_set_with_failing_compilation(client, shapes, uid.clone())
+    });
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    // The failing candidate was skipped on the lazily returned error and `add` won.
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+
+    // The failure never became a panic: the device keeps serving.
+    let after = client
+        .exclusive(|| 42)
+        .expect("the device must keep serving after a candidate failed to compile");
+    assert_eq!(after, 42);
+}
+
 /// The round robin end to end, which the unit tests around it cannot reach: a candidate far
 /// enough behind has to stop being sampled partway through, while the ones still in contention
 /// keep going and the fastest of them wins.

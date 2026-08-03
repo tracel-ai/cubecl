@@ -1,6 +1,7 @@
 use std::{thread::sleep, time::Duration};
 
-use cubecl_runtime::{id::KernelId, storage::BytesResource};
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_runtime::{compiler::CompilationError, id::KernelId, storage::BytesResource};
 
 use crate::dummy::DummyKernel;
 
@@ -66,5 +67,27 @@ impl DummyKernel for DummyElementwiseMultiplicationSlowWrong {
 
     fn id(&self) -> KernelId {
         KernelId::new::<Self>()
+    }
+}
+
+/// A kernel whose compilation always fails, standing in for a kernel the backend refuses
+/// to compile. `compute` is unreachable: the launch records the error and skips execution.
+#[derive(Debug)]
+pub struct DummyElementwiseAdditionBrokenCompilation;
+
+impl DummyKernel for DummyElementwiseAdditionBrokenCompilation {
+    fn compute(&self, _inputs: &mut [&mut BytesResource]) {
+        unreachable!("a kernel that fails compilation never runs");
+    }
+
+    fn id(&self) -> KernelId {
+        KernelId::new::<Self>()
+    }
+
+    fn compilation_error(&self) -> Option<CompilationError> {
+        Some(CompilationError::UnsupportedInstruction {
+            reason: "this dummy kernel never compiles".to_string(),
+            backtrace: BackTrace::capture(),
+        })
     }
 }
