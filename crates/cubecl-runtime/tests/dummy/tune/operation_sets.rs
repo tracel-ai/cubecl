@@ -171,6 +171,35 @@ pub fn addition_set_with_rejected_candidate(
     .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
 }
 
+/// Addition set whose first candidate panics, standing in for a kernel whose compilation blows
+/// up rather than failing cleanly. The tuner must contain the panic like any other failed
+/// candidate: drop it after its first failure and leave the device runner serving. `calls`
+/// counts how often the panicking closure runs.
+///
+/// `uid` keeps the key a cache miss, as in [`addition_set_with_rejected_candidate`].
+pub fn addition_set_with_panicking_candidate(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+    calls: Arc<AtomicUsize>,
+) -> TestSet {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| format!("add_panicking-{uid}-{}", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    )
+    .with(Tunable::new(
+        "add_panicking",
+        move |_inputs| -> Result<(), String> {
+            calls.fetch_add(1, Ordering::Relaxed);
+            panic!("compilation failed on purpose")
+        },
+    ))
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+}
+
 /// Addition set with one candidate that sleeps per element, far enough behind the other two to be
 /// eliminated on the numbers. Three candidates because the survivor floor keeps two alive no
 /// matter what, so a two-candidate set can never eliminate anything.
