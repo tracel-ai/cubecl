@@ -10,8 +10,7 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties,
-        TargetProperties, VectorSize,
-        features::Features,
+        TargetProperties, VectorSize, features::Features,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides},

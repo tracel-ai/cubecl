@@ -5,8 +5,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
     DeviceIdentity, DeviceProperties, ElemType, HardwareProperties, MemoryDeviceProperties,
-    StorageType, UIntKind,
-    VectorSize, features::Features,
+    StorageType, UIntKind, VectorSize, features::Features,
 };
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
