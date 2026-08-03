@@ -72,6 +72,54 @@ fn hip_graph_capture_replay() {
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
 
+/// A capture window that has to grow the memory pool must be REJECTED, not handed back.
+///
+/// A stream-ordered allocation issued while recording is captured as a memory node, and a graph
+/// holding an allocation node it never frees cannot be relaunched: the first launch succeeds and
+/// every later one fails. Nothing else catches this — instantiation succeeds, and the graph
+/// upload does not inspect memory nodes — so a caller that trusted `stop_capture` would only
+/// discover it on its second replay, far from the cause. Warmup usually leaves the persistent
+/// pool able to serve the recorded run, so real workloads hit the growth path only
+/// intermittently; this forces it by allocating a size the pool has never seen inside the window.
+#[test]
+fn hip_graph_capture_growing_the_pool_is_rejected() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = HipRuntime::client(&Default::default());
+
+    let n = 4usize;
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    let launch = |client: &ComputeClient<HipRuntime>| {
+        add_one::launch::<HipRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    client.graph_prepare().expect("graph_prepare");
+    launch(&client);
+    let _ = client.read_one(output.clone()).unwrap();
+
+    client.start_capture().expect("start_capture");
+    launch(&client);
+    // Force the pool to grow mid-capture: this deliberately odd size has never been allocated on
+    // this client, so no free slice fits it and the storage must reach the device allocator.
+    let grown = client.empty(3_145_733);
+    let rejected = client.stop_capture();
+
+    assert!(
+        rejected.is_err(),
+        "a capture that grew the pool recorded a memory node and is not relaunchable, so \
+         stop_capture must reject it rather than return a graph that fails on its second replay"
+    );
+
+    drop(grown);
+}
+
 /// The input-rewrite path: a captured graph reads its input buffer at replay
 /// time, so writing new bytes into that same buffer (same device pointer) and
 /// replaying must produce output for the new input. This is how a decode loop
@@ -126,13 +174,12 @@ fn hip_graph_input_rewrite() {
 /// Computes `(input + 1) * 2` as two kernels through `tmp`, drops `tmp`,
 /// reallocates sentinel buffers over its freed slice, then replays.
 ///
-/// Validated on gfx1151: the graph's own output stays correct (its first
-/// kernel rewrites `tmp` before the second reads it — write-before-read), and
-/// with buffer retention (approach B: `graph_prepare` routes capture-phase
-/// allocations into the persistent pool, warmup populates it, `end_capture`
-/// pins those slices) a later allocation can no longer reuse `tmp`'s slice, so
-/// replay does **not** clobber the sentinels. This is the acceptance test for
-/// that fix.
+/// The graph's own output stays correct (its first kernel rewrites `tmp`
+/// before the second reads it — write-before-read), and with buffer retention
+/// (`graph_prepare` routes capture-phase allocations into the persistent pool,
+/// warmup populates it, `end_capture` pins those slices) a later allocation
+/// can no longer reuse `tmp`'s slice, so replay does **not** clobber the
+/// sentinels. This is the acceptance test for that retention.
 #[test]
 fn hip_graph_intermediate_recycling() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -206,5 +253,114 @@ fn hip_graph_intermediate_recycling() {
         !clobbered,
         "replay wrote into a live external buffer that reused the graph's \
          intermediate slice — buffer retention failed to pin it"
+    );
+}
+
+#[cube(launch)]
+fn add_one_tensor(input: &Tensor<f32>, output: &mut Tensor<f32>) {
+    if ABSOLUTE_POS < input.shape(0) {
+        output[ABSOLUTE_POS] = input[ABSOLUTE_POS] + 1.0;
+    }
+}
+
+/// Decode-shaped stress: capture a window of many launches (well past the
+/// drop-queue flush threshold of 64 pushes, so the deferred-flush/pool-priming
+/// path is exercised) of a `Tensor` kernel that reads `shape(0)`, forcing
+/// every launch through the dynamic-metadata staging + info-cache path. Then
+/// verify the recorded pass did not execute, two replays re-run it exactly,
+/// and an in-place input rewrite feeds the next replay.
+#[test]
+fn hip_graph_many_launches_dynamic_metadata() {
+    const N: usize = 64; // elements per tensor; one 64-thread block covers them
+    const PASS_LAUNCHES: usize = 150; // > 2x the drop-queue flush threshold
+
+    // One pass: ping-pong `dst = src + 1` between `a` and `b`. The identical
+    // sequence is run once as warmup and once recorded.
+    fn run_pass(client: &ComputeClient<HipRuntime>, a: &Handle, b: &Handle) {
+        for i in 0..PASS_LAUNCHES {
+            let (src, dst) = if i % 2 == 0 { (a, b) } else { (b, a) };
+            add_one_tensor::launch(
+                client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(N as u32),
+                // SAFETY: `src`/`dst` are contiguous rank-1 buffers of exactly
+                // `N` f32 elements, matching the declared shape and strides.
+                unsafe { TensorArg::from_raw_parts(src.clone(), [1].into(), [N].into()) },
+                unsafe { TensorArg::from_raw_parts(dst.clone(), [1].into(), [N].into()) },
+            );
+        }
+    }
+
+    // What `a` and `b` hold after `passes` executed passes from equal starts.
+    fn simulate(start: f32, passes: usize) -> (Vec<f32>, Vec<f32>) {
+        let (mut a, mut b) = (vec![start; N], vec![start; N]);
+        for _ in 0..passes {
+            for i in 0..PASS_LAUNCHES {
+                if i % 2 == 0 {
+                    for j in 0..N {
+                        b[j] = a[j] + 1.0;
+                    }
+                } else {
+                    for j in 0..N {
+                        a[j] = b[j] + 1.0;
+                    }
+                }
+            }
+        }
+        (a, b)
+    }
+
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = HipRuntime::client(&Default::default());
+
+    let a = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
+    let b = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
+
+    client.graph_prepare().expect("graph_prepare");
+    run_pass(&client, &a, &b);
+
+    // The warmup executed normally (reads are still legal while prepared).
+    let (exp_a, exp_b) = simulate(0.0, 1);
+    assert_eq!(
+        f32::from_bytes(&client.read_one(a.clone()).unwrap()),
+        &exp_a[..]
+    );
+    assert_eq!(
+        f32::from_bytes(&client.read_one(b.clone()).unwrap()),
+        &exp_b[..]
+    );
+
+    // Record the identical sequence; recorded launches must not execute.
+    client.start_capture().expect("start_capture");
+    run_pass(&client, &a, &b);
+    let graph = client.stop_capture().expect("stop_capture");
+
+    // Warmup + 2 replays = 3 executed passes (the recorded pass ran 0 times).
+    unsafe { graph.replay() };
+    unsafe { graph.replay() };
+    let (exp_a, exp_b) = simulate(0.0, 3);
+    assert_eq!(
+        f32::from_bytes(&client.read_one(a.clone()).unwrap()),
+        &exp_a[..]
+    );
+    assert_eq!(
+        f32::from_bytes(&client.read_one(b.clone()).unwrap()),
+        &exp_b[..]
+    );
+
+    // In-place input rewrite (the decode-loop pattern), then one more replay:
+    // the graph must compute from the new values.
+    let fresh = f32::as_bytes(&[100.0f32; N]).to_vec();
+    client.write(&a, Bytes::from_bytes_vec(fresh.clone()));
+    client.write(&b, Bytes::from_bytes_vec(fresh));
+    unsafe { graph.replay() };
+    let (exp_a, exp_b) = simulate(100.0, 1);
+    assert_eq!(
+        f32::from_bytes(&client.read_one(a.clone()).unwrap()),
+        &exp_a[..]
+    );
+    assert_eq!(
+        f32::from_bytes(&client.read_one(b.clone()).unwrap()),
+        &exp_b[..]
     );
 }
