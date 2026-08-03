@@ -56,14 +56,17 @@ pub struct CompilationCacheEntry {
 }
 
 impl HipContext {
+    /// `fingerprint` is the one the runtime already published on
+    /// [`DeviceProperties::identity`], rather than one rebuilt here: the
+    /// namespace a kernel is cached under and the identity a bundle is stamped
+    /// with have to be the same string, and the only way to guarantee that is
+    /// for there to be one string.
     pub fn new(
         compilation_options: CompilationOptions,
         properties: DeviceProperties,
-        arch_name: String,
+        fingerprint: String,
     ) -> Self {
-        // `arch_name` keeps its target-feature suffix
-        // (`gfx90a:sramecc+:xnack-`), which the code object encodes.
-        let compilation_cache = compilation_store("hip", format!("hip-kernel_{arch_name}"));
+        let compilation_cache = compilation_store("hip", fingerprint);
 
         Self {
             modules: CompilationCache::mirroring(&compilation_cache),

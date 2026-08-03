@@ -3,6 +3,7 @@ use crate::{client::ComputeClient, runtime::Runtime};
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
+use cubecl_environment::config::RuntimeConfig;
 
 /// The trait to be implemented by an autotune output.
 pub trait AutotuneOutput: Send + 'static {
@@ -38,6 +39,44 @@ pub fn tune_benchmark<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
         })?
 }
 
+impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
+    /// Run the operation once without measuring it, to trigger compilation.
+    ///
+    /// Expects to already hold exclusive device access; the adaptive driver takes it once for
+    /// the whole round robin rather than once per candidate.
+    pub(crate) fn warmup_once<'a, R: Runtime>(
+        &self,
+        inputs: <F as TuneInputs>::At<'a>,
+        client: &ComputeClient<R>,
+    ) -> Result<(), AutotuneError> {
+        // We make sure the server is in a correct state.
+        let _errs = client.flush();
+
+        // The profile is dropped without being resolved: a warmup only exists to surface a
+        // failure to compile or launch, which is what the error carries.
+        self.sample_once(inputs, client).map(|_| ())
+    }
+
+    /// Queue a single measured execution. See [`Self::warmup_once`] for the locking expectation.
+    pub(crate) fn sample_once<'a, R: Runtime>(
+        &self,
+        inputs: <F as TuneInputs>::At<'a>,
+        client: &ComputeClient<R>,
+    ) -> Result<ProfileDuration, AutotuneError> {
+        // The output is returned so dead code elimination can't drop the work being profiled.
+        let profiled = client.profile(move || self.execute(inputs), &self.name);
+
+        match profiled {
+            Ok((Ok(_), duration)) => Ok(duration),
+            Ok((Err(err), _)) => Err(err),
+            Err(err) => Err(AutotuneError::Unknown {
+                name: self.name.to_string(),
+                err: err.to_string(),
+            }),
+        }
+    }
+}
+
 fn profile_exclusive<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
@@ -56,43 +95,21 @@ fn profile_exclusive<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
 
     warmup(operation, inputs.clone(), client.clone())?;
 
-    let num_samples = 10;
+    // The same budget the adaptive scheduler reads. This pass takes the ceiling: with no
+    // elimination, there is nothing for a smaller budget to buy, and a candidate that stops early
+    // here would just be measured on less evidence than its rivals.
+    let (_, num_samples) = crate::config::CubeClRuntimeConfig::get()
+        .autotune
+        .bench
+        .samples();
     let mut durations = Vec::new();
 
     for _ in 0..num_samples {
-        let result: Result<
-            (Result<Out, AutotuneError>, ProfileDuration),
-            crate::server::ProfileError,
-        > = {
-            let inputs = inputs.clone();
-
-            client.profile(
-                move || {
-                    // It is important to return the output since otherwise deadcode elimination
-                    // might optimize away code that needs to be profiled.
-                    operation.execute(inputs)
-                },
-                &operation.name,
-            )
-        };
-
-        let result = match result {
-            Ok((out, duration)) => match out {
-                Ok(_) => Some(duration),
-                Err(err) => {
-                    log::trace!("Error while autotuning {err}");
-                    None
-                }
-            },
-            Err(err) => {
-                log::trace!("Error while autotuning {err}");
-                None
-            }
-        };
-
-        if let Some(item) = result {
-            durations.push(item);
-        }
+        // A candidate that fails once is disqualified regardless of how the remaining samples
+        // go, so the loop stops on the first error and hands it back untouched. Sampling on
+        // would only pay more device round trips to reach the same verdict, with the reason
+        // for the failure replaced by `InvalidSamples`.
+        durations.push(operation.sample_once(inputs.clone(), &client)?);
     }
 
     if durations.is_empty() {
@@ -120,6 +137,10 @@ fn warmup<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
         let profiled = client.profile(move || operation.execute(inputs), &operation.name);
 
         match profiled {
+            // The tunable rejected its own configuration, which it will do identically on
+            // every call, so the remaining warmups and the whole sampling loop are skipped.
+            // The error is propagated as-is to keep the reason it was rejected.
+            Ok((Err(err), _)) => return Err(err),
             Ok(_) => {}
             Err(err) => errors.push(err),
         }

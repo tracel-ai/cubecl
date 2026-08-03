@@ -1,3 +1,4 @@
+use alloc::string::String;
 use core::hash::{BuildHasher, Hash, Hasher};
 
 use crate::{
@@ -65,6 +66,32 @@ pub struct MemoryDeviceProperties {
     pub alignment: u64,
 }
 
+/// Who a device is, and what its compiled code is keyed to.
+///
+/// The two fields answer different questions and must not be confused. `name`
+/// is for people: it names the physical part, and two machines holding the same
+/// part report the same name. `fingerprint` is for correctness: it is verbatim
+/// the string this runtime passes to
+/// [`compilation_store`](../../cubecl_runtime/compiler/fn.compilation_store.html),
+/// which is what puts a compiled artifact out of reach of a machine that cannot
+/// run it.
+///
+/// Reporting the fingerprint here rather than recomputing it is the whole
+/// point: a backend derives it once and hands it to both consumers, so the
+/// identity a bundle is stamped with and the namespace its kernels live under
+/// cannot drift apart.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct DeviceIdentity {
+    /// The device as it names itself — `AMD Radeon 8060S Graphics`,
+    /// `NVIDIA H100 PCIe`. Display only: distinct parts may share a name, so
+    /// nothing may gate on it.
+    pub name: String,
+    /// What this runtime compiles *for* — `hip-kernel_gfx1151`, `ptx_sm90`.
+    /// Verbatim the `compilation_store` fingerprint, so a namespace read back
+    /// out of a bundle compares against it directly.
+    pub fingerprint: String,
+}
+
 /// Properties of what the device can do, like what `Feature` are
 /// supported by it and what its memory properties are.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +104,8 @@ pub struct DeviceProperties {
     pub hardware: HardwareProperties,
     /// The method used for profiling on the device.
     pub timing_method: TimingMethod,
+    /// Who the device is, and what its kernels are keyed to.
+    pub identity: DeviceIdentity,
 }
 
 impl TypeHash for DeviceProperties {
@@ -87,17 +116,24 @@ impl TypeHash for DeviceProperties {
 
 impl DeviceProperties {
     /// Create a new feature set with the given features and memory properties.
+    ///
+    /// `identity` is a required argument rather than something a backend may
+    /// fill in afterwards, so a runtime cannot ship reporting an anonymous
+    /// device — the failure mode that leaves a bundle unable to say what it was
+    /// built for.
     pub fn new(
         features: Features,
         memory_props: MemoryDeviceProperties,
         hardware: HardwareProperties,
         timing_method: TimingMethod,
+        identity: DeviceIdentity,
     ) -> Self {
         DeviceProperties {
             features,
             memory: memory_props,
             hardware,
             timing_method,
+            identity,
         }
     }
 

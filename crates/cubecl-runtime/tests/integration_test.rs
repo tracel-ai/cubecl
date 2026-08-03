@@ -323,6 +323,126 @@ fn exclusive_stays_recoverable_on_task_panic() {
     }
 }
 
+/// A tunable that rejects its own configuration fails identically on every call, so the
+/// benchmark must stop at the first rejection rather than paying a profile round trip for
+/// every warmup and sample before reporting it.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn autotune_stops_sampling_a_rejected_candidate() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_rejected_candidate");
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_set = calls.clone();
+
+    // The persistent cache outlives the process, so the key has to be new on every run for the
+    // candidates to actually be benchmarked.
+    let uid = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+        .to_string();
+
+    let test_set = TUNER.init(move || {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::addition_set_with_rejected_candidate(client, shapes, uid.clone(), calls_set.clone())
+    });
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    // The rejected candidate is dropped after its first failure, and the surviving `add`
+    // kernel still wins the tuning.
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
+/// The round robin end to end, which the unit tests around it cannot reach: a candidate far
+/// enough behind has to stop being sampled partway through, while the ones still in contention
+/// keep going and the fastest of them wins.
+///
+/// Skipped unless the adaptive scheduler is the strategy in force, since a fixed-count pass
+/// samples every candidate the same number of times by design.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
+fn autotune_stops_sampling_an_eliminated_candidate() {
+    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let bench = CubeClRuntimeConfig::get().autotune.bench.clone();
+    if !bench.adaptive {
+        return;
+    }
+    let (min_samples, max_samples) = bench.samples();
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_eliminated_candidate");
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+
+    let fast_calls = Arc::new(AtomicUsize::new(0));
+    let slow_calls = Arc::new(AtomicUsize::new(0));
+    let fast_set = fast_calls.clone();
+    let slow_set = slow_calls.clone();
+
+    let uid = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+        .to_string();
+
+    let test_set = TUNER.init(move || {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::addition_set_with_slow_candidate(
+            client,
+            shapes,
+            uid.clone(),
+            fast_set.clone(),
+            slow_set.clone(),
+        )
+    });
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    let fast = fast_calls.load(Ordering::Relaxed);
+    let slow = slow_calls.load(Ordering::Relaxed);
+
+    // Every candidate is warmed up once and sampled at least to the elimination floor, so the
+    // slow one cannot have been dropped before it had the evidence against it.
+    assert!(
+        slow > min_samples,
+        "the slow candidate was dropped before it earned it: {slow} calls"
+    );
+    // A full pass is one warmup plus the ceiling. The slow candidate must fall short of that,
+    // and short of what the survivors spent, or nothing was eliminated at all.
+    assert!(
+        slow < max_samples + 1,
+        "the slow candidate was sampled to the ceiling: {slow} calls"
+    );
+    assert!(
+        slow < fast,
+        "the slow candidate kept pace with the survivors: {slow} vs {fast} calls"
+    );
+
+    // The fast kernel wins, so the output is a real addition rather than the slow kernel's copy.
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
 /// A dry run drops an ordinary launch: the server still compiles the kernel,
 /// exactly as it would otherwise, and then never runs it.
 ///

@@ -170,6 +170,10 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             self.autotune.disable_short_circuit = !enabled;
         }
 
+        if let Some(enabled) = env_bool("CUBECL_AUTOTUNE_BENCH_ADAPTIVE") {
+            self.autotune.bench.adaptive = enabled;
+        }
+
         self
     }
 }

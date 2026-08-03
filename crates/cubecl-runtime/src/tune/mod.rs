@@ -33,6 +33,11 @@ mod key_generator;
 mod local;
 mod log;
 mod operation;
+// Both are the adaptive strategy, which only the native driver can run.
+#[cfg(not(target_family = "wasm"))]
+mod sampler;
+#[cfg(not(target_family = "wasm"))]
+mod schedule;
 mod tune_benchmark;
 mod tune_cache;
 mod tune_inputs;
