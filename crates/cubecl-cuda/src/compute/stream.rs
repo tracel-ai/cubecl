@@ -31,14 +31,11 @@ pub struct Stream {
     /// This stream's position in the graph-capture lifecycle (see
     /// [`StreamCaptureState`]). Enforces the ordered `graph_prepare` →
     /// `begin_capture` → `end_capture` transitions and gates the deferral of
-    /// fenced drop-queue flushes while a capture is prepared or recording.
+    /// fenced drop-queue flushes while a capture is recording.
     pub capturing: StreamCaptureState,
-    /// Reusable per-launch info buffers, keyed by the exact info words they
-    /// were built from. On the grid-constants path only the dynamic tail
-    /// (shape/stride arrays) becomes a device buffer — scalars and static
-    /// metadata ride in the kernel's parameter block — so that tail is what
-    /// gets cached; without grid constants the whole info buffer is cached.
-    /// Admission and least-recently-used eviction are decided by the cache's
+    /// Reusable per-launch info buffers (kernel shapes/strides/scalars), keyed
+    /// by the exact info words they were built from. Admission and
+    /// least-recently-used eviction are decided by the cache's
     /// [`MetadataCachePolicy`]; the launch path sets its [`CacheMode`] from
     /// the capture lifecycle, so during graph capture every buffer is cached
     /// and none is evicted mid-capture. See [`StreamCaptureState::cache_mode`].
@@ -55,12 +52,13 @@ pub struct Stream {
 pub enum StreamCaptureState {
     /// No capture is prepared or recording.
     NoCapture,
-    /// `graph_prepare` has armed the persistent pools and snapshotted them for
-    /// the warmup run; `begin_capture` may now open the window. Fenced
-    /// drop-queue flushes are already deferred here (see
-    /// [`defers_flushes`](Self::defers_flushes)): whatever pinned staging the
-    /// capture run will hold, the warmup run must hold the same way, so the
-    /// pool ends up primed with the full concurrent working set.
+    /// `graph_prepare` has armed the persistent pools for the warmup run;
+    /// `begin_capture` may now open the window. Slices the warmup run reserves
+    /// are retained by the memory manager's priming (`CaptureState::primed`)
+    /// until `begin_capture` calls `capture_priming_end`, so a drop-queue
+    /// flush during this window cannot recycle them — the pool still ends up
+    /// owning the capture run's full working set even though flushes are not
+    /// deferred here.
     Prepare,
     /// `cuStreamBeginCapture` is recording launches. A fenced drop-queue flush
     /// (or any host sync) issued now aborts the capture
@@ -74,24 +72,6 @@ impl StreamCaptureState {
     /// now — the window during which a host sync would abort the capture.
     pub fn is_recording(&self) -> bool {
         matches!(self, StreamCaptureState::Capture)
-    }
-
-    /// Whether fenced drop-queue flushes must be deferred — true for the whole
-    /// `Prepare`/`Capture` lifecycle, not just while recording. During
-    /// `Capture` a fenced flush is a host sync and aborts the capture. During
-    /// `Prepare` it would be harmless to the driver, but any pinned staging
-    /// slice the capture run reserves (a `write_to_gpu` stage, or an info
-    /// buffer the cache declined) is held for the whole window, its flushes
-    /// being deferred. If warmup flushed and reused slices where the capture
-    /// run needs distinct live ones, the pool would own fewer slices than the
-    /// window needs, forcing a fresh pinned allocation mid-capture — which
-    /// aborts it. Deferring warmup's flushes too makes its footprint identical
-    /// to the capture run's, so `begin_capture`'s double flush leaves exactly
-    /// the right slices free for the window to reuse. (The info cache keeps
-    /// most launches off the staging path entirely; this deferral covers
-    /// whatever still reserves.)
-    pub fn defers_flushes(&self) -> bool {
-        !matches!(self, StreamCaptureState::NoCapture)
     }
 
     /// The [`CacheMode`] the metadata info cache should run in at this lifecycle

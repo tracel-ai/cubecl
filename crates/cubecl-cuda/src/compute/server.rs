@@ -72,18 +72,27 @@ unsafe fn count_memory_nodes(graph: cudarc::driver::sys::CUgraph) -> usize {
     let mut num_nodes: usize = 0;
     // SAFETY: `graph` is a valid `CUgraph` per this function's contract. A null node array
     // asks the driver for the node count only, written to `num_nodes`.
-    if unsafe { cudarc::driver::sys::cuGraphGetNodes(graph, std::ptr::null_mut(), &mut num_nodes) }
-        != cudarc::driver::sys::CUresult::CUDA_SUCCESS
-    {
+    let counted = unsafe {
+        cudarc::driver::sys::cuGraphGetNodes(graph, std::ptr::null_mut(), &mut num_nodes)
+    };
+    if counted != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+        log::warn!(
+            "cuGraphGetNodes failed ({counted:?}) while counting the graph's nodes; \
+             skipping the memory-node check for this capture"
+        );
         return 0;
     }
     let mut nodes: Vec<cudarc::driver::sys::CUgraphNode> = vec![std::ptr::null_mut(); num_nodes];
     let mut num_read = num_nodes;
     // SAFETY: `graph` is valid per this function's contract, and `nodes` has room for
     // `num_read` entries — the count the call above reported.
-    if unsafe { cudarc::driver::sys::cuGraphGetNodes(graph, nodes.as_mut_ptr(), &mut num_read) }
-        != cudarc::driver::sys::CUresult::CUDA_SUCCESS
-    {
+    let read =
+        unsafe { cudarc::driver::sys::cuGraphGetNodes(graph, nodes.as_mut_ptr(), &mut num_read) };
+    if read != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+        log::warn!(
+            "cuGraphGetNodes failed ({read:?}) while reading the graph's {num_nodes} node(s); \
+             skipping the memory-node check for this capture"
+        );
         return 0;
     }
     nodes
@@ -93,9 +102,12 @@ unsafe fn count_memory_nodes(graph: cudarc::driver::sys::CUgraph) -> usize {
             let mut ty = cudarc::driver::sys::CUgraphNodeType::CU_GRAPH_NODE_TYPE_KERNEL;
             // SAFETY: `node` is one of the handles the driver just wrote into `nodes`, so it
             // is a valid node of the still-live `graph`.
-            if unsafe { cudarc::driver::sys::cuGraphNodeGetType(**node, &mut ty) }
-                != cudarc::driver::sys::CUresult::CUDA_SUCCESS
-            {
+            let queried = unsafe { cudarc::driver::sys::cuGraphNodeGetType(**node, &mut ty) };
+            if queried != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                log::warn!(
+                    "cuGraphNodeGetType failed ({queried:?}); treating the node as not a \
+                     memory node"
+                );
                 return false;
             }
             matches!(
