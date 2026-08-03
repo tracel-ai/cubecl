@@ -439,7 +439,7 @@ impl ToLLVMDialect for FmaOp {
         let b_ty = b.get_type(ctx);
         let c_ty = c.get_type(ctx);
 
-        if self.result_type(ctx).is_int(ctx) {
+        if self.result_type(ctx).scalar_ty(ctx).is_int(ctx) {
             let mul =
                 llvm::MulOp::new_with_overflow_flag(ctx, a, b, IntegerOverflowFlagsAttr::default());
             rewriter.insert_op(ctx, &mul);
