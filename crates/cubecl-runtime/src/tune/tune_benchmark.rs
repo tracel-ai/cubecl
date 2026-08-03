@@ -39,48 +39,6 @@ pub fn tune_benchmark<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
         })?
 }
 
-/// Calls `client.profile` for one candidate with a panic contained to that candidate.
-///
-/// The adaptive scheduler drives a whole round robin of candidates from a single `exclusive`
-/// call, so a panic left to unwind — a compiler `unwrap` blowing up on a kernel the device
-/// cannot compile, in practice — would fail every rival in the batch, not just the candidate
-/// at fault. `client.profile` deliberately re-raises panics at its caller; tuning is the one
-/// caller that must flatten them into a per-candidate error instead.
-fn profile_candidate<O: Send + 'static, R: Runtime>(
-    client: &ComputeClient<R>,
-    name: &str,
-    func: impl FnOnce() -> O + Send,
-) -> Result<(O, ProfileDuration), AutotuneError> {
-    let run = || {
-        client
-            .profile(func, name)
-            .map_err(|err| AutotuneError::Unknown {
-                name: name.to_string(),
-                err: err.to_string(),
-            })
-    };
-
-    #[cfg(feature = "std")]
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
-        Ok(result) => result,
-        Err(payload) => {
-            let err = payload
-                .downcast_ref::<&str>()
-                .map(|s| (*s).to_string())
-                .or_else(|| payload.downcast_ref::<alloc::string::String>().cloned())
-                .unwrap_or_else(|| "candidate panicked with a non-string payload".to_string());
-            Err(AutotuneError::Unknown {
-                name: name.to_string(),
-                err,
-            })
-        }
-    }
-
-    // Without std there is no unwinding to catch; a panic aborts either way.
-    #[cfg(not(feature = "std"))]
-    run()
-}
-
 impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
     /// Run the operation once without measuring it, to trigger compilation.
     ///
@@ -106,12 +64,15 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
         client: &ComputeClient<R>,
     ) -> Result<ProfileDuration, AutotuneError> {
         // The output is returned so dead code elimination can't drop the work being profiled.
-        let profiled = profile_candidate(client, &self.name, move || self.execute(inputs));
+        let profiled = client.profile(move || self.execute(inputs), &self.name);
 
         match profiled {
             Ok((Ok(_), duration)) => Ok(duration),
             Ok((Err(err), _)) => Err(err),
-            Err(err) => Err(err),
+            Err(err) => Err(AutotuneError::Unknown {
+                name: self.name.to_string(),
+                err: err.to_string(),
+            }),
         }
     }
 }
@@ -173,8 +134,7 @@ fn warmup<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
 
     for _ in 0..num_warmup {
         let inputs = inputs.clone();
-        let profiled =
-            profile_candidate(&client, &operation.name, move || operation.execute(inputs));
+        let profiled = client.profile(move || operation.execute(inputs), &operation.name);
 
         match profiled {
             // The tunable rejected its own configuration, which it will do identically on

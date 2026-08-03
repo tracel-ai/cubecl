@@ -366,53 +366,6 @@ fn autotune_stops_sampling_a_rejected_candidate() {
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
 }
 
-/// A candidate that panics while tuning — a compilation blow-up, in practice — must not take
-/// the device down: the panic is contained, the candidate is dropped after its first failure,
-/// and the surviving kernel both wins the tuning and keeps serving the device afterwards.
-#[test_log::test]
-#[cfg(feature = "std")]
-#[serial_test::serial]
-fn autotune_survives_a_panicking_candidate() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_panicking_candidate");
-
-    let client = test_client(&DummyDevice);
-
-    let lhs = client.create_from_slice(&[0, 1, 2]);
-    let rhs = client.create_from_slice(&[4, 4, 4]);
-    let out = client.empty(3);
-    let handles = vec![lhs, rhs, out.clone()];
-
-    let calls = Arc::new(AtomicUsize::new(0));
-    let calls_set = calls.clone();
-
-    let uid = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos()
-        .to_string();
-
-    let test_set = TUNER.init(move || {
-        let client = test_client(&DummyDevice);
-        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-        dummy::addition_set_with_panicking_candidate(client, shapes, uid.clone(), calls_set.clone())
-    });
-    TUNER.execute(&"test".to_string(), &client, test_set, handles);
-
-    // The panicking candidate is dropped after its first blow-up, and the surviving `add`
-    // kernel still wins the tuning.
-    assert_eq!(calls.load(Ordering::Relaxed), 1);
-    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
-
-    // The runner thread survived the panic: a fresh round trip still executes.
-    let after = client
-        .exclusive(|| 42)
-        .expect("the device must keep serving tasks after a candidate panicked");
-    assert_eq!(after, 42);
-}
-
 /// The round robin end to end, which the unit tests around it cannot reach: a candidate far
 /// enough behind has to stop being sampled partway through, while the ones still in contention
 /// keep going and the fastest of them wins.
