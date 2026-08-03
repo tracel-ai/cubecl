@@ -442,7 +442,7 @@ impl<'a> Command<'a> {
         // host sync aborts a recording capture, and warmup must hold its
         // staging slices like the capture run will (see
         // [`StreamCaptureState::defers_flushes`]).
-        if should_flush && !current.capturing.defers_flushes()
+        if !current.capturing.defers_flushes()
             && (should_flush || current.drop_queue.should_flush())
         {
             current.drop_queue.flush(|| Fence::new(current.sys));
