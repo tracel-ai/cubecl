@@ -35,7 +35,6 @@ macro_rules! lower_unary_intrinsic_arith {
 }
 
 lower_unary_intrinsic_arith!(FAbsOp => "llvm.fabs");
-lower_unary_intrinsic_arith!(SAbsOp => "llvm.abs");
 lower_unary_intrinsic_arith!(ExpOp => "llvm.exp");
 lower_unary_intrinsic_arith!(LogOp => "llvm.log");
 lower_unary_intrinsic_arith!(SinOp => "llvm.sin");
@@ -54,6 +53,36 @@ lower_unary_intrinsic_arith!(CeilOp => "llvm.ceil");
 lower_unary_intrinsic_arith!(TruncOp => "llvm.trunc");
 lower_unary_intrinsic_arith!(ReverseBitsOp => "llvm.bitreverse");
 
+/// `llvm.abs` is `i_ (i_, i1 immarg)`, the flag saying whether `INT_MIN` is poison. Cube's
+/// `SAbsOp` is defined to wrap like LLVM's non-poisoning form, so pass `false`.
+#[op_interface_impl]
+impl ToLLVMDialect for SAbsOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let input = self.input(ctx);
+        let elem_ty = input.get_type(ctx);
+        let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
+        let bool_ty = IntegerType::get(ctx, 1, Signedness::Signless);
+        let is_int_min_poison = insert_bool_const(ctx, rewriter, false);
+
+        let intrinsic_type = FuncType::get(ctx, res_ty, vec![elem_ty, bool_ty.into()], false);
+        let op = llvm::CallIntrinsicOp::new(
+            ctx,
+            "llvm.abs".into(),
+            intrinsic_type,
+            vec![input, is_int_min_poison],
+        );
+
+        rewriter.insert_op(ctx, &op);
+        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
+        Ok(())
+    }
+}
+
 /// Width of an integer type, or of the elements of an integer vector type.
 fn int_elem_width(ctx: &Context, ty: TypeHandle) -> u32 {
     let elem_ty = ty
@@ -70,6 +99,9 @@ fn int_elem_width(ctx: &Context, ty: TypeHandle) -> u32 {
 
 macro_rules! lower_count_bits_intrinsic {
     ($cube_op:ty => $llvm_op:expr) => {
+        lower_count_bits_intrinsic!($cube_op => $llvm_op, false);
+    };
+    ($cube_op:ty => $llvm_op:expr, $has_zero_poison_arg:literal) => {
         #[op_interface_impl]
         impl ToLLVMDialect for $cube_op {
             fn rewrite(
@@ -82,8 +114,13 @@ macro_rules! lower_count_bits_intrinsic {
                 let elem_ty = input.get_type(ctx);
                 let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
 
-                let params = vec![elem_ty];
-                let args = vec![input];
+                let mut params = vec![elem_ty];
+                let mut args = vec![input];
+                if $has_zero_poison_arg {
+                    let bool_ty = IntegerType::get(ctx, 1, Signedness::Signless);
+                    params.push(bool_ty.into());
+                    args.push(insert_bool_const(ctx, rewriter, false));
+                }
                 let intrinsic_type = FuncType::get(ctx, elem_ty, params, false);
 
                 let op = llvm::CallIntrinsicOp::new(ctx, $llvm_op.into(), intrinsic_type, args);
@@ -112,8 +149,8 @@ macro_rules! lower_count_bits_intrinsic {
 }
 
 lower_count_bits_intrinsic!(CountOnesOp => "llvm.ctpop");
-lower_count_bits_intrinsic!(LeadingZerosBitsOp => "llvm.ctlz");
-lower_count_bits_intrinsic!(TrailingZerosBitsOp => "llvm.cttz");
+lower_count_bits_intrinsic!(LeadingZerosBitsOp => "llvm.ctlz", true);
+lower_count_bits_intrinsic!(TrailingZerosBitsOp => "llvm.cttz", true);
 
 // See https://llvm.org/docs/LangRef.html#id1822 for more info
 const IS_NAN: i32 = 0x0003;
@@ -140,8 +177,9 @@ macro_rules! lower_float_fpclass {
                     bool_ty =
                         LlvmVectorType::get(ctx, bool_ty, num_elems, VectorTypeKind::Fixed).into();
                 }
+                // `llvm.is.fpclass` is not variadic; the test mask is a plain `i32 immarg`.
                 let intrinsic_type =
-                    FuncType::get(ctx, bool_ty, vec![elem_ty, int_ty.into()], true);
+                    FuncType::get(ctx, bool_ty, vec![elem_ty, int_ty.into()], false);
 
                 let op = llvm::CallIntrinsicOp::new(
                     ctx,
@@ -338,12 +376,12 @@ macro_rules! lower_binary_intrinsic_arith {
                 let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
                 let intrinsic_type = FuncType::get(ctx, res_ty, vec![lhs_ty, rhs_ty], false);
 
-                let op = llvm::CallIntrinsicOp::new(
-                    ctx,
-                    $llvm_op.into(),
-                    intrinsic_type,
-                    vec![lhs, rhs],
-                );
+                let mut llvm_op = $llvm_op.to_string();
+                llvm_op.push('.');
+                llvm_op.push_str(llvm_mangled_ty(ctx, lhs_ty).as_str());
+
+                let op =
+                    llvm::CallIntrinsicOp::new(ctx, llvm_op.into(), intrinsic_type, vec![lhs, rhs]);
 
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(

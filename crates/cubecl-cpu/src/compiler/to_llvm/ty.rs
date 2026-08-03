@@ -54,3 +54,41 @@ pub fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
         .expect("load/store value type must implement AlignedType")
         .align(ctx) as u32
 }
+
+#[type_interface]
+pub trait LlvmTypeToMangledOverload {
+    verify_ty_succ!();
+    fn to_string(&self, ctx: &Context) -> String;
+}
+
+macro_rules! impl_llvm_type_to_mangled_overload {
+    ($src:ty, $self:ident, $ctx:ident => $body:expr) => {
+        #[type_interface_impl]
+        impl LlvmTypeToMangledOverload for $src {
+            fn to_string(&$self, $ctx: &Context) -> String {
+                $body
+            }
+        }
+    };
+}
+
+impl_llvm_type_to_mangled_overload!(IntegerType, self, _ctx => format!("i{}", self.width()));
+impl_llvm_type_to_mangled_overload!(FP16Type, self, _ctx => "f16".to_string());
+impl_llvm_type_to_mangled_overload!(FP32Type, self, _ctx => "f32".to_string());
+impl_llvm_type_to_mangled_overload!(FP64Type, self, _ctx => "f64".to_string());
+impl_llvm_type_to_mangled_overload!(LlvmVectorType, self, ctx => {
+    let prefix = if self.is_scalable() {
+        "nx"
+    } else {
+        ""
+    };
+    let (n, elem) = (self.num_elements(), self.elem_type());
+    format!("{prefix}v{n}{}", llvm_mangled_ty(ctx, elem))
+});
+
+/// Convert a llvm type to the string
+pub fn llvm_mangled_ty(ctx: &Context, ty: TypeHandle) -> String {
+    type_cast::<dyn LlvmTypeToMangledOverload>(&*ty.deref(ctx))
+        .map(|ty| ty.to_string(ctx))
+        .expect("Type not supported for overloading of intrinsic")
+}

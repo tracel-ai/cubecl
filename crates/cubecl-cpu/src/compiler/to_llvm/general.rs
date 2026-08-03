@@ -18,7 +18,10 @@ use pliron::{
     symbol_table::SymbolTableCollection,
 };
 use pliron_llvm::{
-    attributes::LinkageAttr, function_call_utils::lookup_or_insert_function, types::ArrayType,
+    attributes::LinkageAttr,
+    function_call_utils::lookup_or_insert_function,
+    ops::{FPExtOp, FPTruncOp},
+    types::ArrayType,
 };
 
 fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
@@ -110,6 +113,34 @@ fn cast_int_to_float(
     rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
 }
 
+fn cast_float_to_float(
+    cast_op: &CastOp,
+    in_ty: TypeHandle,
+    out_ty: TypeHandle,
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+) {
+    let res_ty = cube_type_to_llvm(ctx, cast_op.result_type(ctx));
+    let input = cast_op.input(ctx);
+    let old_op = cast_op.get_operation();
+    let input_size = in_ty.size(ctx);
+    let output_size = out_ty.size(ctx);
+
+    if input_size > output_size {
+        let op = FPTruncOp::new(ctx, input, res_ty);
+        op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
+        rewriter.insert_op(ctx, &op);
+        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+    } else if input_size < output_size {
+        let op = FPExtOp::new(ctx, input, res_ty);
+        op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
+        rewriter.insert_op(ctx, &op);
+        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+    } else {
+        rewriter.replace_operation_with_values(ctx, old_op, vec![input]);
+    }
+}
+
 fn extract_elem_type(ctx: &Context, ty: TypeHandle) -> TypeHandle {
     if let Some(ty) = ty.deref(ctx).downcast_ref::<LlvmVectorType>() {
         ty.elem_type()
@@ -151,6 +182,10 @@ impl ToLLVMDialect for CastOp {
             && out_ty.is_float(ctx)
         {
             cast_int_to_float(self, out_signed, ctx, rewriter);
+        }
+
+        if in_ty.is_float(ctx) && out_ty.is_float(ctx) {
+            cast_float_to_float(self, in_ty, out_ty, ctx, rewriter);
         }
 
         Ok(())

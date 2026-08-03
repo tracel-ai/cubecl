@@ -68,13 +68,13 @@ pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vecto
     let neg = exp.less_than(&Vector::<i32, N>::new(0));
     let mut e = select_many(neg, Vector::<i32, N>::new(0) - exp, exp);
 
-    // TODO: implement leading zero
-    let bits = 32; // - u32::leading_zeros(plane_max(Vector::<u32, N>::max_value(e)));
+    let bits = 32;
 
     let mut acc = one_t;
     let mut sq = base;
 
     for _ in 0..bits {
+        // TODO: implement peephole optimization for masked multiplication
         acc *= select_many((e & one_u).equal(&one_u), sq, one_t);
         sq *= sq;
         e >>= one_u;

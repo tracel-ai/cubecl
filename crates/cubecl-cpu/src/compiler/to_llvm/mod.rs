@@ -15,7 +15,7 @@ pub mod prelude {
         I32_WIDTH, convert_attr, float_attr, insert_bool_const, insert_i32_const, insert_int_const,
         int_attr,
     };
-    pub use super::ty::{INDEX_WIDTH, cube_type_to_llvm};
+    pub use super::ty::{INDEX_WIDTH, cube_type_to_llvm, llvm_mangled_ty};
     pub use super::vector::insert_splat;
     pub use super::{CubeToLLVMType, ToLLVMDialect};
 
