@@ -1,4 +1,8 @@
-//! Runnable CUDA graph capture and replay examples.
+//! Runnable graph capture and replay examples.
+//!
+//! Everything here is generic over [`Runtime`], and runs on any backend implementing
+//! graph capture — CUDA and HIP/ROCm today. Pick one with `--features cuda` or
+//! `--features hip`.
 //!
 //! A graph capture records a fixed-shape sequence of kernel launches once, then replays
 //! the whole sequence as a single dispatch. The lifecycle is:
@@ -26,6 +30,29 @@
 //! Capture is device-global: any concurrent allocation or sync in the process aborts a
 //! recording capture. Keep all work on a single client, and never run two captures
 //! concurrently on one device.
+
+/// Binds the runtime selected by the enabled cargo feature to a type alias and runs `$body`.
+///
+/// Keeps backend selection in one place so binaries don't each repeat the `cfg` block:
+/// `dispatch!(R => graph_capture::basic::<R>(&Default::default()))`. Only backends that
+/// implement graph capture are listed.
+#[macro_export]
+macro_rules! dispatch {
+    ($runtime:ident => $body:expr) => {{
+        #[cfg(feature = "cuda")]
+        {
+            type $runtime = cubecl::cuda::CudaRuntime;
+            $body?;
+        }
+        #[cfg(feature = "hip")]
+        {
+            type $runtime = cubecl::hip::HipRuntime;
+            $body?;
+        }
+        #[cfg(not(any(feature = "cuda", feature = "hip")))]
+        println!("enable a graph-capable backend: --features cuda or --features hip");
+    }};
+}
 
 use cubecl::bytes::Bytes;
 use cubecl::client::ComputeClient;
@@ -178,7 +205,11 @@ fn recurrent_step<R: Runtime>(
     let mut src = input;
     for (layer, layer_state) in state.iter().enumerate() {
         add_one_launch(client, src, tmp);
-        let dst = if layer + 1 == state.len() { output } else { act };
+        let dst = if layer + 1 == state.len() {
+            output
+        } else {
+            act
+        };
         accumulate_launch(client, tmp, layer_state, dst);
         src = act;
     }
@@ -194,7 +225,10 @@ fn read_f32<R: Runtime>(client: &ComputeClient<R>, handle: &Handle) -> Result<Ve
 
 /// Overwrite `handle` with `values`.
 fn write_f32<R: Runtime>(client: &ComputeClient<R>, handle: &Handle, values: &[f32]) {
-    client.write(handle, Bytes::from_bytes_vec(f32::as_bytes(values).to_vec()));
+    client.write(
+        handle,
+        Bytes::from_bytes_vec(f32::as_bytes(values).to_vec()),
+    );
 }
 
 /// Stateless capture/replay over a layer stack: run it eagerly, then capture it once and
@@ -284,12 +318,16 @@ pub fn basic<R: Runtime>(device: &R::Device) -> Res {
     let after = read_f32::<R>(&client, &output)?;
     let expected = bumped[0] + LAYERS as f32;
     if (after[0] - expected).abs() > 1e-3 {
-        return Err(
-            format!("input refresh not observed: expected {expected:.1}, got {:.1}", after[0])
-                .into(),
-        );
+        return Err(format!(
+            "input refresh not observed: expected {expected:.1}, got {:.1}",
+            after[0]
+        )
+        .into());
     }
-    println!("after refreshing the input in place, one replay gives output[0]={:.1}", after[0]);
+    println!(
+        "after refreshing the input in place, one replay gives output[0]={:.1}",
+        after[0]
+    );
 
     println!("ok: eager and replayed agree, and the refreshed input took effect");
     Ok(())

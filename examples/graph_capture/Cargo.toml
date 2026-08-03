@@ -8,7 +8,11 @@ version.workspace = true
 
 [features]
 default = []
+
+# Native backends implementing graph capture.
 cuda = ["cubecl/cuda"]
+hip = ["cubecl/hip"]
+rocm = ["hip"]
 
 [dependencies]
 cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.1" }
