@@ -1353,6 +1353,12 @@ impl<D: Dialect> CppCompiler<D> {
                 c: self.compile_value(op.c),
                 out: self.compile_value(out),
             }),
+            ir::Arithmetic::Dp4a(op) => instructions.push(Instruction::Dp4a {
+                a: self.compile_value(op.a),
+                b: self.compile_value(op.b),
+                c: self.compile_value(op.c),
+                out: self.compile_value(out),
+            }),
             ir::Arithmetic::Neg(op) => {
                 instructions.push(Instruction::Neg(self.compile_unary(op, out)))
             }

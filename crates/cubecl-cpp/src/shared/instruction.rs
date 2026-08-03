@@ -67,6 +67,12 @@ pub enum Instruction<D: Dialect> {
         c: Value<D>,
         out: Value<D>,
     },
+    Dp4a {
+        a: Value<D>,
+        b: Value<D>,
+        c: Value<D>,
+        out: Value<D>,
+    },
     Div(BinaryInstruction<D>),
     Rem(BinaryInstruction<D>),
     ModFloor(BinaryInstruction<D>),
@@ -591,6 +597,7 @@ for (*{i} = {start}; *{i} {cmp} {end}; {increment}) {{
             }
             Instruction::Warp(it) => write!(f, "{it}"),
             Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
+            Instruction::Dp4a { a, b, c, out } => Dp4a::format(f, a, b, c, out),
             Instruction::Wmma(it) => write!(f, "{it}"),
             Instruction::Bitcast(UnaryInstruction { input, out }) => {
                 let qualifier = out.const_qualifier();
@@ -794,6 +801,25 @@ impl<D: Dialect> Fma<D> {
         } else {
             writeln!(f, "{out} = fma({a}, {b}, {c});")
         }
+    }
+}
+
+struct Dp4a<D: Dialect> {
+    _dialect: PhantomData<D>,
+}
+
+impl<D: Dialect> Dp4a<D> {
+    fn format(
+        f: &mut core::fmt::Formatter<'_>,
+        a: &Value<D>,
+        b: &Value<D>,
+        c: &Value<D>,
+        out: &Value<D>,
+    ) -> core::fmt::Result {
+        let out_left = out.fmt_left();
+        write!(f, "{out_left} = ")?;
+        D::compile_dp4a(f, a, b, c)?;
+        writeln!(f, ";")
     }
 }
 

@@ -65,6 +65,10 @@ pub enum Arithmetic {
     Normalize(UnaryOperands),
     #[operation(commutative)]
     Dot(BinaryOperands),
+    /// Packed signed int8×4 dot-product accumulate: `c + dot(pack4(a), pack4(b))`.
+    ///
+    /// `a`/`b` are `i32` bit-patterns of four signed bytes (CUDA `__dp4a` / SPIR-V `OpSDot`).
+    Dp4a(FmaOperands),
     #[operation(commutative)]
     MulHi(BinaryOperands),
     VectorSum(UnaryOperands),
@@ -123,6 +127,7 @@ impl Display for Arithmetic {
             Arithmetic::Magnitude(op) => write!(f, "{}.length()", op.input),
             Arithmetic::Normalize(op) => write!(f, "{}.normalize()", op.input),
             Arithmetic::Dot(op) => write!(f, "{}.dot({})", op.lhs, op.rhs),
+            Arithmetic::Dp4a(op) => write!(f, "dp4a({}, {}, {})", op.a, op.b, op.c),
             Arithmetic::MulHi(op) => write!(f, "mul_hi({}, {})", op.lhs, op.rhs),
             Arithmetic::VectorSum(op) => write!(f, "{}.vector_sum()", op.input),
         }
