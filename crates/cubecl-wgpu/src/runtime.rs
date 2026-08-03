@@ -12,7 +12,7 @@ use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
 use cubecl_environment::future;
-use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
+use cubecl_ir::{DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(not(feature = "vulkan-validate"))]
 use cubecl_runtime::logging::ProfileLevel;
@@ -353,11 +353,22 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         TimingMethod::System
     };
 
+    // The adapter's vendor/device pair, which is what `WgpuServer` keys its
+    // SPIR-V store on. Reported unconditionally, even in a WGSL-only build that
+    // persists no compiled code: measurement caches (autotune, throughput) are
+    // namespaced by neither vendor nor device, so this string is the only thing
+    // that can tell one adapter's measurements from another's.
+    let fingerprint = format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device);
+
     let mut device_props = DeviceProperties::new(
         Default::default(),
         mem_props,
         hardware_props,
         time_measurement,
+        DeviceIdentity {
+            name: adapter_info.name.clone(),
+            fingerprint,
+        },
     );
 
     #[cfg(not(all(target_os = "macos", feature = "msl")))]

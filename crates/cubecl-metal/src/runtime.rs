@@ -4,8 +4,8 @@ use cubecl_core::{
     Runtime,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        AddressType, DeviceProperties, ElemType, FloatKind, HardwareProperties, IntKind,
-        MemoryDeviceProperties, TargetProperties, Type, UIntKind,
+        AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
+        IntKind, MemoryDeviceProperties, TargetProperties, Type, UIntKind,
         features::{AtomicUsage, Plane, TypeUsage},
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -89,11 +89,22 @@ impl DeviceService for MetalServer {
             cube_mma_reserved_shared_memory: 0,
         };
 
+        // Metal is the one backend where the display name *is* the fingerprint:
+        // the MSL is emitted from device-derived compilation options, so the
+        // device's own name is what keeps sources built for another GPU out.
+        // `MetalContext` builds the same `msl_{name}` namespace from the same
+        // string.
+        let device_name = metal_device.name().to_string();
+
         let mut device_props = DeviceProperties::new(
             Default::default(),
             mem_props.clone(),
             hardware_props,
             TimingMethod::Device,
+            DeviceIdentity {
+                fingerprint: format!("msl_{device_name}"),
+                name: device_name,
+            },
         );
 
         register_metal_features(&mut device_props);

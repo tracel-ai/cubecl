@@ -9,8 +9,8 @@ use cubecl_core::{
     client::ComputeClient,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        DeviceProperties, HardwareProperties, MemoryDeviceProperties, TargetProperties, VectorSize,
-        features::Features,
+        DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties,
+        TargetProperties, VectorSize, features::Features,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides},
@@ -84,6 +84,14 @@ impl DeviceService for CpuServer {
             mem_properties.clone(),
             topology.clone(),
             TimingMethod::Device,
+            // The CPU backend JITs through MLIR for whatever host it runs on
+            // and persists no compiled code, so there is no per-machine
+            // namespace to match against. The architecture is the honest
+            // fingerprint: it is what the generated code is valid for.
+            DeviceIdentity {
+                name: "CPU".to_string(),
+                fingerprint: format!("cpu_{}", std::env::consts::ARCH),
+            },
         );
         register_supported_types(&mut device_props);
 
