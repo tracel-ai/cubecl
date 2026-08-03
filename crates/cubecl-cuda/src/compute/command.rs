@@ -80,10 +80,16 @@ impl<'a> Command<'a> {
         // Deferred frees sit in the drop queue until a fenced flush, so an
         // explicit cleanup must drain it first or the pools still see those
         // slices as live. The queue is a double buffer (one flush only rotates
-        // the current batch), so flush twice.
-        let sys = stream.sys;
-        stream.drop_queue.flush(|| Fence::new(sys));
-        stream.drop_queue.flush(|| Fence::new(sys));
+        // the current batch), so flush twice. Skipped while a capture is
+        // prepared or recording: a host sync aborts a recording capture, and
+        // the capture path drains the queue itself. The cleanups below stay
+        // safe mid-capture: `cleanup` defers all frees while a capture is
+        // active.
+        if !stream.capturing.defers_flushes() {
+            let sys = stream.sys;
+            stream.drop_queue.flush(|| Fence::new(sys));
+            stream.drop_queue.flush(|| Fence::new(sys));
+        }
         stream.memory_management_gpu.cleanup(true);
         stream.memory_management_cpu.cleanup(true);
     }
@@ -432,7 +438,13 @@ impl<'a> Command<'a> {
 
         current.drop_queue.push(data);
 
-        if should_flush || current.drop_queue.should_flush() {
+        // Defer fenced flushes while a capture is prepared or recording — a
+        // host sync aborts a recording capture, and warmup must hold its
+        // staging slices like the capture run will (see
+        // [`StreamCaptureState::defers_flushes`]).
+        if should_flush && !current.capturing.defers_flushes()
+            && (should_flush || current.drop_queue.should_flush())
+        {
             current.drop_queue.flush(|| Fence::new(current.sys));
         }
 
@@ -533,7 +545,12 @@ impl<'a> Command<'a> {
             const_info,
         );
 
-        if stream.drop_queue.should_flush() {
+        // A fenced flush during capture would abort it; defer until the capture
+        // ends (the deferred staging buffers are reclaimed then). Also deferred
+        // during `Prepare`, so warmup primes the pinned pool with the same
+        // concurrent working set the capture run holds (see
+        // [`StreamCaptureState::defers_flushes`]).
+        if !stream.capturing.defers_flushes() && stream.drop_queue.should_flush() {
             stream.drop_queue.flush(|| Fence::new(stream.sys));
         }
 

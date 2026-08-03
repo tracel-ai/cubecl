@@ -8,7 +8,7 @@ use crate::compute::{
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{Binding, ServerError},
+    server::{Binding, Handle, ServerError},
 };
 use cubecl_runtime::{
     config::streaming::StreamPriority,
@@ -16,6 +16,7 @@ use cubecl_runtime::{
     memory_management::{
         MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, drop_queue,
     },
+    metadata_cache::{CacheMode, MetadataCachePolicy, MetadataInfoCache},
     stream::EventStreamBackend,
 };
 use std::{mem::MaybeUninit, sync::Arc};
@@ -27,6 +28,84 @@ pub struct Stream {
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     pub errors: Vec<ServerError>,
     pub drop_queue: drop_queue::PendingDropQueue<Fence>,
+    /// This stream's position in the graph-capture lifecycle (see
+    /// [`StreamCaptureState`]). Enforces the ordered `graph_prepare` →
+    /// `begin_capture` → `end_capture` transitions and gates the deferral of
+    /// fenced drop-queue flushes while a capture is prepared or recording.
+    pub capturing: StreamCaptureState,
+    /// Reusable per-launch info buffers, keyed by the exact info words they
+    /// were built from. On the grid-constants path only the dynamic tail
+    /// (shape/stride arrays) becomes a device buffer — scalars and static
+    /// metadata ride in the kernel's parameter block — so that tail is what
+    /// gets cached; without grid constants the whole info buffer is cached.
+    /// Admission and least-recently-used eviction are decided by the cache's
+    /// [`MetadataCachePolicy`]; the launch path sets its [`CacheMode`] from
+    /// the capture lifecycle, so during graph capture every buffer is cached
+    /// and none is evicted mid-capture. See [`StreamCaptureState::cache_mode`].
+    pub info_cache: MetadataInfoCache<Handle>,
+}
+
+/// Where a stream sits in the graph-capture lifecycle. Capture is a strict
+/// `NoCapture → Prepare → Capture → NoCapture` progression: `graph_prepare`
+/// arms the pools (`NoCapture → Prepare`), `begin_capture` opens the recording
+/// window (`Prepare → Capture`), and `end_capture` closes it (`Capture →
+/// NoCapture`). Every transition rejects an out-of-order call, so a capture can
+/// never start unprepared and two captures can never overlap on one stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamCaptureState {
+    /// No capture is prepared or recording.
+    NoCapture,
+    /// `graph_prepare` has armed the persistent pools and snapshotted them for
+    /// the warmup run; `begin_capture` may now open the window. Fenced
+    /// drop-queue flushes are already deferred here (see
+    /// [`defers_flushes`](Self::defers_flushes)): whatever pinned staging the
+    /// capture run will hold, the warmup run must hold the same way, so the
+    /// pool ends up primed with the full concurrent working set.
+    Prepare,
+    /// `cuStreamBeginCapture` is recording launches. A fenced drop-queue flush
+    /// (or any host sync) issued now aborts the capture
+    /// (`CUDA_ERROR_STREAM_CAPTURE_UNSUPPORTED`), so the execution path defers
+    /// those flushes until `end_capture`, which reclaims the deferred buffers.
+    Capture,
+}
+
+impl StreamCaptureState {
+    /// Whether launches on the stream are being recorded into a graph right
+    /// now — the window during which a host sync would abort the capture.
+    pub fn is_recording(&self) -> bool {
+        matches!(self, StreamCaptureState::Capture)
+    }
+
+    /// Whether fenced drop-queue flushes must be deferred — true for the whole
+    /// `Prepare`/`Capture` lifecycle, not just while recording. During
+    /// `Capture` a fenced flush is a host sync and aborts the capture. During
+    /// `Prepare` it would be harmless to the driver, but any pinned staging
+    /// slice the capture run reserves (a `write_to_gpu` stage, or an info
+    /// buffer the cache declined) is held for the whole window, its flushes
+    /// being deferred. If warmup flushed and reused slices where the capture
+    /// run needs distinct live ones, the pool would own fewer slices than the
+    /// window needs, forcing a fresh pinned allocation mid-capture — which
+    /// aborts it. Deferring warmup's flushes too makes its footprint identical
+    /// to the capture run's, so `begin_capture`'s double flush leaves exactly
+    /// the right slices free for the window to reuse. (The info cache keeps
+    /// most launches off the staging path entirely; this deferral covers
+    /// whatever still reserves.)
+    pub fn defers_flushes(&self) -> bool {
+        !matches!(self, StreamCaptureState::NoCapture)
+    }
+
+    /// The [`CacheMode`] the metadata info cache should run in at this lifecycle
+    /// position. Both while a graph is being *prepared* (warmup, which primes
+    /// the cache) and while it is being *recorded* the cache runs in
+    /// [`CacheMode::Capture`] — caching every buffer and invalidating none — so
+    /// the capture window finds every info buffer warm and drops none out from
+    /// under a recorded launch. Normal operation uses [`CacheMode::Normal`].
+    pub fn cache_mode(&self) -> CacheMode {
+        match self {
+            StreamCaptureState::NoCapture => CacheMode::Normal,
+            StreamCaptureState::Prepare | StreamCaptureState::Capture => CacheMode::Capture,
+        }
+    }
 }
 
 impl drop_queue::Fence for Fence {
@@ -161,6 +240,8 @@ impl EventStreamBackend for CudaStreamBackend {
             memory_management_cpu,
             errors: Vec::new(),
             drop_queue: Default::default(),
+            capturing: StreamCaptureState::NoCapture,
+            info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
         }
     }
 

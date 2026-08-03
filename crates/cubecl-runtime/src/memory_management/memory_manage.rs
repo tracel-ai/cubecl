@@ -147,6 +147,20 @@ struct CaptureState {
     /// so a slice the window never touched is not over-retained, and a
     /// pre-existing slice freed and reused mid-window is still pinned.
     touched: HashSet<ManagedMemoryId>,
+    /// Whether the warmup (priming) phase is still running, i.e. the capture window has not opened
+    /// yet. While set, every slice handed out is retained in `primed` instead of being recycled.
+    priming: bool,
+    /// Slices retained during priming, released by
+    /// [`capture_priming_end`](MemoryManagement::capture_priming_end).
+    ///
+    /// Warmup exists to leave the pool able to serve the recorded run without allocating — an
+    /// allocation inside the window is recorded as a memory node, and CUDA refuses to relaunch a
+    /// graph holding one. Letting warmup recycle its own slices defeats that: the pool only ever
+    /// grows to a warmup pass's transient *peak*, which depends on how far the host runs ahead of
+    /// the device and can land below what the recorded run asks for. Holding every slice instead
+    /// forces the pool up to the pass's full distinct working set — an upper bound on any peak —
+    /// so once these are released the recorded run cannot ask for a slice the pool lacks.
+    primed: Vec<ManagedMemoryHandle>,
 }
 
 fn generate_bucket_sizes(
@@ -709,9 +723,26 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             self.capture = Some(CaptureState {
                 restore_mode: self.mode,
                 touched: HashSet::new(),
+                priming: true,
+                primed: Vec::new(),
             });
         }
         self.mode = MemoryAllocationMode::Persistent;
+    }
+
+    /// End the priming phase and release the slices warmup retained, returning them to the pool as
+    /// free. Call immediately before the capture window opens.
+    ///
+    /// After this the pool holds every slice a warmup pass touched, all of them free, so the
+    /// recorded run reuses them instead of growing the pool (see [`CaptureState::primed`]). No-op
+    /// when no capture is active or priming already ended.
+    pub fn capture_priming_end(&mut self) {
+        if let Some(capture) = &mut self.capture {
+            capture.priming = false;
+            // Dropping the handles makes the slices free again; the slices themselves stay in the
+            // pool, which is the point.
+            capture.primed.clear();
+        }
     }
 
     /// End a graph capture: restore the previous allocation mode and return a
@@ -873,6 +904,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn capture_touch(&mut self, handle: &ManagedMemoryHandle) {
         if let Some(capture) = &mut self.capture {
             capture.touched.insert(handle.descriptor().id);
+            if capture.priming {
+                // Retain it so warmup cannot recycle this slice, forcing the pool to grow to the
+                // pass's full working set rather than its transient peak.
+                capture.primed.push(handle.clone());
+            }
         }
     }
 
@@ -2171,6 +2207,137 @@ mod tests {
         assert!(
             preexisting.can_mut(),
             "a capture must not claim pre-existing live buffers"
+        );
+    }
+
+    /// Warmup must leave the pool holding its full *distinct working set*, not
+    /// its transient peak.
+    ///
+    /// This is the property the whole priming phase exists for. If warmup is
+    /// allowed to recycle its own slices, the pool only ever grows to the peak
+    /// number of slices live *at any one instant* during the pass — and that
+    /// peak depends on how far the host runs ahead of the device, so it can
+    /// land below what the recorded run asks for. The window then has to
+    /// allocate, which a capture records as a memory node, and CUDA refuses to
+    /// relaunch a graph holding one: the first launch succeeds and every replay
+    /// after it fails.
+    ///
+    /// Here warmup reserves the same size three times *sequentially*, so its
+    /// instantaneous peak is one slice while its working set is three. The
+    /// recorded run then holds three at once. Without retention the pool ends
+    /// warmup with one slice and the window allocates two more.
+    #[test_log::test]
+    fn capture_priming_leaves_the_working_set_not_the_peak() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::ExclusivePages,
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        // Warmup: three sequential reserve/drop cycles. Each drop would hand
+        // the slice straight back to the next reserve if priming did not retain
+        // it, leaving a one-slice pool.
+        memory_management.capture_begin();
+        for _ in 0..3 {
+            let scratch = memory_management.reserve(1024).unwrap();
+            drop(scratch);
+        }
+        // Warmup is over: release the retained slices. They stay in the pool,
+        // now free, which is the entire point.
+        memory_management.capture_priming_end();
+        let after_warmup = memory_management.memory_usage();
+
+        // The recorded run holds three slices of that size simultaneously —
+        // more than warmup's instantaneous peak of one. Every one of them must
+        // come from the pool.
+        let recorded: Vec<_> = (0..3)
+            .map(|_| memory_management.reserve(1024).unwrap())
+            .collect();
+        let after_window = memory_management.memory_usage();
+
+        assert_eq!(
+            after_window.bytes_reserved, after_warmup.bytes_reserved,
+            "the capture window grew the pool: warmup left only its transient \
+             peak, so the recorded run had to allocate — which a capture records \
+             as a memory node and makes the graph un-relaunchable"
+        );
+
+        drop(recorded);
+        drop(memory_management.capture_end());
+    }
+
+    /// The mechanism behind [`capture_priming_leaves_the_working_set_not_the_peak`]:
+    /// a handle dropped *during* priming must not return its slice to the free
+    /// list, and `capture_priming_end` must give every one of them back.
+    #[test_log::test]
+    fn capture_priming_holds_dropped_slices_until_priming_ends() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::ExclusivePages,
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        memory_management.capture_begin();
+        let first = memory_management.reserve(1024).unwrap();
+        drop(first);
+
+        // Still priming: the dropped slice is retained, so this reserve cannot
+        // recycle it and the pool has to grow.
+        let before_second = memory_management.memory_usage();
+        let second = memory_management.reserve(1024).unwrap();
+        let after_second = memory_management.memory_usage();
+        assert!(
+            after_second.bytes_reserved > before_second.bytes_reserved,
+            "priming must retain a dropped slice instead of recycling it"
+        );
+        drop(second);
+
+        // Priming over: both slices are free again and must now be reused.
+        memory_management.capture_priming_end();
+        let before_reuse = memory_management.memory_usage();
+        let reused = memory_management.reserve(1024).unwrap();
+        let after_reuse = memory_management.memory_usage();
+        assert_eq!(
+            after_reuse.bytes_reserved, before_reuse.bytes_reserved,
+            "capture_priming_end must release the retained slices for reuse"
+        );
+
+        drop(reused);
+        drop(memory_management.capture_end());
+    }
+
+    /// A backend that never calls `capture_priming_end` (HIP did not, before the
+    /// call was added to both) must not leak warmup's slices past the capture.
+    #[test_log::test]
+    fn capture_end_releases_primed_slices_when_priming_never_ended() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::ExclusivePages,
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        memory_management.capture_begin();
+        let scratch = memory_management.reserve(1024).unwrap();
+        drop(scratch);
+        // The caller let its handle go, but priming is still holding the slice.
+        assert!(
+            memory_management.memory_usage().bytes_in_use > 0,
+            "priming should still be retaining the dropped slice"
+        );
+
+        // No `capture_priming_end` — `capture_end` drops the `CaptureState`,
+        // and with it every handle priming retained.
+        drop(memory_management.capture_end());
+        assert_eq!(
+            memory_management.memory_usage().bytes_in_use,
+            0,
+            "primed slices outlived the capture"
         );
     }
 

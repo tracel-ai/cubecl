@@ -280,6 +280,13 @@ impl ComputeServer for HipServer {
         let sys = stream.sys;
         stream.drop_queue.flush(|| Fence::new(sys));
         stream.drop_queue.flush(|| Fence::new(sys));
+        // Warmup is over: release the slices it retained (see `CaptureState::primed`) so the
+        // recorded run reuses them instead of allocating. Mandatory rather than an optimization --
+        // priming retention is shared runtime behaviour, so leaving it armed here would hold
+        // warmup's slices for the whole window and force a mid-capture `hipMalloc`, which
+        // invalidates the capture.
+        stream.memory_management_gpu.capture_priming_end();
+        stream.memory_management_cpu.capture_priming_end();
         // SAFETY: `stream.sys` is a valid HIP stream; global capture mode
         // records every launch issued on it until `hipStreamEndCapture`.
         let status = unsafe {
