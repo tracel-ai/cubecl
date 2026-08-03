@@ -11,6 +11,9 @@ pub struct QuantScheme {
     /// This defines how values are interpreted during computation, independent of how they're stored.
     pub value: QuantValue,
     /// Precision used for quantization parameters (e.g., scale and biases).
+    ///
+    /// This is the only param a one-level scheme has. [`QuantLevel::BlockTensor`] adds a second one
+    /// for its per-tensor scale, so a consumer that reads this field alone will miss that factor.
     pub param: QuantParam,
     /// Data type used for storing quantized values.
     pub store: QuantStore,
@@ -105,18 +108,62 @@ impl QuantScheme {
 }
 
 /// Level or granularity of quantization.
+///
+/// Append new variants, never insert. Some transports serialize this with a format that encodes
+/// variants by position rather than by name, so inserting one silently reinterprets streams and
+/// stored schemes written by an older build.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum QuantLevel {
     /// Quantize the whole tensor using a single tensor.
     Tensor,
     /// Quantize a tensor using multiple blocks.
     Block(BlockSize),
+    /// Quantize a tensor using multiple blocks whose scales are themselves normalized by a single
+    /// per-tensor scale.
+    ///
+    /// See [`QuantLevel::block_tensor`] for what that buys and what it does not.
+    BlockTensor {
+        /// Size of each block. The block scales use [`QuantScheme::param`].
+        block: BlockSize,
+        /// Precision of the per-tensor scale. Only a param with more range than the block scales
+        /// use is meaningful.
+        global: QuantParam,
+    },
 }
 
 impl QuantLevel {
     /// Converting constructor for [`QuantLevel::Block`]
     pub fn block(values: impl AsRef<[u8]>) -> Self {
         QuantLevel::Block(BlockSize::new(values))
+    }
+
+    /// Converting constructor for [`QuantLevel::BlockTensor`].
+    ///
+    /// The per-tensor scale absorbs the tensor's dynamic range, which is what lets the block scales
+    /// live in a narrow type. Without it a block scale has to cover that range on its own, and a
+    /// type like [`QuantParam::UE4M3`] underflows to zero for small values.
+    ///
+    /// What the block param covers is then the spread between blocks, which is still bounded. A
+    /// block whose scale falls further below the largest one than the block param can express is
+    /// stored at that param's smallest value, far too coarse for it, and every value in the block
+    /// quantizes to zero. [`QuantParam::UE4M3`] spans about 2^18 this way, from its smallest
+    /// subnormal to 448, so a tensor holding a genuine outlier can lose its ordinary values.
+    ///
+    /// The kernels in `cubecl-std` do not implement this level yet and reject it at launch rather
+    /// than reconstruct values short by the per-tensor factor.
+    pub fn block_tensor(values: impl AsRef<[u8]>, global: QuantParam) -> Self {
+        QuantLevel::BlockTensor {
+            block: BlockSize::new(values),
+            global,
+        }
+    }
+
+    /// The precision of the per-tensor scale, for the levels that have one.
+    pub fn global_param(&self) -> Option<QuantParam> {
+        match self {
+            QuantLevel::Tensor | QuantLevel::Block(_) => None,
+            QuantLevel::BlockTensor { global, .. } => Some(*global),
+        }
     }
 }
 
@@ -341,3 +388,4 @@ impl<T: AsRef<[u8]>> From<T> for BlockSize {
         BlockSize::new(value)
     }
 }
+
