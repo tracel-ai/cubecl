@@ -58,6 +58,7 @@ pub fn kernel_fp8_broadcast<F: Float, N: Size>(input: &[e4m3], out: &mut [Vector
     }
 }
 
+#[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
 pub fn test_fp8_broadcast<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
     vector_size: VectorSize,

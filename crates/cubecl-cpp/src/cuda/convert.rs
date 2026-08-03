@@ -77,9 +77,10 @@ pub(crate) fn special_cast<D: Dialect>(
         _ => panic!("Invalid input item for special cast"),
     };
 
-    // Broadcast scalars to packing factor
+    // Broadcast scalars to packing factor. A minifloat source has already been decoded to half
+    // above, so this widens whatever `current_in` holds now, not the type it started as.
     if out.item().packing_factor() > 1 && in_vec == 1 {
-        let tmp = Value::tmp(Item::new(input.elem(), out.item().packing_factor()));
+        let tmp = Value::tmp(Item::new(current_in.elem(), out.item().packing_factor()));
         let assign = Instruction::Assign(UnaryInstruction {
             input: current_in,
             out: tmp,
@@ -534,6 +535,26 @@ mod tests {
                                 .push((format!("encode {float:?} to {mini:?}"), emit(float, mini)));
                         }
                     }
+                }
+            }
+        }
+
+        // A minifloat destination decodes through the same half intermediate before re-encoding,
+        // so the broadcast has to survive it too. Only a single unpacked source is covered: a
+        // packed or multi-lane source decoded into a narrower destination composes a name that
+        // does not exist, but that is the same separate defect as the narrowing above.
+        for &from_elem in MINIFLOATS {
+            if from_elem.packing_factor() != 1 {
+                continue;
+            }
+            for &to_elem in MINIFLOATS {
+                if from_elem == to_elem {
+                    continue;
+                }
+                for to_width in [2, 4] {
+                    let from = Item::Scalar(from_elem);
+                    let to = Item::new(to_elem, to_width);
+                    cases.push((format!("convert {from:?} to {to:?}"), emit(from, to)));
                 }
             }
         }
