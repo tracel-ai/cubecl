@@ -149,8 +149,9 @@ impl QuantLevel {
     /// quantizes to zero. [`QuantParam::UE4M3`] spans about 2^18 this way, from its smallest
     /// subnormal to 448, so a tensor holding a genuine outlier can lose its ordinary values.
     ///
-    /// The kernels in `cubecl-std` do not implement this level yet and reject it at launch rather
-    /// than reconstruct values short by the per-tensor factor.
+    /// The quantized view in `cubecl-std` reads the per-tensor scale as a binding of its own, and
+    /// rejects a launch whose bindings disagree with the level rather than reconstruct values short
+    /// by that factor.
     pub fn block_tensor(values: impl AsRef<[u8]>, global: QuantParam) -> Self {
         QuantLevel::BlockTensor {
             block: BlockSize::new(values),
