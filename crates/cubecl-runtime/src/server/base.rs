@@ -844,6 +844,24 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
+    /// The device had no memory left for this allocation.
+    ///
+    /// Unlike [`IoError::BufferTooBig`] (the allocation can *never* fit), this
+    /// describes the device at one moment: pool pages whose slices have all
+    /// been dropped are still resident, and the frees that would release them
+    /// may not have reached the driver yet. Reclaiming and retrying is a
+    /// reasonable response, which is why a storage backend must not report a
+    /// driver out-of-memory as `BufferTooBig`: that tells every caller the
+    /// allocation is hopeless when it is merely untimely.
+    #[error("out of device memory allocating {size} bytes\n{backtrace}")]
+    OutOfMemory {
+        /// The size of the failed allocation in bytes.
+        size: u64,
+        /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// A memory pool with a fixed capacity cap is exhausted.
     ///
     /// Unlike [`IoError::BufferTooBig`] (the allocation can *never* fit), this
