@@ -323,6 +323,19 @@ fn exclusive_stays_recoverable_on_task_panic() {
     }
 }
 
+/// A tune key component that is new on every run.
+///
+/// The persistent autotune cache outlives the process, so a key has to be unique for the
+/// candidates to actually be benchmarked instead of read back from the cache.
+#[cfg(feature = "std")]
+fn fresh_tune_key_uid() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+        .to_string()
+}
+
 /// A tunable that rejects its own configuration fails identically on every call, so the
 /// benchmark must stop at the first rejection rather than paying a profile round trip for
 /// every warmup and sample before reporting it.
@@ -345,13 +358,7 @@ fn autotune_stops_sampling_a_rejected_candidate() {
     let calls = Arc::new(AtomicUsize::new(0));
     let calls_set = calls.clone();
 
-    // The persistent cache outlives the process, so the key has to be new on every run for the
-    // candidates to actually be benchmarked.
-    let uid = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos()
-        .to_string();
+    let uid = fresh_tune_key_uid();
 
     let test_set = TUNER.init(move || {
         let client = test_client(&DummyDevice);
@@ -370,6 +377,11 @@ fn autotune_stops_sampling_a_rejected_candidate() {
 /// anywhere: the server records the launch failure and returns it at `end_profile`, the
 /// tuner drops the candidate on that error, the surviving kernel wins, and the device
 /// keeps serving afterwards.
+///
+/// The broken candidate is the *last* one in the set, so nothing flushes the server
+/// after it. Anything the profile boundary failed to drain is still pending when the
+/// tuner returns, and would otherwise be handed to the next test: the dummy server is
+/// process-global.
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]
@@ -383,11 +395,7 @@ fn autotune_skips_a_candidate_that_fails_compilation() {
     let out = client.empty(3);
     let handles = vec![lhs, rhs, out.clone()];
 
-    let uid = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos()
-        .to_string();
+    let uid = fresh_tune_key_uid();
 
     let test_set = TUNER.init(move || {
         let client = test_client(&DummyDevice);
@@ -395,6 +403,12 @@ fn autotune_skips_a_candidate_that_fails_compilation() {
         dummy::addition_set_with_failing_compilation(client, shapes, uid.clone())
     });
     TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    // The profile boundary consumed the failure: nothing is left for the next caller,
+    // which on this process-global server would be an unrelated test.
+    client
+        .flush()
+        .expect("the launch failure must not survive the profile it happened in");
 
     // The failing candidate was skipped on the lazily returned error and `add` won.
     assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
@@ -440,11 +454,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
     let fast_set = fast_calls.clone();
     let slow_set = slow_calls.clone();
 
-    let uid = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos()
-        .to_string();
+    let uid = fresh_tune_key_uid();
 
     let test_set = TUNER.init(move || {
         let client = test_client(&DummyDevice);

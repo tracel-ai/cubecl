@@ -161,6 +161,9 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     /// blocking until it exits. Queued tasks run before the runner stops, and
     /// live handles keep it alive, so all handles for the device should be
     /// dropped first. No-op for implementations without background threads.
+    ///
+    /// The scope is the whole device, not the service `S`: every service running on
+    /// `device_id`, across every stage, goes down with it.
     fn shutdown(device_id: DeviceId) {
         let _ = device_id;
     }

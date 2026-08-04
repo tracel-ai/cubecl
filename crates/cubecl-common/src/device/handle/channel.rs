@@ -2,9 +2,10 @@ use crate::device::{
     DeviceId, DeviceService, DeviceServiceStage, ServerUtilitiesHandle,
     handle::{CallError, DeviceHandleSpec, ServiceCreationError},
 };
+use core::time::Duration;
 use cubecl_environment::future::channel::oneshot;
 use cubecl_environment::stream::StreamId;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use std::{
     any::{Any, TypeId},
     boxed::Box,
@@ -217,6 +218,11 @@ fn is_device_runner_thread(runner_key: &RunnerId) -> bool {
     SERVER_THREAD.with_borrow(|state| state.as_ref() == Some(runner_key))
 }
 
+/// Whether the current thread is a runner for `device_id`, on any stage.
+fn is_device_thread(device_id: DeviceId) -> bool {
+    SERVER_THREAD.with_borrow(|state| state.as_ref().is_some_and(|id| id.device == device_id))
+}
+
 std::thread_local! {
     /// The ID of the device this thread is responsible for.
     static SERVER_THREAD: RefCell<Option<RunnerId>> = const { RefCell::new(None) };
@@ -263,8 +269,39 @@ static RUNNERS: spin::Mutex<Option<HashMap<RunnerId, RunnerEntry>>> = spin::Mute
 /// Device/service map. The lock is held across the entire `init` sequence so `S::init` runs
 /// once per `(DeviceId, TypeId)` pair. This serializes channel creation across all
 /// backends.
-static CHANNELS: spin::Mutex<Option<HashMap<(RunnerId, TypeId), ChannelDeviceState>>> =
-    spin::Mutex::new(None);
+///
+/// Lock order is `CHANNELS` then `RUNNERS`, never the reverse.
+static CHANNELS: spin::Mutex<Option<Registry>> = spin::Mutex::new(None);
+
+/// The cached device/service states, plus the runners currently being wound down.
+///
+/// One lock covers both because [`ChannelDeviceState::init`] and [`shutdown_device`] have
+/// to agree on a single ordering: a shutdown that swept the map has to be visible to
+/// every `init` that has not yet inserted into it. Sharing the lock `init` already takes
+/// also means the check costs it a set lookup rather than another acquisition, and
+/// handle creation is warm enough to care.
+#[derive(Default)]
+struct Registry {
+    /// Cached state per `(RunnerId, TypeId)`.
+    channels: HashMap<(RunnerId, TypeId), ChannelDeviceState>,
+    /// Runners [`shutdown_device`] has swept out of both registries but not yet joined.
+    /// An `init` that lands on one waits for the join instead of caching a client of a
+    /// runner that is about to go away, which would park it forever, or spawning a
+    /// second runner with the same [`RunnerId`] while the first is still draining.
+    shutting_down: HashSet<RunnerId>,
+}
+
+/// How long [`shutdown_device`] waits for a runner thread before giving up on it.
+///
+/// A runner only exits once every client is gone, so a task parked in another device's
+/// queue, or a cycle between two runners shutting each other down, can hold it forever.
+/// Leaking the thread with a warning beats hanging the process with no diagnostic.
+const SHUTDOWN_JOIN_TIMEOUT: Duration = Duration::from_secs(30);
+/// Number of `yield_now` calls before the join wait drops to sleeping, so a normal
+/// shutdown still returns promptly.
+const SHUTDOWN_JOIN_YIELD_BUDGET: u32 = 1024;
+/// Poll interval once the yield budget is exhausted.
+const SHUTDOWN_JOIN_POLL: Duration = Duration::from_micros(200);
 
 impl ChannelDeviceState {
     pub fn init<S: DeviceService>(
@@ -282,8 +319,40 @@ impl ChannelDeviceState {
         // "check missing, insert new" transition is atomic. Without this, two
         // concurrent callers for the same key would both observe a missing entry,
         // both run `S::init`, and race to insert.
-        let mut guard_channel = CHANNELS.lock();
-        let channels = guard_channel.get_or_insert_with(HashMap::new);
+        //
+        // Taking the lock also means waiting out any in-flight `shutdown_device` for
+        // this runner. The check belongs under the lock: `shutdown_device` marks the
+        // runner while holding it, so testing it here is what closes the window where
+        // we would otherwise cache a client of a runner that is already being joined,
+        // parking that runner forever.
+        let mut guard_channel = loop {
+            let mut guard = CHANNELS.lock();
+            let shutting_down = guard
+                .get_or_insert_with(Registry::default)
+                .shutting_down
+                .contains(&runner_id);
+
+            if !shutting_down {
+                break guard;
+            }
+
+            if is_device_thread(runner_id.device) {
+                // Waiting is not an option: the shutdown covers every runner of this
+                // device, including the one running this very code, and it cannot finish
+                // until we return. Device-scoped for the same reason the self-join assert
+                // in `shutdown_device` is: the runners of a device are joined in an
+                // unspecified order, so waiting on a sibling stage can deadlock too.
+                return Err(ServiceCreationError::new(
+                    "Cannot create a device handle from a runner thread of a device that \
+                     is shutting down."
+                        .into(),
+                ));
+            }
+
+            drop(guard);
+            std::thread::yield_now();
+        };
+        let channels = &mut guard_channel.get_or_insert_with(Registry::default).channels;
 
         if let Some(existing) = channels.get(&key) {
             if service.is_some() {
@@ -407,11 +476,27 @@ impl DeviceRunner {
 
 /// Stops every runner thread of `device_id`, blocking until they exit.
 ///
-/// Queued tasks run before the threads stop. Live handles keep their runner
-/// alive, so this blocks until the last handle for the device is dropped.
-/// New handles created for the device afterwards spawn fresh runner threads.
+/// Queued tasks run before the threads stop. Live handles keep their runner alive, so
+/// this blocks until the last handle for the device is dropped. New handles created for
+/// the device afterwards spawn fresh runner threads.
+///
+/// # Scope
+///
+/// This is device-wide, not service-wide: it tears down *every* [`DeviceService`] on
+/// `device_id` and both [`DeviceServiceStage`]s, not just the service the caller went
+/// through. [`DeviceId`] is also not unique across runtimes, `type_id` is assigned per
+/// runtime, so two backends can name the same id. Shutting down "device 0" therefore
+/// reaches every service any runtime registered under that id.
+///
+/// # Notes
+///
+/// If a runner does not stop within [`SHUTDOWN_JOIN_TIMEOUT`] the thread is leaked with a
+/// warning rather than blocking forever. That bounds the failure modes the ownership
+/// rules cannot rule out: a task holding this device's handle parked in *another*
+/// device's unflushed queue, or two runners shutting each other down.
 pub(crate) fn shutdown_device(device_id: DeviceId) {
-    // A runner joining itself would deadlock.
+    // A runner joining itself would deadlock. Cycles through another device cannot be
+    // caught here, the join timeout is what bounds those.
     SERVER_THREAD.with_borrow(|current| {
         if let Some(runner) = current {
             assert_ne!(
@@ -421,49 +506,115 @@ pub(crate) fn shutdown_device(device_id: DeviceId) {
         }
     });
 
-    // Removed entries are dropped outside the locks: each cached state holds
-    // a client clone that must go away before the servers can exit.
-    let channels = {
-        let mut guard = CHANNELS.lock();
-        match guard.as_mut() {
-            Some(map) => {
-                let keys: Vec<_> = map
-                    .keys()
-                    .filter(|(runner_id, _)| runner_id.device == device_id)
-                    .copied()
-                    .collect();
-                keys.into_iter()
-                    .filter_map(|key| map.remove(&key))
-                    .collect()
-            }
+    // Both registries are swept under both locks, and the runners are marked as shutting
+    // down before either lock is released. A gap between the sweeps would let a
+    // concurrent `init` observe a half-swept state: clone a client from a `RunnerEntry`
+    // that is about to be joined and cache it in the registry, which parks the runner
+    // forever since nothing but this function removes that entry.
+    let (channels, runners) = {
+        let mut guard_channel = CHANNELS.lock();
+        let registry = guard_channel.get_or_insert_with(Registry::default);
+
+        let runners: Vec<(RunnerId, RunnerEntry)> = match RUNNERS.lock().as_mut() {
+            Some(map) => map
+                .extract_if(|runner_id, _| runner_id.device == device_id)
+                .collect(),
             None => Vec::new(),
+        };
+
+        let channels: Vec<ChannelDeviceState> = registry
+            .channels
+            .extract_if(|(runner_id, _), _| runner_id.device == device_id)
+            .map(|(_, state)| state)
+            .collect();
+
+        // Marked before the lock is released, so an `init` racing with this sweep either
+        // got in before it, and its entry is in `channels` above, or waits for the join.
+        for (runner_id, _) in runners.iter() {
+            registry.shutting_down.insert(*runner_id);
         }
+
+        (channels, runners)
     };
+
+    // Dropped outside the locks: each cached state holds a client clone that must go away
+    // before the servers can exit.
     drop(channels);
 
-    let runners = {
-        let mut guard = RUNNERS.lock();
-        match guard.as_mut() {
-            Some(map) => {
-                let keys: Vec<_> = map
-                    .keys()
-                    .filter(|runner_id| runner_id.device == device_id)
-                    .copied()
-                    .collect();
-                keys.into_iter()
-                    .filter_map(|key| map.remove(&key))
-                    .collect()
-            }
-            None => Vec::new(),
-        }
-    };
-
-    for runner in runners {
+    for (runner_id, runner) in runners {
         runner.client.request_shutdown();
         drop(runner.client);
-        if runner.thread.join().is_err() {
-            log::warn!("Device runner thread for {device_id:?} panicked during shutdown");
+        join_runner(runner_id, runner.thread);
+
+        // Cleared even on a timeout, otherwise every later handle for this device would
+        // wait on a runner that is never coming back.
+        if let Some(registry) = CHANNELS.lock().as_mut() {
+            registry.shutting_down.remove(&runner_id);
         }
+    }
+
+    // A concurrent `shutdown_device` for the same device may still be joining. This call
+    // promises the runners are gone once it returns, so wait that one out too.
+    wait_for_device_shutdown(device_id);
+}
+
+/// Waits for `thread` to exit, giving up after [`SHUTDOWN_JOIN_TIMEOUT`].
+///
+/// `JoinHandle::join` has no timed variant, hence the poll on `is_finished`.
+fn join_runner(runner_id: RunnerId, thread: std::thread::JoinHandle<()>) {
+    let start = std::time::Instant::now();
+    let mut yields: u32 = 0;
+
+    while !thread.is_finished() {
+        if start.elapsed() >= SHUTDOWN_JOIN_TIMEOUT {
+            log::warn!(
+                "Device runner {runner_id:?} did not stop within {SHUTDOWN_JOIN_TIMEOUT:?}, \
+                 leaking the thread. Something still holds a client for it: a task parked in \
+                 another device's unflushed queue, or two runners shutting each other down."
+            );
+            return;
+        }
+
+        if yields < SHUTDOWN_JOIN_YIELD_BUDGET {
+            std::thread::yield_now();
+            yields += 1;
+        } else {
+            std::thread::sleep(SHUTDOWN_JOIN_POLL);
+        }
+    }
+
+    if thread.join().is_err() {
+        log::warn!("Device runner {runner_id:?} panicked during shutdown");
+    }
+}
+
+/// Blocks while any runner of `device_id` is still being wound down, by this call or a
+/// concurrent one. Bounded by the same timeout as the join it is waiting on, doubled so a
+/// timing-out joiner gets to clear its own mark first.
+fn wait_for_device_shutdown(device_id: DeviceId) {
+    let start = std::time::Instant::now();
+
+    loop {
+        let pending = CHANNELS.lock().as_ref().is_some_and(|registry| {
+            registry
+                .shutting_down
+                .iter()
+                .any(|runner_id| runner_id.device == device_id)
+        });
+
+        if !pending {
+            return;
+        }
+
+        if start.elapsed() >= SHUTDOWN_JOIN_TIMEOUT * 2 {
+            log::warn!(
+                "A concurrent shutdown of {device_id:?} is still in flight after \
+                 {SHUTDOWN_JOIN_TIMEOUT:?}, returning anyway."
+            );
+            return;
+        }
+
+        std::thread::sleep(SHUTDOWN_JOIN_POLL);
     }
 }
 
@@ -786,31 +937,7 @@ mod custom_channel {
 
         /// Forces a flush by filling the remaining buffer with no-op tasks.
         pub fn flush(&self) {
-            let index_start =
-                self.state
-                    .available_index
-                    .fetch_add(CHANNEL_MAX_TASK as u32, Ordering::Acquire) as usize;
-
-            // The queue is already flushed.
-            if index_start >= CHANNEL_MAX_TASK {
-                return;
-            }
-
-            // We clamp the number of no-op to the required amount.
-            //
-            // # Notes
-            //
-            // index_end != index_start + CHANNEL_MAX_TASK;
-            let index_end = CHANNEL_MAX_TASK;
-
-            for index in index_start..index_end {
-                self.state.init_task_at(index, || ());
-            }
-
-            let actual_added = index_end - index_start;
-            self.state
-                .enqueued_count
-                .fetch_add(actual_added as u32, Ordering::SeqCst);
+            self.state.pad_with_noops();
         }
     }
 
@@ -832,6 +959,41 @@ mod custom_channel {
     }
 
     impl State {
+        /// Fills the rest of the current queue with no-op tasks so a partially
+        /// filled buffer reaches [`CHANNEL_MAX_TASK`] and the server swaps it in.
+        ///
+        /// Both sides of the protocol go through here, [`DeviceClient::flush`] and
+        /// [`Server::try_shutdown`], so the two copies cannot drift apart.
+        ///
+        /// `inline` keeps the client side, which is on the submit path, exactly as it was
+        /// when the body was spelled out in [`DeviceClient::flush`].
+        #[inline]
+        fn pad_with_noops(&self) {
+            let index_start =
+                self.available_index
+                    .fetch_add(CHANNEL_MAX_TASK as u32, Ordering::Acquire) as usize;
+
+            // The queue is already flushed.
+            if index_start >= CHANNEL_MAX_TASK {
+                return;
+            }
+
+            // We clamp the number of no-op to the required amount.
+            //
+            // # Notes
+            //
+            // index_end != index_start + CHANNEL_MAX_TASK;
+            let index_end = CHANNEL_MAX_TASK;
+
+            for index in index_start..index_end {
+                self.init_task_at(index, || ());
+            }
+
+            let actual_added = index_end - index_start;
+            self.enqueued_count
+                .fetch_add(actual_added as u32, Ordering::SeqCst);
+        }
+
         /// Initializes the task at `index` in the current queue with `func`.
         /// Exclusive access per slot is guaranteed by `available_index.fetch_add`.
         fn init_task_at<F: FnOnce() + Send + 'static>(&self, index: usize, func: F) {
@@ -938,32 +1100,37 @@ mod custom_channel {
 
         /// Winds the server down once no more work can arrive.
         ///
-        /// Returns `true` when the queue is empty and this server holds the
-        /// last reference to its state, meaning the thread can stop. When
-        /// tasks are still queued, pads the buffer with no-ops exactly like a
-        /// client flush so the main loop executes them, and returns `false`.
-        /// Queued tasks may hold client clones, which is why draining must
-        /// happen before the strong count can reach one.
+        /// Returns `true` when this server holds the last reference to its state
+        /// and the queue is empty, meaning the thread can stop. Otherwise pads the
+        /// buffer with no-ops exactly like a client flush so the main loop executes
+        /// what is queued, and returns `false`. Queued tasks may hold client clones,
+        /// which is why draining must happen before the strong count can reach one.
+        ///
+        /// # Notes
+        ///
+        /// The strong count is read *before* `enqueued_count`, and that order is
+        /// load-bearing. Once the count is one there is no producer left and none can
+        /// appear, which is what makes the queue read that follows authoritative.
+        /// Reading the queue first would let the last client enqueue a task and drop
+        /// its handle in between the two loads: the server would see a stale empty
+        /// queue next to a fresh count of one and exit with a written-but-never-run
+        /// task, leaking it and everything it captured (see [`Task::run`]).
         fn try_shutdown(&mut self) -> bool {
-            if self.state.enqueued_count.load(Ordering::Acquire) > 0 {
-                let index_start = self
-                    .state
-                    .available_index
-                    .fetch_add(CHANNEL_MAX_TASK as u32, Ordering::Acquire)
-                    as usize;
+            let is_last_ref = Arc::strong_count(&self.state) == 1;
 
-                if index_start < CHANNEL_MAX_TASK {
-                    for index in index_start..CHANNEL_MAX_TASK {
-                        self.state.init_task_at(index, || ());
-                    }
-                    self.state
-                        .enqueued_count
-                        .fetch_add((CHANNEL_MAX_TASK - index_start) as u32, Ordering::SeqCst);
-                }
+            if is_last_ref {
+                // `Arc::strong_count` is a relaxed load. This fence pairs with the
+                // release on the last client's `Arc` drop, so every task those
+                // clients wrote is visible to the `enqueued_count` load below.
+                core::sync::atomic::fence(Ordering::Acquire);
+            }
+
+            if self.state.enqueued_count.load(Ordering::Acquire) > 0 {
+                self.state.pad_with_noops();
                 return false;
             }
 
-            Arc::strong_count(&self.state) == 1
+            is_last_ref
         }
 
         fn execute_tasks(&mut self) {
@@ -1000,7 +1167,7 @@ mod custom_channel {
 #[cfg(test)]
 mod tests {
     use crate::device::handle::CallResultExt;
-    use crate::device::handle::ShutdownGuard;
+    use crate::device::handle::DeviceFixture;
     // Only the `cfg(not(miri))` flushing test uses this.
     #[cfg(not(miri))]
     use crate::device::handle::channel::custom_channel::CHANNEL_MAX_TASK;
@@ -1026,14 +1193,15 @@ mod tests {
         }
     }
 
+    /// A [`MockService`] handle on a device of its own, whose runner is shut down when
+    /// the returned value drops.
+    fn mock_fixture() -> DeviceFixture<ChannelDeviceHandle<MockService>> {
+        DeviceFixture::new(ChannelDeviceHandle::<MockService>::new, shutdown_device)
+    }
+
     #[test]
     fn test_basic_execution_and_state_persistence() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 1,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         // Task 1: Increment the counter
         let res = handle
@@ -1057,12 +1225,7 @@ mod tests {
 
     #[test]
     fn test_scoped_tasks_and_lifetimes() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 3,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         let local_val = 42; // This lives on the test stack
 
@@ -1085,13 +1248,7 @@ mod tests {
     #[test]
     #[cfg(not(miri))]
     fn test_buffer_flushing_at_limit() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 4,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
         let completed_count = Arc::new(AtomicUsize::new(0));
 
         // We fill exactly CHANNEL_MAX_TASK
@@ -1111,12 +1268,7 @@ mod tests {
 
     #[test]
     fn test_manual_flush_for_partial_buffer() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 5,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
         let (tx, rx) = oneshot::channel();
 
         // Send only 1 task (buffer is not full)
@@ -1133,15 +1285,50 @@ mod tests {
         assert!(received);
     }
 
+    /// A task the last client enqueued without flushing still runs before the runner
+    /// exits. Nothing but the shutdown drain can execute it: the buffer is partial, so
+    /// the main loop never swaps it in on its own.
     #[test]
-    fn test_closure_captures_are_dropped_after_execution() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 6,
+    fn test_shutdown_drains_a_task_the_last_client_left_queued() {
+        let ran = Arc::new(AtomicUsize::new(0));
+
+        {
+            let handle = mock_fixture();
+            let counter = Arc::clone(&ran);
+            handle.submit(move |_state| {
+                counter.fetch_add(1, Ordering::SeqCst);
+            });
+            // The handle drops first, then the fixture's guard shuts the runner down.
+        }
+
+        assert_eq!(
+            ran.load(Ordering::SeqCst),
+            1,
+            "the queued task must run before the runner thread exits"
+        );
+    }
+
+    /// A handle created for a device that was shut down gets a fresh runner with fresh
+    /// state, rather than hanging on the old one or reviving it.
+    #[test]
+    fn test_handle_created_after_shutdown_gets_a_fresh_runner() {
+        let device_id = {
+            let handle = mock_fixture();
+            handle.submit_blocking(|state| state.counter += 1).unwrap();
+            handle.device_id()
         };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
 
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let counter = handle.submit_blocking(|state| state.counter).unwrap();
+        assert_eq!(counter, 0, "the new runner must start from a fresh service");
+
+        drop(handle);
+        shutdown_device(device_id);
+    }
+
+    #[test]
+    fn test_closure_captures_are_dropped_after_execution() {
+        let handle = mock_fixture();
 
         // This atomic counter will track how many times our "Spy" is dropped.
         let drop_count = Arc::new(AtomicUsize::new(0));
@@ -1179,12 +1366,7 @@ mod tests {
     #[test]
     fn test_large_closure_uses_arena() {
         // Closure captures > 48 bytes (InlineSlot), forcing the arena path.
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 7,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         let big_data = [42u8; 128]; // 128 bytes > 48 byte inline limit
         let result = handle
@@ -1200,12 +1382,7 @@ mod tests {
     #[test]
     fn test_extra_large_closure_uses_box() {
         // Closure captures > 4096 bytes (GLOBAL_TASK_MAX_SIZE), forcing the Box fallback.
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 8,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         let huge_data = [7u8; 8192]; // 8KB > 4096 byte arena limit
         let result = handle
@@ -1218,12 +1395,7 @@ mod tests {
     #[test]
     fn test_large_closure_drop_is_called() {
         // Verify that Drop runs correctly for closures stored in the arena.
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 9,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
         let drop_count = Arc::new(AtomicUsize::new(0));
 
         struct DropSpy {
@@ -1275,12 +1447,11 @@ mod tests {
         INIT_CALLS.store(0, Ordering::SeqCst);
 
         const THREADS: usize = 4;
-        // Unique device_id so the global `CHANNELS` entry is independent of other tests.
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 77,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
+        // The fixture's own handle is one of the racing callers, so it is created after
+        // `INIT_CALLS` is reset and counts towards the single expected init.
+        let fixture =
+            DeviceFixture::new(ChannelDeviceHandle::<CountingService>::new, shutdown_device);
+        let device_id = fixture.device_id();
 
         let barrier = Arc::new(Barrier::new(THREADS));
         let mut handles = Vec::new();
@@ -1306,12 +1477,7 @@ mod tests {
     /// task's captures exactly once, and leave the channel usable.
     #[test]
     fn test_submit_blocking_panic_drops_and_returns_err() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 10,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
         let drop_count = Arc::new(AtomicUsize::new(0));
 
         struct DropSpy(Arc<AtomicUsize>);
@@ -1347,12 +1513,7 @@ mod tests {
     /// Same guarantees for `exclusive`.
     #[test]
     fn test_exclusive_panic_drops_and_returns_err() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 11,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
         let drop_count = Arc::new(AtomicUsize::new(0));
 
         struct DropSpy(Arc<AtomicUsize>);
@@ -1382,12 +1543,7 @@ mod tests {
     /// A.1 — Submit a panic payload as task, capture the payload and return to caller.
     #[test]
     fn test_submit_blocking_preserves_formatted_string_payload() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 14,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         let result = handle.submit_blocking(|_state| {
             panic!("value {}", 99);
@@ -1400,12 +1556,7 @@ mod tests {
     /// A.2 — Submit a custom panic payload, capture the payload and return to caller.
     #[test]
     fn test_submit_blocking_preserves_non_string_payload() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 15,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         #[derive(Debug, PartialEq)]
         struct Boom {
@@ -1437,12 +1588,7 @@ mod tests {
 
     #[test]
     fn test_submit_blocking_preserves_scalar_payload() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 16,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         let result = handle.submit_blocking(|_state| {
             std::panic::panic_any(42i32);
@@ -1461,12 +1607,7 @@ mod tests {
     /// message instead of being erased into a generic error.
     #[test]
     fn test_submit_blocking_preserves_index_out_of_bounds_message() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 17,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         let result = handle.submit_blocking(|_state| {
             let data = [10u8, 20u8];
@@ -1489,12 +1630,7 @@ mod tests {
     /// B.2 — A real `unwrap()` panic keeps its message (the autotune symptom).
     #[test]
     fn test_submit_blocking_preserves_unwrap_message() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 18,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         let result = handle.submit_blocking(|_state| {
             let value: Result<(), &str> = Err("nope");
@@ -1513,12 +1649,7 @@ mod tests {
     /// proving it is the genuine payload and not a lossy copy.
     #[test]
     fn test_into_panic_can_be_resumed() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 19,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         let result = handle.submit_blocking(|_state| {
             panic!("re-raise me");
@@ -1544,12 +1675,7 @@ mod tests {
     /// E.1 — `exclusive` preserves a non-string payload just like `submit_blocking`.
     #[test]
     fn test_exclusive_preserves_non_string_payload() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 20,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         #[derive(Debug, PartialEq)]
         struct Boom {
@@ -1583,12 +1709,7 @@ mod tests {
     /// payload, and a later normal task still succeeds.
     #[test]
     fn test_channel_survives_repeated_panics_each_preserved() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 21,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         let first = handle.submit_blocking(|_state| panic!("first"));
         assert_eq!(
@@ -1611,12 +1732,7 @@ mod tests {
     /// panic on the caller (faithful message), and the runner thread survives.
     #[test]
     fn test_unwrap_or_resume_reraises_submit_blocking_panic() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 22,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         let reraised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             handle
@@ -1642,12 +1758,7 @@ mod tests {
     /// end to end, preserving the exact payload object.
     #[test]
     fn test_unwrap_or_resume_reraises_exclusive_non_string_payload() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 23,
-        };
-        let _shutdown = ShutdownGuard::new(device_id, shutdown_device);
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = mock_fixture();
 
         #[derive(Debug, PartialEq)]
         struct Boom {

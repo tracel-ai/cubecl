@@ -87,35 +87,100 @@ impl<S: DeviceService> DeviceHandle<S> {
     ///
     /// Only meaningful for handle implementations with background threads; a
     /// no-op otherwise.
+    ///
+    /// # Scope
+    ///
+    /// **This is device-wide, and `S` is ignored.** It shuts down every
+    /// [`DeviceService`] registered on `device_id`, across both service stages, not
+    /// only `S`. The type parameter selects the handle implementation to dispatch
+    /// through, nothing more.
+    ///
+    /// [`DeviceId`] is not unique across runtimes either: `type_id` is assigned per
+    /// runtime, so distinct backends can hand out the same id. Shutting down a
+    /// device from one runtime can therefore tear down another runtime's services
+    /// on the colliding id, and block while that runtime's handles are still live.
     pub fn shutdown(device_id: DeviceId) {
         <Inner<S> as DeviceHandleSpec<S>>::shutdown(device_id)
     }
 }
 
-/// Test helper that shuts a device's runner down when dropped.
-///
-/// Declare it before the handles in a test so the handles drop first;
-/// otherwise the shutdown blocks until they do.
+/// Shuts a device's runner down when dropped. Use [`DeviceFixture`] rather than
+/// this directly: the guard alone still requires getting the device id and the
+/// declaration order right.
 #[cfg(test)]
-pub(crate) struct ShutdownGuard {
+struct ShutdownGuard {
     device_id: DeviceId,
     shutdown: fn(DeviceId),
-}
-
-#[cfg(test)]
-impl ShutdownGuard {
-    pub(crate) fn new(device_id: DeviceId, shutdown: fn(DeviceId)) -> Self {
-        Self {
-            device_id,
-            shutdown,
-        }
-    }
 }
 
 #[cfg(test)]
 impl Drop for ShutdownGuard {
     fn drop(&mut self) {
         (self.shutdown)(self.device_id);
+    }
+}
+
+/// Hands out a device id no other test is using.
+///
+/// The channel implementation keys global registries by device id, and the whole
+/// crate's tests share one binary, so a hardcoded id collides with whatever test
+/// happens to run alongside: one test would shut down another's live runner.
+#[cfg(test)]
+fn next_test_device_id() -> DeviceId {
+    use core::sync::atomic::{AtomicU16, Ordering};
+
+    static NEXT: AtomicU16 = AtomicU16::new(0);
+
+    DeviceId {
+        type_id: 0,
+        index_id: NEXT.fetch_add(1, Ordering::Relaxed),
+    }
+}
+
+/// A handle on a device of its own, whose runner is shut down when the fixture drops.
+///
+/// This is the only correct way to spell the pattern, so it is the only one tests
+/// should use. The three hazards are all handled structurally: the device id comes
+/// from [`next_test_device_id`] so it cannot collide, the guard is created with it
+/// so it cannot be forgotten, and `handle` is declared before `_guard` so it drops
+/// first, meaning the shutdown never waits on a handle the fixture itself owns.
+///
+/// Handles a test creates on top of this one (a second service on the same device,
+/// clones) must be locals declared *after* the fixture, which drop in reverse order
+/// and so are gone before the shutdown runs.
+#[cfg(test)]
+pub(crate) struct DeviceFixture<H> {
+    handle: H,
+    _guard: ShutdownGuard,
+    device_id: DeviceId,
+}
+
+#[cfg(test)]
+impl<H> DeviceFixture<H> {
+    pub(crate) fn new(build: fn(DeviceId) -> H, shutdown: fn(DeviceId)) -> Self {
+        let device_id = next_test_device_id();
+
+        Self {
+            handle: build(device_id),
+            _guard: ShutdownGuard {
+                device_id,
+                shutdown,
+            },
+            device_id,
+        }
+    }
+
+    pub(crate) fn device_id(&self) -> DeviceId {
+        self.device_id
+    }
+}
+
+#[cfg(test)]
+impl<H> core::ops::Deref for DeviceFixture<H> {
+    type Target = H;
+
+    fn deref(&self) -> &Self::Target {
+        &self.handle
     }
 }
 

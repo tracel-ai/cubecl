@@ -211,10 +211,14 @@ pub fn addition_set_with_slow_candidate(
     }))
 }
 
-/// Addition set whose first candidate uses a kernel that fails to compile. The server
+/// Addition set whose last candidate uses a kernel that fails to compile. The server
 /// records the failure and returns it lazily at `end_profile`, which is how a real
 /// backend reports a kernel it cannot compile: the tuner must skip the candidate on
 /// that returned error, with no panic involved, and the surviving `add` wins.
+///
+/// The broken candidate goes last on purpose. Ahead of a working one, its errors get
+/// swallowed by the next candidate's warmup flush, and the test would pass without
+/// telling us whether anything stayed pending on the process-global dummy server.
 ///
 /// `uid` keeps the key a cache miss, as in [`addition_set_with_rejected_candidate`].
 pub fn addition_set_with_failing_compilation(
@@ -235,8 +239,8 @@ pub fn addition_set_with_failing_compilation(
         },
         CloneInputGenerator,
     )
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
     .with(Tunable::new("add_no_compile", move |inputs| {
         op_broken.run(inputs)
     }))
-    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
 }

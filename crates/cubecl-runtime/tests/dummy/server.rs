@@ -1,6 +1,7 @@
 use super::DummyKernel;
 use crate::dummy::DummyCompiler;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
@@ -33,7 +34,9 @@ pub struct DummyServer {
     timestamps: TimestampProfiler,
     utilities: Arc<ServerUtilities<Self>>,
     /// Errors are handled lazily, as on a real server: a failed launch records its error
-    /// here and in the profiler, and it surfaces at the next `flush`/`sync`/`end_profile`.
+    /// here, and it surfaces at the next `flush`/`sync`/`end_profile`, each of which
+    /// drains the whole queue. Recording happens once, here; tagging the in-flight
+    /// profile is the drain's job.
     errors: Vec<ServerError>,
 }
 
@@ -240,8 +243,10 @@ impl ComputeServer for DummyServer {
         ) {
             Ok(kernel) => kernel,
             Err(err) => {
+                // Recorded once, in the error queue. Tagging the profiler is the drain's
+                // job, exactly as on a real server: a launch failure the queue never gets
+                // drained for would otherwise be reported twice.
                 let err = cubecl_runtime::server::LaunchError::from(err);
-                self.timestamps.error(ProfileError::Launch(err.clone()));
                 self.errors.push(err.into());
                 return;
             }
@@ -276,6 +281,13 @@ impl ComputeServer for DummyServer {
         _stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
+        // The profile boundary drains the queue, like the real servers, which sync here.
+        // Errors recorded during the profile belong to it, and leaving them pending would
+        // hand them to whatever call comes next.
+        if let Err(err) = self.take_pending_error() {
+            self.timestamps.error(ProfileError::Server(Box::new(err)));
+        }
+
         self.timestamps.stop(token)
     }
 
@@ -334,15 +346,36 @@ impl DummyServer {
         }
     }
 
-    /// Drains the pending errors, returning the first one, as `flush`/`sync` do on a
-    /// real server.
+    /// Drains the error queue, tagging any in-flight profile as wrong. Mirrors
+    /// `flush_errors` on the cuda and wgpu servers.
+    fn flush_errors(&mut self) -> Vec<ServerError> {
+        let errors = core::mem::take(&mut self.errors);
+
+        // It is very important to tag current profiles as being wrong.
+        if !errors.is_empty() {
+            self.timestamps.error(ProfileError::Unknown {
+                reason: format!("{errors:?}"),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        errors
+    }
+
+    /// Drains the error queue and aggregates it, as `flush`/`sync` do on a real server.
+    /// Every error surfaces: none is silently dropped, and none is left behind to be
+    /// reported by a later, unrelated call.
     fn take_pending_error(&mut self) -> Result<(), ServerError> {
-        if self.errors.is_empty() {
+        let errors = self.flush_errors();
+
+        if errors.is_empty() {
             return Ok(());
         }
-        let err = self.errors.remove(0);
-        self.errors.clear();
-        Err(err)
+
+        Err(ServerError::ServerUnhealthy {
+            errors,
+            backtrace: BackTrace::capture(),
+        })
     }
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
