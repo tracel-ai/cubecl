@@ -176,9 +176,12 @@ where
             .get_operation()
             .insert_before(&ctx, entry_func.get_operation());
 
+        #[cfg(feature = "pliron-dump")]
+        let dump_dir = kernel_dir_name(&kernel.settings.kernel_name);
+
         let config = PMConfig {
             #[cfg(feature = "pliron-dump")]
-            ir_printing_dir: kernel_dir_name(&kernel.settings.kernel_name),
+            ir_printing_dir: dump_dir.clone(),
             print_after_all: cfg!(feature = "pliron-dump"),
             ..Default::default()
         };
@@ -249,12 +252,28 @@ where
         let shared_memory_size = shared_memory_size(&ctx, module_op);
         let buffers = buffers(&ctx, entry_func);
 
-        Ok(ComputeKernel {
+        let compute_kernel = ComputeKernel {
             ctx,
             shared_memory_size,
             buffers,
-        })
+        };
+
+        #[cfg(feature = "pliron-dump")]
+        dump_cpp(&compute_kernel, dump_dir);
+
+        Ok(compute_kernel)
     }
+}
+
+#[cfg(feature = "pliron-dump")]
+fn dump_cpp(kernel: &ComputeKernel, dir: Option<std::path::PathBuf>) {
+    let Some(dir) = dir else {
+        return;
+    };
+
+    let source = kernel.to_string();
+    let source = crate::formatter::format_cpp(&source).unwrap_or(source);
+    std::fs::write(dir.join("module.cpp"), source).unwrap();
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties) {
