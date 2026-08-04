@@ -59,3 +59,4 @@ paste = { workspace = true }
 pliron = { workspace = true }
 sanitize-filename = { workspace = true }
 thiserror = { workspace = true }
+hashbrown = { workspace = true }
