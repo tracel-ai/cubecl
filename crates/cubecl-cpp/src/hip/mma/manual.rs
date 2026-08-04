@@ -11,15 +11,14 @@ use cubecl_core::{
     prelude::*,
 };
 use itertools::Itertools;
-use pliron::{
-    context::Context,
-    r#type::{Type, TypedHandle},
-    value::Value,
-};
+use pliron::{context::Context, r#type::TypedHandle, value::Value};
 
 use crate::{
-    cuda::mma::manual::frag_elem,
-    hip::{arch::AMDArchitecture, hip_op, mma::WmmaExecute},
+    hip::{
+        arch::AMDArchitecture,
+        hip_op,
+        mma::{WmmaExecute, compile_fragment_intrinsic},
+    },
     shared::{
         Architecture, CppValue, SupportedMmaCombinations, SupportedScaledMmaCombinations,
         lowering::LowerOp, ty::TypeExtCPP,
@@ -75,9 +74,10 @@ pub(super) fn compile_manual_mma(op: &MmaManualOp, ctx: &Context) -> String {
     let frag_d = op.registers_d(ctx);
     let shape = op.shape(ctx).0;
 
-    let elem_a = frag_elem(ctx, frag_a);
-    let elem_c = frag_elem(ctx, frag_c);
-    let elem_d = frag_elem(ctx, frag_d).to_cpp(ctx);
+    // `registers_a/b/c` are array values, only `registers_d` is a pointer (see `MmaManualOp`).
+    let elem_a = frag_a.scalar_ty(ctx);
+    let elem_c = frag_c.scalar_ty(ctx);
+    let elem_d = frag_d.scalar_ty(ctx).to_cpp(ctx);
 
     let extension = WmmaExecute::from_manual(shape, elem_a, elem_c);
 
@@ -88,8 +88,8 @@ pub(super) fn compile_manual_mma(op: &MmaManualOp, ctx: &Context) -> String {
     // Need to reconstruct the fragments from an array of vectors to a single vector type.
     // `float8_t {reinterpret_cast<const float*>(arr->data)[0], ...}`
     let frag = |val: Value, len: usize| {
-        let elem = frag_elem(ctx, val).to_cpp(ctx);
-        let ptr = format!("reinterpret_cast<const {elem}*>({}->data)", val.name(ctx));
+        let elem = val.scalar_ty(ctx).to_cpp(ctx);
+        let ptr = format!("reinterpret_cast<const {elem}*>({}.data)", val.name(ctx));
         (0..len).map(|i| format!("{ptr}[{i}]")).join(", ")
     };
 
@@ -100,7 +100,7 @@ pub(super) fn compile_manual_mma(op: &MmaManualOp, ctx: &Context) -> String {
     let frag_c = {
         let elem = elem_c.to_cpp(ctx);
         let frag_c = frag_c.name(ctx);
-        let ptr = format!("reinterpret_cast<const {elem}*>({frag_c}->data)");
+        let ptr = format!("reinterpret_cast<const {elem}*>({frag_c}.data)");
         (0..cd_elems)
             .flat_map(|i| {
                 let ptr = ptr.clone();
@@ -114,15 +114,15 @@ pub(super) fn compile_manual_mma(op: &MmaManualOp, ctx: &Context) -> String {
 
     let mut out = String::from("{{");
     out.push_str(&format!(
-        "{{{} frag_d_tmp = {{}};",
-        extension.frag_d.get_self_handle(ctx).to_cpp(ctx)
+        "{} frag_d_tmp = {{}};",
+        compile_fragment_intrinsic(ctx, &extension.frag_d)
     ));
 
     out.push_str(&format!(
         "{name}({}{{{frag_a}}}, {}{{{frag_b}}}, {}{{{frag_c}}}, frag_d_tmp);",
-        extension.frag_a.get_self_handle(ctx).to_cpp(ctx),
-        extension.frag_b.get_self_handle(ctx).to_cpp(ctx),
-        extension.frag_c.get_self_handle(ctx).to_cpp(ctx)
+        compile_fragment_intrinsic(ctx, &extension.frag_a),
+        compile_fragment_intrinsic(ctx, &extension.frag_b),
+        compile_fragment_intrinsic(ctx, &extension.frag_c)
     ));
 
     let frag_d_ptr = format!("reinterpret_cast<{elem_d}*>({}->data)", frag_d.name(ctx));

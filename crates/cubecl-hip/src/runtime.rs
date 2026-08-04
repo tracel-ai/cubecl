@@ -136,7 +136,7 @@ impl DeviceService for HipServer {
         };
 
         let supported_wmma_combinations =
-            HipCmmaCompiler::Intrinsics.supported_cmma_combinations(&arch);
+            HipCmmaCompiler::RocWmma.supported_cmma_combinations(&arch);
         let supported_mma_combinations = hip::supported_mma_combinations(&arch);
         let supported_scaled_mma_combinations = hip::supported_scaled_mma_combinations(&arch);
 

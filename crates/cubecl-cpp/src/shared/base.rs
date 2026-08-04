@@ -1,5 +1,6 @@
 use crate::{
     cuda::{mma::CudaCmmaCompiler, packed_ops::PackOpsPass},
+    hip::mma::HipCmmaCompiler,
     shared::{
         builtin::{LowerBuiltins, LowerBuiltinsPass},
         convert::PromoteUnsupportedTypesPass,
@@ -166,6 +167,7 @@ where
         ctx.set_aux_ty(T::target());
 
         ctx.set_aux_ty(CudaCmmaCompiler::Cpp);
+        ctx.set_aux_ty(HipCmmaCompiler::RocWmma);
 
         verify_operation(module.get_operation(), &ctx)?;
 

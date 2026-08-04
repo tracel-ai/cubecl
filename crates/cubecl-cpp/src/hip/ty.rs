@@ -1,13 +1,19 @@
-use cubecl_core::ir::{
-    prelude::*,
-    types::{
-        PointerType,
-        scalar::{BFloat16Type, Float16Type},
+use cubecl_core::{
+    cmma::MatrixType,
+    ir::{
+        prelude::*,
+        types::{
+            PointerType,
+            scalar::{BFloat16Type, Float16Type},
+        },
     },
 };
 
 use crate::{
-    shared::ty::{TypeExtCPP, TypeToCPP, UniformPointerType, ptr_constness},
+    shared::{
+        signature::ty_includes,
+        ty::{TypeExtCPP, TypeToCPP, UniformPointerType, ptr_constness},
+    },
     target::Hip,
 };
 
@@ -35,3 +41,5 @@ hip_ty!(UniformPointerType, |ty, ctx| format!(
     "{} const*",
     ty.inner.to_cpp(ctx)
 ));
+
+ty_includes!(Hip, [MatrixType] => "rocwmma/rocwmma.hpp");
