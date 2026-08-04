@@ -8,7 +8,6 @@ use core::{
 use alloc::{collections::VecDeque, rc::Rc, string::String, vec::Vec};
 
 use cubecl_core::ir::prelude::*;
-use cubecl_ir::dialect::{branch::YieldOp, scf};
 use derive_new::new;
 use pliron::{
     basic_block::BasicBlock,
@@ -30,6 +29,9 @@ use pliron::{
 };
 
 use crate::passes::mem2reg::RegionGraphNode::{AfterOp, BeforeOp};
+
+pub mod mem2reg_2;
+pub mod scf;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum RegionGraphNode {
@@ -112,7 +114,7 @@ impl ControlFlowGraph<Context> for RegionGraph {
     }
 }
 
-#[derive(new)]
+#[derive(new, Debug)]
 pub struct RegionEdge {
     pub pred: RegionGraphNode,
     pub succ: RegionGraphNode,
@@ -123,13 +125,12 @@ pub trait RegionDefOpInterface {
     verify_op_succ!();
     fn region_graph(&self, ctx: &Context) -> RegionGraph;
 
+    fn get_node_argument(&self, ctx: &Context, node: RegionGraphNode, arg_idx: usize) -> Value;
+
+    fn can_add_node_argument(&self, ctx: &Context, node: RegionGraphNode) -> bool;
+
     /// TODO: Docs
-    fn add_node_argument(
-        &self,
-        ctx: &mut Context,
-        node: RegionGraphNode,
-        ty: TypeHandle,
-    ) -> Option<usize>;
+    fn add_node_argument(&self, ctx: &mut Context, node: RegionGraphNode, ty: TypeHandle) -> usize;
 
     // TODO: Docs
     fn remove_node_argument(&self, ctx: &mut Context, node: RegionGraphNode, arg_idx: usize);
@@ -146,72 +147,8 @@ pub trait RegionDefOpInterface {
     fn remove_edge_operand(&self, ctx: &mut Context, edge: RegionEdge, opd_idx: usize);
 }
 
-#[op_interface_impl]
-impl RegionDefOpInterface for scf::IfOp {
-    fn add_node_argument(
-        &self,
-        ctx: &mut Context,
-        node: RegionGraphNode,
-        ty: TypeHandle,
-    ) -> Option<usize> {
-        match node {
-            RegionGraphNode::AfterOp => Some(Operation::push_result(self.get_operation(), ctx, ty)),
-            _ => None,
-        }
-    }
-
-    fn remove_node_argument(&self, ctx: &mut Context, node: RegionGraphNode, arg_idx: usize) {
-        if node == RegionGraphNode::AfterOp {
-            Operation::remove_result(self.get_operation(), ctx, arg_idx);
-        }
-    }
-
-    fn region_graph(&self, ctx: &Context) -> RegionGraph {
-        let mut graph = RegionGraph::new();
-
-        let then_node = RegionGraphNode::Region(self.then_region(ctx));
-        let else_node = RegionGraphNode::Region(self.else_region(ctx));
-
-        graph.add_successor(BeforeOp, then_node);
-        graph.add_successor(BeforeOp, else_node);
-        graph.add_successor(then_node, AfterOp);
-        graph.add_successor(else_node, AfterOp);
-
-        graph
-    }
-
-    fn add_edge_operand(&self, ctx: &mut Context, edge: RegionEdge, operand: Value) {
-        if let Some(yield_) = node_yield(ctx, edge) {
-            Operation::push_operand(yield_, ctx, operand);
-        }
-    }
-
-    fn remove_edge_operand(&self, ctx: &mut Context, edge: RegionEdge, opd_idx: usize) {
-        if let Some(yield_) = node_yield(ctx, edge) {
-            Operation::remove_operand(yield_, ctx, opd_idx);
-        }
-    }
-}
-
-fn region_yield(ctx: &Context, region: Ptr<Region>) -> Option<Ptr<Operation>> {
-    let body = region.deref(ctx).get_head()?;
-    let term = body.deref(ctx).get_terminator(ctx)?;
-    if term.is_op::<YieldOp>(ctx) {
-        Some(term)
-    } else {
-        None
-    }
-}
-
-fn node_yield(ctx: &Context, edge: RegionEdge) -> Option<Ptr<Operation>> {
-    match edge.pred {
-        RegionGraphNode::Region(region) => region_yield(ctx, region),
-        _ => None,
-    }
-}
-
 /// A single promotable allocation: one [`AllocInfo`] from a [`PromotableAllocationInterface`] op.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct AllocCandidate {
     alloc_op: Ptr<Operation>,
     alloc_info: AllocInfo,
@@ -608,6 +545,40 @@ fn prune_candidates_with_unknown_branch_from_pred(
     phi_blocks.retain(|&ptr, _| !invalid_ptrs.contains(&ptr));
 }
 
+/// Prune candidates whose new node args cannot be populated because the op doesn't support that edge.
+///
+/// This removes both:
+/// - candidates from `alloc_candidates`, and
+/// - corresponding entries from `phi_regions`.
+fn prune_candidates_with_unsupported_node_argument(
+    ctx: &Context,
+    alloc_candidates: &mut Vec<AllocCandidate>,
+    phi_regions: &mut FxHashMap<Value, PhiRegions>,
+) {
+    // Track invalid individual candidates by their allocation pointer.
+    let mut invalid_ptrs: FxHashSet<Value> = FxHashSet::default();
+    for cand in alloc_candidates.iter() {
+        let ptr = cand.alloc_info.ptr;
+        let invalid = phi_regions
+            .get(&ptr)
+            .into_iter()
+            .flatten()
+            .any(|(op, node)| {
+                let op_obj = op.dyn_op(ctx);
+                let op = op_cast::<dyn RegionDefOpInterface>(&*op_obj)
+                    .expect("Validated while collecting");
+                node.iter()
+                    .any(|node| !op.can_add_node_argument(ctx, *node))
+            });
+        if invalid {
+            invalid_ptrs.insert(ptr);
+        }
+    }
+
+    alloc_candidates.retain(|c| !invalid_ptrs.contains(&c.alloc_info.ptr));
+    phi_regions.retain(|&ptr, _| !invalid_ptrs.contains(&ptr));
+}
+
 fn get_or_create_default_def(
     alloc_cand: &AllocCandidate,
     ctx: &mut Context,
@@ -678,6 +649,31 @@ fn note_erased_ops(recorder: &mut Recorder, erased: &mut FxHashSet<Ptr<Operation
 type ReachingDefMap = FxHashMap<Value, Option<Value>>;
 type NewRegionPhis = FxHashMap<(Ptr<Operation>, RegionGraphNode), Vec<(AllocCandidate, usize)>>;
 
+fn outgoing_reaching_defs_for_region(
+    ctx: &Context,
+    def_op: &dyn RegionDefOpInterface,
+    node: RegionGraphNode,
+    reaching_defs: &FxHashMap<Value, Vec<Value>>,
+    new_phis_in_region: &NewRegionPhis,
+) -> Rc<ReachingDefMap> {
+    let op = def_op.get_operation();
+    let mut reaching_def_map = reaching_defs.clone();
+    for &(ref cand, arg_idx) in new_phis_in_region.get(&(op, node)).into_iter().flatten() {
+        let new_val = def_op.get_node_argument(ctx, node, arg_idx);
+        reaching_def_map
+            .get_mut(&cand.alloc_info.ptr)
+            .unwrap()
+            .push(new_val);
+    }
+
+    Rc::new(
+        reaching_def_map
+            .iter()
+            .map(|(ptr, stack)| (*ptr, stack.last().copied()))
+            .collect(),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn rename_regions<F>(
     ctx: &mut Context,
@@ -746,21 +742,34 @@ where
                 if !regions.is_empty() {
                     match op_cast::<dyn RegionDefOpInterface>(&*op_obj) {
                         Some(def_op) => {
-                            let succ_graph = def_op.region_graph(ctx);
-                            let outgoing_reaching_def_map: Rc<ReachingDefMap> = Rc::new(
-                                reaching_def_map
-                                    .iter()
-                                    .map(|(ptr, stack)| (*ptr, stack.last().copied()))
-                                    .collect(),
-                            );
-                            let succs = succ_graph.get_successors(BeforeOp).into_iter().filter_map(
-                                |node| match node {
-                                    RegionGraphNode::Region(reg) => Some(reg),
-                                    _ => None,
-                                },
-                            );
-                            region_worklist
-                                .extend(succs.map(|reg| (reg, outgoing_reaching_def_map.clone())));
+                            let region_graph = def_op.region_graph(ctx);
+                            let successors = region_graph.get_successors(BeforeOp);
+                            for &succ in successors.iter() {
+                                if !processed_regions.contains_key(&region) {
+                                    add_edge_operands(
+                                        ctx,
+                                        def_op,
+                                        new_phis_in_region,
+                                        default_def_map,
+                                        &mut reaching_def_map,
+                                        BeforeOp,
+                                        succ,
+                                    )?;
+                                }
+
+                                if let RegionGraphNode::Region(reg) = succ {
+                                    let outgoing_reaching_def_map =
+                                        outgoing_reaching_defs_for_region(
+                                            ctx,
+                                            def_op,
+                                            succ,
+                                            &reaching_def_map,
+                                            new_phis_in_region,
+                                        );
+
+                                    region_worklist.push((reg, outgoing_reaching_def_map))
+                                }
+                            }
                         }
                         None => {
                             region_worklist.extend(
@@ -776,7 +785,9 @@ where
                 for &(ref cand, arg_idx) in
                     new_phis_in_region.get(&(op, AfterOp)).into_iter().flatten()
                 {
-                    let new_val = op.deref(ctx).get_result(arg_idx);
+                    let def_op = op_cast::<dyn RegionDefOpInterface>(&*op_obj)
+                        .expect("Phis only exist for region def ops");
+                    let new_val = def_op.get_node_argument(ctx, AfterOp, arg_idx);
                     reaching_def_map
                         .get_mut(&cand.alloc_info.ptr)
                         .unwrap()
@@ -856,10 +867,6 @@ where
             // Propagate results out of the region
             let region_op = region.deref(ctx).get_parent_op();
             let region_op_obj = region_op.dyn_op(ctx);
-            let new_results = new_phis_in_region
-                .get(&(region_op, AfterOp))
-                .cloned()
-                .unwrap_or_default();
 
             if succs.is_empty()
                 && let Some(def_op) = op_cast::<dyn RegionDefOpInterface>(&*region_op_obj)
@@ -867,27 +874,27 @@ where
                 let succ_graph = def_op.region_graph(ctx);
                 let pred = RegionGraphNode::Region(region);
                 for succ in succ_graph.get_successors(pred) {
-                    for (cand, _) in new_results.iter() {
-                        let reaching_def_stack =
-                            reaching_def_map.get_mut(&cand.alloc_info.ptr).unwrap();
-                        if reaching_def_stack.is_empty() {
-                            // No reaching definition: use default value
-                            let default_val =
-                                get_or_create_default_def(cand, ctx, default_def_map)?;
-                            reaching_def_stack.push(default_val);
-                        }
-                        let current_def = *reaching_def_stack.last().unwrap();
-                        let edge = RegionEdge { pred, succ };
-                        def_op.add_edge_operand(ctx, edge, current_def);
+                    if !processed_regions.contains_key(&region) {
+                        add_edge_operands(
+                            ctx,
+                            def_op,
+                            new_phis_in_region,
+                            default_def_map,
+                            &mut reaching_def_map,
+                            pred,
+                            succ,
+                        )?;
                     }
-                    if let RegionGraphNode::Region(succ) = succ {
-                        let outgoing_reaching_def_map: Rc<ReachingDefMap> = Rc::new(
-                            reaching_def_map
-                                .iter()
-                                .map(|(ptr, stack)| (*ptr, stack.last().copied()))
-                                .collect(),
+
+                    if let RegionGraphNode::Region(succ_region) = succ {
+                        let outgoing_reaching_def_map = outgoing_reaching_defs_for_region(
+                            ctx,
+                            def_op,
+                            succ,
+                            &reaching_def_map,
+                            new_phis_in_region,
                         );
-                        region_worklist.push((succ, outgoing_reaching_def_map));
+                        region_worklist.push((succ_region, outgoing_reaching_def_map));
                     }
                 }
             }
@@ -914,17 +921,46 @@ where
     Ok(())
 }
 
+fn add_edge_operands(
+    ctx: &mut Context,
+    def_op: &dyn RegionDefOpInterface,
+    new_phis_in_region: &NewRegionPhis,
+    default_def_map: &mut FxHashMap<Value, Value>,
+    reaching_def_map: &mut FxHashMap<Value, Vec<Value>>,
+    pred: RegionGraphNode,
+    succ: RegionGraphNode,
+) -> Result<()> {
+    let region_op = def_op.get_operation();
+    let new_results = new_phis_in_region
+        .get(&(region_op, AfterOp))
+        .cloned()
+        .unwrap_or_default();
+    for (cand, _) in new_results.iter() {
+        let reaching_def_stack = reaching_def_map.get_mut(&cand.alloc_info.ptr).unwrap();
+        if reaching_def_stack.is_empty() {
+            // No reaching definition: use default value
+            let default_val = get_or_create_default_def(cand, ctx, default_def_map)?;
+            reaching_def_stack.push(default_val);
+        }
+        let current_def = *reaching_def_stack.last().unwrap();
+        let edge = RegionEdge { pred, succ };
+        def_op.add_edge_operand(ctx, edge, current_def);
+    }
+    Ok(())
+}
+
 fn prune_region_phis(ctx: &mut Context, new_phis_in_region: &NewRegionPhis) {
     for (&(op, node), results) in new_phis_in_region.iter() {
         let mut res_idxs = results.iter().map(|it| it.1).collect::<Vec<_>>();
         res_idxs.sort();
+
         for &res_idx in res_idxs.iter().rev() {
-            let value = op.deref(ctx).get_result(res_idx);
+            let dyn_op = op.dyn_op(ctx);
+            let def_op = op_cast::<dyn RegionDefOpInterface>(&*dyn_op).unwrap();
+            let value = def_op.get_node_argument(ctx, node, res_idx);
             if value.is_used(ctx) {
                 continue;
             }
-            let dyn_op = op.dyn_op(ctx);
-            let def_op = op_cast::<dyn RegionDefOpInterface>(&*dyn_op).unwrap();
             let graph = def_op.region_graph(ctx);
             def_op.remove_node_argument(ctx, node, res_idx);
             for pred in graph.get_predeccessors(node) {
@@ -1010,6 +1046,7 @@ pub fn mem2reg(root: Ptr<Operation>, ctx: &mut Context) -> Result<IRStatus> {
 
     // Remove candidates where phi predecessors cannot forward values.
     prune_candidates_with_unknown_branch_from_pred(ctx, &mut alloc_candidates, &mut phi_blocks);
+    prune_candidates_with_unsupported_node_argument(ctx, &mut alloc_candidates, &mut phi_regions);
 
     if alloc_candidates.is_empty() {
         return Ok(opt_status);
@@ -1044,10 +1081,7 @@ pub fn mem2reg(root: Ptr<Operation>, ctx: &mut Context) -> Result<IRStatus> {
                 let def_op = op_cast::<dyn RegionDefOpInterface>(&*op_obj)
                     .expect("Validated when collecting");
                 for &phi_node in needed_nodes {
-                    let Some(res_idx) = def_op.add_node_argument(ctx, AfterOp, cand.alloc_info.ty)
-                    else {
-                        continue;
-                    };
+                    let res_idx = def_op.add_node_argument(ctx, phi_node, cand.alloc_info.ty);
                     new_phis_in_regions
                         .entry((region_op, phi_node))
                         .or_default()

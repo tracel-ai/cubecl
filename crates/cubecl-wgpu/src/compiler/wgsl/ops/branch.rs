@@ -1,9 +1,17 @@
 use cubecl_ir::dialect::branch::*;
 use itertools::Itertools;
+use pliron::r#type::Typed;
 
-use crate::compiler::wgsl::{block_to_wgsl, to_wgsl::wgsl_op, value::WgslValue};
+use crate::compiler::wgsl::{
+    block_to_wgsl,
+    to_wgsl::{TypeExtWgsl, wgsl_op},
+    value::WgslValue,
+};
 
 wgsl_op!(YieldOp, |_, _| String::new());
+wgsl_op!(ConditionOp, |op, ctx| {
+    format!("if !{} {{ break; }}", op.condition(ctx).name(ctx))
+});
 
 wgsl_op!(UnreachableOp, |_, _| "return;\n".into());
 wgsl_op!(ReturnOp, |op, ctx| {
@@ -44,15 +52,16 @@ switch({val}) {{
 
 wgsl_op!(RangeLoopOp, |op, ctx| {
     let i = op.iter_var(ctx).name(ctx);
+    let i_ty = op.iter_var(ctx).get_type(ctx).to_wgsl(ctx);
     let start = op.start(ctx).name(ctx);
     let end = op.end(ctx).name(ctx);
     let step = op.step(ctx).name(ctx);
     let body = block_to_wgsl(ctx, op.loop_body(ctx));
-    format!("for(*{i} = {start}; *{i} < {end}; *{i} += {step}) {{\n{body}\n}}\n")
+    format!("for(var {i}: {i_ty} = {start}; {i} < {end}; {i} += {step}) {{\n{body}\n}}\n")
 });
 
 wgsl_op!(WhileOp, |op, ctx| {
-    let cond = op.cond_ptr(ctx).name(ctx);
-    let body = block_to_wgsl(ctx, op.loop_body(ctx));
-    format!("while(*{cond}) {{\n{body}\n}}\n")
+    let cond = block_to_wgsl(ctx, op.before_block(ctx));
+    let body = block_to_wgsl(ctx, op.after_block(ctx));
+    format!("loop {{\n{cond}\n{body}\n}}\n")
 });

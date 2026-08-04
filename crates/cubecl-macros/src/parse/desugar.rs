@@ -2,21 +2,14 @@ use std::mem::take;
 
 use quote::{quote, quote_spanned};
 use syn::{
-    Expr, ExprLoop, ExprWhile, Index, Local, LocalInit, Pat, PatIdent, PatSlice, PatStruct,
-    PatTuple, PatTupleStruct, Stmt, parse_quote,
+    Index, Local, LocalInit, Pat, PatIdent, PatSlice, PatStruct, PatTuple, PatTupleStruct, Stmt,
+    parse_quote,
     spanned::Spanned,
     visit_mut::{self, VisitMut},
 };
 
 pub struct Desugar;
 impl VisitMut for Desugar {
-    fn visit_expr_mut(&mut self, i: &mut syn::Expr) {
-        if let Expr::While(inner) = i {
-            *i = Expr::Loop(desugar_while(inner))
-        }
-        visit_mut::visit_expr_mut(self, i);
-    }
-
     fn visit_block_mut(&mut self, i: &mut syn::Block) {
         let stmts = desugar_pats(take(&mut i.stmts));
 
@@ -49,22 +42,6 @@ fn desugar_pats(stmts: Vec<Stmt>) -> Vec<Stmt> {
             stmt => vec![stmt],
         }
     }).collect()
-}
-
-fn desugar_while(inner: &ExprWhile) -> ExprLoop {
-    let cond = &inner.cond;
-    let attrs = &inner.attrs;
-    let label = &inner.label;
-    let body = &inner.body;
-    parse_quote! {
-        #(#attrs)*
-        #label loop {
-            if !(#cond) {
-                break;
-            }
-            #body
-        }
-    }
 }
 
 fn desugar_struct_destructure(pat: PatStruct, init: LocalInit) -> Vec<Stmt> {

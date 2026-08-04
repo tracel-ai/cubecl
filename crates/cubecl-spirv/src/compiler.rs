@@ -51,10 +51,7 @@ use pliron::{
     },
     op::Op,
     operation::verify_operation,
-    opts::{
-        constants::sccp::SCCPPass, container_stats::ContainerStatsPass, dce::DCEPass,
-        simplify_cfg::SimplifyCFGPass,
-    },
+    opts::{constants::sccp::SCCPPass, dce::DCEPass, simplify_cfg::SimplifyCFGPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
 };
 use pliron_spirv::{
@@ -168,12 +165,10 @@ impl SpirvCompiler {
         let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>();
         let module_op = module.get_operation();
 
-        let stats_dir = ir_printing_dir.clone().unwrap();
-
         verify_operation(module.get_operation(), ctx)?;
 
         let config = PMConfig {
-            print_after_all: true,
+            print_after_all: cfg!(feature = "spirv-dump"),
             #[cfg(feature = "spirv-dump")]
             ir_printing_dir,
             ..Default::default()
@@ -183,8 +178,6 @@ impl SpirvCompiler {
         analyses.set_config(config);
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
-
-        passes.add_pass(ContainerStatsPass(stats_dir.join("stats-initial.csv")));
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
         func_passes.add_pass(DisaggregatePass);
@@ -256,7 +249,6 @@ impl SpirvCompiler {
 
         passes.add_pass(ConvertArgsPass);
         passes.add_pass(NestedOpsPass::new(func_passes));
-        passes.add_pass(ContainerStatsPass(stats_dir.join("stats-spirv.csv")));
 
         passes.run(spirv_module_op, ctx, &mut analyses).unwrap();
 

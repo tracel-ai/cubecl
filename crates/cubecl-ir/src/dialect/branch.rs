@@ -6,15 +6,13 @@ use pliron::{
     linked_list::ContainsLinkedList,
     opts::{constants::ConstFoldInterface, dce::SideEffects},
     region::Region,
+    utils::const_bound_n::I,
     verify_err,
 };
 use thiserror::Error;
 
 use crate::{
-    CanMaterialize, NoMemoryEffect, Pure,
-    attributes::BoolAttr,
-    prelude::*,
-    types::{PointerType, scalar::BoolType},
+    CanMaterialize, NoMemoryEffect, Pure, attributes::BoolAttr, prelude::*, types::scalar::BoolType,
 };
 
 /// Marker for terminators that do not return, i.e. `UnreachableOp`. In Rust terms, they return `!`.
@@ -46,6 +44,10 @@ impl YieldOp {
         let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 0);
         Self { op }
     }
+
+    pub fn yield_values(&self, ctx: &Context) -> Vec<Value> {
+        self.get_operation().operands(ctx)
+    }
 }
 
 impl Verify for YieldOp {
@@ -63,6 +65,58 @@ impl Verify for YieldOp {
             .get_operation()
             .deref(ctx)
             .operands()
+            .map(|o| o.get_type(ctx))
+            .collect();
+
+        if expected_types != actual_types {
+            return verify_err!(self.loc(ctx), YieldOpVerifyErr::OperandTypeMismatch);
+        }
+
+        Ok(())
+    }
+}
+
+#[pliron_op(name = "branch.condition", format = "`(` operands(CharSpace(`,`)) `)`")]
+#[op_interfaces(IsTerminatorInterface, OperandNOfType<0, BoolType>)]
+#[op_traits(CanMaterialize, NoMemoryEffect)]
+pub struct ConditionOp;
+
+impl ConditionOp {
+    pub fn new(ctx: &mut Context, cond: Value) -> Self {
+        let op = Operation::new(
+            ctx,
+            Self::get_concrete_op_info(),
+            vec![],
+            vec![cond],
+            vec![],
+            0,
+        );
+        Self { op }
+    }
+
+    pub fn condition(&self, ctx: &Context) -> Value {
+        self.get_operation().operand(ctx, 0)
+    }
+
+    pub fn forward_values(&self, ctx: &Context) -> Vec<Value> {
+        self.get_operation().deref(ctx).operands().skip(1).collect()
+    }
+}
+
+impl Verify for ConditionOp {
+    fn verify(&self, ctx: &Context) -> pliron::result::Result<()> {
+        let Some(parent_op) = self.get_operation().deref(ctx).get_parent_op(ctx) else {
+            return verify_err!(self.loc(ctx), YieldOpVerifyErr::MissingParentOp);
+        };
+
+        let expected_types: Vec<_> = parent_op
+            .deref(ctx)
+            .results()
+            .map(|r| r.get_type(ctx))
+            .collect();
+        let actual_types: Vec<_> = self
+            .forward_values(ctx)
+            .into_iter()
             .map(|o| o.get_type(ctx))
             .collect();
 
@@ -343,46 +397,43 @@ impl SwitchOp {
     }
 }
 
-#[pliron_op(
-    name = "branch.range_loop",
-    format = "`for *` $0 ` = ` $1 ` to ` $2 ` step ` $3 ` do ` region($0)",
-    verifier = "succ"
-)]
-#[op_interfaces(NResultsInterface<0>, OneRegionInterface, SingleBlockRegionInterface)]
+#[pliron_op(name = "branch.range_loop", format, verifier = "succ")]
+#[op_interfaces(NResultsInterface<0>, OneRegionInterface, SingleBlockRegionInterface, SameOperandsType)]
 pub struct RangeLoopOp;
 
 impl RangeLoopOp {
-    pub fn new(ctx: &mut Context, iter_var: Value, start: Value, end: Value, step: Value) -> Self {
+    pub fn new(ctx: &mut Context, start: Value, end: Value, step: Value) -> Self {
+        let iter_ty = start.get_type(ctx);
         let op = Operation::new(
             ctx,
             Self::get_concrete_op_info(),
             vec![],
-            vec![iter_var, start, end, step],
+            vec![start, end, step],
             vec![],
             1,
         );
 
         let body_region = op.deref_mut(ctx).get_region(0);
-        let body = BasicBlock::new(ctx, Some("body".try_into().unwrap()), vec![]);
+        let body = BasicBlock::new(ctx, Some("body".try_into().unwrap()), vec![iter_ty]);
         body.insert_at_front(body_region, ctx);
 
         Self { op }
     }
 
     pub fn iter_var(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(0)
+        self.loop_body(ctx).deref(ctx).get_argument(0)
     }
 
     pub fn start(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(1)
+        self.get_operation().deref(ctx).get_operand(0)
     }
 
     pub fn end(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(2)
+        self.get_operation().deref(ctx).get_operand(1)
     }
 
     pub fn step(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(3)
+        self.get_operation().deref(ctx).get_operand(2)
     }
 
     pub fn loop_region(&self, ctx: &Context) -> Ptr<Region> {
@@ -396,40 +447,44 @@ impl RangeLoopOp {
 
 #[pliron_op(
     name = "branch.while",
-    format = "`*`$0 ` do ` region($0)",
+    format = "`while ` region($0) ` do ` region($1)",
     verifier = "succ"
 )]
 #[op_interfaces(
-    OperandNOfType<0, PointerType>,
     NResultsInterface<0>,
-    OneRegionInterface,
+    NRegionsInterface<2>,
     SingleBlockRegionInterface
 )]
 pub struct WhileOp;
 
 impl WhileOp {
-    pub fn new(ctx: &mut Context, cond_ptr: Value) -> Self {
-        let op = Operation::new(
-            ctx,
-            Self::get_concrete_op_info(),
-            vec![],
-            vec![cond_ptr],
-            vec![],
-            1,
-        );
+    pub fn new(ctx: &mut Context) -> Self {
+        let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 2);
 
-        let body_region = op.deref_mut(ctx).get_region(0);
-        let body = BasicBlock::new(ctx, Some("body".try_into().unwrap()), vec![]);
-        body.insert_at_front(body_region, ctx);
+        let before_region = op.deref_mut(ctx).get_region(0);
+        let before = BasicBlock::new(ctx, Some("before".try_into().unwrap()), vec![]);
+        before.insert_at_front(before_region, ctx);
+
+        let after_region = op.deref_mut(ctx).get_region(1);
+        let after = BasicBlock::new(ctx, Some("after".try_into().unwrap()), vec![]);
+        after.insert_at_front(after_region, ctx);
 
         Self { op }
     }
 
-    pub fn cond_ptr(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(0)
+    pub fn before_region(&self, ctx: &Context) -> Ptr<Region> {
+        self.get_region_i(ctx, I::<0>.into())
     }
 
-    pub fn loop_body(&self, ctx: &Context) -> Ptr<BasicBlock> {
+    pub fn before_block(&self, ctx: &Context) -> Ptr<BasicBlock> {
         self.get_body(ctx, 0)
+    }
+
+    pub fn after_region(&self, ctx: &Context) -> Ptr<Region> {
+        self.get_region_i(ctx, I::<1>.into())
+    }
+
+    pub fn after_block(&self, ctx: &Context) -> Ptr<BasicBlock> {
+        self.get_body(ctx, 1)
     }
 }
