@@ -6,8 +6,10 @@ use cubecl_environment::sync::Arc;
 
 #[test]
 fn test_concurrent_increment() {
-    let device = TestDevice::<1>::new(0);
-    let context = DeviceHandle::<TestDeviceState<1>>::new(device.to_id());
+    let context = DeviceFixture::new(
+        DeviceHandle::<TestDeviceState<1>>::new,
+        DeviceHandle::<TestDeviceState<1>>::shutdown,
+    );
 
     let thread_count = 10;
     let mut handles = Vec::new();
@@ -30,12 +32,13 @@ fn test_concurrent_increment() {
 }
 #[test]
 fn test_recursive_execution_different_state() {
-    let device_id = DeviceId {
-        type_id: 0,
-        index_id: 5,
-    };
-    let context = DeviceHandle::<TestDeviceState<1>>::new(device_id);
-    let context_second = DeviceHandle::<TestDeviceState<2>>::new(device_id);
+    let context = DeviceFixture::new(
+        DeviceHandle::<TestDeviceState<1>>::new,
+        DeviceHandle::<TestDeviceState<1>>::shutdown,
+    );
+    // A second service on the same device. Declared after the fixture, so it drops
+    // before the shutdown the fixture runs.
+    let context_second = DeviceHandle::<TestDeviceState<2>>::new(context.device_id());
 
     context.submit(move |_state| {
         context_second.submit(move |_inner_state| {});
@@ -43,7 +46,9 @@ fn test_recursive_execution_different_state() {
 }
 
 #[derive(Debug, Clone, Default, new)]
-/// Type is only to create different type ids.
+/// Type is only to create different type ids. Device ids come from the test fixture,
+/// so this only exists to keep the [`Device`] implementation below compiling.
+#[allow(dead_code)]
 pub struct TestDevice<const TYPE: u8> {
     index: u16,
 }

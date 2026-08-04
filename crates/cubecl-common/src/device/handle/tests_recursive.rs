@@ -3,11 +3,10 @@
 #[cfg(not(miri))]
 #[allow(clippy::all)]
 fn test_recursive_execution_same_state() {
-    let device_id = DeviceId {
-        type_id: 10,
-        index_id: 5,
-    };
-    let handle = DeviceHandle::<TestDeviceState<1>>::new(device_id);
+    let handle = DeviceFixture::new(
+        DeviceHandle::<TestDeviceState<1>>::new,
+        DeviceHandle::<TestDeviceState<1>>::shutdown,
+    );
     let handle_cloned = handle.clone();
 
     let _count = handle

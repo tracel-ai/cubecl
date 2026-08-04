@@ -156,6 +156,17 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
 
     /// TODO: Docs.
     fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError>;
+
+    /// Stops any background runner this implementation keeps for `device_id`,
+    /// blocking until it exits. Queued tasks run before the runner stops, and
+    /// live handles keep it alive, so all handles for the device should be
+    /// dropped first. No-op for implementations without background threads.
+    ///
+    /// The scope is the whole device, not the service `S`: every service running on
+    /// `device_id`, across every stage, goes down with it.
+    fn shutdown(device_id: DeviceId) {
+        let _ = device_id;
+    }
 }
 
 #[cfg(test)]

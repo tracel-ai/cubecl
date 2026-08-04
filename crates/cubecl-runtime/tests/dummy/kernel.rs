@@ -1,4 +1,4 @@
-use cubecl_runtime::{id::KernelId, storage::BytesResource};
+use cubecl_runtime::{compiler::CompilationError, id::KernelId, storage::BytesResource};
 
 /// The `DummyKernel` trait should be implemented for every supported operation
 pub trait DummyKernel: Sync + Send + 'static + core::fmt::Debug {
@@ -8,6 +8,12 @@ pub trait DummyKernel: Sync + Send + 'static + core::fmt::Debug {
 
     fn name(&self) -> &'static str {
         core::any::type_name::<Self>()
+    }
+
+    /// The compilation failure this kernel reports instead of compiling, `None` for
+    /// kernels that compile fine. Stands in for a backend refusing a kernel.
+    fn compilation_error(&self) -> Option<CompilationError> {
+        None
     }
 }
 
