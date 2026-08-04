@@ -1,12 +1,17 @@
 [default]
-extend-ignore-identifiers-re = ["CU_DEVICE_ATTRIBUTE_*", "HSA_*"]
+# The minifloat format names are matched by regex rather than listed as
+# identifiers, because an identifier entry only matches the whole name. A
+# compound like `round_up_matches_host_ue4m3` would fall through to word
+# splitting, where the leading `ue` reads as a misspelling of `use`.
+extend-ignore-identifiers-re = [
+    "CU_DEVICE_ATTRIBUTE_*",
+    "HSA_*",
+    "(?i).*ue4m3.*",
+    "(?i).*ue8m0.*",
+]
 
 [default.extend-identifiers]
 Olt = "Olt"
 Sned = "Sned" # Intentional typo example in obfuscation.rs's macro docs.
-UE4M3 = "UE4M3"
-UE8M0 = "UE8M0"
 arange = "arange"
 cpy = "cpy" # Shorthand for "copy" (CUDA_MEMCPY2D_st locals).
-ue4m3 = "ue4m3"
-ue8m0 = "ue8m0"
