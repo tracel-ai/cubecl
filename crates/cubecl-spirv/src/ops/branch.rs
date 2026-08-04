@@ -1,19 +1,16 @@
 use cubecl_core::{
     define_scalar,
     frontend::{AddNativeExpand, PartialOrdNativeExpand},
-    ir::{
-        NoMemoryEffect,
-        dialect::branch::{IfOp, YieldOp},
-        prelude::*,
-        types::scalar::BoolType,
-    },
+    ir::{NoMemoryEffect, dialect::branch::YieldOp, prelude::*, types::scalar::BoolType},
 };
 use cubecl_ir::{
     Scope,
     dialect::{
-        branch::{self, IsExitTerminator, RangeLoopOp, SwitchOp, WhileOp},
-        memory::{LoadOp, StoreOp},
+        BlockPtrExt,
+        branch::{self, ConditionOp, IsExitTerminator},
+        scf,
     },
+    ident,
 };
 use pliron::{
     attribute::AttrObj,
@@ -138,14 +135,16 @@ pub trait ToSpirvCFDialect {
 }
 
 #[op_interface_impl]
-impl ToSpirvCFDialect for IfOp {
+impl ToSpirvCFDialect for scf::IfOp {
     fn rewrite(
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let selection = SelectionOp::new(ctx, vec![]);
+        let result_types = self.result_types(ctx);
+
+        let selection = SelectionOp::new(ctx, result_types);
         let select_region = selection.region(ctx);
         let entry = selection.entry_block(ctx);
         rewriter.set_insertion_point_to_block_end(entry);
@@ -171,7 +170,8 @@ impl ToSpirvCFDialect for IfOp {
 
         rewriter.set_insertion_point_before_operation(then_term);
         if then_term.is_op::<YieldOp>(ctx) {
-            let then_branch = BranchOp::new(ctx, merge, vec![]);
+            let args = then_term.operands(ctx);
+            let then_branch = BranchOp::new(ctx, merge, args);
             rewriter.append_op(ctx, &then_branch);
             rewriter.erase_operation(ctx, then_term);
         } else if then_term.impls::<dyn IsExitTerminator>(ctx) {
@@ -182,9 +182,10 @@ impl ToSpirvCFDialect for IfOp {
 
         rewriter.inline_region(ctx, then_region, BlockInsertionPoint::AfterBlock(entry));
 
+        rewriter.set_insertion_point_before_operation(else_term);
         if else_term.is_op::<YieldOp>(ctx) {
-            rewriter.set_insertion_point_before_operation(else_term);
-            let else_branch = BranchOp::new(ctx, merge, vec![]);
+            let args = else_term.operands(ctx);
+            let else_branch = BranchOp::new(ctx, merge, args);
             rewriter.append_op(ctx, &else_branch);
             rewriter.erase_operation(ctx, else_term);
         } else if else_term.impls::<dyn IsExitTerminator>(ctx) {
@@ -202,7 +203,13 @@ impl ToSpirvCFDialect for IfOp {
         rewriter.insert_block(ctx, BlockInsertionPoint::AtRegionEnd(select_region), merge);
         rewriter.set_insertion_point_to_block_end(merge);
 
-        let merge_op = MergeOp::new(ctx, vec![]);
+        let results = self.results(ctx);
+        for result in results {
+            BasicBlock::push_argument(merge, ctx, result.get_type(ctx));
+        }
+
+        let results = merge.arguments(ctx);
+        let merge_op = MergeOp::new(ctx, results);
         rewriter.append_op(ctx, &merge_op);
 
         rewriter.set_insertion_point_before_operation(self.get_operation());
@@ -214,14 +221,16 @@ impl ToSpirvCFDialect for IfOp {
 }
 
 #[op_interface_impl]
-impl ToSpirvCFDialect for SwitchOp {
+impl ToSpirvCFDialect for scf::SwitchOp {
     fn rewrite(
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let selection = SelectionOp::new(ctx, vec![]);
+        let result_types = self.result_types(ctx);
+
+        let selection = SelectionOp::new(ctx, result_types);
         let select_region = selection.region(ctx);
         let entry = selection.entry_block(ctx);
         rewriter.set_insertion_point_to_block_end(entry);
@@ -229,7 +238,7 @@ impl ToSpirvCFDialect for SwitchOp {
         let default_region = self.default_region(ctx);
         let default_block = self.default_block(ctx);
         let default_term = default_block.deref(ctx).get_terminator(ctx).unwrap();
-        let cases = self.get_attr_branch_switch_cases(ctx).unwrap().clone();
+        let cases = self.get_attr_scf_switch_cases(ctx).unwrap().clone();
         let case_dests = self.get_case_destinations(ctx);
 
         let merge = BasicBlock::new(ctx, None, vec![]);
@@ -247,7 +256,8 @@ impl ToSpirvCFDialect for SwitchOp {
 
         rewriter.set_insertion_point_before_operation(default_term);
         if default_term.is_op::<YieldOp>(ctx) {
-            let default_branch = BranchOp::new(ctx, merge, vec![]);
+            let args = default_term.operands(ctx);
+            let default_branch = BranchOp::new(ctx, merge, args);
             rewriter.append_op(ctx, &default_branch);
             rewriter.erase_operation(ctx, default_term);
         } else if default_term.impls::<dyn IsExitTerminator>(ctx) {
@@ -260,9 +270,10 @@ impl ToSpirvCFDialect for SwitchOp {
 
         for case_dest in case_dests {
             let case_term = case_dest.deref(ctx).get_terminator(ctx).unwrap();
+            rewriter.set_insertion_point_before_operation(case_term);
             if case_term.is_op::<YieldOp>(ctx) {
-                rewriter.set_insertion_point_before_operation(case_term);
-                let case_branch = BranchOp::new(ctx, merge, vec![]);
+                let args = case_term.operands(ctx);
+                let case_branch = BranchOp::new(ctx, merge, args);
                 rewriter.append_op(ctx, &case_branch);
                 rewriter.erase_operation(ctx, case_term);
             } else if case_term.impls::<dyn IsExitTerminator>(ctx) {
@@ -278,7 +289,13 @@ impl ToSpirvCFDialect for SwitchOp {
         rewriter.insert_block(ctx, BlockInsertionPoint::AtRegionEnd(select_region), merge);
         rewriter.set_insertion_point_to_block_end(merge);
 
-        let merge_op = MergeOp::new(ctx, vec![]);
+        let results = self.results(ctx);
+        for result in results {
+            BasicBlock::push_argument(merge, ctx, result.get_type(ctx));
+        }
+
+        let results = merge.arguments(ctx);
+        let merge_op = MergeOp::new(ctx, results);
         rewriter.append_op(ctx, &merge_op);
 
         rewriter.set_insertion_point_before_operation(self.get_operation());
@@ -290,7 +307,7 @@ impl ToSpirvCFDialect for SwitchOp {
 }
 
 #[op_interface_impl]
-impl ToSpirvCFDialect for RangeLoopOp {
+impl ToSpirvCFDialect for scf::RangeLoopOp {
     fn rewrite(
         &self,
         ctx: &mut Context,
@@ -300,17 +317,20 @@ impl ToSpirvCFDialect for RangeLoopOp {
         define_scalar!(I);
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
 
-        let iter_var = self.iter_var(ctx);
+        let result_types = self.result_types(ctx);
+
+        let old_iter_var = self.iter_var(ctx);
         let start = self.start(ctx);
         let end = self.end(ctx);
         let step = self.step(ctx);
+        let mut header_args = self.initial_carried_values(ctx);
+        header_args.insert(0, start);
+
+        let header_arg_types = header_args.iter().map(|it| it.get_type(ctx)).collect();
 
         scope.register_value_type::<I, ()>(start);
 
-        let init = StoreOp::new(ctx, iter_var, start);
-        rewriter.append_op(ctx, &init);
-
-        let r#loop = LoopOp::new(ctx, vec![]);
+        let r#loop = LoopOp::new(ctx, result_types);
         let loop_region = r#loop.region(ctx);
         let entry = r#loop.entry_block(ctx);
         rewriter.set_insertion_point_to_block_end(entry);
@@ -319,30 +339,33 @@ impl ToSpirvCFDialect for RangeLoopOp {
         let body_block = self.loop_body(ctx);
         let body_term = body_block.deref(ctx).get_terminator(ctx).unwrap();
 
-        let header = BasicBlock::new(ctx, None, vec![]);
-        let header_branch = BranchOp::new(ctx, header, vec![]);
+        let header = BasicBlock::new(ctx, Some(ident("header")), header_arg_types);
+        let header_branch = BranchOp::new(ctx, header, header_args);
         rewriter.append_op(ctx, &header_branch);
         rewriter.insert_block(ctx, BlockInsertionPoint::AfterBlock(entry), header);
         rewriter.set_insertion_point_to_block_end(header);
 
-        let merge = BasicBlock::new(ctx, None, vec![]);
+        let iter_var = header.deref(ctx).get_argument(0);
+        rewriter.replace_value_uses_with(ctx, old_iter_var, iter_var);
 
-        let iter_value = scope.register_with_result(&LoadOp::new(ctx, iter_var));
+        let merge = BasicBlock::new(ctx, Some(ident("merge")), vec![]);
+
         let should_continue =
-            I::__expand_native_lt(&scope, iter_value.into(), end.into()).read_value(&scope);
+            I::__expand_native_lt(&scope, iter_var.into(), end.into()).read_value(&scope);
 
         let loop_branch =
             BranchConditionalOp::new(ctx, should_continue, body_block, vec![], merge, vec![]);
         rewriter.append_op(ctx, &loop_branch);
 
         rewriter.set_insertion_point_before_operation(body_term);
-        let iter_value = scope.register_with_result(&LoadOp::new(ctx, iter_var));
         let next_value =
-            I::__expand_native_add(&scope, iter_value.into(), step.into()).read_value(&scope);
-        scope.register(&StoreOp::new(ctx, iter_var, next_value));
+            I::__expand_native_add(&scope, iter_var.into(), step.into()).read_value(&scope);
 
-        if body_term.is_op::<YieldOp>(ctx) {
-            let header_branch = BranchOp::new(ctx, header, vec![]);
+        if let Some(yield_op) = body_term.as_op::<YieldOp>(ctx) {
+            let mut args = yield_op.yield_values(ctx);
+            args.insert(0, next_value);
+
+            let header_branch = BranchOp::new(ctx, header, args);
             rewriter.append_op(ctx, &header_branch);
             rewriter.erase_operation(ctx, body_term);
         } else if body_term.impls::<dyn IsExitTerminator>(ctx) {
@@ -356,7 +379,16 @@ impl ToSpirvCFDialect for RangeLoopOp {
         rewriter.insert_block(ctx, BlockInsertionPoint::AtRegionEnd(loop_region), merge);
         rewriter.set_insertion_point_to_block_end(merge);
 
-        let merge_op = MergeOp::new(ctx, vec![]);
+        let num_body_args = body_block.deref(ctx).get_num_arguments();
+        for i in (0..num_body_args).rev() {
+            let old_value = body_block.deref(ctx).get_argument(i);
+            let value = header.deref(ctx).get_argument(i);
+            rewriter.replace_value_uses_with(ctx, old_value, value);
+            BasicBlock::remove_argument(body_block, ctx, i);
+        }
+
+        let results = header.arguments(ctx).into_iter().skip(1);
+        let merge_op = MergeOp::new(ctx, results.collect());
         rewriter.append_op(ctx, &merge_op);
 
         rewriter.set_insertion_point_before_operation(self.get_operation());
@@ -368,53 +400,71 @@ impl ToSpirvCFDialect for RangeLoopOp {
 }
 
 #[op_interface_impl]
-impl ToSpirvCFDialect for WhileOp {
+impl ToSpirvCFDialect for scf::WhileOp {
     fn rewrite(
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let r#loop = LoopOp::new(ctx, vec![]);
-        let loop_region = r#loop.region(ctx);
+        let result_types = self.result_types(ctx);
+
+        let r#loop = LoopOp::new(ctx, result_types);
         let entry = r#loop.entry_block(ctx);
+
+        let before_region = self.before_region(ctx);
+        let after_region = self.after_region(ctx);
+        let before = self.before_block(ctx);
+        let after = self.after_block(ctx);
+        let merge = BasicBlock::new(ctx, Some(ident("merge")), vec![]);
+
+        rewriter.inline_region(ctx, before_region, BlockInsertionPoint::AfterBlock(entry));
+        rewriter.inline_region(ctx, after_region, BlockInsertionPoint::AfterBlock(before));
+        rewriter.insert_block(ctx, BlockInsertionPoint::AfterBlock(after), merge);
+
         rewriter.set_insertion_point_to_block_end(entry);
+        let before_args = self.initial_carried_values(ctx);
+        let before_branch = BranchOp::new(ctx, before, before_args);
+        rewriter.append_op(ctx, &before_branch);
 
-        let body_region = self.get_region(ctx);
-        let body_block = self.loop_body(ctx);
-        let body_term = body_block.deref(ctx).get_terminator(ctx).unwrap();
+        let before_term = before.deref(ctx).get_terminator(ctx).unwrap();
+        rewriter.set_insertion_point_before_operation(before_term);
 
-        let header = BasicBlock::new(ctx, None, vec![]);
-        let header_branch = BranchOp::new(ctx, header, vec![]);
-        rewriter.append_op(ctx, &header_branch);
-        rewriter.insert_block(ctx, BlockInsertionPoint::AfterBlock(entry), header);
-        rewriter.set_insertion_point_to_block_end(header);
-
-        let merge = BasicBlock::new(ctx, None, vec![]);
-
-        let load = LoadOp::new(ctx, self.cond_ptr(ctx));
-        rewriter.append_op(ctx, &load);
-        let loop_branch =
-            BranchConditionalOp::new(ctx, load.get_result(ctx), body_block, vec![], merge, vec![]);
-        rewriter.append_op(ctx, &loop_branch);
-
-        if body_term.is_op::<YieldOp>(ctx) {
-            rewriter.set_insertion_point_before_operation(body_term);
-            let header_branch = BranchOp::new(ctx, header, vec![]);
-            rewriter.append_op(ctx, &header_branch);
-            rewriter.erase_operation(ctx, body_term);
-        } else if body_term.impls::<dyn IsExitTerminator>(ctx) {
+        if let Some(cond_op) = before_term.as_op::<ConditionOp>(ctx) {
+            let cond = cond_op.condition(ctx);
+            let after_branch = BranchConditionalOp::new(ctx, cond, after, vec![], merge, vec![]);
+            rewriter.append_op(ctx, &after_branch);
+            rewriter.erase_operation(ctx, before_term);
+        } else if before_term.impls::<dyn IsExitTerminator>(ctx) {
             // Keep terminator, it's a valid terminator in SPIR-V
         } else {
             panic!("Unsupported terminator found in `WhileOp`")
         }
 
-        rewriter.inline_region(ctx, body_region, BlockInsertionPoint::AfterBlock(header));
+        let after_term = after.deref(ctx).get_terminator(ctx).unwrap();
+        rewriter.set_insertion_point_before_operation(after_term);
+        if let Some(yield_op) = after_term.as_op::<YieldOp>(ctx) {
+            let args = yield_op.yield_values(ctx);
+            let back_branch = BranchOp::new(ctx, before, args);
+            rewriter.append_op(ctx, &back_branch);
+            rewriter.erase_operation(ctx, after_term);
+        } else if after_term.impls::<dyn IsExitTerminator>(ctx) {
+            // Keep terminator, it's a valid terminator in SPIR-V
+        } else {
+            panic!("Unsupported terminator found in `WhileOp`")
+        }
 
-        rewriter.insert_block(ctx, BlockInsertionPoint::AtRegionEnd(loop_region), merge);
+        let num_after_args = after.deref(ctx).get_num_arguments();
+        for i in (0..num_after_args).rev() {
+            let old_value = after.deref(ctx).get_argument(i);
+            let value = before.deref(ctx).get_argument(i);
+            rewriter.replace_value_uses_with(ctx, old_value, value);
+            BasicBlock::remove_argument(after, ctx, i);
+        }
+
         rewriter.set_insertion_point_to_block_end(merge);
-
-        let merge_op = MergeOp::new(ctx, vec![]);
+        let results = before.arguments(ctx);
+        let merge_op = MergeOp::new(ctx, results);
         rewriter.append_op(ctx, &merge_op);
 
         rewriter.set_insertion_point_before_operation(self.get_operation());

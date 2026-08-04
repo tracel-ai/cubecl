@@ -85,6 +85,9 @@ impl WgslCompiler {
             });
         }
 
+        #[cfg(feature = "plir-dump")]
+        let ir_printing_dir = kernel_dir_name(&value.settings.kernel_name);
+
         let module = value.body.state().module;
         let entry_func = value.body.state().entry_func;
         let module_op = module.get_operation();
@@ -95,10 +98,19 @@ impl WgslCompiler {
         });
         ctx.set_aux_ty(*compilation_options);
 
+        #[cfg(feature = "plir-dump")]
+        if let Some(print_dir) = &ir_printing_dir {
+            use pliron::printable::Printable;
+            let str = std::format!("{}", module_op.disp(&ctx));
+            std::fs::write(print_dir.join("initial.plir"), &str).unwrap();
+        }
+
         verify_operation(module_op, &ctx)?;
 
         let config = PMConfig {
-            print_after_all: true,
+            #[cfg(feature = "plir-dump")]
+            ir_printing_dir,
+            print_after_all: cfg!(feature = "plir-dump"),
             ..Default::default()
         };
 
@@ -151,5 +163,23 @@ impl WgslCompiler {
             shared_memory_size,
             ctx,
         })
+    }
+}
+
+#[cfg(feature = "plir-dump")]
+pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIR") {
+        let path = sanitize_filename::sanitize_with_options(
+            name,
+            sanitize_filename::Options {
+                replacement: "_",
+                ..Default::default()
+            },
+        );
+        let dir = std::path::PathBuf::from(dir).join(&path);
+        std::fs::create_dir_all(&dir).unwrap();
+        Some(dir)
+    } else {
+        None
     }
 }

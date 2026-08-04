@@ -5,6 +5,7 @@ mod expression_merge;
 // mod reduce_strength;
 pub mod alloc_shared_memory;
 pub mod annotate_buffer_visibility;
+pub mod mem2reg;
 pub mod simple_cse;
 
 // pub use disaggregate_array::*;

@@ -9,7 +9,10 @@ use crate::{
     expression::{Block, Expression, MatchArm, is_intrinsic},
     generate::expression::inner_pat,
     operator::Operator,
-    parse::{branch::expand_if_let, helpers::is_comptime_attr},
+    parse::{
+        branch::{expand_if_let, expand_while_loop},
+        helpers::is_comptime_attr,
+    },
     scope::Context,
 };
 
@@ -197,6 +200,7 @@ impl Expression {
             Expr::Continue(cont) => Expression::Continue(cont.span()),
             Expr::Return(ret) => Expression::Return(ret.span()),
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
+            Expr::While(while_loop) => expand_while_loop(while_loop, context)?,
             Expr::Loop(loop_expr) => expand_loop(loop_expr, context)?,
             Expr::If(if_expr) if is_let(&if_expr.cond) => expand_if_let(if_expr, context)?,
             Expr::If(if_expr) => expand_if(if_expr, context)?,

@@ -19,7 +19,6 @@ use cubecl_ir::{
     types::{
         ArrayType, PointerType, RuntimeArrayType, VectorType,
         aggregate::{MetadataKind, PtrAggregateType},
-        scalar::IndexType,
     },
 };
 
@@ -616,14 +615,12 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E> {
     type Item = E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = IndexType::get(scope.ctx());
-
         let start = scope.const_usize(0);
         let end = self.__extract_length(scope).value(scope);
         let step = scope.const_usize(1);
 
-        let i = scope.create_local_mut(index_ty, None);
-        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), start, end, step);
+        let i = range_loop.iter_var(scope.ctx());
         let loop_body = range_loop.loop_body(scope.ctx());
 
         let child = scope.loop_child(OpInserter::new_at_block_end(loop_body));
@@ -648,14 +645,12 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E> {
     type Item = &'a E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = IndexType::get(scope.ctx());
-
         let start = scope.const_usize(0);
         let end = self.__extract_length(scope).value(scope);
         let step = scope.const_usize(1);
 
-        let i = scope.create_local_mut(index_ty, None);
-        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), start, end, step);
+        let i = range_loop.iter_var(scope.ctx());
         let loop_body = range_loop.loop_body(scope.ctx());
 
         let child = scope.loop_child(OpInserter::new_at_block_end(loop_body));
@@ -678,14 +673,12 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
     type Item = &'a mut E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = IndexType::get(scope.ctx());
-
         let start = scope.const_usize(0);
         let end = self.__extract_length(scope).value(scope);
         let step = scope.const_usize(1);
 
-        let i = scope.create_local_mut(index_ty, None);
-        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), start, end, step);
+        let i = range_loop.iter_var(scope.ctx());
         let loop_body = range_loop.loop_body(scope.ctx());
 
         let child = scope.loop_child(OpInserter::new_at_block_end(loop_body));

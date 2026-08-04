@@ -32,6 +32,7 @@ use pliron::{
         simplify_cfg::SimplifyCFGPass,
     },
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
+    printable::Printable,
 };
 
 use crate::compiler::{
@@ -131,7 +132,9 @@ impl PlironCompiler {
 
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
-        verify_operation(module_op, &ctx).expect("Failed to verify after control-flow lowering");
+        if let Err(e) = verify_operation(module_op, &ctx) {
+            panic!("{}", e.disp(&ctx));
+        }
 
         let requirements = KernelRequirements {
             needs_parallelism,

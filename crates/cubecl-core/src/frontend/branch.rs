@@ -1,25 +1,32 @@
 use alloc::vec::Vec;
 use cubecl_ir::{
-    OpInserter,
-    attributes::BoolAttr,
+    ExpandState, ExpandValue, OpInserter,
     dialect::{
-        branch::{IfOp, ReturnOp, SwitchOp, UnreachableOp, WhileOp},
+        branch::{ConditionOp, IfOp, RangeLoopOp, ReturnOp, SwitchOp, UnreachableOp, WhileOp},
         general::BoolAndOp,
     },
     pliron::{irbuild::inserter::Inserter, r#type::TypedHandle},
-    types::scalar::BoolType,
 };
 use pliron::{
+    basic_block::BasicBlock,
     builtin::{
         attributes::IntegerAttr,
+        op_interfaces::OneRegionInterface,
         types::{IntegerType, Signedness},
     },
+    irbuild::{
+        listener::DummyListener,
+        rewriter::{IRRewriter, Rewriter},
+    },
+    op::Op,
+    region::Region,
+    r#type::Typed,
     utils::apint::{APInt, bw},
 };
 
 use crate::{
     IntoRuntime,
-    frontend::{ReadValue, RuntimeAssign, assign, binary_expand},
+    frontend::{ReadValue, RuntimeAssign, assign, assign_binop_expand, binary_expand},
     prelude::{CubeEnum, ExpandTypeClone},
 };
 use crate::{ir::Scope, prelude::Assign};
@@ -704,35 +711,124 @@ pub mod unreachable_unchecked {
     }
 }
 
-// Don't make this `FnOnce`, it must be executable multiple times
-pub fn loop_expand(scope: &Scope, mut block: impl FnMut(&Scope)) {
-    let true_ = BoolAttr::new(true).into();
-    let cond = scope.create_local_mut(BoolType::get(scope.ctx()), Some(true_));
+/// `WhileOp` builder. Needs to work like this for borrow checker reasons.
+/// Rust requires all closures passed to a function to be live at once, so we use a builder pattern
+/// and separate the cond and body into separate functions to allow the borrows to work.
+pub struct WhileBuilder {
+    while_op: WhileOp,
+    cond: ExpandValue,
+    cond_scope: Scope,
+}
 
-    let loop_op = WhileOp::new(scope.ctx_mut(), cond);
-    let body = loop_op.loop_body(scope.ctx());
-    let body = scope.loop_child(OpInserter::new_at_block_end(body));
-    block(&body);
+impl WhileBuilder {
+    pub fn new(scope: &Scope, mut cond: impl FnMut(&Scope) -> NativeExpand<bool>) -> Self {
+        let while_op = WhileOp::new(scope.ctx_mut());
+        let cond_scope = scope.child(OpInserter::new_at_block_start(
+            while_op.before_block(scope.ctx()),
+        ));
 
-    body.inserter()
-        .set_insertion_point_to_block_end(loop_op.loop_body(scope.ctx()));
-    let expand_state = *body.expand_state();
-    let break_flag = expand_state.inv_break_flag.unwrap().into();
-    let return_flag = expand_state.inv_return_flag.map(Into::into);
-    match (expand_state.may_break, expand_state.may_return) {
-        (true, true) => {
-            let new_cond = binary_expand(&body, break_flag, return_flag.unwrap(), BoolAndOp::new);
-            assign::expand_element(&body, new_cond, cond.into());
+        WhileBuilder {
+            while_op,
+            cond: cond(&cond_scope).expand,
+            cond_scope,
         }
-        (false, true) => {
-            assign::expand_element(&body, return_flag.unwrap(), cond.into());
-        }
-        (true, false) => {
-            assign::expand_element(&body, break_flag, cond.into());
-        }
-        (false, false) => {}
     }
 
+    pub fn with_body(self, scope: &Scope, mut block: impl FnMut(&Scope)) {
+        let Self {
+            while_op,
+            mut cond,
+            cond_scope,
+        } = self;
+
+        let body = while_op.after_block(scope.ctx());
+        let body = scope.loop_child(OpInserter::new_at_block_end(body));
+        block(&body);
+        body.terminate_yield();
+
+        let expand_state = *body.expand_state();
+        let break_flag = expand_state.inv_break_flag.unwrap().into();
+        let return_flag = expand_state.inv_return_flag.map(Into::into);
+
+        if expand_state.may_break {
+            cond = binary_expand(&cond_scope, cond, break_flag, BoolAndOp::new);
+        }
+        if expand_state.may_return {
+            let return_flag = return_flag.unwrap();
+            cond = binary_expand(&cond_scope, cond, return_flag, BoolAndOp::new);
+        }
+
+        cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond.read_value(scope)));
+
+        scope.register(&while_op);
+    }
+}
+
+/// register a range loop if it contains no break or return, destructure to while if it does
+pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, body: &Scope) {
+    let ctx = scope.ctx_mut();
+    let ExpandState {
+        may_return,
+        may_break,
+        inv_return_flag,
+        inv_break_flag,
+    } = *body.expand_state();
+    if !may_break && !may_return {
+        body.terminate_yield();
+        scope.register(for_op);
+        return;
+    }
+
+    let mut rewriter = IRRewriter::<DummyListener>::default();
+
+    let start = for_op.start(ctx);
+    let end = for_op.end(ctx);
+    let step = for_op.step(ctx);
+    let iter_var_old = for_op.iter_var(ctx);
+
+    let iter_var = ExpandValue::from(scope.create_local_mut(iter_var_old.get_type(ctx), None));
+    assign::expand_element(scope, start.into(), iter_var);
+
+    assign_binop_expand::<I>(
+        body,
+        &mut iter_var.into(),
+        step.into(),
+        I::__expand_native_add,
+    );
     body.terminate_yield();
-    scope.register(&loop_op);
+
+    body.inserter()
+        .set_insertion_point_to_block_start(for_op.loop_body(ctx));
+    let iter_val = iter_var.read_value(body);
+    rewriter.replace_value_uses_with(ctx, iter_var_old, iter_val);
+    BasicBlock::remove_argument(for_op.loop_body(ctx), ctx, 0);
+
+    let while_op = WhileOp::new(ctx);
+
+    let cond_scope = scope.child(OpInserter::new_at_block_start(
+        while_op.before_block(scope.ctx()),
+    ));
+
+    let mut cond = I::__expand_native_lt(&cond_scope, iter_var, end.into());
+    if may_break {
+        let inv_break_flag = inv_break_flag.unwrap().into();
+        cond = binary_expand(&cond_scope, cond, inv_break_flag, BoolAndOp::new);
+    }
+    if may_return {
+        let inv_return_flag = inv_return_flag.unwrap().into();
+        cond = binary_expand(&cond_scope, cond, inv_return_flag, BoolAndOp::new);
+    }
+
+    cond_scope.register(&ConditionOp::new(scope.ctx_mut(), cond.read_value(scope)));
+
+    rewriter.erase_region(ctx, while_op.after_region(ctx));
+    Region::move_to_op(for_op.get_region(ctx), while_op.get_operation(), ctx);
+    rewriter.erase_operation(ctx, for_op.get_operation());
+
+    scope.register(&while_op);
+}
+
+// Don't make this `FnOnce`, it must be executable multiple times
+pub fn loop_expand(scope: &Scope, block: impl FnMut(&Scope)) {
+    WhileBuilder::new(scope, |scope| true.__expand_runtime_method(scope)).with_body(scope, block);
 }

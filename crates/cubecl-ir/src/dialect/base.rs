@@ -23,6 +23,8 @@ pub trait OperationPtrExt: Sized {
     fn operands_as_uses(self, ctx: &Context) -> Vec<Use<Value>>;
     fn result(self, ctx: &Context) -> Value;
     fn results(self, ctx: &Context) -> Vec<Value>;
+    fn result_types(self, ctx: &Context) -> Vec<TypeHandle>;
+    fn regions(self, ctx: &Context) -> Vec<Ptr<Region>>;
     fn result_names(self, ctx: &Context) -> Vec<Option<Identifier>>;
     fn opt_result(self, ctx: &Context) -> Option<Value>;
     fn set_attr<T: Attribute>(self, ctx: &Context, key: &Identifier, value: T);
@@ -57,6 +59,12 @@ impl OperationPtrExt for Ptr<Operation> {
     }
     fn results(self, ctx: &Context) -> Vec<Value> {
         self.deref(ctx).results().collect()
+    }
+    fn result_types(self, ctx: &Context) -> Vec<TypeHandle> {
+        self.deref(ctx).result_types().collect()
+    }
+    fn regions(self, ctx: &Context) -> Vec<Ptr<Region>> {
+        self.deref(ctx).regions().collect()
     }
     fn result_names(self, ctx: &Context) -> Vec<Option<Identifier>> {
         self.deref(ctx)
@@ -113,6 +121,7 @@ use pliron::{
     common_traits::Named,
     identifier::Identifier,
     op::{OpInterfaceMarker, OpObj, op_impls},
+    region::Region,
     r#type::TypeHandle,
     value::Use,
 };

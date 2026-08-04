@@ -25,13 +25,15 @@ use cubecl_core::{
 };
 use cubecl_ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
+    dialect::scf::BranchToSCFPass,
     prelude::{SingleBlockRegionInterface, SymbolOpInterface},
     rewrite::visit_all_ops_of_type_mut,
     settings::{Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
-    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, simple_cse::SimpleCSEPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, mem2reg::Mem2RegPass,
+    simple_cse::SimpleCSEPass,
 };
 use cubecl_runtime::compiler::CompilationError;
 use pliron::{
@@ -49,10 +51,7 @@ use pliron::{
     },
     op::Op,
     operation::verify_operation,
-    opts::{
-        constants::sccp::SCCPPass, dce::DCEPass, mem2reg::Mem2RegPass,
-        simplify_cfg::SimplifyCFGPass,
-    },
+    opts::{constants::sccp::SCCPPass, dce::DCEPass, simplify_cfg::SimplifyCFGPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
 };
 use pliron_spirv::{
@@ -169,7 +168,7 @@ impl SpirvCompiler {
         verify_operation(module.get_operation(), ctx)?;
 
         let config = PMConfig {
-            print_after_all: true,
+            print_after_all: cfg!(feature = "spirv-dump"),
             #[cfg(feature = "spirv-dump")]
             ir_printing_dir,
             ..Default::default()
@@ -189,6 +188,7 @@ impl SpirvCompiler {
         func_passes.add_pass(UnrollPass::new(comp_opts.vulkan.max_vector_size));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
+        func_passes.add_pass(BranchToSCFPass::default());
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(LowerBuiltinsPass);
