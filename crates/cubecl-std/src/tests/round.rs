@@ -1,6 +1,5 @@
 use cubecl_common::quant::scheme::QuantParam;
 use cubecl_core as cubecl;
-use cubecl_core::ir::features::TypeUsage;
 use cubecl_core::prelude::*;
 
 use crate::quant::round::round_up_to_param;
@@ -15,21 +14,10 @@ fn kernel_round_up<F: Float>(input: &[F], out: &mut [F], #[comptime] param: Quan
 /// The device rule has to agree with [`QuantParam::round_up`] exactly. They are separate
 /// implementations of one policy, and a tensor quantized on one backend has to reconstruct the
 /// same on another, so nothing but a differential check pins them together.
+///
+/// No capability gate: the kernel is instantiated at `f32` and `param` only selects comptime
+/// constants, so the storage type is never named on device.
 pub fn test_round_up_matches_host<R: Runtime>(client: ComputeClient<R>, param: QuantParam) {
-    let supported = match param {
-        QuantParam::F32 => true,
-        QuantParam::F16 => half::f16::supported_uses(&client).contains(TypeUsage::Conversion),
-        QuantParam::BF16 => half::bf16::supported_uses(&client).contains(TypeUsage::Conversion),
-        QuantParam::UE4M3 => {
-            cubecl_common::e4m3::supported_uses(&client).contains(TypeUsage::Conversion)
-        }
-        QuantParam::UE8M0 => false,
-    };
-    if !supported {
-        println!("{param:?}: unsupported on this runtime, nothing compared");
-        return;
-    }
-
     // Reaches below every param's minimum normal, where the spacing stops halving.
     let mut scales: Vec<f32> = (-26..8)
         .flat_map(|exp| (1..17).map(move |step| (step as f32 / 16.0) * 2f32.powi(exp)))
@@ -43,7 +31,9 @@ pub fn test_round_up_matches_host<R: Runtime>(client: ComputeClient<R>, param: Q
 
     let mut bad = vec![];
     for (i, &scale) in scales.iter().enumerate() {
-        let expected = param.round_up(scale);
+        let expected = param
+            .round_up(scale)
+            .expect("the device rule has no answer for this param either");
         if actual[i] != expected {
             bad.push(format!(
                 "  {scale:e}: device {:e}, host {expected:e}",

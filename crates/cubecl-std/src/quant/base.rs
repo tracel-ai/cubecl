@@ -9,16 +9,16 @@ pub trait RunWithQuantType {
     fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output;
 }
 
-/// Panic for a level the dequantization path cannot reconstruct.
+/// Panic for a level these kernels cannot reconstruct.
 ///
-/// That path applies one scale per value and never consults the level, so a per-tensor scale would
-/// be dropped and every value would come back short by that factor. Levels are matched exhaustively
-/// so a new one has to make a support decision here rather than inherit silence.
+/// They apply one scale per value and never consult the level, so a per-tensor scale would be
+/// dropped and every value would come back short by that factor. Levels are matched exhaustively so
+/// a new one has to make a support decision here rather than inherit silence.
 pub fn assert_level_supported(level: QuantLevel) {
     match level {
         QuantLevel::Tensor | QuantLevel::Block(_) => {}
-        QuantLevel::BlockTensor { .. } => panic!(
-            "two-level quantization is not supported on the dequantization path, got {level:?}"
-        ),
+        QuantLevel::BlockTensor { .. } => {
+            panic!("two-level quantization is not supported by these kernels, got {level:?}")
+        }
     }
 }

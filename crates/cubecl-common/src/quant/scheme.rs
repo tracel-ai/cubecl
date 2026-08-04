@@ -158,6 +158,14 @@ impl QuantLevel {
         }
     }
 
+    /// The block size, for the levels that quantize in blocks.
+    pub fn block_size(&self) -> Option<BlockSize> {
+        match self {
+            QuantLevel::Tensor => None,
+            QuantLevel::Block(block) | QuantLevel::BlockTensor { block, .. } => Some(*block),
+        }
+    }
+
     /// The precision of the per-tensor scale, for the levels that have one.
     pub fn global_param(&self) -> Option<QuantParam> {
         match self {
@@ -200,15 +208,21 @@ impl QuantParam {
     ///
     /// `scale` must not be negative. Symmetric quantization only produces non-negative scales,
     /// and the stepping below walks away from zero for a negative input.
-    pub fn round_up(&self, scale: f32) -> f32 {
-        if let QuantParam::F32 = self {
-            return scale;
-        }
-        if let QuantParam::UE8M0 = self {
-            unimplemented!("UE8M0 scales are not yet supported")
+    ///
+    /// [`QuantParam::UE8M0`] answers [`None`]. Its minimum is 2^-127, subnormal in f32, where the
+    /// grid below no longer holds.
+    pub fn round_up(&self, scale: f32) -> Option<f32> {
+        match self {
+            QuantParam::F32 => {
+                return Some(scale);
+            }
+            QuantParam::UE8M0 => {
+                return None;
+            }
+            _ => {}
         }
         if scale.is_nan() {
-            return scale;
+            return Some(scale);
         }
         debug_assert!(scale >= 0.0, "a quantization scale is never negative");
 
@@ -216,7 +230,7 @@ impl QuantParam {
         // for the params that have one, which would make every reconstructed value NaN.
         let max = self.max_representable();
         if scale >= max {
-            return max;
+            return Some(max);
         }
 
         let grid = self.f32_grid();
@@ -225,10 +239,12 @@ impl QuantParam {
             && scale < subnormals.min_normal
         {
             // Below the minimum normal the spacing stops halving, so the answer is a count of steps.
-            return (scale / subnormals.spacing).ceil() * subnormals.spacing;
+            return Some((scale / subnormals.spacing).ceil() * subnormals.spacing);
         }
 
-        f32::from_bits((scale.to_bits() + grid.round_up_bias()) & grid.truncate_mask())
+        Some(f32::from_bits(
+            (scale.to_bits() + grid.round_up_bias()) & grid.truncate_mask(),
+        ))
     }
 
     /// The param's grid, expressed on the f32 bit pattern. See [`F32Grid`].
@@ -537,7 +553,7 @@ impl<T: AsRef<[u8]>> From<T> for BlockSize {
     }
 }
 
-#[cfg(all(test, feature = "fp8"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -547,7 +563,7 @@ mod tests {
             for exp in -12..8 {
                 for step in 1..17 {
                     let scale = (step as f32 / 16.0) * 2f32.powi(exp);
-                    let up = param.round_up(scale);
+                    let up = param.round_up(scale).unwrap();
                     assert!(
                         up >= scale,
                         "{param:?}: {up} is below {scale}, which clips the block maximum"
@@ -558,128 +574,153 @@ mod tests {
     }
 
     #[test]
-    fn round_up_is_the_nearest_representable_value_not_below() {
-        // Rounding up must not overshoot: stepping down from the answer has to land below.
-        for param in [QuantParam::F16, QuantParam::BF16, QuantParam::UE4M3] {
-            for exp in -8..6 {
-                let scale = 1.7 * 2f32.powi(exp);
-                let up = param.round_up(scale);
-                assert_eq!(
-                    up,
-                    param.round_up(up),
-                    "{param:?}: not idempotent at {scale}"
-                );
-                assert!(
-                    step(param, up, -1) < scale,
-                    "{param:?}: {up} overshoots {scale} by at least a step"
-                );
-            }
-        }
-    }
-
-    /// `offset` representable steps from `value` in `param`, for positive values. Counted on the
-    /// storage type's own bit pattern, so this is an oracle independent of the grid under test.
-    fn step(param: QuantParam, value: f32, offset: i32) -> f32 {
-        match param {
-            QuantParam::F16 => {
-                half::f16::from_bits((half::f16::from_f32(value).to_bits() as i32 + offset) as u16)
-                    .to_f32()
-            }
-            QuantParam::BF16 => half::bf16::from_bits(
-                (half::bf16::from_f32(value).to_bits() as i32 + offset) as u16,
-            )
-            .to_f32(),
-            QuantParam::UE4M3 => crate::e4m3::from_bits(
-                (crate::e4m3::from_f32(value).to_bits() as i32 + offset) as u8,
-            )
-            .to_f32(),
-            QuantParam::F32 | QuantParam::UE8M0 => unreachable!(),
-        }
-    }
-
-    fn min_normal(param: QuantParam) -> f32 {
-        match param {
-            QuantParam::F16 => half::f16::MIN_POSITIVE.to_f32(),
-            QuantParam::BF16 => half::bf16::MIN_POSITIVE.to_f32(),
-            QuantParam::UE4M3 => crate::e4m3::MIN_POSITIVE.to_f32(),
-            QuantParam::F32 | QuantParam::UE8M0 => unreachable!(),
-        }
-    }
-
-    /// `round_up` reads the grid instead of converting through the storage type, so a wrong
-    /// constant there is only visible against the type itself. Nothing else in this file would
-    /// catch one: a grid finer than the real thing still lands above the scale, still steps down
-    /// below it, and still looks idempotent.
-    #[test]
-    fn f32_grid_matches_the_storage_types() {
-        for param in [QuantParam::F16, QuantParam::BF16, QuantParam::UE4M3] {
-            let grid = param.f32_grid();
-
-            // bf16 deliberately reports no subnormal range, since its bit step covers them too.
-            if let Some(subnormals) = grid.subnormals {
-                assert_eq!(
-                    subnormals.min_normal,
-                    min_normal(param),
-                    "{param:?}: minimum normal"
-                );
-                assert_eq!(
-                    subnormals.spacing,
-                    step(param, 0.0, 1),
-                    "{param:?}: subnormal spacing"
-                );
-            }
-
-            // Walk the whole normal range: one step on the f32 pattern has to be one step in the
-            // type, at every exponent.
-            let mut value = min_normal(param);
-            let max = param.max_representable();
-            while value < max {
-                let stepped = f32::from_bits(value.to_bits() + grid.bit_step);
-                assert_eq!(
-                    stepped,
-                    step(param, value, 1),
-                    "{param:?}: step above {value}"
-                );
-                value = stepped;
-            }
-            assert_eq!(
-                value, max,
-                "{param:?}: the grid has to land exactly on the maximum"
-            );
-        }
-    }
-
-    #[test]
     fn round_up_saturates_rather_than_stepping_off_the_top() {
         for param in [QuantParam::F16, QuantParam::BF16, QuantParam::UE4M3] {
             let max = param.max_representable();
-            assert_eq!(param.round_up(max), max);
-            assert!(param.round_up(max * 2.0).is_finite());
+            assert_eq!(param.round_up(max).unwrap(), max);
+            assert!(param.round_up(max * 2.0).unwrap().is_finite());
+        }
+    }
+
+    /// Every variant is dispatched somewhere, so none of them may panic here.
+    #[test]
+    fn round_up_answers_for_every_param() {
+        for param in [
+            QuantParam::F32,
+            QuantParam::F16,
+            QuantParam::BF16,
+            QuantParam::UE8M0,
+            QuantParam::UE4M3,
+        ] {
+            assert_eq!(
+                param.round_up(0.3).is_some(),
+                param != QuantParam::UE8M0,
+                "{param:?}"
+            );
         }
     }
 
     #[test]
     fn round_up_is_the_identity_for_f32() {
         for scale in [1.0e-30, 0.1, 1.0, 12345.678, f32::MAX] {
-            assert_eq!(QuantParam::F32.round_up(scale), scale);
+            assert_eq!(QuantParam::F32.round_up(scale).unwrap(), scale);
         }
     }
 
-    #[test]
-    fn max_representable_matches_the_e4m3_type() {
-        assert_eq!(
-            QuantParam::UE4M3.max_representable(),
-            crate::e4m3::MAX.to_f32()
-        );
-    }
+    /// The checks that need the real storage types to compare against.
+    #[cfg(feature = "fp8")]
+    mod storage_types {
+        use super::*;
 
-    /// The other limit spelled out as a literal. `ue8m0` is exponent only, so its maximum is the
-    /// power of two the hex literal encodes.
-    #[test]
-    fn max_representable_matches_the_e8m0_type() {
-        assert_eq!(
-            QuantParam::UE8M0.max_representable(),
-            crate::ue8m0::MAX as f32
-        );
+        #[test]
+        fn round_up_is_the_nearest_representable_value_not_below() {
+            // Rounding up must not overshoot: stepping down from the answer has to land below.
+            for param in [QuantParam::F16, QuantParam::BF16, QuantParam::UE4M3] {
+                for exp in -8..6 {
+                    let scale = 1.7 * 2f32.powi(exp);
+                    let up = param.round_up(scale).unwrap();
+                    assert_eq!(
+                        up,
+                        param.round_up(up).unwrap(),
+                        "{param:?}: not idempotent at {scale}"
+                    );
+                    assert!(
+                        step(param, up, -1) < scale,
+                        "{param:?}: {up} overshoots {scale} by at least a step"
+                    );
+                }
+            }
+        }
+
+        /// `round_up` reads the grid instead of converting through the storage type, so a wrong
+        /// constant there is only visible against the type itself. Nothing else in this file would
+        /// catch one: a grid finer than the real thing still lands above the scale, still steps
+        /// down below it, and still looks idempotent.
+        #[test]
+        fn f32_grid_matches_the_storage_types() {
+            for param in [QuantParam::F16, QuantParam::BF16, QuantParam::UE4M3] {
+                let grid = param.f32_grid();
+
+                // bf16 deliberately reports no subnormal range, since its bit step covers them too.
+                if let Some(subnormals) = grid.subnormals {
+                    assert_eq!(
+                        subnormals.min_normal,
+                        min_normal(param),
+                        "{param:?}: minimum normal"
+                    );
+                    assert_eq!(
+                        subnormals.spacing,
+                        step(param, 0.0, 1),
+                        "{param:?}: subnormal spacing"
+                    );
+                }
+
+                // Walk the whole normal range: one step on the f32 pattern has to be one step in
+                // the type, at every exponent.
+                let mut value = min_normal(param);
+                let max = param.max_representable();
+                while value < max {
+                    let stepped = f32::from_bits(value.to_bits() + grid.bit_step);
+                    assert_eq!(
+                        stepped,
+                        step(param, value, 1),
+                        "{param:?}: step above {value}"
+                    );
+                    value = stepped;
+                }
+                assert_eq!(
+                    value, max,
+                    "{param:?}: the grid has to land exactly on the maximum"
+                );
+            }
+        }
+
+        #[test]
+        fn max_representable_matches_the_e4m3_type() {
+            assert_eq!(
+                QuantParam::UE4M3.max_representable(),
+                crate::e4m3::MAX.to_f32()
+            );
+        }
+
+        /// The other limit spelled out as a literal. `ue8m0` is exponent only, so its maximum is
+        /// the power of two the hex literal encodes.
+        #[test]
+        fn max_representable_matches_the_e8m0_type() {
+            assert_eq!(
+                QuantParam::UE8M0.max_representable(),
+                crate::ue8m0::MAX as f32
+            );
+        }
+
+        /// `offset` representable steps from `value` in `param`, for positive values. Counted on
+        /// the storage type's own bit pattern, so this is an oracle independent of the grid under
+        /// test.
+        fn step(param: QuantParam, value: f32, offset: i32) -> f32 {
+            match param {
+                QuantParam::F16 => half::f16::from_bits(
+                    (half::f16::from_f32(value).to_bits() as i32 + offset) as u16,
+                )
+                .to_f32(),
+                QuantParam::BF16 => half::bf16::from_bits(
+                    (half::bf16::from_f32(value).to_bits() as i32 + offset) as u16,
+                )
+                .to_f32(),
+                QuantParam::UE4M3 => crate::e4m3::from_bits(
+                    (crate::e4m3::from_f32(value).to_bits() as i32 + offset) as u8,
+                )
+                .to_f32(),
+                QuantParam::F32 | QuantParam::UE8M0 => unreachable!(),
+            }
+        }
+
+        fn min_normal(param: QuantParam) -> f32 {
+            match param {
+                QuantParam::F16 => half::f16::MIN_POSITIVE.to_f32(),
+                QuantParam::BF16 => half::bf16::MIN_POSITIVE.to_f32(),
+                QuantParam::UE4M3 => crate::e4m3::MIN_POSITIVE.to_f32(),
+                QuantParam::F32 | QuantParam::UE8M0 => unreachable!(),
+            }
+        }
     }
 }
