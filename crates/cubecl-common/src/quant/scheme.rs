@@ -239,7 +239,8 @@ impl QuantParam {
             && scale < subnormals.min_normal
         {
             // Below the minimum normal the spacing stops halving, so the answer is a count of steps.
-            return Some((scale / subnormals.spacing).ceil() * subnormals.spacing);
+            // Qualified call: the inherent `f32::ceil` lives in std, and this crate builds no_std.
+            return Some(num_traits::Float::ceil(scale / subnormals.spacing) * subnormals.spacing);
         }
 
         Some(f32::from_bits(
