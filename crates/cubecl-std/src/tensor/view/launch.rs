@@ -428,6 +428,7 @@ mod dynamic {
         Quantized {
             values: Box<ViewArg<C, R>>,
             scales: Box<ViewArg<C, R>>,
+            global: Option<Box<ViewArg<C, R>>>,
             scheme: QuantScheme,
         },
     }
@@ -477,10 +478,19 @@ mod dynamic {
 
         /// Create a new view arg that dequantizes on read.
         /// The scales layout should take values indices and map them to the corresponding scale.
-        pub fn new_quantized(values: Self, scales: Self, scheme: QuantScheme) -> Self {
+        ///
+        /// `global` is the per-tensor scale of a two-level scheme, a single `f32` whose layout maps
+        /// every coordinate to element 0. It must be present exactly when `scheme.level` has one.
+        pub fn new_quantized(
+            values: Self,
+            scales: Self,
+            global: Option<Self>,
+            scheme: QuantScheme,
+        ) -> Self {
             Self::Quantized {
                 values: Box::new(values),
                 scales: Box::new(scales),
+                global: global.map(Box::new),
                 scheme,
             }
         }
@@ -502,6 +512,7 @@ mod dynamic {
         Quantized {
             values: Box<ViewCompilationArg<C>>,
             scales: Box<ViewCompilationArg<C>>,
+            global: Option<Box<ViewCompilationArg<C>>>,
             scheme: QuantScheme,
         },
     }
@@ -535,14 +546,21 @@ mod dynamic {
                     ViewCompilationArg::Quantized {
                         values,
                         scales,
+                        global,
                         scheme,
                     },
                     ViewCompilationArg::Quantized {
                         values: values_other,
                         scales: scales_other,
+                        global: global_other,
                         scheme: scheme_other,
                     },
-                ) => values == values_other && scales == scales_other && scheme == scheme_other,
+                ) => {
+                    values == values_other
+                        && scales == scales_other
+                        && global == global_other
+                        && scheme == scheme_other
+                }
                 _ => false,
             }
         }
@@ -565,10 +583,12 @@ mod dynamic {
                 ViewCompilationArg::Quantized {
                     values,
                     scales,
+                    global,
                     scheme,
                 } => {
                     values.hash(ra_expand_state);
                     scales.hash(ra_expand_state);
+                    global.hash(ra_expand_state);
                     scheme.hash(ra_expand_state);
                 }
             }
@@ -595,11 +615,13 @@ mod dynamic {
                 ViewCompilationArg::Quantized {
                     values,
                     scales,
+                    global,
                     scheme,
                 } => f
                     .debug_struct("QuantizedView")
                     .field("values", &values)
                     .field("scales", &scales)
+                    .field("global", &global)
                     .field("scheme", &scheme)
                     .finish(),
             }
@@ -635,11 +657,13 @@ mod dynamic {
                 ViewArg::Quantized {
                     values,
                     scales,
+                    global,
                     scheme,
                 } => {
                     let register = RegisterDynamic {
                         values: *values,
                         scales: *scales,
+                        global: global.map(|it| *it),
                         scheme,
                         launcher,
                         _ty: PhantomData::<E>,
@@ -684,8 +708,11 @@ mod dynamic {
                 ViewCompilationArg::Quantized {
                     values,
                     scales,
+                    global,
                     scheme,
-                } => quant::view::expand_dynamic(values, scales, *scheme, builder),
+                } => {
+                    quant::view::expand_dynamic(values, scales, global.as_deref(), *scheme, builder)
+                }
             }
         }
     }

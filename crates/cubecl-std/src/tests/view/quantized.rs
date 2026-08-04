@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_common::{
     e2m1, e2m1x2,
-    quant::scheme::{QuantScheme, QuantValue},
+    quant::scheme::{QuantLevel, QuantParam, QuantScheme, QuantValue},
 };
 use cubecl_core::{self as cubecl};
 
@@ -75,7 +75,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
         unsafe { BufferArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
-    let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
+    let quantized_view = ViewArg::new_quantized(values_view, scales_view, None, scheme);
     let float_view = ViewArg::new_array::<PlainLayout>(
         unsafe { BufferArg::from_raw_parts(float_values, 16) },
         (),
@@ -141,7 +141,7 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
         unsafe { BufferArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
-    let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
+    let quantized_view = ViewArg::new_quantized(values_view, scales_view, None, scheme);
     let float_view = ViewArg::new_array::<PlainLayout>(
         unsafe { BufferArg::from_raw_parts(float_values, 16) },
         (),
@@ -175,6 +175,58 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     assert_eq!(&actual_float, &float_data);
 }
 
+/// Two levels of scales: per-block scales normalized by one per-tensor scale.
+///
+/// Neither level reconstructs the values alone here: the block scales overflow `f16` on their own,
+/// and the per-tensor scale is far below the values it helps rebuild.
+pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    // One block per load, since the view assumes a single scale covers a whole read.
+    let vector_size_float = 8;
+    let block = 8;
+
+    let scheme = QuantScheme::default()
+        .with_value(QuantValue::Q4F)
+        .with_level(QuantLevel::block_tensor([block as u8], QuantParam::F32));
+
+    let global_scale = 2f32.powi(-20);
+    let block_scales = [2f32.powi(18), 2f32.powi(19)];
+    let expected = (0..16)
+        .map(|i| F::new(global_scale * block_scales[i / block] * (i as f32 - 8.0)))
+        .collect::<Vec<_>>();
+
+    let output = client.empty(16 * size_of::<F>());
+    let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
+    let scales = client.create_from_slice(f32::as_bytes(&block_scales));
+    let global = client.create_from_slice(f32::as_bytes(&[global_scale]));
+
+    let values_view =
+        ViewArg::new_array::<PlainLayout>(unsafe { BufferArg::from_raw_parts(values, 2) }, ());
+    let scales_view =
+        ViewArg::new_array::<PlainLayout>(unsafe { BufferArg::from_raw_parts(scales, 2) }, ());
+    let global_view = ViewArg::new_array::<TestPerTensorScaleLayout>(
+        unsafe { BufferArg::from_raw_parts(global, 1) },
+        TestPerTensorScaleLayoutLaunch::new(16),
+    );
+    let quantized_view =
+        ViewArg::new_quantized(values_view, scales_view, Some(global_view), scheme);
+
+    unsafe {
+        kernel_quantized_view::launch_unchecked::<F, R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(2),
+            vector_size_float,
+            quantized_view,
+            BufferArg::from_raw_parts(output.clone(), 16),
+        );
+    }
+
+    let actual = client.read_one_unchecked(output);
+    let actual = F::from_bytes(&actual);
+
+    assert_eq!(actual, &expected);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_quantized_view {
@@ -202,6 +254,14 @@ macro_rules! testgen_quantized_view {
             );
             cubecl_std::tests::view::quantized::test_quantized_per_tensor_fp4::<TestRuntime, $ty>(
                 client, 2,
+            );
+        }
+
+        #[$crate::tests::test_log::test]
+        fn test_quantized_view_two_level_int() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_std::tests::view::quantized::test_quantized_two_level_int::<TestRuntime, $ty>(
+                client,
             );
         }
     };
