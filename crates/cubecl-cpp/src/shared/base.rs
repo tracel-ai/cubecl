@@ -1,6 +1,6 @@
 use crate::{
     cuda::{mma::CudaCmmaCompiler, packed_ops::PackOpsPass},
-    hip::mma::HipCmmaCompiler,
+    hip::{arch::AmdWmma, mma::HipCmmaCompiler},
     shared::{
         builtin::{LowerBuiltins, LowerBuiltinsPass},
         convert::PromoteUnsupportedTypesPass,
@@ -76,6 +76,8 @@ pub(crate) use scoped_block;
 pub struct CompilationOptions {
     pub warp_size: usize,
     pub supports_features: CppSupportedFeatures,
+    /// AMD only, and `None` on hardware without WMMA.
+    pub amd_wmma: Option<AmdWmma>,
 }
 
 pub struct CompilationState {
@@ -98,6 +100,7 @@ impl Default for CompilationOptions {
         Self {
             warp_size: 32,
             supports_features: Default::default(),
+            amd_wmma: None,
         }
     }
 }

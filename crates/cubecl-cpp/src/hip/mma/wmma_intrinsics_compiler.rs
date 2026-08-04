@@ -1,7 +1,10 @@
 use std::fmt::Formatter;
 
 use crate::{
-    hip::arch::AMDArchitecture,
+    hip::{
+        arch::{AMDArchitecture, AmdWmma},
+        mma::amd_wmma,
+    },
     shared::{
         Architecture, CompilationOptions, CppValue, SupportedMmaCombinations, frag_ident_str,
         frag_layout_str,
@@ -275,12 +278,20 @@ impl WmmaExecute {
         } else {
             "f16"
         };
-        let (cd_format, opsel) = if self.frag_c.elem_ty.is_float32(ctx) {
-            ("f32", "")
+        let cd_format = if self.frag_c.elem_ty.is_float32(ctx) {
+            "f32"
         } else if self.frag_a.elem_ty.is_bfloat16(ctx) {
-            ("bf16", ", false")
+            "bf16"
         } else {
-            ("f16", ", false")
+            "f16"
+        };
+        // RDNA3 packs a 16 bit result into the low half of each 32 bit lane and takes an `opsel`
+        // saying which half to write. RDNA4's fragments are densely packed, so the argument is gone
+        // and the builtins carry a `_gfx12` suffix.
+        let (isa_suffix, opsel) = match amd_wmma(ctx) {
+            AmdWmma::Rdna3 if self.frag_c.elem_ty.is_float32(ctx) => ("", ""),
+            AmdWmma::Rdna3 => ("", ", false"),
+            AmdWmma::Rdna4 => ("_gfx12", ""),
         };
         let warp_size = 32;
         write!(
@@ -288,7 +299,7 @@ impl WmmaExecute {
             "
 // Execute wmma.
 __device__ void {name}(const {}& frag_a, const {}& frag_b, const {}& frag_c, {}& frag_d) {{
-    frag_d = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w{warp_size}(frag_a, frag_b, frag_c{opsel});
+    frag_d = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w{warp_size}{isa_suffix}(frag_a, frag_b, frag_c{opsel});
 }}
         ",
             compile_fragment_intrinsic(ctx, &self.frag_a),
@@ -337,33 +348,39 @@ __device__ void {name}(const {input}& input, {output}& output) {{
 }
 
 pub(super) fn compile_fragment_intrinsic(ctx: &Context, mat_ty: &MatrixType) -> String {
+    // A/B hold `k` elements per lane on RDNA3 and `k / 2` on RDNA4. Accumulators always hold 8
+    // lanes' worth, but RDNA3's 16 bit ones are padded out to 32 bits per element.
+    let ab_elems = amd_wmma(ctx).frag_ab_elems(mat_ty.shape.k);
+    let acc_elems = match amd_wmma(ctx) {
+        AmdWmma::Rdna3 => 16,
+        AmdWmma::Rdna4 => 8,
+    };
+    let unsupported = || {
+        panic!(
+            "unsupported type {} for {}",
+            mat_ty.elem_ty.disp(ctx),
+            mat_ty.disp(ctx)
+        )
+    };
     match mat_ty.ident {
         MatrixIdent::A | MatrixIdent::B => {
             if mat_ty.elem_ty.is_float16(ctx) {
-                "half16_t".into()
+                format!("half{ab_elems}_t")
             } else if mat_ty.elem_ty.is_bfloat16(ctx) {
-                "bhalf16_t".into()
+                format!("bhalf{ab_elems}_t")
             } else {
-                panic!(
-                    "unsupported type {} for {}",
-                    mat_ty.elem_ty.disp(ctx),
-                    mat_ty.disp(ctx)
-                )
+                unsupported()
             }
         }
         MatrixIdent::Accumulator => {
             if mat_ty.elem_ty.is_float16(ctx) {
-                "half16_t".into()
+                format!("half{acc_elems}_t")
             } else if mat_ty.elem_ty.is_bfloat16(ctx) {
-                "bhalf16_t".into()
+                format!("bhalf{acc_elems}_t")
             } else if mat_ty.elem_ty.is_float32(ctx) {
                 "float8_t".into()
             } else {
-                panic!(
-                    "unsupported type {} for {}",
-                    mat_ty.elem_ty.disp(ctx),
-                    mat_ty.disp(ctx)
-                )
+                unsupported()
             }
         }
     }
