@@ -5,20 +5,23 @@ use crate::{
         command::Command,
         communication::{get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
         context::CudaContext,
+        cublas::CublasState,
         stream::CudaStreamBackend,
         sync::Fence,
     },
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
+#[cfg(cuda_12050)]
+use cubecl_core::server::GroupedGemmDescriptor;
 use cubecl_core::{
     MemoryConfiguration,
     device::DeviceId,
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Binding, CommunicationId, CopyDescriptor, Handle, KernelArguments, LaunchError,
-        ProfileError, ProfilingToken, ReduceOperation, ServerCommunication, ServerError,
-        ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
+        Binding, CommunicationId, CopyDescriptor, GemmDescriptor, Handle, KernelArguments,
+        LaunchError, ProfileError, ProfilingToken, ReduceOperation, ServerCommunication,
+        ServerError, ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
     },
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -56,6 +59,7 @@ pub struct CudaServer {
     utilities: Arc<ServerUtilities<Self>>,
     comm_stream: *mut CUstream_st,
     communicators: HashMap<CommunicationId, *mut cudarc::nccl::sys::ncclComm>,
+    cublas: CublasState,
 }
 
 // SAFETY: `CudaServer` is only accessed from one thread at a time via the `DeviceHandle`,
@@ -158,6 +162,27 @@ impl ComputeServer for CudaServer {
     ) {
         if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id, launch_mode)
         {
+            let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+                Ok(stream) => stream,
+                Err(err) => unreachable!("{err}"),
+            };
+            stream.current().errors.push(err);
+        }
+    }
+
+    fn gemm(&mut self, descriptor: GemmDescriptor, stream_id: StreamId) {
+        if let Err(err) = self.gemm_checked(descriptor, stream_id) {
+            let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+                Ok(stream) => stream,
+                Err(err) => unreachable!("{err}"),
+            };
+            stream.current().errors.push(err);
+        }
+    }
+
+    #[cfg(cuda_12050)]
+    fn grouped_gemm(&mut self, descriptor: GroupedGemmDescriptor, stream_id: StreamId) {
+        if let Err(err) = self.grouped_gemm_checked(descriptor, stream_id) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
@@ -597,6 +622,7 @@ impl CudaServer {
             utilities: Arc::new(utilities),
             comm_stream,
             communicators: HashMap::default(),
+            cublas: CublasState::default(),
         }
     }
 
@@ -655,6 +681,80 @@ impl CudaServer {
 
         core::mem::drop(stream);
         errors
+    }
+
+    fn gemm_checked(
+        &mut self,
+        descriptor: GemmDescriptor,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        // A binding records its allocation stream, which is also the stream
+        // later consumers use for dependency tracking. Executing a write on a
+        // different stream would leave that metadata stale and let a consumer
+        // on the allocation stream race the GEMM.
+        if descriptor.out.binding.stream != stream_id {
+            return Err(ServerError::Validation {
+                message: "GEMM output must be allocated on the execution stream".into(),
+                backtrace: BackTrace::capture(),
+            });
+        }
+        let bindings = [
+            &descriptor.lhs.binding,
+            &descriptor.rhs.binding,
+            &descriptor.out.binding,
+        ];
+        self.unsafe_set_current();
+        let streams = self
+            .streams
+            .resolve(stream_id, bindings.into_iter(), true)?;
+        let cublas = &mut self.cublas;
+        let mut command = Command::new(&mut self.ctx, streams);
+        let lhs = command.resource(descriptor.lhs.binding.clone())?;
+        let rhs = command.resource(descriptor.rhs.binding.clone())?;
+        let out = command.resource(descriptor.out.binding.clone())?;
+        let stream = command.streams.current().sys;
+
+        cublas.launch(&descriptor, &lhs, &rhs, &out, stream)
+    }
+
+    #[cfg(cuda_12050)]
+    fn grouped_gemm_checked(
+        &mut self,
+        descriptor: GroupedGemmDescriptor,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        if descriptor
+            .groups
+            .iter()
+            .any(|group| group.out.binding.stream != stream_id)
+        {
+            return Err(ServerError::Validation {
+                message: "grouped GEMM outputs must be allocated on the execution stream".into(),
+                backtrace: BackTrace::capture(),
+            });
+        }
+        let bindings = descriptor
+            .groups
+            .iter()
+            .flat_map(|group| [&group.lhs.binding, &group.rhs.binding, &group.out.binding])
+            .collect::<Vec<_>>();
+        self.unsafe_set_current();
+        let streams = self
+            .streams
+            .resolve(stream_id, bindings.into_iter(), true)?;
+        let cublas = &mut self.cublas;
+        let mut command = Command::new(&mut self.ctx, streams);
+        let mut lhs = Vec::with_capacity(descriptor.groups.len());
+        let mut rhs = Vec::with_capacity(descriptor.groups.len());
+        let mut out = Vec::with_capacity(descriptor.groups.len());
+        for group in &descriptor.groups {
+            lhs.push(command.resource(group.lhs.binding.clone())?);
+            rhs.push(command.resource(group.rhs.binding.clone())?);
+            out.push(command.resource(group.out.binding.clone())?);
+        }
+        let stream = command.streams.current().sys;
+
+        cublas.launch_grouped(&descriptor, &lhs, &rhs, &out, stream)
     }
 
     fn launch_checked(
@@ -916,6 +1016,13 @@ impl CudaServer {
 
     pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {
         self.utilities.clone()
+    }
+}
+
+impl Drop for CudaServer {
+    fn drop(&mut self) {
+        self.unsafe_set_current();
+        self.cublas.destroy();
     }
 }
 
