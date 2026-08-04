@@ -19,6 +19,7 @@ use cubecl_runtime::compiler::CompilationError;
 
 use cubecl_core::{
     Compiler,
+    ir::dialect::scf::BranchToSCFPass,
     ir::rewrite::SimplifyOpsPass,
     post_processing::{bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass},
     prelude::*,
@@ -36,7 +37,7 @@ use pliron::{
 };
 
 use crate::compiler::{
-    branch::CfToLlvmConversionPass,
+    branch::SCFToLlvmCf,
     entrypoint::InsertConstantEmulationPass,
     jit::engine::{KernelRequirements, PlironEngine},
     metadata::LowerEntryAbiPass,
@@ -117,7 +118,8 @@ impl PlironCompiler {
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(LowerComplexOpPass::default());
-        func_passes.add_pass(CfToLlvmConversionPass::default());
+        func_passes.add_pass(BranchToSCFPass::default());
+        func_passes.add_pass(SCFToLlvmCf::default());
         func_passes.add_pass(SimplifyCFGPass);
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(LowerEntryAbiPass::new(

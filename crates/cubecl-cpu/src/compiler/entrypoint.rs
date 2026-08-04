@@ -1,7 +1,6 @@
 use cubecl_core::ir::attributes::{EntrypointInterface, FuncInterface};
 use cubecl_core::ir::dialect::branch::{RangeLoopOp, YieldOp};
 use cubecl_core::ir::dialect::general::ReadBuiltinOp;
-use cubecl_core::ir::dialect::memory::LoadOp;
 use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope};
 use cubecl_core::ir::prelude::*;
 use cubecl_core::ir::settings::Dim3;
@@ -291,14 +290,10 @@ fn insert_skeleton(
     .value(scope);
     builtins.set(Builtin::CubeCount, cube_count);
 
-    let u32_ty = u32::__expand_as_type(scope);
-
-    let iter_z = scope.create_local_mut(u32_ty, None);
-    let loop_z = RangeLoopOp::new(scope.ctx_mut(), iter_z, zero, cube_count_z, one);
+    let loop_z = RangeLoopOp::new(scope.ctx_mut(), zero, cube_count_z, one);
     let scope_z = scope.child(OpInserter::new_at_block_end(loop_z.loop_body(scope.ctx())));
     {
-        let load = LoadOp::new(scope_z.ctx_mut(), iter_z);
-        let cube_pos_z = scope_z.register_with_result(&load);
+        let cube_pos_z = loop_z.iter_var(scope.ctx());
         builtins.set(Builtin::CubePosZ, cube_pos_z);
 
         let absolute_pos_z =
@@ -307,14 +302,12 @@ fn insert_skeleton(
         builtins.set(Builtin::AbsolutePosZ, absolute_pos_z);
     }
 
-    let iter_y = scope_z.create_local_mut(u32_ty, None);
-    let loop_y = RangeLoopOp::new(scope_z.ctx_mut(), iter_y, zero, cube_count_y, one);
+    let loop_y = RangeLoopOp::new(scope_z.ctx_mut(), zero, cube_count_y, one);
     let scope_y = scope_z.child(OpInserter::new_at_block_end(
         loop_y.loop_body(scope_z.ctx()),
     ));
     {
-        let load = LoadOp::new(scope_y.ctx_mut(), iter_y);
-        let cube_pos_y = scope_y.register_with_result(&load);
+        let cube_pos_y = loop_y.iter_var(scope.ctx());
         builtins.set(Builtin::CubePosY, cube_pos_y);
 
         let absolute_pos_y =
@@ -323,13 +316,11 @@ fn insert_skeleton(
         builtins.set(Builtin::AbsolutePosY, absolute_pos_y);
     }
 
-    let iter_x = scope_y.create_local_mut(u32_ty, None);
-    let loop_x = RangeLoopOp::new(scope_y.ctx_mut(), iter_x, zero, cube_count_x, one);
+    let loop_x = RangeLoopOp::new(scope_y.ctx_mut(), zero, cube_count_x, one);
     let body_block = loop_x.loop_body(scope_y.ctx());
     let scope_x = scope_y.child(OpInserter::new_at_block_end(body_block));
     {
-        let load = LoadOp::new(scope_x.ctx_mut(), iter_x);
-        let cube_pos_x = scope_x.register_with_result(&load);
+        let cube_pos_x = loop_x.iter_var(scope.ctx());
         builtins.set(Builtin::CubePosX, cube_pos_x);
 
         let absolute_pos_x =
