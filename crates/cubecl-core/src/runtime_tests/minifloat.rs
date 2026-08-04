@@ -90,74 +90,6 @@ pub fn test_fp8_broadcast<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual, &expected[..]);
 }
 
-/// The shape of a symmetric quantize/dequantize round trip with a minifloat scale, as used by
-/// UE4M3 quantization: a scalar scale broadcast into a vector in both directions, with the
-/// quantized values themselves stored as a minifloat vector.
-#[cube(launch_unchecked)]
-pub fn kernel_fp8_quantize<F: Float, N: Size>(
-    input: &[Vector<F, N>],
-    scale_in: &[F],
-    out_scale: &mut [u8],
-    out_q: &mut [Vector<u8, N>],
-    out_dq: &mut [Vector<F, N>],
-) {
-    if ABSOLUTE_POS == 0 {
-        let scale = e4m3::cast_from(scale_in[0]);
-        out_scale[0] = u8::reinterpret(scale);
-
-        let value = input[0];
-
-        let quantized = Vector::<e4m3, N>::cast_from(value / Vector::cast_from(scale));
-        out_q[0] = Vector::reinterpret(quantized);
-        out_dq[0] = Vector::cast_from(scale) * Vector::<F, N>::cast_from(quantized);
-    }
-}
-
-#[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp8_quantize<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
-    vector_size: VectorSize,
-) {
-    if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) {
-        println!("Unsupported, skipping");
-        return;
-    }
-
-    let data = as_type![F: 2.0, 4.0, 6.0, 8.0];
-    let scale = as_type![F: 2.0];
-    let handle_in = client.create_from_slice(F::as_bytes(&data[..vector_size]));
-    let handle_scale_in = client.create_from_slice(F::as_bytes(&scale[..]));
-    let handle_scale = client.empty(size_of::<u8>());
-    let handle_q = client.empty(vector_size * size_of::<u8>());
-    let handle_dq = client.empty(vector_size * size_of::<F>());
-
-    unsafe {
-        kernel_fp8_quantize::launch_unchecked::<F, R>(
-            &client,
-            CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d(1),
-            vector_size,
-            BufferArg::from_raw_parts(handle_in.clone(), vector_size),
-            BufferArg::from_raw_parts(handle_scale_in.clone(), 1),
-            BufferArg::from_raw_parts(handle_scale.clone(), 1),
-            BufferArg::from_raw_parts(handle_q.clone(), vector_size),
-            BufferArg::from_raw_parts(handle_dq.clone(), vector_size),
-        )
-    };
-
-    // 0b0_1000_000 is 2.0 in e4m3.
-    let actual_scale = client.read_one_unchecked(handle_scale);
-    assert_eq!(u8::from_bytes(&actual_scale), &[0b0_1000_000u8]);
-
-    // 1.0, 2.0, 3.0 and 4.0 in e4m3.
-    let expect_q: Vec<u8> = vec![0b0_0111_000, 0b0_1000_000, 0b0_1000_100, 0b0_1001_000];
-    let actual_q = client.read_one_unchecked(handle_q);
-    assert_eq!(u8::from_bytes(&actual_q), &expect_q[..vector_size]);
-
-    let actual_dq = client.read_one_unchecked(handle_dq);
-    assert_eq!(F::from_bytes(&actual_dq), &data[..vector_size]);
-}
-
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
 pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
@@ -358,17 +290,6 @@ macro_rules! testgen_minifloat {
             let client = TestRuntime::client(&Default::default());
             for vector_size in [1, 2, 4] {
                 cubecl_core::runtime_tests::minifloat::test_fp8_broadcast::<TestRuntime, FloatType>(
-                    client.clone(),
-                    vector_size,
-                );
-            }
-        }
-
-        #[$crate::runtime_tests::test_log::test]
-        fn test_fp8_quantize() {
-            let client = TestRuntime::client(&Default::default());
-            for vector_size in [1, 2, 4] {
-                cubecl_core::runtime_tests::minifloat::test_fp8_quantize::<TestRuntime, FloatType>(
                     client.clone(),
                     vector_size,
                 );

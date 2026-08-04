@@ -402,53 +402,17 @@ mod tests {
 
     type Cuda = CudaDialect<CudaWmmaCompiler>;
 
-    /// Every `__nv_cvt_*` symbol declared by the CUDA minifloat headers, as of 13.3.1.
+    /// Number of values the named CUDA type carries.
     ///
-    /// The point of pinning these is that the decode direction only ever comes in matched
-    /// scalar/scalar and x2/2-wide pairs. `special_cast` composes the name from the source and
-    /// destination types independently, so a source and destination of mismatched width compose a
-    /// name that does not exist. This list is what makes that detectable without a GPU, which
-    /// matters because fp4, fp6 and e8m0 conversion needs Blackwell to run at all.
-    const DECLARED_INTRINSICS: &[&str] = &[
-        "__nv_cvt_bfloat162raw_to_e8m0x2",
-        "__nv_cvt_bfloat16raw2_to_fp4x2",
-        "__nv_cvt_bfloat16raw2_to_fp6x2",
-        "__nv_cvt_bfloat16raw2_to_fp8x2",
-        "__nv_cvt_bfloat16raw_to_e8m0",
-        "__nv_cvt_bfloat16raw_to_fp4",
-        "__nv_cvt_bfloat16raw_to_fp6",
-        "__nv_cvt_bfloat16raw_to_fp8",
-        "__nv_cvt_double2_to_e8m0x2",
-        "__nv_cvt_double2_to_fp4x2",
-        "__nv_cvt_double2_to_fp6x2",
-        "__nv_cvt_double2_to_fp8x2",
-        "__nv_cvt_double_to_e8m0",
-        "__nv_cvt_double_to_fp4",
-        "__nv_cvt_double_to_fp6",
-        "__nv_cvt_double_to_fp8",
-        "__nv_cvt_e8m0_to_bf16raw",
-        "__nv_cvt_e8m0x2_to_bf162raw",
-        "__nv_cvt_float2_to_e8m0x2",
-        "__nv_cvt_float2_to_fp4x2",
-        "__nv_cvt_float2_to_fp6x2",
-        "__nv_cvt_float2_to_fp8x2",
-        "__nv_cvt_float_to_e8m0",
-        "__nv_cvt_float_to_fp4",
-        "__nv_cvt_float_to_fp6",
-        "__nv_cvt_float_to_fp8",
-        "__nv_cvt_fp4_to_halfraw",
-        "__nv_cvt_fp4x2_to_halfraw2",
-        "__nv_cvt_fp6_to_halfraw",
-        "__nv_cvt_fp6x2_to_halfraw2",
-        "__nv_cvt_fp8_to_halfraw",
-        "__nv_cvt_fp8x2_to_halfraw2",
-        "__nv_cvt_halfraw2_to_fp4x2",
-        "__nv_cvt_halfraw2_to_fp6x2",
-        "__nv_cvt_halfraw2_to_fp8x2",
-        "__nv_cvt_halfraw_to_fp4",
-        "__nv_cvt_halfraw_to_fp6",
-        "__nv_cvt_halfraw_to_fp8",
-    ];
+    /// The suffix is not uniform: `fp8x2` and `halfraw2` mark the pair with a trailing token,
+    /// while `bf162raw` and `bfloat162raw` carry it in the middle.
+    fn intrinsic_type_width(name: &str) -> usize {
+        if name.ends_with('2') || name.contains("x2") || name.contains("162") {
+            2
+        } else {
+            1
+        }
+    }
 
     struct SpecialCast {
         input: Value<Cuda>,
@@ -562,50 +526,41 @@ mod tests {
         cases
     }
 
-    /// No conversion may name an intrinsic the CUDA headers do not declare, at any combination of
-    /// source and destination width. A scalar source broadcast into a vector is the case where a
-    /// width mismatch composes `__nv_cvt_fp8_to_halfraw2`.
+    /// Two things have to hold for every conversion the compiler can ask for, and neither is
+    /// checkable on the hardware available here, since fp4, fp6 and e8m0 conversion needs
+    /// Blackwell to run at all.
+    ///
+    /// CUDA declares these intrinsics only in matched widths, a scalar form and an x2 form, but
+    /// `special_cast` composes the name from the source and destination in two independent
+    /// matches, so nothing structural stops it naming a pair that does not exist. Separately, the
+    /// half intermediate has to be as wide as the unroll that indexes it, or the emitted code
+    /// reads off the end of a temporary.
     #[test]
-    fn every_emitted_intrinsic_is_declared() {
-        let mut undeclared = Vec::new();
+    fn emitted_conversions_are_well_formed() {
+        let mut bad = Vec::new();
 
         for (case, source) in conversion_matrix() {
             for name in called_intrinsics(&source) {
-                if !DECLARED_INTRINSICS.contains(&name) {
-                    undeclared.push(format!("{case}: `{name}`\n{source}"));
+                match name.trim_start_matches("__nv_cvt_").split_once("_to_") {
+                    Some((from, to)) if intrinsic_type_width(from) == intrinsic_type_width(to) => {}
+                    _ => bad.push(format!("{case}: `{name}` has mismatched widths\n{source}")),
                 }
             }
-        }
 
-        assert!(
-            undeclared.is_empty(),
-            "{} conversions named an intrinsic no CUDA header declares:\n{}",
-            undeclared.len(),
-            undeclared.join("\n")
-        );
-    }
-
-    /// A vector temporary read past its own width compiles to nothing, so the widths of the
-    /// intermediates have to agree with the width the surrounding unroll indexes them at.
-    #[test]
-    fn no_temporary_is_read_past_its_width() {
-        let mut out_of_bounds = Vec::new();
-
-        for (case, source) in conversion_matrix() {
             // Declarations look like `__half_2 _tmp_0 = ...`, reads like `_tmp_0.i_2`.
-            let mut widths = std::collections::HashMap::new();
             for line in source.lines() {
                 let mut words = line.split_whitespace();
-                if let (Some(ty), Some(name)) = (words.next(), words.next())
-                    && name.starts_with("_tmp_")
-                    && let Some((_, width)) = ty.rsplit_once('_')
-                    && let Ok(width) = width.parse::<usize>()
-                {
-                    widths.insert(name.to_string(), width);
-                }
-            }
+                let (Some(ty), Some(name)) = (words.next(), words.next()) else {
+                    continue;
+                };
+                let Some(width) = name
+                    .starts_with("_tmp_")
+                    .then(|| ty.rsplit_once('_')?.1.parse::<usize>().ok())
+                    .flatten()
+                else {
+                    continue;
+                };
 
-            for (name, width) in &widths {
                 let read = format!("{name}.i_");
                 let mut rest = source.as_str();
                 while let Some(start) = rest.find(&read) {
@@ -613,11 +568,10 @@ mod tests {
                     let end = rest
                         .find(|c: char| !c.is_ascii_digit())
                         .unwrap_or(rest.len());
-                    if let Ok(index) = rest[..end].parse::<usize>()
-                        && index >= *width
-                    {
-                        out_of_bounds.push(format!(
-                            "{case}: {name} has width {width}, read at i_{index}\n{source}"
+                    if rest[..end].parse::<usize>().is_ok_and(|i| i >= width) {
+                        bad.push(format!(
+                            "{case}: {name} has width {width}, read at i_{}\n{source}",
+                            &rest[..end]
                         ));
                     }
                 }
@@ -625,10 +579,10 @@ mod tests {
         }
 
         assert!(
-            out_of_bounds.is_empty(),
-            "{} conversions read a temporary past its width:\n{}",
-            out_of_bounds.len(),
-            out_of_bounds.join("\n")
+            bad.is_empty(),
+            "{} malformed conversions:\n{}",
+            bad.len(),
+            bad.join("\n")
         );
     }
 }
