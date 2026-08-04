@@ -257,8 +257,12 @@ pub(crate) fn create_storage_buffer(
 
 fn as_io_error(result: vk::Result, size: u64) -> IoError {
     match result {
+        // Not `BufferTooBig`: Vulkan is reporting the heap it has right now, not
+        // a size it can never satisfy. Nothing on this backend reclaims and
+        // retries yet, but keeping the two apart is what would let it, and it
+        // stops the failure being reported as though the size were hopeless.
         vk::Result::ERROR_OUT_OF_HOST_MEMORY | vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => {
-            IoError::BufferTooBig {
+            IoError::OutOfMemory {
                 size,
                 backtrace: BackTrace::capture(),
             }

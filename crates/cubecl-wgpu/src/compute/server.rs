@@ -294,7 +294,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
-        let reserved = stream.empty(size).unwrap();
+        let reserved = stream
+            .empty(size)
+            .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of device memory: {err}"));
         stream.mem_manage.bind(reserved, memory);
     }
 

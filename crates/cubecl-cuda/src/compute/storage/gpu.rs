@@ -177,8 +177,11 @@ impl ComputeStorage for GpuStorage {
             Err(_) => unsafe {
                 match cudarc::driver::result::malloc_sync(size as usize) {
                     Ok(ptr) => (ptr, AllocationKind::Sync),
+                    // Not `BufferTooBig`: that variant means the allocation can
+                    // never fit, and `Command::reserve` skips its reclaim-and-retry
+                    // when it sees it. A full device is a moment, not a verdict.
                     Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
-                        return Err(IoError::BufferTooBig {
+                        return Err(IoError::OutOfMemory {
                             size,
                             backtrace: BackTrace::capture(),
                         });
