@@ -25,11 +25,13 @@ default = [
 ]
 hip = []
 metal = []
+pliron-dump = ["std"]
 std = [
     "cubecl-runtime/std",
     "cubecl-common/std",
     "cubecl-core/std",
     "cubecl-opt/std",
+    "pliron/std",
 ]
 
 tracing = [

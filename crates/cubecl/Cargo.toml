@@ -49,8 +49,14 @@ hip = ["cubecl-hip"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
 metal = ["wgpu-msl"]
 metal-native = ["cubecl-metal"]
+pliron-dump = [
+    "cubecl-cuda?/pliron-dump",
+    "cubecl-hip?/pliron-dump",
+    "cubecl-metal?/pliron-dump",
+    "cubecl-wgpu?/pliron-dump",
+    "cubecl-cpu?/pliron-dump"
+]
 rocm = ["hip"]
-spirv-dump = ["cubecl-wgpu/spirv-dump"]
 vulkan = ["wgpu-spirv"]
 webgpu = ["wgpu"]
 wgpu = ["cubecl-wgpu"]
@@ -62,7 +68,7 @@ test-runtime = ["cubecl-wgpu"]
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.1", default-features = false }
-cubecl-cpu = { path = "../cubecl-cpu", version = "=0.11.0-pre.1", default-features = false, optional = true, features = ["pliron-dump"] }
+cubecl-cpu = { path = "../cubecl-cpu", version = "=0.11.0-pre.1", default-features = false, optional = true }
 cubecl-cuda = { path = "../cubecl-cuda", version = "=0.11.0-pre.1", default-features = false, optional = true }
 cubecl-hip = { path = "../cubecl-hip", version = "=0.11.0-pre.1", default-features = false, optional = true }
 cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.1", default-features = false }

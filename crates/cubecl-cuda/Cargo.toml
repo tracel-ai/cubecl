@@ -22,6 +22,7 @@ default = [
     "cubecl-common/default",
     "cubecl-core/default",
 ]
+pliron-dump = ["cubecl-cpp/pliron-dump"]
 ptx-wmma = []
 std = [
     "cubecl-runtime/std",

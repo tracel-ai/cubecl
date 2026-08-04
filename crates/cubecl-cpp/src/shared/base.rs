@@ -177,7 +177,9 @@ where
             .insert_before(&ctx, entry_func.get_operation());
 
         let config = PMConfig {
+            #[cfg(feature = "pliron-dump")]
             ir_printing_dir: kernel_dir_name(&kernel.settings.kernel_name),
+            print_after_all: cfg!(feature = "pliron-dump"),
             ..Default::default()
         };
 
@@ -300,6 +302,7 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
     }
 }
 
+#[cfg(feature = "pliron-dump")]
 pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
     if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
         let path = sanitize_filename::sanitize_with_options(

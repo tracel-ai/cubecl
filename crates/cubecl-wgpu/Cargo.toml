@@ -24,7 +24,9 @@ std = [
     "cubecl-runtime/std",
     "cubecl-common/std",
     "cubecl-core/std",
+    "cubecl-cpp/std",
     "cubecl-opt/std",
+    "pliron/std",
     "sanitize-filename",
 ]
 # 'msl' and 'spirv' features are exclusive
@@ -40,8 +42,7 @@ spirv = [
 ]
 
 deny-validation-errors = ["wgpu-hal/validation_canary"]
-plir-dump = ["std"]
-spirv-dump = ["std", "cubecl-spirv/spirv-dump"]
+pliron-dump = ["std", "cubecl-cpp/pliron-dump", "cubecl-spirv?/pliron-dump"]
 vulkan-validate = []
 
 renderdoc = ["std", "dep:renderdoc"]

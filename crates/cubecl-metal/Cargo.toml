@@ -12,10 +12,12 @@ version.workspace = true
 
 [features]
 default = ["std"]
+pliron-dump = ["cubecl-cpp/pliron-dump"]
 std = [
     "cubecl-runtime/std",
     "cubecl-common/std",
     "cubecl-core/std",
+    "cubecl-cpp/std",
 ]
 
 [dependencies]

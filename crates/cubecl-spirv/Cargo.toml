@@ -22,11 +22,12 @@ default = [
     "cubecl-core/default",
     "cubecl-runtime/default",
 ]
-spirv-dump = ["std"]
+pliron-dump = ["std"]
 std = [
     "cubecl-common/std",
     "cubecl-core/std",
     "cubecl-runtime/std",
+    "pliron/std",
     "dep:sanitize-filename",
 ]
 
