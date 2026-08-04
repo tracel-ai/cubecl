@@ -266,10 +266,8 @@ fn insert_skeleton(
     .value(scope);
     builtins.set(Builtin::CubeCount, cube_count);
 
-    let u32_ty = u32::__expand_as_type(scope);
-
-    let iter_z = scope.create_local_mut(u32_ty, None);
-    let loop_z = RangeLoopOp::new(scope.ctx_mut(), iter_z, zero, cube_count_z, one);
+    let loop_z = RangeLoopOp::new(scope.ctx_mut(), zero, cube_count_z, one);
+    let iter_z = loop_z.iter_var(scope.ctx());
     let scope_z = scope.child(OpInserter::new_at_block_end(loop_z.loop_body(scope.ctx())));
     {
         let load = LoadOp::new(scope_z.ctx_mut(), iter_z);
@@ -282,8 +280,8 @@ fn insert_skeleton(
         builtins.set(Builtin::AbsolutePosZ, absolute_pos_z);
     }
 
-    let iter_y = scope_z.create_local_mut(u32_ty, None);
-    let loop_y = RangeLoopOp::new(scope_z.ctx_mut(), iter_y, zero, cube_count_y, one);
+    let loop_y = RangeLoopOp::new(scope_z.ctx_mut(), zero, cube_count_y, one);
+    let iter_y = loop_y.iter_var(scope.ctx());
     let scope_y = scope_z.child(OpInserter::new_at_block_end(
         loop_y.loop_body(scope_z.ctx()),
     ));
@@ -298,8 +296,8 @@ fn insert_skeleton(
         builtins.set(Builtin::AbsolutePosY, absolute_pos_y);
     }
 
-    let iter_x = scope_y.create_local_mut(u32_ty, None);
-    let loop_x = RangeLoopOp::new(scope_y.ctx_mut(), iter_x, zero, cube_count_x, one);
+    let loop_x = RangeLoopOp::new(scope_y.ctx_mut(), zero, cube_count_x, one);
+    let iter_x = loop_x.iter_var(scope.ctx());
     let body_block = loop_x.loop_body(scope_y.ctx());
     let scope_x = scope_y.child(OpInserter::new_at_block_end(body_block));
     {

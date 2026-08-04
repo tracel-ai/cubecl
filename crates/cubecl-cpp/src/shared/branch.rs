@@ -4,7 +4,10 @@ use cubecl_core::ir::{
 };
 use pliron::{basic_block::BasicBlock, linked_list::ContainsLinkedList};
 
-use crate::shared::{CppValue, OpExtCPP, shared_op, shared_op_with_out, unroll::unrolling};
+use crate::shared::{
+    CppValue, OpExtCPP, scoped_block, shared_op, shared_op_with_out, ty::TypeExtCPP,
+    unroll::unrolling,
+};
 
 pub fn block_to_cpp(ctx: &Context, block: Ptr<BasicBlock>) -> String {
     let mut out = String::new();
@@ -44,6 +47,9 @@ shared_op!(SwitchOp, |op, ctx| {
 
 // Only relevant for IR structure
 shared_op!(YieldOp, |_, _| String::new());
+shared_op!(ConditionOp, |op, ctx| {
+    format!("return {};", op.condition(ctx).name(ctx))
+});
 
 shared_op!(ReturnOp, |op, ctx| {
     if let Some(value) = op.value(ctx) {
@@ -57,19 +63,22 @@ shared_op!(UnreachableOp, |_, _| "__builtin_unreachable();".into());
 
 shared_op!(RangeLoopOp, |op, ctx| {
     let i = op.iter_var(ctx).name(ctx);
+    let i_ty = op.iter_var(ctx).get_type(ctx).to_cpp(ctx);
     let start = op.start(ctx).name(ctx);
     let end = op.end(ctx).name(ctx);
     let step = op.step(ctx).name(ctx);
-    let mut out = format!("for(*{i} = {start}; *{i} < {end}; *{i} += {step}) {{\n");
+    let mut out = format!("for({i_ty} {i} = {start}; {i} < {end}; {i} += {step}) {{\n");
     out.push_str(&block_to_cpp(ctx, op.loop_body(ctx)));
     out.push_str("}\n");
     out
 });
 
 shared_op!(WhileOp, |op, ctx| {
-    let cond = op.cond_ptr(ctx).name(ctx);
-    let mut out = format!("while(*{cond}) {{\n");
-    out.push_str(&block_to_cpp(ctx, op.loop_body(ctx)));
+    let cond = scoped_block! {
+        block_to_cpp(ctx, op.before_block(ctx))
+    };
+    let mut out = format!("while({cond}) {{\n");
+    out.push_str(&block_to_cpp(ctx, op.after_block(ctx)));
     out.push_str("}\n");
     out
 });

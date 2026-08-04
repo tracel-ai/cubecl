@@ -29,6 +29,13 @@ fn main() {
     println!("cargo:rerun-if-env-changed=VULKAN_SDK");
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS");
 
+    // Automatically enable spirv-dump if an output path is set
+    println!("cargo:rerun-if-env-changed=CUBECL_DEBUG_PLIR");
+
+    if env::var("CUBECL_DEBUG_PLIR").is_ok() && env::var("CARGO_FEATURE_STD").is_ok() {
+        println!("cargo:rustc-cfg=feature=\"plir-dump\"");
+    }
+
     let is_macos = env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "macos");
     if is_macos {
         println!("cargo:rustc-cfg=feature=\"vulkan-portability\"");

@@ -29,6 +29,7 @@ use pliron::{
         listener::DummyListener,
     },
     op::Op,
+    operation::Operation,
     printable::Printable,
     r#type::{TypeHandle, Typed, type_cast},
     value::Value,
@@ -44,6 +45,7 @@ use crate::{
         BufferBindingAttr, EntrypointAbiAttr, EntrypointInterface, FuncInterface, IndexAttr,
     },
     dialect::{
+        OperationPtrExt,
         branch::{IfOp, ReturnOp, YieldOp},
         general::AggregateExtractOp,
         memory::DeclareVariableOp,
@@ -594,6 +596,7 @@ impl Scope {
         let yield_ = YieldOp::new(ctx).get_operation();
         yield_.insert_at_back(else_block, ctx);
         self.register(&predication);
+        self.register(&YieldOp::new(ctx));
         self.inserter()
             .set_insertion_point_to_block_start(then_block);
     }
@@ -772,7 +775,13 @@ impl Scope {
 
     pub fn into_context(self) -> Option<Context> {
         let entry = self.state().entry_func.get_entry_block(self.ctx());
-        if entry.deref(self.ctx()).get_terminator(self.ctx()).is_none() {
+        let term = entry.deref(self.ctx()).get_terminator(self.ctx());
+        let is_yield = term.is_some_and(|term| term.is_op::<YieldOp>(self.ctx()));
+        if let Some(term) = term && is_yield {
+            self.inserter().set_insertion_point_to_block_end(entry);
+            self.register(&ReturnOp::new(self.ctx_mut()));
+            Operation::erase(term, self.ctx_mut());
+        } else if term.is_none() {
             self.inserter().set_insertion_point_to_block_end(entry);
             self.register(&ReturnOp::new(self.ctx_mut()));
         }

@@ -1,7 +1,8 @@
 use inflections::case::is_pascal_case;
 use quote::quote;
 use syn::{
-    Expr, ExprForLoop, ExprIf, ExprLoop, ExprMatch, Ident, Pat, parse_quote, spanned::Spanned,
+    Expr, ExprForLoop, ExprIf, ExprLoop, ExprMatch, ExprWhile, Ident, Pat, parse_quote,
+    spanned::Spanned,
 };
 
 use crate::{
@@ -23,6 +24,7 @@ pub fn expand_for_loop(
     let span = for_loop.span();
     let unroll = Unroll::from_attributes(&for_loop.attrs, context)?;
     let var = parse_pat(*for_loop.pat)?;
+    let is_mut_owned = !var.is_ref && var.mutability.is_some();
 
     if let Some(Unroll {
         always_true: true, ..
@@ -45,13 +47,13 @@ pub fn expand_for_loop(
     }
 
     let (block, scope) = context.in_scope(|context| {
-        context.push_variable(
-            var.ident.clone(),
-            var.ty.clone(),
-            false,
-            !var.is_ref && var.mutability.is_some(),
-        );
-        Block::from_block(for_loop.body, context)
+        context.push_variable(var.ident.clone(), var.ty.clone(), false, is_mut_owned);
+        let mut body = for_loop.body;
+        if is_mut_owned {
+            let var = &var.ident;
+            body.stmts.insert(0, parse_quote![let mut #var = #var;]);
+        }
+        Block::from_block(body, context)
     })?;
 
     Ok(Expression::ForLoop {
@@ -86,6 +88,18 @@ fn expand_for_in_loop(
         },
     };
     Ok(for_loop)
+}
+
+pub fn expand_while_loop(while_loop: ExprWhile, context: &mut Context) -> syn::Result<Expression> {
+    let (cond, cond_scope) =
+        context.in_scope(|ctx| Expression::from_expr(*while_loop.cond, ctx))?;
+    let (body, scope) = context.in_scope(|ctx| Block::from_block(while_loop.body, ctx))?;
+    Ok(Expression::WhileLoop {
+        cond: Box::new(cond),
+        cond_scope,
+        body,
+        scope,
+    })
 }
 
 pub fn expand_loop(loop_expr: ExprLoop, context: &mut Context) -> syn::Result<Expression> {

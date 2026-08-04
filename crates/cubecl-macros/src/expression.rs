@@ -97,6 +97,12 @@ pub enum Expression {
         block: Block,
         scope: Scope,
     },
+    WhileLoop {
+        cond: Box<Expression>,
+        cond_scope: Scope,
+        body: Block,
+        scope: Scope,
+    },
     Loop {
         block: Block,
         scope: Scope,
@@ -293,6 +299,7 @@ impl Expression {
             Expression::If { then_block, .. } => then_block.ret.is_some(),
             Expression::Block(block) => block.ret.is_some(),
             Expression::ForLoop { .. } => false,
+            Expression::WhileLoop { .. } => false,
             Expression::Loop { .. } => false,
             Expression::VerbatimTerminated { .. } => false,
             _ => true,

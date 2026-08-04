@@ -3,7 +3,7 @@
 //! optimizations that require structured control flow but can also support transformations like
 //! `mem2reg` or PRE that require threading SSA values in and out of the control flow ops.
 //!
-//! Most terminators are reused from `branch`, only `LoopYieldOp` is new.
+//! All terminators are reused from `branch`.
 
 use pliron::{
     attribute::AttrObj,
@@ -13,74 +13,14 @@ use pliron::{
     linked_list::ContainsLinkedList,
     opts::{constants::ConstFoldInterface, dce::SideEffects},
     region::Region,
-    verify_err,
 };
 
 use crate::{
-    CanMaterialize, NoMemoryEffect,
     attributes::BoolAttr,
-    dialect::branch::{self, DeadRegionOp, YieldOp, YieldOpVerifyErr, block_side_effects},
+    dialect::branch::{self, DeadRegionOp, YieldOp, block_side_effects},
     prelude::*,
-    types::{PointerType, scalar::BoolType},
+    types::scalar::BoolType,
 };
-
-#[pliron_op(name = "scf.loop_yield", format)]
-#[op_interfaces(IsTerminatorInterface, OperandSegmentInterface)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
-pub struct LoopYieldOp;
-
-impl LoopYieldOp {
-    pub fn new(ctx: &mut Context, continue_args: Vec<Value>, exit_args: Vec<Value>) -> Self {
-        let (operands, segment_sizes) = Self::compute_segment_sizes(vec![continue_args, exit_args]);
-
-        let op = Self {
-            op: Operation::new(
-                ctx,
-                Self::get_concrete_op_info(),
-                vec![],
-                operands,
-                vec![],
-                0,
-            ),
-        };
-        op.set_operand_segment_sizes(ctx, segment_sizes);
-        op
-    }
-
-    pub fn continue_args(&self, ctx: &Context) -> Vec<Value> {
-        self.get_segment(ctx, 0)
-    }
-
-    pub fn exit_args(&self, ctx: &Context) -> Vec<Value> {
-        self.get_segment(ctx, 1)
-    }
-}
-
-impl Verify for LoopYieldOp {
-    fn verify(&self, ctx: &Context) -> pliron::result::Result<()> {
-        let Some(parent_op) = self.get_operation().deref(ctx).get_parent_op(ctx) else {
-            return verify_err!(self.loc(ctx), YieldOpVerifyErr::MissingParentOp);
-        };
-
-        let exit_expected_types: Vec<_> = parent_op
-            .deref(ctx)
-            .results()
-            .map(|r| r.get_type(ctx))
-            .collect();
-        let exit_actual_types: Vec<_> = self
-            .get_operation()
-            .deref(ctx)
-            .operands()
-            .map(|o| o.get_type(ctx))
-            .collect();
-
-        if exit_expected_types != exit_actual_types {
-            return verify_err!(self.loc(ctx), YieldOpVerifyErr::OperandTypeMismatch);
-        }
-
-        Ok(())
-    }
-}
 
 #[pliron_op(
     name = "scf.if",
@@ -130,6 +70,10 @@ impl IfOp {
 
     pub fn else_block(&self, ctx: &Context) -> Ptr<BasicBlock> {
         self.get_body(ctx, 1)
+    }
+
+    pub fn get_result(&self, ctx: &Context, res_idx: usize) -> Value {
+        self.get_operation().deref(ctx).get_result(res_idx)
     }
 
     pub fn results(&self, ctx: &Context) -> Vec<Value> {
@@ -183,6 +127,17 @@ impl ConstFoldInterface for IfOp {
             assert_eq!(results.len(), yielded.len(), "Yield doesn't match results");
             for (res, yielded) in results.into_iter().zip(yielded) {
                 rewriter.replace_value_uses_with(ctx, res, yielded);
+                Operation::pop_operand(term, ctx);
+            }
+        }
+
+        let term = not_taken.deref(ctx).get_terminator(ctx);
+        if let Some(term) = term
+            && term.is_op::<YieldOp>(ctx)
+        {
+            let num_yield = term.deref(ctx).get_num_operands();
+            for _ in 0..num_yield {
+                Operation::pop_operand(term, ctx);
             }
         }
 
@@ -345,53 +300,88 @@ impl BranchToSCFOp for branch::SwitchOp {
     }
 }
 
-#[pliron_op(
-    name = "scf.range_loop",
-    format = "`for ` $0 ` = ` $1 ` to ` $2 ` step ` $3 ` do ` region($0)",
-    verifier = "succ"
+#[pliron_op(name = "scf.range_loop", format, verifier = "succ")]
+#[op_interfaces(
+    OneRegionInterface,
+    SingleBlockRegionInterface,
+    OperandSegmentInterface
 )]
-#[op_interfaces(OneRegionInterface, SingleBlockRegionInterface)]
 pub struct RangeLoopOp;
 
 impl RangeLoopOp {
     pub fn new(
         ctx: &mut Context,
         results: Vec<TypeHandle>,
-        iter_var: Value,
         start: Value,
         end: Value,
         step: Value,
+        carried_values_init: Vec<Value>,
     ) -> Self {
-        let op = Operation::new(
-            ctx,
-            Self::get_concrete_op_info(),
-            results,
-            vec![iter_var, start, end, step],
-            vec![],
-            1,
-        );
+        let iter_ty = start.get_type(ctx);
+        let mut body_args = vec![iter_ty];
+        body_args.extend(carried_values_init.iter().map(|it| it.get_type(ctx)));
 
-        let body_region = op.deref_mut(ctx).get_region(0);
-        let body = BasicBlock::new(ctx, Some("body".try_into().unwrap()), vec![]);
+        let (operands, segments) =
+            Self::compute_segment_sizes(vec![vec![start, end, step], carried_values_init]);
+
+        let op = Self {
+            op: Operation::new(
+                ctx,
+                Self::get_concrete_op_info(),
+                results,
+                operands,
+                vec![],
+                1,
+            ),
+        };
+
+        op.set_operand_segment_sizes(ctx, segments);
+
+        let body_region = op.loop_region(ctx);
+        let body = BasicBlock::new(ctx, Some("body".try_into().unwrap()), body_args);
         body.insert_at_front(body_region, ctx);
 
-        Self { op }
+        op
     }
 
     pub fn iter_var(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(0)
+        self.loop_body(ctx).deref(ctx).get_argument(0)
     }
 
     pub fn start(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(1)
+        self.get_operation().deref(ctx).get_operand(0)
     }
 
     pub fn end(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(2)
+        self.get_operation().deref(ctx).get_operand(1)
     }
 
     pub fn step(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(3)
+        self.get_operation().deref(ctx).get_operand(2)
+    }
+
+    pub fn initial_carried_values(&self, ctx: &mut Context) -> Vec<Value> {
+        self.get_segment(ctx, 1)
+    }
+
+    pub fn push_initial_carried_value(&self, ctx: &mut Context, value: Value) -> usize {
+        self.push_to_segment(ctx, 1, value)
+    }
+
+    pub fn remove_initial_carried_value(&self, ctx: &mut Context, opd_idx: usize) -> Value {
+        self.remove_from_segment(ctx, 1, opd_idx)
+    }
+
+    pub fn get_carried_value(&self, ctx: &Context, arg_idx: usize) -> Value {
+        self.loop_body(ctx).deref(ctx).get_argument(arg_idx + 1)
+    }
+
+    pub fn push_carried_value(&self, ctx: &mut Context, ty: TypeHandle) -> usize {
+        BasicBlock::push_argument(self.loop_body(ctx), ctx, ty)
+    }
+
+    pub fn remove_carried_value(&self, ctx: &mut Context, arg_idx: usize) {
+        BasicBlock::remove_argument(self.loop_body(ctx), ctx, arg_idx + 1)
     }
 
     pub fn loop_region(&self, ctx: &Context) -> Ptr<Region> {
@@ -411,42 +401,123 @@ impl RangeLoopOp {
     }
 }
 
-#[pliron_op(
-    name = "scf.while",
-    format = "`*`$0 ` do ` region($0)",
-    verifier = "succ"
-)]
-#[op_interfaces(
-    OperandNOfType<0, PointerType>,
-    OneRegionInterface,
-    SingleBlockRegionInterface
-)]
+#[op_interface_impl]
+impl BranchToSCFOp for branch::RangeLoopOp {
+    fn to_scf(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _: &OperandsInfo,
+    ) -> Result<()> {
+        let opds = self.get_operation().operands(ctx);
+        let (operands, segments) = RangeLoopOp::compute_segment_sizes(vec![opds, vec![]]);
+        let info = RangeLoopOp::get_concrete_op_info();
+        let op = Operation::new(ctx, info, vec![], operands, vec![], 0);
+
+        let regions = self.get_operation().regions(ctx);
+        for region in regions {
+            Region::move_to_op(region, op, ctx);
+        }
+
+        rewriter.append_operation(ctx, op);
+        rewriter.replace_operation(ctx, self.get_operation(), op);
+
+        let op = RangeLoopOp { op };
+        op.set_operand_segment_sizes(ctx, segments);
+
+        Ok(())
+    }
+}
+
+#[pliron_op(name = "scf.while", format, verifier = "succ")]
+#[op_interfaces(NRegionsInterface<2>, SingleBlockRegionInterface)]
 pub struct WhileOp;
 
 impl WhileOp {
-    pub fn new(ctx: &mut Context, results: Vec<TypeHandle>, cond_ptr: Value) -> Self {
+    pub fn new(
+        ctx: &mut Context,
+        results: Vec<TypeHandle>,
+        carried_values_init: Vec<Value>,
+    ) -> Self {
+        let carried_types = carried_values_init
+            .iter()
+            .map(|it| it.get_type(ctx))
+            .collect::<Vec<_>>();
+
         let op = Operation::new(
             ctx,
             Self::get_concrete_op_info(),
             results,
-            vec![cond_ptr],
+            carried_values_init,
             vec![],
-            1,
+            2,
         );
 
-        let body_region = op.deref_mut(ctx).get_region(0);
-        let body = BasicBlock::new(ctx, Some("body".try_into().unwrap()), vec![]);
-        body.insert_at_front(body_region, ctx);
+        let before_region = op.deref_mut(ctx).get_region(0);
+        let before_block = BasicBlock::new(
+            ctx,
+            Some("before".try_into().unwrap()),
+            carried_types.clone(),
+        );
+        before_block.insert_at_front(before_region, ctx);
+
+        let after_region = op.deref_mut(ctx).get_region(1);
+        let after_block = BasicBlock::new(ctx, Some("after".try_into().unwrap()), carried_types);
+        after_block.insert_at_front(after_region, ctx);
 
         Self { op }
     }
 
-    pub fn cond_ptr(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(0)
+    pub fn initial_carried_values(&self, ctx: &mut Context) -> Vec<Value> {
+        self.get_operation().operands(ctx)
     }
 
-    pub fn loop_body(&self, ctx: &Context) -> Ptr<BasicBlock> {
+    pub fn push_initial_carried_value(&self, ctx: &mut Context, value: Value) -> usize {
+        Operation::push_operand(self.get_operation(), ctx, value)
+    }
+
+    pub fn remove_initial_carried_value(&self, ctx: &mut Context, opd_idx: usize) -> Value {
+        Operation::remove_operand(self.get_operation(), ctx, opd_idx)
+    }
+
+    pub fn get_before_carried_value(&self, ctx: &Context, arg_idx: usize) -> Value {
+        self.before_block(ctx).deref(ctx).get_argument(arg_idx)
+    }
+
+    pub fn push_before_carried_value(&self, ctx: &mut Context, ty: TypeHandle) -> usize {
+        BasicBlock::push_argument(self.before_block(ctx), ctx, ty)
+    }
+
+    pub fn remove_before_carried_value(&self, ctx: &mut Context, arg_idx: usize) {
+        BasicBlock::remove_argument(self.before_block(ctx), ctx, arg_idx)
+    }
+
+    pub fn get_after_carried_value(&self, ctx: &Context, arg_idx: usize) -> Value {
+        self.after_block(ctx).deref(ctx).get_argument(arg_idx)
+    }
+
+    pub fn push_after_carried_value(&self, ctx: &mut Context, ty: TypeHandle) -> usize {
+        BasicBlock::push_argument(self.after_block(ctx), ctx, ty)
+    }
+
+    pub fn remove_after_carried_value(&self, ctx: &mut Context, arg_idx: usize) {
+        BasicBlock::remove_argument(self.after_block(ctx), ctx, arg_idx)
+    }
+
+    pub fn before_region(&self, ctx: &Context) -> Ptr<Region> {
+        self.get_operation().deref(ctx).get_region(0)
+    }
+
+    pub fn before_block(&self, ctx: &Context) -> Ptr<BasicBlock> {
         self.get_body(ctx, 0)
+    }
+
+    pub fn after_region(&self, ctx: &Context) -> Ptr<Region> {
+        self.get_operation().deref(ctx).get_region(1)
+    }
+
+    pub fn after_block(&self, ctx: &Context) -> Ptr<BasicBlock> {
+        self.get_body(ctx, 1)
     }
 
     pub fn results(&self, ctx: &Context) -> Vec<Value> {
@@ -455,6 +526,30 @@ impl WhileOp {
 
     pub fn result_types(&self, ctx: &Context) -> Vec<TypeHandle> {
         self.get_operation().result_types(ctx)
+    }
+}
+
+#[op_interface_impl]
+impl BranchToSCFOp for branch::WhileOp {
+    fn to_scf(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _: &OperandsInfo,
+    ) -> Result<()> {
+        let opds = self.get_operation().operands(ctx);
+        let info = WhileOp::get_concrete_op_info();
+        let op = Operation::new(ctx, info, vec![], opds, vec![], 0);
+
+        let regions = self.get_operation().regions(ctx);
+        for region in regions {
+            Region::move_to_op(region, op, ctx);
+        }
+
+        rewriter.append_operation(ctx, op);
+        rewriter.replace_operation(ctx, self.get_operation(), op);
+
+        Ok(())
     }
 }
 
@@ -491,47 +586,3 @@ impl DialectConversion for BranchToSCFConversion {
         to_scf.to_scf(ctx, rewriter, operands_info)
     }
 }
-
-macro_rules! loop_to_scf {
-    ($branch_ty: ty, $scf: ty) => {
-        #[op_interface_impl]
-        impl BranchToSCFOp for $branch_ty {
-            fn to_scf(
-                &self,
-                ctx: &mut Context,
-                rewriter: &mut DialectConversionRewriter,
-                _: &OperandsInfo,
-            ) -> Result<()> {
-                let opds = self.get_operation().operands(ctx);
-                let op =
-                    Operation::new(ctx, <$scf>::get_concrete_op_info(), vec![], opds, vec![], 0);
-
-                let body = self.loop_body(ctx);
-                let Some(term) = body.deref(ctx).get_terminator(ctx) else {
-                    return verify_err!(self.loc(ctx), "Should have terminator in loop body");
-                };
-
-                let regions = self.get_operation().regions(ctx);
-                for region in regions {
-                    Region::move_to_op(region, op, ctx);
-                }
-
-                rewriter.append_operation(ctx, op);
-                rewriter.replace_operation(ctx, self.get_operation(), op);
-
-                rewriter.set_insertion_point_before_operation(term);
-
-                if term.is_op::<YieldOp>(ctx) {
-                    let new_yield = LoopYieldOp::new(ctx, vec![], vec![]);
-                    rewriter.append_op(ctx, &new_yield);
-                    rewriter.replace_operation(ctx, term, new_yield.get_operation());
-                }
-
-                Ok(())
-            }
-        }
-    };
-}
-
-loop_to_scf!(branch::RangeLoopOp, RangeLoopOp);
-loop_to_scf!(branch::WhileOp, WhileOp);

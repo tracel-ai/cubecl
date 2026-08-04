@@ -1,4 +1,4 @@
-use cubecl_ir::{OpInserter, dialect::branch::RangeLoopOp, types::scalar::IndexType};
+use cubecl_ir::{OpInserter, dialect::branch::RangeLoopOp};
 
 use crate::{self as cubecl, ir::Scope, prelude::*};
 
@@ -16,15 +16,14 @@ where
     type Item = <T::Output as CubeType>::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = IndexType::get(scope.ctx());
         let len = self.__expand_len_method(scope);
 
         let start = scope.const_usize(0);
         let end = len.read_value(scope);
         let step = scope.const_usize(1);
 
-        let i = scope.create_local_mut(index_ty, None);
-        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), start, end, step);
+        let i = range_loop.iter_var(scope.ctx());
         let loop_body = range_loop.loop_body(scope.ctx());
 
         let mut child = scope.loop_child(OpInserter::new_at_block_end(loop_body));
