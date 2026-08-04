@@ -80,10 +80,19 @@ impl<'a> Command<'a> {
         // Deferred frees sit in the drop queue until a fenced flush, so an
         // explicit cleanup must drain it first or the pools still see those
         // slices as live. The queue is a double buffer (one flush only rotates
-        // the current batch), so flush twice.
-        let sys = stream.sys;
-        stream.drop_queue.flush(|| Fence::new(sys));
-        stream.drop_queue.flush(|| Fence::new(sys));
+        // the current batch), so flush twice. Skipped while recording: a host
+        // sync aborts a recording capture, and the capture path drains the
+        // queue itself. Not skipped during `Prepare` — a fenced flush there is
+        // safe, and any slice warmup reserves is already held by the memory
+        // manager's priming retention (`CaptureState::primed`), so flushing
+        // early does not shrink the pool the capture run will need. The
+        // cleanups below stay safe mid-capture: `cleanup` defers all frees
+        // while a capture is active.
+        if !stream.capturing.is_recording() {
+            let sys = stream.sys;
+            stream.drop_queue.flush(|| Fence::new(sys));
+            stream.drop_queue.flush(|| Fence::new(sys));
+        }
         stream.memory_management_gpu.cleanup(true);
         stream.memory_management_cpu.cleanup(true);
     }
@@ -432,7 +441,13 @@ impl<'a> Command<'a> {
 
         current.drop_queue.push(data);
 
-        if should_flush || current.drop_queue.should_flush() {
+        // Defer fenced flushes only while recording — a host sync aborts a
+        // recording capture. During `Prepare` a flush here is safe: priming
+        // retention (`CaptureState::primed`) already pins every slice warmup
+        // reserves, so flushing early cannot recycle a slice the capture run
+        // needs.
+        if !current.capturing.is_recording() && (should_flush || current.drop_queue.should_flush())
+        {
             current.drop_queue.flush(|| Fence::new(current.sys));
         }
 
@@ -533,7 +548,11 @@ impl<'a> Command<'a> {
             const_info,
         );
 
-        if stream.drop_queue.should_flush() {
+        // A fenced flush during capture would abort it; defer until the capture
+        // ends (the deferred staging buffers are reclaimed then). Not deferred
+        // during `Prepare`: a flush there is safe, since priming retention
+        // (`CaptureState::primed`) already pins every slice warmup reserves.
+        if !stream.capturing.is_recording() && stream.drop_queue.should_flush() {
             stream.drop_queue.flush(|| Fence::new(stream.sys));
         }
 

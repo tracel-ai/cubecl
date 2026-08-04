@@ -5,7 +5,8 @@ use crate::{
         command::Command,
         communication::{get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
         context::CudaContext,
-        stream::CudaStreamBackend,
+        graph::CudaGraph,
+        stream::{CudaStreamBackend, StreamCaptureState},
         sync::Fence,
     },
 };
@@ -29,6 +30,7 @@ use cubecl_runtime::{
     compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
+    id::GraphId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     server::ComputeServer,
@@ -48,6 +50,121 @@ use std::{
 
 pub(crate) const MB: usize = 1024 * 1024;
 
+/// Turn a CUDA driver status into a [`ServerError`], naming the failed operation.
+fn cuda_check(op: &str, status: cudarc::driver::sys::CUresult) -> Result<(), ServerError> {
+    status.result().map_err(|err| ServerError::Generic {
+        reason: format!("{op} failed: {err}"),
+        backtrace: BackTrace::capture(),
+    })
+}
+
+/// Count the memory-allocation/free nodes recorded in `graph`.
+///
+/// A captured graph is only replayable if it owns no memory nodes: CUDA refuses to relaunch a
+/// graph whose allocation nodes have not been freed. Every allocation the capture window needs
+/// must therefore be served by the already-warmed persistent pool — the window growing the pool
+/// is precisely the condition this detects.
+///
+/// # Safety
+///
+/// `graph` must be a valid, not-yet-destroyed `CUgraph`.
+unsafe fn count_memory_nodes(graph: cudarc::driver::sys::CUgraph) -> usize {
+    let mut num_nodes: usize = 0;
+    // SAFETY: `graph` is a valid `CUgraph` per this function's contract. A null node array
+    // asks the driver for the node count only, written to `num_nodes`.
+    let counted = unsafe {
+        cudarc::driver::sys::cuGraphGetNodes(graph, std::ptr::null_mut(), &mut num_nodes)
+    };
+    if counted != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+        log::warn!(
+            "cuGraphGetNodes failed ({counted:?}) while counting the graph's nodes; \
+             skipping the memory-node check for this capture"
+        );
+        return 0;
+    }
+    let mut nodes: Vec<cudarc::driver::sys::CUgraphNode> = vec![std::ptr::null_mut(); num_nodes];
+    let mut num_read = num_nodes;
+    // SAFETY: `graph` is valid per this function's contract, and `nodes` has room for
+    // `num_read` entries — the count the call above reported.
+    let read =
+        unsafe { cudarc::driver::sys::cuGraphGetNodes(graph, nodes.as_mut_ptr(), &mut num_read) };
+    if read != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+        log::warn!(
+            "cuGraphGetNodes failed ({read:?}) while reading the graph's {num_nodes} node(s); \
+             skipping the memory-node check for this capture"
+        );
+        return 0;
+    }
+    nodes
+        .iter()
+        .take(num_read)
+        .filter(|node| {
+            let mut ty = cudarc::driver::sys::CUgraphNodeType::CU_GRAPH_NODE_TYPE_KERNEL;
+            // SAFETY: `node` is one of the handles the driver just wrote into `nodes`, so it
+            // is a valid node of the still-live `graph`.
+            let queried = unsafe { cudarc::driver::sys::cuGraphNodeGetType(**node, &mut ty) };
+            if queried != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                log::warn!(
+                    "cuGraphNodeGetType failed ({queried:?}); treating the node as not a \
+                     memory node"
+                );
+                return false;
+            }
+            matches!(
+                ty,
+                cudarc::driver::sys::CUgraphNodeType::CU_GRAPH_NODE_TYPE_MEM_ALLOC
+                    | cudarc::driver::sys::CUgraphNodeType::CU_GRAPH_NODE_TYPE_MEM_FREE
+            )
+        })
+        .count()
+}
+
+/// Build a [`ServerError`] for a graph-capture call issued in the wrong state
+/// (e.g. `begin_capture` without `graph_prepare`, or a second overlapping
+/// capture on the same stream).
+fn graph_state_error(reason: impl Into<String>) -> ServerError {
+    ServerError::Generic {
+        reason: reason.into(),
+        backtrace: BackTrace::capture(),
+    }
+}
+
+/// Stage `words` into a device buffer, reusing a cached one when a launch has
+/// already staged these exact info words. The info is read-only metadata (no
+/// tensor pointers), so sharing it across launches — even of different kernels
+/// — is sound, and it means a stable-shape decode allocates and copies no info
+/// inside a capture window (all launches hit warm buffers, so the captured
+/// graph gains no memcpy nodes for them).
+///
+/// The cache's policy makes every decision (see
+/// [`MetadataInfoCache`](cubecl_runtime::metadata_cache::MetadataInfoCache)),
+/// and the capture lifecycle drives its mode so that during capture every
+/// buffer is cached and none is evicted. We ask the policy first and only touch
+/// the cache when it says to — otherwise we just build the buffer, never
+/// cloning a key we wouldn't keep. The buffer's bytes always equal the key
+/// bytes, so a hit is byte-identical to what the miss path would have built.
+fn info_buffer(command: &mut Command<'_>, words: &[u64]) -> Result<Handle, ServerError> {
+    let size = core::mem::size_of_val(words);
+    let cache_mode = command.streams.current().capturing.cache_mode();
+    command.streams.current().info_cache.mode(cache_mode);
+
+    if !command.streams.current().info_cache.should_cache(size) {
+        return Ok(command.create_with_data(bytemuck::cast_slice(words))?);
+    }
+    // Look up by the borrowed words — a hit clones nothing. On a miss we build
+    // the buffer and clone the words into the cache as the key.
+    if let Some(handle) = command.streams.current().info_cache.get(words) {
+        return Ok(handle);
+    }
+    let handle = command.create_with_data(bytemuck::cast_slice(words))?;
+    command
+        .streams
+        .current()
+        .info_cache
+        .insert(words.to_vec(), handle.clone());
+    Ok(handle)
+}
+
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
@@ -56,6 +173,12 @@ pub struct CudaServer {
     utilities: Arc<ServerUtilities<Self>>,
     comm_stream: *mut CUstream_st,
     communicators: HashMap<CommunicationId, *mut cudarc::nccl::sys::ncclComm>,
+    /// Captured graphs owned by this server, keyed by the [`GraphId`] handed to
+    /// the client. `end_capture` inserts, `replay` looks up, `graph_destroy`
+    /// removes (dropping the [`CudaGraph`] destroys its executable and unpins the
+    /// buffers it retained). Referencing graphs by id keeps the raw
+    /// `CUgraphExec` inside the server, never boxed across the actor boundary.
+    graphs: HashMap<GraphId, CudaGraph>,
 }
 
 // SAFETY: `CudaServer` is only accessed from one thread at a time via the `DeviceHandle`,
@@ -180,6 +303,275 @@ impl ComputeServer for CudaServer {
         current.memory_management_gpu.storage().flush();
 
         Ok(())
+    }
+
+    fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: false,
+                flush: true,
+            },
+        )?;
+        let stream = command.streams.current();
+        // A capture must be prepared exactly once before it starts; reject a
+        // second prepare or a prepare over a live capture so two captures can
+        // never overlap on one stream.
+        match stream.capturing {
+            StreamCaptureState::NoCapture => {}
+            StreamCaptureState::Prepare => {
+                return Err(graph_state_error(
+                    "graph_prepare: a graph capture is already prepared on this stream",
+                ));
+            }
+            StreamCaptureState::Capture => {
+                return Err(graph_state_error(
+                    "graph_prepare: a graph capture is already recording on this stream",
+                ));
+            }
+        }
+        // Route every allocation from here until `end_capture` into the
+        // persistent pool and snapshot which slices are already in use. Called
+        // before the warmup run, so the pool is warm before `begin_capture` —
+        // the capture window then reuses those slices with no `cuMemAlloc`
+        // (which would be illegal mid-capture,
+        // `CUDA_ERROR_STREAM_CAPTURE_UNSUPPORTED`). `end_capture` pins
+        // everything the window added on the graph.
+        //
+        // Both pools are armed: the GPU pool for tensor and kernel-info buffers,
+        // and the pinned CPU pool that stages each kernel's info bytes to the
+        // device (a fresh pinned allocation mid-capture would fault the same way).
+        stream.memory_management_gpu.capture_begin();
+        stream.memory_management_cpu.capture_begin();
+        stream.capturing = StreamCaptureState::Prepare;
+        Ok(())
+    }
+
+    fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: false,
+                flush: true,
+            },
+        )?;
+        let stream = command.streams.current();
+        // A capture must be armed by `graph_prepare` first: the persistent pool
+        // it primes (warmed by the run between prepare and here) is what lets
+        // the window reuse slices with no illegal mid-capture `cuMemAlloc`.
+        // Reject an unprepared start, and reject a second start over a live
+        // capture, so captures never overlap on one stream.
+        match stream.capturing {
+            StreamCaptureState::Prepare => {}
+            StreamCaptureState::NoCapture => {
+                return Err(graph_state_error(
+                    "begin_capture: call graph_prepare before starting a capture",
+                ));
+            }
+            StreamCaptureState::Capture => {
+                return Err(graph_state_error(
+                    "begin_capture: a graph capture is already recording on this stream",
+                ));
+            }
+        }
+        // Reclaim deferred frees before the capture window opens: warmup's
+        // pinned staging buffers (and any other drop-queued slices) sit in the
+        // drop queue until flushed, so without this the capture run finds no
+        // free staging slice and allocates a fresh one mid-capture — which
+        // faults. The queue is a double buffer (a flush only frees the batch
+        // from two cycles ago and rotates the current one into `pending`), so
+        // flush twice to actually free warmup's just-staged buffers and return
+        // them to their pools for the capture run to reuse.
+        let sys = stream.sys;
+        stream.drop_queue.flush(|| Fence::new(sys));
+        stream.drop_queue.flush(|| Fence::new(sys));
+        // Warmup is over: release the slices it retained (see `CaptureState::primed`) so they are
+        // free for the recorded run to reuse. The pool now holds warmup's full distinct working
+        // set rather than its transient peak, so the window has nothing left to allocate — and an
+        // allocation inside the window would record a memory node, which makes the graph
+        // un-relaunchable. Must happen here, after warmup and before the window opens.
+        stream.memory_management_gpu.capture_priming_end();
+        stream.memory_management_cpu.capture_priming_end();
+        // SAFETY: `stream.sys` is a valid CUDA stream; global capture mode
+        // records every launch issued on it until `cuStreamEndCapture`.
+        let status = unsafe {
+            cudarc::driver::sys::cuStreamBeginCapture_v2(
+                stream.sys,
+                cudarc::driver::sys::CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL,
+            )
+        };
+        if let Err(err) = cuda_check("cuStreamBeginCapture", status) {
+            // The capture never opened: disarm retention, restore the allocation
+            // mode, and return to `NoCapture`, so a failed `start_capture`
+            // doesn't leave the stream allocating pinned persistent memory
+            // forever. The caller can retry the whole
+            // `graph_prepare`/`start_capture` sequence.
+            stream.memory_management_gpu.capture_end();
+            stream.memory_management_cpu.capture_end();
+            // Unpin any info-cache entries warmup pinned; the capture is off.
+            stream.info_cache.capture_discard();
+            stream.capturing = StreamCaptureState::NoCapture;
+            return Err(err);
+        }
+        // Recording now; suppress fenced drop-queue flushes on the execution
+        // path for the duration of the capture (a host sync would abort it).
+        // The deferred staging buffers are reclaimed in `end_capture`.
+        stream.capturing = StreamCaptureState::Capture;
+        Ok(())
+    }
+
+    fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
+        let id = GraphId::new();
+        // Build the graph inside a scope so the `command` borrow of `self` ends
+        // before we register the graph in `self.graphs`.
+        let cuda_graph = {
+            // Do NOT flush/surface queued errors here (`ignore: true, flush:
+            // false`): this command runs while the stream is still recording, and
+            // `flush_errors` would free memory mid-capture — aborting it — and
+            // bail via `?` before `cuStreamEndCapture` ever runs, wedging the
+            // stream in capture mode forever. Any queued error surfaces on the
+            // next normal op once the capture is closed below.
+            let mut command = self.command_no_inputs(
+                stream_id,
+                StreamErrorMode {
+                    ignore: true,
+                    flush: false,
+                },
+            )?;
+            let stream = command.streams.current();
+            // Only a recording stream can be ended; reject a stray `end_capture`
+            // (nothing prepared/started, or the capture already ended) instead of
+            // calling `cuStreamEndCapture` on a stream that never began one.
+            if !stream.capturing.is_recording() {
+                return Err(graph_state_error(
+                    "end_capture: no graph capture is recording on this stream",
+                ));
+            }
+            // SAFETY: ends the capture begun on this stream and instantiates the
+            // recorded graph into an executable; the intermediate `graph` is freed
+            // whether or not instantiation succeeds, leaving only the `exec` the
+            // returned handle owns.
+            let exec = unsafe {
+                let mut graph: cudarc::driver::sys::CUgraph = std::ptr::null_mut();
+                cuda_check(
+                    "cuStreamEndCapture",
+                    cudarc::driver::sys::cuStreamEndCapture(stream.sys, &mut graph),
+                )
+                .and_then(|_| {
+                    // A capture that recorded a memory node is unusable: the graph allocates on
+                    // launch and never frees, so the driver rejects every relaunch with
+                    // `CUDA_ERROR_INVALID_VALUE` while the first launch quietly succeeds. Fail
+                    // here instead, so `stop_capture` surfaces it at capture time — where the
+                    // diagnostic still points at the cause — rather than handing back a graph
+                    // that dies on its second replay. What to do about it is the caller's call.
+                    let alloc_nodes = count_memory_nodes(graph);
+                    if alloc_nodes > 0 {
+                        cudarc::driver::sys::cuGraphDestroy(graph);
+                        return Err(graph_state_error(format!(
+                            "capture recorded {alloc_nodes} memory node(s): an allocation inside \
+                             the capture window makes the graph un-relaunchable, so the capture \
+                             is rejected (the persistent pool should have served this allocation)"
+                        )));
+                    }
+                    let mut exec: cudarc::driver::sys::CUgraphExec = std::ptr::null_mut();
+                    let instantiated = cuda_check(
+                        "cuGraphInstantiateWithFlags",
+                        cudarc::driver::sys::cuGraphInstantiateWithFlags(&mut exec, graph, 0),
+                    );
+                    cudarc::driver::sys::cuGraphDestroy(graph);
+                    instantiated.map(|_| exec)
+                })
+            };
+            // The capture is over even if it failed to instantiate: re-enable the
+            // deferred fenced flushes and restore the allocation mode, so an error
+            // here doesn't leave the stream stuck in capture/persistent state.
+            stream.capturing = StreamCaptureState::NoCapture;
+            // Pin every buffer the graph touched so the pool never reuses that
+            // memory for the graph's lifetime — both the GPU slices and the pinned
+            // staging slices the recorded info copies still read from on replay.
+            // On failure the handles drop below with `retained`, unpinning them.
+            let mut retained = stream.memory_management_gpu.capture_end();
+            retained.extend(stream.memory_management_cpu.capture_end());
+            // Reclaim the buffers dropped during the capture window, whose fenced
+            // flushes were deferred while `capturing` was set. Flush twice: the
+            // queue is a double buffer, one flush only rotates the current batch.
+            let sys = stream.sys;
+            stream.drop_queue.flush(|| Fence::new(sys));
+            stream.drop_queue.flush(|| Fence::new(sys));
+            match exec {
+                Ok(exec) => {
+                    // Seal the info-cache entries this capture pinned under the
+                    // graph's id, so `graph_destroy` can release them later.
+                    stream.info_cache.capture_commit(id);
+                    // Pre-stage the executable so the first replay doesn't pay
+                    // the upload cost. Non-fatal: `cuGraphLaunch` uploads on
+                    // demand if this fails. The upload is no guard against memory
+                    // nodes — it returns `CUDA_SUCCESS` even for graphs holding
+                    // them, which is why those are rejected above; by this point
+                    // the graph is known to have none.
+                    // SAFETY: `exec` was instantiated above and `sys` is this
+                    // stream; the upload is enqueued stream-ordered.
+                    let uploaded = unsafe { cudarc::driver::sys::cuGraphUpload(exec, sys) };
+                    if let Err(err) = cuda_check("cuGraphUpload", uploaded) {
+                        log::warn!(
+                            "Pre-uploading the captured graph failed; \
+                             the first replay will upload on demand: {err}"
+                        );
+                    }
+                    CudaGraph {
+                        exec,
+                        _retained: retained,
+                    }
+                }
+                Err(err) => {
+                    // Instantiation failed: unpin the entries this capture pinned
+                    // (they stay as ordinary cached values) and drop `retained`.
+                    stream.info_cache.capture_discard();
+                    return Err(err);
+                }
+            }
+        };
+        self.graphs.insert(id, cuda_graph);
+        Ok(id)
+    }
+
+    fn replay(&mut self, graph: GraphId, stream_id: StreamId) {
+        // Fire-and-forget like `launch`: enqueue the graph dispatch and, on
+        // failure, push the error onto the stream's queue so it surfaces on the
+        // next flush/sync rather than blocking the caller here.
+        if let Err(err) = self.replay_checked(graph, stream_id) {
+            let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+                Ok(stream) => stream,
+                Err(err) => unreachable!("{err}"),
+            };
+            stream.current().errors.push(err);
+        }
+    }
+
+    fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {
+        // Destroy only after in-flight replays finish: `replay` returns at
+        // enqueue time, so a replay may still be running against this executable.
+        // No-op for an unknown id (e.g. a double release).
+        if !self.graphs.contains_key(&graph) {
+            return;
+        }
+        // Wait for in-flight replays before dropping the executable. A failed
+        // sync means the stream already faulted — so no replay is still running
+        // against this graph, and destroying is safe — but don't silently
+        // swallow the error: surface it on the stream so the next op reports it.
+        let synced = cubecl_environment::future::block_on(self.sync(stream_id));
+        // `CudaGraph::drop` destroys the executable and unpins the buffers it
+        // retained.
+        self.graphs.remove(&graph);
+        if let Ok(mut streams) = self.streams.resolve(stream_id, [].into_iter(), false) {
+            let stream = streams.current();
+            // Release the info-cache entries this graph pinned; entries no other
+            // live graph still pins are dropped, freeing their buffers.
+            stream.info_cache.graph_release(graph);
+            if let Err(err) = synced {
+                stream.errors.push(err);
+            }
+        }
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
@@ -597,6 +989,7 @@ impl CudaServer {
             utilities: Arc::new(utilities),
             comm_stream,
             communicators: HashMap::default(),
+            graphs: HashMap::new(),
         }
     }
 
@@ -714,15 +1107,18 @@ impl CudaServer {
 
             let mut handle = Option::None;
             if info.dynamic_metadata_offset < info.data.len() {
-                let dyn_meta = &bytemuck::cast_slice(&info.data[info.dynamic_metadata_offset..]);
-                handle = Some(command.create_with_data(dyn_meta)?);
+                // Only the dynamic tail (shape/stride arrays) becomes a device
+                // buffer on this path; scalars and static metadata ride in the
+                // kernel's parameter block via `info_const` below.
+                let dyn_meta = &info.data[info.dynamic_metadata_offset..];
+                handle = Some(info_buffer(&mut command, dyn_meta)?);
             }
 
             (Some(info.data.as_ptr() as *mut c_void), handle)
         } else {
             let mut handle = Option::None;
             if !bindings.info.data.is_empty() {
-                handle = Some(command.create_with_data(bytemuck::cast_slice(&bindings.info.data))?);
+                handle = Some(info_buffer(&mut command, &bindings.info.data)?);
             }
             (None, handle)
         };
@@ -912,6 +1308,37 @@ impl CudaServer {
         )?;
 
         Ok(())
+    }
+
+    /// Enqueue a graph replay, returning any error to [`replay`](ComputeServer::replay)
+    /// to push onto the stream's error queue. Mirrors [`launch_checked`]: the
+    /// stream's existing errors are ignored (they surface on the next sync) so a
+    /// replay just adds its own on failure.
+    ///
+    /// [`launch_checked`]: Self::launch_checked
+    fn replay_checked(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
+        // Copy the executable pointer out before borrowing a `command` (which
+        // borrows `self`); a raw `CUgraphExec` is `Copy`.
+        let exec = self
+            .graphs
+            .get(&graph)
+            .map(|cuda| cuda.exec)
+            .ok_or_else(|| ServerError::Generic {
+                reason: "replay was given an unknown or already-destroyed graph".into(),
+                backtrace: BackTrace::capture(),
+            })?;
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
+        let stream = command.streams.current();
+        // SAFETY: `exec` is a valid instantiated graph; launching it on the
+        // stream re-runs the recorded sequence.
+        let status = unsafe { cudarc::driver::sys::cuGraphLaunch(exec, stream.sys) };
+        cuda_check("cuGraphLaunch", status)
     }
 
     pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {

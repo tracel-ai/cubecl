@@ -14,7 +14,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Binding, CopyDescriptor, KernelArguments, ProfileError, ProfilingToken,
+        Binding, CopyDescriptor, Handle, KernelArguments, ProfileError, ProfilingToken,
         ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
     },
 };
@@ -51,6 +51,67 @@ fn hip_check(op: &str, status: cubecl_hip_sys::hipError_t) -> Result<(), ServerE
     }
 }
 
+/// Count the memory-allocation/free nodes recorded in `graph`.
+///
+/// A captured graph is only replayable if it owns no memory nodes: the driver refuses to
+/// relaunch a graph whose allocation nodes have not been freed. Every allocation the capture
+/// window needs must therefore be served by the already-warmed persistent pool — the window
+/// growing the pool is precisely the condition this detects.
+///
+/// # Safety
+///
+/// `graph` must be a valid, not-yet-destroyed `hipGraph_t`.
+unsafe fn count_memory_nodes(graph: cubecl_hip_sys::hipGraph_t) -> usize {
+    let mut num_nodes: usize = 0;
+    // SAFETY: `graph` is a valid `hipGraph_t` per this function's contract. A null node array
+    // asks the driver for the node count only, written to `num_nodes`.
+    let counted =
+        unsafe { cubecl_hip_sys::hipGraphGetNodes(graph, std::ptr::null_mut(), &mut num_nodes) };
+    if counted != cubecl_hip_sys::HIP_SUCCESS {
+        log::warn!(
+            "hipGraphGetNodes failed with HIP status {counted} while counting the graph's \
+             nodes; skipping the memory-node check for this capture"
+        );
+        return 0;
+    }
+    let mut nodes: Vec<cubecl_hip_sys::hipGraphNode_t> = vec![std::ptr::null_mut(); num_nodes];
+    let mut num_read = num_nodes;
+    // SAFETY: `graph` is valid per this function's contract, and `nodes` has room for
+    // `num_read` entries — the count the call above reported.
+    let read =
+        unsafe { cubecl_hip_sys::hipGraphGetNodes(graph, nodes.as_mut_ptr(), &mut num_read) };
+    if read != cubecl_hip_sys::HIP_SUCCESS {
+        log::warn!(
+            "hipGraphGetNodes failed with HIP status {read} while reading the graph's \
+             {num_nodes} node(s); skipping the memory-node check for this capture"
+        );
+        return 0;
+    }
+    nodes
+        .iter()
+        .take(num_read)
+        .filter(|node| {
+            let mut ty: cubecl_hip_sys::hipGraphNodeType =
+                cubecl_hip_sys::hipGraphNodeType_hipGraphNodeTypeKernel;
+            // SAFETY: `node` is one of the handles the driver just wrote into `nodes`, so it
+            // is a valid node of the still-live `graph`.
+            let queried = unsafe { cubecl_hip_sys::hipGraphNodeGetType(**node, &mut ty) };
+            if queried != cubecl_hip_sys::HIP_SUCCESS {
+                log::warn!(
+                    "hipGraphNodeGetType failed with HIP status {queried}; treating the node \
+                     as not a memory node"
+                );
+                return false;
+            }
+            matches!(
+                ty,
+                cubecl_hip_sys::hipGraphNodeType_hipGraphNodeTypeMemAlloc
+                    | cubecl_hip_sys::hipGraphNodeType_hipGraphNodeTypeMemFree
+            )
+        })
+        .count()
+}
+
 /// Build a [`ServerError`] for a graph-capture call issued in the wrong state
 /// (e.g. `begin_capture` without `graph_prepare`, or a second overlapping
 /// capture on the same stream).
@@ -59,6 +120,43 @@ fn graph_state_error(reason: impl Into<String>) -> ServerError {
         reason: reason.into(),
         backtrace: BackTrace::capture(),
     }
+}
+
+/// Build — or reuse from the cache — the device buffer holding a launch's info words.
+///
+/// Reuse a cached info buffer when a launch has already staged these exact info words.
+/// The info is read-only metadata (no tensor pointers), so sharing it across launches —
+/// even of different kernels — is sound, and it means a stable-shape decode allocates
+/// and copies no info inside a capture window (all launches hit warm buffers).
+///
+/// The cache's policy makes every decision (see
+/// [`MetadataInfoCache`](cubecl_runtime::metadata_cache::MetadataInfoCache)), and the
+/// capture lifecycle drives its mode so that during capture every buffer is cached and
+/// none is evicted. We ask the policy first and only touch the cache when it says to —
+/// otherwise we just build the buffer, never keeping a key we wouldn't use. `words` is
+/// taken by value so a miss hands it to the cache as the key without cloning. The
+/// buffer's bytes always equal the key bytes, so a hit is byte-identical to what the miss
+/// path would have built.
+fn info_buffer(command: &mut Command<'_>, words: Vec<u64>) -> Result<Handle, ServerError> {
+    let size = core::mem::size_of_val(words.as_slice());
+    let cache_mode = command.streams.current().capturing.cache_mode();
+    command.streams.current().info_cache.mode(cache_mode);
+
+    if !command.streams.current().info_cache.should_cache(size) {
+        return Ok(command.create_with_data(bytemuck::cast_slice(&words))?);
+    }
+    // Look up by the borrowed words — a hit clones nothing. On a miss we build the buffer
+    // and move the words into the cache as the key.
+    if let Some(handle) = command.streams.current().info_cache.get(&words) {
+        return Ok(handle);
+    }
+    let handle = command.create_with_data(bytemuck::cast_slice(&words))?;
+    command
+        .streams
+        .current()
+        .info_cache
+        .insert(words, handle.clone());
+    Ok(handle)
 }
 
 #[derive(Debug)]
@@ -280,6 +378,13 @@ impl ComputeServer for HipServer {
         let sys = stream.sys;
         stream.drop_queue.flush(|| Fence::new(sys));
         stream.drop_queue.flush(|| Fence::new(sys));
+        // Warmup is over: release the slices it retained (see `CaptureState::primed`) so the
+        // recorded run reuses them instead of allocating. Mandatory rather than an optimization --
+        // priming retention is shared runtime behaviour, so leaving it armed here would hold
+        // warmup's slices for the whole window and force a mid-capture `hipMalloc`, which
+        // invalidates the capture.
+        stream.memory_management_gpu.capture_priming_end();
+        stream.memory_management_cpu.capture_priming_end();
         // SAFETY: `stream.sys` is a valid HIP stream; global capture mode
         // records every launch issued on it until `hipStreamEndCapture`.
         let status = unsafe {
@@ -346,6 +451,21 @@ impl ComputeServer for HipServer {
                     cubecl_hip_sys::hipStreamEndCapture(stream.sys, &mut graph),
                 )
                 .and_then(|_| {
+                    // A capture that recorded a memory node is unusable: the graph allocates on
+                    // launch and never frees, so the driver rejects every relaunch while the
+                    // first launch quietly succeeds. Fail here instead, so `stop_capture`
+                    // surfaces it at capture time — where the diagnostic still points at the
+                    // cause — rather than handing back a graph that dies on its second replay.
+                    // What to do about it is the caller's call.
+                    let alloc_nodes = count_memory_nodes(graph);
+                    if alloc_nodes > 0 {
+                        cubecl_hip_sys::hipGraphDestroy(graph);
+                        return Err(graph_state_error(format!(
+                            "capture recorded {alloc_nodes} memory node(s): an allocation inside \
+                             the capture window makes the graph un-relaunchable, so the capture \
+                             is rejected (the persistent pool should have served this allocation)"
+                        )));
+                    }
                     let mut exec: cubecl_hip_sys::hipGraphExec_t = std::ptr::null_mut();
                     let instantiated = hip_check(
                         "hipGraphInstantiate",
@@ -382,6 +502,20 @@ impl ComputeServer for HipServer {
                     // Seal the info-cache entries this capture pinned under the
                     // graph's id, so `graph_destroy` can release them later.
                     stream.info_cache.capture_commit(id);
+                    // Pre-stage the executable so the first replay doesn't pay
+                    // the upload cost. Non-fatal: `hipGraphLaunch` uploads on
+                    // demand if this fails. The upload is no guard against
+                    // memory nodes, which is why those are rejected above; by
+                    // this point the graph is known to have none.
+                    // SAFETY: `exec` was instantiated above and `sys` is this
+                    // stream; the upload is enqueued stream-ordered.
+                    let uploaded = unsafe { cubecl_hip_sys::hipGraphUpload(exec, sys) };
+                    if let Err(err) = hip_check("hipGraphUpload", uploaded) {
+                        log::warn!(
+                            "Pre-uploading the captured graph failed; \
+                             the first replay will upload on demand: {err}"
+                        );
+                    }
                     HipGraph {
                         exec,
                         _retained: retained,
@@ -697,44 +831,7 @@ impl HipServer {
 
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
 
-        // Reuse a cached info buffer when this kernel has already run with these
-        // exact shapes/scalars. The info is read-only metadata (no tensor
-        // pointers), so sharing it across launches is sound — and it means a
-        // stable-shape decode allocates and copies no info inside a capture
-        // window (all launches hit warm buffers).
-        //
-        // The cache's policy makes every decision (see `MetadataInfoCache`), and
-        // the capture lifecycle drives its mode so that during capture every
-        // buffer is cached and none is evicted. We ask the policy first and only
-        // touch the cache when it says to — otherwise we just build the buffer,
-        // never cloning a handle we wouldn't keep.
-        let size = core::mem::size_of_val(info.data.as_slice());
-        let cache_mode = command.streams.current().capturing.cache_mode();
-        command.streams.current().info_cache.mode(cache_mode);
-
-        let info_handle = if command.streams.current().info_cache.should_cache(size) {
-            // Look up by the borrowed info bytes — a hit clones nothing. On a
-            // miss we build the buffer and hand the owned `info.data` to the
-            // cache (moved, not cloned) as the key.
-            match command.streams.current().info_cache.get(&info.data) {
-                Some(handle) => handle,
-                None => {
-                    let handle = command
-                        .create_with_data(bytemuck::cast_slice(&info.data))
-                        .unwrap();
-                    command
-                        .streams
-                        .current()
-                        .info_cache
-                        .insert(info.data, handle.clone());
-                    handle
-                }
-            }
-        } else {
-            command
-                .create_with_data(bytemuck::cast_slice(&info.data))
-                .unwrap()
-        };
+        let info_handle = info_buffer(&mut command, info.data)?;
 
         let mut resources: Vec<_> = buffers
             .into_iter()

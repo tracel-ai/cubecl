@@ -1,16 +1,18 @@
-//! Validates HIP graph capture/replay on the actual device.
+//! Validates CUDA graph capture/replay on the actual device.
 
 use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
-use cubecl_hip::HipRuntime;
+use cubecl_cuda::CudaRuntime;
 use std::sync::Mutex;
 
 /// Graph capture toggles device-global allocation state (persistent mode) on
-/// the one cached client, so two captures must not overlap — exactly one
-/// capture at a time per device, as in real use. Serialize the tests instead
-/// of relying on `--test-threads 1`.
+/// the one cached client, and `CU_STREAM_CAPTURE_MODE_GLOBAL` makes any
+/// concurrent unsafe call (alloc, sync) in the process abort a recording
+/// capture — so two captures must not overlap: exactly one capture at a time
+/// per device, as in real use. Serialize the tests instead of relying on
+/// `--test-threads 1`.
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
 
 #[cube(launch)]
@@ -30,16 +32,16 @@ fn mul_two(input: &[f32], output: &mut [f32]) {
 /// Capture a single kernel launch into a graph, replay it, and check the
 /// output — the end-to-end proof that hardware graph capture works on this GPU.
 #[test]
-fn hip_graph_capture_replay() {
+fn cuda_graph_capture_replay() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = HipRuntime::client(&Default::default());
+    let client = CudaRuntime::client(&Default::default());
 
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient<HipRuntime>| {
-        add_one::launch::<HipRuntime>(
+    let launch = |client: &ComputeClient<CudaRuntime>| {
+        add_one::launch::<CudaRuntime>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -74,24 +76,25 @@ fn hip_graph_capture_replay() {
 
 /// A capture window that has to grow the memory pool must be REJECTED, not handed back.
 ///
-/// A stream-ordered allocation issued while recording is captured as a memory node, and a graph
-/// holding an allocation node it never frees cannot be relaunched: the first launch succeeds and
-/// every later one fails. Nothing else catches this — instantiation succeeds, and the graph
-/// upload does not inspect memory nodes — so a caller that trusted `stop_capture` would only
-/// discover it on its second replay, far from the cause. Warmup usually leaves the persistent
-/// pool able to serve the recorded run, so real workloads hit the growth path only
-/// intermittently; this forces it by allocating a size the pool has never seen inside the window.
+/// A stream-ordered allocation (`cuMemAllocAsync`) issued while recording is captured as a memory
+/// node, and a graph holding an allocation node it never frees cannot be relaunched: the first
+/// `cuGraphLaunch` succeeds and every later one fails with `CUDA_ERROR_INVALID_VALUE`. Nothing
+/// else catches this — instantiation succeeds and `cuGraphUpload` returns `CUDA_SUCCESS` — so a
+/// caller that trusted `stop_capture` would only discover it on its second replay, far from the
+/// cause. Warmup usually leaves the persistent pool able to serve the recorded run, so real
+/// workloads hit the growth path only intermittently; this forces it by allocating a size the pool
+/// has never seen inside the window.
 #[test]
-fn hip_graph_capture_growing_the_pool_is_rejected() {
+fn cuda_graph_capture_growing_the_pool_is_rejected() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = HipRuntime::client(&Default::default());
+    let client = CudaRuntime::client(&Default::default());
 
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient<HipRuntime>| {
-        add_one::launch::<HipRuntime>(
+    let launch = |client: &ComputeClient<CudaRuntime>| {
+        add_one::launch::<CudaRuntime>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -125,15 +128,15 @@ fn hip_graph_capture_growing_the_pool_is_rejected() {
 /// replaying must produce output for the new input. This is how a decode loop
 /// feeds the next token into a captured step without re-capturing.
 #[test]
-fn hip_graph_input_rewrite() {
+fn cuda_graph_input_rewrite() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = HipRuntime::client(&Default::default());
+    let client = CudaRuntime::client(&Default::default());
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient<HipRuntime>| {
-        add_one::launch::<HipRuntime>(
+    let launch = |client: &ComputeClient<CudaRuntime>| {
+        add_one::launch::<CudaRuntime>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -181,23 +184,23 @@ fn hip_graph_input_rewrite() {
 /// can no longer reuse `tmp`'s slice, so replay does **not** clobber the
 /// sentinels. This is the acceptance test for that retention.
 #[test]
-fn hip_graph_intermediate_recycling() {
+fn cuda_graph_intermediate_recycling() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = HipRuntime::client(&Default::default());
+    let client = CudaRuntime::client(&Default::default());
     let n = 4usize;
     let bytes = n * core::mem::size_of::<f32>();
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(bytes);
 
-    let run = |client: &ComputeClient<HipRuntime>, tmp: &Handle| {
-        add_one::launch::<HipRuntime>(
+    let run = |client: &ComputeClient<CudaRuntime>, tmp: &Handle| {
+        add_one::launch::<CudaRuntime>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
             unsafe { BufferArg::from_raw_parts(input.clone(), n) },
             unsafe { BufferArg::from_raw_parts(tmp.clone(), n) },
         );
-        mul_two::launch::<HipRuntime>(
+        mul_two::launch::<CudaRuntime>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -270,13 +273,13 @@ fn add_one_tensor(input: &Tensor<f32>, output: &mut Tensor<f32>) {
 /// verify the recorded pass did not execute, two replays re-run it exactly,
 /// and an in-place input rewrite feeds the next replay.
 #[test]
-fn hip_graph_many_launches_dynamic_metadata() {
+fn cuda_graph_many_launches_dynamic_metadata() {
     const N: usize = 64; // elements per tensor; one 64-thread block covers them
     const PASS_LAUNCHES: usize = 150; // > 2x the drop-queue flush threshold
 
     // One pass: ping-pong `dst = src + 1` between `a` and `b`. The identical
     // sequence is run once as warmup and once recorded.
-    fn run_pass(client: &ComputeClient<HipRuntime>, a: &Handle, b: &Handle) {
+    fn run_pass(client: &ComputeClient<CudaRuntime>, a: &Handle, b: &Handle) {
         for i in 0..PASS_LAUNCHES {
             let (src, dst) = if i % 2 == 0 { (a, b) } else { (b, a) };
             add_one_tensor::launch(
@@ -311,7 +314,7 @@ fn hip_graph_many_launches_dynamic_metadata() {
     }
 
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = HipRuntime::client(&Default::default());
+    let client = CudaRuntime::client(&Default::default());
 
     let a = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
     let b = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
