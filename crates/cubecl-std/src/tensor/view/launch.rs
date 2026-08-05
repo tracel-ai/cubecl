@@ -488,9 +488,9 @@ mod dynamic {
         /// Create a new view arg that dequantizes on read against two levels of scales.
         /// The scales layout should take values indices and map them to the corresponding scale.
         ///
-        /// `global` holds the per-tensor scale the block scales are normalized against, read from
-        /// its first element in the param `scheme.level` stores it in. Panics for a level that has
-        /// no per-tensor scale, since it would be dropped from the reconstruction.
+        /// `global` holds the per-tensor scale the block scales are normalized against, read as f32
+        /// from its first element. Panics for a level that has no per-tensor scale, since it would
+        /// be dropped from the reconstruction, and for one that stores the scale in another param.
         pub fn new_quantized_two_level(
             values: Self,
             scales: Self,

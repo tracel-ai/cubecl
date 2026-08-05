@@ -4,7 +4,7 @@ use cubecl_common::{
     quant::scheme::{QuantLevel, QuantParam, QuantScheme, QuantValue},
 };
 use cubecl_core::{self as cubecl};
-use half::{bf16, f16};
+use half::f16;
 
 use crate::tensor::{
     View,
@@ -206,52 +206,24 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
 /// Instantiated with a float narrower than the scales by
 /// [`test_quantized_two_level_narrow_float`], which is what makes the block scales overflow `F`.
 pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    two_level_case::<R, F>(client, QuantParam::F32, f32::as_bytes(&[GLOBAL_SCALE]));
-}
-
-/// The per-tensor scale in a param of its own, narrower than the f32 the block scales use.
-///
-/// The level names the param, and the view reads the binding as that type before widening it, so a
-/// scale stored as anything but f32 is neither rejected at launch nor reinterpreted as f32 bytes.
-pub fn test_quantized_two_level_typed_global<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
-) {
-    if !client.properties().supports_type(bf16::cube_type()) {
-        return;
-    }
-
-    two_level_case::<R, F>(
-        client,
-        QuantParam::BF16,
-        bf16::as_bytes(&[bf16::from_f32(GLOBAL_SCALE)]),
-    );
-}
-
-/// The per-tensor scale the two-level cases quantize against. A power of two, so every param stores
-/// it without rounding and the reconstruction owes the same values whichever one the level picks.
-const GLOBAL_SCALE: f32 = 1.0 / 1_048_576.0;
-
-fn two_level_case<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
-    global_param: QuantParam,
-    global_bytes: &[u8],
-) {
     // One block per load, since the view assumes a single scale covers a whole read.
     let vector_size_float = 8;
     let block = 8;
 
     let scheme = QuantScheme::default()
         .with_value(QuantValue::Q4F)
-        .with_level(QuantLevel::block_tensor([block as u8], global_param));
+        .with_level(QuantLevel::block_tensor([block as u8], QuantParam::F32));
 
+    // A power of two, so the reconstruction owes exactly the values the expectation computes.
+    let global_scale = 2f32.powi(-20);
     let block_scales = [2f32.powi(18), 2f32.powi(19)];
     let expected = (0..16)
-        .map(|i| F::new(GLOBAL_SCALE * block_scales[i / block] * (i as f32 - 8.0)))
+        .map(|i| F::new(global_scale * block_scales[i / block] * (i as f32 - 8.0)))
         .collect::<Vec<_>>();
 
     let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
     let scales = client.create_from_slice(f32::as_bytes(&block_scales));
-    let global = client.create_from_slice(global_bytes);
+    let global = client.create_from_slice(f32::as_bytes(&[global_scale]));
 
     for mode in [
         ReadMode::Read,
@@ -289,10 +261,7 @@ fn two_level_case<R: Runtime, F: Float + CubeElement>(
         let actual = client.read_one_unchecked(output);
         let actual = F::from_bytes(&actual);
 
-        assert_eq!(
-            actual, &expected,
-            "reading through {mode:?}, global {global_param:?}"
-        );
+        assert_eq!(actual, &expected, "reading through {mode:?}");
     }
 }
 
@@ -346,15 +315,6 @@ macro_rules! testgen_quantized_view {
             cubecl_std::tests::view::quantized::test_quantized_two_level_int::<TestRuntime, $ty>(
                 client,
             );
-        }
-
-        #[$crate::tests::test_log::test]
-        fn test_quantized_view_two_level_typed_global() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_std::tests::view::quantized::test_quantized_two_level_typed_global::<
-                TestRuntime,
-                $ty,
-            >(client);
         }
 
         #[$crate::tests::test_log::test]

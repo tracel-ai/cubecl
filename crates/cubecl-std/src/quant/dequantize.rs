@@ -6,8 +6,8 @@ use cubecl_core as cubecl;
 /// Dequantize a vector of values, where `vector_size * num_quants` is a power of two.
 /// Unaligned values can't be dequantized in place.
 ///
-/// `global` is the per-tensor scale of a two-level scheme, already widened to f32, and must be
-/// present exactly when `scheme.level` has one.
+/// `global` is the per-tensor scale of a two-level scheme, already read, and must be present
+/// exactly when `scheme.level` has one.
 #[cube]
 pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
     value: Vector<Q, NQ>,

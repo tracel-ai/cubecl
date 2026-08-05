@@ -1,4 +1,4 @@
-use cubecl_common::quant::scheme::QuantLevel;
+use cubecl_common::quant::scheme::{QuantLevel, QuantParam};
 use cubecl_core::prelude::Scalar;
 
 /// Run an arbitrary function with the quantization types from the scheme.
@@ -9,53 +9,27 @@ pub trait RunWithQuantType {
     fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output;
 }
 
-/// Bind the type a [`QuantParam`](cubecl_common::quant::scheme::QuantParam) stores values in as
-/// `$ty`, and run the body with it.
-///
-/// The two sides of a scale binding have to name the same type, or the kernel reads back bytes the
-/// launcher wrote as something else, so they dispatch through this one table rather than through a
-/// copy each.
-macro_rules! with_quant_param {
-    ($param:expr, |$ty:ident| $body:expr) => {
-        match $param {
-            ::cubecl_common::quant::scheme::QuantParam::F32 => {
-                type $ty = f32;
-                $body
-            }
-            ::cubecl_common::quant::scheme::QuantParam::F16 => {
-                type $ty = ::half::f16;
-                $body
-            }
-            ::cubecl_common::quant::scheme::QuantParam::BF16 => {
-                type $ty = ::half::bf16;
-                $body
-            }
-            ::cubecl_common::quant::scheme::QuantParam::UE8M0 => {
-                type $ty = ::cubecl_common::ue8m0;
-                $body
-            }
-            ::cubecl_common::quant::scheme::QuantParam::UE4M3 => {
-                type $ty = ::cubecl_common::e4m3;
-                $body
-            }
-        }
-    };
-}
-
-pub(crate) use with_quant_param;
-
 /// Panic when the per-tensor scale binding and the level disagree.
 ///
 /// The per-tensor scale binds as a buffer of its own, so nothing ties it to the level: a missing
 /// one is dropped from the reconstruction and every value comes back short by that factor, an
 /// extra one is a caller quantizing differently than the scheme it passed.
+///
+/// The binding is f32, and a level storing the scale in anything else is rejected rather than read
+/// as f32 bytes. There is one per-tensor scale for a whole tensor, so a narrower type saves nothing
+/// and only reintroduces rounding error.
 pub fn check_global_bindings(level: QuantLevel, global_provided: bool) {
-    match (level.global_param().is_some(), global_provided) {
-        (true, false) => panic!("{level:?} takes a per-tensor scale, but no global was provided"),
-        (false, true) => {
+    match (level.global_param(), global_provided) {
+        (None, false) | (Some(QuantParam::F32), true) => {}
+        (Some(_), false) => {
+            panic!("{level:?} takes a per-tensor scale, but no global was provided")
+        }
+        (None, true) => {
             panic!("global was provided, but {level:?} does not take a per-tensor scale")
         }
-        _ => {}
+        (Some(param), true) => {
+            panic!("the per-tensor scale binds as f32, but {level:?} stores it as {param:?}")
+        }
     }
 }
 
@@ -70,19 +44,16 @@ mod tests {
         check_global_bindings(QuantLevel::block([32]), false);
     }
 
-    /// The per-tensor scale is read through its own binding and cast to f32, so any param the
-    /// level can hold is launchable.
     #[test]
-    fn a_two_level_scheme_takes_a_global_of_any_param() {
-        for param in [
-            QuantParam::F32,
-            QuantParam::F16,
-            QuantParam::BF16,
-            QuantParam::UE8M0,
-            QuantParam::UE4M3,
-        ] {
-            check_global_bindings(QuantLevel::block_tensor([32], param), true);
-        }
+    fn a_two_level_scheme_takes_an_f32_global() {
+        check_global_bindings(QuantLevel::block_tensor([32], QuantParam::F32), true);
+    }
+
+    /// The binding is f32, so a level naming another param would have its scale read as f32 bytes.
+    #[test]
+    #[should_panic(expected = "binds as f32, but")]
+    fn a_two_level_scheme_storing_the_global_narrower_is_rejected() {
+        check_global_bindings(QuantLevel::block_tensor([32], QuantParam::BF16), true);
     }
 
     #[test]
