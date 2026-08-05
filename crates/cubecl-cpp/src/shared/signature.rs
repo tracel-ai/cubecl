@@ -21,7 +21,7 @@ use pliron::{
     },
     graph::walkers::uninterruptible::immutable::walk_op,
     pass::Pass,
-    std_deps::hash::{FxHashMap, FxHashSet},
+    utils::table::{IMap, ISet},
 };
 
 use crate::{
@@ -118,7 +118,7 @@ impl Pass for DeclareVectorTypesPass {
     ) -> Result<PassResult> {
         let module = op.as_op::<ModuleOp>(ctx).expect("Should be run on module");
         // Deduplicate by type name because some types are semantic only (i.e. tf32 is the same as f32)
-        let mut vectors = FxHashMap::default();
+        let mut vectors = IMap::default();
 
         walk_op(
             ctx,
@@ -267,7 +267,7 @@ impl<T: CppTarget> Pass for CollectIncludesPass<T> {
         _analyses: &mut AnalysisManager,
     ) -> Result<PassResult> {
         let module = op.as_op::<ModuleOp>(ctx).expect("Should be run on module");
-        let mut includes = FxHashSet::default();
+        let mut includes = ISet::default();
 
         walk_op(
             ctx,

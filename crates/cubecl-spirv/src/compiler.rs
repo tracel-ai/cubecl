@@ -227,7 +227,7 @@ impl SpirvCompiler {
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
         func_passes.add_pass(BranchToSpirvConversionPass::default());
-        // func_passes.add_pass(Mem2RegPass);
+        func_passes.add_pass(Mem2RegPass);
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimplifyCFGPass);

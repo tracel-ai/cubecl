@@ -22,7 +22,7 @@ impl ToSpirvDialectOp for SyncOp {
             SyncScope::Device => (Scope::Workgroup, Scope::Device),
         };
         let semantics = match scope {
-            SyncScope::Plane => MemorySemantics::RELAXED,
+            SyncScope::Plane => MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::SUBGROUP_MEMORY,
             SyncScope::Cube => MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::WORKGROUP_MEMORY,
             SyncScope::Device => MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::UNIFORM_MEMORY,
         };

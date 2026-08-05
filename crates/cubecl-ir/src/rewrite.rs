@@ -1,4 +1,4 @@
-use core::marker::PhantomData;
+use core::{fmt::Debug, hash::Hash, marker::PhantomData, ops::Deref};
 
 use derive_more::{Deref, DerefMut, From};
 use derive_new::new;
@@ -6,18 +6,25 @@ use pliron::{
     attribute::AttrObj,
     builtin::ops::ConstantOp,
     debug_info::{self, set_operation_result_name},
-    graph::walkers::uninterruptible::{
-        immutable::{self},
-        mutable,
+    graph::walkers::{
+        WalkConfig,
+        uninterruptible::{
+            immutable::{self},
+            mutable,
+        },
     },
     irbuild::{
         dialect_conversion::apply_dialect_conversion,
         match_rewrite::{RewriterOrder, apply_match_rewrite},
     },
-    op::OpInterfaceMarker,
+    op::{OpInterfaceMarker, OpObj},
+    verify_err_noloc,
 };
 
 use crate::{dialect::BlockPtrExt, interfaces::SimplifyInterface, prelude::*};
+
+/// A preset config when order doesn't matter
+pub const WALKCONFIG_ANY: WalkConfig = WALKCONFIG_PREORDER_FORWARD;
 
 #[derive(new, From, Clone, Debug, Default)]
 pub struct DialectConversionPass<T: DialectConversion>(T);
@@ -161,7 +168,7 @@ pub fn visit_all_ops_with_interface<T: ?Sized + OpInterfaceMarker + 'static, Sta
     immutable::walk_op(
         ctx,
         &mut (state, callback),
-        &WALKCONFIG_PREORDER_FORWARD,
+        &WALKCONFIG_ANY,
         root,
         |ctx, (state, callback), node| {
             if let IRNode::Operation(op) = node {
@@ -268,5 +275,76 @@ pub fn transfer_result_name(ctx: &Context, old_op: Ptr<Operation>, value: Value,
             idx,
             debug_info::get_operation_result_name(ctx, old_op, idx),
         );
+    }
+}
+
+pub struct TraitOp<T: OpInterfaceMarker + ?Sized> {
+    obj: OpObj,
+    _marker: PhantomData<T>,
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> TraitOp<T> {
+    pub fn try_from_op(op: Ptr<Operation>, ctx: &Context) -> Option<Self> {
+        let op = op.dyn_op(ctx);
+        if !op_impls::<T>(&*op) {
+            None
+        } else {
+            Some(TraitOp {
+                obj: op,
+                _marker: PhantomData,
+            })
+        }
+    }
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> TryFrom<OpObj> for TraitOp<T> {
+    type Error = pliron::result::Error;
+
+    fn try_from(value: OpObj) -> Result<Self> {
+        if !op_impls::<T>(&*value) {
+            verify_err_noloc!("Op doesn't implement trait")
+        } else {
+            Ok(TraitOp {
+                obj: value,
+                _marker: PhantomData,
+            })
+        }
+    }
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> Deref for TraitOp<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        op_cast(self.obj.as_ref()).unwrap()
+    }
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> Eq for TraitOp<T> {}
+impl<T: OpInterfaceMarker + 'static + ?Sized> PartialEq for TraitOp<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.obj == other.obj && self._marker == other._marker
+    }
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> Hash for TraitOp<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.obj.hash(state);
+    }
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> Clone for TraitOp<T> {
+    fn clone(&self) -> Self {
+        Self {
+            obj: self.obj.clone(),
+            _marker: self._marker,
+        }
+    }
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> Debug for TraitOp<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let op = self.obj.get_operation();
+        Debug::fmt(&op, f)
     }
 }

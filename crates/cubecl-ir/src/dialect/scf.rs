@@ -238,6 +238,17 @@ impl SwitchOp {
         self.get_body(ctx, 0)
     }
 
+    pub fn case_regions(&self, ctx: &Context) -> Vec<Ptr<Region>> {
+        self.get_operation().deref(ctx).regions().skip(1).collect()
+    }
+
+    pub fn case_blocks(&self, ctx: &Context) -> Vec<Ptr<BasicBlock>> {
+        self.case_regions(ctx)
+            .iter()
+            .map(|reg| reg.deref(ctx).get_entry_block().unwrap())
+            .collect()
+    }
+
     pub fn append_case_block(&self, ctx: &mut Context) -> Ptr<BasicBlock> {
         let region = Operation::add_region(self.get_operation(), ctx);
         let body = BasicBlock::new(ctx, None, vec![]);
