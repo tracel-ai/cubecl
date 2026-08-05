@@ -602,6 +602,10 @@ for (*{i} = {start}; *{i} {cmp} {end}; {increment}) {{
                 } else {
                     let out = out.fmt_left();
                     let addr_space = D::address_space_for_value(input);
+                    let input = match input {
+                        Value::Constant(..) => input.ensure_lvalue(f)?,
+                        _ => *input,
+                    };
                     writeln!(
                         f,
                         "{out} = reinterpret_cast<{addr_space}{out_item}{qualifier}&>({input});"
@@ -1039,5 +1043,33 @@ impl<V: Display, D: Dialect> Display for EnsureBoolArg<'_, V, D> {
         } else {
             write!(f, "{}", self.val)
         }
+    }
+}
+
+#[cfg(all(test, feature = "metal"))]
+mod tests {
+    use cubecl_core::ir::ConstantValue;
+
+    use crate::metal::MslDialect;
+
+    use super::*;
+
+    #[test]
+    fn bitcast_constant_uses_lvalue() {
+        let instruction = Instruction::<MslDialect>::Bitcast(UnaryInstruction {
+            input: Value::Constant(ConstantValue::UInt(0x7f80_0000), Item::Scalar(Elem::U32)),
+            out: Value::Value {
+                id: 0,
+                item: Item::Scalar(Elem::F32),
+            },
+        });
+
+        let source = instruction.to_string();
+
+        assert!(source.contains("uint _tmp_"), "{source}");
+        assert!(
+            source.contains("reinterpret_cast<thread float const&>(_tmp_"),
+            "{source}"
+        );
     }
 }
