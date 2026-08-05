@@ -206,14 +206,7 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
 /// Instantiated with a float narrower than the scales by
 /// [`test_quantized_two_level_narrow_float`], which is what makes the block scales overflow `F`.
 pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    // The per-tensor scale is a power of two, so every param stores it without rounding and the
-    // reconstruction owes the same values whichever one the level picks.
-    let global_scale = 2f32.powi(-20);
-    two_level_case::<R, F>(
-        client,
-        QuantParam::F32,
-        f32::as_bytes(&[global_scale]).to_vec(),
-    );
+    two_level_case::<R, F>(client, QuantParam::F32, f32::as_bytes(&[GLOBAL_SCALE]));
 }
 
 /// The per-tensor scale in a param of its own, narrower than the f32 the block scales use.
@@ -227,18 +220,21 @@ pub fn test_quantized_two_level_typed_global<R: Runtime, F: Float + CubeElement>
         return;
     }
 
-    let global_scale = 2f32.powi(-20);
     two_level_case::<R, F>(
         client,
         QuantParam::BF16,
-        bf16::as_bytes(&[bf16::from_f32(global_scale)]).to_vec(),
+        bf16::as_bytes(&[bf16::from_f32(GLOBAL_SCALE)]),
     );
 }
+
+/// The per-tensor scale the two-level cases quantize against. A power of two, so every param stores
+/// it without rounding and the reconstruction owes the same values whichever one the level picks.
+const GLOBAL_SCALE: f32 = 1.0 / 1_048_576.0;
 
 fn two_level_case<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
     global_param: QuantParam,
-    global_bytes: Vec<u8>,
+    global_bytes: &[u8],
 ) {
     // One block per load, since the view assumes a single scale covers a whole read.
     let vector_size_float = 8;
@@ -248,15 +244,14 @@ fn two_level_case<R: Runtime, F: Float + CubeElement>(
         .with_value(QuantValue::Q4F)
         .with_level(QuantLevel::block_tensor([block as u8], global_param));
 
-    let global_scale = 2f32.powi(-20);
     let block_scales = [2f32.powi(18), 2f32.powi(19)];
     let expected = (0..16)
-        .map(|i| F::new(global_scale * block_scales[i / block] * (i as f32 - 8.0)))
+        .map(|i| F::new(GLOBAL_SCALE * block_scales[i / block] * (i as f32 - 8.0)))
         .collect::<Vec<_>>();
 
     let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
     let scales = client.create_from_slice(f32::as_bytes(&block_scales));
-    let global = client.create_from_slice(&global_bytes);
+    let global = client.create_from_slice(global_bytes);
 
     for mode in [
         ReadMode::Read,
@@ -274,13 +269,10 @@ fn two_level_case<R: Runtime, F: Float + CubeElement>(
             unsafe { BufferArg::from_raw_parts(scales.clone(), 2) },
             (),
         );
-        // The per-tensor scale is read from its first element, so it needs no layout of its own.
-        let global_view = ViewArg::new_array::<PlainLayout>(
-            unsafe { BufferArg::from_raw_parts(global.clone(), 1) },
-            (),
-        );
+        // The per-tensor scale is read from its first element, so it binds as a plain buffer.
+        let global_buffer = unsafe { BufferArg::from_raw_parts(global.clone(), 1) };
         let quantized_view =
-            ViewArg::new_quantized_two_level(values_view, scales_view, global_view, scheme);
+            ViewArg::new_quantized_two_level(values_view, scales_view, global_buffer, scheme);
 
         unsafe {
             kernel_quantized_view::launch_unchecked::<F, R>(

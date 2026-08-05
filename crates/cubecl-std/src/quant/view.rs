@@ -4,13 +4,12 @@ use super::*;
 use crate::tensor::{
     View, ViewExpand, ViewOperations, ViewOperationsExpand,
     launch::{ViewArg, ViewCompilationArg},
-    layout::{Coordinates, Coords1d},
+    layout::Coordinates,
 };
 use cubecl::prelude::*;
 use cubecl_common::{
     e2m1x2, e4m3, e5m2,
     quant::scheme::{QuantParam, QuantScheme, QuantStore, QuantValue},
-    ue8m0,
 };
 use cubecl_core::{
     self as cubecl, define_size,
@@ -246,33 +245,27 @@ fn quant_vector_size_q(vector_size: usize, num_quants: usize) -> usize {
 /// here is what lets the level pick any param for it, and is also what keeps the two levels
 /// multiplying in f32 later, since a block scale alone can overflow a narrow `F`.
 fn expand_global_scale(
-    global: &ViewCompilationArg<Coords1d>,
+    global: &BufferCompilationArg,
     param: QuantParam,
     builder: &mut KernelBuilder,
 ) -> NativeExpand<f32> {
     fn read<G: Scalar>(
-        global: &ViewCompilationArg<Coords1d>,
+        global: &BufferCompilationArg,
         builder: &mut KernelBuilder,
     ) -> NativeExpand<f32> {
-        let view = View::<G, Coords1d>::expand(global, builder);
-        let pos = usize::__expand_cast_from(&builder.scope, 0.into());
-        let scale = view.__expand_read_method(&builder.scope, pos);
+        let buffer = <[G] as LaunchArg>::expand(global, builder);
+        let pos = NativeExpand::<usize>::from_lit(&builder.scope, 0);
+        let scale = *buffer.__expand_index_method(&builder.scope, pos);
         f32::__expand_cast_from(&builder.scope, scale)
     }
 
-    match param {
-        QuantParam::F32 => read::<f32>(global, builder),
-        QuantParam::F16 => read::<f16>(global, builder),
-        QuantParam::BF16 => read::<bf16>(global, builder),
-        QuantParam::UE8M0 => read::<ue8m0>(global, builder),
-        QuantParam::UE4M3 => read::<e4m3>(global, builder),
-    }
+    with_quant_param!(param, |G| read::<G>(global, builder))
 }
 
 struct ExpandDynamic<'a, E: Numeric, N: Size, C: Coordinates + 'static> {
     values: &'a ViewCompilationArg<C>,
     scales: &'a ViewCompilationArg<C>,
-    global: Option<&'a ViewCompilationArg<Coords1d>>,
+    global: Option<&'a BufferCompilationArg>,
     scheme: QuantScheme,
     builder: &'a mut KernelBuilder,
     _ty: PhantomData<(E, N)>,
@@ -307,23 +300,17 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
 /// Register the per-tensor scale under the param the level stores it in, matching the element
 /// type [`expand_global_scale`] reads it back with.
 fn register_global_scale<R: Runtime>(
-    global: ViewArg<Coords1d, R>,
+    global: BufferArg<R>,
     param: QuantParam,
     launcher: &mut KernelLauncher<R>,
-) -> ViewCompilationArg<Coords1d> {
-    match param {
-        QuantParam::F32 => View::<f32, Coords1d>::register(global, launcher),
-        QuantParam::F16 => View::<f16, Coords1d>::register(global, launcher),
-        QuantParam::BF16 => View::<bf16, Coords1d>::register(global, launcher),
-        QuantParam::UE8M0 => View::<ue8m0, Coords1d>::register(global, launcher),
-        QuantParam::UE4M3 => View::<e4m3, Coords1d>::register(global, launcher),
-    }
+) -> BufferCompilationArg {
+    with_quant_param!(param, |G| <[G] as LaunchArg>::register(global, launcher))
 }
 
 pub(crate) struct RegisterDynamic<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> {
     pub values: ViewArg<C, R>,
     pub scales: ViewArg<C, R>,
-    pub global: Option<ViewArg<Coords1d, R>>,
+    pub global: Option<BufferArg<R>>,
     pub scheme: QuantScheme,
     pub launcher: &'a mut KernelLauncher<R>,
     pub _ty: PhantomData<E>,
@@ -352,7 +339,7 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
         let global = self
             .global
             .zip(self.scheme.level.global_param())
-            .map(|(global, param)| Box::new(register_global_scale(global, param, self.launcher)));
+            .map(|(global, param)| register_global_scale(global, param, self.launcher));
         ViewCompilationArg::Quantized {
             values: Box::new(values),
             scales: Box::new(scales),
@@ -366,13 +353,7 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
 /// required but aren't available, and only the dynamic schema is known.
 pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) -> F::Output {
     fn run_with_q<F: RunWithQuantType, Q: Scalar>(func: F, scheme: QuantScheme) -> F::Output {
-        match scheme.param {
-            QuantParam::F32 => func.execute::<Q, f32>(),
-            QuantParam::F16 => func.execute::<Q, f16>(),
-            QuantParam::BF16 => func.execute::<Q, bf16>(),
-            QuantParam::UE8M0 => func.execute::<Q, ue8m0>(),
-            QuantParam::UE4M3 => func.execute::<Q, e4m3>(),
-        }
+        with_quant_param!(scheme.param, |S| func.execute::<Q, S>())
     }
 
     let run_q = match scheme.store {
@@ -400,7 +381,7 @@ pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) ->
 pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
     values: &ViewCompilationArg<C>,
     scales: &ViewCompilationArg<C>,
-    global: Option<&ViewCompilationArg<Coords1d>>,
+    global: Option<&BufferCompilationArg>,
     scheme: QuantScheme,
     builder: &mut KernelBuilder,
 ) -> ViewExpand<'static, E, C> {
@@ -410,7 +391,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
     fn expand_dynamic_f<F: Numeric, NF: Size, C: Coordinates + 'static>(
         values: &ViewCompilationArg<C>,
         scales: &ViewCompilationArg<C>,
-        global: Option<&ViewCompilationArg<Coords1d>>,
+        global: Option<&BufferCompilationArg>,
         scheme: QuantScheme,
         builder: &mut KernelBuilder,
     ) -> ViewExpand<'static, Vector<F, NF>, C> {

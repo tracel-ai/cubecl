@@ -428,7 +428,7 @@ mod dynamic {
         Quantized {
             values: Box<ViewArg<C, R>>,
             scales: Box<ViewArg<C, R>>,
-            global: Option<Box<ViewArg<Coords1d, R>>>,
+            global: Option<BufferArg<R>>,
             scheme: QuantScheme,
         },
     }
@@ -482,13 +482,7 @@ mod dynamic {
         /// Panics for a level that quantizes in two levels, which needs the per-tensor scale
         /// [`ViewArg::new_quantized_two_level`] takes.
         pub fn new_quantized(values: Self, scales: Self, scheme: QuantScheme) -> Self {
-            quant::check_global_bindings(scheme.level, false);
-            Self::Quantized {
-                values: Box::new(values),
-                scales: Box::new(scales),
-                global: None,
-                scheme,
-            }
+            Self::quantized(values, scales, None, scheme)
         }
 
         /// Create a new view arg that dequantizes on read against two levels of scales.
@@ -500,14 +494,23 @@ mod dynamic {
         pub fn new_quantized_two_level(
             values: Self,
             scales: Self,
-            global: ViewArg<Coords1d, R>,
+            global: BufferArg<R>,
             scheme: QuantScheme,
         ) -> Self {
-            quant::check_global_bindings(scheme.level, true);
+            Self::quantized(values, scales, Some(global), scheme)
+        }
+
+        fn quantized(
+            values: Self,
+            scales: Self,
+            global: Option<BufferArg<R>>,
+            scheme: QuantScheme,
+        ) -> Self {
+            quant::check_global_bindings(scheme.level, global.is_some());
             Self::Quantized {
                 values: Box::new(values),
                 scales: Box::new(scales),
-                global: Some(Box::new(global)),
+                global,
                 scheme,
             }
         }
@@ -529,7 +532,7 @@ mod dynamic {
         Quantized {
             values: Box<ViewCompilationArg<C>>,
             scales: Box<ViewCompilationArg<C>>,
-            global: Option<Box<ViewCompilationArg<Coords1d>>>,
+            global: Option<BufferCompilationArg>,
             scheme: QuantScheme,
         },
     }
@@ -684,7 +687,7 @@ mod dynamic {
                     let register = RegisterDynamic {
                         values: *values,
                         scales: *scales,
-                        global: global.map(|it| *it),
+                        global,
                         scheme,
                         launcher,
                         _ty: PhantomData::<E>,
@@ -733,9 +736,7 @@ mod dynamic {
                     scales,
                     global,
                     scheme,
-                } => {
-                    quant::view::expand_dynamic(values, scales, global.as_deref(), *scheme, builder)
-                }
+                } => quant::view::expand_dynamic(values, scales, global.as_ref(), *scheme, builder),
             }
         }
     }
