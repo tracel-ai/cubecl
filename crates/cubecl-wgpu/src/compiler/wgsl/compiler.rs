@@ -85,7 +85,7 @@ impl WgslCompiler {
             });
         }
 
-        #[cfg(feature = "plir-dump")]
+        #[cfg(feature = "pliron-dump")]
         let ir_printing_dir = kernel_dir_name(&value.settings.kernel_name);
 
         let module = value.body.state().module;
@@ -98,7 +98,7 @@ impl WgslCompiler {
         });
         ctx.set_aux_ty(*compilation_options);
 
-        #[cfg(feature = "plir-dump")]
+        #[cfg(feature = "pliron-dump")]
         if let Some(print_dir) = &ir_printing_dir {
             use pliron::printable::Printable;
             let str = std::format!("{}", module_op.disp(&ctx));
@@ -108,9 +108,9 @@ impl WgslCompiler {
         verify_operation(module_op, &ctx)?;
 
         let config = PMConfig {
-            #[cfg(feature = "plir-dump")]
+            #[cfg(feature = "pliron-dump")]
             ir_printing_dir,
-            print_after_all: cfg!(feature = "plir-dump"),
+            print_after_all: cfg!(feature = "pliron-dump"),
             ..Default::default()
         };
 
@@ -166,9 +166,9 @@ impl WgslCompiler {
     }
 }
 
-#[cfg(feature = "plir-dump")]
+#[cfg(feature = "pliron-dump")]
 pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIR") {
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
         let path = sanitize_filename::sanitize_with_options(
             name,
             sanitize_filename::Options {

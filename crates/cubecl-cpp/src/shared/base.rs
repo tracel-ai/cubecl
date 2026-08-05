@@ -1,5 +1,6 @@
 use crate::{
     cuda::{mma::CudaCmmaCompiler, packed_ops::PackOpsPass},
+    hip::{arch::AmdWmma, mma::HipCmmaCompiler},
     shared::{
         builtin::{LowerBuiltins, LowerBuiltinsPass},
         convert::PromoteUnsupportedTypesPass,
@@ -75,6 +76,8 @@ pub(crate) use scoped_block;
 pub struct CompilationOptions {
     pub warp_size: usize,
     pub supports_features: CppSupportedFeatures,
+    /// AMD only, and `None` on hardware without WMMA.
+    pub amd_wmma: Option<AmdWmma>,
 }
 
 pub struct CompilationState {
@@ -97,6 +100,7 @@ impl Default for CompilationOptions {
         Self {
             warp_size: 32,
             supports_features: Default::default(),
+            amd_wmma: None,
         }
     }
 }
@@ -166,6 +170,7 @@ where
         ctx.set_aux_ty(T::target());
 
         ctx.set_aux_ty(CudaCmmaCompiler::Cpp);
+        ctx.set_aux_ty(HipCmmaCompiler::RocWmma);
 
         verify_operation(module.get_operation(), &ctx)?;
 
@@ -176,8 +181,13 @@ where
             .get_operation()
             .insert_before(&ctx, entry_func.get_operation());
 
+        #[cfg(feature = "pliron-dump")]
+        let dump_dir = kernel_dir_name(&kernel.settings.kernel_name);
+
         let config = PMConfig {
-            ir_printing_dir: kernel_dir_name(&kernel.settings.kernel_name),
+            #[cfg(feature = "pliron-dump")]
+            ir_printing_dir: dump_dir.clone(),
+            print_after_all: cfg!(feature = "pliron-dump"),
             ..Default::default()
         };
 
@@ -247,12 +257,28 @@ where
         let shared_memory_size = shared_memory_size(&ctx, module_op);
         let buffers = buffers(&ctx, entry_func);
 
-        Ok(ComputeKernel {
+        let compute_kernel = ComputeKernel {
             ctx,
             shared_memory_size,
             buffers,
-        })
+        };
+
+        #[cfg(feature = "pliron-dump")]
+        dump_cpp(&compute_kernel, dump_dir);
+
+        Ok(compute_kernel)
     }
+}
+
+#[cfg(feature = "pliron-dump")]
+fn dump_cpp(kernel: &ComputeKernel, dir: Option<std::path::PathBuf>) {
+    let Some(dir) = dir else {
+        return;
+    };
+
+    let source = kernel.to_string();
+    let source = crate::formatter::format_cpp(&source).unwrap_or(source);
+    std::fs::write(dir.join("module.cpp"), source).unwrap();
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties) {
@@ -300,6 +326,7 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
     }
 }
 
+#[cfg(feature = "pliron-dump")]
 pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
     if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
         let path = sanitize_filename::sanitize_with_options(

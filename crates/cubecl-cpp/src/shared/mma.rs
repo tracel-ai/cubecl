@@ -167,7 +167,7 @@ pub mod wmma_api_base {
         )
     }
 
-    fn matrix_ty(ctx: &Context, value: impl Typed) -> MatrixType {
+    pub fn matrix_ty(ctx: &Context, value: impl Typed) -> MatrixType {
         let ty = value.unwrap_ptr(ctx).deref(ctx);
         *ty.downcast_ref::<MatrixType>().unwrap()
     }

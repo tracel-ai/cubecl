@@ -5,6 +5,7 @@ use std::sync::{Arc, OnceLock, atomic::AtomicU64};
 
 use crate::{
     compiler::jit::{data::PlironData, engine::PlironEngine},
+    compiler::shared_memory::SharedMemories,
     compute::{
         schedule::BindingsResource,
         threadpool::{
@@ -46,31 +47,39 @@ impl Threadpool {
     #[allow(clippy::too_many_arguments)]
     pub fn execute_data(
         &mut self,
-        _pliron_engine: PlironEngine,
-        _bindings: BindingsResource,
+        pliron_engine: PlironEngine,
+        bindings: BindingsResource,
         cube_dim: CubeDim,
-        _cube_count: [u32; 3],
-        _memory: &mut MemoryManagement<BytesStorage>,
+        cube_count: [u32; 3],
+        memory: &mut MemoryManagement<BytesStorage>,
         next_counter_step: u64,
         atomic_counter: &Arc<CachePadded<AtomicU64>>,
     ) {
-        // let mlir_data = PlironData::new(bindings, &[], memory, cube_dim, cube_count);
+        let requirements = pliron_engine.requirements().clone();
 
-        // // A `sync_cube` barrier only resolves when every unit of the cube runs
-        // // on its own thread, so grow the pool to one worker per unit. Kernels
-        // // without a barrier load-balance and need no extra workers.
-        // if pliron_engine.0.needs_parallelism {
-        //     self.scheduler.ensure_workers(cube_dim.num_elems() as usize);
-        // }
+        let BindingsResource { resources, info } = bindings;
+        let mut buffer_ptrs: Vec<*mut std::ffi::c_void> = resources
+            .iter()
+            .map(|resource| {
+                resource.resource().get_write_ptr_and_length().0 as *mut std::ffi::c_void
+            })
+            .collect();
+        reserve_shared_memories(memory, &requirements.shared_memories, &mut buffer_ptrs);
+        let base_data = PlironData::new(buffer_ptrs, info.data, cube_count);
+
+        // A cube barrier only completes if every unit of the cube is running, so such a kernel
+        // needs as many workers as the cube has units.
+        if requirements.needs_parallelism {
+            self.scheduler.ensure_workers(cube_dim.num_elems() as usize);
+        }
 
         let mut i = 0;
-        for _ in 0..cube_dim.x {
-            for _ in 0..cube_dim.y {
-                for _ in 0..cube_dim.z {
-                    // let unit_pos = [unit_pos_x, unit_pos_y, unit_pos_z];
-                    let pliron_engine = PlironEngine;
-                    let pliron_data = PlironData;
-                    // mlir_data.builtin.set_unit_pos(unit_pos);
+        for unit_pos_x in 0..cube_dim.x {
+            for unit_pos_y in 0..cube_dim.y {
+                for unit_pos_z in 0..cube_dim.z {
+                    let pliron_engine = pliron_engine.clone();
+                    let mut pliron_data = base_data.clone();
+                    pliron_data.set_unit_pos([unit_pos_x, unit_pos_y, unit_pos_z]);
 
                     let atomic_counter = Arc::clone(atomic_counter);
                     let compute_task = ComputeTask {
@@ -84,5 +93,44 @@ impl Threadpool {
                 }
             }
         }
+    }
+}
+
+/// Reserves the shared memory of a launch out of the stream's dedicated pool, and writes each
+/// block into the slot of `table` the kernel reads it from. Those slots follow the buffers, so
+/// the table is padded first when the kernel takes fewer buffers than the launch provides.
+///
+/// The pool guarantees an alignment of its own too small for a vector, so a block is
+/// over-reserved and its base rounded up.
+///
+/// Launches of a stream never overlap (a stream flushes before enqueuing), so the reservations
+/// are released right away: the blocks are the pool's to hand out again once this launch is done
+/// with them.
+fn reserve_shared_memories(
+    memory: &mut MemoryManagement<BytesStorage>,
+    shared_memories: &SharedMemories,
+    table: &mut Vec<*mut std::ffi::c_void>,
+) {
+    let end = shared_memories.base + shared_memories.blocks.len();
+    if table.len() < end {
+        table.resize(end, core::ptr::null_mut());
+    }
+
+    // The handles are held until every block is reserved: releasing one right away would let
+    // the pool hand the same memory out to the next shared memory of the same launch.
+    let mut handles = Vec::with_capacity(shared_memories.blocks.len());
+
+    for (slot, block) in shared_memories.blocks.iter().enumerate() {
+        let handle = memory
+            .reserve((block.size + block.align - 1) as u64)
+            .expect("Failed to reserve the shared memory of the launch");
+        let reserved = memory
+            .get_resource(handle.clone().binding(), None, None)
+            .expect("Failed to resolve the shared memory of the launch");
+        handles.push(handle);
+
+        let (ptr, _) = reserved.get_write_ptr_and_length();
+        let ptr = ptr.wrapping_add(ptr.align_offset(block.align));
+        table[shared_memories.base + slot] = ptr as *mut std::ffi::c_void;
     }
 }

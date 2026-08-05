@@ -15,7 +15,11 @@ use rocwmma_compiler::*;
 pub use wmma_intrinsics_compiler::*;
 
 use crate::{
-    hip::{arch::AMDArchitecture, hip_op, ty::hip_ty},
+    hip::{
+        arch::{AMDArchitecture, AmdWmma},
+        hip_op,
+        ty::hip_ty,
+    },
     shared::{DeclareMatrixOp, SupportedMmaCombinations, ty::TypeToCPP, wmma_api_base},
     target::Hip,
 };
@@ -68,6 +72,13 @@ pub trait HipCmmaExt: ContextExt {
     fn set_hip_cmma(&mut self, value: HipCmmaCompiler) {
         self.set_aux_ty(value);
     }
+}
+
+/// Which WMMA generation the intrinsic fragments and builtins should target.
+pub fn amd_wmma(ctx: &Context) -> AmdWmma {
+    ctx.aux_ty::<crate::shared::CompilationOptions>()
+        .amd_wmma
+        .expect("wmma should only be compiled for architectures that support it")
 }
 
 hip_ty!(MatrixType, |ty, ctx| match ctx.hip_cmma() {

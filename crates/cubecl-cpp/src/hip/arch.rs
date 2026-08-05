@@ -17,7 +17,36 @@ pub enum AMDArchitecture {
     Other,
 }
 
+/// Which generation of AMD's WMMA instructions to emit. RDNA4 renamed the builtins and dropped
+/// RDNA3's duplication of the A/B fragments across lane halves, halving them to 8 elements, so the
+/// two aren't interchangeable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AmdWmma {
+    Rdna3,
+    Rdna4,
+}
+
+impl AmdWmma {
+    /// Elements of A/B each lane holds. RDNA3 gives every lane the whole `k` range and duplicates
+    /// it across lanes 0-15 / 16-31; RDNA4 splits `k` between the two halves instead.
+    pub fn frag_ab_elems(&self, k: usize) -> usize {
+        match self {
+            AmdWmma::Rdna3 => k,
+            AmdWmma::Rdna4 => k / 2,
+        }
+    }
+}
+
 impl AMDArchitecture {
+    /// `None` for architectures without WMMA at all.
+    pub fn wmma_generation(&self) -> Option<AmdWmma> {
+        match self {
+            AMDArchitecture::GFX11 => Some(AmdWmma::Rdna3),
+            AMDArchitecture::GFX12 => Some(AmdWmma::Rdna4),
+            _ => None,
+        }
+    }
+
     pub fn parse(arg: &str) -> Result<Self, String> {
         let norm = arg.to_lowercase();
         if norm.starts_with("gfx12") {

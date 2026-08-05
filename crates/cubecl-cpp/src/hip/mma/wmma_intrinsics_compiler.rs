@@ -1,11 +1,15 @@
 use std::fmt::Formatter;
 
 use crate::{
-    hip::arch::AMDArchitecture,
+    hip::{
+        arch::{AMDArchitecture, AmdWmma},
+        mma::amd_wmma,
+    },
     shared::{
         Architecture, CompilationOptions, CppValue, SupportedMmaCombinations, frag_ident_str,
         frag_layout_str,
         ty::{TypeExtCPP, TypedExtCPP},
+        wmma_api_base::{as_scalar_ptr, matrix_ty},
     },
 };
 use cubecl_core::{
@@ -18,11 +22,7 @@ use cubecl_core::{
         types::MatrixScope,
     },
 };
-use pliron::{
-    context::Context,
-    printable::Printable,
-    r#type::{Type, TypeHandle, Typed},
-};
+use pliron::{context::Context, printable::Printable, r#type::TypeHandle};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct WmmaIntrinsicCompiler {}
@@ -70,7 +70,7 @@ impl WmmaFill {
 
     pub fn format_extension(&self, f: &mut Formatter<'_>, ctx: &Context) -> std::fmt::Result {
         let elem = self.frag.elem_ty.to_cpp(ctx);
-        let frag = self.frag.get_self_handle(ctx).to_cpp(ctx);
+        let frag = compile_fragment_intrinsic(ctx, &self.frag);
         let name = self.fn_name(ctx);
 
         write!(
@@ -161,7 +161,7 @@ impl WmmaLoad {
                 (index, length, step)
             }
         };
-        let frag = frag.get_self_handle(ctx).to_cpp(ctx);
+        let frag = compile_fragment_intrinsic(ctx, &frag);
         let elem = elem.to_cpp(ctx);
 
         write!(
@@ -212,7 +212,7 @@ impl WmmaStore {
             _ => unreachable!(),
         };
 
-        let frag = frag.get_self_handle(ctx).to_cpp(ctx);
+        let frag = compile_fragment_intrinsic(ctx, &frag);
         let elem = elem.to_cpp(ctx);
 
         write!(
@@ -278,12 +278,20 @@ impl WmmaExecute {
         } else {
             "f16"
         };
-        let (cd_format, opsel) = if self.frag_c.elem_ty.is_float32(ctx) {
-            ("f32", "")
+        let cd_format = if self.frag_c.elem_ty.is_float32(ctx) {
+            "f32"
         } else if self.frag_a.elem_ty.is_bfloat16(ctx) {
-            ("bf16", ", false")
+            "bf16"
         } else {
-            ("f16", ", false")
+            "f16"
+        };
+        // RDNA3 packs a 16 bit result into the low half of each 32 bit lane and takes an `opsel`
+        // saying which half to write. RDNA4's fragments are densely packed, so the argument is gone
+        // and the builtins carry a `_gfx12` suffix.
+        let (isa_suffix, opsel) = match amd_wmma(ctx) {
+            AmdWmma::Rdna3 if self.frag_c.elem_ty.is_float32(ctx) => ("", ""),
+            AmdWmma::Rdna3 => ("", ", false"),
+            AmdWmma::Rdna4 => ("_gfx12", ""),
         };
         let warp_size = 32;
         write!(
@@ -291,13 +299,13 @@ impl WmmaExecute {
             "
 // Execute wmma.
 __device__ void {name}(const {}& frag_a, const {}& frag_b, const {}& frag_c, {}& frag_d) {{
-    frag_d = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w{warp_size}(frag_a, frag_b, frag_c{opsel});
+    frag_d = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w{warp_size}{isa_suffix}(frag_a, frag_b, frag_c{opsel});
 }}
         ",
-            self.frag_a.get_self_handle(ctx).to_cpp(ctx),
-            self.frag_b.get_self_handle(ctx).to_cpp(ctx),
-            self.frag_c.get_self_handle(ctx).to_cpp(ctx),
-            self.frag_d.get_self_handle(ctx).to_cpp(ctx)
+            compile_fragment_intrinsic(ctx, &self.frag_a),
+            compile_fragment_intrinsic(ctx, &self.frag_b),
+            compile_fragment_intrinsic(ctx, &self.frag_c),
+            compile_fragment_intrinsic(ctx, &self.frag_d)
         )
     }
 }
@@ -314,8 +322,8 @@ impl WmmaCast {
     }
 
     pub fn format_extension(&self, f: &mut Formatter<'_>, ctx: &Context) -> std::fmt::Result {
-        let input = self.frag_input.get_self_handle(ctx).to_cpp(ctx);
-        let output = self.frag_output.get_self_handle(ctx).to_cpp(ctx);
+        let input = compile_fragment_intrinsic(ctx, &self.frag_input);
+        let output = compile_fragment_intrinsic(ctx, &self.frag_output);
         let name = self.fn_name(ctx);
         let step = match self.frag_output.ident {
             MatrixIdent::Accumulator => {
@@ -340,33 +348,39 @@ __device__ void {name}(const {input}& input, {output}& output) {{
 }
 
 pub(super) fn compile_fragment_intrinsic(ctx: &Context, mat_ty: &MatrixType) -> String {
+    // A/B hold `k` elements per lane on RDNA3 and `k / 2` on RDNA4. Accumulators always hold 8
+    // lanes' worth, but RDNA3's 16 bit ones are padded out to 32 bits per element.
+    let ab_elems = amd_wmma(ctx).frag_ab_elems(mat_ty.shape.k);
+    let acc_elems = match amd_wmma(ctx) {
+        AmdWmma::Rdna3 => 16,
+        AmdWmma::Rdna4 => 8,
+    };
+    let unsupported = || {
+        panic!(
+            "unsupported type {} for {}",
+            mat_ty.elem_ty.disp(ctx),
+            mat_ty.disp(ctx)
+        )
+    };
     match mat_ty.ident {
         MatrixIdent::A | MatrixIdent::B => {
             if mat_ty.elem_ty.is_float16(ctx) {
-                "half16_t".into()
+                format!("half{ab_elems}_t")
             } else if mat_ty.elem_ty.is_bfloat16(ctx) {
-                "bhalf16_t".into()
+                format!("bhalf{ab_elems}_t")
             } else {
-                panic!(
-                    "unsupported type {} for {}",
-                    mat_ty.elem_ty.disp(ctx),
-                    mat_ty.disp(ctx)
-                )
+                unsupported()
             }
         }
         MatrixIdent::Accumulator => {
             if mat_ty.elem_ty.is_float16(ctx) {
-                "half16_t".into()
+                format!("half{acc_elems}_t")
             } else if mat_ty.elem_ty.is_bfloat16(ctx) {
-                "bhalf16_t".into()
+                format!("bhalf{acc_elems}_t")
             } else if mat_ty.elem_ty.is_float32(ctx) {
                 "float8_t".into()
             } else {
-                panic!(
-                    "unsupported type {} for {}",
-                    mat_ty.elem_ty.disp(ctx),
-                    mat_ty.disp(ctx)
-                )
+                unsupported()
             }
         }
     }
@@ -375,16 +389,16 @@ pub(super) fn compile_fragment_intrinsic(ctx: &Context, mat_ty: &MatrixType) -> 
 pub(super) fn compile_fill_intrinsic(ctx: &Context, op: &FillOp) -> String {
     let matrix = op.matrix(ctx);
     let value = op.value(ctx).name(ctx);
-    let extension = WmmaFill::new(*matrix.get_type(ctx).deref(ctx).downcast_ref().unwrap());
+    let extension = WmmaFill::new(matrix_ty(ctx, matrix));
     let name = extension.fn_name(ctx);
     format!("{name}(*{}, {value});", matrix.name(ctx))
 }
 
 pub(super) fn compile_load_intrinsic(ctx: &Context, op: &LoadOp) -> String {
     let mat = op.matrix(ctx);
-    let value_ptr = op.source(ctx).name(ctx);
+    let value_ptr = as_scalar_ptr(ctx, op.source(ctx));
     let stride = op.stride(ctx).name(ctx);
-    let mat_ty = *mat.get_type(ctx).deref(ctx).downcast_ref().unwrap();
+    let mat_ty = matrix_ty(ctx, mat);
     let layout = op.layout(ctx).0;
     let extension = WmmaLoad::new(mat_ty, layout);
     let name = extension.fn_name(ctx);
@@ -393,9 +407,9 @@ pub(super) fn compile_load_intrinsic(ctx: &Context, op: &LoadOp) -> String {
 
 pub(super) fn compile_store_intrinsic(ctx: &Context, op: &StoreOp) -> String {
     let mat = op.matrix(ctx);
-    let output_ptr = op.destination(ctx).name(ctx);
+    let output_ptr = as_scalar_ptr(ctx, op.destination(ctx));
     let stride = op.stride(ctx).name(ctx);
-    let mat_ty = *mat.get_type(ctx).deref(ctx).downcast_ref().unwrap();
+    let mat_ty = matrix_ty(ctx, mat);
     let layout = op.layout(ctx).0;
     let extension = WmmaStore::new(mat_ty, layout);
     let name = extension.fn_name(ctx);
@@ -414,14 +428,14 @@ pub(super) fn compile_execute_intrinsic(ctx: &Context, op: &MultiplyAccumulateOp
     let frag_d = op.mat_d(ctx);
 
     let extension = WmmaExecute::new(
-        *frag_a.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
-        *frag_b.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
-        *frag_c.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
-        *frag_d.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
+        matrix_ty(ctx, frag_a),
+        matrix_ty(ctx, frag_b),
+        matrix_ty(ctx, frag_c),
+        matrix_ty(ctx, frag_d),
     );
     let name = extension.fn_name(ctx);
     format!(
-        "{name}({}, {}, {}, {});",
+        "{name}(*{}, *{}, *{}, *{});",
         frag_a.name(ctx),
         frag_b.name(ctx),
         frag_c.name(ctx),
@@ -433,14 +447,11 @@ pub(super) fn compile_cast_intrinsic(ctx: &Context, op: &CastOp) -> String {
     let input = op.input(ctx);
     let output = op.output(ctx);
 
-    let extension = WmmaCast::new(
-        *input.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
-        *output.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
-    );
+    let extension = WmmaCast::new(matrix_ty(ctx, input), matrix_ty(ctx, output));
     let name = extension.fn_name(ctx);
     let input = input.name(ctx);
     let output = output.name(ctx);
-    format!("{name}({input}, {output});")
+    format!("{name}(*{input}, *{output});")
 }
 
 pub(super) fn supported_wmma_combinations_intrinsic(

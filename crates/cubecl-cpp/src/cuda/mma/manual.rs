@@ -5,9 +5,8 @@ use cubecl_core::{
         ElemType, FloatKind, IntKind, UIntKind,
         dialect::matrix::{ColIndexOp, RowIndexOp},
         features::{MmaConfig, ScaledMmaConfig},
-        interfaces::{IndexableType, TypedExt},
+        interfaces::TypedExt,
         prelude::*,
-        types::PointerType,
     },
     prelude::*,
 };
@@ -99,14 +98,6 @@ fn col_index(
             (thread_id_in_group * 2) + (i % 2)
         }
     }
-}
-
-pub(crate) fn frag_elem(ctx: &Context, frag: impl Typed) -> TypeHandle {
-    let ty = frag.get_type(ctx).deref(ctx);
-    let PointerType { inner, .. } = ty.downcast_ref().expect("Should be ptr");
-    let inner = inner.deref(ctx);
-    let indexable = type_cast::<dyn IndexableType>(&*inner).expect("Should be array");
-    indexable.indexed_type(ctx)
 }
 
 pub fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombinations {

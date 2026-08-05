@@ -6,7 +6,7 @@ use pliron::builtin::{
 };
 
 use crate::{
-    hip::hip_op,
+    hip::{extension::compile_wmma_extensions, hip_op},
     shared::{
         CppValue,
         branch::block_to_cpp,
@@ -20,6 +20,7 @@ hip_op!(ModuleOp, |op, ctx| {
     let mut out = String::new();
     type_definitions(&mut out, "long long").unwrap();
     define_array_polyfill(&mut out).unwrap();
+    out.push_str(&compile_wmma_extensions(ctx, op.get_operation()));
     out.push_str(&block_to_cpp(ctx, op.get_body(ctx, 0)));
     out
 });

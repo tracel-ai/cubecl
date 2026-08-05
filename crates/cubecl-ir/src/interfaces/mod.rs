@@ -536,6 +536,14 @@ pub trait TypedExt: Typed {
         self.get_type(ctx).deref(ctx).is::<BFloat16Type>()
     }
 
+    fn is_float(&self, ctx: &Context) -> bool {
+        self.is_float16(ctx)
+            | self.is_float32(ctx)
+            | self.is_float64(ctx)
+            | self.is_tfloat32(ctx)
+            | self.is_bfloat16(ctx)
+    }
+
     fn is_bool(&self, ctx: &Context) -> bool {
         self.get_type(ctx).deref(ctx).is::<BoolType>()
     }

@@ -24,23 +24,20 @@ std = [
     "cubecl-runtime/std",
     "cubecl-common/std",
     "cubecl-core/std",
+    "cubecl-cpp/std",
     "cubecl-opt/std",
+    "pliron/std",
     "sanitize-filename",
 ]
 # 'msl' and 'spirv' features are exclusive
 # TODO find a way to have wgpu runtime auto-compiler to support several compilers at the same time
 msl = ["cubecl-cpp/metal"]
 profile-tracy = ["tracy-client"]
-spirv = [
-    "cubecl-spirv",
-    "ash",
-    "tracel-ash",
-    "cubecl-common/hash",
-]
+spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/hash"]
+
 
 deny-validation-errors = ["wgpu-hal/validation_canary"]
-plir-dump = ["std"]
-spirv-dump = ["std", "cubecl-spirv/spirv-dump"]
+pliron-dump = ["std", "cubecl-cpp/pliron-dump", "cubecl-spirv?/pliron-dump"]
 vulkan-validate = []
 
 renderdoc = ["std", "dep:renderdoc"]
@@ -57,8 +54,8 @@ log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
 cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.1", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.1", default-features = false }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.1", default-features = false }
 cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.1", default-features = false }
 cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.1", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.1", default-features = false, features = [

@@ -1,6 +1,13 @@
-use cubecl_core::ir::dialect::plane::*;
+use cubecl::prelude::*;
+use cubecl_core as cubecl;
+use cubecl_core::ir::{cube_op, dialect::plane::*};
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    derive::op_interface_impl,
+    value::Value,
+};
 
-use crate::hip::hip_op_with_out;
+use crate::{hip::hip_op_with_out, shared::lowering::LowerOp, target::Hip};
 
 hip_op_with_out!(BroadcastOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
@@ -42,7 +49,39 @@ hip_op_with_out!(AnyOp, |op, ctx| {
     format!("static_cast<bool>(__any({val}));")
 });
 
-hip_op_with_out!(BallotOp, |op, ctx| {
+#[cube_op(name = "hip.ballot")]
+#[result_ty(fixed = IntegerType::get(ctx, 64, Signedness::Unsigned).to_handle())]
+pub struct HipBallotOp {
+    input: Value,
+}
+
+hip_op_with_out!(HipBallotOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
-    format!("{{__ballot({val}), 0, 0, 0}};")
+    format!("__ballot({val});")
 });
+
+#[cube]
+fn hip_ballot(value: bool) -> u64 {
+    intrinsic!(|scope| {
+        let value = value.read_value(scope);
+        let ballot = HipBallotOp::new(scope.ctx_mut(), value);
+        scope.register_with_result(&ballot).into()
+    })
+}
+
+/// Unlike CUDA's 32 bit `__ballot_sync`, HIP's `__ballot` returns a 64 bit mask so it can cover
+/// wave64. It has to be split across two of the result's 32 bit lanes instead of narrowed into one.
+#[cube]
+fn ballot(value: bool) -> Vector<u32, Const<4>> {
+    let mut out = Vector::<u64, Const<2>>::zero();
+    out.insert(0usize, hip_ballot(value));
+    Vector::reinterpret(out)
+}
+
+#[op_interface_impl]
+impl LowerOp<Hip> for BallotOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let value = self.input(scope.ctx()).into();
+        vec![ballot::expand(scope, value).read_value(scope)]
+    }
+}

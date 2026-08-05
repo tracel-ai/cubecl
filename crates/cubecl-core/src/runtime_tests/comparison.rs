@@ -138,6 +138,71 @@ test_binary_impl!(
     ]
 );
 
+/// NaN comparison semantics: `<`, `<=`, `>`, `>=` and `==` are *ordered* (false whenever an
+pub fn test_nan_ordering<R: Runtime>(client: ComputeClient<R>) {
+    #[cube(launch_unchecked)]
+    fn test_function(lhs: &[f32], rhs: &[f32], output: &mut [u32]) {
+        if ABSOLUTE_POS < lhs.len() {
+            let l = lhs[ABSOLUTE_POS];
+            let r = rhs[ABSOLUTE_POS];
+            let mut bits = 0u32;
+            if l < r {
+                bits += 1;
+            }
+            if l <= r {
+                bits += 2;
+            }
+            if l > r {
+                bits += 4;
+            }
+            if l >= r {
+                bits += 8;
+            }
+            if l == r {
+                bits += 16;
+            }
+            output[ABSOLUTE_POS] = bits;
+        }
+    }
+
+    let nan = f32::NAN;
+    let lhs: &[f32] = &[1.0, nan, nan, 1.0, 2.0];
+    let rhs: &[f32] = &[nan, 1.0, nan, 2.0, 1.0];
+
+    let output_handle = client.empty(lhs.len() * core::mem::size_of::<u32>());
+    let lhs_handle = client.create_from_slice(f32::as_bytes(lhs));
+    let rhs_handle = client.create_from_slice(f32::as_bytes(rhs));
+
+    unsafe {
+        test_function::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(lhs.len() as u32),
+            BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+            BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+            BufferArg::from_raw_parts(output_handle.clone(), lhs.len()),
+        )
+    };
+
+    let actual = client.read_one_unchecked(output_handle);
+    let actual = u32::from_bytes(&actual);
+
+    for i in 0..lhs.len() {
+        let (l, r) = (lhs[i], rhs[i]);
+        let expected = (l < r) as u32
+            + ((l <= r) as u32) * 2
+            + ((l > r) as u32) * 4
+            + ((l >= r) as u32) * 8
+            + ((l == r) as u32) * 16;
+        assert_eq!(
+            actual[i], expected,
+            "comparing {l} with {r}: expected bits {expected:05b}, got {:05b} \
+             (bit order: <, <=, >, >=, ==)",
+            actual[i]
+        );
+    }
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_comparison {
@@ -161,6 +226,7 @@ macro_rules! testgen_comparison {
             add_test!(test_le);
             add_test!(test_eq);
             add_test!(test_ne);
+            add_test!(test_nan_ordering);
         }
     };
 }

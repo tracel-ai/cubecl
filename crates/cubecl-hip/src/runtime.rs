@@ -3,6 +3,8 @@ use crate::{
     device::AmdDevice,
 };
 use core::ffi::c_int;
+use std::sync::OnceLock;
+
 use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
@@ -22,8 +24,11 @@ use cubecl_cpp::{
     ComputeKernel,
     hip::{
         self,
-        arch::AMDArchitecture,
-        mma::{HipCmmaCompiler, manual::contiguous_elements_rdna3},
+        arch::{AMDArchitecture, AmdWmma},
+        mma::{
+            HipCmmaCompiler,
+            manual::{contiguous_elements_rdna3, contiguous_elements_rdna4},
+        },
     },
     register_supported_types,
     shared::{
@@ -37,6 +42,8 @@ use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
 };
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
+
+static AMD_WMMA: OnceLock<Option<AmdWmma>> = OnceLock::new();
 
 /// The values that control how a HIP Runtime will perform its calculations.
 #[derive(Default)]
@@ -110,6 +117,10 @@ impl DeviceService for HipServer {
         };
         let normalized_arch_name = prop_arch_name.split(':').next().unwrap_or(prop_arch_name);
         let arch = AMDArchitecture::parse(normalized_arch_name).unwrap();
+        // `Runtime::target_properties` is static, so stash what it needs from the device we're
+        // initializing. A process mixing RDNA3 and RDNA4 GPUs would see whichever came up first,
+        // which is a limitation the static signature can't express anyway.
+        let _ = AMD_WMMA.set(arch.wmma_generation());
         assert_eq!(prop_warp_size as u32, arch.warp_size());
 
         // SAFETY: Calling HIP FFI to set the active device and configure spin-wait scheduling
@@ -147,7 +158,7 @@ impl DeviceService for HipServer {
         };
 
         let supported_wmma_combinations =
-            HipCmmaCompiler::Intrinsics.supported_cmma_combinations(&arch);
+            HipCmmaCompiler::RocWmma.supported_cmma_combinations(&arch);
         let supported_mma_combinations = hip::supported_mma_combinations(&arch);
         let supported_scaled_mma_combinations = hip::supported_scaled_mma_combinations(&arch);
 
@@ -214,6 +225,7 @@ impl DeviceService for HipServer {
                 fast_math: true,
                 ..Default::default()
             },
+            amd_wmma: arch.wmma_generation(),
         };
         let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint);
         let logger = Arc::new(ServerLogger::default());
@@ -268,6 +280,10 @@ impl Runtime for HipRuntime {
     }
 
     fn target_properties() -> TargetProperties {
+        // RDNA3 hands every lane the whole `k` range, duplicated across lanes 0-15 / 16-31. RDNA4
+        // splits `k` between the two halves instead, so there's no duplication to account for.
+        let rdna4 = AMD_WMMA.get().copied().flatten() == Some(AmdWmma::Rdna4);
+        let duplication_ab = if rdna4 { 1 } else { 2 };
         TargetProperties {
             mma: MmaProperties {
                 register_size_bits: 32,
@@ -275,10 +291,14 @@ impl Runtime for HipRuntime {
                 register_layout_a: MatrixLayout::RowMajor,
                 register_layout_b: MatrixLayout::ColMajor,
                 register_layout_acc: MatrixLayout::ColMajor,
-                register_duplication_a: 2,
-                register_duplication_b: 2,
+                register_duplication_a: duplication_ab,
+                register_duplication_b: duplication_ab,
                 register_duplication_acc: 1,
-                contiguous_elements: ContiguousElements::new(contiguous_elements_rdna3),
+                contiguous_elements: ContiguousElements::new(if rdna4 {
+                    contiguous_elements_rdna4
+                } else {
+                    contiguous_elements_rdna3
+                }),
             },
         }
     }

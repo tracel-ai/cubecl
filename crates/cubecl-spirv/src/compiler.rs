@@ -98,7 +98,7 @@ impl Compiler for SpirvCompiler {
             });
         }
 
-        #[cfg(feature = "spirv-dump")]
+        #[cfg(feature = "pliron-dump")]
         let ir_printing_dir = kernel_dir_name(&value.settings.kernel_name);
 
         let entry_func = value.body.state().entry_func;
@@ -116,7 +116,7 @@ impl Compiler for SpirvCompiler {
             module,
             entry_func,
             value.settings.clone(),
-            #[cfg(feature = "spirv-dump")]
+            #[cfg(feature = "pliron-dump")]
             ir_printing_dir,
         )?;
 
@@ -135,7 +135,7 @@ impl Compiler for SpirvCompiler {
             info_visibility,
         };
 
-        #[cfg(feature = "spirv-dump")]
+        #[cfg(feature = "pliron-dump")]
         dump_spirv(&kernel, &value.settings.kernel_name);
 
         Ok(kernel)
@@ -159,7 +159,7 @@ impl SpirvCompiler {
         module: ModuleOp,
         entry_func: FuncOp,
         settings: KernelSettings,
-        #[cfg(feature = "spirv-dump")] ir_printing_dir: Option<std::path::PathBuf>,
+        #[cfg(feature = "pliron-dump")] ir_printing_dir: Option<std::path::PathBuf>,
     ) -> Result<(Module, Vec<Visibility>, usize), CompilationError> {
         let entry = entry_func.get_entry_block(ctx);
         let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>();
@@ -168,8 +168,8 @@ impl SpirvCompiler {
         verify_operation(module.get_operation(), ctx)?;
 
         let config = PMConfig {
-            print_after_all: cfg!(feature = "spirv-dump"),
-            #[cfg(feature = "spirv-dump")]
+            print_after_all: cfg!(feature = "pliron-dump"),
+            #[cfg(feature = "pliron-dump")]
             ir_printing_dir,
             ..Default::default()
         };
@@ -333,9 +333,9 @@ fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Ve
     );
 }
 
-#[cfg(feature = "spirv-dump")]
+#[cfg(feature = "pliron-dump")]
 pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_SPIRV") {
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
         let path = sanitize_filename::sanitize_with_options(
             name,
             sanitize_filename::Options {
@@ -351,7 +351,7 @@ pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
     }
 }
 
-#[cfg(feature = "spirv-dump")]
+#[cfg(feature = "pliron-dump")]
 pub(crate) fn dump_spirv(repr: &SpirvKernel, name: &str) {
     use std::fs;
 

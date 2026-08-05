@@ -1,4 +1,5 @@
 use alloc::vec;
+use core::f32::consts::PI;
 
 use cubecl_ir::{Type, cube_op, prelude::*};
 use num_traits::One;
@@ -177,6 +178,16 @@ pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vecto
 #[cube]
 pub fn recip<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     Vector::one() / input
+}
+
+#[cube]
+pub fn to_degrees<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    input * Vector::new(T::new(comptime!(180.0_f32 / PI)))
+}
+
+#[cube]
+pub fn to_radians<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    input * Vector::new(T::new(comptime!(PI / 180.0_f32)))
 }
 
 pub mod bitwise {
