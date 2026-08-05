@@ -4,7 +4,7 @@ use super::*;
 use crate::tensor::{
     View, ViewExpand, ViewOperations, ViewOperationsExpand,
     launch::{ViewArg, ViewCompilationArg},
-    layout::Coordinates,
+    layout::{Coordinates, Coords1d},
 };
 use cubecl::prelude::*;
 use cubecl_common::{
@@ -40,8 +40,8 @@ pub struct QuantizedView<
 > {
     values: View<'a, Vector<Q, NQ>, C>,
     scales: View<'a, S, C>,
-    /// Per-tensor scale of a two-level scheme, whose layout maps every coordinate to element 0.
-    global: ComptimeOption<View<'a, f32, C>>,
+    /// Per-tensor scale of a two-level scheme, already read and widened to f32.
+    global: ComptimeOption<f32>,
     #[cube(comptime)]
     scheme: QuantScheme,
     #[cube(comptime)]
@@ -55,7 +55,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
     pub fn new(
         values: View<'a, Vector<Q, NQ>, C>,
         scales: View<'a, S, C>,
-        global: ComptimeOption<View<'a, f32, C>>,
+        global: ComptimeOption<f32>,
         #[comptime] scheme: QuantScheme,
     ) -> Self {
         QuantizedView::<'a, Q, NQ, S, F, NF, C> {
@@ -89,7 +89,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
     pub fn new(
         values: ViewExpand<'a, Vector<Q, NQ>, C>,
         scales: ViewExpand<'a, S, C>,
-        global: Option<ViewExpand<'a, f32, C>>,
+        global: Option<NativeExpand<f32>>,
         scheme: QuantScheme,
     ) -> Self {
         QuantizedViewExpand::<'a, Q, NQ, S, F, NF, C> {
@@ -101,18 +101,6 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             },
             scheme,
             _ty: PhantomData,
-        }
-    }
-
-    /// Read the per-tensor scale, if the scheme has one. `read` is parameterized because the four
-    /// read methods differ only in how they handle bounds, and the scale is read the same way.
-    fn read_global(
-        &self,
-        read: impl FnOnce(ViewExpand<'a, f32, C>) -> NativeExpand<f32>,
-    ) -> ComptimeOptionExpand<f32> {
-        match &self.global {
-            ComptimeOptionExpand::Some(global) => ComptimeOptionExpand::Some(read(global.clone())),
-            ComptimeOptionExpand::None => ComptimeOptionExpand::None,
         }
     }
 
@@ -147,10 +135,9 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         pos: <C>::ExpandType,
     ) -> NativeExpand<Vector<F, NF>> {
         let value = self.values.clone().__expand_read_method(scope, pos.clone());
-        let scale = self.scales.clone().__expand_read_method(scope, pos.clone());
-        let global = self.read_global(|it| it.__expand_read_method(scope, pos));
+        let scale = self.scales.clone().__expand_read_method(scope, pos);
 
-        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, global, self.scheme)
+        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.global, self.scheme)
     }
 
     fn __expand_read_checked_method(
@@ -162,13 +149,9 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             .values
             .clone()
             .__expand_read_checked_method(scope, pos.clone());
-        let scale = self
-            .scales
-            .clone()
-            .__expand_read_checked_method(scope, pos.clone());
-        let global = self.read_global(|it| it.__expand_read_checked_method(scope, pos));
+        let scale = self.scales.clone().__expand_read_checked_method(scope, pos);
 
-        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, global, self.scheme)
+        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.global, self.scheme)
     }
 
     fn __expand_read_masked_method(
@@ -185,11 +168,15 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             .scales
             .clone()
             .__expand_read_checked_method(scope, pos.clone());
-        let global = self.read_global(|it| it.__expand_read_checked_method(scope, pos.clone()));
         let in_bounds = self.__expand_is_in_bounds_method(scope, pos);
 
-        let value =
-            dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, global, self.scheme);
+        let value = dequantize_aligned::expand::<Q, S, F, NQ, NF>(
+            scope,
+            value,
+            scale,
+            self.global,
+            self.scheme,
+        );
         select::expand::<Vector<F, NF>>(scope, in_bounds, value, mask_value)
     }
 
@@ -205,10 +192,9 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         let scale = self
             .scales
             .clone()
-            .__expand_read_unchecked_method(scope, pos.clone());
-        let global = self.read_global(|it| it.__expand_read_unchecked_method(scope, pos));
+            .__expand_read_unchecked_method(scope, pos);
 
-        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, global, self.scheme)
+        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.global, self.scheme)
     }
 
     fn __expand_as_linear_slice_method(
@@ -253,10 +239,40 @@ fn quant_vector_size_q(vector_size: usize, num_quants: usize) -> usize {
     vector_size / num_quants
 }
 
+/// Read the per-tensor scale into the scope the view is built in, and widen it to f32.
+///
+/// One read for the whole kernel: the scale is a single value for the entire tensor, and a read
+/// per element would be a global load the optimizer cannot hoist back out of a loop. Widening
+/// here is what lets the level pick any param for it, and is also what keeps the two levels
+/// multiplying in f32 later, since a block scale alone can overflow a narrow `F`.
+fn expand_global_scale(
+    global: &ViewCompilationArg<Coords1d>,
+    param: QuantParam,
+    builder: &mut KernelBuilder,
+) -> NativeExpand<f32> {
+    fn read<G: Scalar>(
+        global: &ViewCompilationArg<Coords1d>,
+        builder: &mut KernelBuilder,
+    ) -> NativeExpand<f32> {
+        let view = View::<G, Coords1d>::expand(global, builder);
+        let pos = usize::__expand_cast_from(&builder.scope, 0.into());
+        let scale = view.__expand_read_method(&builder.scope, pos);
+        f32::__expand_cast_from(&builder.scope, scale)
+    }
+
+    match param {
+        QuantParam::F32 => read::<f32>(global, builder),
+        QuantParam::F16 => read::<f16>(global, builder),
+        QuantParam::BF16 => read::<bf16>(global, builder),
+        QuantParam::UE8M0 => read::<ue8m0>(global, builder),
+        QuantParam::UE4M3 => read::<e4m3>(global, builder),
+    }
+}
+
 struct ExpandDynamic<'a, E: Numeric, N: Size, C: Coordinates + 'static> {
     values: &'a ViewCompilationArg<C>,
     scales: &'a ViewCompilationArg<C>,
-    global: Option<&'a ViewCompilationArg<C>>,
+    global: Option<&'a ViewCompilationArg<Coords1d>>,
     scheme: QuantScheme,
     builder: &'a mut KernelBuilder,
     _ty: PhantomData<(E, N)>,
@@ -267,12 +283,10 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
 {
     type Output = ViewExpand<'static, Vector<E, N>, C>;
 
-    fn global_provided(&self) -> bool {
-        self.global.is_some()
-    }
-
     fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output {
         define_size!(NQ);
+
+        check_global_bindings(self.scheme.level, self.global.is_some());
 
         let vector_size = N::__expand_value(&self.builder.scope);
         let vector_size_q = quant_vector_size_q(vector_size, self.scheme.num_quants());
@@ -280,19 +294,36 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
 
         let values = View::<Vector<Q, NQ>, C>::expand(self.values, self.builder);
         let scales = View::<S, C>::expand(self.scales, self.builder);
-        let global = match self.global {
-            Some(global) => Some(View::<f32, C>::expand(global, self.builder)),
-            None => None,
-        };
+        // The check above pairs the binding with the level, so zipping drops neither.
+        let global = self
+            .global
+            .zip(self.scheme.level.global_param())
+            .map(|(global, param)| expand_global_scale(global, param, self.builder));
         let view = QuantizedViewExpand::new(values, scales, global, self.scheme);
         ViewExpand::new(&self.builder.scope, view)
+    }
+}
+
+/// Register the per-tensor scale under the param the level stores it in, matching the element
+/// type [`expand_global_scale`] reads it back with.
+fn register_global_scale<R: Runtime>(
+    global: ViewArg<Coords1d, R>,
+    param: QuantParam,
+    launcher: &mut KernelLauncher<R>,
+) -> ViewCompilationArg<Coords1d> {
+    match param {
+        QuantParam::F32 => View::<f32, Coords1d>::register(global, launcher),
+        QuantParam::F16 => View::<f16, Coords1d>::register(global, launcher),
+        QuantParam::BF16 => View::<bf16, Coords1d>::register(global, launcher),
+        QuantParam::UE8M0 => View::<ue8m0, Coords1d>::register(global, launcher),
+        QuantParam::UE4M3 => View::<e4m3, Coords1d>::register(global, launcher),
     }
 }
 
 pub(crate) struct RegisterDynamic<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> {
     pub values: ViewArg<C, R>,
     pub scales: ViewArg<C, R>,
-    pub global: Option<ViewArg<C, R>>,
+    pub global: Option<ViewArg<Coords1d, R>>,
     pub scheme: QuantScheme,
     pub launcher: &'a mut KernelLauncher<R>,
     pub _ty: PhantomData<E>,
@@ -303,12 +334,12 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
 {
     type Output = ViewCompilationArg<C>;
 
-    fn global_provided(&self) -> bool {
-        self.global.is_some()
-    }
-
     fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output {
         define_size!(NQ);
+
+        // Caught again on the dequantization path, but reporting it here names the launch that
+        // asked for it rather than a kernel being expanded.
+        check_global_bindings(self.scheme.level, self.global.is_some());
 
         self.launcher.with_scope(|scope| {
             let vector_size_q =
@@ -318,10 +349,10 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
 
         let values = View::<Vector<Q, NQ>, C>::register(self.values, self.launcher);
         let scales = View::<S, C>::register(self.scales, self.launcher);
-        let global = match self.global {
-            Some(global) => Some(Box::new(View::<f32, C>::register(global, self.launcher))),
-            None => None,
-        };
+        let global = self
+            .global
+            .zip(self.scheme.level.global_param())
+            .map(|(global, param)| Box::new(register_global_scale(global, param, self.launcher)));
         ViewCompilationArg::Quantized {
             values: Box::new(values),
             scales: Box::new(scales),
@@ -334,10 +365,6 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
 /// Run a function with the quantization storage type and scale. Useful when concrete types are
 /// required but aren't available, and only the dynamic schema is known.
 pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) -> F::Output {
-    // Caught again on the dequantization path, but reporting it here names the launch that asked
-    // for it rather than a kernel being expanded.
-    check_global_bindings(scheme.level, func.global_provided());
-
     fn run_with_q<F: RunWithQuantType, Q: Scalar>(func: F, scheme: QuantScheme) -> F::Output {
         match scheme.param {
             QuantParam::F32 => func.execute::<Q, f32>(),
@@ -373,7 +400,7 @@ pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) ->
 pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
     values: &ViewCompilationArg<C>,
     scales: &ViewCompilationArg<C>,
-    global: Option<&ViewCompilationArg<C>>,
+    global: Option<&ViewCompilationArg<Coords1d>>,
     scheme: QuantScheme,
     builder: &mut KernelBuilder,
 ) -> ViewExpand<'static, E, C> {
@@ -383,7 +410,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
     fn expand_dynamic_f<F: Numeric, NF: Size, C: Coordinates + 'static>(
         values: &ViewCompilationArg<C>,
         scales: &ViewCompilationArg<C>,
-        global: Option<&ViewCompilationArg<C>>,
+        global: Option<&ViewCompilationArg<Coords1d>>,
         scheme: QuantScheme,
         builder: &mut KernelBuilder,
     ) -> ViewExpand<'static, Vector<F, NF>, C> {
@@ -444,16 +471,10 @@ mod tests {
     use cubecl_common::quant::scheme::{QuantLevel, QuantParam, QuantScheme};
     use cubecl_core::prelude::Scalar;
 
-    struct Dispatched {
-        global_provided: bool,
-    }
+    struct Dispatched;
 
     impl RunWithQuantType for Dispatched {
         type Output = bool;
-
-        fn global_provided(&self) -> bool {
-            self.global_provided
-        }
 
         fn execute<Q: Scalar, S: Scalar>(self) -> bool {
             true
@@ -466,46 +487,21 @@ mod tests {
 
     #[test]
     fn one_level_scheme_dispatches() {
-        let func = Dispatched {
-            global_provided: false,
-        };
-        assert!(run_with_quant_type(func, QuantScheme::default()));
+        assert!(run_with_quant_type(Dispatched, QuantScheme::default()));
     }
 
+    /// The per-tensor scale is read through a binding of its own, so a level that has one does not
+    /// change how the value and block scale types dispatch.
     #[test]
-    fn two_level_scheme_dispatches_with_a_global() {
-        let func = Dispatched {
-            global_provided: true,
-        };
-        assert!(run_with_quant_type(func, two_level_scheme(QuantParam::F32)));
-    }
-
-    #[test]
-    #[should_panic(expected = "takes a per-tensor scale, but no global was provided")]
-    fn two_level_scheme_without_a_global_is_rejected() {
-        let func = Dispatched {
-            global_provided: false,
-        };
-        // Would otherwise dequantize against the block scales alone, dropping the per-tensor factor.
-        run_with_quant_type(func, two_level_scheme(QuantParam::F32));
-    }
-
-    #[test]
-    #[should_panic(expected = "does not take a per-tensor scale")]
-    fn one_level_scheme_with_a_global_is_rejected() {
-        let func = Dispatched {
-            global_provided: true,
-        };
-        run_with_quant_type(func, QuantScheme::default());
-    }
-
-    #[test]
-    #[should_panic(expected = "the per-tensor scale is read as f32")]
-    fn two_level_scheme_with_a_narrow_global_is_rejected() {
-        let func = Dispatched {
-            global_provided: true,
-        };
-        run_with_quant_type(func, two_level_scheme(QuantParam::F16));
+    fn two_level_scheme_dispatches() {
+        assert!(run_with_quant_type(
+            Dispatched,
+            two_level_scheme(QuantParam::F32)
+        ));
+        assert!(run_with_quant_type(
+            Dispatched,
+            two_level_scheme(QuantParam::UE4M3)
+        ));
     }
 
     #[test]

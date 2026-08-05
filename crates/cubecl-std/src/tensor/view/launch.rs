@@ -428,7 +428,7 @@ mod dynamic {
         Quantized {
             values: Box<ViewArg<C, R>>,
             scales: Box<ViewArg<C, R>>,
-            global: Option<Box<ViewArg<C, R>>>,
+            global: Option<Box<ViewArg<Coords1d, R>>>,
             scheme: QuantScheme,
         },
     }
@@ -479,18 +479,35 @@ mod dynamic {
         /// Create a new view arg that dequantizes on read.
         /// The scales layout should take values indices and map them to the corresponding scale.
         ///
-        /// `global` is the per-tensor scale of a two-level scheme, a single `f32` whose layout maps
-        /// every coordinate to element 0. It must be present exactly when `scheme.level` has one.
-        pub fn new_quantized(
-            values: Self,
-            scales: Self,
-            global: Option<Self>,
-            scheme: QuantScheme,
-        ) -> Self {
+        /// Panics for a level that quantizes in two levels, which needs the per-tensor scale
+        /// [`ViewArg::new_quantized_two_level`] takes.
+        pub fn new_quantized(values: Self, scales: Self, scheme: QuantScheme) -> Self {
+            quant::check_global_bindings(scheme.level, false);
             Self::Quantized {
                 values: Box::new(values),
                 scales: Box::new(scales),
-                global: global.map(Box::new),
+                global: None,
+                scheme,
+            }
+        }
+
+        /// Create a new view arg that dequantizes on read against two levels of scales.
+        /// The scales layout should take values indices and map them to the corresponding scale.
+        ///
+        /// `global` holds the per-tensor scale the block scales are normalized against, read from
+        /// its first element in the param `scheme.level` stores it in. Panics for a level that has
+        /// no per-tensor scale, since it would be dropped from the reconstruction.
+        pub fn new_quantized_two_level(
+            values: Self,
+            scales: Self,
+            global: ViewArg<Coords1d, R>,
+            scheme: QuantScheme,
+        ) -> Self {
+            quant::check_global_bindings(scheme.level, true);
+            Self::Quantized {
+                values: Box::new(values),
+                scales: Box::new(scales),
+                global: Some(Box::new(global)),
                 scheme,
             }
         }
@@ -512,7 +529,7 @@ mod dynamic {
         Quantized {
             values: Box<ViewCompilationArg<C>>,
             scales: Box<ViewCompilationArg<C>>,
-            global: Option<Box<ViewCompilationArg<C>>>,
+            global: Option<Box<ViewCompilationArg<Coords1d>>>,
             scheme: QuantScheme,
         },
     }
