@@ -6,8 +6,8 @@ use cubecl_core as cubecl;
 /// Dequantize a vector of values, where `vector_size * num_quants` is a power of two.
 /// Unaligned values can't be dequantized in place.
 ///
-/// `global` is the per-tensor scale of a two-level scheme, and must be present exactly when
-/// `scheme.level` has one.
+/// `global` is the per-tensor scale of a two-level scheme, already widened to f32, and must be
+/// present exactly when `scheme.level` has one.
 #[cube]
 pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
     value: Vector<Q, NQ>,
@@ -27,8 +27,9 @@ pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF:
         QuantStore::PackedU32(_) => unpack_cast_u32::<F, NQ, NF>(Vector::cast_from(value), scheme),
     };
 
-    // The two levels multiply in f32: block scales are normalized against the per-tensor scale, so
-    // their product overflows a narrow `F` by orders of magnitude even where the result would fit.
+    // The two levels multiply in f32: a block scale is normalized against the per-tensor scale, so
+    // on its own it overflows a narrow `F` by orders of magnitude before the per-tensor scale can
+    // bring the product back into a range `F` holds.
     #[comptime]
     let effective_scale = match global {
         ComptimeOption::Some(global) => Vector::<F, NF>::cast_from(global * f32::cast_from(scale)),

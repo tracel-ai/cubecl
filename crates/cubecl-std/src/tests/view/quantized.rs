@@ -4,6 +4,7 @@ use cubecl_common::{
     quant::scheme::{QuantLevel, QuantParam, QuantScheme, QuantValue},
 };
 use cubecl_core::{self as cubecl};
+use half::{bf16, f16};
 
 use crate::tensor::{
     View,
@@ -38,13 +39,30 @@ impl Layout for TestPerTensorScaleLayout {
     }
 }
 
+/// Which read method the kernel goes through. They differ only in how they handle a coordinate out
+/// of bounds, so for the in-bounds coordinates these tests use they all owe the same value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ReadMode {
+    Read,
+    Checked,
+    Masked,
+    Unchecked,
+}
+
 #[cube(launch_unchecked)]
 pub fn kernel_quantized_view<F: Float, N: Size>(
     lhs: View<'_, Vector<F, N>, Coords1d>,
     output: &mut [Vector<F, N>],
+    #[comptime] mode: ReadMode,
 ) {
-    if (UNIT_POS as usize) < lhs.shape() {
-        output[UNIT_POS as usize] = lhs.read(UNIT_POS as usize);
+    let pos = UNIT_POS as usize;
+    if pos < lhs.shape() {
+        output[pos] = match mode {
+            ReadMode::Read => lhs.read(pos),
+            ReadMode::Checked => lhs.read_checked(pos),
+            ReadMode::Masked => lhs.read_masked(pos, Vector::<F, N>::cast_from(F::new(0.0_f32))),
+            ReadMode::Unchecked => lhs.read_unchecked(pos),
+        };
     }
 }
 
@@ -75,7 +93,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
         unsafe { BufferArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
-    let quantized_view = ViewArg::new_quantized(values_view, scales_view, None, scheme);
+    let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
     let float_view = ViewArg::new_array::<PlainLayout>(
         unsafe { BufferArg::from_raw_parts(float_values, 16) },
         (),
@@ -89,6 +107,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
             vector_size_float,
             quantized_view,
             BufferArg::from_raw_parts(output.clone(), 16),
+            ReadMode::Read,
         );
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
@@ -97,6 +116,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
             vector_size_float,
             float_view,
             BufferArg::from_raw_parts(float_output.clone(), 16),
+            ReadMode::Read,
         );
     }
 
@@ -141,7 +161,7 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
         unsafe { BufferArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
-    let quantized_view = ViewArg::new_quantized(values_view, scales_view, None, scheme);
+    let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
     let float_view = ViewArg::new_array::<PlainLayout>(
         unsafe { BufferArg::from_raw_parts(float_values, 16) },
         (),
@@ -155,6 +175,7 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
             vector_size_float,
             quantized_view,
             BufferArg::from_raw_parts(output.clone(), 16),
+            ReadMode::Read,
         );
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
@@ -163,6 +184,7 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
             vector_size_float,
             float_view,
             BufferArg::from_raw_parts(float_output.clone(), 16),
+            ReadMode::Read,
         );
     }
 
@@ -177,16 +199,54 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
 
 /// Two levels of scales: per-block scales normalized by one per-tensor scale.
 ///
-/// Neither level reconstructs the values alone here: the block scales overflow `f16` on their own,
-/// and the per-tensor scale is far below the values it helps rebuild.
+/// Neither level reconstructs the values alone here: a block scale is far above the values it helps
+/// rebuild, the per-tensor scale far below them. Every read method is exercised, since each one
+/// pairs the per-tensor scale with its own read of the values and block scales.
+///
+/// Instantiated with a float narrower than the scales by
+/// [`test_quantized_two_level_narrow_float`], which is what makes the block scales overflow `F`.
 pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    // The per-tensor scale is a power of two, so every param stores it without rounding and the
+    // reconstruction owes the same values whichever one the level picks.
+    let global_scale = 2f32.powi(-20);
+    two_level_case::<R, F>(
+        client,
+        QuantParam::F32,
+        f32::as_bytes(&[global_scale]).to_vec(),
+    );
+}
+
+/// The per-tensor scale in a param of its own, narrower than the f32 the block scales use.
+///
+/// The level names the param, and the view reads the binding as that type before widening it, so a
+/// scale stored as anything but f32 is neither rejected at launch nor reinterpreted as f32 bytes.
+pub fn test_quantized_two_level_typed_global<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R>,
+) {
+    if !client.properties().supports_type(bf16::cube_type()) {
+        return;
+    }
+
+    let global_scale = 2f32.powi(-20);
+    two_level_case::<R, F>(
+        client,
+        QuantParam::BF16,
+        bf16::as_bytes(&[bf16::from_f32(global_scale)]).to_vec(),
+    );
+}
+
+fn two_level_case<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R>,
+    global_param: QuantParam,
+    global_bytes: Vec<u8>,
+) {
     // One block per load, since the view assumes a single scale covers a whole read.
     let vector_size_float = 8;
     let block = 8;
 
     let scheme = QuantScheme::default()
         .with_value(QuantValue::Q4F)
-        .with_level(QuantLevel::block_tensor([block as u8], QuantParam::F32));
+        .with_level(QuantLevel::block_tensor([block as u8], global_param));
 
     let global_scale = 2f32.powi(-20);
     let block_scales = [2f32.powi(18), 2f32.powi(19)];
@@ -194,37 +254,68 @@ pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: 
         .map(|i| F::new(global_scale * block_scales[i / block] * (i as f32 - 8.0)))
         .collect::<Vec<_>>();
 
-    let output = client.empty(16 * size_of::<F>());
     let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
     let scales = client.create_from_slice(f32::as_bytes(&block_scales));
-    let global = client.create_from_slice(f32::as_bytes(&[global_scale]));
+    let global = client.create_from_slice(&global_bytes);
 
-    let values_view =
-        ViewArg::new_array::<PlainLayout>(unsafe { BufferArg::from_raw_parts(values, 2) }, ());
-    let scales_view =
-        ViewArg::new_array::<PlainLayout>(unsafe { BufferArg::from_raw_parts(scales, 2) }, ());
-    let global_view = ViewArg::new_array::<TestPerTensorScaleLayout>(
-        unsafe { BufferArg::from_raw_parts(global, 1) },
-        TestPerTensorScaleLayoutLaunch::new(16),
-    );
-    let quantized_view =
-        ViewArg::new_quantized(values_view, scales_view, Some(global_view), scheme);
+    for mode in [
+        ReadMode::Read,
+        ReadMode::Checked,
+        ReadMode::Masked,
+        ReadMode::Unchecked,
+    ] {
+        let output = client.empty(16 * size_of::<F>());
 
-    unsafe {
-        kernel_quantized_view::launch_unchecked::<F, R>(
-            &client,
-            CubeCount::new_single(),
-            CubeDim::new_1d(2),
-            vector_size_float,
-            quantized_view,
-            BufferArg::from_raw_parts(output.clone(), 16),
+        let values_view = ViewArg::new_array::<PlainLayout>(
+            unsafe { BufferArg::from_raw_parts(values.clone(), 2) },
+            (),
+        );
+        let scales_view = ViewArg::new_array::<PlainLayout>(
+            unsafe { BufferArg::from_raw_parts(scales.clone(), 2) },
+            (),
+        );
+        // The per-tensor scale is read from its first element, so it needs no layout of its own.
+        let global_view = ViewArg::new_array::<PlainLayout>(
+            unsafe { BufferArg::from_raw_parts(global.clone(), 1) },
+            (),
+        );
+        let quantized_view =
+            ViewArg::new_quantized_two_level(values_view, scales_view, global_view, scheme);
+
+        unsafe {
+            kernel_quantized_view::launch_unchecked::<F, R>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_1d(2),
+                vector_size_float,
+                quantized_view,
+                BufferArg::from_raw_parts(output.clone(), 16),
+                mode,
+            );
+        }
+
+        let actual = client.read_one_unchecked(output);
+        let actual = F::from_bytes(&actual);
+
+        assert_eq!(
+            actual, &expected,
+            "reading through {mode:?}, global {global_param:?}"
         );
     }
+}
 
-    let actual = client.read_one_unchecked(output);
-    let actual = F::from_bytes(&actual);
+/// The per-tensor scale earns the f32 intermediate its keep here: the block scales overflow `f16`,
+/// so folding the multiply back into `F` reconstructs every value as infinity.
+///
+/// Hardcodes the float type because the runtimes that run without a GPU instantiate the generic
+/// tests with `f32`, which cannot observe that: both levels are stored as f32 to begin with, so a
+/// multiply in `F` and a multiply in f32 are the same operation.
+pub fn test_quantized_two_level_narrow_float<R: Runtime>(client: ComputeClient<R>) {
+    if !client.properties().supports_type(f16::cube_type()) {
+        return;
+    }
 
-    assert_eq!(actual, &expected);
+    test_quantized_two_level_int::<R, f16>(client);
 }
 
 #[allow(missing_docs)]
@@ -261,6 +352,23 @@ macro_rules! testgen_quantized_view {
         fn test_quantized_view_two_level_int() {
             let client = TestRuntime::client(&Default::default());
             cubecl_std::tests::view::quantized::test_quantized_two_level_int::<TestRuntime, $ty>(
+                client,
+            );
+        }
+
+        #[$crate::tests::test_log::test]
+        fn test_quantized_view_two_level_typed_global() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_std::tests::view::quantized::test_quantized_two_level_typed_global::<
+                TestRuntime,
+                $ty,
+            >(client);
+        }
+
+        #[$crate::tests::test_log::test]
+        fn test_quantized_view_two_level_narrow_float() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_std::tests::view::quantized::test_quantized_two_level_narrow_float::<TestRuntime>(
                 client,
             );
         }
