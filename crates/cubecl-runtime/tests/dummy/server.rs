@@ -5,8 +5,11 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
-    DeviceProperties, ElemType, HardwareProperties, MemoryDeviceProperties, UIntKind, VectorSize,
+    AddressType, DeviceIdentity, DeviceProperties, ElemType, HardwareProperties,
+    MemoryDeviceProperties, UIntKind, VectorSize,
     features::Features,
+    metadata::Info,
+    settings::{Dim3, ExecutionMode, KernelSettings},
 };
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
@@ -68,13 +71,12 @@ impl core::fmt::Display for KernelTask {
 impl CubeTask<DummyCompiler> for KernelTask {
     fn define(&self) -> cubecl_runtime::kernel::KernelDefinition {
         // The dummy server compiles directly and never keys a cache, so nothing here is observed.
+        let settings =
+            KernelSettings::new(Dim3::new_single(), ExecutionMode::Checked, AddressType::U32);
         cubecl_runtime::kernel::KernelDefinition {
-            buffers: Vec::new(),
-            tensor_maps: Vec::new(),
-            scalars: Vec::new(),
-            cube_dim: CubeDim::new_single(),
-            body: cubecl_ir::Scope::root(false),
-            options: Default::default(),
+            body: cubecl_ir::Scope::root(settings.clone()),
+            settings,
+            info: Info::default(),
         }
     }
 
@@ -235,13 +237,7 @@ impl ComputeServer for DummyServer {
         });
 
         let mut resources: Vec<_> = resources.iter_mut().collect();
-        let kernel = match kernel.compile(
-            kernel.define(),
-            &mut DummyCompiler,
-            &(),
-            mode,
-            kernel.address_type(),
-        ) {
+        let kernel = match kernel.compile(kernel.define(), &mut DummyCompiler, &()) {
             Ok(kernel) => kernel,
             Err(err) => {
                 // Recorded once, in the error queue. Tagging the profiler is the drain's

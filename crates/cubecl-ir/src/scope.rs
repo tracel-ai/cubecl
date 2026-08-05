@@ -5,9 +5,8 @@ use core::{
     fmt::{Debug, Display},
     sync::atomic::Ordering,
 };
-use cubecl_common::{format::type_name_sanitized, stub::Mutex};
-use cubecl_environment::HashMap;
-use cubecl_environment::collections::{HashMap, HashSet};
+use cubecl_common::format::type_name_sanitized;
+use cubecl_environment::{collections::HashMap, sync::Mutex};
 use derive_more::{Eq, PartialEq};
 use enumset::EnumSet;
 use pliron::{
@@ -168,7 +167,7 @@ dict_key!(ADDRESS_TYPE_KEY, "kernel_address_type");
 static TY_IDENTS: LazyLock<Mutex<HashMap<TypeId, Identifier>>> = LazyLock::new(Default::default);
 
 fn ty_ident<T: 'static>() -> Identifier {
-    let mut idents = TY_IDENTS.lock().unwrap();
+    let mut idents = TY_IDENTS.lock();
     let ident = idents
         .entry(TypeId::of::<T>())
         .or_insert_with(|| Identifier::try_from(type_name_sanitized::<T>()).unwrap());
@@ -176,7 +175,7 @@ fn ty_ident<T: 'static>() -> Identifier {
 }
 
 fn ty_key<T: 'static>(ctx: &Context) -> Option<AuxDataIndex> {
-    let mut idents = TY_IDENTS.lock().unwrap();
+    let mut idents = TY_IDENTS.lock();
     let ident = idents
         .entry(TypeId::of::<T>())
         .or_insert_with(|| Identifier::try_from(type_name_sanitized::<T>()).unwrap());
@@ -777,7 +776,9 @@ impl Scope {
         let entry = self.state().entry_func.get_entry_block(self.ctx());
         let term = entry.deref(self.ctx()).get_terminator(self.ctx());
         let is_yield = term.is_some_and(|term| term.is_op::<YieldOp>(self.ctx()));
-        if let Some(term) = term && is_yield {
+        if let Some(term) = term
+            && is_yield
+        {
             self.inserter().set_insertion_point_to_block_end(entry);
             self.register(&ReturnOp::new(self.ctx_mut()));
             Operation::erase(term, self.ctx_mut());

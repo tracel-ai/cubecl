@@ -1158,9 +1158,47 @@ impl CudaServer {
         }));
         resources.extend(info_const);
 
-        command.kernel(kernel_id, kernel, count, &mut resources, logger)?;
+        command.kernel(
+            kernel_id,
+            kernel,
+            count,
+            &mut resources,
+            logger,
+            launch_mode,
+        )?;
 
         Ok(())
+    }
+
+    /// Enqueue a graph replay, returning any error to [`replay`](ComputeServer::replay)
+    /// to push onto the stream's error queue. Mirrors [`launch_checked`]: the
+    /// stream's existing errors are ignored (they surface on the next sync) so a
+    /// replay just adds its own on failure.
+    ///
+    /// [`launch_checked`]: Self::launch_checked
+    fn replay_checked(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
+        // Copy the executable pointer out before borrowing a `command` (which
+        // borrows `self`); a raw `CUgraphExec` is `Copy`.
+        let exec = self
+            .graphs
+            .get(&graph)
+            .map(|cuda| cuda.exec)
+            .ok_or_else(|| ServerError::Generic {
+                reason: "replay was given an unknown or already-destroyed graph".into(),
+                backtrace: BackTrace::capture(),
+            })?;
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
+        let stream = command.streams.current();
+        // SAFETY: `exec` is a valid instantiated graph; launching it on the
+        // stream re-runs the recorded sequence.
+        let status = unsafe { cudarc::driver::sys::cuGraphLaunch(exec, stream.sys) };
+        cuda_check("cuGraphLaunch", status)
     }
 
     pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {

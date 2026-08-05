@@ -146,7 +146,8 @@ impl CpuServer {
         let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
             kernel
         } else {
-            let kernel = kernel.compile(&mut Default::default(), &PlironOptions)?;
+            let definition = kernel.define();
+            let kernel = kernel.compile(definition, &mut Default::default(), &PlironOptions)?;
             self.compilation_cache
                 .insert(kernel_id.clone(), CpuKernel::new(kernel));
             self.compilation_cache

@@ -548,9 +548,9 @@ impl<'a> Command<'a> {
 
         let stream = self.streams.current();
 
-        let result =
-            self.ctx
-                .execute_task(stream, kernel_id, dispatch_count, resources, const_info);
+        let result = self
+            .ctx
+            .execute_task(stream, kernel_id, dispatch_count, resources);
 
         // A fenced flush during capture would abort it; defer until the capture
         // ends (the deferred staging buffers are reclaimed then). Not deferred

@@ -179,21 +179,11 @@ impl WgpuCompiler for AutoCompiler {
         definition: KernelDefinition,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         match self {
-            AutoCompiler::Wgsl(_) => kernel.compile(
-                definition,
-                self,
-                &server.compilation_options,
-                kernel.address_type(),
-            ),
+            AutoCompiler::Wgsl(_) => kernel.compile(definition, self, &server.compilation_options),
             #[cfg(feature = "spirv")]
             AutoCompiler::SpirV(_) => crate::vulkan::compile(self, server, kernel, definition),
             #[cfg(feature = "msl")]
-            AutoCompiler::Msl(_) => kernel.compile(
-                definition,
-                self,
-                &server.compilation_options,
-                kernel.address_type(),
-            ),
+            AutoCompiler::Msl(_) => kernel.compile(definition, self, &server.compilation_options),
         }
     }
 
@@ -255,12 +245,7 @@ impl WgpuCompiler for WgslCompiler {
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
         definition: KernelDefinition,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
-        kernel.compile(
-            definition,
-            self,
-            &server.compilation_options,
-            kernel.address_type(),
-        )
+        kernel.compile(definition, self, &server.compilation_options)
     }
 
     fn lang_tag(&self) -> &'static str {
@@ -298,12 +283,7 @@ impl WgpuCompiler for MslCompiler {
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         // The MSL compiler uses its own CompilationOptions, not WgpuCompilationOptions.
         let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
-        kernel.compile(
-            definition,
-            self,
-            &compilation_options,
-            kernel.address_type(),
-        )
+        kernel.compile(definition, self, &compilation_options)
     }
 
     fn lang_tag(&self) -> &'static str {

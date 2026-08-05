@@ -6,7 +6,6 @@ use crate::compiler::wgsl::{
 
 use cubecl_core::{
     WgpuCompilationOptions,
-    backtrace::BackTrace,
     post_processing::{
         checked_io::{CheckedIo, CheckedIoPass},
         disaggregate::DisaggregatePass,
@@ -16,7 +15,6 @@ use cubecl_core::{
     },
 };
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
     ContextExt,
     pliron::{

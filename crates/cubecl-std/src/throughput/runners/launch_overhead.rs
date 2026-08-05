@@ -22,7 +22,7 @@ pub fn build_kernel<R: cubecl_runtime::runtime::Runtime>(
                             1,
                             cubecl_core::frontend::BufferArg::from_raw_parts(input.clone(), 1),
                             cubecl_core::frontend::BufferArg::from_raw_parts(output.clone(), 1),
-                            cubecl_core::ir::ElemType::Int(cubecl_core::ir::IntKind::I32).into(),
+                            cubecl_core::ir::ElemType::Int(cubecl_core::ir::IntKind::I32),
                         );
                     }
                 },

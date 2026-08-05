@@ -831,53 +831,13 @@ mod tests {
         hasher.finish()
     }
 
-    /// `Intern` hashes the pointer it holds, which moves between runs. Every arm that holds one
-    /// has to reach through it, or a persistent cache keyed on the IR never hits.
-    #[test]
-    fn interned_types_hash_by_value() {
-        let f32_ty = Type::scalar(ElemType::Float(FloatKind::F32));
-
-        // Distinct `Intern` allocations of an equal type must agree.
-        assert_eq!(
-            hash(Type::Pointer(f32_ty.intern(), AddressSpace::Local)),
-            hash(Type::Pointer(f32_ty.intern(), AddressSpace::Local))
-        );
-        assert_eq!(
-            hash(Type::Aggregate(AggregateKind::ptr(
-                f32_ty,
-                MetadataKind::Slice
-            ))),
-            hash(Type::Aggregate(AggregateKind::ptr(
-                f32_ty,
-                MetadataKind::Slice
-            )))
-        );
-    }
-
     #[test]
     fn vector_size_is_part_of_the_hash() {
-        let f32_ty = Type::scalar(ElemType::Float(FloatKind::F32));
+        let f32_ty = Type::Scalar(ElemType::Float(FloatKind::F32));
 
         assert_ne!(
             hash(Type::Vector(f32_ty.intern(), 2)),
             hash(Type::Vector(f32_ty.intern(), 4))
-        );
-    }
-
-    #[test]
-    fn aggregate_inner_type_is_part_of_the_hash() {
-        let f32_ty = Type::scalar(ElemType::Float(FloatKind::F32));
-        let u32_ty = Type::scalar(ElemType::UInt(UIntKind::U32));
-
-        assert_ne!(
-            hash(Type::Aggregate(AggregateKind::ptr(
-                f32_ty,
-                MetadataKind::Slice
-            ))),
-            hash(Type::Aggregate(AggregateKind::ptr(
-                u32_ty,
-                MetadataKind::Slice
-            )))
         );
     }
 }

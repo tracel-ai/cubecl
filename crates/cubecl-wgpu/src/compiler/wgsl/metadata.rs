@@ -1,4 +1,5 @@
-use cubecl_common::stub::LazyLock;
+use cubecl_environment::sync::LazyLock;
+
 use cubecl_ir::{
     AddressSpace, CanMaterialize, Pure, Scope,
     attributes::{BufferBindingAttr, BufferIOAttr, IndexAttr},

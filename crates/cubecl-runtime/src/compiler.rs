@@ -1,4 +1,7 @@
-use crate::kernel::{CompiledKernel, KernelDefinition, KernelMetadata};
+use crate::{
+    id::KernelId,
+    kernel::{CompiledKernel, KernelDefinition, KernelMetadata},
+};
 use alloc::string::{String, ToString};
 use core::hash::Hash;
 use cubecl_common::hash::StableHash;

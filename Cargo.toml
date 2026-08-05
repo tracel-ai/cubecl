@@ -77,7 +77,8 @@ rand = { version = "0.10.0", default-features = false, features = [
     "std_rng",
 ] } # std_rng is for no_std
 
-async-channel = "2.3"
+async-channel = { version = "2.3", default-features = false }
+backtrace = { version = "0.3", default-features = false }
 embassy-time = { version = "0.5", default-features = false }
 etcetera = "0.11.0"
 js-sys = "0.3"

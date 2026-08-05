@@ -279,7 +279,7 @@ impl CudaContext {
         dispatch_count: (u32, u32, u32),
         resources: &mut [*mut c_void],
     ) -> Result<(), LaunchError> {
-        let kernel = self.module_names.get(&kernel_id).unwrap();
+        let kernel = self.modules.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         // SAFETY: `kernel.func` is a valid function handle from a loaded module.
         // `stream.sys` is a valid CUDA stream. `bindings` contains valid device pointers

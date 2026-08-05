@@ -17,7 +17,7 @@ const STRIDE_OFFSETS: usize = 1;
 pub const METADATA_EXT_LEN: usize = 2;
 
 /// Helper to calculate metadata offsets based on buffer count and position
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Hash)]
 pub struct Metadata {
     num_meta: usize,
     num_extended_meta: usize,
@@ -69,7 +69,7 @@ impl Metadata {
 }
 
 /// Helper to calculate info struct fields
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Hash)]
 pub struct Info {
     pub scalars: Vec<SizedInfoField>,
     pub sized_meta: Option<SizedInfoField>,
@@ -86,7 +86,7 @@ impl Deref for Info {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct SizedInfoField {
     pub ty: ElemType,
     pub count: usize,

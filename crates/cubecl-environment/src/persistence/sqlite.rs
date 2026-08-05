@@ -14,7 +14,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, pa
 
 use super::storage::{InsertSummary, Insertion, NamespaceSummary, Origin, Storage, replaces};
 use crate::bytes::Bytes;
-use crate::sync::{Arc, Lazy, Mutex};
+use crate::sync::{Arc, LazyLock, Mutex};
 
 /// File name of the cache database of the environment named `name`.
 pub fn db_file_name(name: &str) -> String {
@@ -115,7 +115,8 @@ impl core::fmt::Debug for Database {
 
 /// Databases already opened by this process, so N namespaces over one cache
 /// root share a single connection.
-static OPENED: Lazy<Mutex<HashMap<PathBuf, Database>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static OPENED: LazyLock<Mutex<HashMap<PathBuf, Database>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 impl Database {
     /// Opens (creating it if needed) the cache database of a cache root,

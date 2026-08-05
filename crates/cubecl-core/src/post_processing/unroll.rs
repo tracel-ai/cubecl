@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, vec, vec::Vec};
-use cubecl_environment::HashMap;
+use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
     VectorSize,
     attributes::IndexAttr,

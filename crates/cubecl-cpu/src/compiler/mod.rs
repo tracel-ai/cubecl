@@ -4,11 +4,6 @@ pub mod jit;
 #[cfg(feature = "pliron-dump")]
 use std::{path::PathBuf, str::FromStr};
 
-#[cfg(feature = "pliron-dump")]
-use pliron::context::Context;
-#[cfg(feature = "pliron-dump")]
-use std::{path::PathBuf, str::FromStr};
-
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::simple_cse::SimpleCSEPass;
 use cubecl_runtime::compiler::CompilationError;
@@ -73,12 +68,11 @@ impl PlironCompiler {
         let module_op = module.get_operation();
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
-        #[cfg(not(feature = "pliron-dump"))]
-        let ir_printing_dir = None;
         #[cfg(feature = "pliron-dump")]
         let ir_printing_dir = pliron_path(&kernel.settings.kernel_name);
         let config = PMConfig {
             print_before_all: true,
+            #[cfg(feature = "pliron-dump")]
             ir_printing_dir,
             ..Default::default()
         };

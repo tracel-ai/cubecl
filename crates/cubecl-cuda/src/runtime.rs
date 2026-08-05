@@ -11,8 +11,9 @@ use cubecl_core::{
     cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        ContiguousElements, DeviceProperties, ElemType, FloatKind, HardwareProperties,
-        MemoryDeviceProperties, MmaProperties, OpaqueType, TargetProperties, Type, VectorSize,
+        ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
+        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, TargetProperties,
+        Type, VectorSize,
         features::{AtomicUsage, Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,

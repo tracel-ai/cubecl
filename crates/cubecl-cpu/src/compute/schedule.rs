@@ -1,8 +1,9 @@
 use crate::{compiler::jit::engine::PlironEngine, compute::stream::CpuStream};
-use cubecl_common::{bytes::Bytes, stream_id::StreamId};
+use cubecl_common::bytes::Bytes;
 use cubecl_core::{
     CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, server::MetadataBindingInfo,
 };
+use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     logging::ServerLogger,
     storage::{BytesResource, ManagedResource},

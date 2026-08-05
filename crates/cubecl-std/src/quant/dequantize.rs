@@ -109,8 +109,8 @@ fn cast_masked<F: Numeric, N: Size>(value: u32, #[comptime] scheme: QuantScheme)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cubecl_core::define_size;
     use cubecl_core::ir::{ElemType, Scope, UIntKind};
+    use cubecl_core::{define_size, ir::settings::Dim3};
 
     define_size!(N1);
 
@@ -120,9 +120,13 @@ mod tests {
     #[should_panic(expected = "two-level quantization is not supported")]
     fn expanding_a_two_level_scheme_panics() {
         // A root scope carries no typemap; the launcher normally picks the index width.
-        let scope = Scope::root(false);
+        let scope = Scope::root(KernelSettings::new(
+            Dim3::new_single(),
+            ExecutionMode::Checked,
+            AddressType::U32,
+        ));
         scope.register_size::<N1>(1);
-        scope.register_type::<usize>(ElemType::UInt(UIntKind::U32).into());
+        scope.register_type::<usize>(ElemType::UInt(UIntKind::U32));
 
         let one = f32::__expand_new(&scope, 1.0);
         let value = Vector::<f32, N1>::__expand_new(&scope, one);

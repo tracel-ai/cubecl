@@ -5,7 +5,7 @@ use ::pliron::{
     op::op_cast,
     r#type::Typed,
 };
-use cubecl_environment::{HashMap, HashSet};
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{
     AddressSpace,
     dialect::{base::OperationPtrExt, memory::DeclareVariableOp},

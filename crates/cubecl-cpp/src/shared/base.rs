@@ -16,7 +16,6 @@ use crate::{
 
 use super::ComputeKernel;
 use core::marker::PhantomData;
-use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     ir::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,

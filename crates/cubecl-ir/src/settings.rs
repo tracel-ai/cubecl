@@ -75,7 +75,7 @@ pub enum ExecutionMode {
     Unchecked,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct KernelSettings {
     /// The cube dim of the kernel
     pub cube_dim: Dim3,
