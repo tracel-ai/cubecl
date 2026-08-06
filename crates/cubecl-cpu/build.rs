@@ -5,5 +5,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rustc-cfg=feature=\"pliron-dump\"");
     }
 
+    tracel_llvm_bundler::llvm_sys::link()?;
+
     Ok(())
 }

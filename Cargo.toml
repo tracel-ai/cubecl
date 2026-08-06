@@ -143,21 +143,22 @@ futures-util = { version = "0.3.32", default-features = false, features = [
 
 # CubeCL-CPU
 sysinfo = "0.39"
-tracel-llvm = { version = "22.1.4-5", features = ["mlir-helpers"] }
-tracel-llvm-bundler = { version = "22.1.4-5" }
-### For development
-# tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = [
-#     "mlir-helpers",
-# ] }
-# tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
 libc = "^0.2.186"
 winapi = { version = "^0.3.9", features = ["processthreadsapi", "winbase"] }
 
 inflections = "1"
-# pliron = { path = "../pliron", default-features = false }
-# pliron-llvm = { path = "../pliron/pliron-llvm", default-features = false }
-pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
-pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
+pliron = { path = "../pliron", default-features = false }
+pliron-llvm = { path = "../pliron/pliron-llvm", default-features = false }
+# pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
+# pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
+
+# These features stop llvm-sys from resolving LLVM itself; cubecl-cpu's build.rs
+# links the bundled toolchain instead.
+llvm-sys = { version = "221", features = [
+    "no-llvm-linking",
+    "disable-alltargets-init",
+] }
+tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
 
 cudarc = { version = "0.19.6", features = [
     "std",
