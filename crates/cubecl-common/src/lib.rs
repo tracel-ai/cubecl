@@ -60,3 +60,8 @@ pub mod hash;
 mod float;
 
 pub use float::*;
+
+/// An exact ratio of two integers.
+mod ratio;
+
+pub use ratio::*;
