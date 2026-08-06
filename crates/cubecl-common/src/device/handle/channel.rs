@@ -144,23 +144,16 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         &self,
         task: T,
     ) -> Result<R, CallError> {
-        /// What the runner sends back: the task's value, or the payload of the
-        /// panic it died on.
         type Outcome<R> = Result<R, Box<dyn Any + Send>>;
 
         /// Builds a `'static` shim that consumes `*slot` on the device
         /// thread. The caller has to keep `*slot` alive until the shim has run,
         /// `run_scoped` does this by blocking on `recv.recv()`.
         ///
-        /// The shim runs the task and sends the outcome in two separate steps,
-        /// which is what keeps the second half of that contract honest. `task`
-        /// holds references into the caller's frame, and a reference passed by
-        /// value into a call is protected for as long as that call is running,
-        /// so the frame it points into may not be freed before the call
-        /// returns. Sending from inside the call would hand that frame back to
-        /// the caller to pop while the protector is still live. Running the
-        /// task under its own `catch_unwind` frame releases the protectors
-        /// first, leaving nothing caller-derived alive when the send wakes it.
+        /// The task runs in its own frame and the outcome is sent from the one
+        /// above: references into the caller's frame stay protected for as long
+        /// as the call holding them runs, so sending any earlier would let the
+        /// caller pop that frame while a protector is still live.
         fn create_shim<R: Send, F: FnOnce() -> R + Send>(
             slot: &mut Option<(F, oneshot::Sender<Outcome<R>>)>,
         ) -> impl FnOnce() + Send + 'static {
@@ -184,9 +177,6 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
                         .take()
                         .unwrap_unchecked()
                 };
-                // Both moved out of the caller's slot and owned by this frame,
-                // so the caller's stack is only reachable through `task`, and
-                // only until `catch_unwind` returns.
                 let outcome = catch_unwind(AssertUnwindSafe(task));
                 let _ = sender.send(outcome);
             }
