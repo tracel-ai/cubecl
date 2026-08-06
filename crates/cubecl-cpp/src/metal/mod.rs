@@ -5,7 +5,6 @@ pub mod attribute;
 pub mod binary;
 pub mod builtin;
 pub mod dialect;
-pub mod extension;
 pub mod general;
 pub mod mma;
 pub mod plane;

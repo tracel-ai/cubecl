@@ -4,7 +4,6 @@ pub mod binary;
 pub mod branch;
 pub mod builtin;
 pub mod convert;
-mod dialect;
 pub mod kernel;
 pub mod lowering;
 pub mod metadata;

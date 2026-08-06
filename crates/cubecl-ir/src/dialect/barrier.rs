@@ -2,10 +2,10 @@ use cubecl_macros_internal::{cube_op, op_traits};
 use pliron::r#type::{TypeHandle, TypedHandle};
 
 use crate::{
-    CanMaterialize,
+    CanMaterialize, HasSideEffects,
     attributes::{BoolAttr, IndexAttr},
     dialect::synchronization::SyncScope,
-    interfaces::synchronizes,
+    interfaces::Synchronizes,
     prelude::*,
     types::{PointerType, barrier::BarrierTokenType},
 };
@@ -110,35 +110,68 @@ pub struct ExpectTxOp {
 
 #[cube_op(name = "barrier.wait")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct WaitOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
     #[operand(ptr_read, ptr_write)]
     pub barrier: Value,
     pub token: Value,
 }
-// Assume largest scope for now in lieu of detailed analysis. This is conservative but safe.
-synchronizes!(WaitOp, SyncScope::Cube);
+
+/// Sync scope depends on init params and use, so can't be trivially analyzed. So just be
+/// conservative.
+#[op_interface_impl]
+impl Synchronizes for WaitOp {
+    fn minimum_scope(&self, _ctx: &Context) -> SyncScope {
+        SyncScope::Unit
+    }
+
+    fn maximum_scope(&self, _ctx: &Context) -> SyncScope {
+        SyncScope::Device
+    }
+}
 
 #[cube_op(name = "barrier.wait_parity")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct WaitParityOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
     #[operand(ptr_read, ptr_write)]
     pub barrier: Value,
     pub phase: Value,
 }
-// Assume largest scope for now in lieu of detailed analysis. This is conservative but safe.
-synchronizes!(WaitParityOp, SyncScope::Cube);
+
+/// Sync scope depends on init params and use, so can't be trivially analyzed. So just be
+/// conservative.
+#[op_interface_impl]
+impl Synchronizes for WaitParityOp {
+    fn minimum_scope(&self, _ctx: &Context) -> SyncScope {
+        SyncScope::Unit
+    }
+
+    fn maximum_scope(&self, _ctx: &Context) -> SyncScope {
+        SyncScope::Device
+    }
+}
 
 #[cube_op(name = "barrier.arrive_and_wait")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize)]
+#[op_traits(CanMaterialize, HasSideEffects)]
 pub struct ArriveAndWaitOp {
     // Opaque so we can't know exact memory effects. Treat it as atomic read-update.
     #[operand(ptr_read, ptr_write)]
     pub barrier: Value,
 }
-// Assume largest scope for now in lieu of detailed analysis. This is conservative but safe.
-synchronizes!(ArriveAndWaitOp, SyncScope::Cube);
+
+/// Sync scope depends on init params and use, so can't be trivially analyzed. So just be
+/// conservative.
+#[op_interface_impl]
+impl Synchronizes for ArriveAndWaitOp {
+    fn minimum_scope(&self, _ctx: &Context) -> SyncScope {
+        SyncScope::Unit
+    }
+
+    fn maximum_scope(&self, _ctx: &Context) -> SyncScope {
+        SyncScope::Device
+    }
+}

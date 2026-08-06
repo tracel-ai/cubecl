@@ -20,11 +20,16 @@ impl ToSpirvDialectOp for SyncOp {
             SyncScope::Plane => (Scope::Subgroup, Scope::Subgroup),
             SyncScope::Cube => (Scope::Workgroup, Scope::Workgroup),
             SyncScope::Device => (Scope::Workgroup, Scope::Device),
+            SyncScope::Unit => {
+                rewriter.erase_operation(ctx, self.get_operation());
+                return Ok(());
+            }
         };
         let semantics = match scope {
             SyncScope::Plane => MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::SUBGROUP_MEMORY,
             SyncScope::Cube => MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::WORKGROUP_MEMORY,
             SyncScope::Device => MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::UNIFORM_MEMORY,
+            SyncScope::Unit => unreachable!(),
         };
 
         let sync = ControlBarrierOp::new(ctx, scope_exec, scope_mem, semantics);

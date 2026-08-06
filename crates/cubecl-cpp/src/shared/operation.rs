@@ -221,6 +221,7 @@ shared_op!(SyncOp, |op, ctx| {
     match op.scope(ctx).0 {
         SyncScope::Plane => "__syncwarp();\n",
         SyncScope::Cube | SyncScope::Device => "__syncthreads();\n",
+        SyncScope::Unit => "",
     }
     .into()
 });

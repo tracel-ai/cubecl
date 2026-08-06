@@ -50,6 +50,7 @@ metal_op!(SyncOp, |op, ctx| {
         SyncScope::Plane => "simdgroup_barrier(mem_flags::mem_none);\n",
         SyncScope::Cube => "threadgroup_barrier(mem_flags::mem_threadgroup);\n",
         SyncScope::Device => "threadgroup_barrier(mem_flags::mem_device);\n",
+        SyncScope::Unit => "",
     }
     .into()
 });

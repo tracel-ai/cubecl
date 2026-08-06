@@ -14,6 +14,7 @@ use crate::{CanMaterialize, NoMemoryEffect, interfaces::Synchronizes, prelude::*
 #[format]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub enum SyncScope {
+    Unit,
     Plane,
     Cube,
     Device,
@@ -32,7 +33,10 @@ pub struct SyncOp {
 
 #[op_interface_impl]
 impl Synchronizes for SyncOp {
-    fn scope(&self, ctx: &Context) -> SyncScope {
+    fn minimum_scope(&self, ctx: &Context) -> SyncScope {
+        self.scope(ctx).0
+    }
+    fn maximum_scope(&self, ctx: &Context) -> SyncScope {
         self.scope(ctx).0
     }
 }
