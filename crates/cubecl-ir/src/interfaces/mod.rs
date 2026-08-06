@@ -123,7 +123,12 @@ CanMaterialize!(ConstantOp);
 pub trait Synchronizes: SideEffects {
     verify_op_succ!();
 
-    fn scope(&self, ctx: &Context) -> SyncScope;
+    /// Synchronizes at least at this scope. Should be used for optimizations where smaller scopes
+    /// are more conservative (i.e. marking shared memory as unused).
+    fn minimum_scope(&self, ctx: &Context) -> SyncScope;
+    /// Synchronizes at most at this scope. Should be used for optimizations where larger scopes
+    /// are more conservative (i.e. making memory writes visible).
+    fn maximum_scope(&self, ctx: &Context) -> SyncScope;
 }
 
 macro_rules! synchronizes {
@@ -131,7 +136,11 @@ macro_rules! synchronizes {
         #[::pliron::derive::op_interface_impl]
         impl crate::interfaces::Synchronizes for $ty {
             #[allow(unused_variables)]
-            fn scope(&self, ctx: &::pliron::context::Context) -> SyncScope {
+            fn minimum_scope(&self, ctx: &::pliron::context::Context) -> SyncScope {
+                $scope
+            }
+            #[allow(unused_variables)]
+            fn maximum_scope(&self, ctx: &::pliron::context::Context) -> SyncScope {
                 $scope
             }
         }
@@ -213,6 +222,18 @@ macro_rules! sized {
             #[allow(unused_variables)]
             fn size(&self, ctx: &::pliron::context::Context) -> usize {
                 $size
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! HasSideEffects {
+    ($ty: ty) => {
+        #[::pliron::derive::op_interface_impl]
+        impl pliron::opts::dce::SideEffects for $ty {
+            fn has_side_effects(&self, _ctx: &pliron::context::Context) -> bool {
+                true
             }
         }
     };

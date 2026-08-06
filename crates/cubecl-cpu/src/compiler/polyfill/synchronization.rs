@@ -110,6 +110,7 @@ impl LowerOp for SyncOp {
             SyncScope::Device => {
                 panic!("Device wide synchronization is not supported by the CPU runtime")
             }
+            SyncScope::Unit => {}
         }
         vec![]
     }

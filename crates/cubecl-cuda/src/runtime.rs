@@ -84,7 +84,7 @@ impl DeviceService for CudaServer {
         let arch = CudaArchitecture {
             version: arch_version,
         };
-        let supported_cmma_combinations = CudaCmmaCompiler::Ptx.supported_cmma_combinations(&arch);
+        let supported_cmma_combinations = CudaCmmaCompiler::Cpp.supported_cmma_combinations(&arch);
         let supported_mma_combinations = cuda::supported_mma_combinations(&arch);
         let supported_scaled_mma_combinations = cuda::supported_scaled_mma_combinations(&arch);
 

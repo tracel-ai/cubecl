@@ -6,5 +6,6 @@ wgsl_op!(SyncOp, |op, ctx| {
     match op.scope(ctx).0 {
         SyncScope::Plane | SyncScope::Cube => "workgroupBarrier();\n".into(),
         SyncScope::Device => "storageBarrier();\n".into(),
+        SyncScope::Unit => "".into(),
     }
 });

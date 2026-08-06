@@ -235,7 +235,6 @@ __device__ void {name}(const {frag}& frag, {elem}* output_ptr, uint stride) {{
 
 impl WmmaExecute {
     pub fn from_manual(shape: MatrixShape, ab_elem: TypeHandle, cd_elem: TypeHandle) -> Self {
-        // Hack, remove once types no longer need a mutable context
         let frag_a = MatrixType::new(
             MatrixIdent::A,
             shape,
