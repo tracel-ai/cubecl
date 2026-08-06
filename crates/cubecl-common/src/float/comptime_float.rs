@@ -5,8 +5,7 @@ use core::hash::{Hash, Hasher};
 ///
 /// Implemented for the IEEE-754 types that need to be used as comptime kernel
 /// parameters: two values are equal iff their bit patterns are equal, so `-0.0`
-/// is normalized to `0.0` (they are numerically equal) but distinct NaN payloads
-/// are not conflated with each other.
+/// is normalized to `0.0` since they are numerically equal.
 pub trait FloatBits: Copy + PartialEq + Debug + Display {
     /// The unsigned integer type with the same width as `Self`.
     type Bits: Copy + Eq + Hash;
@@ -64,15 +63,11 @@ pub struct ComptimeFloat<F: FloatBits>(F);
 /// A float value that cannot be used as a [`ComptimeFloat`] because it is
 /// infinite or NaN.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct InvalidComptimeFloat<F: Debug>(pub F);
+pub struct InvalidComptimeFloat<F>(pub F);
 
 impl<F: FloatBits> Display for InvalidComptimeFloat<F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "invalid comptime float: {} is not finite",
-            self.0
-        )
+        write!(f, "invalid comptime float: {} is not finite", self.0)
     }
 }
 

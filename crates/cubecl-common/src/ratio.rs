@@ -11,7 +11,7 @@ use core::fmt::{Display, Formatter};
 ///
 /// For a value that is not exactly the ratio of two integers, use
 /// [`ComptimeFloat`](crate::ComptimeFloat) instead.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Ratio {
     numerator: usize,
     denominator: usize,
@@ -60,11 +60,6 @@ impl Display for Ratio {
 }
 
 fn gcd(a: usize, b: usize) -> usize {
-    if a == 0 || b == 0 {
-        // A zero numerator still reduces to 0/1; a zero denominator is
-        // rejected by `Ratio::new` before `gcd` is reached.
-        return a.max(b).max(1);
-    }
     let (mut a, mut b) = (a, b);
     while b != 0 {
         (a, b) = (b, a % b);
