@@ -60,10 +60,15 @@ half = { workspace = true }
 log = { workspace = true }
 paste = { workspace = true }
 pliron = { workspace = true, features = ["std"] }
-pliron-llvm = { workspace = true, features = ["llvm-sys"] }
 serde = { workspace = true }
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 sysinfo = { workspace = true }
+pliron-llvm = { workspace = true, features = ["llvm-sys"] }
+# Not used directly, depended on to select its features.
+llvm-sys = { workspace = true }
+
+[build-dependencies]
+tracel-llvm-bundler = { workspace = true }
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "macos", target_os = "freebsd"))'.dependencies]
 libc = { workspace = true }
