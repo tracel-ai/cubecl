@@ -144,14 +144,23 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         &self,
         task: T,
     ) -> Result<R, CallError> {
+        type Outcome<R> = Result<R, Box<dyn Any + Send>>;
+
         /// Builds a `'static` shim that consumes `*slot` on the device
         /// thread. The caller has to keep `*slot` alive until the shim has run,
         /// `run_scoped` does this by blocking on `recv.recv()`.
-        fn create_shim<W: FnOnce() + Send>(slot: &mut Option<W>) -> impl FnOnce() + Send + 'static {
+        ///
+        /// The task runs in its own frame and the outcome is sent from the one
+        /// above: references into the caller's frame stay protected for as long
+        /// as the call holding them runs, so sending any earlier would let the
+        /// caller pop that frame while a protector is still live.
+        fn create_shim<R: Send, F: FnOnce() -> R + Send>(
+            slot: &mut Option<(F, oneshot::Sender<Outcome<R>>)>,
+        ) -> impl FnOnce() + Send + 'static {
             // `*mut ()` so the shim is `'static`.
             struct Ptr(*mut ());
-            // SAFETY: pointee is `Send` by the bound on `W`; uniqueness of
-            // access is upheld by the deref below.
+            // SAFETY: pointee is `Send` by the bounds on `F` and `R`;
+            // uniqueness of access is upheld by the deref below.
             unsafe impl Send for Ptr {}
 
             let ptr = Ptr(slot as *mut _ as *mut ());
@@ -163,17 +172,18 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
                 //   once, so `*slot` is always `Some` on entry.
                 // `Option::take` flips `*slot` to `None`, keeping drop
                 // correct if the shim ran, panicked, or was never enqueued.
-                let f = unsafe { (*(ptr.0 as *mut Option<W>)).take().unwrap_unchecked() };
-                f()
+                let (task, sender) = unsafe {
+                    (*(ptr.0 as *mut Option<(F, oneshot::Sender<Outcome<R>>)>))
+                        .take()
+                        .unwrap_unchecked()
+                };
+                let outcome = catch_unwind(AssertUnwindSafe(task));
+                let _ = sender.send(outcome);
             }
         }
 
         let (sender, recv) = oneshot::channel();
-        // Run `task` under `catch_unwind` inside the slot so a panic on the
-        // runner thread is captured and sent back here through the channel.
-        let mut slot = Some(move || {
-            let _ = sender.send(catch_unwind(AssertUnwindSafe(task)));
-        });
+        let mut slot = Some((task, sender));
         // Send the erased shim to the device thread.
         self.send::<_, SEND_FLUSH>(create_shim(&mut slot))?;
         match recv.recv() {
