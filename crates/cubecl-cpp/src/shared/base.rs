@@ -29,7 +29,6 @@ use cubecl_core::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
         disaggregate::DisaggregatePass,
-        expression_merge::RemoveTrivialOpsPass,
         saturating::LowerSaturatingArithmeticPass,
     },
     prelude::KernelDefinition,
@@ -214,8 +213,6 @@ where
         if T::target() != Target::Metal {
             func_passes.add_pass(LowerSaturatingArithmeticPass::default());
         }
-
-        func_passes.add_pass(RemoveTrivialOpsPass::default());
 
         if T::target() == Target::Cuda {
             func_passes.add_pass(PackOpsPass::default());

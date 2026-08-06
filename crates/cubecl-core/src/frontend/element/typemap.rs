@@ -741,7 +741,7 @@ impl<Marker: 'static> OrdNativeExpand for DynamicScalar<Marker> {
         let ty = Self::__expand_as_type(scope);
         if ty.is_signed_int(ctx) {
             i32::__expand_native_clamp(scope, input, min, max)
-        } else if ty.is_unsigned_int(ctx) {
+        } else if ty.is_unsigned_int(ctx) || ty.is_index(ctx) {
             u32::__expand_native_clamp(scope, input, min, max)
         } else {
             f32::__expand_native_clamp(scope, input, min, max)

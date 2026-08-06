@@ -16,7 +16,6 @@ use cubecl_core::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
         disaggregate::DisaggregatePass,
-        expression_merge::RemoveTrivialOpsPass,
         saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
@@ -194,7 +193,6 @@ impl SpirvCompiler {
         passes.add_pass(LowerBuiltinsPass);
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
-        func_passes.add_pass(RemoveTrivialOpsPass::default());
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());

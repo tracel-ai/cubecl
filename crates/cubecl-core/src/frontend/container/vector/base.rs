@@ -116,8 +116,8 @@ mod components {
             })
         }
 
-        /// Dynamically extract a value from the vector. **This is extremely slow and should only
-        /// be used when there is no other option**
+        /// Dynamically extract a value from the vector.
+        /// **This is extremely slow and should only be used when there is no other option**
         pub fn extract_dynamic(self, index: usize) -> P {
             intrinsic!(|scope| {
                 let this = self.read_value(scope);
@@ -131,8 +131,8 @@ mod components {
             })
         }
 
-        /// Dynamically inmsert a value to the vector. **This is extremely slow and should only
-        /// be used when there is no other option**
+        /// Dynamically insert a value to the vector.
+        /// **This is extremely slow and should only be used when there is no other option**
         pub fn insert_dynamic(&mut self, index: usize, value: P) {
             intrinsic!(|scope| {
                 let this = self.read_value(scope);

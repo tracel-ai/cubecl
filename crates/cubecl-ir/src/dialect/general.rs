@@ -31,6 +31,10 @@ pub struct CopyOp {
     pub value: Value,
 }
 
+simplify!(CopyOp, {
+    |_| Some(self.value(ctx)),
+});
+
 #[op_interface_impl]
 impl AliasingOp for CopyOp {
     fn source_ptr(&self, ctx: &Context) -> Option<Value> {
@@ -179,6 +183,15 @@ const_eval!(CastOp, {
         Some(val.cast_to(elem).as_attribute(ctx, elem))
     }
 });
+simplify!(CastOp, {
+    |_| {
+        if self.input(ctx).get_type(ctx) == self.result_type(ctx) {
+            Some(self.input(ctx))
+        } else {
+            None
+        }
+    }
+});
 
 #[cube_op(name = "cube.reinterpret_cast")]
 #[result_ty(argument)]
@@ -199,6 +212,15 @@ const_eval!(ReinterpretCastOp, {
             Some(int_attr(ctx, out_ty, val as i128))
         } else if out_ty.is_index(ctx) {
             Some(index_attr(val as usize))
+        } else {
+            None
+        }
+    }
+});
+simplify!(ReinterpretCastOp, {
+    |_| {
+        if self.input(ctx).get_type(ctx) == self.result_type(ctx) {
+            Some(self.input(ctx))
         } else {
             None
         }

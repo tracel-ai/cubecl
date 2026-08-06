@@ -64,7 +64,7 @@ fn himul_i64<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I,
 }
 
 #[cube]
-pub fn himul_u64<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
+fn himul_u64<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
     let shift = Vector::new(32);
     let mul = (Vector::<u64, N>::cast_from(lhs) * Vector::<u64, N>::cast_from(rhs)) >> shift;
     Vector::cast_from(mul)

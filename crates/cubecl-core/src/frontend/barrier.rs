@@ -7,7 +7,6 @@ use crate as cubecl;
 use cubecl_ir::{
     ExpandValue,
     dialect::tma::*,
-    pliron::builtin::op_interfaces::OneResultInterface,
     types::barrier::{BarrierLevel, BarrierType},
 };
 use cubecl_macros::intrinsic;
@@ -346,8 +345,7 @@ impl Barrier {
         intrinsic!(|scope| {
             let barrier = self.value(scope);
             let arrive = ArriveOp::new(scope.ctx_mut(), barrier);
-            scope.register(&arrive);
-            arrive.get_result(scope.ctx()).into()
+            scope.register_with_result(&arrive).into()
         })
     }
 
@@ -363,8 +361,7 @@ impl Barrier {
                 arrival_count,
                 transaction_count,
             );
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 

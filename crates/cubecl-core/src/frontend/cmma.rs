@@ -59,10 +59,7 @@ use cubecl_ir::{
     },
     ident,
     interfaces::TypedExt,
-    pliron::{
-        builtin::op_interfaces::OneResultInterface, debug_info::set_operation_result_name,
-        value::Value,
-    },
+    pliron::{debug_info::set_operation_result_name, value::Value},
     types,
 };
 
@@ -251,14 +248,8 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     ) -> Self {
         intrinsic!(|scope| {
             let elem = C::Scalar::__expand_as_type(scope);
-            let matrix_ty = MatrixType::get(
-                scope.ctx_mut(),
-                ident,
-                (m, n, k).into(),
-                elem,
-                layout,
-                S::SCOPE,
-            );
+            let matrix_ty =
+                MatrixType::get(scope.ctx(), ident, (m, n, k).into(), elem, layout, S::SCOPE);
             let elem = scope.create_local_mut(matrix_ty, None);
             MatrixExpand {
                 elem,
@@ -510,7 +501,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 MatrixIdent::Accumulator => self.cd_type,
             };
             let matrix_ty = MatrixType::get(
-                scope.ctx_mut(),
+                scope.ctx(),
                 ident,
                 self.shape,
                 storage,
@@ -554,7 +545,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 MatrixIdent::Accumulator => scope.state().target_properties.mma.register_layout_acc,
             };
             let matrix_ty = MatrixType::get(
-                scope.ctx_mut(),
+                scope.ctx(),
                 ident,
                 self.shape,
                 ty,
@@ -565,11 +556,8 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let row_idx = RowIndexOp::new(scope.ctx_mut(), lane_id, elem_idx, matrix_ty);
             let col_idx = ColIndexOp::new(scope.ctx_mut(), lane_id, elem_idx, matrix_ty);
 
-            scope.register(&row_idx);
-            scope.register(&col_idx);
-
-            let row = row_idx.get_result(scope.ctx());
-            let col = col_idx.get_result(scope.ctx());
+            let row = scope.register_with_result(&row_idx);
+            let col = scope.register_with_result(&col_idx);
 
             (row.into(), col.into())
         })
@@ -604,7 +592,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let elem = self
                 .scales_type
                 .expect("Can't retrieve scales vector size for matrix with no scales");
-            scope.state().target_properties.mma.register_size_bits / (elem.size(scope.ctx()) * 8)
+            scope.state().target_properties.mma.register_size_bits / (elem.size_bits(scope.ctx()))
         })
     }
 
