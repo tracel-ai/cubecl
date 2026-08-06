@@ -418,7 +418,13 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     }
 
     fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "#error Sync warp is unimplemented on hip\n")
+        // HIP has no `__syncwarp`. AMD wavefronts execute in lockstep, so the
+        // execution half of the sync is a compiler scheduling barrier; the
+        // wavefront-scope fence supplies the memory ordering `__syncwarp`
+        // carries on CUDA (LDS/global writes by other lanes of the wave are
+        // visible past the sync).
+        writeln!(f, "__builtin_amdgcn_fence(__ATOMIC_ACQ_REL, \"wavefront\");")?;
+        writeln!(f, "__builtin_amdgcn_wave_barrier();\n")
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
