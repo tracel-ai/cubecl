@@ -2,19 +2,19 @@ use core::ops::{
     Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
-use cubecl_ir::{Scope, Value};
+use cubecl_ir::{ExpandValue, Scope};
 
+use crate::unexpanded;
 use crate::{
     frontend::{Array, Tensor},
     prelude::*,
 };
-use crate::{ir, unexpanded};
 
 type ArrayExpand<E> = NativeExpand<Array<E>>;
 
 pub mod assign {
-    use cubecl_ir::{Memory, StoreOperands};
-    use ir::{Instruction, Operation};
+    use cubecl_ir::{dialect::memory::StoreOp, interfaces::TypedExt, pliron::r#type::Typed};
+    use pliron::value::Value;
 
     use crate::prelude::NativeExpand;
 
@@ -29,7 +29,7 @@ pub mod assign {
         input: NativeExpand<C>,
         output: &mut NativeExpand<C>,
     ) {
-        if output.expand.is_immutable() {
+        if output.value(scope).is_immutable(scope.ctx()) {
             panic!("Can't assign a value to a const variable. Try to use `RuntimeCell`.");
         }
 
@@ -49,27 +49,25 @@ pub mod assign {
         expand_element(scope, input, output);
     }
 
-    pub fn expand_element(scope: &Scope, mut input: Value, output: Value) {
-        if output.vector_size() > 1 && input.vector_size() == 1 {
-            input = cast_expand_elem(scope, input, output.ty);
-        }
+    pub fn expand_element(scope: &Scope, input: ExpandValue, output: ExpandValue) {
+        let input = input.read_value(scope);
+        let output = output.value(scope);
 
-        match (input.ty.is_ptr(), output.ty.is_ptr()) {
-            (true, false) => {
-                // ptr -> value = load
-                scope.register(Instruction::new(Memory::Load(input), output));
-            }
-            (false, true) => {
-                // value -> ptr = store
-                scope.register(Instruction::no_out(Memory::Store(StoreOperands {
-                    ptr: output,
-                    value: input,
-                })));
-            }
-            _ => {
-                // same ty = copy
-                scope.register(Instruction::new(Operation::Copy(input), output));
-            }
+        let input = broadcast_input(scope, input, output).unwrap_or(input);
+
+        // value -> ptr = store
+        let store = StoreOp::new(scope.ctx_mut(), output, input);
+        scope.register(&store);
+    }
+
+    fn broadcast_input(scope: &Scope, input: Value, output: Value) -> Option<Value> {
+        let out_vec = output.try_get_vector_size(scope.ctx())?;
+        let in_vec = input.try_get_vector_size(scope.ctx())?;
+        if out_vec > 1 && in_vec == 1 {
+            let out_ty = output.get_type(scope.ctx()).unwrap_ptr(scope.ctx());
+            Some(cast_value(scope, input, out_ty))
+        } else {
+            None
         }
     }
 }

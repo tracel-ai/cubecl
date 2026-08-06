@@ -1,5 +1,5 @@
 mod array;
-mod base;
+pub mod buffer_len;
 mod cell;
 mod iter;
 mod registry;
@@ -8,8 +8,6 @@ mod shared_memory;
 pub mod slice;
 mod tensor;
 mod vector;
-
-pub(crate) use base::*;
 
 pub use array::*;
 pub use cell::*;

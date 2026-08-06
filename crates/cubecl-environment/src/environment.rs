@@ -28,7 +28,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::persistence::{StoreKey, StoreValue};
-use crate::sync::{Arc, Lazy, Mutex};
+use crate::sync::{Arc, LazyLock, Mutex};
 
 pub use crate::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
@@ -61,7 +61,7 @@ struct Active {
     file: Option<std::path::PathBuf>,
 }
 
-static ACTIVE: Lazy<Mutex<Active>> = Lazy::new(|| {
+static ACTIVE: LazyLock<Mutex<Active>> = LazyLock::new(|| {
     Mutex::new(Active {
         name: Arc::from(DEFAULT),
         #[cfg(std_io)]

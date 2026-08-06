@@ -86,12 +86,12 @@ impl<T: CubePrimitive> RuntimeCell<T> {
 #[cube]
 impl<S: Scalar, N: Size> RuntimeCell<Vector<S, N>> {
     /// Extract the value in the cell at the given index.
-    pub fn extract(&mut self, index: usize) -> S {
+    pub fn extract(&mut self, #[comptime] index: usize) -> S {
         intrinsic!(|scope| { self.value.__expand_extract_method(scope, index) })
     }
 
     /// Store a new value in the cell at the given index.
-    pub fn insert(&mut self, index: usize, value: S) {
+    pub fn insert(&mut self, #[comptime] index: usize, value: S) {
         intrinsic!(|scope| { self.value.__expand_insert_method(scope, index, value) })
     }
 }

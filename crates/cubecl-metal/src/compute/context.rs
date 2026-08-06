@@ -81,7 +81,6 @@ impl MetalContext {
         &mut self,
         kernel_id: &KernelId,
         kernel: Box<dyn CubeTask<MetalCompiler>>,
-        mode: ExecutionMode,
         max_shared_memory_size: usize,
         logger: Arc<ServerLogger>,
     ) -> Result<CompiledKernel, LaunchError> {
@@ -99,11 +98,7 @@ impl MetalContext {
                 let compiled = self.create_pipeline_from_source(
                     &entry.source,
                     &entry.entrypoint_name,
-                    CubeDim {
-                        x: entry.cube_dim.0,
-                        y: entry.cube_dim.1,
-                        z: entry.cube_dim.2,
-                    },
+                    entry.cube_dim.into(),
                 )?;
 
                 self.compiled_kernels
@@ -118,8 +113,6 @@ impl MetalContext {
             definition,
             &mut Default::default(),
             &self.compilation_options,
-            mode,
-            kernel.address_type(),
         )?;
 
         if logger.compilation_source_activated() {
@@ -134,7 +127,7 @@ impl MetalContext {
         let shared_memory_bytes = kernel_compiled
             .repr
             .as_ref()
-            .map(|r| r.shared_memory_size())
+            .map(|r| r.shared_memory_size)
             .unwrap_or(0);
 
         // Check before creating the pipeline: Metal would reject the kernel there anyway,

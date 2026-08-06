@@ -9,12 +9,6 @@ mod runtime;
 pub use device::*;
 pub use runtime::*;
 
-#[cfg(feature = "ptx-wmma")]
-pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::PtxWmmaCompiler;
-
-#[cfg(not(feature = "ptx-wmma"))]
-pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::CudaWmmaCompiler;
-
 pub mod install {
     use std::path::PathBuf;
 

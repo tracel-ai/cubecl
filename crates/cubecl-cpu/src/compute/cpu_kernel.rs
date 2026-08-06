@@ -3,15 +3,15 @@ use std::sync::Arc;
 
 use cubecl_core::prelude::CompiledKernel;
 
-use crate::compiler::MlirCompiler;
+use crate::compiler::PlironCompiler;
 
 /// A compiled cpu kernel.
 pub struct CpuKernel {
-    pub(crate) mlir: Arc<CompiledKernel<MlirCompiler>>,
+    pub(crate) mlir: Arc<CompiledKernel<PlironCompiler>>,
 }
 
 impl CpuKernel {
-    pub fn new(kernel: CompiledKernel<MlirCompiler>) -> Self {
+    pub fn new(kernel: CompiledKernel<PlironCompiler>) -> Self {
         Self {
             mlir: Arc::new(kernel),
         }
