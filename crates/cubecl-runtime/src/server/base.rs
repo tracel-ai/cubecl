@@ -1054,16 +1054,14 @@ pub struct TensorMapMeta {
     pub oob_fill: OobFill,
     /// Storage type
     pub storage_ty: StorageType,
-    /// Shape the descriptor addresses the backing tensor with, defaulting to the tensor's own
-    /// shape. Overriding it lets a kernel view the same allocation under a different logical
-    /// shape, and its length determines the rank of the descriptor.
+    /// Layout the descriptor addresses the backing tensor with, defaulting to
+    /// [`TensorMapMeta::metadata`]. Overriding it lets a kernel view the same allocation under a
+    /// different logical layout, and its rank becomes the rank of the descriptor.
     ///
-    /// Must be set together with [`TensorMapMeta::global_strides`].
-    pub global_shape: Option<Shape>,
-    /// Strides matching [`TensorMapMeta::global_shape`], in elements, defaulting to the backing
-    /// tensor's own strides. Must have the same length as the shape, even though the innermost
-    /// stride is unused: the innermost dimension has to be contiguous, so the driver derives it.
-    pub global_strides: Option<Strides>,
+    /// Strides are in elements. The innermost one is unused, since the innermost dimension has to
+    /// be contiguous for the driver to address it. Keeping the layout within the bounds of the
+    /// allocation is up to the caller.
+    pub global_layout: Option<Metadata>,
 }
 
 /// Specifieds the number of cubes to be dispatched for a kernel.

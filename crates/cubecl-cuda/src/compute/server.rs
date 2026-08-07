@@ -1186,12 +1186,13 @@ impl CudaServer {
                         )
                         .result()
                         .map_err(|err| {
-                            diagnose(err, check_tma_tiled(&map, &tile_size[..dims.rank]).err())
+                            let tiled_err = check_tma_tiled(&map, &tile_size[..dims.rank]).err();
+                            diagnose(err, tiled_err)
                         })?;
                     }
                 }
                 TensorMapFormat::Im2col(args) => {
-                    let corners = dims.spatial_rank("im2col")?;
+                    let corners = dims.spatial_rank()?;
                     let lower_corner = to_driver_order(
                         args.pixel_box_lower_corner.iter().copied(),
                         corners,
@@ -1462,32 +1463,31 @@ fn to_driver_order<T: Copy + Default>(
 }
 
 /// The `globalDim`, `globalStrides` and `elementStrides` of a `CUtensorMap`, packed innermost
-/// first as the driver reads them.
+/// first as the driver reads them. The fields hold the full `TMA_MAX_RANK` arrays; the accessors
+/// of the same name narrow them to the entries the driver actually reads.
 struct TmaGlobalDims {
     /// Always within `1..=TMA_MAX_RANK`.
     rank: usize,
-    shape: [u64; TMA_MAX_RANK],
+    global_dim: [u64; TMA_MAX_RANK],
     /// In bytes, and only `rank - 1` entries are meaningful: the innermost dimension has to be
     /// contiguous, so the driver derives its stride from the element size.
-    strides: [u64; TMA_MAX_RANK],
-    elem_stride: [u32; TMA_MAX_RANK],
+    global_strides: [u64; TMA_MAX_RANK],
+    element_strides: [u32; TMA_MAX_RANK],
 }
 
 impl TmaGlobalDims {
     /// Resolves the dimensions of the descriptor, preferring the explicit global layout over the
     /// backing tensor's own metadata.
     fn new(map: &TensorMapMeta) -> Result<Self, LaunchError> {
-        let shape = map.global_shape.as_ref().unwrap_or(map.metadata.shape());
-        let strides = map
-            .global_strides
-            .as_ref()
-            .unwrap_or(map.metadata.strides());
+        let layout = map.global_layout.as_ref().unwrap_or(&map.metadata);
+        let (shape, strides) = (layout.shape(), layout.strides());
         let rank = shape.len();
 
         launch_check!(
             (1..=TMA_MAX_RANK).contains(&rank),
             "Rank must be between 1 and {TMA_MAX_RANK}, got {rank}"
         )?;
+        // `Metadata` only asserts this in debug, and the innermost stride is dropped below.
         launch_check!(
             strides.len() == rank,
             "Strides must have {rank} elements to match the shape, got {}",
@@ -1497,13 +1497,13 @@ impl TmaGlobalDims {
         let elem_size = map.storage_ty.size() as u64;
         Ok(Self {
             rank,
-            shape: to_driver_order(shape.iter().map(|s| *s as u64), rank, "Shape")?,
-            strides: to_driver_order(
+            global_dim: to_driver_order(shape.iter().map(|s| *s as u64), rank, "Shape")?,
+            global_strides: to_driver_order(
                 strides[..rank - 1].iter().map(|s| *s as u64 * elem_size),
                 rank - 1,
                 "Strides",
             )?,
-            elem_stride: to_driver_order(
+            element_strides: to_driver_order(
                 map.elem_stride.iter().map(|s| *s as u32),
                 rank,
                 "Element strides",
@@ -1512,23 +1512,23 @@ impl TmaGlobalDims {
     }
 
     fn global_dim(&self) -> &[u64] {
-        &self.shape[..self.rank]
+        &self.global_dim[..self.rank]
     }
 
     fn global_strides(&self) -> &[u64] {
-        &self.strides[..self.rank - 1]
+        &self.global_strides[..self.rank - 1]
     }
 
     fn element_strides(&self) -> &[u32] {
-        &self.elem_stride[..self.rank]
+        &self.element_strides[..self.rank]
     }
 
-    /// Number of spatial dimensions, which is how many pixel box bounds the im2col formats take.
-    /// The two non spatial dimensions are the channels and the batch.
-    fn spatial_rank(&self, format: &str) -> Result<usize, LaunchError> {
+    /// Number of spatial dimensions, which is how many pixel box bounds im2col takes. The two non
+    /// spatial dimensions are the channels and the batch.
+    fn spatial_rank(&self) -> Result<usize, LaunchError> {
         launch_check!(
             (3..=TMA_MAX_RANK).contains(&self.rank),
-            "{format} requires rank to be between 3 and {TMA_MAX_RANK}, got {}",
+            "im2col requires rank to be between 3 and {TMA_MAX_RANK}, got {}",
             self.rank
         )?;
         Ok(self.rank - 2)
@@ -1690,23 +1690,21 @@ fn check_tma_im2col(
 mod tma_dims_tests {
     use super::*;
     use cubecl_core::ir::ElemType;
-    use cubecl_core::zspace::{Shape, Strides, metadata::Metadata};
+    use cubecl_core::zspace::{Shape, Strides, metadata::Metadata, strides};
 
-    /// f32 tensor map over a shape, with contiguous strides unless overridden.
     fn meta(shape: Shape, strides: Strides) -> TensorMapMeta {
         TensorMapMeta {
             format: TensorMapFormat::Tiled(TiledArgs {
                 tile_size: shape.clone(),
             }),
-            elem_stride: Strides::new(&vec![1; shape.len()]),
+            elem_stride: strides![1; shape.len()],
             metadata: Metadata::new(shape, strides),
             interleave: TensorMapInterleave::None,
             swizzle: TensorMapSwizzle::None,
             prefetch: TensorMapPrefetch::None,
             oob_fill: OobFill::Zero,
             storage_ty: ElemType::Float(FloatKind::F32).into(),
-            global_shape: None,
-            global_strides: None,
+            global_layout: None,
         }
     }
 
@@ -1725,9 +1723,8 @@ mod tma_dims_tests {
     #[test]
     fn global_layout_overrides_the_backing_metadata() {
         let mut map = meta(Shape::new([2, 3, 4]), Strides::new(&[12, 4, 1]));
-        map.global_shape = Some(Shape::new([6, 4]));
-        map.global_strides = Some(Strides::new(&[4, 1]));
-        map.elem_stride = Strides::new(&[1, 1]);
+        map.global_layout = Some(Metadata::new(Shape::new([6, 4]), Strides::new(&[4, 1])));
+        map.elem_stride = strides![1; 2];
 
         let dims = TmaGlobalDims::new(&map).unwrap();
 
@@ -1746,14 +1743,9 @@ mod tma_dims_tests {
     }
 
     #[test]
-    fn rejects_dims_that_disagree_on_rank() {
+    fn rejects_elem_stride_that_disagrees_with_the_rank() {
         let mut map = meta(Shape::new([2, 3, 4]), Strides::new(&[12, 4, 1]));
-        map.global_shape = Some(Shape::new([6, 4]));
-        map.global_strides = Some(Strides::new(&[12, 4, 1]));
-        assert!(TmaGlobalDims::new(&map).is_err());
-
-        let mut map = meta(Shape::new([2, 3, 4]), Strides::new(&[12, 4, 1]));
-        map.elem_stride = Strides::new(&[1, 1]);
+        map.elem_stride = strides![1; 2];
         assert!(TmaGlobalDims::new(&map).is_err());
     }
 
@@ -1761,19 +1753,11 @@ mod tma_dims_tests {
     fn spatial_rank_requires_an_im2col_shaped_tensor() {
         let map = meta(Shape::new([2, 3, 4]), Strides::new(&[12, 4, 1]));
         assert_eq!(
-            TmaGlobalDims::new(&map)
-                .unwrap()
-                .spatial_rank("im2col")
-                .ok(),
+            TmaGlobalDims::new(&map).unwrap().spatial_rank().ok(),
             Some(1)
         );
 
         let map = meta(Shape::new([3, 4]), Strides::new(&[4, 1]));
-        assert!(
-            TmaGlobalDims::new(&map)
-                .unwrap()
-                .spatial_rank("im2col")
-                .is_err()
-        );
+        assert!(TmaGlobalDims::new(&map).unwrap().spatial_rank().is_err());
     }
 }

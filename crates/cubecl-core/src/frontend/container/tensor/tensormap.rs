@@ -82,8 +82,7 @@ impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
                 prefetch: TensorMapPrefetch::None,
                 oob_fill: OobFill::Zero,
                 storage_ty: ty.storage_type(),
-                global_shape: None,
-                global_strides: None,
+                global_layout: None,
             },
             tensor,
             _kind: PhantomData,
@@ -92,17 +91,22 @@ impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
 
     /// View the backing tensor under a different logical shape and strides, instead of the ones
     /// the handle was created with. The rank of the tensor map follows `shape`, so this can also
-    /// change the rank of the descriptor.
+    /// change the rank of the descriptor. Keeping the view within the bounds of the allocation is
+    /// up to the caller, the same as for the handle's own shape and strides.
     ///
     /// `strides` is in elements and must have the same length as `shape`. Its innermost entry is
     /// unused, since the innermost dimension has to be contiguous for the driver to address it.
+    ///
+    /// This resets the element stride to one per dimension of the new rank, so call it before
+    /// [`Self::with_elem_stride`].
     pub fn with_global_layout(
         mut self,
         shape: impl Into<Shape>,
         strides: impl Into<Strides>,
     ) -> Self {
-        self.metadata.global_shape = Some(shape.into());
-        self.metadata.global_strides = Some(strides.into());
+        let shape = shape.into();
+        self.metadata.elem_stride = strides![1; shape.len()];
+        self.metadata.global_layout = Some(Metadata::new(shape, strides));
         self
     }
 
