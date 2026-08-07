@@ -1,3 +1,4 @@
+mod comptime_float;
 #[cfg(feature = "fp4")]
 mod fp4;
 mod fp6;
@@ -6,6 +7,7 @@ mod fp8;
 mod relaxed;
 mod tensor_float;
 
+pub use comptime_float::*;
 #[cfg(feature = "fp4")]
 pub use fp4::*;
 pub use fp6::*;
