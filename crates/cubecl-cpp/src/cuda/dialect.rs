@@ -1,4 +1,7 @@
-use cubecl_core::ir::{dialect::synchronization::SyncAsyncProxyOp, prelude::*};
+use cubecl_core::ir::{
+    dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncScope},
+    prelude::*,
+};
 
 use crate::{shared::signature::op_includes, target::Cuda};
 
@@ -60,6 +63,15 @@ macro_rules! ptx_with_out {
 pub(super) use ptx_with_out;
 
 op_includes!(Cuda, [SyncAsyncProxyOp] => "cuda/barrier");
+
+cuda_op!(SyncOp, |op, ctx| {
+    match op.scope(ctx).0 {
+        SyncScope::Plane => "__syncwarp();\n",
+        SyncScope::Cube | SyncScope::Device => "__syncthreads();\n",
+        SyncScope::Unit => "",
+    }
+    .into()
+});
 
 cuda_op!(SyncAsyncProxyOp, |_, _| {
     "cuda::device::experimental::fence_proxy_async_shared_cta();".into()

@@ -7,7 +7,6 @@ use cubecl_core::{
             general::{CommentOp, PoisonOp, PrintfOp},
             math::FmaOp,
             memory::{DeclareVariableOp, UnrelatedAllocInfo},
-            synchronization::{SyncOp, SyncScope},
         },
         prelude::*,
         types::PointerType,
@@ -215,13 +214,4 @@ shared_op!(PrintfOp, |op, ctx| {
     let args = op.args(ctx);
     let args = args.iter().map(|it| format!(", {}", it.name(ctx))).join("");
     format!("printf({:?}{args});", format_string.as_str())
-});
-
-shared_op!(SyncOp, |op, ctx| {
-    match op.scope(ctx).0 {
-        SyncScope::Plane => "__syncwarp();\n",
-        SyncScope::Cube | SyncScope::Device => "__syncthreads();\n",
-        SyncScope::Unit => "",
-    }
-    .into()
 });

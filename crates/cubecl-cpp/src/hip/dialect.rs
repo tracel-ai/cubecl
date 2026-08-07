@@ -8,6 +8,7 @@ macro_rules! hip_op {
         }
     };
 }
+use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope};
 pub(super) use hip_op;
 
 macro_rules! hip_op_with_out {
@@ -25,3 +26,22 @@ macro_rules! hip_op_with_out {
     };
 }
 pub(super) use hip_op_with_out;
+
+hip_op!(SyncOp, |op, ctx| {
+    match op.scope(ctx).0 {
+        SyncScope::Plane => {
+            // HIP has no `__syncwarp`. AMD wavefronts execute in lockstep, so the
+            // execution half of the sync is a compiler scheduling barrier; the
+            // wavefront-scope fence supplies the memory ordering `__syncwarp`
+            // carries on CUDA (LDS/global writes by other lanes of the wave are
+            // visible past the sync).
+
+            "
+__builtin_amdgcn_fence(__ATOMIC_ACQ_REL, \"wavefront\");
+__builtin_amdgcn_wave_barrier();\n"
+        }
+        SyncScope::Cube | SyncScope::Device => "__syncthreads();\n",
+        SyncScope::Unit => "",
+    }
+    .into()
+});
