@@ -42,10 +42,19 @@ pub(crate) fn special_cast<D: Dialect>(
         input.elem().unpacked(),
         Elem::FP4(_) | Elem::FP6(_) | Elem::FP8(_)
     ) {
-        let item = out.item().with_elem(match input.elem().unpacked() {
+        let half_elem = match input.elem().unpacked() {
             Elem::FP8(FP8Kind::UE8M0) => Elem::BF16,
             _ => Elem::F16,
-        });
+        };
+        // Decode intrinsics only exist in scalar and x2 forms, so a single value can't fill a
+        // wider destination. Decode it alone and let the trailing assign broadcast it.
+        let broadcast = input.item().vectorization() * input.elem().packing_factor() == 1
+            && out.item().vectorization() > 1;
+        let item = if broadcast {
+            Item::Scalar(half_elem)
+        } else {
+            out.item().with_elem(half_elem)
+        };
         let out_var = if item == out.item() {
             *out
         } else {
@@ -67,7 +76,7 @@ pub(crate) fn special_cast<D: Dialect>(
 
     // Broadcast scalars to packing factor
     if out.item().packing_factor() > 1 && in_vec == 1 {
-        let tmp = Value::tmp(Item::new(input.elem(), out.item().packing_factor()));
+        let tmp = Value::tmp(Item::new(current_in.elem(), out.item().packing_factor()));
         let assign = Instruction::Assign(UnaryInstruction {
             input: current_in,
             out: tmp,

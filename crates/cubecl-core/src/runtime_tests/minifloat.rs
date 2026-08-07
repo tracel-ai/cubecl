@@ -51,6 +51,45 @@ pub fn kernel_scale<N: Size>(input: &mut [Vector<f32, N>], out: &mut [Vector<ue8
     }
 }
 
+#[cube(launch_unchecked)]
+pub fn kernel_fp8_broadcast<F: Float, N: Size>(input: &[e4m3], out: &mut [Vector<F, N>]) {
+    if ABSOLUTE_POS == 0 {
+        out[0] = Vector::<F, N>::cast_from(input[0]);
+    }
+}
+
+#[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
+pub fn test_fp8_broadcast<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R>,
+    vector_size: VectorSize,
+) {
+    if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) {
+        println!("Unsupported, skipping");
+        return;
+    }
+
+    // 0b0_0111_110 is 1.75 in e4m3.
+    let handle_in = client.create_from_slice(&[0b0_0111_110u8]);
+    let handle_out = client.empty(vector_size * size_of::<F>());
+
+    unsafe {
+        kernel_fp8_broadcast::launch_unchecked::<F, R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            vector_size,
+            BufferArg::from_raw_parts(handle_in.clone(), 1),
+            BufferArg::from_raw_parts(handle_out.clone(), vector_size),
+        )
+    };
+
+    let actual = client.read_one_unchecked(handle_out);
+    let actual = F::from_bytes(&actual);
+    let expected = vec![as_type![F: 1.75][0]; vector_size];
+
+    assert_eq!(actual, &expected[..]);
+}
+
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
 pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
@@ -244,6 +283,17 @@ macro_rules! testgen_minifloat {
                 client.clone(),
                 4,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_fp8_broadcast() {
+            let client = TestRuntime::client(&Default::default());
+            for vector_size in [1, 2, 4] {
+                cubecl_core::runtime_tests::minifloat::test_fp8_broadcast::<TestRuntime, FloatType>(
+                    client.clone(),
+                    vector_size,
+                );
+            }
         }
 
         #[$crate::runtime_tests::test_log::test]

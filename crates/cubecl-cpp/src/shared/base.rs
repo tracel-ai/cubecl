@@ -1563,6 +1563,7 @@ impl<D: Dialect> CppCompiler<D> {
                 self.flags.elem_f16 = true;
                 self.flags.elem_bf16 = true;
                 let vec_in = op.input.ty.vector_size();
+                let vec_out = out.ty.vector_size();
                 let packing = out.storage_type().packing_factor();
                 self.compile_type(op.input.ty.with_vector_size(packing));
                 self.compile_type(
@@ -1570,6 +1571,14 @@ impl<D: Dialect> CppCompiler<D> {
                 );
                 self.compile_type(
                     ir::Type::scalar(ir::ElemType::Float(FloatKind::BF16)).with_vector_size(vec_in),
+                );
+                // A scalar source decodes into a half as wide as the destination
+                self.compile_type(
+                    ir::Type::scalar(ir::ElemType::Float(FloatKind::F16)).with_vector_size(vec_out),
+                );
+                self.compile_type(
+                    ir::Type::scalar(ir::ElemType::Float(FloatKind::BF16))
+                        .with_vector_size(vec_out),
                 );
                 self.compile_type(
                     ir::Type::scalar(ir::ElemType::Float(FloatKind::F16)).with_vector_size(packing),
