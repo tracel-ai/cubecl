@@ -20,7 +20,7 @@ use hashbrown::HashMap;
 use crate::compiler::wgsl::{KernelInfo, to_wgsl::wgsl_op_with_out};
 
 #[pliron_attr(name = "wgsl.builtin", format = "$0", verifier = "succ")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, From)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From)]
 pub struct BuiltInAttr(pub BuiltIn);
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, Display)]

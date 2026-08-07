@@ -40,11 +40,11 @@ use crate::{
 pub struct MatrixLayoutAttr(pub MatrixLayout);
 
 #[pliron_attr(name = "matrix.type", format = "$0", verifier = "succ")]
-#[derive(new, From, Debug, Clone, PartialEq, Eq, Deref)]
+#[derive(new, From, Debug, Clone, PartialEq, Eq, Hash, Deref)]
 pub struct MatrixTypeAttr(pub TypedHandle<MatrixType>);
 
 #[pliron_attr(name = "matrix.type", format = "$0", verifier = "succ")]
-#[derive(new, From, Debug, Clone, PartialEq, Eq, Deref)]
+#[derive(new, From, Debug, Clone, PartialEq, Eq, Hash, Deref)]
 pub struct MatrixShapeAttr(pub MatrixShape);
 
 /// Fill a matrix with a scalar value.

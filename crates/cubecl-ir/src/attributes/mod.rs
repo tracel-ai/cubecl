@@ -200,7 +200,7 @@ impl ConstantAttr for IntegerAttr {
 }
 
 #[pliron_attr(name = "cube.float", verifier = "succ")]
-#[derive(new, PartialEq, Clone, Debug)]
+#[derive(new, PartialEq, Clone, Debug, Hash)]
 pub struct FloatAttr {
     pub ty: TypeHandle,
     pub val: APFloat,
@@ -264,7 +264,7 @@ impl FloatAttr {
 }
 
 #[pliron_attr(name = "cube.dim3", format, verifier = "succ")]
-#[derive(new, From, PartialEq, Clone, Debug)]
+#[derive(new, From, PartialEq, Clone, Debug, Hash)]
 pub struct Dim3Attr(pub Dim3);
 
 #[attr_interface_impl]

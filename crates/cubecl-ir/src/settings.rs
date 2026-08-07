@@ -17,23 +17,23 @@ pub struct Dim3 {
 }
 
 impl Dim3 {
-    /// Create a new cube dim with x = y = z = 1.
+    /// Create a new `Dim3` with x = y = z = 1.
     pub const fn new_single() -> Self {
         Self { x: 1, y: 1, z: 1 }
     }
 
-    /// Create a new cube dim with the given x, and y = z = 1.
+    /// Create a new `Dim3` with the given x, and y = z = 1.
     pub const fn new_1d(x: u32) -> Self {
         Self { x, y: 1, z: 1 }
     }
 
-    /// Create a new cube dim with the given x and y, and z = 1.
+    /// Create a new dim3 with the given x and y, and z = 1.
     pub const fn new_2d(x: u32, y: u32) -> Self {
         Self { x, y, z: 1 }
     }
 
-    /// Create a new cube dim with the given x, y and z.
-    /// This is equivalent to the [new](CubeDim::new) function.
+    /// Create a new `Dim3` with the given x, y and z.
+    /// This is equivalent to the [new](Dim3::new) function.
     pub const fn new_3d(x: u32, y: u32, z: u32) -> Self {
         Self { x, y, z }
     }
@@ -43,7 +43,7 @@ impl Dim3 {
         self.x * self.y * self.z
     }
 
-    /// Whether this `CubeDim` can fully contain `other`
+    /// Whether this `Dim3` can fully contain `other`
     pub const fn can_contain(&self, other: Dim3) -> bool {
         self.x >= other.x && self.y >= other.y && self.z >= other.z
     }

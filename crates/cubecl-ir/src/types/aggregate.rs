@@ -2,7 +2,11 @@ use cubecl_macros_internal::TypeHash;
 use derive_more::Display;
 use pliron::derive::{format, pliron_type, type_interface_impl};
 
-use crate::{interfaces::AggregateType, prelude::*, types::scalar::IndexType};
+use crate::{
+    interfaces::AggregateType,
+    prelude::*,
+    types::scalar::{BoolType, IndexType},
+};
 
 #[pliron_type(
     name = "cube.ptr_aggregate",
@@ -27,7 +31,7 @@ impl AggregateType for PtrAggregateType {
             },
             MetadataKind::BoundsCheck => match field_idx {
                 0 => self.base_ty,
-                1 => IndexType::get(ctx).into(),
+                1 => BoolType::get(ctx).into(),
                 _ => panic!("Invalid index"),
             },
         }
