@@ -37,6 +37,12 @@ pub enum Instruction {
         c: Value,
         out: Value,
     },
+    Dp4a {
+        a: Value,
+        b: Value,
+        c: Value,
+        out: Value,
+    },
     If {
         cond: Value,
         instructions: Vec<Instruction>,
@@ -519,6 +525,18 @@ impl Display for Instruction {
                 let c = c.fmt_cast_to(out.item());
                 let out = out.fmt_left();
                 writeln!(f, "{out} = fma({a}, {b}, {c});")
+            }
+            Instruction::Dp4a { a, b, c, out } => {
+                // WGSL has no packed int-dot; signed-byte polyfill (prefer SPIR-V path for Q8).
+                let out_l = out.fmt_left();
+                writeln!(
+                    f,
+                    "{out_l} = {c} \
++ ((((i32({a})) << 24) >> 24) * (((i32({b})) << 24) >> 24)) \
++ ((((i32({a})) << 16) >> 24) * (((i32({b})) << 16) >> 24)) \
++ ((((i32({a})) << 8) >> 24) * (((i32({b})) << 8) >> 24)) \
++ (((i32({a})) >> 24) * ((i32({b})) >> 24));"
+                )
             }
             Instruction::Min { lhs, rhs, out } => {
                 let lhs = lhs.fmt_cast_to(out.item());

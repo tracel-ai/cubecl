@@ -160,7 +160,7 @@ impl ValueTable {
         out: Value,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         let (expr, val) = match operator {
-            Arithmetic::Fma(op) => {
+            Arithmetic::Fma(op) | Arithmetic::Dp4a(op) => {
                 let item = out.ty;
                 let mut a = self.lookup_or_add_var(func, &op.a)?;
                 let mut b = self.lookup_or_add_var(func, &op.b)?;

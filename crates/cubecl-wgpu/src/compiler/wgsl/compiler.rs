@@ -634,6 +634,12 @@ impl WgslCompiler {
                 c: self.compile_value(op.c),
                 out: self.compile_value(out),
             }),
+            cube::Arithmetic::Dp4a(op) => instructions.push(wgsl::Instruction::Dp4a {
+                a: self.compile_value(op.a),
+                b: self.compile_value(op.b),
+                c: self.compile_value(op.c),
+                out: self.compile_value(out),
+            }),
             cube::Arithmetic::ModFloor(op) => instructions.push(wgsl::Instruction::ModFloor {
                 lhs: self.compile_value(op.lhs),
                 rhs: self.compile_value(op.rhs),

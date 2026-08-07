@@ -549,6 +549,16 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
         }
     }
 
+    fn compile_dp4a(
+        f: &mut std::fmt::Formatter<'_>,
+        a: &Value<Self>,
+        b: &Value<Self>,
+        c: &Value<Self>,
+    ) -> std::fmt::Result {
+        // Hardware int8×4 DOT + accumulate (SM61+). Matches llama.cpp ggml_cuda_dp4a.
+        write!(f, "__dp4a((int){a}, (int){b}, (int){c})")
+    }
+
     fn compile_saturating_sub(
         f: &mut std::fmt::Formatter<'_>,
         lhs: impl Display,

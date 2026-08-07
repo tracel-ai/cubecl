@@ -390,6 +390,24 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
             }
         }
         Arithmetic::Dot(op) => const_eval!(*op.lhs, op.rhs),
+        Arithmetic::Dp4a(op) => {
+            use ConstantValue::*;
+            match (op.a.as_const(), op.b.as_const(), op.c.as_const()) {
+                (Some(Int(a)), Some(Int(b)), Some(Int(c))) => {
+                    // Match CUDA __dp4a: operate on 32-bit packed signed bytes.
+                    let a = a as i32;
+                    let b = b as i32;
+                    let mut acc = c as i32;
+                    for shift in [0, 8, 16, 24] {
+                        let ai = (a << (24 - shift)) >> 24;
+                        let bi = (b << (24 - shift)) >> 24;
+                        acc = acc.wrapping_add(ai.wrapping_mul(bi));
+                    }
+                    Some(ConstantValue::Int(acc as i64))
+                }
+                _ => None,
+            }
+        }
 
         Arithmetic::Abs(op) => {
             use ConstantValue::*;
