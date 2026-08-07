@@ -160,7 +160,7 @@ cudarc = { version = "0.19.6", features = [
 ], default-features = false } # CubeCL-CUDA
 
 # CubeCL-SPIR-V
-rspirv = { package = "tracel-rspirv", version = "0.13.0" }
+rspirv = { package = "tracel-rspirv", version = "0.13.3" }
 
 # CubeCL-WGPU
 ash = "0.38"

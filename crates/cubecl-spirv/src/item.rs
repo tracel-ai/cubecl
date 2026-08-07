@@ -628,6 +628,11 @@ impl std::fmt::Display for Elem {
             Elem::Float(_, Some(FPEncoding::BFloat16KHR)) => write!(f, "bf16"),
             Elem::Float(_, Some(FPEncoding::Float8E4M3EXT)) => write!(f, "e4m3"),
             Elem::Float(_, Some(FPEncoding::Float8E5M2EXT)) => write!(f, "e5m2"),
+            Elem::Float(_, Some(FPEncoding::Float6E2M3EXT)) => write!(f, "e2m3"),
+            Elem::Float(_, Some(FPEncoding::Float6E3M2EXT)) => write!(f, "e3m2"),
+            Elem::Float(_, Some(FPEncoding::Float4E2M1EXT)) => write!(f, "e2m1"),
+            Elem::Float(_, Some(FPEncoding::Float8UnsignedE8M0EXT)) => write!(f, "ue8m0"),
+            Elem::Float(_, Some(FPEncoding::MXInt8EXT)) => write!(f, "mxint8"),
             Elem::Relaxed => write!(f, "flex32"),
         }
     }
