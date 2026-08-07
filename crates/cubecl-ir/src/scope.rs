@@ -136,6 +136,7 @@ impl Debug for Scope {
     }
 }
 
+#[track_caller]
 pub fn ident(name: impl Into<String>) -> Identifier {
     Identifier::try_new(name.into()).unwrap()
 }
@@ -311,7 +312,7 @@ fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
 
     // Start out empty and fill in once args register themselves
     let entry_func_ty = FunctionType::get(&ctx, vec![], vec![UnitType::get(&ctx).into()]);
-    let entry_name = ident(settings.kernel_name);
+    let entry_name = Identifier::try_new(settings.kernel_name).unwrap_or(ident("kernel_entry"));
     let abi = EntrypointAbiAttr::new(settings.cube_dim, settings.cluster_dim);
     let entry_func = FuncOp::new(&mut ctx, entry_name, entry_func_ty);
     entry_func.set_entrypoint_abi(&mut ctx, abi);
