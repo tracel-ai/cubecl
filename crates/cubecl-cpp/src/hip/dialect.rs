@@ -423,7 +423,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         // wavefront-scope fence supplies the memory ordering `__syncwarp`
         // carries on CUDA (LDS/global writes by other lanes of the wave are
         // visible past the sync).
-        writeln!(f, "__builtin_amdgcn_fence(__ATOMIC_ACQ_REL, \"wavefront\");")?;
+        writeln!(
+            f,
+            "__builtin_amdgcn_fence(__ATOMIC_ACQ_REL, \"wavefront\");"
+        )?;
         writeln!(f, "__builtin_amdgcn_wave_barrier();\n")
     }
 
