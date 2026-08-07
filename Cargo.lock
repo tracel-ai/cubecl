@@ -824,7 +824,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde",
- "spin 0.11.1",
+ "spin",
  "tempfile",
  "test-log",
  "tynm",
@@ -909,7 +909,7 @@ dependencies = [
  "pliron-llvm",
  "pretty_assertions",
  "serde",
- "spin 0.11.1",
+ "spin",
  "sysinfo",
  "test-log",
  "tracel-llvm-bundler",
@@ -968,7 +968,7 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "serial_test",
- "spin 0.11.1",
+ "spin",
  "tempfile",
  "test-log",
  "tokio",
@@ -1037,7 +1037,7 @@ dependencies = [
  "portable-atomic",
  "rustc_apfloat",
  "serde",
- "spin 0.11.1",
+ "spin",
  "thiserror",
  "variadics_please",
 ]
@@ -1184,7 +1184,7 @@ dependencies = [
  "num-traits",
  "paste",
  "serde",
- "spin 0.11.1",
+ "spin",
  "test-log",
  "variadics_please",
 ]
@@ -3361,7 +3361,7 @@ dependencies = [
  "rustc_apfloat",
  "slotmap",
  "smallvec",
- "spin 0.12.2",
+ "spin",
  "thiserror",
  "utf8-chars",
 ]
@@ -4322,21 +4322,12 @@ dependencies = [
 
 [[package]]
 name = "spin"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a1655da78f3df8cecf4239a02d5c8b0966e485b0edc06f5f23cec7bcf460e61"
-dependencies = [
- "lock_api",
- "portable-atomic",
-]
-
-[[package]]
-name = "spin"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8abadc99fd9c7bbb7d0ca2b31d72a067d0c0dcd7aad25ab8cac71ba91417694b"
 dependencies = [
  "lock_api",
+ "portable-atomic",
 ]
 
 [[package]]

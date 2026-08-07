@@ -70,7 +70,7 @@ smallvec = { version = "1", features = [
     "const_generics",
     "const_new",
 ] }
-spin = { version = "0.11.0", features = ["mutex", "spin_mutex", "lazylock"] }
+spin = { version = "0.12.2", features = ["mutex", "spin_mutex", "lazylock"] }
 xxhash-rust = { version = "0.8", default-features = false }
 
 rand = { version = "0.10.0", default-features = false, features = [
