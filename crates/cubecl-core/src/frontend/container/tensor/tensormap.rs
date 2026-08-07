@@ -5,7 +5,7 @@ use crate as cubecl;
 use crate::{prelude::*, unexpanded};
 use cubecl_ir::{Type, VectorSize};
 use cubecl_runtime::server::TensorMapMeta;
-use cubecl_zspace::{Strides, metadata::Metadata, strides};
+use cubecl_zspace::{Shape, Strides, metadata::Metadata, strides};
 use paste::paste;
 
 pub use cubecl_runtime::tma::*;
@@ -82,10 +82,28 @@ impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
                 prefetch: TensorMapPrefetch::None,
                 oob_fill: OobFill::Zero,
                 storage_ty: ty.storage_type(),
+                global_shape: None,
+                global_strides: None,
             },
             tensor,
             _kind: PhantomData,
         }
+    }
+
+    /// View the backing tensor under a different logical shape and strides, instead of the ones
+    /// the handle was created with. The rank of the tensor map follows `shape`, so this can also
+    /// change the rank of the descriptor.
+    ///
+    /// `strides` is in elements and must have the same length as `shape`. Its innermost entry is
+    /// unused, since the innermost dimension has to be contiguous for the driver to address it.
+    pub fn with_global_layout(
+        mut self,
+        shape: impl Into<Shape>,
+        strides: impl Into<Strides>,
+    ) -> Self {
+        self.metadata.global_shape = Some(shape.into());
+        self.metadata.global_strides = Some(strides.into());
+        self
     }
 
     pub fn with_elem_stride(mut self, elem_stride: Strides) -> Self {

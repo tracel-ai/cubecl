@@ -37,6 +37,7 @@ use cubecl_runtime::{
     storage::{ComputeStorage, ManagedResource},
     stream::MultiStream,
 };
+use cudarc::driver::DriverError;
 use cudarc::driver::sys::{
     CUstream_st, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
@@ -1141,140 +1142,131 @@ impl CudaServer {
 
             let mut map_ptr = MaybeUninit::zeroed();
 
-            let shape: Vec<_> = map
-                .metadata
-                .shape()
-                .iter()
-                .rev()
-                .map(|s| *s as u64)
-                .collect();
-            let strides: Vec<_> = map
-                .metadata
-                .strides()
-                .iter()
-                .rev()
-                .skip(1)
-                .map(|s| *s as u64 * map.storage_ty.size() as u64)
-                .collect();
-            let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
+            let dims = TmaGlobalDims::new(&map)?;
+            let rank = dims.rank as u32;
+
+            // The driver only reports a generic error code, so on failure re-check the documented
+            // invariants to report which one was actually violated.
+            let diagnose = |err: DriverError, format_err: Option<LaunchError>| {
+                check_tma_generic(&map, device_ptr, &dims)
+                    .err()
+                    .or(format_err)
+                    .unwrap_or_else(|| LaunchError::Unknown {
+                        reason: format!("{err}"),
+                        backtrace: BackTrace::capture(),
+                    })
+            };
 
             match &map.format {
-                // SAFETY: `map_ptr` is a zeroed `MaybeUninit<CUtensorMap>`. `device_ptr` is a
-                // valid device pointer. Shape, strides, tile_size, and elem_stride vectors
-                // are constructed from validated metadata and outlive this call.
-                TensorMapFormat::Tiled(TiledArgs { tile_size }) => unsafe {
-                    let tile_size: Vec<_> =
-                        tile_size.iter().rev().copied().map(|s| s as u32).collect();
+                TensorMapFormat::Tiled(TiledArgs { tile_size }) => {
+                    let tile_size = to_driver_order(
+                        tile_size.iter().map(|s| *s as u32),
+                        dims.rank,
+                        "Tile shape",
+                    )?;
 
-                    cuTensorMapEncodeTiled(
-                        map_ptr.as_mut_ptr(),
-                        elem_to_tensor_map_type(map.storage_ty),
-                        map.metadata.rank() as u32,
-                        device_ptr,
-                        shape.as_ptr(),
-                        strides.as_ptr(),
-                        tile_size.as_ptr(),
-                        elem_stride.as_ptr(),
-                        interleave_to_cuda(map.interleave),
-                        swizzle_to_cuda(map.swizzle),
-                        prefetch_to_cuda(map.prefetch),
-                        oob_to_cuda(map.oob_fill),
-                    )
-                    .result()
-                    .map_err(|err| {
-                        let generic_err =
-                            check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride)
-                                .err();
-                        let tiled_err = check_tma_tiled(&map, &tile_size).err();
-                        generic_err
-                            .or(tiled_err)
-                            .unwrap_or_else(|| LaunchError::Unknown {
-                                reason: format!("{err}"),
-                                backtrace: BackTrace::capture(),
-                            })
-                    })?;
-                },
-                // SAFETY: Same invariants as `Tiled` above. Additionally, `lower_corner` and
-                // `upper_corner` are valid pixel box bounds derived from the tensor map args.
-                TensorMapFormat::Im2col(args) => unsafe {
-                    let lower_corner: Vec<_> =
-                        args.pixel_box_lower_corner.iter().rev().copied().collect();
-                    let upper_corner: Vec<_> =
-                        args.pixel_box_upper_corner.iter().rev().copied().collect();
+                    // SAFETY: `map_ptr` is a zeroed `MaybeUninit<CUtensorMap>`. `device_ptr` is a
+                    // valid device pointer. The dimension arrays are `TMA_MAX_RANK` long and
+                    // `rank <= TMA_MAX_RANK`, so the driver stays in bounds reading `rank` (or
+                    // `rank - 1`) entries from each, and they all outlive this call.
+                    unsafe {
+                        cuTensorMapEncodeTiled(
+                            map_ptr.as_mut_ptr(),
+                            elem_to_tensor_map_type(map.storage_ty),
+                            rank,
+                            device_ptr,
+                            dims.global_dim().as_ptr(),
+                            dims.global_strides().as_ptr(),
+                            tile_size.as_ptr(),
+                            dims.element_strides().as_ptr(),
+                            interleave_to_cuda(map.interleave),
+                            swizzle_to_cuda(map.swizzle),
+                            prefetch_to_cuda(map.prefetch),
+                            oob_to_cuda(map.oob_fill),
+                        )
+                        .result()
+                        .map_err(|err| {
+                            diagnose(err, check_tma_tiled(&map, &tile_size[..dims.rank]).err())
+                        })?;
+                    }
+                }
+                TensorMapFormat::Im2col(args) => {
+                    let corners = dims.spatial_rank("im2col")?;
+                    let lower_corner = to_driver_order(
+                        args.pixel_box_lower_corner.iter().copied(),
+                        corners,
+                        "Lower corner",
+                    )?;
+                    let upper_corner = to_driver_order(
+                        args.pixel_box_upper_corner.iter().copied(),
+                        corners,
+                        "Upper corner",
+                    )?;
 
-                    cuTensorMapEncodeIm2col(
-                        map_ptr.as_mut_ptr(),
-                        elem_to_tensor_map_type(map.storage_ty),
-                        map.metadata.rank() as u32,
-                        device_ptr,
-                        shape.as_ptr(),
-                        strides.as_ptr(),
-                        lower_corner.as_ptr(),
-                        upper_corner.as_ptr(),
-                        args.channels_per_pixel,
-                        args.pixels_per_column,
-                        elem_stride.as_ptr(),
-                        interleave_to_cuda(map.interleave),
-                        swizzle_to_cuda(map.swizzle),
-                        prefetch_to_cuda(map.prefetch),
-                        oob_to_cuda(map.oob_fill),
-                    )
-                    .result()
-                    .map_err(|err| {
-                        let generic_err =
-                            check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride)
-                                .err();
-                        let tiled_err = check_tma_im2col(
-                            &map,
-                            &lower_corner,
-                            &upper_corner,
+                    // SAFETY: Same invariants as `Tiled` above. Additionally, the corner arrays
+                    // hold the `rank - 2` spatial bounds the driver reads for im2col.
+                    unsafe {
+                        cuTensorMapEncodeIm2col(
+                            map_ptr.as_mut_ptr(),
+                            elem_to_tensor_map_type(map.storage_ty),
+                            rank,
+                            device_ptr,
+                            dims.global_dim().as_ptr(),
+                            dims.global_strides().as_ptr(),
+                            lower_corner.as_ptr(),
+                            upper_corner.as_ptr(),
                             args.channels_per_pixel,
                             args.pixels_per_column,
+                            dims.element_strides().as_ptr(),
+                            interleave_to_cuda(map.interleave),
+                            swizzle_to_cuda(map.swizzle),
+                            prefetch_to_cuda(map.prefetch),
+                            oob_to_cuda(map.oob_fill),
                         )
-                        .err();
-                        generic_err
-                            .or(tiled_err)
-                            .unwrap_or_else(|| LaunchError::Unknown {
-                                reason: format!("{err}"),
-                                backtrace: BackTrace::capture(),
-                            })
-                    })?;
-                },
-                // SAFETY: Same invariants as `Im2col` above. Requires CUDA 12.8+.
+                        .result()
+                        .map_err(|err| {
+                            let im2col_err = check_tma_im2col(
+                                &dims,
+                                &lower_corner[..corners],
+                                &upper_corner[..corners],
+                                args.channels_per_pixel,
+                                args.pixels_per_column,
+                            )
+                            .err();
+                            diagnose(err, im2col_err)
+                        })?;
+                    }
+                }
                 #[cfg(cuda_12080)]
-                TensorMapFormat::Im2colWide(args) => unsafe {
+                TensorMapFormat::Im2colWide(args) => {
                     use cudarc::driver::sys::{
                         CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide,
                     };
-                    cuTensorMapEncodeIm2colWide(
-                        map_ptr.as_mut_ptr(),
-                        elem_to_tensor_map_type(map.storage_ty),
-                        map.metadata.rank() as u32,
-                        device_ptr,
-                        shape.as_ptr(),
-                        strides.as_ptr(),
-                        args.pixel_box_lower_corner_width,
-                        args.pixel_box_upper_corner_width,
-                        args.channels_per_pixel,
-                        args.pixels_per_column,
-                        elem_stride.as_ptr(),
-                        interleave_to_cuda(map.interleave),
-                        CUtensorMapIm2ColWideMode::CU_TENSOR_MAP_IM2COL_WIDE_MODE_W,
-                        swizzle_to_cuda(map.swizzle),
-                        prefetch_to_cuda(map.prefetch),
-                        oob_to_cuda(map.oob_fill),
-                    )
-                    .result()
-                    .map_err(|err| {
-                        let generic_err =
-                            check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride)
-                                .err();
-                        generic_err.unwrap_or_else(|| LaunchError::Unknown {
-                            reason: format!("{err}"),
-                            backtrace: BackTrace::capture(),
-                        })
-                    })?;
-                },
+
+                    // SAFETY: Same invariants as `Im2col` above. Requires CUDA 12.8+.
+                    unsafe {
+                        cuTensorMapEncodeIm2colWide(
+                            map_ptr.as_mut_ptr(),
+                            elem_to_tensor_map_type(map.storage_ty),
+                            rank,
+                            device_ptr,
+                            dims.global_dim().as_ptr(),
+                            dims.global_strides().as_ptr(),
+                            args.pixel_box_lower_corner_width,
+                            args.pixel_box_upper_corner_width,
+                            args.channels_per_pixel,
+                            args.pixels_per_column,
+                            dims.element_strides().as_ptr(),
+                            interleave_to_cuda(map.interleave),
+                            CUtensorMapIm2ColWideMode::CU_TENSOR_MAP_IM2COL_WIDE_MODE_W,
+                            swizzle_to_cuda(map.swizzle),
+                            prefetch_to_cuda(map.prefetch),
+                            oob_to_cuda(map.oob_fill),
+                        )
+                        .result()
+                        .map_err(|err| diagnose(err, None))?;
+                    }
+                }
                 #[cfg(not(cuda_12080))]
                 TensorMapFormat::Im2colWide(_) => {
                     return Err(LaunchError::Unknown {
@@ -1444,13 +1436,116 @@ macro_rules! launch_check {
     };
 }
 
+/// The driver caps tensor map descriptors at 5 dimensions.
+const TMA_MAX_RANK: usize = 5;
+
+/// Packs `values` innermost-first into a fixed size array, the order `cuTensorMapEncode*` reads
+/// its dimension arrays in. `expected` is the arity the driver will read, and is enforced here so
+/// that a mismatched argument can't reach the driver as a padding entry.
+fn to_driver_order<T: Copy + Default>(
+    values: impl DoubleEndedIterator<Item = T> + ExactSizeIterator,
+    expected: usize,
+    what: &str,
+) -> Result<[T; TMA_MAX_RANK], LaunchError> {
+    debug_assert!(expected <= TMA_MAX_RANK);
+    launch_check!(
+        values.len() == expected,
+        "{what} must have {expected} elements, got {}",
+        values.len()
+    )?;
+
+    let mut packed = [T::default(); TMA_MAX_RANK];
+    for (i, value) in values.rev().enumerate() {
+        packed[i] = value;
+    }
+    Ok(packed)
+}
+
+/// The `globalDim`, `globalStrides` and `elementStrides` of a `CUtensorMap`, packed innermost
+/// first as the driver reads them.
+struct TmaGlobalDims {
+    /// Always within `1..=TMA_MAX_RANK`.
+    rank: usize,
+    shape: [u64; TMA_MAX_RANK],
+    /// In bytes, and only `rank - 1` entries are meaningful: the innermost dimension has to be
+    /// contiguous, so the driver derives its stride from the element size.
+    strides: [u64; TMA_MAX_RANK],
+    elem_stride: [u32; TMA_MAX_RANK],
+}
+
+impl TmaGlobalDims {
+    /// Resolves the dimensions of the descriptor, preferring the explicit global layout over the
+    /// backing tensor's own metadata.
+    fn new(map: &TensorMapMeta) -> Result<Self, LaunchError> {
+        let shape = map.global_shape.as_ref().unwrap_or(map.metadata.shape());
+        let strides = map
+            .global_strides
+            .as_ref()
+            .unwrap_or(map.metadata.strides());
+        let rank = shape.len();
+
+        launch_check!(
+            (1..=TMA_MAX_RANK).contains(&rank),
+            "Rank must be between 1 and {TMA_MAX_RANK}, got {rank}"
+        )?;
+        launch_check!(
+            strides.len() == rank,
+            "Strides must have {rank} elements to match the shape, got {}",
+            strides.len()
+        )?;
+
+        let elem_size = map.storage_ty.size() as u64;
+        Ok(Self {
+            rank,
+            shape: to_driver_order(shape.iter().map(|s| *s as u64), rank, "Shape")?,
+            strides: to_driver_order(
+                strides[..rank - 1].iter().map(|s| *s as u64 * elem_size),
+                rank - 1,
+                "Strides",
+            )?,
+            elem_stride: to_driver_order(
+                map.elem_stride.iter().map(|s| *s as u32),
+                rank,
+                "Element strides",
+            )?,
+        })
+    }
+
+    fn global_dim(&self) -> &[u64] {
+        &self.shape[..self.rank]
+    }
+
+    fn global_strides(&self) -> &[u64] {
+        &self.strides[..self.rank - 1]
+    }
+
+    fn element_strides(&self) -> &[u32] {
+        &self.elem_stride[..self.rank]
+    }
+
+    /// Number of spatial dimensions, which is how many pixel box bounds the im2col formats take.
+    /// The two non spatial dimensions are the channels and the batch.
+    fn spatial_rank(&self, format: &str) -> Result<usize, LaunchError> {
+        launch_check!(
+            (3..=TMA_MAX_RANK).contains(&self.rank),
+            "{format} requires rank to be between 3 and {TMA_MAX_RANK}, got {}",
+            self.rank
+        )?;
+        Ok(self.rank - 2)
+    }
+}
+
 fn check_tma_generic(
     map: &TensorMapMeta,
     device_ptr: *mut c_void,
-    shape: &[u64],
-    strides: &[u64],
-    elem_strides: &[u32],
+    dims: &TmaGlobalDims,
 ) -> Result<(), LaunchError> {
+    let (shape, strides, elem_strides) = (
+        dims.global_dim(),
+        dims.global_strides(),
+        dims.element_strides(),
+    );
+
     // globalAddress invariants
     launch_check!(
         (device_ptr as usize).is_multiple_of(16),
@@ -1465,11 +1560,7 @@ fn check_tma_generic(
 
     // tensorRank invariants
     launch_check!(
-        (1..=5).contains(&map.metadata.rank()),
-        "Rank must be between 1 and 5"
-    )?;
-    launch_check!(
-        matches!(map.interleave, TensorMapInterleave::None) || map.metadata.rank() >= 3,
+        matches!(map.interleave, TensorMapInterleave::None) || dims.rank >= 3,
         "When interleave is enabled, rank must be >= 3"
     )?;
 
@@ -1523,10 +1614,6 @@ fn check_tma_generic(
 
 fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) -> Result<(), LaunchError> {
     launch_check!(
-        tile_size.len() == map.metadata.rank(),
-        "Tile shape should match rank"
-    )?;
-    launch_check!(
         tile_size.iter().all(|it| *it > 0 && *it <= 256),
         "Tile shape must be non-zero and <= 256"
     )?;
@@ -1557,30 +1644,19 @@ fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) -> Result<(), LaunchE
 }
 
 fn check_tma_im2col(
-    map: &TensorMapMeta,
+    dims: &TmaGlobalDims,
     lower_corner: &[i32],
     upper_corner: &[i32],
     channels_per_pixel: u32,
     pixels_per_column: u32,
 ) -> Result<(), LaunchError> {
-    launch_check!(
-        lower_corner.len() == map.metadata.rank() - 2,
-        "Lower corner must be rank - 2 elements"
-    )?;
-    launch_check!(
-        upper_corner.len() == map.metadata.rank() - 2,
-        "Upper corner must be rank - 2 elements"
-    )?;
-
-    launch_check!(
-        map.metadata.rank() >= 3 && map.metadata.rank() <= 5,
-        "im2col requires rank to be between 3 and 5"
-    )?;
-
-    let (range_lower, range_upper) = match map.metadata.rank() {
+    // The corner offsets are packed into a fixed width field, so the wider the tensor the fewer
+    // bits each dimension gets.
+    let (range_lower, range_upper) = match dims.rank {
         3 => (-32768, 32767),
         4 => (-128, 127),
         5 => (-16, 15),
+        // The rank was validated when the pixel box bounds were built.
         _ => unreachable!(),
     };
     launch_check!(
@@ -1588,14 +1664,14 @@ fn check_tma_im2col(
             .iter()
             .all(|it| *it >= range_lower && *it <= range_upper),
         "Lower corner must be in range [{range_lower}, {range_upper}] for {}D im2col",
-        map.metadata.rank()
+        dims.rank
     )?;
     launch_check!(
         upper_corner
             .iter()
             .all(|it| *it >= range_lower && *it <= range_upper),
         "Upper corner must be in range [{range_lower}, {range_upper}] for {}D im2col",
-        map.metadata.rank()
+        dims.rank
     )?;
 
     launch_check!(
@@ -1608,4 +1684,96 @@ fn check_tma_im2col(
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tma_dims_tests {
+    use super::*;
+    use cubecl_core::ir::ElemType;
+    use cubecl_core::zspace::{Shape, Strides, metadata::Metadata};
+
+    /// f32 tensor map over a shape, with contiguous strides unless overridden.
+    fn meta(shape: Shape, strides: Strides) -> TensorMapMeta {
+        TensorMapMeta {
+            format: TensorMapFormat::Tiled(TiledArgs {
+                tile_size: shape.clone(),
+            }),
+            elem_stride: Strides::new(&vec![1; shape.len()]),
+            metadata: Metadata::new(shape, strides),
+            interleave: TensorMapInterleave::None,
+            swizzle: TensorMapSwizzle::None,
+            prefetch: TensorMapPrefetch::None,
+            oob_fill: OobFill::Zero,
+            storage_ty: ElemType::Float(FloatKind::F32).into(),
+            global_shape: None,
+            global_strides: None,
+        }
+    }
+
+    #[test]
+    fn packs_dims_innermost_first_and_scales_strides_to_bytes() {
+        let map = meta(Shape::new([2, 3, 4]), Strides::new(&[12, 4, 1]));
+        let dims = TmaGlobalDims::new(&map).unwrap();
+
+        assert_eq!(dims.rank, 3);
+        assert_eq!(dims.global_dim(), [4, 3, 2]);
+        // Innermost stride is dropped, the rest are in bytes.
+        assert_eq!(dims.global_strides(), [4 * 4, 12 * 4]);
+        assert_eq!(dims.element_strides(), [1, 1, 1]);
+    }
+
+    #[test]
+    fn global_layout_overrides_the_backing_metadata() {
+        let mut map = meta(Shape::new([2, 3, 4]), Strides::new(&[12, 4, 1]));
+        map.global_shape = Some(Shape::new([6, 4]));
+        map.global_strides = Some(Strides::new(&[4, 1]));
+        map.elem_stride = Strides::new(&[1, 1]);
+
+        let dims = TmaGlobalDims::new(&map).unwrap();
+
+        assert_eq!(dims.rank, 2);
+        assert_eq!(dims.global_dim(), [4, 6]);
+        assert_eq!(dims.global_strides(), [4 * 4]);
+    }
+
+    #[test]
+    fn rejects_rank_outside_the_driver_limit() {
+        let map = meta(Shape::new([2; 6]), Strides::new(&[1; 6]));
+        assert!(TmaGlobalDims::new(&map).is_err());
+
+        let map = meta(Shape::new([0usize; 0]), Strides::new(&[]));
+        assert!(TmaGlobalDims::new(&map).is_err());
+    }
+
+    #[test]
+    fn rejects_dims_that_disagree_on_rank() {
+        let mut map = meta(Shape::new([2, 3, 4]), Strides::new(&[12, 4, 1]));
+        map.global_shape = Some(Shape::new([6, 4]));
+        map.global_strides = Some(Strides::new(&[12, 4, 1]));
+        assert!(TmaGlobalDims::new(&map).is_err());
+
+        let mut map = meta(Shape::new([2, 3, 4]), Strides::new(&[12, 4, 1]));
+        map.elem_stride = Strides::new(&[1, 1]);
+        assert!(TmaGlobalDims::new(&map).is_err());
+    }
+
+    #[test]
+    fn spatial_rank_requires_an_im2col_shaped_tensor() {
+        let map = meta(Shape::new([2, 3, 4]), Strides::new(&[12, 4, 1]));
+        assert_eq!(
+            TmaGlobalDims::new(&map)
+                .unwrap()
+                .spatial_rank("im2col")
+                .ok(),
+            Some(1)
+        );
+
+        let map = meta(Shape::new([3, 4]), Strides::new(&[4, 1]));
+        assert!(
+            TmaGlobalDims::new(&map)
+                .unwrap()
+                .spatial_rank("im2col")
+                .is_err()
+        );
+    }
 }
