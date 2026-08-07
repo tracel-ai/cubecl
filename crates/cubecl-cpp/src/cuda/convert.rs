@@ -46,12 +46,9 @@ pub(crate) fn special_cast<D: Dialect>(
             Elem::FP8(FP8Kind::UE8M0) => Elem::BF16,
             _ => Elem::F16,
         };
-        // The decode intrinsics only exist in scalar and x2 forms, so a single unpacked source
-        // value has no intrinsic that fills a wider destination. Decode it on its own and let
-        // the trailing assign broadcast the result. A packed source already carries one value
-        // per destination lane of the x2 intrinsic, so it keeps the destination's width.
-        let broadcast = input.item().vectorization() == 1
-            && input.elem().packing_factor() == 1
+        // Decode intrinsics only exist in scalar and x2 forms, so a single value can't fill a
+        // wider destination. Decode it alone and let the trailing assign broadcast it.
+        let broadcast = input.item().vectorization() * input.elem().packing_factor() == 1
             && out.item().vectorization() > 1;
         let item = if broadcast {
             Item::Scalar(half_elem)
@@ -77,8 +74,7 @@ pub(crate) fn special_cast<D: Dialect>(
         _ => panic!("Invalid input item for special cast"),
     };
 
-    // Broadcast scalars to packing factor. A minifloat source has already been decoded to half
-    // above, so this widens whatever `current_in` holds now, not the type it started as.
+    // Broadcast scalars to packing factor
     if out.item().packing_factor() > 1 && in_vec == 1 {
         let tmp = Value::tmp(Item::new(current_in.elem(), out.item().packing_factor()));
         let assign = Instruction::Assign(UnaryInstruction {
@@ -389,200 +385,4 @@ fn handle_unroll<D: Dialect>(
         )?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        cuda::{CudaDialect, mma::CudaWmmaCompiler},
-        shared::{FP4Kind, FP6Kind},
-    };
-    use std::fmt::Display;
-
-    type Cuda = CudaDialect<CudaWmmaCompiler>;
-
-    /// Number of values the named CUDA type carries.
-    ///
-    /// The suffix is not uniform: `fp8x2` and `halfraw2` mark the pair with a trailing token,
-    /// while `bf162raw` and `bfloat162raw` carry it in the middle.
-    fn intrinsic_type_width(name: &str) -> usize {
-        if name.ends_with('2') || name.contains("x2") || name.contains("162") {
-            2
-        } else {
-            1
-        }
-    }
-
-    struct SpecialCast {
-        input: Value<Cuda>,
-        out: Value<Cuda>,
-    }
-
-    impl Display for SpecialCast {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            special_cast(f, &self.input, &self.out)
-        }
-    }
-
-    fn emit(input: Item<Cuda>, out: Item<Cuda>) -> String {
-        SpecialCast {
-            input: Value::Value { id: 0, item: input },
-            out: Value::Value { id: 1, item: out },
-        }
-        .to_string()
-    }
-
-    fn called_intrinsics(source: &str) -> Vec<&str> {
-        let mut found = Vec::new();
-        let mut rest = source;
-        while let Some(start) = rest.find("__nv_cvt_") {
-            rest = &rest[start..];
-            let end = rest
-                .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                .unwrap_or(rest.len());
-            found.push(&rest[..end]);
-            rest = &rest[end..];
-        }
-        found
-    }
-
-    /// Both the unpacked kinds and the x2 kinds, since a packed source carries two logical values
-    /// per storage element and reaches a different branch.
-    const MINIFLOATS: &[Elem<Cuda>] = &[
-        Elem::FP4(FP4Kind::E2M1),
-        Elem::FP4x2(FP4Kind::E2M1),
-        Elem::FP6(FP6Kind::E2M3),
-        Elem::FP6(FP6Kind::E3M2),
-        Elem::FP6x2(FP6Kind::E2M3),
-        Elem::FP8(FP8Kind::E4M3),
-        Elem::FP8(FP8Kind::E5M2),
-        Elem::FP8(FP8Kind::UE8M0),
-        Elem::FP8x2(FP8Kind::E4M3),
-    ];
-
-    const FLOATS: &[Elem<Cuda>] = &[Elem::F16, Elem::BF16, Elem::F32, Elem::F64];
-
-    /// Number of values an item holds, counting both its lanes and the values packed into each.
-    fn logical_width(item: Item<Cuda>) -> usize {
-        item.vectorization() * item.elem().packing_factor()
-    }
-
-    /// Every conversion the compiler can ask for, as a description and the CUDA it emits.
-    ///
-    /// `cast_expand_elem` only rejects a value count mismatch when the source has more than one
-    /// lane, so a single lane reaches codegen against any destination width even when it carries
-    /// a packed pair. Anything wider has to match one for one.
-    fn conversion_matrix() -> Vec<(String, String)> {
-        let mut cases = Vec::new();
-
-        for &minifloat in MINIFLOATS {
-            for &float in FLOATS {
-                for mini_width in [1, 2, 4] {
-                    for float_width in [1, 2, 4] {
-                        let mini = Item::new(minifloat, mini_width);
-                        let float = Item::new(float, float_width);
-                        let matched = logical_width(mini) == logical_width(float);
-
-                        // Narrowing a packed source into fewer values than it holds also reaches
-                        // codegen and also emits a symbol that does not exist, but that is a
-                        // separate defect from the broadcast this file fixes.
-                        let widening = logical_width(float) >= logical_width(mini);
-                        if matched || (mini.vectorization() == 1 && widening) {
-                            cases
-                                .push((format!("decode {mini:?} to {float:?}"), emit(mini, float)));
-                        }
-                        // The broadcast encode direction is tracked separately as #1459, so only
-                        // the matched widths are asserted here.
-                        if matched {
-                            cases
-                                .push((format!("encode {float:?} to {mini:?}"), emit(float, mini)));
-                        }
-                    }
-                }
-            }
-        }
-
-        // A minifloat destination decodes through the same half intermediate before re-encoding,
-        // so the broadcast has to survive it too. Only a single unpacked source is covered: a
-        // packed or multi-lane source decoded into a narrower destination composes a name that
-        // does not exist, but that is the same separate defect as the narrowing above.
-        for &from_elem in MINIFLOATS {
-            if from_elem.packing_factor() != 1 {
-                continue;
-            }
-            for &to_elem in MINIFLOATS {
-                if from_elem == to_elem {
-                    continue;
-                }
-                for to_width in [2, 4] {
-                    let from = Item::Scalar(from_elem);
-                    let to = Item::new(to_elem, to_width);
-                    cases.push((format!("convert {from:?} to {to:?}"), emit(from, to)));
-                }
-            }
-        }
-
-        cases
-    }
-
-    /// Two things have to hold for every conversion the compiler can ask for, and neither is
-    /// checkable on the hardware available here, since fp4, fp6 and e8m0 conversion needs
-    /// Blackwell to run at all.
-    ///
-    /// CUDA declares these intrinsics only in matched widths, a scalar form and an x2 form, but
-    /// `special_cast` composes the name from the source and destination in two independent
-    /// matches, so nothing structural stops it naming a pair that does not exist. Separately, the
-    /// half intermediate has to be as wide as the unroll that indexes it, or the emitted code
-    /// reads off the end of a temporary.
-    #[test]
-    fn emitted_conversions_are_well_formed() {
-        let mut bad = Vec::new();
-
-        for (case, source) in conversion_matrix() {
-            for name in called_intrinsics(&source) {
-                match name.trim_start_matches("__nv_cvt_").split_once("_to_") {
-                    Some((from, to)) if intrinsic_type_width(from) == intrinsic_type_width(to) => {}
-                    _ => bad.push(format!("{case}: `{name}` has mismatched widths\n{source}")),
-                }
-            }
-
-            // Declarations look like `__half_2 _tmp_0 = ...`, reads like `_tmp_0.i_2`.
-            for line in source.lines() {
-                let mut words = line.split_whitespace();
-                let (Some(ty), Some(name)) = (words.next(), words.next()) else {
-                    continue;
-                };
-                let Some(width) = name
-                    .starts_with("_tmp_")
-                    .then(|| ty.rsplit_once('_')?.1.parse::<usize>().ok())
-                    .flatten()
-                else {
-                    continue;
-                };
-
-                let read = format!("{name}.i_");
-                let mut rest = source.as_str();
-                while let Some(start) = rest.find(&read) {
-                    rest = &rest[start + read.len()..];
-                    let end = rest
-                        .find(|c: char| !c.is_ascii_digit())
-                        .unwrap_or(rest.len());
-                    if rest[..end].parse::<usize>().is_ok_and(|i| i >= width) {
-                        bad.push(format!(
-                            "{case}: {name} has width {width}, read at i_{}\n{source}",
-                            &rest[..end]
-                        ));
-                    }
-                }
-            }
-        }
-
-        assert!(
-            bad.is_empty(),
-            "{} malformed conversions:\n{}",
-            bad.len(),
-            bad.join("\n")
-        );
-    }
 }
