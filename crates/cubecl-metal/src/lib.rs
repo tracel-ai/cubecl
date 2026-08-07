@@ -11,7 +11,7 @@ pub mod runtime;
 pub use device::{MetalDevice, register_device};
 pub use runtime::MetalRuntime;
 
-pub(crate) type MetalCompiler = cubecl_cpp::shared::CppCompiler<cubecl_cpp::metal::MslDialect>;
+pub(crate) type MetalCompiler = cubecl_cpp::shared::CppCompiler<cubecl_cpp::target::Metal>;
 
 #[cfg(test)]
 mod tests_expm1;

@@ -27,7 +27,7 @@ pub fn build_kernel<R: Runtime>(
                 BufferArg::from_raw_parts(out, 1),
                 iterations,
                 use_fma,
-                dtype.into(),
+                dtype,
             )
         };
         let _ = cubecl_core::future::block_on(client.sync());
@@ -50,7 +50,7 @@ pub fn compute_direct_throughput<I: Numeric, N: Size>(
     output: &mut [Vector<I, N>],
     n_iter: usize,
     #[comptime] use_fma: bool,
-    #[define(I)] _dtype: StorageType,
+    #[define(I)] _dtype: ElemType,
 ) {
     let tid = I::cast_from(ABSOLUTE_POS);
 

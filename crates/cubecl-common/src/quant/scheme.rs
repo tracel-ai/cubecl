@@ -690,7 +690,7 @@ mod tests {
         fn max_representable_matches_the_e8m0_type() {
             assert_eq!(
                 QuantParam::UE8M0.max_representable(),
-                crate::ue8m0::MAX as f32
+                crate::ue8m0::MAX.to_f32()
             );
         }
 

@@ -125,6 +125,7 @@ impl_type_hash!(
     enumset::EnumSet<T: EnumSetType>,
     internment::Intern<T: ?Sized>,
     bumpalo::Bump,
+    pliron::value::Value,
 );
 
 macro_rules! impl_type_hash_tuple {

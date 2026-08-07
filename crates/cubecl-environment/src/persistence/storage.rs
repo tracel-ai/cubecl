@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use hashbrown::HashMap;
 
 use crate::bytes::Bytes;
-use crate::sync::{Arc, Lazy, Mutex};
+use crate::sync::{Arc, LazyLock, Mutex};
 
 /// Where an entry came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,8 +155,8 @@ pub trait Storage: Send + core::fmt::Debug {
 /// Shared globally so that a namespace opened twice, or imported and then
 /// read, sees the same entries. Without a file system that is the only way an
 /// import can outlive the call that performed it.
-static MEMORY: Lazy<Mutex<HashMap<String, Arc<Mutex<Entries>>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static MEMORY: LazyLock<Mutex<HashMap<String, Arc<Mutex<Entries>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub(crate) type Entries = HashMap<Vec<u8>, (Bytes, Origin)>;
 

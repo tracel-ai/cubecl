@@ -241,7 +241,11 @@ impl Expression {
             }
             Expression::Break => {
                 let path = frontend_path();
-                quote![#path::branch::break_expand(scope);]
+                // Break terminates the current closure scope
+                quote! {
+                    #path::branch::break_expand(scope);
+                    return;
+                }
             }
             Expression::Continue(span) => error!(*span, "Continue not supported yet"),
             Expression::Return(span) => error!(
@@ -274,9 +278,18 @@ impl Expression {
                 let block = context.in_fn_mut(scope, |ctx| block.to_tokens(ctx));
                 let var_ty = var_ty.as_ref().map(|it| quote![: #it]);
 
-                quote! {{
-                    #for_ty::for_expand(scope, #range, #unroll, |scope, #var_name #var_ty| #block);
-                }}
+                quote![#for_ty::for_expand(scope, #range, #unroll, |scope, #var_name #var_ty| #block);]
+            }
+            Expression::WhileLoop {
+                cond,
+                cond_scope,
+                body,
+                scope,
+            } => {
+                let loop_ty = frontend_type("WhileBuilder");
+                let cond = context.in_fn_mut(cond_scope, |ctx| cond.to_tokens(ctx));
+                let block = context.in_fn_mut(scope, |ctx| body.to_tokens(ctx));
+                quote![#loop_ty::new(scope, |scope| #cond).with_body(scope, |scope| #block);]
             }
             Expression::Loop { block, scope } => {
                 let loop_ty = frontend_type("branch");
@@ -722,6 +735,10 @@ impl Expression {
                     }
                 }
             }
+            Expression::Asm(asm) => asm.to_tokens(context),
+            Expression::RawMacro { path, args } => {
+                quote! {{#path!(scope, #args)}}
+            }
         }
     }
 }
@@ -924,7 +941,7 @@ fn init_fields<'a>(
 fn with_span(context: &Context, span: Span, tokens: TokenStream) -> TokenStream {
     if context.debug_symbols {
         quote_spanned! {span=>
-            scope.update_span(line!(), column!());
+            // scope.update_span(line!(), column!());
             #tokens
         }
     } else {

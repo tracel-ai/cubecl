@@ -5,8 +5,7 @@ use cubecl_core::{
     server::KernelArguments,
 };
 use cubecl_cpp::{
-    DialectWmmaCompiler,
-    metal::{MslDialect, arch::MetalArchitecture},
+    metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
     shared::{MslComputeKernel, register_wmma_features},
 };
 use cubecl_ir::{
@@ -23,7 +22,7 @@ pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibil
         // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
         // and since we can't be sure, we'll assume everything is read-write.
         if cfg!(exclusive_memory_only) {
-            it.vis
+            *it
         } else {
             Visibility::ReadWrite
         }
@@ -113,6 +112,7 @@ fn register_types(props: &mut DeviceProperties) {
     props.register_address_type(AddressType::U64);
 
     let types = [
+        ElemType::Index,
         ElemType::UInt(UIntKind::U8),
         ElemType::UInt(UIntKind::U16),
         ElemType::UInt(UIntKind::U32),
@@ -144,6 +144,6 @@ fn register_types(props: &mut DeviceProperties) {
 }
 
 fn register_cmma(props: &mut DeviceProperties) {
-    let combinations = MslDialect::supported_wmma_combinations(&MetalArchitecture::Metal3);
+    let combinations = supported_cmma_combinations_metal(&MetalArchitecture::Metal3);
     register_wmma_features(combinations, props);
 }

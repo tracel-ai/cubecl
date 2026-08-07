@@ -9,6 +9,7 @@ use cubecl::prelude::*;
 pub fn kernel_vector_index<F: Float, N: Size>(output: &mut [F]) {
     if UNIT_POS == 0 {
         let vector = Vector::<F, N>::new(F::new(5f32));
+        #[unroll]
         for i in 0..4 {
             output[i] = vector.extract(i);
         }
@@ -47,7 +48,7 @@ pub fn test_vector_index<R: Runtime, F: Float + CubeElement>(client: ComputeClie
 pub fn kernel_vector_index_assign<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     if UNIT_POS == 0 {
         let mut vector = RuntimeCell::<Vector<F, N>>::new(output[0]);
-        vector.insert(0, F::new(5f32));
+        vector.insert(0usize, F::new(5f32));
         output[0] = vector.consume();
     }
 }

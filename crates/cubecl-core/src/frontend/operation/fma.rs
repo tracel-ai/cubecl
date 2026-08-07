@@ -9,7 +9,7 @@ pub fn fma<C: CubePrimitive>(a: C, b: C, c: C) -> C {
 /// Expand method of [`fma()`].
 pub mod fma {
     use super::*;
-    use cubecl_ir::{Arithmetic, FmaOperands, Instruction, Scope};
+    use cubecl_ir::{Scope, dialect::math::FmaOp};
 
     pub fn expand<C: CubePrimitive>(
         scope: &Scope,
@@ -17,16 +17,13 @@ pub mod fma {
         b: NativeExpand<C>,
         c: NativeExpand<C>,
     ) -> NativeExpand<C> {
-        let output = scope.create_value(a.expand.value_type());
-        let a = a.expand;
-        let b = b.expand;
-        let c = c.expand;
+        let a = a.read_value(scope);
+        let b = b.read_value(scope);
+        let c = c.read_value(scope);
 
-        scope.register(Instruction::new(
-            Arithmetic::Fma(FmaOperands { a, b, c }),
-            output,
-        ));
+        let [a, b, c] = normalize_same_vectorization(scope, [a, b, c]);
 
-        output.into()
+        let op = FmaOp::new(scope.ctx_mut(), a, b, c);
+        scope.register_with_result(&op).into()
     }
 }
