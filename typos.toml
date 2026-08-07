@@ -11,6 +11,7 @@ extend-ignore-identifiers-re = [
 ]
 
 [default.extend-identifiers]
+OLT = "OLT"
 Olt = "Olt"
 Sned = "Sned"       # Intentional typo example in obfuscation.rs's macro docs.
 UE4M3 = "UE4M3"
