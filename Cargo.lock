@@ -4687,9 +4687,9 @@ dependencies = [
 
 [[package]]
 name = "tracel-rspirv"
-version = "0.13.3+sdk-1.4.357.0"
+version = "0.14.0+sdk-1.4.357.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b0d2ea2c587d60af18cee8cb48d85048a3b03565f58f02005a3813e3283be0f"
+checksum = "e18ed0062c1f1236d9c51523b310974352778b0dd3b8598f70eac580afbed27b"
 dependencies = [
  "bitflags 2.13.1",
  "rustc-hash 2.1.3",
