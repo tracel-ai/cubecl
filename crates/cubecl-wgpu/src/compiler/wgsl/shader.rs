@@ -263,33 +263,3 @@ pub fn block_to_wgsl(ctx: &Context, block: Ptr<BasicBlock>) -> String {
     }
     out
 }
-
-// impl Display for ComputeShader {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         // On wasm, writeout what extensions we're using. This is standard wgsl but not yet
-//         // supported by wgpu.
-//         if self.subgroup_instructions_used {
-//             #[cfg(target_family = "wasm")]
-//             f.write_str("enable subgroups;")?;
-//         }
-
-//         if self.f16_used {
-//             f.write_str("enable f16;")?;
-//         }
-
-//         for value in self.shared_values.iter() {
-//             let location = "workgroup";
-//             write!(
-//                 f,
-//                 "var<{location}> {}_store: {};\n\n",
-//                 value.value, value.ty,
-//             )?;
-//         }
-
-//         for extension in self.extensions.iter() {
-//             write!(f, "{extension}\n\n")?;
-//         }
-
-//         Ok(())
-//     }
-// }
