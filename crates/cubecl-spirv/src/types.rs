@@ -76,6 +76,10 @@ float_type!(Float16Type, 16, None);
 float_type!(BFloat16Type, 16, Some(FPEncoding::BFloat16KHR));
 float_type!(Float8E4M3Type, 8, Some(FPEncoding::Float8E4M3EXT));
 float_type!(Float8E5M2Type, 8, Some(FPEncoding::Float8E5M2EXT));
+float_type!(Float8E8M0Type, 8, Some(FPEncoding::Float8UnsignedE8M0EXT));
+float_type!(Float6E3M2Type, 6, Some(FPEncoding::Float6E3M2EXT));
+float_type!(Float6E2M3Type, 6, Some(FPEncoding::Float6E2M3EXT));
+float_type!(Float4E2M1Type, 4, Some(FPEncoding::Float4E2M1EXT));
 
 #[type_interface_impl]
 impl ToSpirvDialectType for BoolType {

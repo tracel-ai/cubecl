@@ -19,7 +19,7 @@ use crate::{prelude::*, settings::Dim3};
     format = "`<cube_dim: ` $cube_dim opt($cluster_dim) `>`",
     verifier = "succ"
 )]
-#[derive(new, PartialEq, Clone, Debug)]
+#[derive(new, PartialEq, Clone, Debug, Hash)]
 pub struct EntrypointAbiAttr {
     pub cube_dim: Dim3,
     pub cluster_dim: Option<Dim3>,
@@ -33,7 +33,7 @@ dict_key!(ATTR_BUFFER_BINDING, "buffer_binding");
 dict_key!(ATTR_TENSOR_MAP_BINDING, "tensor_map_binding");
 
 #[pliron_attr(name = "cube.buffer_io", format, verifier = "succ")]
-#[derive(new, PartialEq, Clone, Copy, Debug)]
+#[derive(new, PartialEq, Clone, Copy, Debug, Hash)]
 pub enum BufferIOAttr {
     ReadOnly,
     WriteOnly,
@@ -62,7 +62,7 @@ dict_key!(ATTR_BUFFER_IO, "binding_io");
     format = "`<(` $buffer_pos `, ` opt($ext_meta_pos) `)`",
     verifier = "succ"
 )]
-#[derive(new, PartialEq, Clone, Copy, Debug)]
+#[derive(new, PartialEq, Clone, Copy, Debug, Hash)]
 pub struct BufferBindingAttr {
     pub buffer_pos: usize,
     pub ext_meta_pos: Option<usize>,

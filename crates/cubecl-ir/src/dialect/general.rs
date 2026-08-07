@@ -256,7 +256,7 @@ simplify!(SelectOp, {
 });
 
 #[pliron_attr(name = "cube.builtin", format, verifier = "succ")]
-#[derive(new, From, PartialEq, Clone, Debug)]
+#[derive(new, From, PartialEq, Clone, Debug, Hash)]
 pub struct BuiltinAttr(pub Builtin);
 
 #[cube_op(

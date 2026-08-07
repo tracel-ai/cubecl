@@ -65,7 +65,7 @@ wgsl_op_with_out!(ReadDynamicMetaOp; |op, ctx| {
 });
 
 #[pliron_attr(name = "wgsl.field", format = "`@` $name `: ` $ty", verifier = "succ")]
-#[derive(Debug, Clone, PartialEq, Eq, new)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, new)]
 pub struct FieldAttr {
     pub name: Identifier,
     pub ty: TypeHandle,

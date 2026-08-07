@@ -142,8 +142,8 @@ futures-util = { version = "0.3.32", default-features = false, features = [
 ] }
 
 # CubeCL-CPU
-sysinfo = "0.39"
 libc = "^0.2.186"
+sysinfo = "0.39"
 winapi = { version = "^0.3.9", features = ["processthreadsapi", "winbase"] }
 
 inflections = "1"
@@ -158,7 +158,7 @@ llvm-sys = { version = "221", features = [
     "no-llvm-linking",
     "disable-alltargets-init",
 ] }
-tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
+tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "034a7674379d7d53d420ade2f43a31723b6bd6bb" }
 
 cudarc = { version = "0.19.6", features = [
     "std",
@@ -171,10 +171,10 @@ cudarc = { version = "0.19.6", features = [
 ], default-features = false } # CubeCL-CUDA
 
 # CubeCL-SPIR-V
-# pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
-# rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
-pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "7c59c46f4248ba92e3b06d411c0a2e8cce379025" }
-rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "7c59c46f4248ba92e3b06d411c0a2e8cce379025", package = "tracel-rspirv" }
+pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
+rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
+# pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "7c59c46f4248ba92e3b06d411c0a2e8cce379025" }
+# rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "7c59c46f4248ba92e3b06d411c0a2e8cce379025", package = "tracel-rspirv" }
 rustc_apfloat = "0.2"
 
 # CubeCL-WGPU

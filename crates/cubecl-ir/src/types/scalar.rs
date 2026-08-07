@@ -36,7 +36,7 @@ impl AlignedType for IntegerType {
 #[type_interface_impl]
 impl SizedType for IntegerType {
     fn size(&self, _ctx: &Context) -> usize {
-        self.width() as usize / 8
+        self.width().div_ceil(8) as usize
     }
 }
 

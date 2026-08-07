@@ -803,8 +803,8 @@ impl Display for Scope {
 
 fn init_bool_flag(ctx: &mut Context, inserter: &mut dyn Inserter, name: &str) -> Value {
     let bool = TypeAttr::new(BoolType::get(ctx).to_handle());
-    let false_ = BoolAttr::new(true).into();
-    let flag = DeclareVariableOp::new(ctx, bool, AddressSpace::Local, 1, Some(false_));
+    let r#true = BoolAttr::new(true).into();
+    let flag = DeclareVariableOp::new(ctx, bool, AddressSpace::Local, 1, Some(r#true));
     inserter.append_op(ctx, &flag);
     set_operation_result_name(ctx, flag.get_operation(), 0, Some(ident(name)));
     flag.get_result(ctx)
