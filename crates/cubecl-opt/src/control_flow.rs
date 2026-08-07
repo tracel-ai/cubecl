@@ -194,23 +194,23 @@ impl Function {
                 self.add_edge(current_block, case_id, 0);
                 self.current_block = Some(case_id);
                 let is_break = self.parse_scope(state, case);
-                let is_ret = if let Some(current_block) = self.current_block {
+                let falls_through = if let Some(current_block) = self.current_block {
                     self.add_edge(current_block, next, 0);
-                    false
+                    true
                 } else {
-                    !is_break
+                    false
                 };
                 let val = match val.as_const().expect("Switch value must be constant") {
                     ConstantValue::Int(val) => unsafe { transmute::<i32, u32>(val as i32) },
                     ConstantValue::UInt(val) => val as u32,
                     _ => unreachable!("Switch cases must be integer"),
                 };
-                (val, case_id, is_break, is_ret)
+                (val, case_id, is_break, falls_through)
             })
             .collect::<Vec<_>>();
 
         let is_break_branch = branches.iter().any(|it| it.2);
-        let mut is_ret = branches.iter().any(|it| it.3);
+        let mut falls_through = branches.iter().any(|it| it.3);
         let branches = branches
             .into_iter()
             .map(|it| (it.0, it.1))
@@ -223,17 +223,17 @@ impl Function {
 
         if let Some(current_block) = self.current_block {
             self.add_edge(current_block, next, 0);
-        } else {
-            is_ret = !is_break_def;
+            falls_through = true;
         }
 
+        // A case may only branch to the merge the switch declares, so any case reaching `next`
+        // forces it to be that merge. Returning cases end in their own terminator and need none.
         let merge = if is_break_def || is_break_branch {
             None
-        } else if is_ret {
-            Some(self.ret)
-        } else {
-            self[next].block_use.push(BlockUse::Merge);
+        } else if falls_through {
             Some(next)
+        } else {
+            Some(self.ret)
         };
 
         *self[current_block].control_flow.borrow_mut() = ControlFlow::Switch {
