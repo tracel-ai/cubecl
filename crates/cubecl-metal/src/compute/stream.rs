@@ -1,5 +1,6 @@
 use crate::memory::MetalStorage;
 use cubecl_core::{MemoryConfiguration, server::ServerError};
+use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
@@ -14,7 +15,7 @@ use objc2_metal::{
     MTLDevice, MTLSharedEvent,
 };
 use std::ptr::NonNull;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Active encoder state for batching multiple kernel dispatches.
 pub struct ActiveEncoder {
