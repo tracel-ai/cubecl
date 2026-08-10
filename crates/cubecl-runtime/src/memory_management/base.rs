@@ -133,6 +133,12 @@ pub struct MemoryPoolReport {
     /// same allocation stream against `pages_peak * page_size` fits by
     /// construction.
     pub pages_peak: u64,
+    /// How many of the current pages have no device backing yet — carved
+    /// under a dry run and never resolved into anything that executes. They
+    /// count toward `pages`/`pages_peak` (the plan is the *reserved* stream)
+    /// while costing no device memory; `pages - pages_unmapped` is the dry
+    /// run's actual footprint in this pool.
+    pub pages_unmapped: u64,
     /// The largest single allocation this pool ever served, in requested
     /// (pre-padding) bytes.
     pub largest_alloc: u64,

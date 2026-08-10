@@ -9,7 +9,9 @@ use crate::{
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 
-use super::{ManagedMemoryBinding, ManagedMemoryHandle, MemoryPool, Slice, calculate_padding};
+use super::{
+    ManagedMemoryBinding, ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding,
+};
 
 /// A memory pool that allocates buffers in a range of sizes and reuses them to minimize allocations.
 ///
@@ -98,6 +100,8 @@ impl ExclusiveMemoryPool {
             usage: self.get_memory_usage(),
             pages: self.pages.len() as u64,
             pages_peak: self.pages_peak,
+            // This pool only allocates eagerly.
+            pages_unmapped: 0,
             largest_alloc: self.largest_alloc,
         }
     }
@@ -184,6 +188,11 @@ impl MemoryPool for ExclusiveMemoryPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
+        // Always eager: this pool serves the preset layouts and the auxiliary
+        // (staging/uniform/pinned) managers, whose buffers are written right
+        // after reservation — laziness would only move the same allocation
+        // one call later.
+        _mapping: PageMapping,
     ) -> Result<ManagedMemoryHandle, IoError> {
         if size > self.max_alloc_size {
             return Err(IoError::BufferTooBig {

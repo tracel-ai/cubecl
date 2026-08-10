@@ -1089,6 +1089,16 @@ impl CudaServer {
             },
         )?;
 
+        // A skipped launch stops here, after compilation and before anything
+        // that touches a buffer: resolving resources, building tensor maps,
+        // uploading metadata or reading a dynamic cube count would
+        // materialize memory a dry run exists to leave unmapped (and the
+        // readback would block on garbage values).
+        if launch_mode.is_skipped() {
+            command.compile_only(&kernel_id, kernel, mode, logger)?;
+            return Ok(());
+        }
+
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
             // TODO: CUDA doesn't have an exact equivalent of dynamic dispatch. Instead, kernels are free to launch other kernels.

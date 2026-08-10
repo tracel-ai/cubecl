@@ -5,6 +5,23 @@ use crate::{
     storage::{ComputeStorage, StorageHandle},
 };
 
+/// Whether a fresh device page gets real backing at allocation time.
+///
+/// `Lazy` is the dry-run form: the page's storage id is minted but no driver
+/// memory exists behind it, so the pool's bookkeeping (slice carving,
+/// coalescing, high-water marks) runs identically while the device footprint
+/// stays zero. Backing is installed on demand —
+/// [`MemoryPool::materialize`] — the first time one of the page's slices is
+/// resolved into something that executes. A dry run's skipped launches never
+/// resolve, so only what a measurement actually touches gets mapped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageMapping {
+    /// Allocate device memory now, as always.
+    Eager,
+    /// Mint the id, defer the device allocation to first resolution.
+    Lazy,
+}
+
 /// Declares how memory is allocated in a reusable pool.
 pub trait MemoryPool {
     /// Whether the memory pool accepts the given size.
@@ -54,11 +71,30 @@ pub trait MemoryPool {
     /// The function uses a [`ComputeStorage`] to perform the allocation. It might return an error
     /// if the allocation fails or if the requested size is bigger than the memory pool is
     /// configured to handle.
+    ///
+    /// `mapping` asks for real device backing now (`Eager`) or on first
+    /// resolution (`Lazy`); a pool without lazy support treats `Lazy` as
+    /// `Eager` — the worst case is always today's footprint, never more.
     fn alloc<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         size: u64,
+        mapping: PageMapping,
     ) -> Result<ManagedMemoryHandle, IoError>;
+
+    /// Ensure the allocation behind `binding` has real device backing,
+    /// installing it now if the allocation was made [`PageMapping::Lazy`].
+    /// Must be called before the binding's storage handle reaches
+    /// [`ComputeStorage::get`]. A no-op for pools that only allocate eagerly
+    /// and for bindings this pool does not hold (lookup errors surface from
+    /// [`find`](Self::find), not from here).
+    fn materialize<Storage: ComputeStorage>(
+        &mut self,
+        _storage: &mut Storage,
+        _binding: &ManagedMemoryBinding,
+    ) -> Result<(), IoError> {
+        Ok(())
+    }
 
     /// Computes the [`MemoryUsage`] for this pool.
     fn get_memory_usage(&self) -> MemoryUsage;
@@ -79,6 +115,11 @@ pub(crate) struct Slice {
     pub handle: ManagedMemoryHandle,
     pub padding: u64,
     pub cursor: u64,
+    /// Whether `storage.id` is backed by a real device allocation. Only pools
+    /// whose slices own their whole buffer (the persistent pool) track
+    /// laziness here; sliced pools track it on the page, whose id every slice
+    /// shares.
+    pub mapped: bool,
 }
 
 impl Slice {
@@ -88,6 +129,7 @@ impl Slice {
             handle: ManagedMemoryHandle::new(),
             padding,
             cursor: 0,
+            mapped: true,
         }
     }
     /// If the slice is free to be reused.

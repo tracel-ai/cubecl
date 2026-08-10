@@ -465,6 +465,22 @@ impl<'a> Command<'a> {
     /// # Panics
     ///
     /// * If the execution fails, with an error message or profiling error.
+    /// Compile and cache `kernel` without launching — everything a skipped
+    /// launch owes the caches, and nothing else: no buffer is resolved, so a
+    /// dry run's lazily-carved allocations stay unmapped.
+    pub fn compile_only(
+        &mut self,
+        kernel_id: &KernelId,
+        kernel: Box<dyn CubeTask<HipCompiler>>,
+        mode: ExecutionMode,
+        logger: Arc<ServerLogger>,
+    ) -> Result<(), LaunchError> {
+        if !self.ctx.is_loaded(kernel_id) {
+            self.ctx.compile_kernel(kernel_id, kernel, mode, logger)?;
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn kernel(
         &mut self,

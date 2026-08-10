@@ -133,6 +133,30 @@ impl CpuServer {
         self.prepare_task_inner(kernel, cube_count, bindings, kind)
     }
 
+    /// Compile and cache `kernel` without scheduling anything — everything a
+    /// skipped launch owes the caches, touching no buffer.
+    fn compile_only(
+        &mut self,
+        kernel: Box<dyn CubeTask<CpuCompiler>>,
+        kind: ExecutionMode,
+    ) -> Result<(), CompilationError> {
+        let kernel_id = kernel.id();
+        if self.compilation_cache.get(&kernel_id).is_some() {
+            return Ok(());
+        }
+        let definition = kernel.define();
+        let compiled = kernel.compile(
+            definition,
+            &mut Default::default(),
+            &MlirCompilerOptions::default(),
+            kind,
+            kernel.address_type(),
+        )?;
+        self.compilation_cache
+            .insert(kernel_id, CpuKernel::new(compiled));
+        Ok(())
+    }
+
     fn prepare_task_inner(
         &mut self,
         kernel: Box<dyn CubeTask<CpuCompiler>>,
@@ -141,23 +165,11 @@ impl CpuServer {
         kind: ExecutionMode,
     ) -> Result<ScheduleTask, CompilationError> {
         let kernel_id = kernel.id();
-        let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
-            kernel
-        } else {
-            let definition = kernel.define();
-            let kernel = kernel.compile(
-                definition,
-                &mut Default::default(),
-                &MlirCompilerOptions::default(),
-                kind,
-                kernel.address_type(),
-            )?;
-            self.compilation_cache
-                .insert(kernel_id.clone(), CpuKernel::new(kernel));
-            self.compilation_cache
-                .get_mut(&kernel_id)
-                .expect("Just inserted")
-        };
+        self.compile_only(kernel, kind)?;
+        let kernel = self
+            .compilation_cache
+            .get_mut(&kernel_id)
+            .expect("just compiled");
 
         let cube_dim = kernel.mlir.cube_dim;
 
@@ -305,6 +317,15 @@ impl ComputeServer for CpuServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
+        // A skipped launch stops here, after compilation and before anything
+        // that touches a buffer: resolving resources or reading a dynamic
+        // cube count would materialize memory a dry run exists to leave
+        // unmapped.
+        if launch_mode.is_skipped() {
+            self.compile_only(kernel, kind).unwrap();
+            return;
+        }
+
         self.streams_pool.clear();
         bindings
             .buffers
@@ -312,10 +333,6 @@ impl ComputeServer for CpuServer {
             .for_each(|b| self.streams_pool.push(b.stream));
         let bindings = self.prepare_bindings(bindings);
         let task = self.prepare_task(kernel, count, bindings, kind).unwrap();
-
-        if launch_mode.is_skipped() {
-            return;
-        }
 
         self.scheduler.register(stream_id, task, &self.streams_pool);
     }

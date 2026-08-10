@@ -2,10 +2,10 @@ use crate::{
     memory_management::{
         BytesFormat, ManagedMemoryHandle, MemoryLocation, MemoryPoolKind, MemoryPoolReport,
         MemoryUsage,
-        memory_pool::{MemoryPage, MemoryPool, Slice},
+        memory_pool::{MemoryPage, MemoryPool, PageMapping, Slice},
     },
     server::IoError,
-    storage::StorageId,
+    storage::{StorageHandle, StorageId, StorageUtilization},
 };
 use alloc::vec::Vec;
 use core::fmt::Display;
@@ -79,6 +79,11 @@ impl SlicedPool {
             usage: self.get_memory_usage(),
             pages: self.pages.len() as u64,
             pages_peak: self.pages_peak,
+            pages_unmapped: self
+                .pages
+                .iter()
+                .filter(|(page, _)| !page.is_mapped())
+                .count() as u64,
             largest_alloc: self.largest_alloc,
         }
     }
@@ -87,13 +92,33 @@ impl SlicedPool {
     fn alloc_page<Storage: crate::storage::ComputeStorage>(
         &mut self,
         storage: &mut Storage,
+        mapping: PageMapping,
     ) -> Result<usize, IoError> {
-        let storage = storage.alloc(self.page_size)?;
-        let storage_id = storage.id;
         let mut location_base = self.location_base;
         location_base.page = self.pages.len() as u16;
 
-        let page = MemoryPage::new(storage, self.alignment, location_base);
+        let page = match mapping {
+            PageMapping::Eager => {
+                let storage = storage.alloc(self.page_size)?;
+                MemoryPage::new(storage, self.alignment, location_base)
+            }
+            // A minted id with no device memory behind it: the page carves,
+            // coalesces and counts toward the high-water exactly like a real
+            // one, and is rebound to a real allocation on first resolution
+            // (`materialize`).
+            PageMapping::Lazy => MemoryPage::new_unmapped(
+                StorageHandle::new(
+                    StorageId::new(),
+                    StorageUtilization {
+                        offset: 0,
+                        size: self.page_size,
+                    },
+                ),
+                self.alignment,
+                location_base,
+            ),
+        };
+        let storage_id = page.storage_id();
         self.pages.push((page, storage_id));
         self.pages_peak = self.pages_peak.max(self.pages.len() as u64);
 
@@ -148,6 +173,7 @@ impl MemoryPool for SlicedPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
+        mapping: PageMapping,
     ) -> Result<super::ManagedMemoryHandle, crate::server::IoError> {
         // `alloc` is only called after `try_reserve` coalesced every page and
         // found no fit, so hitting the cap here means the working set truly
@@ -163,12 +189,36 @@ impl MemoryPool for SlicedPool {
             });
         }
 
-        let index = self.alloc_page(storage)?;
+        let index = self.alloc_page(storage, mapping)?;
         let (page, _) = &mut self.pages[index];
         let returned = page.try_reserve(size);
         self.largest_alloc = self.largest_alloc.max(size);
 
         Ok(returned.expect("effective_size to be smaller than page_size"))
+    }
+
+    fn materialize<Storage: crate::storage::ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        binding: &super::ManagedMemoryBinding,
+    ) -> Result<(), IoError> {
+        let page_index = binding.descriptor().page();
+        // An out-of-range page is `find`'s error to report, not ours.
+        let Some((page, id)) = self.pages.get_mut(page_index) else {
+            return Ok(());
+        };
+        if page.is_mapped() {
+            return Ok(());
+        }
+
+        // The virtual carving *is* the layout: allocate the page for real and
+        // rebind — every slice keeps its offset, the minted id ceases to
+        // exist (it never reached the driver).
+        let real = storage.alloc(self.page_size)?;
+        page.rebind_storage(real.id);
+        *id = real.id;
+
+        Ok(())
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
@@ -206,7 +256,11 @@ impl MemoryPool for SlicedPool {
             let summary = page.summary(false);
 
             if summary.amount_free == summary.amount_total {
-                storage.dealloc(id);
+                // An unmapped page has nothing behind its minted id; handing
+                // it to the driver's deferred-free queue would be garbage.
+                if page.is_mapped() {
+                    storage.dealloc(id);
+                }
             } else {
                 let page_pos = self.pages_tmp.len() as u16;
                 page.update_page(page_pos);

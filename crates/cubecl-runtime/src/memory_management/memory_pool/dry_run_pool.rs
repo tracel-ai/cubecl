@@ -46,7 +46,8 @@ impl DryRunPool {
     }
 
     /// Serve a measurement's allocation: an exact-size free slice when one
-    /// exists, a fresh device allocation otherwise.
+    /// exists, a fresh device allocation otherwise. Always real memory — the
+    /// benchmarks execute against it.
     pub fn reserve<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
@@ -55,7 +56,25 @@ impl DryRunPool {
         if let Some(handle) = self.pool.try_reserve(size) {
             return Ok(handle);
         }
-        self.pool.alloc(storage, size)
+        self.pool.alloc(storage, size, super::PageMapping::Eager)
+    }
+
+    /// Whether the pool holds any slices at all — the cheap gate in front of
+    /// [`flush_free`](Self::flush_free).
+    pub fn is_empty(&self) -> bool {
+        self.pool.get_memory_usage().bytes_reserved == 0
+    }
+
+    /// Return every free slice to the driver, now.
+    ///
+    /// Called between measurements (never during one — benchmark iterations
+    /// must stay allocation-free, so exact-fit reuse holds while a
+    /// [`RealRun`](crate::dry_run::RealRun) is open): each tune batch's
+    /// scratch dies as soon as the workload allocates again, so the pool's
+    /// peak is one batch's working set instead of the whole schedule's
+    /// accumulation.
+    pub fn flush_free<Storage: ComputeStorage>(&mut self, storage: &mut Storage) {
+        self.pool.cleanup(storage, 0, true);
     }
 
     pub fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {

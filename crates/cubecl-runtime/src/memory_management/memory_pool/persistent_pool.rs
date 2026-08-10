@@ -1,6 +1,9 @@
-use super::{ManagedMemoryHandle, ManagedMemoryId, MemoryPool, Slice, calculate_padding};
+use super::{
+    ManagedMemoryHandle, ManagedMemoryId, MemoryPool, PageMapping, Slice, calculate_padding,
+};
 use crate::memory_management::{BytesFormat, MemoryLocation, MemoryPoolKind, MemoryPoolReport};
 use crate::storage::StorageUtilization;
+use crate::storage::{StorageHandle, StorageId};
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -70,6 +73,7 @@ impl PersistentPool {
             usage: self.get_memory_usage(),
             pages: self.slices.len() as u64,
             pages_peak: self.pages_peak,
+            pages_unmapped: self.slices.iter().filter(|slice| !slice.mapped).count() as u64,
             largest_alloc: self.largest_alloc,
         }
     }
@@ -138,12 +142,30 @@ impl MemoryPool for PersistentPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
+        mapping: PageMapping,
     ) -> Result<ManagedMemoryHandle, IoError> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
-        let storage_handle = storage.alloc(effective_size)?;
+        // Every persistent slice owns its whole buffer, so laziness is
+        // per-slice: a minted id under a dry run (a scratch session's KV
+        // cache, for instance) costs nothing until a measurement actually
+        // touches it — see [`MemoryPool::materialize`].
+        let (storage_handle, mapped) = match mapping {
+            PageMapping::Eager => (storage.alloc(effective_size)?, true),
+            PageMapping::Lazy => (
+                StorageHandle::new(
+                    StorageId::new(),
+                    StorageUtilization {
+                        offset: 0,
+                        size: effective_size,
+                    },
+                ),
+                false,
+            ),
+        };
         let mut slice = Slice::new(storage_handle, padding);
+        slice.mapped = mapped;
         slice.storage.utilization = StorageUtilization { offset: 0, size };
         let slice_id = slice.descriptor();
         let slice_pos = self.slices.len();
@@ -196,7 +218,11 @@ impl MemoryPool for PersistentPool {
 
             for slice in self.slices.drain(..) {
                 if slice.is_free() {
-                    storage.dealloc(slice.storage.id);
+                    // A minted-but-never-materialized id has nothing behind
+                    // it for the driver to free.
+                    if slice.mapped {
+                        storage.dealloc(slice.storage.id);
+                    }
                 } else {
                     let slice_pos = slices.len();
                     let effective_size = slice.effective_size();
@@ -234,6 +260,26 @@ impl MemoryPool for PersistentPool {
 
         Ok(())
     }
+
+    fn materialize<Storage: crate::storage::ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        binding: &super::ManagedMemoryBinding,
+    ) -> Result<(), IoError> {
+        // An out-of-range slice is `find`'s error to report, not ours.
+        let Some(slice) = self.slices.get_mut(binding.descriptor().slice()) else {
+            return Ok(());
+        };
+        if slice.mapped {
+            return Ok(());
+        }
+
+        let real = storage.alloc(slice.effective_size())?;
+        slice.storage.id = real.id;
+        slice.mapped = true;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -257,7 +303,9 @@ mod tests {
             "test needs non-zero padding so alloc vs try_reserve keys differed pre-fix"
         );
 
-        let handle = pool.alloc(&mut storage, size).expect("alloc");
+        let handle = pool
+            .alloc(&mut storage, size, PageMapping::Eager)
+            .expect("alloc");
         assert!(
             pool.try_reserve(size).is_none(),
             "slice must stay reserved while the handle is alive"
@@ -279,7 +327,7 @@ mod tests {
         let result = pool.try_reserve(1024);
         assert!(result.is_none(), "No alloc yet");
 
-        let alloc1 = pool.alloc(&mut storage, 1024);
+        let alloc1 = pool.alloc(&mut storage, 1024, PageMapping::Eager);
         let result = pool.try_reserve(1024);
         assert!(result.is_none(), "No free slice yet, handle1 is alive");
 
@@ -291,7 +339,7 @@ mod tests {
         let result = pool.try_reserve(1025);
         assert!(result.is_none(), "Not the same size.");
 
-        let alloc2 = pool.alloc(&mut storage, 1024);
+        let alloc2 = pool.alloc(&mut storage, 1024, PageMapping::Eager);
         let usage = pool.get_memory_usage();
         assert_eq!(usage.bytes_in_use, 1024);
         assert_eq!(usage.bytes_reserved, 2048);

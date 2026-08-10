@@ -1,6 +1,8 @@
 use super::{
     MemoryConfiguration, MemoryPoolOptions, MemoryReport, MemoryUsage, PoolType,
-    memory_pool::{DryRunPool, ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPool},
+    memory_pool::{
+        DryRunPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool,
+    },
 };
 use crate::{
     config::{
@@ -67,10 +69,22 @@ impl MemoryPool for DynamicPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
+        mapping: PageMapping,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
-            DynamicPool::Sliced(m) => m.alloc(storage, size),
-            DynamicPool::Exclusive(m) => m.alloc(storage, size),
+            DynamicPool::Sliced(m) => m.alloc(storage, size, mapping),
+            DynamicPool::Exclusive(m) => m.alloc(storage, size, mapping),
+        }
+    }
+
+    fn materialize<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        binding: &ManagedMemoryBinding,
+    ) -> Result<(), IoError> {
+        match self {
+            DynamicPool::Sliced(m) => m.materialize(storage, binding),
+            DynamicPool::Exclusive(m) => m.materialize(storage, binding),
         }
     }
 
@@ -913,10 +927,35 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         Ok(slice)
     }
 
-    /// Returns the storage from the specified binding
+    /// Returns the storage from the specified binding.
+    ///
+    /// This is the funnel every buffer dereference passes through
+    /// ([`get_resource`](Self::get_resource) delegates here), so it is where
+    /// a lazily-carved allocation gets its real device backing: the handle
+    /// returned always refers to mapped memory.
     pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Result<StorageHandle, IoError> {
+        self.materialize(&binding)?;
         let slice = self.find(binding)?;
         Ok(slice.storage.clone())
+    }
+
+    /// Install real backing behind `binding` when its allocation was carved
+    /// lazily under a dry run. Lookup errors are left for
+    /// [`find`](Self::find) to report with its usual diagnostics.
+    fn materialize(&mut self, binding: &ManagedMemoryBinding) -> Result<(), IoError> {
+        let location = binding.descriptor().location();
+        if location.init == 0 {
+            return Ok(());
+        }
+        match location.pool {
+            PERSISTENT_POOL_POS => self.persistent.materialize(&mut self.storage, binding),
+            // Always eager: measurements execute against it.
+            DRY_RUN_POOL_POS => Ok(()),
+            pool => match self.pools.get_mut(pool as usize) {
+                Some(pool) => pool.materialize(&mut self.storage, binding),
+                None => Ok(()),
+            },
+        }
     }
 
     /// Returns the resource from the storage at the specified handle
@@ -966,6 +1005,28 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // hard about overflow here.
         self.alloc_reserve_count += 1;
 
+        // What backing a fresh allocation gets. Under a dry run the
+        // workload's allocations are reservations only — the stream is being
+        // measured, not executed — so pages are carved without device memory
+        // and materialize on first resolution ([`get_storage`](Self::get_storage)).
+        // A measurement's own allocations stay eager (they execute); outside
+        // a dry run everything is eager, exactly as before.
+        let mapping = match crate::dry_run::dry_run() && !crate::dry_run::measuring() {
+            true => PageMapping::Lazy,
+            false => PageMapping::Eager,
+        };
+
+        // The first workload allocation after a measurement is where the
+        // measurement's scratch dies — as soon as possible, never *during*
+        // one (see [`DryRunPool::flush_free`]). Free outside captures only;
+        // nothing may be freed while one records.
+        if matches!(mapping, PageMapping::Lazy)
+            && self.capture.is_none()
+            && !self.dry_run.is_empty()
+        {
+            self.dry_run.flush_free(&mut self.storage);
+        }
+
         // In an explicit persistent window the pool always serves the
         // allocation (reusing a freed same-size slice when one exists).
         // Outside a window, the pool participates only under the `size-match`
@@ -992,7 +1053,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
 
         if persistent_mode || (size_match && self.persistent.has_size(size)) {
-            let allocated = self.persistent.alloc(&mut self.storage, size);
+            let allocated = self.persistent.alloc(&mut self.storage, size, mapping);
 
             self.logger.log_memory(
                 |level| !matches!(level, MemoryLogLevel::Disabled),
@@ -1039,7 +1100,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 return Ok(slice);
             }
 
-            match pool.alloc(&mut self.storage, size) {
+            match pool.alloc(&mut self.storage, size, mapping) {
                 Ok(handle) => {
                     reserved = Some(handle);
                     break;

@@ -17,7 +17,8 @@ use cubecl_runtime::config::size::MemorySize;
 use cubecl_runtime::dry_run::{DryRun, RealRun};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
-    MemoryConfiguration, MemoryManagement, MemoryManagementOptions, MemoryPoolKind,
+    MemoryAllocationMode, MemoryConfiguration, MemoryManagement,
+    MemoryManagementOptions, MemoryPoolKind,
 };
 use cubecl_runtime::storage::BytesStorage;
 
@@ -250,6 +251,7 @@ fn full_capped_pool_spills_to_tail() {
 }
 
 #[test]
+#[serial_test::serial]
 fn dry_run_scratch_stays_out_of_the_plan() {
     // Inside a dry run, allocations made by a measurement (RealRun) are
     // scratch for the benchmark being timed, not part of the workload's
@@ -313,4 +315,137 @@ fn dry_run_scratch_stays_out_of_the_plan() {
     }
 
     drop(workload_alloc);
+}
+
+/// The phase-2 laziness invariant: a dry run's workload reservations carve
+/// pages, count toward every high-water mark, and cost no device memory —
+/// backing is installed on demand the first time a binding is resolved into
+/// something that executes (mapped ⊆ reserved, worst case = eager).
+#[test]
+#[serial_test::serial]
+fn dry_run_reservations_stay_unmapped_until_resolved() {
+    let growable = MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+        page_size: MemorySize(MIB),
+        max_slice_size: None,
+        max_pool_size: None,
+        dealloc_period: None,
+    }]);
+    let mut memory_management = manage(&growable);
+
+    let dry_run = DryRun::new();
+    let reserved = memory_management.reserve(600 * 1024).unwrap();
+
+    let report = memory_management.memory_report();
+    assert_eq!(report.dynamic[0].pages, 1, "the page was carved");
+    assert_eq!(
+        report.dynamic[0].pages_peak, 1,
+        "and counts toward the plan"
+    );
+    assert_eq!(
+        report.dynamic[0].pages_unmapped, 1,
+        "but has no device backing: {report:?}"
+    );
+
+    // Resolution is the materialization point: after it the handle refers to
+    // real memory and the page reads as mapped.
+    let storage = memory_management
+        .get_storage(reserved.clone().binding())
+        .unwrap();
+    assert_eq!(storage.size(), 600 * 1024);
+    assert_eq!(
+        memory_management.memory_report().dynamic[0].pages_unmapped,
+        0,
+        "resolution installed the backing"
+    );
+
+    drop(reserved);
+    drop(dry_run);
+
+    // Unmapped or mapped, cleanup must not corrupt anything.
+    memory_management.cleanup(true);
+    assert_eq!(memory_management.memory_report().dynamic[0].pages, 0);
+}
+
+/// Persistent reservations under a dry run are lazy too — a scratch session's
+/// KV cache is the big one — and materialize per slice when a measurement
+/// actually touches them.
+#[test]
+#[serial_test::serial]
+fn dry_run_persistent_reservations_stay_unmapped() {
+    let growable = MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+        page_size: MemorySize(MIB),
+        max_slice_size: None,
+        max_pool_size: None,
+        dealloc_period: None,
+    }]);
+    let mut memory_management = manage(&growable);
+    memory_management.mode(MemoryAllocationMode::Persistent);
+
+    let dry_run = DryRun::new();
+    let kv = memory_management.reserve(512 * 1024).unwrap();
+
+    let report = memory_management.memory_report();
+    assert_eq!(report.persistent.pages, 1);
+    assert_eq!(
+        report.persistent.pages_unmapped, 1,
+        "a dry-run persistent slice has no backing yet: {report:?}"
+    );
+
+    let storage = memory_management.get_storage(kv.clone().binding()).unwrap();
+    assert_eq!(storage.size(), 512 * 1024);
+    assert_eq!(
+        memory_management.memory_report().persistent.pages_unmapped,
+        0
+    );
+
+    drop(kv);
+    drop(dry_run);
+    memory_management.mode(MemoryAllocationMode::Auto);
+}
+
+/// A measurement's scratch dies at the first workload allocation after it —
+/// as soon as possible, and never *during* a measurement, whose iterations
+/// must stay allocation-free on the exact-fit reuse.
+#[test]
+#[serial_test::serial]
+fn measurement_scratch_dies_at_the_next_workload_allocation() {
+    let growable = MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+        page_size: MemorySize(MIB),
+        max_slice_size: None,
+        max_pool_size: None,
+        dealloc_period: None,
+    }]);
+    let mut memory_management = manage(&growable);
+
+    let dry_run = DryRun::new();
+    {
+        let _measurement = RealRun::new();
+        let scratch = memory_management.reserve(300 * 1024).unwrap();
+        drop(scratch);
+        // Same size again: reused, not reallocated — the timed loop stays
+        // allocation-free.
+        let scratch = memory_management.reserve(300 * 1024).unwrap();
+        drop(scratch);
+    }
+
+    // Parked while the measurement was open…
+    let parked = memory_management
+        .memory_report()
+        .dry_run
+        .expect("the scratch pool served the measurement");
+    assert!(parked.usage.bytes_reserved > 0, "{parked:?}");
+    assert_eq!(parked.pages_peak, 1, "exact-fit reuse, one slice");
+
+    // …and returned to the driver at the next workload reservation.
+    let _workload = memory_management.reserve(64 * 1024).unwrap();
+    let flushed = memory_management
+        .memory_report()
+        .dry_run
+        .expect("the peak stays recorded");
+    assert_eq!(
+        flushed.usage.bytes_reserved, 0,
+        "the batch's scratch went back to the driver: {flushed:?}"
+    );
+
+    drop(dry_run);
 }
