@@ -624,6 +624,25 @@ pub trait DialectInstructions<D: Dialect> {
         item: Item<D>,
     ) -> std::fmt::Result;
 
+    /// Packed signed int8×4 dot-product accumulate (`a`,`b` are packed i32 words).
+    /// Default: portable signed-byte polyfill. CUDA overrides with `__dp4a`.
+    fn compile_dp4a(
+        f: &mut std::fmt::Formatter<'_>,
+        a: &Value<D>,
+        b: &Value<D>,
+        c: &Value<D>,
+    ) -> std::fmt::Result {
+        // Extract signed bytes via arithmetic shift, then MAC into c.
+        write!(
+            f,
+            "({c} + \
+((((int){a}) << 24) >> 24) * ((((int){b}) << 24) >> 24) + \
+((((int){a}) << 16) >> 24) * ((((int){b}) << 16) >> 24) + \
+((((int){a}) << 8) >> 24) * ((((int){b}) << 8) >> 24) + \
+(((int){a}) >> 24) * (((int){b}) >> 24))"
+        )
+    }
+
     // debug
     fn compile_instruction_printf(
         f: &mut std::fmt::Formatter<'_>,

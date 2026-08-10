@@ -215,6 +215,33 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.write(&out, out_id);
                 }
             }
+            Arithmetic::Dp4a(op) => {
+                // a/b are packed i32 words of four signed i8 lanes; result is i32 accumulate.
+                let a = self.compile_value(op.a);
+                let b = self.compile_value(op.b);
+                let c = self.compile_value(op.c);
+                let out = self.compile_value(out);
+                let out_ty = out.item();
+                let a_id = self.read(&a);
+                let b_id = self.read(&b);
+                let c_id = self.read_as(&c, &out_ty);
+                let out_id = self.write_id(&out);
+                self.mark_uniformity(out_id, uniform);
+
+                self.capabilities.insert(Capability::DotProduct);
+                // Bitcast packed i32 -> vec4<i8>, then OpSDot -> i32, then add c.
+                let i8x4 = Item::Vector(Elem::Int(8, true), 4);
+                let i8x4_ty = i8x4.id(self);
+                let a_vec = self.id();
+                let b_vec = self.id();
+                self.bitcast(i8x4_ty, Some(a_vec), a_id).unwrap();
+                self.bitcast(i8x4_ty, Some(b_vec), b_id).unwrap();
+                let dot_id = self.id();
+                let dot_ty = out_ty.id(self);
+                self.s_dot(dot_ty, Some(dot_id), a_vec, b_vec, None).unwrap();
+                self.i_add(dot_ty, Some(out_id), dot_id, c_id).unwrap();
+                self.write(&out, out_id);
+            }
             Arithmetic::Fma(op) => {
                 let a = self.compile_value(op.a);
                 let b = self.compile_value(op.b);

@@ -257,6 +257,38 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_value(out, result);
             }
+            Arithmetic::Dp4a(op) => {
+                // Portable signed-byte polyfill for packed int8×4 DOT + accumulate.
+                let a = self.get_value(op.a);
+                let b = self.get_value(op.b);
+                let c = self.get_value(op.c);
+                let ty = op.a.ty;
+                let mut acc = c;
+                for shift in [0i64, 8, 16, 24] {
+                    let sh = self.create_int_constant_from_item(ty, shift);
+                    let a_s = self.append_operation_with_result(arith::shrsi(a, sh, self.location));
+                    let b_s = self.append_operation_with_result(arith::shrsi(b, sh, self.location));
+                    let mask = self.create_int_constant_from_item(ty, 0xff);
+                    let a_b =
+                        self.append_operation_with_result(arith::andi(a_s, mask, self.location));
+                    let b_b =
+                        self.append_operation_with_result(arith::andi(b_s, mask, self.location));
+                    // Sign-extend byte via (x ^ 0x80) - 0x80
+                    let xor_c = self.create_int_constant_from_item(ty, 0x80);
+                    let a_x =
+                        self.append_operation_with_result(arith::xori(a_b, xor_c, self.location));
+                    let b_x =
+                        self.append_operation_with_result(arith::xori(b_b, xor_c, self.location));
+                    let a_se =
+                        self.append_operation_with_result(arith::subi(a_x, xor_c, self.location));
+                    let b_se =
+                        self.append_operation_with_result(arith::subi(b_x, xor_c, self.location));
+                    let prod =
+                        self.append_operation_with_result(arith::muli(a_se, b_se, self.location));
+                    acc = self.append_operation_with_result(arith::addi(acc, prod, self.location));
+                }
+                self.insert_value(out, acc);
+            }
             Arithmetic::Log(log) => {
                 let value = self.get_value(log.input);
                 let result = self.append_operation_with_result(llvm_ods::intr_log(
