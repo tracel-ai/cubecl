@@ -17,8 +17,8 @@ use cubecl_runtime::config::size::MemorySize;
 use cubecl_runtime::dry_run::{DryRun, RealRun};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
-    MemoryAllocationMode, MemoryConfiguration, MemoryManagement,
-    MemoryManagementOptions, MemoryPoolKind,
+    MemoryAllocationMode, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
+    MemoryPoolKind,
 };
 use cubecl_runtime::storage::BytesStorage;
 

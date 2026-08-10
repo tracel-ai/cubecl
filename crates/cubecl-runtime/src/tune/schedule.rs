@@ -392,6 +392,37 @@ impl Schedule {
             let indices = plan.next();
 
             if indices.is_empty() {
+                // Every candidate failed. A candidate that *executed* but
+                // could not be *measured* — `Unknown` wraps benchmark-harness
+                // failures like a profiling hiccup (timestamp query sets on a
+                // busy stream), `InvalidSamples` collected timings it cannot
+                // trust — is still a usable kernel: decide the first such,
+                // unmeasured, rather than panicking the device thread. A
+                // dead tune poisons every stream sharing it, and the decided
+                // kernel executes for real right after — if it truly cannot
+                // run, that failure surfaces there, exactly as a measured
+                // winner's would. Only launch failures and manual skips say
+                // the kernel itself is unusable; when nothing else remains,
+                // there is genuinely no kernel to run.
+                let executed_unmeasured = results.iter().position(|result| {
+                    matches!(
+                        &result.outcome,
+                        Err(AutotuneError::Unknown { .. })
+                            | Err(AutotuneError::InvalidSamples { .. })
+                    )
+                });
+                if let Some(index) = executed_unmeasured {
+                    log::warn!(
+                        "Autotune measured no candidate for key {key:?}; \
+                         deciding candidate {index} unmeasured.\n - results: {results:?}"
+                    );
+                    return PlanOutcome {
+                        steps,
+                        short_circuit: None,
+                        decided: Some(index),
+                    };
+                }
+
                 panic!(
                     "Can't execute the autotune plan for key: {key:?}\n - plan: {plan:?}\n - results: {results:?}"
                 );
