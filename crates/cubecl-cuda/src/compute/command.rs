@@ -97,6 +97,14 @@ impl<'a> Command<'a> {
             let sys = stream.sys;
             stream.drop_queue.flush(|| Fence::new(sys));
             stream.drop_queue.flush(|| Fence::new(sys));
+            // The info cache's buffers are live slices in the dynamic pools;
+            // an explicit cleanup exists to leave those pools empty (e.g. for
+            // a rebuild sized to the next workload), so every entry not
+            // pinned by a live graph goes too. Safe during `Prepare` for the
+            // same reason the flush is: an entry warmup touched is pinned and
+            // kept, and one it has not touched yet is recreated on its next
+            // miss — allocations are still legal until recording begins.
+            stream.info_cache.clear_unpinned();
         }
         stream.memory_management_gpu.cleanup(true);
         stream.memory_management_cpu.cleanup(true);
