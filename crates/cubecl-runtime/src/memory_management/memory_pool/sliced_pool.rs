@@ -1,6 +1,7 @@
 use crate::{
     memory_management::{
-        BytesFormat, ManagedMemoryHandle, MemoryLocation, MemoryUsage,
+        BytesFormat, ManagedMemoryHandle, MemoryLocation, MemoryPoolKind, MemoryPoolReport,
+        MemoryUsage,
         memory_pool::{MemoryPage, MemoryPool, Slice},
     },
     server::IoError,
@@ -20,6 +21,12 @@ pub struct SlicedPool {
     /// Max number of pages (`floor(max_pool_size / page_size)`).
     /// `None` keeps unbounded growth.
     max_pages: Option<u16>,
+    /// The most pages ever held at once. Pages are only freed by an explicit
+    /// cleanup, so this is the pool's true high-water mark whenever one runs
+    /// mid-workload.
+    pages_peak: u64,
+    /// The largest allocation ever served, in requested (pre-padding) bytes.
+    largest_alloc: u64,
 }
 
 impl SlicedPool {
@@ -56,6 +63,23 @@ impl SlicedPool {
             max_alloc_size: max_slice_size.min(page_size),
             location_base: MemoryLocation::new(pool_pos, 0, 0),
             max_pages,
+            pages_peak: 0,
+            largest_alloc: 0,
+        }
+    }
+
+    /// A structured snapshot of the pool: shape, usage, high-water marks.
+    pub(crate) fn report(&self) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Sliced {
+                page_size: self.page_size,
+                max_slice_size: self.max_alloc_size,
+                max_pool_size: self.max_pages.map(|pages| pages as u64 * self.page_size),
+            },
+            usage: self.get_memory_usage(),
+            pages: self.pages.len() as u64,
+            pages_peak: self.pages_peak,
+            largest_alloc: self.largest_alloc,
         }
     }
 
@@ -71,6 +95,7 @@ impl SlicedPool {
 
         let page = MemoryPage::new(storage, self.alignment, location_base);
         self.pages.push((page, storage_id));
+        self.pages_peak = self.pages_peak.max(self.pages.len() as u64);
 
         Ok(self.pages.len() - 1)
     }
@@ -107,6 +132,7 @@ impl MemoryPool for SlicedPool {
         for (page, _) in self.pages.iter_mut() {
             page.coalesce();
             if let Some(handle) = page.try_reserve(size) {
+                self.largest_alloc = self.largest_alloc.max(size);
                 return Some(handle);
             }
         }
@@ -140,6 +166,7 @@ impl MemoryPool for SlicedPool {
         let index = self.alloc_page(storage)?;
         let (page, _) = &mut self.pages[index];
         let returned = page.try_reserve(size);
+        self.largest_alloc = self.largest_alloc.max(size);
 
         Ok(returned.expect("effective_size to be smaller than page_size"))
     }

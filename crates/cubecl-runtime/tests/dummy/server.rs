@@ -268,6 +268,13 @@ impl ComputeServer for DummyServer {
         Ok(self.memory_management.memory_usage())
     }
 
+    fn memory_report(
+        &mut self,
+        _stream_id: StreamId,
+    ) -> Result<cubecl_runtime::memory_management::MemoryReport, ServerError> {
+        Ok(self.memory_management.memory_report())
+    }
+
     fn memory_cleanup(&mut self, _stream_id: StreamId) {
         self.memory_management.cleanup(true);
     }

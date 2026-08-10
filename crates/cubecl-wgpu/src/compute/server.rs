@@ -29,7 +29,9 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(feature = "spirv")]
 use cubecl_runtime::compiler::{KernelCacheKey, compilation_store, store_compiled};
-use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage, SharedMemoryBindings};
+use cubecl_runtime::memory_management::{
+    ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
+};
 use cubecl_runtime::{
     compiler::{CompilationCache, CubeTask},
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -471,6 +473,12 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         Ok(stream.mem_manage.memory_usage())
+    }
+
+    fn memory_report(&mut self, stream_id: StreamId) -> Result<MemoryReport, ServerError> {
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        Ok(stream.mem_manage.memory_report())
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {

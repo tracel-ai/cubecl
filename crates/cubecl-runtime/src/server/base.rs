@@ -8,7 +8,7 @@ use crate::{
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
-        ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration, MemoryUsage,
+        ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration, MemoryReport, MemoryUsage,
     },
     runtime::Runtime,
     server::Binding,
@@ -503,6 +503,12 @@ where
 
     /// Memory usage of the given stream.
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
+
+    /// Structured per-pool report of the given stream's **main GPU** memory:
+    /// each pool's shape, usage, and high-water marks, in allocation-routing
+    /// order. The read side of a measured memory plan — see
+    /// [`MemoryManagement::memory_report`](crate::memory_management::MemoryManagement::memory_report).
+    fn memory_report(&mut self, stream_id: StreamId) -> Result<MemoryReport, ServerError>;
 
     /// Stream ids the client should iterate to aggregate across the device.
     ///

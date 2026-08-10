@@ -4,7 +4,7 @@ use crate::{
     id::GraphId,
     kernel::KernelMetadata,
     logging::ProfileLevel,
-    memory_management::{MemoryAllocationMode, MemoryConfiguration, MemoryUsage},
+    memory_management::{MemoryAllocationMode, MemoryConfiguration, MemoryReport, MemoryUsage},
     runtime::Runtime,
     server::{
         CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
@@ -1079,6 +1079,29 @@ impl<R: Runtime> ComputeClient<R> {
                         Ok(acc.combine(server.memory_usage(id)?))
                     })
             })
+            .unwrap_or_resume()
+    }
+
+    /// Structured per-pool report of the **calling stream's** main GPU memory:
+    /// each pool's shape, usage, and high-water marks, in allocation-routing
+    /// order.
+    ///
+    /// This is the read side of a measured memory plan. The cycle: install a
+    /// growable layout with
+    /// [`configure_memory_pools`](Self::configure_memory_pools), run the
+    /// workload once under a [`DryRun`](crate::dry_run::DryRun) — the same
+    /// allocation stream with no compute — read this report, and re-install
+    /// the layout capped at the observed `pages_peak`. Pool placement is
+    /// deterministic, so replaying the same stream against the capped layout
+    /// fits by construction.
+    ///
+    /// Unlike [`memory_usage`](Self::memory_usage), which aggregates across
+    /// streams, this reads one stream: pools are per stream, and a plan is
+    /// measured and installed on the stream that runs the workload.
+    pub fn memory_report(&self) -> Result<MemoryReport, ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.memory_report(stream_id))
             .unwrap_or_resume()
     }
 

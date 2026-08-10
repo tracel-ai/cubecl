@@ -140,6 +140,10 @@ impl WgpuMemManager {
         self.memory_pool.memory_usage()
     }
 
+    pub(crate) fn memory_report(&self) -> cubecl_runtime::memory_management::MemoryReport {
+        self.memory_pool.memory_report()
+    }
+
     pub(crate) fn memory_cleanup(&mut self, explicit: bool) {
         self.memory_pool.cleanup(explicit);
     }

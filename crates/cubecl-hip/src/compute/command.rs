@@ -28,7 +28,7 @@ use cubecl_runtime::{
     dry_run::LaunchMode,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport},
     stream::ResolvedStreams,
 };
 use std::{ffi::c_void, sync::Arc};
@@ -67,6 +67,11 @@ impl<'a> Command<'a> {
     /// * The [`MemoryUsage`] struct.
     pub fn memory_usage(&mut self) -> MemoryUsage {
         self.streams.current().memory_management_gpu.memory_usage()
+    }
+
+    /// Structured per-pool report of the current stream's main GPU memory.
+    pub fn memory_report(&mut self) -> MemoryReport {
+        self.streams.current().memory_management_gpu.memory_report()
     }
 
     /// Explicitly cleanup gpu memory on the current stream.

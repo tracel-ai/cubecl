@@ -655,6 +655,15 @@ impl ComputeServer for MetalServer {
         Ok(stream.memory_management.memory_usage())
     }
 
+    fn memory_report(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<cubecl_runtime::memory_management::MemoryReport, ServerError> {
+        let mut resolved = self.streams.resolve(stream_id, std::iter::empty(), false)?;
+        let stream = resolved.current();
+        Ok(stream.memory_management.memory_report())
+    }
+
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
             let stream = resolved.current();

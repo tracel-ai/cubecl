@@ -279,6 +279,14 @@ impl ComputeServer for CpuServer {
         Ok(stream.memory_management.memory_usage())
     }
 
+    fn memory_report(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<cubecl_runtime::memory_management::MemoryReport, ServerError> {
+        let stream = self.scheduler.stream(&stream_id);
+        Ok(stream.memory_management.memory_report())
+    }
+
     fn stream_ids(&self) -> Vec<StreamId> {
         self.scheduler.stream_ids().collect()
     }

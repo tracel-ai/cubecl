@@ -50,6 +50,21 @@ pub fn launch_mode() -> LaunchMode {
     LaunchMode::Skip
 }
 
+/// Whether this thread is currently inside a [`RealRun`] scope — issuing a
+/// measurement (an autotune benchmark and its scratch) rather than the
+/// workload itself.
+///
+/// Memory management reads this during a dry run to keep measurement scratch
+/// out of the workload's pools: a dry run reproduces the workload's exact
+/// allocation stream, which makes the pools' high-water marks a measured
+/// memory plan, and only the allocations made *for* measurements are not part
+/// of that stream. Meaningful on the thread that issues the allocation, which
+/// is the thread that performs it: server access is serialized, so an
+/// allocation is served synchronously on the thread that asked for it.
+pub fn measuring() -> bool {
+    real_run::depth() > 0
+}
+
 /// How many dry runs are open in this process.
 ///
 /// A depth rather than a flag so overlapping guards compose: a swap-and-restore

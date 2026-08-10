@@ -32,7 +32,7 @@ use cubecl_runtime::{
     dry_run::LaunchMode,
     id::GraphId,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryReport, MemoryUsage},
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
     stream::MultiStream,
@@ -637,6 +637,17 @@ impl ComputeServer for CudaServer {
             },
         )?;
         Ok(command.memory_usage())
+    }
+
+    fn memory_report(&mut self, stream_id: StreamId) -> Result<MemoryReport, ServerError> {
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: false,
+                flush: false,
+            },
+        )?;
+        Ok(command.memory_report())
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {

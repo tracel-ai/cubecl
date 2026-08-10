@@ -1,5 +1,5 @@
 use super::{ManagedMemoryHandle, ManagedMemoryId, MemoryPool, Slice, calculate_padding};
-use crate::memory_management::{BytesFormat, MemoryLocation};
+use crate::memory_management::{BytesFormat, MemoryLocation, MemoryPoolKind, MemoryPoolReport};
 use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
@@ -13,6 +13,10 @@ pub struct PersistentPool {
     alignment: u64,
     max_alloc_size: u64,
     location_base: MemoryLocation,
+    /// The most slices (one device allocation each) ever held at once.
+    pages_peak: u64,
+    /// The largest allocation ever served, in requested (pre-padding) bytes.
+    largest_alloc: u64,
 }
 
 impl core::fmt::Display for PersistentPool {
@@ -54,6 +58,19 @@ impl PersistentPool {
             max_alloc_size,
             alignment,
             location_base: MemoryLocation::new(pool_pos, 0, 0),
+            pages_peak: 0,
+            largest_alloc: 0,
+        }
+    }
+
+    /// A structured snapshot of the pool: shape, usage, high-water marks.
+    pub(crate) fn report(&self) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Persistent,
+            usage: self.get_memory_usage(),
+            pages: self.slices.len() as u64,
+            pages_peak: self.pages_peak,
+            largest_alloc: self.largest_alloc,
         }
     }
 
@@ -108,6 +125,7 @@ impl MemoryPool for PersistentPool {
                 if slice.is_free() {
                     slice.storage.utilization.size = size;
                     slice.storage.utilization.offset = 0;
+                    self.largest_alloc = self.largest_alloc.max(size);
                     return Some(slice.handle.clone());
                 }
             }
@@ -144,6 +162,8 @@ impl MemoryPool for PersistentPool {
 
         let handle = slice.handle.clone();
         self.slices.push(slice);
+        self.pages_peak = self.pages_peak.max(self.slices.len() as u64);
+        self.largest_alloc = self.largest_alloc.max(size);
 
         Ok(handle)
     }

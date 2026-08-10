@@ -1,4 +1,5 @@
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
 /// Amount of memory in use by this allocator
 /// and statistics on how much memory is reserved and
@@ -91,6 +92,72 @@ impl core::fmt::Display for MemoryUsage {
         writeln!(f, "  Usage efficiency: {usage_percentage:.2}%")?;
         writeln!(f, "  Padding overhead: {padding_percentage:.2}%")
     }
+}
+
+/// The pool shape a [`MemoryPoolReport`] describes, carrying the pool's
+/// effective configuration (after alignment rounding and page-size shrinking).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryPoolKind {
+    /// Allocations are slices carved from shared pages.
+    Sliced {
+        /// The size of each device page.
+        page_size: u64,
+        /// The largest allocation the pool accepts.
+        max_slice_size: u64,
+        /// The pool's byte cap (`None` grows unbounded).
+        max_pool_size: Option<u64>,
+    },
+    /// Every allocation is its own device page.
+    Exclusive {
+        /// The largest allocation the pool accepts.
+        max_alloc_size: u64,
+    },
+    /// Exact-fit slices that are reused only by identical size.
+    Persistent,
+}
+
+/// A structured snapshot of one memory pool: its shape, its current usage, and
+/// the high-water marks a memory plan is derived from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryPoolReport {
+    /// The pool's shape and effective configuration.
+    pub kind: MemoryPoolKind,
+    /// The pool's current usage.
+    pub usage: MemoryUsage,
+    /// Device allocations (pages) currently held.
+    pub pages: u64,
+    /// The most device allocations ever held at once.
+    ///
+    /// For a sliced pool this is the number a capped re-configuration needs:
+    /// pages are carved by a deterministic first-fit policy, so replaying the
+    /// same allocation stream against `pages_peak * page_size` fits by
+    /// construction.
+    pub pages_peak: u64,
+    /// The largest single allocation this pool ever served, in requested
+    /// (pre-padding) bytes.
+    pub largest_alloc: u64,
+}
+
+/// A per-pool report of one [`MemoryManagement`](super::MemoryManagement)
+/// instance — the read side of a measured memory plan.
+///
+/// The intended cycle: install a growable layout, run the workload once under
+/// a [`DryRun`](crate::dry_run::DryRun) (same allocation stream, no compute),
+/// read this report, and re-install the same layout capped at the observed
+/// `pages_peak`. Padding then comes only from alignment and the first-fit
+/// remainders the dry run already measured.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryReport {
+    /// One entry per dynamic pool, in allocation-routing order — the same
+    /// order the layout was configured with.
+    pub dynamic: Vec<MemoryPoolReport>,
+    /// The persistent pool (weights, caches; explicit persistent windows).
+    pub persistent: MemoryPoolReport,
+    /// The measurement scratch pool, present when a dry run routed
+    /// [`measuring`](crate::dry_run::measuring) allocations away from the
+    /// dynamic pools. Never part of a derived plan: measurements are already
+    /// cached when the plan is replayed.
+    pub measurement: Option<MemoryPoolReport>,
 }
 
 /// The managed tensor buffer handle that points to some memory segment.

@@ -14,9 +14,10 @@ use std::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::config::memory::{MemoryPoolConfig, MemoryPoolsConfig};
 use cubecl_runtime::config::size::MemorySize;
+use cubecl_runtime::dry_run::{DryRun, RealRun};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
-    MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
+    MemoryConfiguration, MemoryManagement, MemoryManagementOptions, MemoryPoolKind,
 };
 use cubecl_runtime::storage::BytesStorage;
 
@@ -147,4 +148,169 @@ fn configure_rebuilds_pools_in_place() {
     drop(live);
     assert!(memory_management.configure(bigger, &props()));
     let _large = memory_management.reserve(2 * MIB).unwrap();
+}
+
+fn manage(pools: &MemoryPoolsConfig) -> MemoryManagement<BytesStorage> {
+    let resolved = MemoryConfiguration::default()
+        .resolve(Some(pools), &props())
+        .unwrap();
+    MemoryManagement::from_configuration(
+        BytesStorage::default(),
+        &props(),
+        resolved,
+        Arc::new(ServerLogger::default()),
+        MemoryManagementOptions::new("Main GPU Memory"),
+    )
+}
+
+#[test]
+fn measured_plan_cycle() {
+    // The whole measured-plan cycle. Phase 1: run the workload's allocation
+    // stream against a growable arena (in production this happens under a
+    // `DryRun`, where it costs no compute). Phase 2: read the report and cap
+    // the arena at the observed high-water. Phase 3: replay the same stream —
+    // pool placement is deterministic, so it fits the cap by construction.
+    let growable = MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+        page_size: MemorySize(MIB),
+        max_slice_size: None,
+        max_pool_size: None,
+        dealloc_period: None,
+    }]);
+    let mut memory_management = manage(&growable);
+
+    // A workload-shaped stream: long-lived buffers overlapping transients,
+    // with a reuse (the 900 KiB fits where the dropped 600 KiB was, after
+    // coalescing with the page remainder).
+    let workload = |memory_management: &mut MemoryManagement<BytesStorage>| {
+        let a = memory_management.reserve(600 * 1024).unwrap();
+        let b = memory_management.reserve(600 * 1024).unwrap();
+        drop(a);
+        let c = memory_management.reserve(900 * 1024).unwrap();
+        drop(b);
+        drop(c);
+    };
+    workload(&mut memory_management);
+
+    let report = memory_management.memory_report();
+    let arena = &report.dynamic[0];
+    let MemoryPoolKind::Sliced { page_size, .. } = arena.kind else {
+        panic!("the arena is a sliced pool");
+    };
+    assert_eq!(arena.largest_alloc, 900 * 1024);
+    assert_eq!(arena.pages_peak, 2, "two pages while a, b overlap");
+
+    // Cap the arena at the measured high-water.
+    let capped = MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+        page_size: MemorySize(page_size),
+        max_slice_size: None,
+        max_pool_size: Some(MemorySize(page_size * arena.pages_peak)),
+        dealloc_period: None,
+    }]);
+    let resolved = MemoryConfiguration::default()
+        .resolve(Some(&capped), &props())
+        .unwrap();
+    memory_management.cleanup(true);
+    assert!(memory_management.configure(resolved, &props()));
+
+    // The replayed stream fits the cap without growing past the plan.
+    workload(&mut memory_management);
+    let replayed = memory_management.memory_report();
+    assert_eq!(replayed.dynamic[0].pages_peak, arena.pages_peak);
+}
+
+#[test]
+fn full_capped_pool_spills_to_tail() {
+    // A measured arena with a growable tail behind it: an allocation the plan
+    // has no room for spills to the tail (loudly, in the logs) instead of
+    // failing — the escape hatch for a stream the dry run never measured.
+    // With no tail, the same situation is an error (covered above in
+    // `programmatic_pools_override_runtime_default`).
+    let pools = MemoryPoolsConfig::Explicit(vec![
+        MemoryPoolConfig::Sliced {
+            page_size: MemorySize(MIB),
+            max_slice_size: None,
+            max_pool_size: Some(MemorySize(MIB)),
+            dealloc_period: None,
+        },
+        MemoryPoolConfig::Sliced {
+            page_size: MemorySize(4 * MIB),
+            max_slice_size: None,
+            max_pool_size: None,
+            dealloc_period: None,
+        },
+    ]);
+    let mut memory_management = manage(&pools);
+
+    let _planned = memory_management.reserve(MIB).unwrap();
+    let _off_plan = memory_management.reserve(MIB).unwrap();
+
+    let report = memory_management.memory_report();
+    assert_eq!(report.dynamic[0].pages_peak, 1, "the arena stayed capped");
+    assert_eq!(report.dynamic[1].pages_peak, 1, "the tail caught the spill");
+}
+
+#[test]
+fn measurement_scratch_stays_out_of_the_plan() {
+    // Inside a dry run, allocations made by a measurement (RealRun) are
+    // scratch for the benchmark being timed, not part of the workload's
+    // stream: they must not inflate the high-water marks the dry run measures.
+    let growable = MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+        page_size: MemorySize(MIB),
+        max_slice_size: None,
+        max_pool_size: None,
+        dealloc_period: None,
+    }]);
+    let mut memory_management = manage(&growable);
+
+    let dry_run = DryRun::new();
+
+    // The workload's own allocation lands in the arena as usual.
+    let workload_alloc = memory_management.reserve(64 * 1024).unwrap();
+
+    {
+        let _measurement = RealRun::new();
+        let scratch = memory_management.reserve(300 * 1024).unwrap();
+        assert!(
+            memory_management
+                .get_cursor(scratch.clone().binding())
+                .is_ok(),
+            "measurement scratch is a normal, usable allocation"
+        );
+        drop(scratch);
+        // Same size again: the exact-fit pool reuses the slice.
+        let _scratch = memory_management.reserve(300 * 1024).unwrap();
+    }
+
+    let report = memory_management.memory_report();
+    assert_eq!(
+        report.dynamic[0].pages_peak, 1,
+        "only the workload's allocation counts toward the plan"
+    );
+    let scratch = report.measurement.expect("measurement scratch is reported");
+    assert_eq!(scratch.pages_peak, 1, "the same-size scratch was reused");
+    assert_eq!(scratch.largest_alloc, 300 * 1024);
+
+    // Outside a dry run a measurement allocates normally: the pools recycle
+    // its scratch fine, and routing it away would change production behavior.
+    drop(dry_run);
+    {
+        let _measurement = RealRun::new();
+        let _normal = memory_management.reserve(512 * 1024).unwrap();
+        let report = memory_management.memory_report();
+        assert_eq!(
+            report.dynamic[0].usage.bytes_in_use,
+            (64 + 512) * 1024,
+            "the allocation landed in the arena, beside the workload's"
+        );
+        assert_eq!(
+            report
+                .measurement
+                .expect("earlier scratch still reported")
+                .pages_peak,
+            1,
+            "nothing new reached the scratch pool"
+        );
+    }
+
+    drop(workload_alloc);
 }

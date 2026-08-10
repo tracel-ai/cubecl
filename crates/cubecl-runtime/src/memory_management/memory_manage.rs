@@ -1,5 +1,5 @@
 use super::{
-    MemoryConfiguration, MemoryPoolOptions, MemoryUsage, PoolType,
+    MemoryConfiguration, MemoryPoolOptions, MemoryReport, MemoryUsage, PoolType,
     memory_pool::{ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPool},
 };
 use crate::{
@@ -107,6 +107,15 @@ impl MemoryPool for DynamicPool {
     }
 }
 
+impl DynamicPool {
+    fn report(&self) -> super::MemoryPoolReport {
+        match self {
+            DynamicPool::Sliced(m) => m.report(),
+            DynamicPool::Exclusive(m) => m.report(),
+        }
+    }
+}
+
 #[derive(Default, Clone, Copy, Debug)]
 /// The mode of allocation used.
 pub enum MemoryAllocationMode {
@@ -122,6 +131,12 @@ pub enum MemoryAllocationMode {
 pub struct MemoryManagement<Storage> {
     name: String,
     persistent: PersistentPool,
+    /// Exact-fit scratch for the allocations measurements make during a dry
+    /// run (see [`reserve`](Self::reserve)). Isolated so measurement scratch
+    /// never inflates the dynamic pools' high-water marks — the quantity a dry
+    /// run exists to measure. Empty outside dry runs; freed like the
+    /// persistent pool, on explicit cleanup.
+    measurement: PersistentPool,
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
@@ -296,7 +311,7 @@ impl core::fmt::Display for PoolConfigError {
             PoolConfigError::TooManyPools { count } => write!(
                 f,
                 "the pool list has {count} entries, exceeding the maximum of {} dynamic pools",
-                PERSISTENT_POOL_POS - 1
+                MEASUREMENT_POOL_POS - 1
             ),
             PoolConfigError::PresetUnavailable { preset } => {
                 write!(f, "the `{preset}` preset is not available in this build")
@@ -357,10 +372,11 @@ impl MemoryConfiguration {
                     return Err(PoolConfigError::EmptyPoolList);
                 }
                 // Slices route through their pool's position, and the
-                // persistent pool owns the sentinel position, so the list must
-                // stay addressable below it — checked here so the caller gets
-                // the error instead of a panic on the device thread.
-                if entries.len() >= PERSISTENT_POOL_POS as usize {
+                // persistent and measurement pools own the two top sentinel
+                // positions, so the list must stay addressable below them —
+                // checked here so the caller gets the error instead of a panic
+                // on the device thread.
+                if entries.len() >= MEASUREMENT_POOL_POS as usize {
                     return Err(PoolConfigError::TooManyPools {
                         count: entries.len(),
                     });
@@ -465,6 +481,11 @@ fn pool_options_from_entry(
 /// [`MemoryManagement::configure`] rebuilds the dynamic pools with a
 /// different count.
 const PERSISTENT_POOL_POS: u8 = u8::MAX;
+
+/// The pool position stamped on measurement-scratch slices (see
+/// [`MemoryManagement::reserve`]). A fixed sentinel for the same reason as
+/// [`PERSISTENT_POOL_POS`]: the pool outlives dynamic-pool rebuilds.
+const MEASUREMENT_POOL_POS: u8 = u8::MAX - 1;
 
 /// Build the dynamic pools for `config` — the shared core of
 /// [`MemoryManagement::from_configuration`] and
@@ -582,9 +603,9 @@ fn build_pools(
     );
 
     assert!(
-        pool_options.len() < PERSISTENT_POOL_POS as usize,
+        pool_options.len() < MEASUREMENT_POOL_POS as usize,
         "at most {} dynamic pools are supported",
-        PERSISTENT_POOL_POS
+        MEASUREMENT_POOL_POS - 1
     );
 
     pool_options
@@ -649,6 +670,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 properties.alignment,
                 PERSISTENT_POOL_POS,
             ),
+            // Accepts any size: what a measurement allocates is not the
+            // caller's to bound, and the storage errors on a truly
+            // unallocatable size anyway.
+            measurement: PersistentPool::new(u64::MAX, properties.alignment, MEASUREMENT_POOL_POS),
             pools,
             storage,
             alloc_reserve_count: 0,
@@ -809,6 +834,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         self.persistent
             .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
+        self.measurement
+            .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
 
         for pool in self.pools.iter_mut() {
             pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
@@ -841,6 +868,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let slice = if id.location().pool == PERSISTENT_POOL_POS {
             self.persistent.find(&binding)?
+        } else if id.location().pool == MEASUREMENT_POOL_POS {
+            self.measurement.find(&binding)?
         } else {
             let pool =
                 self.pools
@@ -973,21 +1002,59 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
         );
 
-        // Find first pool that fits this allocation
-        let pool = self
-            .pools
-            .iter_mut()
-            .find(|p| p.accept(size))
-            .ok_or(IoError::BufferTooBig {
-                size,
-                backtrace: BackTrace::capture(),
-            })?;
-
-        if let Some(slice) = pool.try_reserve(size) {
-            return Ok(slice);
+        // Allocations a measurement makes inside a dry run are scratch for the
+        // benchmark being timed, not part of the workload's allocation stream.
+        // Serving them from the dynamic pools would inflate the high-water
+        // marks a dry run exists to measure (see
+        // [`memory_report`](Self::memory_report)), so they are isolated in an
+        // exact-fit pool of their own, freed on explicit cleanup. Outside a
+        // dry run nothing changes: measurement scratch is transient and the
+        // dynamic pools recycle it fine.
+        if crate::dry_run::dry_run() && crate::dry_run::measuring() {
+            if let Some(handle) = self.measurement.try_reserve(size) {
+                return Ok(handle);
+            }
+            return self.measurement.alloc(&mut self.storage, size);
         }
 
-        let allocated = pool.alloc(&mut self.storage, size);
+        // Serve from the first pool that accepts this size and has capacity. A
+        // hard-capped pool that is full falls through to the next accepting
+        // pool instead of failing outright, so a growable tail pool can act as
+        // an escape hatch behind a measured arena.
+        let mut capacity_exceeded = None;
+        let mut reserved = None;
+
+        for pool in self.pools.iter_mut().filter(|pool| pool.accept(size)) {
+            if let Some(slice) = pool.try_reserve(size) {
+                return Ok(slice);
+            }
+
+            match pool.alloc(&mut self.storage, size) {
+                Ok(handle) => {
+                    reserved = Some(handle);
+                    break;
+                }
+                Err(err @ IoError::PoolCapacityExceeded { .. }) => {
+                    // Loud on purpose: a spill means the cap was under-planned
+                    // (e.g. a workload the dry run never measured), and the
+                    // escape hatch serving it must not hide that.
+                    log::warn!(
+                        "[{}] memory pool at capacity for an allocation of {size} B; \
+                         spilling to the next accepting pool",
+                        self.name
+                    );
+                    capacity_exceeded = Some(err);
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        let Some(reserved) = reserved else {
+            return Err(capacity_exceeded.unwrap_or_else(|| IoError::BufferTooBig {
+                size,
+                backtrace: BackTrace::capture(),
+            }));
+        };
 
         self.logger.log_memory(
             |level| matches!(level, MemoryLogLevel::Full),
@@ -999,7 +1066,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
         );
 
-        allocated
+        Ok(reserved)
     }
 
     /// Fetch the storage used by the memory manager.
@@ -1027,7 +1094,28 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
             |m1, m2| m1.combine(m2),
         );
-        memory_usage.combine(self.persistent.get_memory_usage())
+        memory_usage
+            .combine(self.persistent.get_memory_usage())
+            .combine(self.measurement.get_memory_usage())
+    }
+
+    /// A structured per-pool report: each pool's shape, usage, and high-water
+    /// marks, in allocation-routing order.
+    ///
+    /// This is the read side of a measured memory plan: install a growable
+    /// layout, run the workload once under a
+    /// [`DryRun`](crate::dry_run::DryRun) — the same allocation stream with no
+    /// compute — then cap the layout at the `pages_peak` observed here.
+    /// Because the pools' placement policy is deterministic, replaying the
+    /// same stream against the capped layout fits by construction.
+    pub fn memory_report(&self) -> MemoryReport {
+        let measurement = self.measurement.report();
+
+        MemoryReport {
+            dynamic: self.pools.iter().map(|pool| pool.report()).collect(),
+            persistent: self.persistent.report(),
+            measurement: (measurement.pages_peak > 0).then_some(measurement),
+        }
     }
 
     /// Print out a report of the current memory usage.
@@ -1060,6 +1148,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             self.capture_touch(&assigned);
             return self.persistent.bind(reserved, assigned, cursor);
         }
+        if pool_index == MEASUREMENT_POOL_POS as usize {
+            return self.measurement.bind(reserved, assigned, cursor);
+        }
 
         self.pools
             .get_mut(pool_index)
@@ -1076,6 +1167,12 @@ impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
         f.write_str("\n# MemoryManagement\n\n")?;
         f.write_fmt(format_args!(" - name: {:?}\n", self.name))?;
         f.write_fmt(format_args!("\n## Persistent\n\n{}", self.persistent))?;
+        if self.measurement.report().pages_peak > 0 {
+            f.write_fmt(format_args!(
+                "\n## Measurement scratch\n\n{}",
+                self.measurement
+            ))?;
+        }
         f.write_str("\n## Dynamic\n\n")?;
 
         for pool in self.pools.iter() {
@@ -1393,7 +1490,13 @@ mod tests {
     }
 
     #[test_log::test]
-    fn capacity_error_does_not_fall_through_to_later_pool() {
+    fn capacity_overflow_falls_through_to_later_accepting_pool() {
+        // A capped pool that is full spills to the next accepting pool — with
+        // a warning, never silently — so a growable tail pool can serve as an
+        // escape hatch behind a measured arena. When no later pool accepts the
+        // size, the capacity error still surfaces (see
+        // `capped_sliced_pool_errors_instead_of_growing`), keeping the
+        // budget-vs-device-OOM distinction schedulers rely on.
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
@@ -1422,15 +1525,16 @@ mod tests {
         );
 
         let _fill = memory_management.reserve(1024).unwrap();
-        assert!(matches!(
-            memory_management.reserve(1024),
-            Err(IoError::PoolCapacityExceeded { .. })
-        ));
+        let _overflow = memory_management.reserve(1024).unwrap();
         assert_eq!(
             memory_management.memory_usage().bytes_reserved,
-            1024,
-            "the overflow must not silently land in the later pool"
+            2048,
+            "the overflow landed in the later pool, not a second arena page"
         );
+
+        let report = memory_management.memory_report();
+        assert_eq!(report.dynamic[0].pages_peak, 1, "the cap held");
+        assert_eq!(report.dynamic[1].pages_peak, 1, "the tail caught the spill");
     }
 
     #[test_log::test]
