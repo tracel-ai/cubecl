@@ -141,6 +141,9 @@ pub struct MemoryManagement<Storage> {
     storage: Storage,
     alloc_reserve_count: u64,
     mode: MemoryAllocationMode,
+    /// Open persistent windows (see [`mode`](Self::mode)): the effective mode
+    /// stays `Persistent` until every nested window has closed.
+    persistent_windows: u64,
     config: PersistentMemory,
     logger: Arc<ServerLogger>,
     /// State of the active graph capture, if any.
@@ -678,6 +681,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             storage,
             alloc_reserve_count: 0,
             mode,
+            persistent_windows: 0,
             config,
             logger,
             capture: None,
@@ -789,11 +793,32 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Change the mode of allocation.
+    ///
+    /// Persistent windows **nest**: a `Persistent` call opens one, an `Auto`
+    /// call closes one, and the effective mode stays `Persistent` while any
+    /// window is open. Callers routinely nest without knowing it — a module
+    /// load opens a window around the whole load while the parameter machinery
+    /// underneath opens one per parameter — and without the depth, the first
+    /// inner window's exit would flip the rest of the outer window back to
+    /// `Auto`: weights landing in the dynamic pools, which then refuse every
+    /// later rebuild ([`configure`](Self::configure)) for the model's whole
+    /// life.
     pub fn mode(&mut self, mode: MemoryAllocationMode) {
         // We override the mode based on the cubecl config.
         let mode = match self.config {
             PersistentMemory::Enabled | PersistentMemory::SizeMatch => mode,
             PersistentMemory::Disabled | PersistentMemory::Enforced => return,
+        };
+
+        match mode {
+            MemoryAllocationMode::Persistent => self.persistent_windows += 1,
+            MemoryAllocationMode::Auto => {
+                self.persistent_windows = self.persistent_windows.saturating_sub(1)
+            }
+        }
+        let mode = match self.persistent_windows > 0 {
+            true => MemoryAllocationMode::Persistent,
+            false => MemoryAllocationMode::Auto,
         };
 
         self.logger.log_memory(
@@ -1487,6 +1512,54 @@ mod tests {
             Err(IoError::PoolCapacityExceeded { .. })
         ));
         assert_eq!(memory_management.memory_usage().bytes_reserved, 0);
+    }
+
+    /// Persistent windows nest: a module load arms one window around the whole
+    /// load while the parameter machinery arms one per parameter inside it —
+    /// an inner window closing must not flip the rest of the outer one back to
+    /// `Auto`, or most of the load's weights land in the dynamic pools (and
+    /// block every later `configure`).
+    #[test_log::test]
+    fn persistent_windows_nest() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::SlicedPages {
+                        page_size: 4096,
+                        max_slice_size: 4096,
+                        max_pool_size: None,
+                    },
+                    dealloc_period: None,
+                }],
+            },
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        memory_management.mode(MemoryAllocationMode::Persistent); // the load's window
+        memory_management.mode(MemoryAllocationMode::Persistent); // one parameter's window
+        memory_management.mode(MemoryAllocationMode::Auto); // that parameter is done
+
+        // Still inside the load's window: the allocation must be persistent.
+        let weight = memory_management.reserve(1024).unwrap();
+        let report = memory_management.memory_report();
+        assert_eq!(
+            report.persistent.usage.bytes_in_use, 1024,
+            "an allocation inside the outer window is persistent"
+        );
+        assert_eq!(
+            report.dynamic[0].pages_peak, 0,
+            "nothing leaked into the dynamic pools"
+        );
+
+        // The outer window closes; ordinary allocations are dynamic again.
+        memory_management.mode(MemoryAllocationMode::Auto);
+        let _transient = memory_management.reserve(1024).unwrap();
+        assert_eq!(memory_management.memory_report().dynamic[0].pages_peak, 1);
+
+        drop(weight);
     }
 
     #[test_log::test]
