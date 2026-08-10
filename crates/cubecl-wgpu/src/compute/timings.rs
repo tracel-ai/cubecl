@@ -338,8 +338,18 @@ impl QueryProfiler {
             return Ok(None);
         };
 
+        // Captured eagerly: when a lookup below misses, the state that
+        // explains it is exactly what the lookups mutate.
+        let context = format!(
+            "start={start:?} end={end:?} current={:?}, live sets (id, refs): {:?}",
+            self.current,
+            self.query_sets
+                .iter()
+                .map(|(id, item)| (*id, item.num_ref))
+                .collect::<Vec<_>>(),
+        );
         let query_set_error = || ProfileError::Unknown {
-            reason: "Can't resolve the query sets".to_string(),
+            reason: format!("Can't resolve the query sets: {context}"),
             backtrace: BackTrace::capture(),
         };
 
