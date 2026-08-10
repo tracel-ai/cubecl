@@ -1,6 +1,6 @@
 use super::{
     MemoryConfiguration, MemoryPoolOptions, MemoryReport, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPool},
+    memory_pool::{DryRunPool, ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPool},
 };
 use crate::{
     config::{
@@ -131,12 +131,8 @@ pub enum MemoryAllocationMode {
 pub struct MemoryManagement<Storage> {
     name: String,
     persistent: PersistentPool,
-    /// Exact-fit scratch for the allocations measurements make during a dry
-    /// run (see [`reserve`](Self::reserve)). Isolated so measurement scratch
-    /// never inflates the dynamic pools' high-water marks — the quantity a dry
-    /// run exists to measure. Empty outside dry runs; freed like the
-    /// persistent pool, on explicit cleanup.
-    measurement: PersistentPool,
+    /// The measurement-scratch pool a dry run routes to — see [`DryRunPool`].
+    dry_run: DryRunPool,
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
@@ -314,7 +310,7 @@ impl core::fmt::Display for PoolConfigError {
             PoolConfigError::TooManyPools { count } => write!(
                 f,
                 "the pool list has {count} entries, exceeding the maximum of {} dynamic pools",
-                MEASUREMENT_POOL_POS - 1
+                DRY_RUN_POOL_POS - 1
             ),
             PoolConfigError::PresetUnavailable { preset } => {
                 write!(f, "the `{preset}` preset is not available in this build")
@@ -375,11 +371,11 @@ impl MemoryConfiguration {
                     return Err(PoolConfigError::EmptyPoolList);
                 }
                 // Slices route through their pool's position, and the
-                // persistent and measurement pools own the two top sentinel
+                // persistent and dry-run pools own the two top sentinel
                 // positions, so the list must stay addressable below them —
                 // checked here so the caller gets the error instead of a panic
                 // on the device thread.
-                if entries.len() >= MEASUREMENT_POOL_POS as usize {
+                if entries.len() >= DRY_RUN_POOL_POS as usize {
                     return Err(PoolConfigError::TooManyPools {
                         count: entries.len(),
                     });
@@ -485,10 +481,10 @@ fn pool_options_from_entry(
 /// different count.
 const PERSISTENT_POOL_POS: u8 = u8::MAX;
 
-/// The pool position stamped on measurement-scratch slices (see
-/// [`MemoryManagement::reserve`]). A fixed sentinel for the same reason as
-/// [`PERSISTENT_POOL_POS`]: the pool outlives dynamic-pool rebuilds.
-const MEASUREMENT_POOL_POS: u8 = u8::MAX - 1;
+/// The pool position stamped on [`DryRunPool`] slices. A fixed sentinel for
+/// the same reason as [`PERSISTENT_POOL_POS`]: the pool outlives dynamic-pool
+/// rebuilds.
+const DRY_RUN_POOL_POS: u8 = u8::MAX - 1;
 
 /// Build the dynamic pools for `config` — the shared core of
 /// [`MemoryManagement::from_configuration`] and
@@ -606,9 +602,9 @@ fn build_pools(
     );
 
     assert!(
-        pool_options.len() < MEASUREMENT_POOL_POS as usize,
+        pool_options.len() < DRY_RUN_POOL_POS as usize,
         "at most {} dynamic pools are supported",
-        MEASUREMENT_POOL_POS - 1
+        DRY_RUN_POOL_POS - 1
     );
 
     pool_options
@@ -673,10 +669,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 properties.alignment,
                 PERSISTENT_POOL_POS,
             ),
-            // Accepts any size: what a measurement allocates is not the
-            // caller's to bound, and the storage errors on a truly
-            // unallocatable size anyway.
-            measurement: PersistentPool::new(u64::MAX, properties.alignment, MEASUREMENT_POOL_POS),
+            dry_run: DryRunPool::new(properties.alignment, DRY_RUN_POOL_POS),
             pools,
             storage,
             alloc_reserve_count: 0,
@@ -859,7 +852,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         self.persistent
             .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
-        self.measurement
+        self.dry_run
             .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
 
         for pool in self.pools.iter_mut() {
@@ -893,8 +886,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let slice = if id.location().pool == PERSISTENT_POOL_POS {
             self.persistent.find(&binding)?
-        } else if id.location().pool == MEASUREMENT_POOL_POS {
-            self.measurement.find(&binding)?
+        } else if id.location().pool == DRY_RUN_POOL_POS {
+            self.dry_run.find(&binding)?
         } else {
             let pool =
                 self.pools
@@ -1027,19 +1020,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
         );
 
-        // Allocations a measurement makes inside a dry run are scratch for the
-        // benchmark being timed, not part of the workload's allocation stream.
-        // Serving them from the dynamic pools would inflate the high-water
-        // marks a dry run exists to measure (see
-        // [`memory_report`](Self::memory_report)), so they are isolated in an
-        // exact-fit pool of their own, freed on explicit cleanup. Outside a
-        // dry run nothing changes: measurement scratch is transient and the
-        // dynamic pools recycle it fine.
-        if crate::dry_run::dry_run() && crate::dry_run::measuring() {
-            if let Some(handle) = self.measurement.try_reserve(size) {
-                return Ok(handle);
-            }
-            return self.measurement.alloc(&mut self.storage, size);
+        // A measurement's allocations are scratch, not part of the workload's
+        // stream — see [`DryRunPool`]. Outside a dry run nothing changes: the
+        // scratch is transient and the dynamic pools recycle it fine.
+        if DryRunPool::serves() {
+            return self.dry_run.reserve(&mut self.storage, size);
         }
 
         // Serve from the first pool that accepts this size and has capacity. A
@@ -1121,7 +1106,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         );
         memory_usage
             .combine(self.persistent.get_memory_usage())
-            .combine(self.measurement.get_memory_usage())
+            .combine(self.dry_run.get_memory_usage())
     }
 
     /// A structured per-pool report: each pool's shape, usage, and high-water
@@ -1134,12 +1119,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Because the pools' placement policy is deterministic, replaying the
     /// same stream against the capped layout fits by construction.
     pub fn memory_report(&self) -> MemoryReport {
-        let measurement = self.measurement.report();
+        let dry_run = self.dry_run.report();
 
         MemoryReport {
             dynamic: self.pools.iter().map(|pool| pool.report()).collect(),
             persistent: self.persistent.report(),
-            measurement: (measurement.pages_peak > 0).then_some(measurement),
+            dry_run: (dry_run.pages_peak > 0).then_some(dry_run),
         }
     }
 
@@ -1173,8 +1158,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             self.capture_touch(&assigned);
             return self.persistent.bind(reserved, assigned, cursor);
         }
-        if pool_index == MEASUREMENT_POOL_POS as usize {
-            return self.measurement.bind(reserved, assigned, cursor);
+        if pool_index == DRY_RUN_POOL_POS as usize {
+            return self.dry_run.bind(reserved, assigned, cursor);
         }
 
         self.pools
@@ -1192,11 +1177,8 @@ impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
         f.write_str("\n# MemoryManagement\n\n")?;
         f.write_fmt(format_args!(" - name: {:?}\n", self.name))?;
         f.write_fmt(format_args!("\n## Persistent\n\n{}", self.persistent))?;
-        if self.measurement.report().pages_peak > 0 {
-            f.write_fmt(format_args!(
-                "\n## Measurement scratch\n\n{}",
-                self.measurement
-            ))?;
+        if self.dry_run.report().pages_peak > 0 {
+            f.write_fmt(format_args!("\n## Dry run\n\n{}", self.dry_run))?;
         }
         f.write_str("\n## Dynamic\n\n")?;
 

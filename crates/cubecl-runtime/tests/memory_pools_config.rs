@@ -250,7 +250,7 @@ fn full_capped_pool_spills_to_tail() {
 }
 
 #[test]
-fn measurement_scratch_stays_out_of_the_plan() {
+fn dry_run_scratch_stays_out_of_the_plan() {
     // Inside a dry run, allocations made by a measurement (RealRun) are
     // scratch for the benchmark being timed, not part of the workload's
     // stream: they must not inflate the high-water marks the dry run measures.
@@ -286,7 +286,7 @@ fn measurement_scratch_stays_out_of_the_plan() {
         report.dynamic[0].pages_peak, 1,
         "only the workload's allocation counts toward the plan"
     );
-    let scratch = report.measurement.expect("measurement scratch is reported");
+    let scratch = report.dry_run.expect("the dry-run pool is reported");
     assert_eq!(scratch.pages_peak, 1, "the same-size scratch was reused");
     assert_eq!(scratch.largest_alloc, 300 * 1024);
 
@@ -304,7 +304,7 @@ fn measurement_scratch_stays_out_of_the_plan() {
         );
         assert_eq!(
             report
-                .measurement
+                .dry_run
                 .expect("earlier scratch still reported")
                 .pages_peak,
             1,

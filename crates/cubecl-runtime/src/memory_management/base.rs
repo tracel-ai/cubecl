@@ -153,11 +153,11 @@ pub struct MemoryReport {
     pub dynamic: Vec<MemoryPoolReport>,
     /// The persistent pool (weights, caches; explicit persistent windows).
     pub persistent: MemoryPoolReport,
-    /// The measurement scratch pool, present when a dry run routed
-    /// [`measuring`](crate::dry_run::measuring) allocations away from the
-    /// dynamic pools. Never part of a derived plan: measurements are already
+    /// The dry-run pool, present when a dry run routed a measurement's
+    /// allocations away from the dynamic pools (autotune scratch — see
+    /// `DryRunPool`). Never part of a derived plan: measurements are already
     /// cached when the plan is replayed.
-    pub measurement: Option<MemoryPoolReport>,
+    pub dry_run: Option<MemoryPoolReport>,
 }
 
 /// The managed tensor buffer handle that points to some memory segment.
