@@ -44,7 +44,7 @@ struct array {{
     T data[N];
     __device__ T& operator[](size_t i) {{ return data[i]; }}
     __device__ const T& operator[](size_t i) const {{ return data[i]; }}
-}};"
+}};\n"
     )
 }
 
@@ -53,7 +53,7 @@ pub fn define_tensormap_opaque(f: &mut dyn Write) -> core::fmt::Result {
         "
 typedef struct CUtensorMap_st {
 alignas(128) unsigned long long int opaque[16];
-} CUtensorMap;",
+} CUtensorMap;\n",
     )
 }
 
