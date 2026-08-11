@@ -7,9 +7,14 @@
 //! the large-working-set figure reports good code as bad code.
 //!
 //! So the probes measure a *curve*: the same kernel at a range of sizes, from a
-//! few hundred kilobytes to hundreds of megabytes. [`MemoryCurve::ceiling_at`]
+//! few kilobytes to hundreds of megabytes. [`MemoryCurve::ceiling_at`]
 //! answers the question a consumer actually has — what can a kernel moving this
 //! many bytes reach — by interpolating between the measured points.
+//!
+//! Every point is measured cold, on data no earlier pass left in cache, because
+//! the question is what a kernel of that size moves and not how fast something
+//! already resident can be read again. The curve therefore climbs with size and
+//! flattens where the interface saturates.
 
 use alloc::vec::Vec;
 
@@ -17,10 +22,15 @@ use crate::throughput::{MemoryAccess, ThroughputKey, ThroughputMode, ThroughputV
 
 /// The smallest working set a curve is measured at, in bytes moved per pass.
 ///
-/// Below this the measurement stops describing memory: a pass moves so little
-/// that the loop is dominated by index arithmetic and the buffer sits in the
-/// nearest cache level.
-pub const MIN_WORKING_SET: u64 = 256 * 1024;
+/// Low enough to catch the bottom of the ramp, which is further down than it
+/// looks: on an M2 Pro the curve is already within 12% of the bus figure at
+/// 256 KiB and only falls away below that — 146 GB/s at 128 KiB, 94 at 64 KiB,
+/// 11 at 8 KiB. A sweep starting a few hundred kilobytes up would report an
+/// almost flat curve and miss the effect it exists to measure.
+///
+/// Below this a pass is a handful of cubes finishing before the next can be
+/// issued, so what is measured is latency rather than bandwidth.
+pub const MIN_WORKING_SET: u64 = 8 * 1024;
 
 /// The working sets a curve is measured at: powers of two from
 /// [`MIN_WORKING_SET`] up to `cap`, which is where the device runs out of
@@ -57,9 +67,10 @@ pub fn working_set_sweep(cap: u64) -> Vec<u64> {
 /// the bus. Nothing here knows the device's cache sizes.
 #[derive(Eq, PartialEq, Clone, Copy, Debug, Hash)]
 pub enum MemoryRegime {
-    /// Above the bus figure: the working set is served by a cache. A real
-    /// number for a kernel of this size, and one that must never be compared
-    /// against — or reported as — bus bandwidth.
+    /// Above the bus figure: the working set was served by a cache after all,
+    /// despite the probe reading cold. A real number for a kernel of this size,
+    /// and one that must never be compared against — or reported as — bus
+    /// bandwidth.
     Cached,
     /// Below the bus figure with the working set still climbing towards it.
     /// Not enough traffic in flight to saturate the interface, which is a
@@ -183,9 +194,9 @@ impl MemoryCurve {
     /// both ends and monotonic in between.
     ///
     /// A working set below the smallest measured point gets that point's rate,
-    /// which is cache bandwidth and labelled [`MemoryRegime::Cached`] when it
-    /// exceeds the bus figure. Above the largest, the bus figure itself — that
-    /// part of the curve is flat, which is why the sweep stops there.
+    /// which is the least the sweep saw. Above the largest, the bus figure
+    /// itself — that part of the curve is flat, which is why the sweep stops
+    /// there.
     pub fn ceiling_at(&self, bytes: u64) -> Option<MemoryCeiling> {
         let first = self.points.first()?;
         let last = self.points.last()?;
@@ -278,7 +289,6 @@ mod tests {
     use super::*;
     use core::time::Duration;
 
-    const KB: u64 = 1024;
     const MB: u64 = 1024 * 1024;
 
     /// A point moving `bytes` at `bytes_per_s`.
@@ -309,21 +319,18 @@ mod tests {
 
     #[test]
     fn sweep_covers_powers_of_two_up_to_the_cap() {
-        assert_eq!(
-            working_set_sweep(2 * MB),
-            alloc::vec![256 * KB, 512 * KB, MB, 2 * MB]
-        );
+        let min = MIN_WORKING_SET;
+        let expected = alloc::vec![min, 2 * min, 4 * min, 8 * min];
+
+        assert_eq!(working_set_sweep(8 * min), expected);
 
         // A cap between two powers of two stops at the last one that fits: the
         // probe must never be asked for more than the device can allocate.
-        assert_eq!(
-            working_set_sweep(3 * MB),
-            alloc::vec![256 * KB, 512 * KB, MB, 2 * MB]
-        );
+        assert_eq!(working_set_sweep(12 * min), expected);
 
         // Below the minimum the cap is all there is, and a curve of one point
         // still answers queries.
-        assert_eq!(working_set_sweep(64 * KB), alloc::vec![64 * KB]);
+        assert_eq!(working_set_sweep(min / 4), alloc::vec![min / 4]);
     }
 
     #[test]

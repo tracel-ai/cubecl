@@ -81,10 +81,15 @@ pub enum ThroughputMode {
     /// `bytes`. So a kernel that touches N bytes asks about N regardless of
     /// which access it resembles.
     ///
-    /// Small working sets report *cache* bandwidth rather than bus bandwidth,
-    /// and a size too small to keep the interface busy reports less than the
-    /// hardware can do. Neither is an error — it is what a kernel of that size
-    /// can actually reach — but the two are not interchangeable, which is why
+    /// The probe reads cold: every pass moves to a fresh window of a buffer far
+    /// larger than the working set, so a small size measures what a kernel that
+    /// size moves rather than the speed of re-reading something already in
+    /// cache. A size too small to keep the interface busy therefore reports
+    /// less than the hardware can do, which is not an error — it is the ceiling
+    /// for a kernel with that little in flight.
+    ///
+    /// Should a rate still land above the bus figure, the data was resident
+    /// after all and the number is not comparable to bandwidth, which is why
     /// [`MemoryCurve`](crate::throughput::MemoryCurve) hands out a rate and a
     /// [`MemoryRegime`](crate::throughput::MemoryRegime) together rather than a
     /// bare number.

@@ -30,7 +30,6 @@ pub fn build_kernel<R: Runtime>(
 
     let line_bytes = config.vector_size * dtype.size();
     let probe = MemoryProbe::new(&client, config, line_bytes, MemoryAccess::Read, working_set);
-    let num_lines = probe.num_lines;
 
     let in_handle = client.empty(probe.buffer_bytes);
     // One line: the kernel writes from a single thread, only to anchor the reads.
@@ -44,8 +43,9 @@ pub fn build_kernel<R: Runtime>(
                 CubeCount::Static(probe.cube_count as u32, 1, 1),
                 CubeDim::new(&client, config.cube_dim),
                 config.vector_size,
-                BufferArg::from_raw_parts(in_handle.clone(), num_lines),
+                BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines),
                 BufferArg::from_raw_parts(out_handle.clone(), 1),
+                probe.window_lines,
                 iterations,
                 dtype.into(),
             )
@@ -55,7 +55,7 @@ pub fn build_kernel<R: Runtime>(
     });
 
     // Reads only — no `2 *`. That factor is the whole difference from the copy.
-    let ops_count = num_lines * config.vector_size;
+    let ops_count = probe.window_lines * config.vector_size;
 
     KernelConfig { sample, ops_count }
 }
@@ -64,13 +64,17 @@ pub fn build_kernel<R: Runtime>(
 pub fn memory_read_throughput<I: Numeric, N: Size>(
     input: &[Vector<I, N>],
     output: &mut [Vector<I, N>],
+    window: usize,
     n_iter: usize,
     #[define(I)] _dtype: StorageType,
 ) {
     let len = input.len();
     let stride = CUBE_DIM as usize * CUBE_COUNT;
 
-    let steps = (len - ABSOLUTE_POS).div_ceil(stride).max(1);
+    // From `window` alone rather than from `window - ABSOLUTE_POS`, which
+    // underflows for a thread past the end of a window smaller than the launch.
+    // High threads get one step too many and the bounds check drops it.
+    let steps = window.div_ceil(stride).max(1);
 
     // Sum what is read. A load whose result is never used is dead code, and a
     // compiler that removes it turns this into a launch-overhead measurement
@@ -88,21 +92,25 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
     // hiding comes from thread-level parallelism — `cube_count * cube_dim`
     // threads each with an independent address.
     //
-    // Each pass starts one line further into the buffer than the last. Same
-    // lines, same count, same coalescing, but an address the compiler cannot
-    // prove constant across passes: a working set small enough that every
-    // thread reads a single line would otherwise have that load hoisted out of
-    // the loop, and the probe would report the speed of adding a register to
-    // itself. The rotation stays inside the buffer, so residency is untouched —
-    // a working set that fits in cache still reports cache bandwidth.
-    let mut offset = 0;
+    // Each pass reads the *next* window of the buffer, not the same one again.
+    // A window read repeatedly would be served from cache after the first pass,
+    // and every working set below the cache would report cache bandwidth
+    // instead of what a kernel of that size moves; coming back to a window only
+    // after a whole buffer of traffic keeps it cold.
+    //
+    // It also keeps the addresses moving. A window small enough that every
+    // thread reads a single line would otherwise be loop-invariant, and the
+    // compiler is free to hoist such a load out of the loop — leaving the probe
+    // reporting the speed of adding a register to itself.
+    let mut start = 0;
+    let mut wrap = 0;
 
     for _ in 0..n_iter {
         for step in 0..steps {
             let base = ABSOLUTE_POS + (step * stride);
 
-            if base < len {
-                let mut idx = base + offset;
+            if base < window {
+                let mut idx = start + base;
                 if idx >= len {
                     idx -= len;
                 }
@@ -111,9 +119,15 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
             }
         }
 
-        offset += 1;
-        if offset == len {
-            offset = 0;
+        start += window;
+        // Back to the beginning, one line further along each time round, so a
+        // window that fills the whole buffer still moves between passes.
+        if start + window > len {
+            wrap += 1;
+            if wrap >= window {
+                wrap = 0;
+            }
+            start = wrap;
         }
     }
 

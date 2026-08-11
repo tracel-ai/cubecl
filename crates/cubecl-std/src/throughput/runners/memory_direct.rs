@@ -17,7 +17,6 @@ pub fn build_kernel<R: Runtime>(
 
     let line_bytes = config.vector_size * dtype.size();
     let probe = MemoryProbe::new(&client, config, line_bytes, MemoryAccess::Copy, working_set);
-    let num_lines = probe.num_lines;
 
     let in_handle = client.empty(probe.buffer_bytes);
     let out_handle = client.empty(probe.buffer_bytes);
@@ -30,8 +29,9 @@ pub fn build_kernel<R: Runtime>(
                 CubeCount::Static(probe.cube_count as u32, 1, 1),
                 CubeDim::new(&client, config.cube_dim),
                 config.vector_size,
-                BufferArg::from_raw_parts(in_handle.clone(), num_lines),
-                BufferArg::from_raw_parts(out_handle.clone(), num_lines),
+                BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines),
+                BufferArg::from_raw_parts(out_handle.clone(), probe.pool_lines),
+                probe.window_lines,
                 iterations,
                 dtype.into(),
             )
@@ -40,7 +40,8 @@ pub fn build_kernel<R: Runtime>(
         start.elapsed()
     });
 
-    let ops_count = 2 * num_lines * config.vector_size;
+    // One pass moves the window twice: once in, once out.
+    let ops_count = 2 * probe.window_lines * config.vector_size;
 
     KernelConfig { sample, ops_count }
 }
@@ -49,30 +50,37 @@ pub fn build_kernel<R: Runtime>(
 pub fn memory_direct_throughput<I: Numeric, N: Size>(
     input: &[Vector<I, N>],
     output: &mut [Vector<I, N>],
+    window: usize,
     n_iter: usize,
     #[define(I)] _dtype: StorageType,
 ) {
     let len = output.len();
     let stride = CUBE_DIM as usize * CUBE_COUNT;
 
-    let steps = (len - ABSOLUTE_POS).div_ceil(stride).max(1);
+    // From `window` alone rather than from `window - ABSOLUTE_POS`, which
+    // underflows for a thread past the end of a window smaller than the launch.
+    // High threads get one step too many and the bounds check drops it.
+    let steps = window.div_ceil(stride).max(1);
 
-    // Each pass starts one line further into the buffer than the last. Same
-    // lines, same count, same coalescing, but an address the compiler cannot
-    // prove constant across passes: a working set small enough that every
-    // thread copies a single line would otherwise have that copy sunk out of
-    // the loop and performed once, and the probe would report a bandwidth the
-    // hardware never moved. The rotation stays inside the buffers, so residency
-    // is untouched — a working set that fits in cache still reports cache
-    // bandwidth.
-    let mut offset = 0;
+    // Each pass copies the *next* window of the buffers, not the same one
+    // again. A window read repeatedly would be served from cache after the
+    // first pass, and every working set below the cache would report cache
+    // bandwidth instead of what a kernel of that size moves; coming back to a
+    // window only after a whole buffer of traffic keeps it cold.
+    //
+    // It also keeps the addresses moving. A window small enough that every
+    // thread copies a single line would otherwise be loop-invariant, and the
+    // compiler is free to sink such a copy out of the loop and perform it once
+    // — leaving the probe reporting a bandwidth the hardware never moved.
+    let mut start = 0;
+    let mut wrap = 0;
 
     for _ in 0..n_iter {
         for step in 0..steps {
             let base = ABSOLUTE_POS + (step * stride);
 
-            if base < len {
-                let mut idx = base + offset;
+            if base < window {
+                let mut idx = start + base;
                 if idx >= len {
                     idx -= len;
                 }
@@ -81,9 +89,15 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
             }
         }
 
-        offset += 1;
-        if offset == len {
-            offset = 0;
+        start += window;
+        // Back to the beginning, one line further along each time round, so a
+        // window that fills the whole buffer still moves between passes.
+        if start + window > len {
+            wrap += 1;
+            if wrap >= window {
+                wrap = 0;
+            }
+            start = wrap;
         }
     }
 }
