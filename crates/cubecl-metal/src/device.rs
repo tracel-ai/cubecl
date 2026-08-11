@@ -1,10 +1,11 @@
 use cubecl_common::device::{Device, DeviceId};
 use cubecl_environment::collections::HashMap;
+use cubecl_environment::sync::Mutex;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::MTLDevice;
 use std::fmt;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 /// Metal device representation
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
