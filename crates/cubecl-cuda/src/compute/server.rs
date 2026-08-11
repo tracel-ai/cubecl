@@ -1327,7 +1327,6 @@ impl CudaServer {
             &resources,
             info_const,
             logger,
-            launch_mode,
         )?;
 
         Ok(())

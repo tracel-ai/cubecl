@@ -164,13 +164,18 @@ fn manage(pools: &MemoryPoolsConfig) -> MemoryManagement<BytesStorage> {
     )
 }
 
+/// A plan measured from one run of a stream fits that stream when it is
+/// replayed: measure against a growable arena, cap the arena at the observed
+/// high-water, replay, and the peak is unchanged.
+///
+/// This is the property the whole report exists to provide. It holds only
+/// because pool placement is deterministic — if first-fit ever became
+/// order-dependent or randomized, a capped replay could overflow a cap its own
+/// measurement produced.
 #[test]
 fn measured_plan_cycle() {
-    // The whole measured-plan cycle. Phase 1: run the workload's allocation
-    // stream against a growable arena (in production this happens under a
-    // `DryRun`, where it costs no compute). Phase 2: read the report and cap
-    // the arena at the observed high-water. Phase 3: replay the same stream —
-    // pool placement is deterministic, so it fits the cap by construction.
+    // Phase 1 runs the stream against the growable arena; in production this
+    // happens under a `DryRun`, where it costs no compute.
     let growable = MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
         page_size: MemorySize(MIB),
         max_slice_size: None,
@@ -219,13 +224,16 @@ fn measured_plan_cycle() {
     assert_eq!(replayed.dynamic[0].pages_peak, arena.pages_peak);
 }
 
+/// A cap is a plan, not a budget: an allocation a measured arena has no room
+/// for spills to the growable pool behind it rather than failing.
+///
+/// A plan that turns out to be short should cost memory, not kill the
+/// workload — a stream the measuring run never saw is a normal thing to meet
+/// in production. Where a cap really is a hard budget, configure no pool
+/// behind it and a full pool still errors
+/// (`programmatic_pools_override_runtime_default` covers that side).
 #[test]
 fn full_capped_pool_spills_to_tail() {
-    // A measured arena with a growable tail behind it: an allocation the plan
-    // has no room for spills to the tail (loudly, in the logs) instead of
-    // failing — the escape hatch for a stream the dry run never measured.
-    // With no tail, the same situation is an error (covered above in
-    // `programmatic_pools_override_runtime_default`).
     let pools = MemoryPoolsConfig::Explicit(vec![
         MemoryPoolConfig::Sliced {
             page_size: MemorySize(MIB),

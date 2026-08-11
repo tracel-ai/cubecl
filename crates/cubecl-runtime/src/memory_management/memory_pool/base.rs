@@ -16,7 +16,7 @@ use crate::{
 /// resolve, so only what a measurement actually touches gets mapped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageMapping {
-    /// Allocate device memory now, as always.
+    /// Allocate device memory now.
     Eager,
     /// Mint the id, defer the device allocation to first resolution.
     Lazy,
@@ -73,8 +73,9 @@ pub trait MemoryPool {
     /// configured to handle.
     ///
     /// `mapping` asks for real device backing now (`Eager`) or on first
-    /// resolution (`Lazy`); a pool without lazy support treats `Lazy` as
-    /// `Eager` — the worst case is always today's footprint, never more.
+    /// resolution (`Lazy`). A pool without lazy support may treat `Lazy` as
+    /// `Eager`: the request is an opportunity to allocate less, never a
+    /// promise the caller may rely on.
     fn alloc<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,

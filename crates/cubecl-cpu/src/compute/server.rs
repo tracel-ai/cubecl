@@ -141,7 +141,7 @@ impl CpuServer {
         kind: ExecutionMode,
     ) -> Result<(), CompilationError> {
         let kernel_id = kernel.id();
-        if self.compilation_cache.get(&kernel_id).is_some() {
+        if self.compilation_cache.contains_key(&kernel_id) {
             return Ok(());
         }
         let definition = kernel.define();
@@ -320,7 +320,9 @@ impl ComputeServer for CpuServer {
         // A skipped launch stops here, after compilation and before anything
         // that touches a buffer: resolving resources or reading a dynamic
         // cube count would materialize memory a dry run exists to leave
-        // unmapped.
+        // unmapped. It registers no stream dependency either, which is
+        // correct rather than an oversight — nothing is scheduled, so there is
+        // no work for a later stream to order against.
         if launch_mode.is_skipped() {
             self.compile_only(kernel, kind).unwrap();
             return;

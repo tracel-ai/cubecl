@@ -579,6 +579,11 @@ async fn process_request<K: AutotuneKey>(
         results[index] = result;
     }
 
+    // Read before the sort, which reorders `results` out of tunable order. A
+    // decided candidate whose own outcome is an error is one `Schedule::run_plan`
+    // picked with nothing measured — the tune executed but could not be timed.
+    let unmeasured = decided.is_some_and(|index| results[index].outcome.is_err());
+
     results.sort_by(|a, b| {
         let a = a
             .outcome
@@ -611,18 +616,29 @@ async fn process_request<K: AutotuneKey>(
 
     {
         log_context.log_result(&mut logger.lock(), &key, &results);
+        // In-memory regardless: without it this key re-tunes on every call, and
+        // a tune that measured nothing would keep failing the same way.
         cache.lock().cache_insert(key.clone(), fastest_index);
+
+        // Not on disk, though. An unmeasured decision is a guess made to keep
+        // the device thread alive, and the failures that produce one — a
+        // profiling hiccup, timestamp query sets on a busy stream — are
+        // transient. Persisting it would freeze the guess into every later
+        // process and never measure the key again; letting it expire with this
+        // one costs a re-tune and buys a real measurement.
         #[cfg(autotune_persistence)]
-        cache.lock().persistent_cache_insert(
-            key,
-            checksum,
-            crate::tune::PersistentCacheValue {
-                fastest_index,
-                results,
-                bounds,
-                limit,
-            },
-        );
+        if !unmeasured {
+            cache.lock().persistent_cache_insert(
+                key,
+                checksum,
+                crate::tune::PersistentCacheValue {
+                    fastest_index,
+                    results,
+                    bounds,
+                    limit,
+                },
+            );
+        }
     }
 
     TuneCacheResult::Hit { fastest_index }

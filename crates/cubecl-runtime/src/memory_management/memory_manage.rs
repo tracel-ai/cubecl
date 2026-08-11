@@ -144,6 +144,10 @@ pub struct MemoryManagement<Storage> {
     name: String,
     persistent: PersistentPool,
     pools: Vec<DynamicPool>,
+    /// Dynamic pools that have already reported hitting their cap, so the
+    /// warning stays one per pool per layout rather than one per allocation.
+    /// Cleared by [`configure`](Self::configure).
+    capacity_warned: HashSet<usize>,
     storage: Storage,
     alloc_reserve_count: u64,
     mode: MemoryAllocationMode,
@@ -674,6 +678,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 PERSISTENT_POOL_POS,
             ),
             pools,
+            capacity_warned: HashSet::new(),
             storage,
             alloc_reserve_count: 0,
             mode,
@@ -728,6 +733,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
 
         self.pools = build_pools(properties, config, &self.logger, &self.name);
+        // A new layout is a new plan, and whether it is short is a fresh
+        // question — every pool gets to report its first spill again.
+        self.capacity_warned.clear();
         true
     }
 
@@ -1058,11 +1066,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // Serve from the first pool that accepts this size and has capacity. A
         // hard-capped pool that is full falls through to the next accepting
         // pool instead of failing outright, so a growable tail pool can act as
-        // an escape hatch behind a measured arena.
+        // an escape hatch behind a measured arena. Deliberate: a cap is a plan,
+        // and a plan that turns out to be short should cost memory, not kill
+        // the workload. Where the cap is a hard budget rather than a plan,
+        // configure no pool behind it — then a full pool still errors, which is
+        // what keeps the budget-vs-device-OOM distinction schedulers rely on.
         let mut capacity_exceeded = None;
         let mut reserved = None;
 
-        for pool in self.pools.iter_mut().filter(|pool| pool.accept(size)) {
+        for (index, pool) in self
+            .pools
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, pool)| pool.accept(size))
+        {
             if let Some(slice) = pool.try_reserve(size) {
                 return Ok(slice);
             }
@@ -1075,15 +1092,25 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 Err(err @ IoError::PoolCapacityExceeded { .. }) => {
                     // Loud on purpose: a spill means the cap was under-planned
                     // (e.g. a workload the dry run never measured), and the
-                    // escape hatch serving it must not hide that.
-                    log::warn!(
-                        "[{}] memory pool at capacity for an allocation of {size} B; \
-                         spilling to the next accepting pool",
-                        self.name
-                    );
+                    // escape hatch serving it must not hide that. Once per pool
+                    // per layout, though — a workload that runs above its cap
+                    // spills on *every* reservation, and a warning per
+                    // allocation buries the one that mattered. `configure`
+                    // clears the latch: a new layout is a new plan to judge.
+                    if self.capacity_warned.insert(index) {
+                        log::warn!(
+                            "[{}] memory pool {index} is at capacity (first hit at an \
+                             allocation of {size} B); spilling to the next accepting pool. \
+                             The measured plan is short for this workload.",
+                            self.name
+                        );
+                    }
                     capacity_exceeded = Some(err);
                 }
-                Err(err) => return Err(err),
+                // A spill already in hand is the more useful diagnosis: it says
+                // the plan was short, where this one only says the pool behind
+                // it also failed.
+                Err(err) => return Err(capacity_exceeded.unwrap_or(err)),
             }
         }
 
@@ -1565,14 +1592,16 @@ mod tests {
         drop(weight);
     }
 
+    /// A full capped pool spills to the next accepting pool — with a warning,
+    /// never silently — instead of failing the allocation.
+    ///
+    /// The cap is a measured plan, and a short plan should cost memory rather
+    /// than kill the workload. When no later pool accepts the size the
+    /// capacity error still surfaces (see
+    /// `capped_sliced_pool_errors_instead_of_growing`), which is what keeps
+    /// the budget-vs-device-OOM distinction schedulers rely on.
     #[test_log::test]
     fn capacity_overflow_falls_through_to_later_accepting_pool() {
-        // A capped pool that is full spills to the next accepting pool — with
-        // a warning, never silently — so a growable tail pool can serve as an
-        // escape hatch behind a measured arena. When no later pool accepts the
-        // size, the capacity error still surfaces (see
-        // `capped_sliced_pool_errors_instead_of_growing`), keeping the
-        // budget-vs-device-OOM distinction schedulers rely on.
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,

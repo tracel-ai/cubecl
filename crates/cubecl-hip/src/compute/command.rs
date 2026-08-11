@@ -25,7 +25,6 @@ use cubecl_hip_sys::{
 };
 use cubecl_runtime::{
     compiler::CubeTask,
-    dry_run::LaunchMode,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport},
@@ -91,9 +90,10 @@ impl<'a> Command<'a> {
             // The info cache's buffers are live slices in the dynamic pools;
             // an explicit cleanup exists to leave those pools empty (e.g. for
             // a rebuild sized to the next workload), so every entry not
-            // pinned by a live graph goes too. Skipped mid-capture: an entry
-            // the recording has not touched yet would come back as a fresh
-            // allocation inside the capture window, which is illegal.
+            // pinned by a live graph goes too. Skipped while recording for the
+            // same reason the flush is: an entry the recording has not touched
+            // yet would come back as a fresh allocation inside the capture
+            // window, which is illegal.
             stream.info_cache.clear_unpinned();
         }
         stream.memory_management_gpu.cleanup(true);
@@ -451,20 +451,6 @@ impl<'a> Command<'a> {
         Box::pin(async { fence.wait_sync() })
     }
 
-    /// Executes a registered HIP kernel with the specified parameters.
-    ///
-    /// # Parameters
-    ///
-    /// * `kernel_id` - The identifier of the kernel to execute.
-    /// * `kernel` - The cube task to compile if not cached.
-    /// * `mode` - The execution mode for the current kernel.
-    /// * `dispatch_count` - The number of thread blocks in the x, y, and z dimensions.
-    /// * `resources` - GPU resources (e.g., buffers) used by the kernel.
-    /// * `logger` - The logger to use to write compilation & runtime info.
-    ///
-    /// # Panics
-    ///
-    /// * If the execution fails, with an error message or profiling error.
     /// Compile and cache `kernel` without launching — everything a skipped
     /// launch owes the caches, and nothing else: no buffer is resolved, so a
     /// dry run's lazily-carved allocations stay unmapped.
@@ -481,7 +467,24 @@ impl<'a> Command<'a> {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    /// Executes a registered HIP kernel with the specified parameters.
+    ///
+    /// Always launches: a skipped launch stops at
+    /// [`compile_only`](Self::compile_only) in the server, before any resource
+    /// is resolved, so it never reaches here.
+    ///
+    /// # Parameters
+    ///
+    /// * `kernel_id` - The identifier of the kernel to execute.
+    /// * `kernel` - The cube task to compile if not cached.
+    /// * `mode` - The execution mode for the current kernel.
+    /// * `dispatch_count` - The number of thread blocks in the x, y, and z dimensions.
+    /// * `resources` - GPU resources (e.g., buffers) used by the kernel.
+    /// * `logger` - The logger to use to write compilation & runtime info.
+    ///
+    /// # Panics
+    ///
+    /// * If the execution fails, with an error message or profiling error.
     pub fn kernel(
         &mut self,
         kernel_id: KernelId,
@@ -490,15 +493,8 @@ impl<'a> Command<'a> {
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
         logger: Arc<ServerLogger>,
-        launch_mode: LaunchMode,
     ) -> Result<(), LaunchError> {
-        if !self.ctx.is_loaded(&kernel_id) {
-            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
-        }
-
-        if launch_mode.is_skipped() {
-            return Ok(());
-        }
+        self.compile_only(&kernel_id, kernel, mode, logger)?;
 
         let stream = self.streams.current();
 

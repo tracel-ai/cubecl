@@ -1,7 +1,7 @@
 use crate::{
     memory_management::{
         BytesFormat, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation, MemoryUsage,
-        memory_pool::{Slice, calculate_padding},
+        memory_pool::{PageMapping, Slice, calculate_padding},
     },
     server::IoError,
     storage::{StorageHandle, StorageUtilization},
@@ -35,25 +35,15 @@ pub struct MemoryPage {
 
 impl MemoryPage {
     /// Creates a new memory page with the given storage and memory alignment.
-    pub fn new(storage: StorageHandle, alignment: u64, location_base: MemoryLocation) -> Self {
-        Self::with_mapping(storage, alignment, location_base, true)
-    }
-
-    /// Creates a page whose storage id has no device backing yet — see
-    /// [`mapped`](Self::mapped).
-    pub fn new_unmapped(
+    ///
+    /// `mapping` says whether `storage`'s id is already backed by a device
+    /// allocation ([`PageMapping::Eager`]) or is a minted id awaiting one
+    /// ([`PageMapping::Lazy`]) — see [`mapped`](Self::mapped).
+    pub fn new(
         storage: StorageHandle,
         alignment: u64,
         location_base: MemoryLocation,
-    ) -> Self {
-        Self::with_mapping(storage, alignment, location_base, false)
-    }
-
-    fn with_mapping(
-        storage: StorageHandle,
-        alignment: u64,
-        location_base: MemoryLocation,
-        mapped: bool,
+        mapping: PageMapping,
     ) -> Self {
         let mut this = MemoryPage {
             storage: storage.clone(),
@@ -61,7 +51,7 @@ impl MemoryPage {
             slices_tmp: Vec::new(),
             alignment,
             location_base,
-            mapped,
+            mapped: matches!(mapping, PageMapping::Eager),
         };
 
         let slice = Slice::new(storage, 0);
@@ -762,6 +752,6 @@ mod tests {
     fn new_memory_page(size: u64) -> MemoryPage {
         let storage = StorageHandle::new(StorageId::new(), StorageUtilization { offset: 0, size });
 
-        MemoryPage::new(storage, 4, MemoryLocation::new(0, 0, 0))
+        MemoryPage::new(storage, 4, MemoryLocation::new(0, 0, 0), PageMapping::Eager)
     }
 }

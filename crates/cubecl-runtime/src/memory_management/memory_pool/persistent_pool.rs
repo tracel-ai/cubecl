@@ -151,21 +151,18 @@ impl MemoryPool for PersistentPool {
         // per-slice: a minted id under a dry run (a scratch session's KV
         // cache, for instance) costs nothing until a measurement actually
         // touches it — see [`MemoryPool::materialize`].
-        let (storage_handle, mapped) = match mapping {
-            PageMapping::Eager => (storage.alloc(effective_size)?, true),
-            PageMapping::Lazy => (
-                StorageHandle::new(
-                    StorageId::new(),
-                    StorageUtilization {
-                        offset: 0,
-                        size: effective_size,
-                    },
-                ),
-                false,
+        let storage_handle = match mapping {
+            PageMapping::Eager => storage.alloc(effective_size)?,
+            PageMapping::Lazy => StorageHandle::new(
+                StorageId::new(),
+                StorageUtilization {
+                    offset: 0,
+                    size: effective_size,
+                },
             ),
         };
         let mut slice = Slice::new(storage_handle, padding);
-        slice.mapped = mapped;
+        slice.mapped = matches!(mapping, PageMapping::Eager);
         slice.storage.utilization = StorageUtilization { offset: 0, size };
         let slice_id = slice.descriptor();
         let slice_pos = self.slices.len();
@@ -266,11 +263,15 @@ impl MemoryPool for PersistentPool {
         storage: &mut Storage,
         binding: &super::ManagedMemoryBinding,
     ) -> Result<(), IoError> {
-        // An out-of-range slice is `find`'s error to report, not ours.
+        // An out-of-range slice is `find`'s error to report, not ours. So is a
+        // stale location whose index a later cleanup reassigned: without the
+        // identity check it names a live slice this binding has no claim on,
+        // and backing that slice would allocate device memory for an
+        // allocation nobody asked to resolve.
         let Some(slice) = self.slices.get_mut(binding.descriptor().slice()) else {
             return Ok(());
         };
-        if slice.mapped {
+        if slice.mapped || slice.handle.descriptor() != binding.descriptor() {
             return Ok(());
         }
 

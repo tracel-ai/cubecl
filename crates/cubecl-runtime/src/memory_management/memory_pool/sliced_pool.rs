@@ -97,27 +97,21 @@ impl SlicedPool {
         let mut location_base = self.location_base;
         location_base.page = self.pages.len() as u16;
 
-        let page = match mapping {
-            PageMapping::Eager => {
-                let storage = storage.alloc(self.page_size)?;
-                MemoryPage::new(storage, self.alignment, location_base)
-            }
-            // A minted id with no device memory behind it: the page carves,
-            // coalesces and counts toward the high-water exactly like a real
-            // one, and is rebound to a real allocation on first resolution
-            // (`materialize`).
-            PageMapping::Lazy => MemoryPage::new_unmapped(
-                StorageHandle::new(
-                    StorageId::new(),
-                    StorageUtilization {
-                        offset: 0,
-                        size: self.page_size,
-                    },
-                ),
-                self.alignment,
-                location_base,
+        // A lazy page gets a minted id with no device memory behind it: it
+        // carves, coalesces and counts toward the high-water exactly like a
+        // real one, and is rebound to a real allocation on first resolution
+        // (`materialize`).
+        let storage = match mapping {
+            PageMapping::Eager => storage.alloc(self.page_size)?,
+            PageMapping::Lazy => StorageHandle::new(
+                StorageId::new(),
+                StorageUtilization {
+                    offset: 0,
+                    size: self.page_size,
+                },
             ),
         };
+        let page = MemoryPage::new(storage, self.alignment, location_base, mapping);
         let storage_id = page.storage_id();
         self.pages.push((page, storage_id));
         self.pages_peak = self.pages_peak.max(self.pages.len() as u64);
@@ -208,6 +202,16 @@ impl MemoryPool for SlicedPool {
             return Ok(());
         };
         if page.is_mapped() {
+            return Ok(());
+        }
+        // So is a stale location whose page index a later cleanup reassigned:
+        // it names a page this binding has no claim on, and backing that page
+        // would allocate device memory for an allocation nobody asked to
+        // resolve — the opposite of what a dry run is for.
+        let claimed = page
+            .find(binding)
+            .is_ok_and(|slice| slice.handle.descriptor() == binding.descriptor());
+        if !claimed {
             return Ok(());
         }
 

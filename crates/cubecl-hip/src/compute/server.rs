@@ -865,15 +865,7 @@ impl HipServer {
                 .expect("Resource to exist."),
         );
 
-        command.kernel(
-            kernel_id,
-            kernel,
-            mode,
-            count,
-            &resources,
-            logger,
-            launch_mode,
-        )?;
+        command.kernel(kernel_id, kernel, mode, count, &resources, logger)?;
 
         Ok(())
     }
