@@ -1186,13 +1186,7 @@ impl CudaServer {
         }
         resources.extend(info_const);
 
-        command.kernel(
-            kernel_id,
-            kernel,
-            count,
-            &mut resources,
-            logger,
-        )?;
+        command.kernel(kernel_id, kernel, count, &mut resources, logger)?;
 
         Ok(())
     }
