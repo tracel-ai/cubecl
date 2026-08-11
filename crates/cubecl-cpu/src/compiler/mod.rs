@@ -120,13 +120,13 @@ impl PlironCompiler {
         func_passes.add_pass(LowerComplexOpPass::default());
         func_passes.add_pass(BranchToSCFPass::default());
         func_passes.add_pass(SCFToLlvmCf::default());
-        func_passes.add_pass(SimplifyCFGPass);
-        func_passes.add_pass(DCEPass);
         func_passes.add_pass(LowerEntryAbiPass::new(
             kernel.info.clone(),
             shared_memories.clone(),
         ));
         func_passes.add_pass(CubeToLLVMPass::default());
+        func_passes.add_pass(SimplifyCFGPass);
+        func_passes.add_pass(DCEPass);
         func_passes.add_pass(Mem2RegPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
