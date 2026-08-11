@@ -112,6 +112,10 @@ pub enum MemoryPoolKind {
         /// The largest allocation the pool accepts.
         max_alloc_size: u64,
     },
+    /// One device allocation per reservation, released as soon as it is free.
+    /// Wastes only alignment padding, and pays a driver allocation and free
+    /// for every reservation.
+    Direct,
     /// Exact-fit slices that are reused only by identical size.
     Persistent,
 }

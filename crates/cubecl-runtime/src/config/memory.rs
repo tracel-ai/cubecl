@@ -65,6 +65,13 @@ pub enum MemoryPoolConfig {
         /// deallocated. `None` never deallocates.
         dealloc_period: Option<u64>,
     },
+    /// Every allocation is its own device allocation, released as soon as it
+    /// is free ([`PoolType::Direct`](crate::memory_management::PoolType::Direct)).
+    ///
+    /// Wastes only alignment padding, and pays a driver allocation and free
+    /// per reservation. Takes no options: it has no pages to size and no
+    /// `dealloc_period` to tune, since releasing promptly *is* the policy.
+    Direct,
     /// Allocations are slices of larger pages
     /// ([`PoolType::SlicedPages`](crate::memory_management::PoolType::SlicedPages)).
     Sliced {

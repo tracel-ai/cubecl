@@ -21,6 +21,15 @@ pub enum PoolType {
         /// The minimum number of bytes to allocate in this pool.
         max_alloc_size: u64,
     },
+    /// Give every allocation its own device allocation, sized to the request
+    /// and released as soon as it is free.
+    ///
+    /// No pooling at all: it wastes only alignment padding, at the cost of a
+    /// driver allocation and free per reservation. Worth it where padding
+    /// matters more than allocation cost — under a
+    /// [`DryRun`](crate::dry_run::DryRun), where unresolved reservations never
+    /// reach the driver at all, or on a device the workload barely fits.
+    Direct,
     /// Use a memory where each allocation is a slice of a bigger allocation.
     SlicedPages {
         /// The page size to allocate.

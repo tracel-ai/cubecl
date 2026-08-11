@@ -1,7 +1,8 @@
 use super::{
     MemoryConfiguration, MemoryPoolOptions, MemoryReport, MemoryUsage, PoolType,
     memory_pool::{
-        ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool, page_mapping,
+        DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool,
+        page_mapping,
     },
 };
 use crate::{
@@ -36,6 +37,7 @@ pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 enum DynamicPool {
     Sliced(SlicedPool),
     Exclusive(ExclusiveMemoryPool),
+    Direct(DirectPool),
 }
 
 impl MemoryPool for DynamicPool {
@@ -43,6 +45,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(pool) => pool.accept(size),
             DynamicPool::Exclusive(pool) => pool.accept(size),
+            DynamicPool::Direct(pool) => pool.accept(size),
         }
     }
 
@@ -50,6 +53,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.find(binding),
             DynamicPool::Exclusive(m) => m.find(binding),
+            DynamicPool::Direct(m) => m.find(binding),
         }
     }
 
@@ -58,6 +62,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.try_reserve(size),
             DynamicPool::Exclusive(m) => m.try_reserve(size),
+            DynamicPool::Direct(m) => m.try_reserve(size),
         }
     }
 
@@ -74,6 +79,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size, mapping),
             DynamicPool::Exclusive(m) => m.alloc(storage, size, mapping),
+            DynamicPool::Direct(m) => m.alloc(storage, size, mapping),
         }
     }
 
@@ -85,6 +91,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.materialize(storage, binding),
             DynamicPool::Exclusive(m) => m.materialize(storage, binding),
+            DynamicPool::Direct(m) => m.materialize(storage, binding),
         }
     }
 
@@ -92,6 +99,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.get_memory_usage(),
             DynamicPool::Exclusive(m) => m.get_memory_usage(),
+            DynamicPool::Direct(m) => m.get_memory_usage(),
         }
     }
 
@@ -104,6 +112,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit),
             DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit),
+            DynamicPool::Direct(m) => m.cleanup(storage, alloc_nr, explicit),
         };
         storage.flush();
     }
@@ -117,6 +126,17 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.bind(reserved, assigned, cursor),
             DynamicPool::Exclusive(m) => m.bind(reserved, assigned, cursor),
+            DynamicPool::Direct(m) => m.bind(reserved, assigned, cursor),
+        }
+    }
+}
+
+impl core::fmt::Display for DynamicPool {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            DynamicPool::Sliced(pool) => write!(f, "{pool}"),
+            DynamicPool::Exclusive(pool) => write!(f, "{pool}"),
+            DynamicPool::Direct(pool) => write!(f, "{pool}"),
         }
     }
 }
@@ -126,6 +146,7 @@ impl DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.report(),
             DynamicPool::Exclusive(m) => m.report(),
+            DynamicPool::Direct(m) => m.report(),
         }
     }
 }
@@ -474,6 +495,10 @@ fn pool_options_from_entry(
                 dealloc_period: *dealloc_period,
             })
         }
+        MemoryPoolConfig::Direct => Ok(MemoryPoolOptions {
+            pool_type: PoolType::Direct,
+            dealloc_period: None,
+        }),
         // Sliced pools break the invariant `exclusive_memory_only` builds rely
         // on (e.g. wgpu on wasm assumes a buffer is never shared between
         // slices), so an explicit list must be rejected just like the
@@ -692,6 +717,11 @@ fn build_pools(
                         pool_pos,
                     ))
                 }
+                // `dealloc_period` is meaningless here: this pool's whole
+                // policy is to release as soon as a slice is free.
+                PoolType::Direct => {
+                    DynamicPool::Direct(DirectPool::new(properties.alignment, pool_pos))
+                }
             }
         })
         .collect()
@@ -775,10 +805,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         let dynamic_in_use: u64 = self
             .pools
             .iter()
-            .map(|pool| match pool {
-                DynamicPool::Sliced(p) => p.get_memory_usage().bytes_in_use,
-                DynamicPool::Exclusive(p) => p.get_memory_usage().bytes_in_use,
-            })
+            .map(|pool| pool.get_memory_usage().bytes_in_use)
             .sum();
         if dynamic_in_use > 0 {
             return Err(InstallMemoryPoolsError::PoolsInUse {
@@ -1274,10 +1301,7 @@ impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
         f.write_str("\n## Dynamic\n\n")?;
 
         for pool in self.pools.iter() {
-            match pool {
-                DynamicPool::Sliced(pool) => f.write_fmt(format_args!("{pool}\n"))?,
-                DynamicPool::Exclusive(pool) => f.write_fmt(format_args!("{pool}\n"))?,
-            }
+            f.write_fmt(format_args!("{pool}\n"))?;
         }
         let memory_usage = self.memory_usage();
         f.write_fmt(format_args!("\n## Summary\n\n{memory_usage}"))?;
