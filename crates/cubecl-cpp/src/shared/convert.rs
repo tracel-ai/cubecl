@@ -2,6 +2,7 @@
 //! properly preserve the semantics of the actual code in IR.
 
 use cubecl_core::ir::{
+    NamedRewrite,
     dialect::{OperationPtrExt, general::CastOp},
     interfaces::ValueExt,
     prelude::{Context, MatchRewriter, Operation, Ptr, Result},
@@ -52,7 +53,7 @@ use crate::shared::ty::TypedExtCPP;
 
 pub type PromoteUnsupportedTypesPass = MatchRewritePass<PromoteUnsupportedTypes>;
 
-#[derive(Default)]
+#[derive(Default, NamedRewrite)]
 pub struct PromoteUnsupportedTypes;
 
 impl MatchRewrite for PromoteUnsupportedTypes {

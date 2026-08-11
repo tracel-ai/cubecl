@@ -8,7 +8,6 @@ use cubecl_core::{
     WgpuCompilationOptions,
     post_processing::{
         checked_io::{CheckedIo, CheckedIoPass},
-        disaggregate::DisaggregatePass,
         saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
@@ -27,6 +26,7 @@ use cubecl_ir::{
 };
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, simple_cse::SimpleCSEPass,
+    sroa::SROAPass,
 };
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
@@ -119,7 +119,7 @@ impl WgslCompiler {
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
-        func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(SROAPass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
             value.settings.execution_mode,
             value.settings.kernel_name.clone(),
@@ -134,10 +134,12 @@ impl WgslCompiler {
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(SROAPass);
 
         // SCCP/DCE may unlock more mem2reg opportunities, and vice versa. So we do a sandwich.
         func_passes.add_pass(Mem2RegPass);
 
+        func_passes.add_pass(SROAPass);
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());

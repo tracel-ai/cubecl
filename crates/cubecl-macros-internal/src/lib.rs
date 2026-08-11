@@ -6,7 +6,7 @@ use crate::{
     generate::{
         const_eval::generate_const_eval,
         cube_op::{generate_cube_op, generate_op_traits},
-        pass_name::generate_pass_name,
+        pass_name::{generate_pass_name, generate_rewrite_name},
         simplify::generate_simplify,
     },
     parse::{
@@ -57,6 +57,14 @@ pub fn op_traits(args: TokenStream, input: TokenStream) -> TokenStream {
 pub fn pass_name(_args: TokenStream, input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ItemImpl);
     macro_try!(generate_pass_name(input)).into()
+}
+
+/// Implements `NamedRewrite::name` on the annotated struct, returning the short name of
+/// the rewrite struct (e.g. `"InsertEntrypointPass"`) instead of the fully-qualified type path.
+#[proc_macro_derive(NamedRewrite)]
+pub fn derive_rewrite_name(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    macro_try!(generate_rewrite_name(input)).into()
 }
 
 #[proc_macro]

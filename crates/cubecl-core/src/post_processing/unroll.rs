@@ -9,7 +9,7 @@ use cubecl_ir::{
         math::{IAddOp, IMulOp},
         matrix,
         memory::{DeclareVariableOp, IndexOp},
-        vector::{VectorExtractOp, VectorInsertOp},
+        vector::{CompositeExtractOp, CompositeInsertOp},
     },
     interfaces::{MaybeVectorizedType, TriviallyUnrollable, TypedExt},
     prelude::*,
@@ -172,9 +172,13 @@ fn const_usize(ctx: &mut Context, anchor: &dyn Op, value: usize) -> Value {
 }
 
 #[op_interface_impl]
-impl CustomUnrollOp for VectorExtractOp {
+impl CustomUnrollOp for CompositeExtractOp {
     fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
-        let vector = self.vector(ctx);
+        let vector = self.composite(ctx);
+        if !vector.is_vector(ctx) {
+            return;
+        }
+
         let current_vec = vector.vector_size(ctx);
         if current_vec > state.max_vector_size {
             state.result.ir_changed |= IRStatus::Changed;
@@ -184,16 +188,20 @@ impl CustomUnrollOp for VectorExtractOp {
             let sub_idx = index % state.max_vector_size;
 
             let new_vector = state.mappings.get(&vector).expect("Should exist")[unroll_idx];
-            vector.replace_use_with(ctx, self.vector_as_use(ctx), &new_vector);
+            vector.replace_use_with(ctx, self.composite_as_use(ctx), &new_vector);
             self.set_index(ctx, sub_idx);
         }
     }
 }
 
 #[op_interface_impl]
-impl CustomUnrollOp for VectorInsertOp {
+impl CustomUnrollOp for CompositeInsertOp {
     fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
-        let vector = self.vector(ctx);
+        let vector = self.composite(ctx);
+        if !vector.is_vector(ctx) {
+            return;
+        }
+
         let value = self.value(ctx);
         let current_vec = vector.vector_size(ctx);
         if current_vec > state.max_vector_size {
@@ -207,7 +215,7 @@ impl CustomUnrollOp for VectorInsertOp {
 
             let new_results = vectors.iter().enumerate().map(|(i, vector)| {
                 let op = if i == unroll_idx {
-                    VectorInsertOp::new(ctx, *vector, value, sub_idx).get_operation()
+                    CompositeInsertOp::new(ctx, *vector, value, sub_idx).get_operation()
                 } else {
                     CopyOp::new(ctx, *vector).get_operation()
                 };

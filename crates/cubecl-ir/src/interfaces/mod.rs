@@ -16,6 +16,7 @@ use pliron::{
 };
 
 pub mod aliasing;
+pub mod memory_slot;
 
 #[macro_export]
 macro_rules! verify_op_succ {
@@ -318,13 +319,6 @@ pub trait ScalarizableType {
 pub trait ScalarType {
     verify_ty_succ!();
     fn elem_type(&self, ctx: &Context) -> ElemType;
-}
-
-#[type_interface]
-pub trait AggregateType {
-    verify_ty_succ!();
-
-    fn field_ty(&self, ctx: &Context, field_idx: usize) -> TypeHandle;
 }
 
 #[type_interface]

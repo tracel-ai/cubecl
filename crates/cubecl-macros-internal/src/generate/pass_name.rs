@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{GenericArgument, ImplItem, ImplItemFn, ItemImpl, PathArguments, Type};
+use syn::{DeriveInput, GenericArgument, ImplItem, ImplItemFn, ItemImpl, PathArguments, Type};
 
 fn snake_case(input: &str) -> String {
     let mut snake_case_str = String::new();
@@ -80,6 +80,22 @@ pub fn generate_pass_name(mut item: ItemImpl) -> syn::Result<TokenStream> {
     item.items.push(ImplItem::Fn(name_fn));
 
     Ok(quote! { #item })
+}
+
+/// Generates a `NamedRewrite::name` implementation returning the short name of the rewrite struct.
+pub fn generate_rewrite_name(item: DeriveInput) -> syn::Result<TokenStream> {
+    let ty = &item.ident;
+    let (generics, generic_names, where_clause) = item.generics.split_for_impl();
+    let name: String = ty.to_string();
+    let name = format!("{}_rewrite", snake_case(&name));
+
+    Ok(quote! {
+        impl #generics NamedRewrite for #ty #generic_names #where_clause {
+            fn name(&self) -> &str {
+                #name
+            }
+        }
+    })
 }
 
 /// Renders a type to its short name: the last path segment, keeping its generic arguments (each

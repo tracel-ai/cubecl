@@ -1,13 +1,18 @@
-use pliron::derive::{pliron_type, type_interface_impl};
+use pliron::{
+    attribute::AttrObj,
+    derive::{pliron_type, type_interface_impl},
+    utils::table::HMap,
+};
 
 use crate::{
     AddressSpace, aligned,
     interfaces::{
         AlignedType, HasElementType, IndexableType, MaybePackedType, MaybeVectorizedType,
-        ScalarizableType, SizedType, TypedExt,
+        ScalarizableType, SizedType, TypedExt, memory_slot::DestructurableTypeInterface,
     },
     prelude::*,
     sized,
+    types::aggregate::index_attr,
 };
 
 pub mod aggregate;
@@ -70,6 +75,21 @@ impl ScalarizableType for VectorType {
 impl HasElementType for VectorType {
     fn element_type(&self, ctx: &Context) -> Option<TypeHandle> {
         Some(self.get_self_handle(ctx))
+    }
+}
+
+#[type_interface_impl]
+impl DestructurableTypeInterface for VectorType {
+    fn subelement_index_map(&self, _ctx: &Context) -> Option<HMap<AttrObj, TypeHandle>> {
+        let mut out = HMap::new();
+        for i in 0..self.vectorization {
+            out.insert(index_attr(i), self.inner);
+        }
+        Some(out)
+    }
+
+    fn type_at_index(&self, _ctx: &Context, _index: &AttrObj) -> TypeHandle {
+        self.inner
     }
 }
 
@@ -207,6 +227,21 @@ impl MaybePackedType for ArrayType {
 impl HasElementType for ArrayType {
     fn element_type(&self, ctx: &Context) -> Option<TypeHandle> {
         type_cast::<dyn HasElementType>(&*self.inner.deref(ctx))?.element_type(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl DestructurableTypeInterface for ArrayType {
+    fn subelement_index_map(&self, _ctx: &Context) -> Option<HMap<AttrObj, TypeHandle>> {
+        let mut out = HMap::new();
+        for i in 0..self.length {
+            out.insert(index_attr(i), self.inner);
+        }
+        Some(out)
+    }
+
+    fn type_at_index(&self, _ctx: &Context, _index: &AttrObj) -> TypeHandle {
+        self.inner
     }
 }
 

@@ -1,4 +1,5 @@
 use cubecl_core::ir::{
+    NamedRewrite,
     dialect::general::ReinterpretCastOp,
     interfaces::{TypedExt, ValueExt},
     prelude::*,
@@ -29,7 +30,7 @@ use crate::shared::ty::TypedExtCPP;
 
 pub type PackOpsPass = MatchRewritePass<PackOps>;
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, NamedRewrite)]
 pub struct PackOps;
 
 impl MatchRewrite for PackOps {

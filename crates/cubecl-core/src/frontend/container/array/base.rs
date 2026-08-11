@@ -8,7 +8,7 @@ use cubecl_ir::{
         value::Value,
     },
     read_value,
-    types::{ArrayType, PointerType, aggregate::PtrAggregateType},
+    types::{ArrayType, PointerType, aggregate::SliceType},
 };
 
 use crate::frontend::{CubePrimitive, NativeExpand};
@@ -222,7 +222,7 @@ impl<T: CubePrimitive> VectorizedExpand for ArrayExpand<T> {
 pub(crate) fn inner_array_ty(scope: &Scope, value: Value) -> TypedHandle<ArrayType> {
     let ctx = scope.ctx();
     let ty = value.get_type(ctx).deref(ctx);
-    let PtrAggregateType { base_ty, .. } = *ty.downcast_ref().unwrap();
+    let SliceType { base_ty, .. } = *ty.downcast_ref().unwrap();
     let base_ty = base_ty.deref(ctx);
     let PointerType { inner, .. } = base_ty.downcast_ref().unwrap();
     TypedHandle::from_handle(*inner, ctx).unwrap()

@@ -4,16 +4,25 @@ use crate::{
     NoMemoryEffect,
     interfaces::{
         AlignedType, MaybeVectorizedType, MemoryEffect, MemoryEffects, ScalarizableType, TypedExt,
+        memory_slot::PromotableRegionOpInterface,
     },
     scalar,
 };
 use pliron::{
-    context::Context,
+    basic_block::BasicBlock,
+    context::{Context, Ptr},
     derive::{op_interface_impl, type_interface_impl},
+    linked_list::ContainsLinkedList,
+    op::Op,
+    operation::Operation,
+    opts::mem2reg::AllocInfo,
+    region::Region,
     r#type::{TypeHandle, Typed, TypedHandle},
+    utils::table::{HMap, SmallMap},
+    value::Value,
 };
 use pliron_spirv::{
-    ops::{AccessChainOp, InBoundsAccessChainOp, LoadOp},
+    ops::{AccessChainOp, InBoundsAccessChainOp, LoadOp, LoopOp, SelectionOp},
     spirv::StorageClass,
     types::{FloatType, PointerType, VectorType},
 };
@@ -70,5 +79,92 @@ impl MaybeVectorizedType for VectorType {
 impl ScalarizableType for VectorType {
     fn scalar_type(&self, ctx: &Context) -> TypeHandle {
         self.element_type.scalar_ty(ctx)
+    }
+}
+
+fn update_merge(
+    ctx: &Context,
+    block: Ptr<BasicBlock>,
+    default_reaching_def: Value,
+    reaching_at_block_end: &HMap<Ptr<BasicBlock>, Value>,
+) {
+    let term = block.deref(ctx).get_terminator(ctx);
+    let term = term.expect("Should have terminator");
+    let block_reaching_def = reaching_at_block_end.get(&block).copied();
+    let block_reaching_def = block_reaching_def.unwrap_or(default_reaching_def);
+    Operation::push_operand(term, ctx, block_reaching_def);
+}
+
+#[op_interface_impl]
+impl PromotableRegionOpInterface for SelectionOp {
+    fn is_region_promotable(&self, _: &Context, _: &AllocInfo, _: Ptr<Region>, _: bool) -> bool {
+        true
+    }
+
+    fn setup_promotion(
+        &self,
+        ctx: &mut Context,
+        _: &AllocInfo,
+        reaching_def: Value,
+        _: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, Value, 2>,
+    ) {
+        regions_to_process.insert(self.region(ctx), reaching_def);
+    }
+
+    fn finalize_promotion(
+        &self,
+        ctx: &mut Context,
+        alloc: &AllocInfo,
+        entry_reaching_def: Value,
+        has_value_stores: bool,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, Value>,
+    ) -> Value {
+        if !has_value_stores {
+            return entry_reaching_def;
+        }
+
+        let merge_block = self.region(ctx).deref(ctx).get_tail().unwrap();
+        update_merge(ctx, merge_block, entry_reaching_def, reaching_at_block_end);
+
+        let res_idx = Operation::push_result(self.get_operation(), ctx, alloc.ty);
+        self.get_operation().deref(ctx).get_result(res_idx)
+    }
+}
+
+#[op_interface_impl]
+impl PromotableRegionOpInterface for LoopOp {
+    fn is_region_promotable(&self, _: &Context, _: &AllocInfo, _: Ptr<Region>, _: bool) -> bool {
+        true
+    }
+
+    fn setup_promotion(
+        &self,
+        ctx: &mut Context,
+        _: &AllocInfo,
+        reaching_def: Value,
+        _: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, Value, 2>,
+    ) {
+        regions_to_process.insert(self.region(ctx), reaching_def);
+    }
+
+    fn finalize_promotion(
+        &self,
+        ctx: &mut Context,
+        alloc: &AllocInfo,
+        entry_reaching_def: Value,
+        has_value_stores: bool,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, Value>,
+    ) -> Value {
+        if !has_value_stores {
+            return entry_reaching_def;
+        }
+
+        let merge_block = self.region(ctx).deref(ctx).get_tail().unwrap();
+        update_merge(ctx, merge_block, entry_reaching_def, reaching_at_block_end);
+
+        let res_idx = Operation::push_result(self.get_operation(), ctx, alloc.ty);
+        self.get_operation().deref(ctx).get_result(res_idx)
     }
 }

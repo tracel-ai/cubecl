@@ -59,6 +59,32 @@ impl Expression {
                 right,
                 span,
                 ..
+            } if operator.is_assign() => {
+                let op = format_ident!("__expand_{}_method", operator.op_name());
+                let left = into_expand(left.to_tokens(context));
+                let right = into_expand(right.to_tokens(context));
+                let rhs = match operator.is_cmp() {
+                    true => quote![&#right],
+                    false => quote![#right],
+                };
+                let expand = with_span(
+                    context,
+                    *span,
+                    quote! {{
+                        #left.#op(scope, _value)
+                    }},
+                );
+                quote! {{
+                    let _value = #rhs;
+                    #expand
+                }}
+            }
+            Expression::Binary {
+                left,
+                operator,
+                right,
+                span,
+                ..
             } => {
                 let op = format_ident!("__expand_{}_method", operator.op_name());
                 let left = into_expand(left.to_tokens(context));

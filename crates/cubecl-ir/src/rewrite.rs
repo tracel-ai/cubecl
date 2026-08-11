@@ -1,5 +1,6 @@
 use core::{fmt::Debug, hash::Hash, marker::PhantomData, ops::Deref};
 
+use cubecl_macros_internal::NamedRewrite;
 use derive_more::{Deref, DerefMut, From};
 use derive_new::new;
 use pliron::{
@@ -26,11 +27,18 @@ use crate::{dialect::BlockPtrExt, interfaces::SimplifyInterface, prelude::*};
 /// A preset config when order doesn't matter
 pub const WALKCONFIG_ANY: WalkConfig = WALKCONFIG_PREORDER_FORWARD;
 
+pub trait NamedRewrite {
+    fn name(&self) -> &str;
+}
+
 #[derive(new, From, Clone, Debug, Default)]
 pub struct DialectConversionPass<T: DialectConversion>(T);
 
-#[pass_name]
-impl<T: DialectConversion> Pass for DialectConversionPass<T> {
+impl<T: DialectConversion + NamedRewrite> Pass for DialectConversionPass<T> {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+
     fn run(
         &mut self,
         op: Ptr<Operation>,
@@ -46,8 +54,11 @@ impl<T: DialectConversion> Pass for DialectConversionPass<T> {
 #[derive(new, From, Clone, Debug, Default)]
 pub struct MatchRewritePass<T: MatchRewrite>(pub T);
 
-#[pass_name]
-impl<T: MatchRewrite> Pass for MatchRewritePass<T> {
+impl<T: MatchRewrite + NamedRewrite> Pass for MatchRewritePass<T> {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+
     fn run(
         &mut self,
         op: Ptr<Operation>,
@@ -83,7 +94,7 @@ impl<P1: Pass, P2: Pass> Pass for CombinedPass<P1, P2> {
 
 pub type SimplifyOpsPass = MatchRewritePass<SimplifyOps>;
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, NamedRewrite)]
 pub struct SimplifyOps;
 
 impl MatchRewrite for SimplifyOps {

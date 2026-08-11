@@ -74,7 +74,8 @@ pub mod prelude {
     pub type PassRewriter = pliron::irbuild::rewriter::IRRewriter<Recorder>;
 }
 
-pub use cubecl_macros_internal::cube_op;
+pub use crate::rewrite::NamedRewrite;
+pub use cubecl_macros_internal::{NamedRewrite, cube_op};
 
 pub mod pliron {
     pub use pliron::derive::*;

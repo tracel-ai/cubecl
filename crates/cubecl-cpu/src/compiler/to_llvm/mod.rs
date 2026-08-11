@@ -8,6 +8,7 @@ pub mod synchronization;
 pub mod ty;
 pub mod vector;
 
+use cubecl_core::ir::NamedRewrite;
 use prelude::*;
 
 pub mod prelude {
@@ -70,7 +71,7 @@ pub trait ToLLVMDialect {
 
 pub type CubeToLLVMPass = DialectConversionPass<CubeToLLVM>;
 
-#[derive(Default)]
+#[derive(Default, NamedRewrite)]
 pub struct CubeToLLVM;
 
 impl DialectConversion for CubeToLLVM {

@@ -1,53 +1,78 @@
-use cubecl_macros_internal::TypeHash;
-use derive_more::Display;
-use pliron::derive::{format, pliron_type, type_interface_impl};
+use alloc::boxed::Box;
+use pliron::{
+    attribute::AttrObj,
+    derive::{pliron_type, type_interface_impl},
+    utils::table::HMap,
+};
 
 use crate::{
-    interfaces::AggregateType,
+    attributes::IndexAttr,
+    interfaces::memory_slot::DestructurableTypeInterface,
     prelude::*,
     types::scalar::{BoolType, IndexType},
 };
 
 #[pliron_type(
-    name = "cube.ptr_aggregate",
-    format = "$meta `<` $base_ty `>`",
+    name = "cube.slice",
+    format = "`<` $base_ty `>`",
     generate_get = true,
     verifier = "succ"
 )]
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
-pub struct PtrAggregateType {
+pub struct SliceType {
     pub base_ty: TypeHandle,
-    pub meta: MetadataKind,
 }
 
 #[type_interface_impl]
-impl AggregateType for PtrAggregateType {
-    fn field_ty(&self, ctx: &Context, field_idx: usize) -> TypeHandle {
-        match self.meta {
-            MetadataKind::Slice => match field_idx {
-                0 => self.base_ty,
-                1 | 2 => IndexType::get(ctx).into(),
-                _ => panic!("Invalid index"),
-            },
-            MetadataKind::BoundsCheck => match field_idx {
-                0 => self.base_ty,
-                1 => BoolType::get(ctx).into(),
-                _ => panic!("Invalid index"),
-            },
+impl DestructurableTypeInterface for SliceType {
+    fn subelement_index_map(&self, ctx: &Context) -> Option<HMap<AttrObj, TypeHandle>> {
+        let mut out = HMap::new();
+        out.insert(index_attr(0), self.base_ty);
+        out.insert(index_attr(1), IndexType::get(ctx).to_handle());
+        out.insert(index_attr(2), IndexType::get(ctx).to_handle());
+        Some(out)
+    }
+
+    fn type_at_index(&self, ctx: &Context, index: &AttrObj) -> TypeHandle {
+        match index.downcast_ref::<IndexAttr>().unwrap().0 {
+            0 => self.base_ty,
+            1 | 2 => IndexType::get(ctx).to_handle(),
+            _ => unreachable!(),
         }
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord, Display)]
-#[format]
-pub enum MetadataKind {
-    /// Slice metadata (offset and length)
-    #[display("slice")]
-    Slice,
-    /// Bounds check (in bounds)
-    #[display("bounds_checked")]
-    BoundsCheck,
+#[pliron_type(
+    name = "cube.checked_ptr",
+    format = "`<` $base_ty `>`",
+    generate_get = true,
+    verifier = "succ"
+)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone)]
+pub struct CheckedPtrType {
+    pub base_ty: TypeHandle,
+}
+
+#[type_interface_impl]
+impl DestructurableTypeInterface for CheckedPtrType {
+    fn subelement_index_map(&self, ctx: &Context) -> Option<HMap<AttrObj, TypeHandle>> {
+        let mut out = HMap::new();
+        out.insert(index_attr(0), self.base_ty);
+        out.insert(index_attr(1), BoolType::get(ctx).to_handle());
+        Some(out)
+    }
+
+    fn type_at_index(&self, ctx: &Context, index: &AttrObj) -> TypeHandle {
+        match index.downcast_ref::<IndexAttr>().unwrap().0 {
+            0 => self.base_ty,
+            1 => BoolType::get(ctx).to_handle(),
+            _ => unreachable!(),
+        }
+    }
+}
+
+pub fn index_attr(idx: usize) -> AttrObj {
+    Box::new(IndexAttr(idx))
 }
 
 pub struct BoundsCheckMetadata;

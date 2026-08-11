@@ -2,14 +2,15 @@ use alloc::vec;
 
 use alloc::string::String;
 use cubecl_ir::{
-    Scope, dialect::memory::IndexOp, prelude::*, settings::ExecutionMode, types::RuntimeArrayType,
+    NamedRewrite, Scope, dialect::memory::IndexOp, prelude::*, settings::ExecutionMode,
+    types::RuntimeArrayType,
 };
 
 use crate::io::*;
 
 pub type CheckedIoPass = MatchRewritePass<CheckedIo>;
 
-#[derive(new)]
+#[derive(new, NamedRewrite)]
 pub struct CheckedIo {
     mode: ExecutionMode,
     kernel_name: String,

@@ -1,4 +1,4 @@
-use cubecl_ir::{Scope, prelude::*};
+use cubecl_ir::{NamedRewrite, Scope, prelude::*};
 
 #[op_interface]
 pub trait LowerOp {
@@ -11,7 +11,7 @@ pub trait LowerOp {
 
 pub type LowerOpsWgslPass = MatchRewritePass<LowerOpsWgsl>;
 
-#[derive(Default)]
+#[derive(Default, NamedRewrite)]
 pub struct LowerOpsWgsl;
 
 impl MatchRewrite for LowerOpsWgsl {

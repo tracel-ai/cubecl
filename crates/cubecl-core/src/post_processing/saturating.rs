@@ -1,7 +1,7 @@
 use crate as cubecl;
 use alloc::vec;
 use cubecl_ir::{
-    Scope,
+    NamedRewrite, Scope,
     dialect::{
         base::OperationPtrExt,
         math::{SaturatingSAddOp, SaturatingSSubOp, SaturatingUAddOp, SaturatingUSubOp},
@@ -54,7 +54,7 @@ impl SaturatingOp for SaturatingUSubOp {
 }
 
 /// Replaces saturating arithmetic with a performant polyfill
-#[derive(new, Debug, Default)]
+#[derive(new, Debug, Default, NamedRewrite)]
 pub struct LowerSaturatingArithmetic;
 
 impl MatchRewrite for LowerSaturatingArithmetic {

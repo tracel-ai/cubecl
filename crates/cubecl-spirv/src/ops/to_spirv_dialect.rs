@@ -1,4 +1,5 @@
 use cubecl_ir::{
+    NamedRewrite,
     prelude::{
         Context, DialectConversion, DialectConversionRewriter, OperandsInfo, Operation,
         OperationPtrExt, Ptr, Result, Rewriter,
@@ -32,7 +33,7 @@ pub trait ToSpirvDialectOp {
 
 pub type ToSpirvDialectPass = DialectConversionPass<ToSpirvDialect>;
 
-#[derive(Default)]
+#[derive(Default, NamedRewrite)]
 pub struct ToSpirvDialect;
 
 impl DialectConversion for ToSpirvDialect {

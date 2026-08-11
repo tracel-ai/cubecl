@@ -8,7 +8,7 @@ use derive_new::new;
 use pliron::{
     builtin::attributes::{StringAttr, TypeAttr},
     derive::pliron_attr,
-    r#type::{TypeHandle, type_cast},
+    r#type::type_cast,
 };
 
 use crate::{
@@ -18,9 +18,8 @@ use crate::{
         math::{index_attr, int_attr},
         pure_binop, pure_unop,
     },
-    interfaces::{AggregateType, ScalarType, TypedExt, aliasing::AliasingOp},
+    interfaces::{ScalarType, TypedExt, aliasing::AliasingOp},
     prelude::*,
-    try_cast_ty,
     types::scalar::IndexType,
 };
 
@@ -46,59 +45,6 @@ impl AliasingOp for CopyOp {
 #[result_ty(argument)]
 #[op_traits(Pure, CanMaterialize)]
 pub struct PoisonOp {}
-
-#[pliron_op(name = "aggregate.construct", format, verifier = "succ")]
-#[op_interfaces(NResultsInterface<1>, OneResultInterface)]
-#[op_traits(Pure, CanMaterialize)]
-pub struct AggregateConstructOp;
-
-impl AggregateConstructOp {
-    pub fn new(ctx: &mut Context, ty: TypeHandle, values: Vec<Value>) -> Self {
-        let op = Operation::new(
-            ctx,
-            Self::get_concrete_op_info(),
-            vec![ty],
-            values,
-            vec![],
-            0,
-        );
-        Self { op }
-    }
-
-    pub fn values(&self, ctx: &Context) -> Vec<Value> {
-        self.get_operation().deref(ctx).operands().collect()
-    }
-}
-
-#[op_interface_impl]
-impl AliasingOp for AggregateExtractOp {
-    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
-        let aggregate = self.aggregate(ctx);
-        let field = self.field(ctx).0;
-        let aggregate_ty = aggregate.get_type(ctx).deref(ctx);
-        let aggregate_ty = try_cast_ty!(aggregate_ty, ctx, dyn AggregateType);
-        if aggregate_ty.field_ty(ctx, field).is_ptr(ctx) {
-            let construct = aggregate.defining_op().expect("Should be construct");
-            Some(construct.operand(ctx, field))
-        } else {
-            None
-        }
-    }
-}
-
-#[cube_op(name = "aggregate.extract")]
-#[result_ty(from_inputs = aggregate_extract_type)]
-#[op_traits(Pure, CanMaterialize)]
-pub struct AggregateExtractOp {
-    pub aggregate: Value,
-    pub field: IndexAttr,
-}
-
-fn aggregate_extract_type(ctx: &Context, aggregate: &Value, field: &IndexAttr) -> TypeHandle {
-    let aggregate_ty = aggregate.get_type(ctx).deref(ctx);
-    let aggregate_ty = type_cast::<dyn AggregateType>(&*aggregate_ty).expect("Should be aggregate");
-    aggregate_ty.field_ty(ctx, field.0)
-}
 
 pure_binop!("cube.bool_and", BoolAndOp);
 const_eval!(BoolAndOp, {

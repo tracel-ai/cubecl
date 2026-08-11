@@ -94,7 +94,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
         scales_layout,
     );
     let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
-    let float_view = ViewArg::new_array::<PlainLayout>(
+    let float_view: ViewArg<usize, R> = ViewArg::new_array::<PlainLayout>(
         unsafe { BufferArg::from_raw_parts(float_values, 16) },
         (),
     );

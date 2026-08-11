@@ -15,7 +15,7 @@ use crate::{
 };
 
 #[op_interface_impl]
-impl ToSpirvDialectOp for vector::VectorInitOp {
+impl ToSpirvDialectOp for vector::CompositeConstructOp {
     fn to_spirv_dialect(
         &self,
         ctx: &mut Context,
@@ -53,7 +53,7 @@ impl ToSpirvDialectOp for vector::VectorBroadcastOp {
 }
 
 #[op_interface_impl]
-impl ToSpirvDialectOp for vector::VectorInsertOp {
+impl ToSpirvDialectOp for vector::CompositeInsertOp {
     fn to_spirv_dialect(
         &self,
         ctx: &mut Context,
@@ -61,11 +61,11 @@ impl ToSpirvDialectOp for vector::VectorInsertOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
-        let vector = self.vector(ctx);
+        let composite = self.composite(ctx);
         let idx = self.index(ctx).0 as u32;
         let value = self.value(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
-        let new_op = CompositeInsertOp::new(ctx, out_ty, value, vector, vec![idx.into()]);
+        let new_op = CompositeInsertOp::new(ctx, out_ty, value, composite, vec![idx.into()]);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -74,7 +74,7 @@ impl ToSpirvDialectOp for vector::VectorInsertOp {
 }
 
 #[op_interface_impl]
-impl ToSpirvDialectOp for vector::VectorExtractOp {
+impl ToSpirvDialectOp for vector::CompositeExtractOp {
     fn to_spirv_dialect(
         &self,
         ctx: &mut Context,
@@ -82,10 +82,10 @@ impl ToSpirvDialectOp for vector::VectorExtractOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
-        let vector = self.vector(ctx);
+        let composite = self.composite(ctx);
         let idx = self.index(ctx).0 as u32;
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
-        let new_op = CompositeExtractOp::new(ctx, out_ty, vector, vec![idx.into()]);
+        let new_op = CompositeExtractOp::new(ctx, out_ty, composite, vec![idx.into()]);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 

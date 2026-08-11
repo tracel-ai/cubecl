@@ -4,7 +4,7 @@ use cubecl_core::{
     ir::{NoMemoryEffect, dialect::branch::YieldOp, prelude::*, types::scalar::BoolType},
 };
 use cubecl_ir::{
-    Scope,
+    NamedRewrite, Scope,
     dialect::{
         BlockPtrExt,
         branch::{self, ConditionOp, IsExitTerminator},
@@ -512,7 +512,7 @@ impl ToSpirvCFDialect for branch::UnreachableOp {
 
 pub type BranchToSpirvConversionPass = DialectConversionPass<BranchToSpirvConversion>;
 
-#[derive(Default)]
+#[derive(Default, NamedRewrite)]
 pub struct BranchToSpirvConversion;
 
 impl DialectConversion for BranchToSpirvConversion {

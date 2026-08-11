@@ -8,7 +8,8 @@ use crate::compiler::wgsl::{
     value::WgslValue,
 };
 
-wgsl_op_with_out!(VectorInitOp; |op, ctx| {
+wgsl_op_with_out!(CompositeConstructOp; |op, ctx| {
+    assert!(op.result_type(ctx).is_vector(ctx));
     let ty = op.result_type(ctx).to_wgsl(ctx);
     let mut values = op.values(ctx).into_iter().map(|val| val.name(ctx));
     format!("{ty}({})", values.join(", "))
@@ -19,11 +20,12 @@ wgsl_op_with_out!(VectorBroadcastOp; |op, ctx| {
     format!("{ty}({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(VectorInsertOp; |op, ctx| {
+wgsl_op_with_out!(CompositeInsertOp; |op, ctx| {
+    assert!(op.composite(ctx).is_vector(ctx));
     let ty = op.result_type(ctx).to_wgsl(ctx);
     let vec = op.result_type(ctx).vector_size(ctx);
     let idx = op.index(ctx).0;
-    let vector = op.vector(ctx).name(ctx);
+    let vector = op.composite(ctx).name(ctx);
     let value = op.value(ctx).name(ctx);
     let mut values = (0..vec).map(|i| {
         if i == idx {
@@ -35,9 +37,10 @@ wgsl_op_with_out!(VectorInsertOp; |op, ctx| {
     format!("{ty}({})", values.join(", "))
 });
 
-wgsl_op_with_out!(VectorExtractOp; |op, ctx| {
+wgsl_op_with_out!(CompositeExtractOp; |op, ctx| {
+    assert!(op.composite(ctx).is_vector(ctx));
     let idx = op.index(ctx).0;
-    format!("{}[{idx}]", op.vector(ctx).name(ctx))
+    format!("{}[{idx}]", op.composite(ctx).name(ctx))
 });
 
 wgsl_op!(VectorInsertDynamicOp, |op, ctx| {
