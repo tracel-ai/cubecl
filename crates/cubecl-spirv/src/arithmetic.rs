@@ -6,6 +6,20 @@ use crate::{
 use cubecl_core::ir::{self as core, Arithmetic, InstructionModes};
 use rspirv::spirv::{Capability, Decoration, FPEncoding};
 
+/// Assert that the output element type is not f64 for GLSL.std.450 extended
+/// instructions that only accept 16-bit or 32-bit float operands.
+/// Per the SPIR-V spec, trigonometric, hyperbolic, exponential, logarithmic,
+/// and angle-conversion extended instructions restrict operands to f16/f32.
+fn assert_not_f64_transcendental(out_ty: &Item, op_name: &str) {
+    if matches!(out_ty.elem(), Elem::Float(64, _)) {
+        panic!(
+            "SPIR-V GLSL.std.450 `{op_name}` does not support f64 operands. \
+             The spec restricts this instruction to 16-bit or 32-bit floats. \
+             Use a software polyfill in your kernel instead."
+        );
+    }
+}
+
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_arithmetic(
         &mut self,
@@ -359,6 +373,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Exp(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Exp");
                     b.declare_math_mode(modes, out);
                     T::exp(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -368,6 +383,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Log(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Log");
                     b.declare_math_mode(modes, out);
                     T::log(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -377,6 +393,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Log1p(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Log1p");
                     let one = b
                         .static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty)
                         .0;
@@ -476,6 +493,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Cos(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Cos");
                     b.declare_math_mode(modes, out);
                     T::cos(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -485,6 +503,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Sin(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Sin");
                     b.declare_math_mode(modes, out);
                     T::sin(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -494,6 +513,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Tan(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Tan");
                     b.declare_math_mode(modes, out);
                     T::tan(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -503,6 +523,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Tanh(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Tanh");
                     b.declare_math_mode(modes, out);
                     T::tanh(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -512,6 +533,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Sinh(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Sinh");
                     b.declare_math_mode(modes, out);
                     T::sinh(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -521,6 +543,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Cosh(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Cosh");
                     b.declare_math_mode(modes, out);
                     T::cosh(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -530,6 +553,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::ArcCos(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Acos");
                     b.declare_math_mode(modes, out);
                     T::acos(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -539,6 +563,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::ArcSin(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Asin");
                     b.declare_math_mode(modes, out);
                     T::asin(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -548,6 +573,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::ArcTan(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Atan");
                     b.declare_math_mode(modes, out);
                     T::atan(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -557,6 +583,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::ArcSinh(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Asinh");
                     b.declare_math_mode(modes, out);
                     T::asinh(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -566,6 +593,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::ArcCosh(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Acosh");
                     b.declare_math_mode(modes, out);
                     T::acosh(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -575,6 +603,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::ArcTanh(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Atanh");
                     b.declare_math_mode(modes, out);
                     T::atanh(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -584,6 +613,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Degrees(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Degrees");
                     b.declare_math_mode(modes, out);
                     T::degrees(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -593,6 +623,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Radians(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    assert_not_f64_transcendental(&out_ty, "Radians");
                     b.declare_math_mode(modes, out);
                     T::radians(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -602,6 +633,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::ArcTan2(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
+                    assert_not_f64_transcendental(&out_ty, "Atan2");
                     b.declare_math_mode(modes, out);
                     T::atan2(b, ty, lhs, rhs, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -612,6 +644,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             // No powi for Vulkan, just auto-cast to float
             Arithmetic::Powf(op) | Arithmetic::Powi(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
+                    assert_not_f64_transcendental(&out_ty, "Pow");
                     let bool = match out_ty {
                         Item::Scalar(_) => Elem::Bool.id(b),
                         Item::Vector(_, factor) => Item::Vector(Elem::Bool, factor).id(b),
