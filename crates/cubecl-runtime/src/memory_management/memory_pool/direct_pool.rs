@@ -5,14 +5,15 @@ use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 
-/// A pool that does no pooling: one device allocation per reservation, sized
-/// to the request, returned to the driver as soon as it is free.
+/// A pool that does no carving: one device allocation per reservation, sized
+/// to the request, reused by exact size and returned to the driver only under
+/// memory pressure.
 ///
 /// The naive allocator, and the reason to want it is padding. A sliced pool
 /// wastes the remainder of every page it carves and a bucketed exclusive pool
 /// rounds each allocation up to its bucket; this wastes only what alignment
-/// demands. What it pays for that is driver traffic — an allocation and a free
-/// per reservation, which is exactly what the other pools exist to avoid.
+/// demands. What it pays for that is driver traffic, which is what the other
+/// pools exist to avoid.
 ///
 /// That trade is worth making in two places. Under a
 /// [`DryRun`](crate::dry_run::DryRun) the traffic is free: reservations are
@@ -21,15 +22,21 @@ use cubecl_environment::backtrace::BackTrace;
 /// the workload barely fits, the padding this removes can be the difference
 /// between fitting and not.
 ///
-/// # Measurement
+/// # When it deallocates
 ///
-/// Freeing on release would bias an autotune benchmark: its iterations would
-/// each pay for a driver allocation the real workload does not, and pay
-/// unequally across candidates that allocate differently. So while a
-/// measurement is open ([`dry_run::measuring`](crate::dry_run::measuring)) the
-/// pool keeps freed slices and reuses them by exact size, making the timed
-/// loop allocation-free. The parked slices go back to the driver at the first
-/// reservation after the measurement ends.
+/// Only when it has to: a freed slice is kept and reused by exact size until a
+/// new allocation would push the pool past
+/// [`reclaim_at`](Self::reclaim_at), and only then are free slices returned to
+/// the driver — just enough of them for the new allocation to fit.
+///
+/// Demand-driven rather than prompt, which is what keeps the pool from
+/// distorting an autotune measurement. Deallocating on every release would
+/// charge each benchmark iteration for driver traffic the real workload never
+/// pays, and charge candidates unequally by how much they allocate. Here a
+/// tuning pass reaches the ceiling only if it is allocating hard enough to
+/// deserve the reclaim — and typically it allocates nothing at all, reusing
+/// the same shapes across iterations. No measurement flag, no thread-local:
+/// the policy reads the pool's own bytes.
 pub struct DirectPool {
     /// Every slice owns its whole device allocation. Indexed by
     /// [`MemoryLocation::slice`], so freed entries are tombstoned rather than
@@ -40,6 +47,12 @@ pub struct DirectPool {
     vacant: Vec<usize>,
     alignment: u64,
     location_base: MemoryLocation,
+    /// Reserved-bytes ceiling above which free slices are returned to the
+    /// driver. A watermark, not a budget: when releasing everything free still
+    /// leaves the pool above it, the allocation is served anyway — live memory
+    /// is not something this pool can decline to provide. `None` never
+    /// reclaims on its own, leaving it to an explicit cleanup.
+    reclaim_at: Option<u64>,
     /// The most slices ever held at once.
     pages_peak: u64,
     /// The largest allocation ever served, in requested (pre-padding) bytes.
@@ -49,12 +62,13 @@ pub struct DirectPool {
 impl DirectPool {
     /// Create a pool that accepts any size: with no pages to fit an allocation
     /// into, the only limit is what the storage can allocate.
-    pub fn new(alignment: u64, pool_pos: u8) -> Self {
+    pub fn new(alignment: u64, pool_pos: u8, reclaim_at: Option<u64>) -> Self {
         Self {
             slices: Vec::new(),
             vacant: Vec::new(),
             alignment,
             location_base: MemoryLocation::new(pool_pos, 0, 0),
+            reclaim_at,
             pages_peak: 0,
             largest_alloc: 0,
         }
@@ -76,14 +90,37 @@ impl DirectPool {
         self.slices.iter().flatten()
     }
 
-    /// Return every free slice to the driver and tombstone its index.
+    /// The pool's reserved bytes, live and free alike.
+    fn reserved(&self) -> u64 {
+        self.live().map(|slice| slice.effective_size()).sum()
+    }
+
+    /// Return free slices to the driver until `headroom` bytes fit under
+    /// [`reclaim_at`](Self::reclaim_at), tombstoning each index as it goes.
     ///
-    /// The whole point of the pool, so it runs on the ordinary path — before
-    /// each new allocation — rather than waiting for an explicit cleanup. A
+    /// Stops as soon as there is room, so an allocation that needs one slice
+    /// back does not cost the reuse of every other. Slices are visited in
+    /// index order — an arbitrary choice, but a deterministic one, which is
+    /// what keeps a replayed allocation stream landing the same way twice. A
     /// slice that was never materialized has nothing behind its minted id, so
     /// it is dropped without troubling the driver.
-    fn release_free<Storage: crate::storage::ComputeStorage>(&mut self, storage: &mut Storage) {
+    fn release_free<Storage: crate::storage::ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        headroom: u64,
+    ) {
+        let Some(ceiling) = self.reclaim_at else {
+            return;
+        };
+        let mut reserved = self.reserved();
+        if reserved + headroom <= ceiling {
+            return;
+        }
+
         for (index, entry) in self.slices.iter_mut().enumerate() {
+            if reserved + headroom <= ceiling {
+                break;
+            }
             let Some(slice) = entry else { continue };
             if !slice.is_free() {
                 continue;
@@ -91,6 +128,7 @@ impl DirectPool {
             if slice.mapped {
                 storage.dealloc(slice.storage.id);
             }
+            reserved -= slice.effective_size();
             *entry = None;
             self.vacant.push(index);
         }
@@ -114,22 +152,22 @@ impl MemoryPool for DirectPool {
             })
     }
 
-    /// Reuse a freed slice **only while a measurement is open** — see the type
-    /// doc. Outside one, returning `None` is what sends every reservation
-    /// through [`alloc`](Self::alloc), which is where freed slices go back to
-    /// the driver.
+    /// Reuse a freed slice of exactly this size. Exact-fit only: a slice
+    /// handed out for a smaller request would reintroduce the padding the pool
+    /// exists to remove.
     fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
-        if !crate::dry_run::measuring() {
-            return None;
-        }
-
-        let effective_size = size + calculate_padding(size, self.alignment);
+        let padding = calculate_padding(size, self.alignment);
+        let effective_size = size + padding;
         let slice = self
             .slices
             .iter_mut()
             .flatten()
             .find(|slice| slice.is_free() && slice.effective_size() == effective_size)?;
 
+        // Both, or `effective_size()` stops describing the device allocation:
+        // the slice keeps its old padding while its utilization takes the new
+        // size, and the next exact-fit lookup no longer recognizes it.
+        slice.padding = padding;
         slice.storage.utilization = StorageUtilization { offset: 0, size };
         self.largest_alloc = self.largest_alloc.max(size);
 
@@ -142,15 +180,13 @@ impl MemoryPool for DirectPool {
         size: u64,
         mapping: PageMapping,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        // Everything free goes back now. Skipped mid-measurement so a timed
-        // loop that outgrows its reused slices does not start paying for
-        // frees partway through, which would bias the samples after it.
-        if !crate::dry_run::measuring() {
-            self.release_free(storage);
-        }
-
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
+
+        // Reclaim only if this allocation would not otherwise fit under the
+        // ceiling. `try_reserve` already failed, so nothing free is the right
+        // size; whatever is free here is dead weight against the ceiling.
+        self.release_free(storage, effective_size);
 
         let storage_handle = match mapping {
             PageMapping::Eager => storage.alloc(effective_size)?,
@@ -229,15 +265,27 @@ impl MemoryPool for DirectPool {
         }
     }
 
+    /// Return **every** free slice, whatever the ceiling says: a cleanup is
+    /// the caller stating that reuse is worth less than the memory right now,
+    /// which is exactly the judgement [`reclaim_at`](Self::reclaim_at)
+    /// automates in the absence of one.
     fn cleanup<Storage: crate::storage::ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
         _explicit: bool,
     ) {
-        // No `explicit` gate and no period: releasing free slices is this
-        // pool's normal behavior, not a reclamation it has to be asked for.
-        self.release_free(storage);
+        for (index, entry) in self.slices.iter_mut().enumerate() {
+            let Some(slice) = entry else { continue };
+            if !slice.is_free() {
+                continue;
+            }
+            if slice.mapped {
+                storage.dealloc(slice.storage.id);
+            }
+            *entry = None;
+            self.vacant.push(index);
+        }
     }
 
     fn bind(

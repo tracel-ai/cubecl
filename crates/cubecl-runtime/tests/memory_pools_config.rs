@@ -460,13 +460,14 @@ fn a_warm_second_pass_measures_the_workload_alone() {
 /// The direct pool's reason to exist: it wastes only alignment padding, where
 /// a sliced arena wastes the remainder of every page it carves.
 ///
-/// That is the whole trade — a driver allocation per reservation, bought with
-/// the padding it removes — so a layout that does not actually remove the
+/// That is the whole trade — a device allocation per distinct size, bought
+/// with the padding it removes — so a layout that does not actually remove the
 /// padding is not worth its allocation cost.
 #[test]
 fn direct_pool_pads_only_to_alignment() {
-    let mut memory_management =
-        manage(&MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Direct]));
+    let mut memory_management = manage(&MemoryPoolsConfig::Explicit(vec![
+        MemoryPoolConfig::Direct { reclaim_at: None },
+    ]));
 
     // A size that is neither page- nor bucket-shaped: a sliced pool would
     // reserve a whole page for it.
@@ -483,67 +484,92 @@ fn direct_pool_pads_only_to_alignment() {
     );
 }
 
-/// A freed slice goes back to the driver at the next reservation — the policy
-/// the pool is named for.
+/// Below the ceiling the pool holds freed slices and reuses them by exact
+/// size, so a loop over one shape allocates once.
+///
+/// This is what keeps the pool from distorting an autotune measurement: a
+/// benchmark's iterations reuse rather than paying for driver traffic the real
+/// workload never pays — and paying unequally across candidates by how much
+/// each allocates, which is measurement error that looks like a result.
 #[test]
-#[serial_test::serial]
-fn direct_pool_releases_a_freed_slice() {
-    let mut memory_management =
-        manage(&MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Direct]));
+fn direct_pool_reuses_below_the_ceiling() {
+    let mut memory_management = manage(&MemoryPoolsConfig::Explicit(vec![
+        MemoryPoolConfig::Direct {
+            reclaim_at: Some(MemorySize(8 * MIB)),
+        },
+    ]));
 
-    let first = memory_management.reserve(512 * 1024).unwrap();
-    assert_eq!(memory_management.memory_report().dynamic[0].pages, 1);
-    drop(first);
+    for _ in 0..4 {
+        let scratch = memory_management.reserve(300 * 1024).unwrap();
+        drop(scratch);
+    }
 
-    // A different size, so nothing could have been reused: the pool still
-    // holds exactly one slice, because the freed one was released.
-    let _second = memory_management.reserve(256 * 1024).unwrap();
+    let report = memory_management.memory_report();
+    assert_eq!(
+        report.dynamic[0].pages_peak, 1,
+        "four iterations of one shape allocated once: {report:?}"
+    );
+}
+
+/// Crossing the ceiling is the only thing that returns memory to the driver,
+/// and it returns just enough for the allocation that crossed it.
+///
+/// Reclaiming everything would throw away reuse the pool has not been asked to
+/// give up; reclaiming nothing would make the ceiling advisory.
+#[test]
+fn direct_pool_reclaims_at_the_ceiling() {
+    let mut memory_management = manage(&MemoryPoolsConfig::Explicit(vec![
+        MemoryPoolConfig::Direct {
+            reclaim_at: Some(MemorySize(7 * MIB)),
+        },
+    ]));
+
+    // 1 + 2 + 3 MiB, all freed and all distinct sizes, so none is reusable for
+    // a fourth: 6 MiB held under a 7 MiB ceiling.
+    for size in [MIB, 2 * MIB, 3 * MIB] {
+        let held = memory_management.reserve(size).unwrap();
+        drop(held);
+    }
+    let report = memory_management.memory_report();
+    assert_eq!(
+        report.dynamic[0].pages, 3,
+        "held below the ceiling: {report:?}"
+    );
+
+    // A 4 MiB allocation needs 3 MiB back. Visiting in index order, releasing
+    // the 1 MiB and 2 MiB slices is enough — the 3 MiB one stays reusable.
+    let _crossed = memory_management.reserve(4 * MIB).unwrap();
+    let report = memory_management.memory_report();
+    assert_eq!(
+        report.dynamic[0].pages, 2,
+        "just enough was released, not everything free: {report:?}"
+    );
+    assert_eq!(
+        report.dynamic[0].usage.bytes_reserved,
+        7 * MIB,
+        "the kept 3 MiB slice plus the new 4 MiB one: {report:?}"
+    );
+}
+
+/// An explicit cleanup returns every free slice regardless of the ceiling: the
+/// caller is stating that reuse is worth less than the memory right now.
+#[test]
+fn direct_pool_cleanup_releases_everything_free() {
+    let mut memory_management = manage(&MemoryPoolsConfig::Explicit(vec![
+        MemoryPoolConfig::Direct {
+            reclaim_at: Some(MemorySize(64 * MIB)),
+        },
+    ]));
+
+    let live = memory_management.reserve(MIB).unwrap();
+    let freed = memory_management.reserve(2 * MIB).unwrap();
+    drop(freed);
+
+    memory_management.cleanup(true);
     let report = memory_management.memory_report();
     assert_eq!(
         report.dynamic[0].pages, 1,
-        "the freed slice went back to the driver: {report:?}"
+        "only the live slice survives: {report:?}"
     );
-    assert_eq!(report.dynamic[0].usage.bytes_reserved, 256 * 1024);
-}
-
-/// While an autotune measurement is open the pool holds its frees and reuses
-/// them by exact size, so the timed loop is allocation-free.
-///
-/// Releasing on every iteration would charge each candidate for driver traffic
-/// the real workload never pays, and charge candidates that allocate more of
-/// it — which is measurement error that looks exactly like a result.
-#[test]
-#[serial_test::serial]
-fn direct_pool_holds_its_frees_while_measuring() {
-    let mut memory_management =
-        manage(&MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Direct]));
-
-    let measured = {
-        let _measurement = RealRun::new();
-        // Two iterations of a benchmark: same shape, so the second reuses.
-        let first = memory_management.reserve(300 * 1024).unwrap();
-        let id = memory_management.memory_report().dynamic[0].usage.clone();
-        drop(first);
-
-        let second = memory_management.reserve(300 * 1024).unwrap();
-        drop(second);
-        id
-    };
-
-    assert_eq!(measured.number_allocs, 1);
-    let parked = memory_management.memory_report();
-    assert_eq!(
-        parked.dynamic[0].pages_peak, 1,
-        "the second iteration reused the first's slice instead of allocating: {parked:?}"
-    );
-    assert!(parked.dynamic[0].usage.bytes_reserved > 0, "{parked:?}");
-
-    // The measurement is over: the next ordinary reservation releases it.
-    let _workload = memory_management.reserve(64 * 1024).unwrap();
-    let report = memory_management.memory_report();
-    assert_eq!(
-        report.dynamic[0].usage.bytes_reserved,
-        64 * 1024,
-        "the measurement's scratch went back to the driver: {report:?}"
-    );
+    drop(live);
 }

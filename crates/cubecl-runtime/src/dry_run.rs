@@ -50,29 +50,6 @@ pub fn launch_mode() -> LaunchMode {
     LaunchMode::Skip
 }
 
-/// Whether this thread is currently inside a [`RealRun`] scope — issuing an
-/// autotune measurement rather than ordinary work.
-///
-/// Read by allocators whose normal policy would bias what is being measured.
-/// A pool that returns every freed slice to the driver (see `DirectPool`)
-/// makes each benchmark iteration pay for an allocation the real workload
-/// would not, and pay *unequally* across candidates that allocate differently
-/// — which is measurement error dressed as a result. Such a pool holds its
-/// frees while this is true.
-///
-/// Unlike [`launch_mode`], this is meaningful with or without a dry run: an
-/// autotune measurement biases the same way either way.
-///
-/// Meaningful on the thread that performs the allocation. Autotune arms its
-/// guards inside [`ComputeClient::exclusive`](crate::client::ComputeClient::exclusive),
-/// which is where the work they cover is issued from — a guard armed on a
-/// caller thread whose allocations are served on the device thread would read
-/// as `false` here. [`RealRun`] says the same thing for launches, and for the
-/// same reason.
-pub fn measuring() -> bool {
-    real_run::depth() > 0
-}
-
 /// How many dry runs are open in this process.
 ///
 /// A depth rather than a flag so overlapping guards compose: a swap-and-restore

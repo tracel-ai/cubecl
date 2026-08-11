@@ -495,8 +495,12 @@ fn pool_options_from_entry(
                 dealloc_period: *dealloc_period,
             })
         }
-        MemoryPoolConfig::Direct => Ok(MemoryPoolOptions {
-            pool_type: PoolType::Direct,
+        MemoryPoolConfig::Direct { reclaim_at } => Ok(MemoryPoolOptions {
+            pool_type: PoolType::Direct {
+                reclaim_at: reclaim_at.map(|size| size.bytes()),
+            },
+            // `dealloc_period` has no meaning here: the pool reclaims on
+            // memory pressure, not on an allocation count.
             dealloc_period: None,
         }),
         // Sliced pools break the invariant `exclusive_memory_only` builds rely
@@ -717,10 +721,8 @@ fn build_pools(
                         pool_pos,
                     ))
                 }
-                // `dealloc_period` is meaningless here: this pool's whole
-                // policy is to release as soon as a slice is free.
-                PoolType::Direct => {
-                    DynamicPool::Direct(DirectPool::new(properties.alignment, pool_pos))
+                PoolType::Direct { reclaim_at } => {
+                    DynamicPool::Direct(DirectPool::new(properties.alignment, pool_pos, reclaim_at))
                 }
             }
         })
