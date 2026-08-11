@@ -1,7 +1,7 @@
 //! End-to-end test of the programmatic pool layout: the whole path from a
 //! [`MemoryPoolsConfig`] payload through [`MemoryConfiguration::resolve`] to
 //! the actual pool behavior, plus the in-place rebuild
-//! ([`MemoryManagement::configure`]) that re-sizes the pools between
+//! ([`MemoryManagement::install_pools`]) that re-sizes the pools between
 //! workloads. There is deliberately no config-file pathway for pool layouts —
 //! they are dynamic, set at runtime per workload.
 
@@ -17,8 +17,8 @@ use cubecl_runtime::config::size::MemorySize;
 use cubecl_runtime::dry_run::{DryRun, RealRun};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
-    MemoryAllocationMode, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
-    MemoryPoolKind,
+    InstallMemoryPoolsError, MemoryAllocationMode, MemoryConfiguration, MemoryManagement,
+    MemoryManagementOptions, MemoryPoolKind,
 };
 use cubecl_runtime::storage::BytesStorage;
 
@@ -141,13 +141,19 @@ fn configure_rebuilds_pools_in_place() {
     let bigger = MemoryConfiguration::default()
         .resolve(Some(&sliced(4 * MIB, 2)), &props())
         .unwrap();
-    assert!(!memory_management.configure(bigger.clone(), &props()));
+    assert!(
+        matches!(
+            memory_management.install_pools(bigger.clone(), &props()),
+            Err(InstallMemoryPoolsError::PoolsInUse { bytes_in_use }) if bytes_in_use > 0
+        ),
+        "the refusal names the live bytes that caused it"
+    );
     assert!(memory_management.reserve(2 * MIB).is_err());
 
     // At a quiescent point the rebuild goes through, and the new layout
     // serves what the old cap refused.
     drop(live);
-    assert!(memory_management.configure(bigger, &props()));
+    memory_management.install_pools(bigger, &props()).unwrap();
     let _large = memory_management.reserve(2 * MIB).unwrap();
 }
 
@@ -216,7 +222,7 @@ fn measured_plan_cycle() {
         .resolve(Some(&capped), &props())
         .unwrap();
     memory_management.cleanup(true);
-    assert!(memory_management.configure(resolved, &props()));
+    memory_management.install_pools(resolved, &props()).unwrap();
 
     // The replayed stream fits the cap without growing past the plan.
     workload(&mut memory_management);
@@ -436,7 +442,7 @@ fn a_warm_second_pass_measures_the_workload_alone() {
     let resolved = MemoryConfiguration::default()
         .resolve(Some(&growable), &props())
         .unwrap();
-    assert!(memory_management.configure(resolved, &props()));
+    memory_management.install_pools(resolved, &props()).unwrap();
 
     // Pass 2: the same workload, no tuning.
     let live = memory_management.reserve(600 * 1024).unwrap();

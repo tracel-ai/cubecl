@@ -24,7 +24,10 @@ use cubecl_runtime::{
     compiler::CubeTask,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport},
+    memory_management::{
+        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle,
+        MemoryReport,
+    },
     stream::ResolvedStreams,
 };
 use cudarc::driver::sys::{
@@ -118,18 +121,21 @@ impl<'a> Command<'a> {
         self.streams.current().memory_management_gpu.mode(mode)
     }
 
-    /// Rebuild the current stream's main-GPU pools with a new layout. Returns
-    /// `false` (keeping the old layout, with a log) when something is still
-    /// live in them.
-    pub fn configure_memory_pools(
+    /// Rebuild the current stream's main-GPU pools with a new layout, keeping
+    /// the old one when something is still live in them.
+    ///
+    /// # Errors
+    ///
+    /// [`InstallMemoryPoolsError::PoolsInUse`] when the rebuild was refused.
+    pub fn install_memory_pools(
         &mut self,
         config: MemoryConfiguration,
         props: &MemoryDeviceProperties,
-    ) -> bool {
+    ) -> Result<(), InstallMemoryPoolsError> {
         self.streams
             .current()
             .memory_management_gpu
-            .configure(config, props)
+            .install_pools(config, props)
     }
 
     /// Allocates a new GPU memory buffer of the specified size.

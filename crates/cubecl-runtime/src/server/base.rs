@@ -8,7 +8,8 @@ use crate::{
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
-        ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration, MemoryReport, MemoryUsage,
+        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
+        MemoryReport, MemoryUsage,
     },
     runtime::Runtime,
     server::Binding,
@@ -525,23 +526,35 @@ where
     /// Install a new dynamic-pool layout for the device's **main GPU** memory.
     ///
     /// The calling stream's pools are rebuilt in place (see
-    /// [`MemoryManagement::configure`](crate::memory_management::MemoryManagement::configure)
+    /// [`MemoryManagement::install_pools`](crate::memory_management::MemoryManagement::install_pools)
     /// — a rebuild only happens when nothing is live in them), and the layout
     /// becomes the one every stream created afterwards is built with. Pool
     /// layouts are a purely programmatic, runtime setting — there is no
     /// config-file pathway — so callers size them per workload (e.g. per model,
     /// just before loading it).
     ///
-    /// Returns `true` when the calling stream's pools were rebuilt now, and
-    /// `false` when they kept the old layout (something was still live in
-    /// them); the layout still applies to streams created afterwards.
+    /// # Errors
     ///
-    /// The default is a no-op returning `false` for servers without
-    /// configurable pools.
-    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
+    /// [`PoolsInUse`](InstallMemoryPoolsError::PoolsInUse) when the calling
+    /// stream kept its old layout because something was still live in its
+    /// pools — e.g. a garbage-collection task that has not released its
+    /// cross-stream pins yet, which can lag behind an explicit
+    /// [`memory_cleanup`](Self::memory_cleanup). The layout still applies to
+    /// streams created afterwards; retry to rebuild the calling stream too.
+    ///
+    /// [`StreamUnavailable`](InstallMemoryPoolsError::StreamUnavailable) when
+    /// the calling stream is already in an error state, so its pools could not
+    /// be reached. Future streams still get the layout.
+    ///
+    /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from servers
+    /// without configurable pools, which is the default implementation.
+    fn install_memory_pools(
+        &mut self,
+        config: MemoryConfiguration,
+        stream_id: StreamId,
+    ) -> Result<(), InstallMemoryPoolsError> {
         let _ = (config, stream_id);
-        log::warn!("Memory pool configuration isn't supported by this server; keeping defaults");
-        false
+        Err(InstallMemoryPoolsError::Unsupported)
     }
 
     /// Enable collecting timestamps.

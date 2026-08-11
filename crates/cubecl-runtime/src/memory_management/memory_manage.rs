@@ -148,7 +148,7 @@ pub struct MemoryManagement<Storage> {
     pools: Vec<DynamicPool>,
     /// Dynamic pools that have already reported hitting their cap, so the
     /// warning stays one per pool per layout rather than one per allocation.
-    /// Cleared by [`configure`](Self::configure).
+    /// Cleared by [`install_pools`](Self::install_pools).
     capacity_warned: HashSet<usize>,
     storage: Storage,
     alloc_reserve_count: u64,
@@ -341,6 +341,55 @@ impl core::fmt::Display for PoolConfigError {
     }
 }
 
+impl core::error::Error for PoolConfigError {}
+
+/// Why installing a dynamic pool layout did not take effect.
+///
+/// The layout itself was already valid — that is
+/// [`PoolConfigError`](PoolConfigError), reported when the configuration is
+/// resolved. This is about the pools' *state* at the moment of the swap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallMemoryPoolsError {
+    /// The dynamic pools still hold live allocations, so the old layout was
+    /// kept. A live slice carries its pool position, and swapping the pool
+    /// list under it would leave that position pointing at a different pool.
+    ///
+    /// Transient: retry once whatever holds them drains. A cleanup that does
+    /// not clear it usually means a cache is holding slices (the metadata
+    /// info cache) or a captured graph is pinning them.
+    PoolsInUse {
+        /// Bytes still live in the dynamic pools.
+        bytes_in_use: u64,
+    },
+    /// The calling stream could not be resolved because it is already in an
+    /// error state. The layout still applies to streams created afterwards;
+    /// the underlying failure surfaces at the next flush or sync, as usual.
+    StreamUnavailable,
+    /// This server has no configurable dynamic pools. Permanent — unlike
+    /// [`PoolsInUse`](Self::PoolsInUse), retrying will never succeed.
+    Unsupported,
+}
+
+impl core::fmt::Display for InstallMemoryPoolsError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            InstallMemoryPoolsError::PoolsInUse { bytes_in_use } => write!(
+                f,
+                "the dynamic pools kept their layout: {bytes_in_use} bytes are still live in them"
+            ),
+            InstallMemoryPoolsError::StreamUnavailable => write!(
+                f,
+                "the calling stream kept its layout: it is already in an error state"
+            ),
+            InstallMemoryPoolsError::Unsupported => {
+                write!(f, "this server has no configurable dynamic memory pools")
+            }
+        }
+    }
+}
+
+impl core::error::Error for InstallMemoryPoolsError {}
+
 impl MemoryConfiguration {
     /// Resolve a programmatic [`MemoryPoolsConfig`] override against the
     /// runtime-chosen configuration for the **main GPU** pool.
@@ -349,7 +398,7 @@ impl MemoryConfiguration {
     /// when present, it wins. There is deliberately no config-file pathway for
     /// pool layouts — they are dynamic (set per model just before a load) and
     /// must not freeze at startup; the override reaches the server through
-    /// [`configure_memory_pools`](crate::client::ComputeClient::configure_memory_pools).
+    /// [`install_memory_pools`](crate::client::ComputeClient::install_memory_pools).
     ///
     /// `page_size` is deliberately not validated against
     /// [`MemoryDeviceProperties::max_page_size`]: that value is a sizing
@@ -492,13 +541,13 @@ fn pool_options_from_entry(
 /// The pool position stamped on persistent-pool slices, routing their binds
 /// and lookups to the persistent pool. A fixed sentinel (rather than "one past
 /// the dynamic pools") so live persistent slices stay routable when
-/// [`MemoryManagement::configure`] rebuilds the dynamic pools with a
+/// [`MemoryManagement::install_pools`] rebuilds the dynamic pools with a
 /// different count.
 const PERSISTENT_POOL_POS: u8 = u8::MAX;
 
 /// Build the dynamic pools for `config` — the shared core of
 /// [`MemoryManagement::from_configuration`] and
-/// [`MemoryManagement::configure`].
+/// [`MemoryManagement::install_pools`].
 fn build_pools(
     properties: &MemoryDeviceProperties,
     config: MemoryConfiguration,
@@ -691,23 +740,34 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
     }
 
-    /// Rebuild the dynamic pools with a new layout, in place.
+    /// Replace the dynamic pools with ones built from a new layout.
     ///
     /// The old pools are cleaned up first (every currently-free page returned
-    /// to the driver). Rebuilding only happens when no live allocation remains
-    /// in them — a live slice carries its pool position, so swapping the pool
-    /// list under it would corrupt routing. When something is still alive, the
-    /// old layout is kept and `false` is returned; the caller reconfigures at a
-    /// quiescent point (e.g. right after unloading a model) so this is the
-    /// exceptional path, not the normal one.
+    /// to the driver) and then discarded — this installs new pools, it does
+    /// not re-tune the existing ones. That is why it only happens when no live
+    /// allocation remains in them: a live slice carries its pool position, so
+    /// swapping the pool list under it would leave that position pointing at a
+    /// different pool. The caller installs at a quiescent point (e.g. right
+    /// after unloading a model), so a refusal is the exceptional path, not the
+    /// normal one.
+    ///
+    /// Rebuilding resets each pool's high-water marks, which is what lets a
+    /// measured plan be read from a pass that follows a rebuild rather than
+    /// from the process's whole history.
     ///
     /// The persistent pool is untouched: its slices route through a fixed
     /// sentinel position and its layout is model-agnostic.
-    pub fn configure(
+    ///
+    /// # Errors
+    ///
+    /// [`PoolsInUse`](InstallMemoryPoolsError::PoolsInUse) when something is
+    /// still live in the dynamic pools; the old layout is kept and nothing is
+    /// disturbed. Retry once the work holding them drains.
+    pub fn install_pools(
         &mut self,
         config: MemoryConfiguration,
         properties: &MemoryDeviceProperties,
-    ) -> bool {
+    ) -> Result<(), InstallMemoryPoolsError> {
         self.cleanup(true);
 
         // Only the dynamic pools are rebuilt, so only their live slices block
@@ -721,24 +781,16 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             })
             .sum();
         if dynamic_in_use > 0 {
-            self.logger.log_memory(
-                |level| !matches!(level, MemoryLogLevel::Disabled),
-                || {
-                    format!(
-                        "[{}] Keeping the current pool layout: {dynamic_in_use} bytes \
-                         are still live in the dynamic pools",
-                        self.name
-                    )
-                },
-            );
-            return false;
+            return Err(InstallMemoryPoolsError::PoolsInUse {
+                bytes_in_use: dynamic_in_use,
+            });
         }
 
         self.pools = build_pools(properties, config, &self.logger, &self.name);
         // A new layout is a new plan, and whether it is short is a fresh
         // question — every pool gets to report its first spill again.
         self.capacity_warned.clear();
-        true
+        Ok(())
     }
 
     /// Begin a graph capture: force every allocation into the persistent pool
@@ -807,7 +859,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// underneath opens one per parameter — and without the depth, the first
     /// inner window's exit would flip the rest of the outer window back to
     /// `Auto`: weights landing in the dynamic pools, which then refuse every
-    /// later rebuild ([`configure`](Self::configure)) for the model's whole
+    /// later rebuild ([`install_pools`](Self::install_pools)) for the model's whole
     /// life.
     pub fn mode(&mut self, mode: MemoryAllocationMode) {
         // We override the mode based on the cubecl config.
@@ -1086,7 +1138,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     // escape hatch serving it must not hide that. Once per pool
                     // per layout, though — a workload that runs above its cap
                     // spills on *every* reservation, and a warning per
-                    // allocation buries the one that mattered. `configure`
+                    // allocation buries the one that mattered. `install_pools`
                     // clears the latch: a new layout is a new plan to judge.
                     if self.capacity_warned.insert(index) {
                         log::warn!(
@@ -1165,7 +1217,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     ///
     /// The marks cover everything the pools served, tuning scratch included.
     /// Warming the tune caches in an earlier pass and rebuilding the pools
-    /// ([`configure`](Self::configure), which resets the marks) before the
+    /// ([`install_pools`](Self::install_pools), which resets the marks) before the
     /// measured one leaves the peaks to the workload alone.
     pub fn memory_report(&self) -> MemoryReport {
         MemoryReport {
@@ -1539,7 +1591,7 @@ mod tests {
     /// load while the parameter machinery arms one per parameter inside it —
     /// an inner window closing must not flip the rest of the outer one back to
     /// `Auto`, or most of the load's weights land in the dynamic pools (and
-    /// block every later `configure`).
+    /// block every later `install_pools`).
     #[test_log::test]
     fn persistent_windows_nest() {
         let mut memory_management = MemoryManagement::from_configuration(

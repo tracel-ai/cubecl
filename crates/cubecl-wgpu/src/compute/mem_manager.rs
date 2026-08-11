@@ -152,15 +152,19 @@ impl WgpuMemManager {
         self.memory_pool.mode(mode);
     }
 
-    /// Rebuild the main pool with a new layout. Returns `false` (keeping the
-    /// old layout, with a log) when something is still live in it. The staging
-    /// and uniforms pools keep their deliberate configurations.
-    pub(crate) fn configure_memory_pools(
+    /// Rebuild the main pool with a new layout, keeping the old one when
+    /// something is still live in it. The staging and uniforms pools keep
+    /// their deliberate configurations.
+    ///
+    /// # Errors
+    ///
+    /// [`InstallMemoryPoolsError::PoolsInUse`] when the rebuild was refused.
+    pub(crate) fn install_memory_pools(
         &mut self,
         config: MemoryConfiguration,
         props: &MemoryDeviceProperties,
-    ) -> bool {
-        self.memory_pool.configure(config, props)
+    ) -> Result<(), cubecl_runtime::memory_management::InstallMemoryPoolsError> {
+        self.memory_pool.install_pools(config, props)
     }
 
     pub(crate) fn release_uniforms(&mut self) {

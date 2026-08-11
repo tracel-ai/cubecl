@@ -91,7 +91,7 @@ pub struct WgpuStreamFactory {
     count: u64,
     use_vulkan_compiler: bool,
     /// Programmatic main-GPU pool layout (see
-    /// [`ComputeServer::configure_memory_pools`](cubecl_runtime::server::ComputeServer::configure_memory_pools)):
+    /// [`ComputeServer::install_memory_pools`](cubecl_runtime::server::ComputeServer::install_memory_pools)):
     /// streams created after it is set build their main pool from it instead
     /// of the runtime default. Auxiliary pools are unaffected.
     gpu_pools_override: Option<MemoryConfiguration>,

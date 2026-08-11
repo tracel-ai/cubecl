@@ -128,7 +128,7 @@ pub struct MemoryPoolReport {
     pub pages: u64,
     /// The most device allocations ever held at once.
     ///
-    /// For a sliced pool this is the number a capped re-configuration needs:
+    /// For a sliced pool this is the number a capped layout needs:
     /// pages are carved by a deterministic first-fit policy, so replaying the
     /// same allocation stream against `pages_peak * page_size` fits by
     /// construction.
@@ -156,7 +156,8 @@ pub struct MemoryPoolReport {
 /// A tuning pass inside the measured run allocates too, and its scratch counts
 /// toward these marks like anything else. Warming the tune caches in an
 /// earlier pass and rebuilding the pools
-/// ([`configure`](super::MemoryManagement::configure), which resets the marks)
+/// ([`install_pools`](super::MemoryManagement::install_pools), which resets the
+/// marks)
 /// before the measured one leaves the peaks to the workload alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryReport {

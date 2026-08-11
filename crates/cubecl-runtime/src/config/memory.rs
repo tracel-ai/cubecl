@@ -25,7 +25,7 @@ pub struct MemoryConfig {
 /// This is a **programmatic** setting, deliberately not a config-file one —
 /// pool layouts are dynamic (e.g. resized per model just before a load) and
 /// must not freeze at startup. Apply it with
-/// [`configure_memory_pools`](crate::client::ComputeClient::configure_memory_pools):
+/// [`install_memory_pools`](crate::client::ComputeClient::install_memory_pools):
 /// it rebuilds the calling stream's pools in place and becomes the layout for
 /// streams created afterwards. Auxiliary pools (pinned CPU, staging, uniforms)
 /// are never affected.

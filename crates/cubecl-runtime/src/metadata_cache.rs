@@ -227,7 +227,7 @@ impl<V> MetadataInfoCache<V> {
     ///
     /// The explicit-cleanup hook. Cached info buffers are live slices in the
     /// dynamic memory pools, and a pool rebuild
-    /// ([`MemoryManagement::configure`](crate::memory_management::MemoryManagement::configure))
+    /// ([`MemoryManagement::install_pools`](crate::memory_management::MemoryManagement::install_pools))
     /// refuses while anything is alive in them — without this, the first
     /// launches on a stream would make its pools permanently
     /// un-reconfigurable.

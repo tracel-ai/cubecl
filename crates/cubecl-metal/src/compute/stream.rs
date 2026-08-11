@@ -236,7 +236,7 @@ pub struct MetalStreamBackend {
     mem_config: MemoryConfiguration,
     logger: Arc<ServerLogger>,
     /// Programmatic main-GPU pool layout (see
-    /// [`ComputeServer::configure_memory_pools`](cubecl_runtime::server::ComputeServer::configure_memory_pools)):
+    /// [`ComputeServer::install_memory_pools`](cubecl_runtime::server::ComputeServer::install_memory_pools)):
     /// streams created after it is set build their GPU pools from it instead
     /// of the runtime default.
     gpu_pools_override: Option<MemoryConfiguration>,
@@ -290,7 +290,7 @@ impl EventStreamBackend for MetalStreamBackend {
         let storage = MetalStorage::new(self.device.clone());
 
         // The main GPU pool honors the programmatic pool override when one was
-        // installed (`configure_memory_pools`).
+        // installed (`install_memory_pools`).
         let (gpu_config, _) = self.gpu_pools();
         let memory_management = MemoryManagement::from_configuration(
             storage,
