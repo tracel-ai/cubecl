@@ -1,6 +1,7 @@
 use super::prelude::*;
 use cubecl_core::ir::dialect::vector::{
-    self, VectorBroadcastOp, VectorExtractOp, VectorInsertDynamicOp, VectorInsertOp,
+    self, VectorBroadcastOp, VectorExtractDynamicOp, VectorExtractOp, VectorInsertDynamicOp,
+    VectorInsertOp,
 };
 
 /// Broadcast `scalar` to every lane of `vec_ty`, with the poison/insertelement/shufflevector idiom
@@ -101,6 +102,25 @@ impl ToLLVMDialect for VectorExtractOp {
         let index = insert_i32_const(ctx, rewriter, index);
 
         let extracted = llvm::ExtractElementOp::new(ctx, self.vector(ctx), index);
+        rewriter.insert_op(ctx, &extracted);
+        rewriter.replace_operation_with_values(
+            ctx,
+            self.get_operation(),
+            vec![extracted.get_result(ctx)],
+        );
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToLLVMDialect for VectorExtractDynamicOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let extracted = llvm::ExtractElementOp::new(ctx, self.vector(ctx), self.index(ctx));
         rewriter.insert_op(ctx, &extracted);
         rewriter.replace_operation_with_values(
             ctx,
