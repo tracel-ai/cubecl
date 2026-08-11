@@ -5,7 +5,7 @@ use crate::{
         memory_pool::{MemoryPage, MemoryPool, PageMapping, Slice},
     },
     server::IoError,
-    storage::{StorageHandle, StorageId, StorageUtilization},
+    storage::StorageId,
 };
 use alloc::vec::Vec;
 use core::fmt::Display;
@@ -101,16 +101,7 @@ impl SlicedPool {
         // carves, coalesces and counts toward the high-water exactly like a
         // real one, and is rebound to a real allocation on first resolution
         // (`materialize`).
-        let storage = match mapping {
-            PageMapping::Eager => storage.alloc(self.page_size)?,
-            PageMapping::Lazy => StorageHandle::new(
-                StorageId::new(),
-                StorageUtilization {
-                    offset: 0,
-                    size: self.page_size,
-                },
-            ),
-        };
+        let storage = mapping.storage_handle(storage, self.page_size)?;
         let page = MemoryPage::new(storage, self.alignment, location_base, mapping);
         let storage_id = page.storage_id();
         self.pages.push((page, storage_id));

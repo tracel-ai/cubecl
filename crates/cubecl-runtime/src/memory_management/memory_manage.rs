@@ -2,7 +2,6 @@ use super::{
     MemoryConfiguration, MemoryPoolOptions, MemoryReport, MemoryUsage, PoolType,
     memory_pool::{
         DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool,
-        page_mapping,
     },
 };
 use crate::{
@@ -1079,7 +1078,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // hard about overflow here.
         self.alloc_reserve_count += 1;
 
-        let mapping = page_mapping();
+        let mapping = PageMapping::current();
 
         // In an explicit persistent window the pool always serves the
         // allocation (reusing a freed same-size slice when one exists).
@@ -1237,17 +1236,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// A structured per-pool report: each pool's shape, usage, and high-water
     /// marks, in allocation-routing order.
     ///
-    /// This is the read side of a measured memory plan: install a growable
-    /// layout, run the workload once under a
-    /// [`DryRun`](crate::dry_run::DryRun) — the same allocation stream with no
-    /// compute — then cap the layout at the `pages_peak` observed here.
-    /// Because the pools' placement policy is deterministic, replaying the
-    /// same stream against the capped layout fits by construction.
-    ///
-    /// The marks cover everything the pools served, tuning scratch included.
-    /// Warming the tune caches in an earlier pass and rebuilding the pools
-    /// ([`install_pools`](Self::install_pools), which resets the marks) before the
-    /// measured one leaves the peaks to the workload alone.
+    /// The read side of a measured memory plan — the cycle, and what the
+    /// marks cover, is on [`MemoryReport`].
     pub fn memory_report(&self) -> MemoryReport {
         MemoryReport {
             dynamic: self.pools.iter().map(|pool| pool.report()).collect(),
@@ -1285,6 +1275,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             self.capture_touch(&assigned);
             return self.persistent.bind(reserved, assigned, cursor);
         }
+
         self.pools
             .get_mut(pool_index)
             .map(|p| p.bind(reserved, assigned, cursor))

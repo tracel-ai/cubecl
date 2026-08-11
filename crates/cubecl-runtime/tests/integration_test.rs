@@ -600,7 +600,6 @@ fn a_dry_run_still_autotunes() {
 #[serial_test::serial]
 fn a_dry_run_reserves_without_mapping() {
     use cubecl_runtime::dry_run::DryRun;
-
     use cubecl_runtime::memory_management::MemoryPoolReport;
 
     let client = test_client(&DummyDevice);

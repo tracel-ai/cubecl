@@ -2,56 +2,68 @@ use super::{ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle};
 use crate::{
     memory_management::MemoryUsage,
     server::IoError,
-    storage::{ComputeStorage, StorageHandle},
+    storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
+use cubecl_environment::backtrace::BackTrace;
 
 /// Whether a fresh device page gets real backing at allocation time.
 ///
 /// Either way the pool's bookkeeping — slice carving, coalescing, high-water
 /// marks — is identical; the two differ only in when the driver is asked for
-/// memory. [`page_mapping`] decides which an allocation gets.
+/// memory. [`PageMapping::current`] decides which an allocation gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageMapping {
     /// Allocate device memory now.
+    ///
+    /// The answer whenever the allocation will be used, which outside a dry
+    /// run is all of them: a reservation becomes a kernel argument, a read or
+    /// a write within microseconds, so deferring it buys nothing — and gives
+    /// up the reservation-time failure the backends can still recover
+    /// (`Command::reserve` retries after reclaiming the stream), the pure
+    /// lookup that keeps resolution infallible on the launch paths, and the
+    /// guarantee that a capture window never allocates once recording starts.
     Eager,
     /// Mint the storage id now and defer the device allocation to the first
     /// time one of the page's slices is resolved
     /// ([`MemoryPool::materialize`]). Until then the id has no driver memory
     /// behind it and the page's device footprint is zero.
+    ///
+    /// For the one case where the allocation may never be used: under a
+    /// [`DryRun`](crate::dry_run::DryRun) the workload's launches are compiled
+    /// and dropped, so most reservations are never resolved and never need to
+    /// exist. That is what lets a workload far larger than the device replay
+    /// its allocation stream — the pools still measure it, and only what
+    /// genuinely executes (a tuning pass, which resolves because it runs)
+    /// costs real memory.
     Lazy,
 }
 
-/// What backing an allocation made on this thread, right now, should get.
-///
-/// **[`Eager`](PageMapping::Eager) is the answer whenever the allocation will
-/// be used**, which outside a dry run is all of them: a reservation becomes a
-/// kernel argument, a read or a write within microseconds, so deferring it
-/// buys nothing and gives up three things.
-///
-/// - **A failure that can still be recovered.** A device allocation that fails
-///   at reservation is retried by the backends' `Command::reserve` after
-///   reclaiming the stream — the transient-peak case, a build holding float
-///   weights while their quantized copies allocate. Deferred, the same failure
-///   lands at resolution, where there is nothing left to flush and no retry.
-/// - **Infallible resolution.** Resolving a binding is a pure lookup today,
-///   and several launch paths resolve with `expect`. Allocating there would
-///   turn a full device into a panic instead of a queued error.
-/// - **A capture window that cannot allocate.** Graph capture needs every
-///   slice the recorded run touches to exist before recording starts. Eager
-///   reservation is what guarantees that; deferred, a slice warmup reserved
-///   but never resolved would ask the driver for memory mid-capture and fault.
-///
-/// **[`Lazy`](PageMapping::Lazy) is for the one case where the allocation may
-/// never be used**: under a [`DryRun`](crate::dry_run::DryRun) the workload's
-/// launches are compiled and dropped, so most reservations are never resolved
-/// and never need to exist. That is what lets a workload far larger than the
-/// device replay its allocation stream — the pools still measure it, and only
-/// what genuinely executes (a tuning pass, which resolves because it runs)
-/// costs real memory.
-pub fn page_mapping() -> PageMapping {
-    match crate::dry_run::dry_run() {
-        true => PageMapping::Lazy,
-        false => PageMapping::Eager,
+impl PageMapping {
+    /// The mapping allocations made on this thread, right now, should get:
+    /// [`Lazy`](Self::Lazy) under a [`DryRun`](crate::dry_run::DryRun),
+    /// [`Eager`](Self::Eager) everywhere else.
+    pub fn current() -> Self {
+        match crate::dry_run::dry_run() {
+            true => PageMapping::Lazy,
+            false => PageMapping::Eager,
+        }
+    }
+
+    /// A storage handle for `size` bytes honoring this mapping: a real device
+    /// allocation when [`Eager`](Self::Eager), a minted id awaiting
+    /// [`MemoryPool::materialize`] when [`Lazy`](Self::Lazy).
+    pub(crate) fn storage_handle<Storage: ComputeStorage>(
+        self,
+        storage: &mut Storage,
+        size: u64,
+    ) -> Result<StorageHandle, IoError> {
+        match self {
+            PageMapping::Eager => storage.alloc(size),
+            PageMapping::Lazy => Ok(StorageHandle::new(
+                StorageId::new(),
+                StorageUtilization { offset: 0, size },
+            )),
+        }
     }
 }
 
@@ -149,8 +161,8 @@ pub(crate) struct Slice {
     pub handle: ManagedMemoryHandle,
     pub padding: u64,
     pub cursor: u64,
-    /// Whether `storage.id` is backed by a real device allocation. Only pools
-    /// whose slices own their whole buffer (the persistent pool) track
+    /// Whether `storage.id` is backed by a real device allocation. Pools whose
+    /// slices own their whole buffer (the persistent and direct pools) track
     /// laziness here; sliced pools track it on the page, whose id every slice
     /// shares.
     pub mapped: bool,
@@ -179,6 +191,27 @@ impl Slice {
     /// The description of the slice.
     pub(crate) fn descriptor(&self) -> &ManagedMemoryDescriptor {
         self.handle.descriptor()
+    }
+
+    /// Install real device backing behind a slice that owns its whole buffer
+    /// and was allocated [`PageMapping::Lazy`]: allocate for real and retire
+    /// the minted id, which never reached the driver. The caller checks the
+    /// slice is unmapped and that the binding has a claim on it.
+    pub(crate) fn materialize<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+    ) -> Result<(), IoError> {
+        let effective_size = self.effective_size();
+        let real = storage
+            .alloc(effective_size)
+            .map_err(|err| IoError::StorageMappingFailed {
+                size: effective_size,
+                source: alloc::boxed::Box::new(err),
+                backtrace: BackTrace::capture(),
+            })?;
+        self.storage.id = real.id;
+        self.mapped = true;
+        Ok(())
     }
 }
 

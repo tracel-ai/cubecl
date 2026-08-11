@@ -40,6 +40,19 @@ fn props() -> MemoryDeviceProperties {
     }
 }
 
+fn manage(pools: &MemoryPoolsConfig) -> MemoryManagement<BytesStorage> {
+    let resolved = MemoryConfiguration::default()
+        .resolve(Some(pools), &props())
+        .unwrap();
+    MemoryManagement::from_configuration(
+        BytesStorage::default(),
+        &props(),
+        resolved,
+        Arc::new(ServerLogger::default()),
+        MemoryManagementOptions::new("Main GPU Memory"),
+    )
+}
+
 #[test]
 fn programmatic_pools_override_runtime_default() {
     // The path a downstream user takes when the budget is computed at runtime
@@ -155,19 +168,6 @@ fn configure_rebuilds_pools_in_place() {
     drop(live);
     memory_management.install_pools(bigger, &props()).unwrap();
     let _large = memory_management.reserve(2 * MIB).unwrap();
-}
-
-fn manage(pools: &MemoryPoolsConfig) -> MemoryManagement<BytesStorage> {
-    let resolved = MemoryConfiguration::default()
-        .resolve(Some(pools), &props())
-        .unwrap();
-    MemoryManagement::from_configuration(
-        BytesStorage::default(),
-        &props(),
-        resolved,
-        Arc::new(ServerLogger::default()),
-        MemoryManagementOptions::new("Main GPU Memory"),
-    )
 }
 
 /// A plan measured from one run of a stream fits that stream when it is

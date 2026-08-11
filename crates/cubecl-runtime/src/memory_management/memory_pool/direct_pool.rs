@@ -1,13 +1,13 @@
 use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding};
 use crate::memory_management::{BytesFormat, MemoryLocation, MemoryPoolKind, MemoryPoolReport};
-use crate::storage::{StorageHandle, StorageId, StorageUtilization};
+use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 
 /// A pool that does no carving: one device allocation per reservation, sized
 /// to the request, reused by exact size and returned to the driver only under
-/// memory pressure.
+/// memory pressure ([`reclaim_at`](Self::reclaim_at)).
 ///
 /// The naive allocator, and the reason to want it is padding. A sliced pool
 /// wastes the remainder of every page it carves and a bucketed exclusive pool
@@ -21,22 +21,6 @@ use cubecl_environment::backtrace::BackTrace;
 /// costs no driver call to create and none to release. And on a device where
 /// the workload barely fits, the padding this removes can be the difference
 /// between fitting and not.
-///
-/// # When it deallocates
-///
-/// Only when it has to: a freed slice is kept and reused by exact size until a
-/// new allocation would push the pool past
-/// [`reclaim_at`](Self::reclaim_at), and only then are free slices returned to
-/// the driver — just enough of them for the new allocation to fit.
-///
-/// Demand-driven rather than prompt, which is what keeps the pool from
-/// distorting an autotune measurement. Deallocating on every release would
-/// charge each benchmark iteration for driver traffic the real workload never
-/// pays, and charge candidates unequally by how much they allocate. Here a
-/// tuning pass reaches the ceiling only if it is allocating hard enough to
-/// deserve the reclaim — and typically it allocates nothing at all, reusing
-/// the same shapes across iterations. No measurement flag, no thread-local:
-/// the policy reads the pool's own bytes.
 pub struct DirectPool {
     /// Every slice owns its whole device allocation. Indexed by
     /// [`MemoryLocation::slice`], so freed entries are tombstoned rather than
@@ -52,6 +36,13 @@ pub struct DirectPool {
     /// leaves the pool above it, the allocation is served anyway — live memory
     /// is not something this pool can decline to provide. `None` never
     /// reclaims on its own, leaving it to an explicit cleanup.
+    ///
+    /// Demand-driven rather than prompt, which is what keeps the pool from
+    /// distorting an autotune measurement: deallocating on every release would
+    /// charge each benchmark iteration for driver traffic the real workload
+    /// never pays, and charge candidates unequally by how much they allocate.
+    /// No measurement flag, no thread-local: the policy reads the pool's own
+    /// bytes.
     reclaim_at: Option<u64>,
     /// The most slices ever held at once.
     pages_peak: u64,
@@ -188,16 +179,7 @@ impl MemoryPool for DirectPool {
         // size; whatever is free here is dead weight against the ceiling.
         self.release_free(storage, effective_size);
 
-        let storage_handle = match mapping {
-            PageMapping::Eager => storage.alloc(effective_size)?,
-            PageMapping::Lazy => StorageHandle::new(
-                StorageId::new(),
-                StorageUtilization {
-                    offset: 0,
-                    size: effective_size,
-                },
-            ),
-        };
+        let storage_handle = mapping.storage_handle(storage, effective_size)?;
 
         let mut slice = Slice::new(storage_handle, padding);
         slice.mapped = matches!(mapping, PageMapping::Eager);
@@ -238,20 +220,7 @@ impl MemoryPool for DirectPool {
             return Ok(());
         }
 
-        let effective_size = slice.effective_size();
-        let real = storage
-            .alloc(effective_size)
-            .map_err(|err| IoError::StorageMappingFailed {
-                size: effective_size,
-                source: alloc::boxed::Box::new(err),
-                backtrace: BackTrace::capture(),
-            })?;
-
-        let slice = self.slices[index].as_mut().expect("just checked");
-        slice.storage.id = real.id;
-        slice.mapped = true;
-
-        Ok(())
+        slice.materialize(storage)
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {

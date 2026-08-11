@@ -3,7 +3,6 @@ use super::{
 };
 use crate::memory_management::{BytesFormat, MemoryLocation, MemoryPoolKind, MemoryPoolReport};
 use crate::storage::StorageUtilization;
-use crate::storage::{StorageHandle, StorageId};
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -151,16 +150,7 @@ impl MemoryPool for PersistentPool {
         // per-slice: a minted id under a dry run (a scratch session's KV
         // cache, for instance) costs nothing until a measurement actually
         // touches it — see [`MemoryPool::materialize`].
-        let storage_handle = match mapping {
-            PageMapping::Eager => storage.alloc(effective_size)?,
-            PageMapping::Lazy => StorageHandle::new(
-                StorageId::new(),
-                StorageUtilization {
-                    offset: 0,
-                    size: effective_size,
-                },
-            ),
-        };
+        let storage_handle = mapping.storage_handle(storage, effective_size)?;
         let mut slice = Slice::new(storage_handle, padding);
         slice.mapped = matches!(mapping, PageMapping::Eager);
         slice.storage.utilization = StorageUtilization { offset: 0, size };
@@ -275,19 +265,7 @@ impl MemoryPool for PersistentPool {
             return Ok(());
         }
 
-        let effective_size = slice.effective_size();
-        let real = storage
-            .alloc(effective_size)
-            .map_err(|err| IoError::StorageMappingFailed {
-                size: effective_size,
-                source: alloc::boxed::Box::new(err),
-                backtrace: BackTrace::capture(),
-            })?;
-        let slice = &mut self.slices[binding.descriptor().slice()];
-        slice.storage.id = real.id;
-        slice.mapped = true;
-
-        Ok(())
+        slice.materialize(storage)
     }
 }
 

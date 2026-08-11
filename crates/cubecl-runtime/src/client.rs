@@ -1089,14 +1089,10 @@ impl<R: Runtime> ComputeClient<R> {
     /// each pool's shape, usage, and high-water marks, in allocation-routing
     /// order.
     ///
-    /// This is the read side of a measured memory plan. The cycle: install a
-    /// growable layout with
-    /// [`install_memory_pools`](Self::install_memory_pools), run the
-    /// workload once under a [`DryRun`](crate::dry_run::DryRun) — the same
-    /// allocation stream with no compute — read this report, and re-install
-    /// the layout capped at the observed `pages_peak`. Pool placement is
-    /// deterministic, so replaying the same stream against the capped layout
-    /// fits by construction.
+    /// The read side of a measured memory plan — install a layout with
+    /// [`install_memory_pools`](Self::install_memory_pools), measure under a
+    /// [`DryRun`](crate::dry_run::DryRun), cap at the observed peaks; the full
+    /// cycle is on [`MemoryReport`].
     ///
     /// Unlike [`memory_usage`](Self::memory_usage), which aggregates across
     /// streams, this reads one stream: pools are per stream, and a plan is
