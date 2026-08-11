@@ -36,8 +36,10 @@ pub(crate) fn get_nccl_dtype_count(
     size: u64,
 ) -> (cudarc::nccl::sys::ncclDataType_t, usize) {
     match dtype {
+        ElemType::Index => panic!("Index not supported in NCCL"),
         ElemType::Float(
             cubecl_core::ir::FloatKind::E2M1
+            | cubecl_core::ir::FloatKind::E2M1x2
             | cubecl_core::ir::FloatKind::E2M3
             | cubecl_core::ir::FloatKind::E3M2
             | cubecl_core::ir::FloatKind::UE8M0,

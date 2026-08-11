@@ -14,9 +14,9 @@ pub struct ue8m0(u8);
 
 impl ue8m0 {
     /// Maximum representable value
-    pub const MAX: f64 = f64::from_bits(0x47E0000000000000);
+    pub const MAX: ue8m0 = ue8m0(0xfe);
     /// Minimum representable value
-    pub const MIN: f64 = 0.0;
+    pub const MIN: ue8m0 = ue8m0(0);
 
     /// Constructs a [`ue8m0`] value from the raw bits.
     #[inline]
@@ -80,7 +80,7 @@ impl ue8m0 {
 
 impl Display for ue8m0 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", ue8m0::to_f64(*self))
     }
 }
 

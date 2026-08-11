@@ -139,7 +139,6 @@ macro_rules! testgen_uint {
 macro_rules! testgen_untyped {
     () => {
         cubecl_core::testgen_launch_untyped!();
-
         cubecl_core::testgen_cmma!();
         cubecl_core::testgen_cmma2!();
         cubecl_core::testgen_numeric!();

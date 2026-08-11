@@ -20,10 +20,7 @@ pub fn async_copy_test<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [
 }
 
 pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    if !client
-        .properties()
-        .supports_type(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Unit))
-    {
+    if !client.properties().supports_type(OpaqueType::Barrier) {
         // We can't execute the test, skip.
         return;
     }
@@ -135,10 +132,7 @@ fn two_independent_loads<F: Float, N: Size>(
 }
 
 pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    if !client
-        .properties()
-        .supports_type(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube))
-    {
+    if !client.properties().supports_type(OpaqueType::Barrier) {
         // We can't execute the test, skip.
         return;
     }
@@ -168,10 +162,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     independent: bool,
     client: ComputeClient<R>,
 ) {
-    if !client
-        .properties()
-        .supports_type(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube))
-    {
+    if !client.properties().supports_type(OpaqueType::Barrier) {
         // We can't execute the test, skip.
         return;
     }

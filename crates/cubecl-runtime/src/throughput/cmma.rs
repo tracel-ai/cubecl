@@ -1,5 +1,5 @@
 use crate::{client::ComputeClient, runtime::Runtime};
-use cubecl_ir::{ElemType, StorageType};
+use cubecl_ir::ElemType;
 
 /// Configuration for a matrix multiplication (CMMA) operation.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
@@ -36,9 +36,9 @@ impl CmmaDims {
 /// Resolves the largest supported CMMA or MMA tile size `(m, n, k)`.
 pub fn select_cmma_tile<R: Runtime>(
     client: &ComputeClient<R>,
-    lhs: StorageType,
-    rhs: StorageType,
-    acc: StorageType,
+    lhs: ElemType,
+    rhs: ElemType,
+    acc: ElemType,
     (m, n, k): (usize, usize, usize),
 ) -> Option<(u32, u32, u32)> {
     let props = client.properties();

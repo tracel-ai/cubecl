@@ -1,6 +1,7 @@
 use cubecl_common::tf32;
-use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
+use cubecl_ir::{ConstantValue, FloatKind, Scope, types::scalar::TFloat32Type};
 use half::f16;
+use pliron::r#type::TypeHandle;
 
 use crate::prelude::*;
 
@@ -11,15 +12,18 @@ impl CubeType for tf32 {
 }
 
 impl CubeDebug for tf32 {}
-impl Scalar for tf32 {}
+impl Scalar for tf32 {
+    fn elem_type_native() -> ElemType {
+        FloatKind::TF32.into()
+    }
+}
 impl CubePrimitive for tf32 {
     type Scalar = Self;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    /// Return the element type to use on GPU
-    fn as_type_native() -> Option<Type> {
-        Some(ElemType::Float(FloatKind::TF32).into())
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        TFloat32Type::get(scope.ctx()).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

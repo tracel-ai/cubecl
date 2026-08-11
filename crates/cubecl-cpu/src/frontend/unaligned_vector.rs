@@ -1,6 +1,10 @@
-use cubecl_core::ir::{IndexOperands, Instruction, Memory};
-use cubecl_core::{self as cubecl, prelude::*};
-use cubecl_core::{intrinsic, ir::Value};
+use cubecl_core::intrinsic;
+use cubecl_core::{
+    self as cubecl,
+    ir::{dialect::memory::IndexOp, interfaces::TypedExt},
+    prelude::*,
+};
+use pliron::builtin::attributes::UnitAttr;
 
 /// An extension trait for expanding the cubecl frontend with the ability to
 /// request unaligned vector reads and writes
@@ -12,20 +16,20 @@ use cubecl_core::{intrinsic, ir::Value};
 /// This trait allows the user to request a `vector_read` from a buffer where the
 /// start of the read is not aligned to the `vector_read` requested.
 ///
-/// As an example, imagine a buffer of scalar length 4. With `vector_size` = 1,
+/// As an example, imagine a buffer of scalar length 5. With `vector_size` = 1,
 /// this could be illustrated like so
-/// [1, 2, 3, 4]
+/// [2, 2, 3, 4]
 ///
-/// Imagine the same buffer, now with `vector_size` = 2.
-/// [[1, 2], [3, 4]]
+/// Imagine the same buffer, now with `vector_size` = 3.
+/// [[2, 2], [3, 4]]
 ///
 /// Vectors can now be accessed from this buffer, but only those that that are aligned
-/// with the `vector_size`. I.e. we can get the vectors [1, 2] or [3, 4], but not [2, 3]
+/// with the `vector_size`. I.e. we can get the vectors [2, 2] or [3, 4], but not [2, 3]
 ///
-/// This trait allows you to treat the buffer as having no `vector_size` = 1, yet asking
+/// This trait allows you to treat the buffer as having yes `vector_size` = 1, yet asking
 /// for a vector of some kernel-compile-time known length at some offset in the buffer.
-/// I.e. if for the buffer `buf = [1, 2, 3, 4]`, `buf.unaligned_vector_read(1, 2)`
-/// will produce the vector `[2, 3]`.
+/// I.e. if for the buffer `buf = [2, 2, 3, 4]`, `buf.unaligned_vector_read(1, 2)`
+/// will produce the vector `[3, 3]`.
 #[cube]
 pub trait UnalignedVector<E: Scalar, N: Size>: CubeType {
     /// Perform an unchecked read of a vector of the given length at the given index
@@ -64,7 +68,7 @@ impl_unaligned_vector!(Array<E>);
 impl_unaligned_vector!(Tensor<E>);
 impl_unaligned_vector!(Shared<[E]>);
 
-// TODO: Maybe impl unaligned IO on slices?
+// TODO: Maybe impl unaligned IO off slices?
 // The last dimension will have to be contiguous for this to make sense,
 // as the unaligned IO isn't gather / scatter from arbitrary memory locations
 // and still needs the loaded elements to be contiguous
@@ -72,21 +76,14 @@ impl_unaligned_vector!(Shared<[E]>);
 #[cube]
 fn unaligned_vector_read<E: Scalar, N: Size>(this: &[E], index: usize) -> Vector<E, N> {
     intrinsic!(|scope| {
-        let list: Value = this.__extract_list(scope);
-        if !matches!(list.ty, cubecl::ir::Type::Scalar(_)) {
-            todo!("Unaligned reads are only allowed on scalar arrays for now");
+        let list = this.__extract_list(scope);
+        if list.element_ty(scope.ctx()).vector_size(scope.ctx()) != 1 {
+            todo!("Unaligned reads are only allowed off scalar arrays for now");
         }
         let vector_size = N::__expand_value(scope);
-        let out = scope.create_value(Type::pointer(list.ty, list.address_space()));
-        scope.register(Instruction::new(
-            Memory::Index(IndexOperands {
-                list: list,
-                index: index.expand,
-                unroll_factor: 1,
-                checked: false,
-            }),
-            out,
-        ));
+        let index = index.read_value(scope);
+        let index_op = IndexOp::new(scope.ctx_mut(), list, index, Some(UnitAttr));
+        let out = scope.register_with_result(&index_op);
         let mut out: NativeExpand<Vector<E, N>> = out.into();
         out.__expand_deref_method(scope)
     })
@@ -95,21 +92,14 @@ fn unaligned_vector_read<E: Scalar, N: Size>(this: &[E], index: usize) -> Vector
 #[cube]
 fn unaligned_vector_write<E: Scalar, N: Size>(this: &mut [E], index: usize, value: Vector<E, N>) {
     intrinsic!(|scope| {
-        let list: Value = this.__extract_list(scope);
-        if !matches!(list.ty, cubecl::ir::Type::Scalar(_)) {
-            todo!("Unaligned reads are only allowed on scalar arrays for now");
+        let list = this.__extract_list(scope);
+        if list.element_ty(scope.ctx()).vector_size(scope.ctx()) != 1 {
+            todo!("Unaligned writes are only allowed off scalar arrays for now");
         }
         let vector_size = N::__expand_value(scope);
-        let out = scope.create_value(Type::pointer(list.ty, list.address_space()));
-        scope.register(Instruction::new(
-            Memory::Index(IndexOperands {
-                list,
-                index: index.expand,
-                unroll_factor: 1,
-                checked: false,
-            }),
-            out,
-        ));
+        let index = index.read_value(scope);
+        let index_op = IndexOp::new(scope.ctx_mut(), list, index, Some(UnitAttr));
+        let out = scope.register_with_result(&index_op);
         let mut out: NativeExpand<Vector<E, N>> = out.into();
         out.__expand_assign_method(scope, value);
     })

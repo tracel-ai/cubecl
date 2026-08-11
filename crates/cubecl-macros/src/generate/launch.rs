@@ -5,7 +5,9 @@ use syn::{GenericParam, Generics, Ident, parse_quote};
 
 use crate::{
     parse::{
-        kernel::{AddressType, GenericArg, Launch, anon_lifetime_to_static, strip_ref},
+        kernel::{
+            AddressType, ExecutionMode, GenericArg, Launch, anon_lifetime_to_static, strip_ref,
+        },
         signature::KernelParam,
     },
     paths::{core_type, prelude_type},
@@ -64,7 +66,7 @@ impl Launch {
             );
             let generics = &self.launch_generics;
             let args = self.launch_args();
-            let body = self.launch_body();
+            let body = self.launch_body(ExecutionMode::Checked);
 
             let address_type = match self.args.address_type {
                 AddressType::Dynamic => quote![__address_type: #address_type,],
@@ -108,7 +110,7 @@ impl Launch {
             );
             let generics = &self.kernel_generics;
             let args = self.launch_args();
-            let body = self.launch_body();
+            let body = self.launch_body(ExecutionMode::Unchecked);
 
             let address_type = match self.args.address_type {
                 AddressType::Dynamic => quote![__address_type: #address_type,],
@@ -126,7 +128,7 @@ impl Launch {
                     #(#args),*
                 ) {
                     #body
-                    launcher.launch_unchecked(__cube_count, __kernel, __client)
+                    launcher.launch(__cube_count, __kernel, __client)
                 }
             }
         } else {
@@ -134,7 +136,7 @@ impl Launch {
         }
     }
 
-    fn launch_body(&self) -> TokenStream {
+    fn launch_body(&self, execution_mode: ExecutionMode) -> TokenStream {
         let kernel_launcher = prelude_type("KernelLauncher");
 
         let mappings = self.func.sig.define_mappings();
@@ -143,7 +145,7 @@ impl Launch {
                 .analysis
                 .register_types(mappings, quote![scope], false, true);
 
-        let settings = self.configure_settings();
+        let settings = self.configure_settings(execution_mode);
         let kernel_name = self.kernel_name();
         let kernel_generics = self.kernel_call_generics();
         let kernel_generics = kernel_generics.split_for_impl();
@@ -165,7 +167,7 @@ impl Launch {
         }
     }
 
-    fn configure_settings(&self) -> TokenStream {
+    fn configure_settings(&self, mode: ExecutionMode) -> TokenStream {
         let kernel_settings = prelude_type("KernelSettings");
         let addr_ty = prelude_type("AddressType");
         let address_type = match self.args.address_type {
@@ -175,8 +177,7 @@ impl Launch {
         };
 
         quote! {
-            let mut __settings = #kernel_settings::default()
-                .cube_dim(__cube_dim).address_type(#address_type);
+            let mut __settings = #kernel_settings::new(__cube_dim.into(), #mode, #address_type);
         }
     }
 
@@ -215,7 +216,7 @@ impl Launch {
             let generics = &self.kernel_generics;
             let (_, generic_names, _) = self.kernel_generics.split_for_impl();
 
-            let settings = self.configure_settings();
+            let settings = self.configure_settings(ExecutionMode::Checked);
             let kernel_name = self.kernel_name();
             let comptime_args = self.launch_args();
             let comptime_names = self.comptime_params().map(|it| &it.name);

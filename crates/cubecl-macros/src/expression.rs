@@ -7,6 +7,7 @@ use syn::{
 
 use crate::{
     operator::Operator,
+    parse::asm::AsmExpression,
     scope::{Context, ManagedVar, Scope},
     statement::Statement,
 };
@@ -81,6 +82,11 @@ pub enum Expression {
         ident: Ident,
         args: Vec<Expression>,
     },
+    RawMacro {
+        path: Path,
+        args: TokenStream,
+    },
+    Asm(AsmExpression),
     Continue(Span),
     Return(Span),
     ForLoop {
@@ -89,6 +95,12 @@ pub enum Expression {
         var_name: syn::Ident,
         var_ty: Option<syn::Type>,
         block: Block,
+        scope: Scope,
+    },
+    WhileLoop {
+        cond: Box<Expression>,
+        cond_scope: Scope,
+        body: Block,
         scope: Scope,
     },
     Loop {
@@ -287,6 +299,7 @@ impl Expression {
             Expression::If { then_block, .. } => then_block.ret.is_some(),
             Expression::Block(block) => block.ret.is_some(),
             Expression::ForLoop { .. } => false,
+            Expression::WhileLoop { .. } => false,
             Expression::Loop { .. } => false,
             Expression::VerbatimTerminated { .. } => false,
             _ => true,

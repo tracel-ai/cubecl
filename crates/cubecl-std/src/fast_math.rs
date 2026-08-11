@@ -35,7 +35,7 @@ impl FastDivmodInt for u32 {
 
 impl FastDivmodInt for usize {
     fn size<R: Runtime>(launcher: &KernelLauncher<R>) -> usize {
-        launcher.settings.address_type.unsigned_type().size()
+        launcher.settings.address_type.size()
     }
 }
 

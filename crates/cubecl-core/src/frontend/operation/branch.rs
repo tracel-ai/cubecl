@@ -2,10 +2,7 @@ use cubecl_macros::intrinsic;
 
 use crate as cubecl;
 use crate::prelude::{CubePrimitive, Vector};
-use crate::{
-    ir::{Operator, Scope, SelectOperands},
-    prelude::*,
-};
+use crate::{ir::Scope, prelude::*};
 
 /// Executes both branches, *then* selects a value based on the condition. This *should* be
 /// branchless, but might depend on the compiler.
@@ -29,9 +26,7 @@ pub fn select_many<C: Scalar, N: Size>(
 }
 
 pub mod select {
-    use cubecl_ir::ValueKind;
-
-    use crate::ir::Instruction;
+    use cubecl_ir::{ExpandValue, dialect::general::SelectOp};
 
     use super::*;
 
@@ -41,9 +36,7 @@ pub mod select {
         then: NativeExpand<C>,
         or_else: NativeExpand<C>,
     ) -> NativeExpand<C> {
-        let cond = condition.expand;
-
-        if let ValueKind::Constant(value) = cond.kind {
+        if let ExpandValue::Constant { value, .. } = condition.expand {
             if value.as_bool() {
                 return then;
             } else {
@@ -51,22 +44,13 @@ pub mod select {
             }
         }
 
-        let then = then.expand;
-        let or_else = or_else.expand;
+        let condition = condition.read_value(scope);
+        let then = then.read_value(scope);
+        let or_else = or_else.read_value(scope);
 
-        let vf = cond.vector_size();
-        let vf = Ord::max(vf, then.vector_size());
-        let vf = Ord::max(vf, or_else.vector_size());
-
-        let output = scope.create_value(then.value_type().with_vector_size(vf));
-
-        let select = Operator::Select(SelectOperands {
-            cond,
-            then,
-            or_else,
-        });
-        scope.register(Instruction::new(select, output));
-
-        output.into()
+        let [condition, then, or_else] =
+            normalize_same_vectorization(scope, [condition, then, or_else]);
+        let select = SelectOp::new(scope.ctx_mut(), condition, then, or_else);
+        scope.register_with_result(&select).into()
     }
 }

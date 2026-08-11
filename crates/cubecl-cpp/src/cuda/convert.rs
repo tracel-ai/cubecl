@@ -1,11 +1,29 @@
 //! Cuda conversion functions
 #![allow(unused)]
 
-use core::fmt;
+use core::{fmt, ops::Deref};
+
+use cubecl_core::{
+    self as cubecl,
+    ir::{
+        dialect::general::CastOp,
+        interfaces::{ScalarType, TypedExt},
+        match_ty,
+        prelude::*,
+        types::{VectorType, scalar::*},
+    },
+    prelude::*,
+};
+use pliron::{printable::Printable, utils::apfloat::Float8E5M2};
 
 use crate::{
-    Dialect,
-    shared::{Component, Elem, FP8Kind, FmtLeft, Instruction, Item, UnaryInstruction, Value},
+    cuda::{cuda_op_with_out, ty::*},
+    shared::{
+        CppValue,
+        lowering::LowerOp,
+        ty::{TypeExt, TypeExtCPP, TypedExtCPP},
+    },
+    target::Cuda,
 };
 
 /// special cast function for recursive conversion in the case of minifloat to minifloat conversion
@@ -31,349 +49,103 @@ use crate::{
 /// <https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__FP8__MISC.html>
 /// <https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__FP6__MISC.html>
 /// <https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__FP4__MISC.html>
-pub(crate) fn special_cast<D: Dialect>(
-    f: &mut std::fmt::Formatter,
-    input: &Value<D>,
-    out: &Value<D>,
-) -> fmt::Result {
-    let mut current_in = *input;
+#[op_interface_impl]
+impl LowerOp<Cuda> for CastOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        let input = self.input(ctx);
+        let out = self.get_result(ctx);
+        let should_lower_from = (input.is_fp8_fp6_fp4(ctx) || input.is_float4x2(ctx))
+            && intermediate_for_ty(ctx, input.get_type(ctx)) != out.get_type(ctx);
+        let should_lower_to = (out.is_fp8_fp6_fp4(ctx) || out.is_float4x2(ctx))
+            && intermediate_for_ty(ctx, out.get_type(ctx)) != input.get_type(ctx);
+        should_lower_from || should_lower_to
+    }
 
-    if matches!(
-        input.elem().unpacked(),
-        Elem::FP4(_) | Elem::FP6(_) | Elem::FP8(_)
-    ) {
-        let item = out.item().with_elem(match input.elem().unpacked() {
-            Elem::FP8(FP8Kind::UE8M0) => Elem::BF16,
-            _ => Elem::F16,
-        });
-        let out_var = if item == out.item() {
-            *out
-        } else {
-            Value::tmp(item)
-        };
-        if *item.elem() == Elem::F16 {
-            cast_minifloat_to_half(f, current_in, out_var)?;
-        } else {
-            cast_scale_to_bfloat(f, current_in, out_var)?;
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        let mut current = self.input(ctx);
+        let out_ty = self.get_result(ctx).get_type(ctx);
+        if current.is_fp8_fp6_fp4(ctx) || current.is_float4x2(ctx) {
+            let intermediate = intermediate_for_ty(ctx, current.get_type(ctx));
+            current = cast_value(scope, current, intermediate);
         }
-        current_in = out_var;
-    }
-
-    let in_vec = match current_in.item() {
-        Item::Scalar(_) => 1,
-        Item::Vector(_, vectorization) | Item::NativeVector(_, vectorization) => vectorization,
-        _ => panic!("Invalid input item for special cast"),
-    };
-
-    // Broadcast scalars to packing factor
-    if out.item().packing_factor() > 1 && in_vec == 1 {
-        let tmp = Value::tmp(Item::new(input.elem(), out.item().packing_factor()));
-        let assign = Instruction::Assign(UnaryInstruction {
-            input: current_in,
-            out: tmp,
-        });
-        writeln!(f, "{assign}")?;
-        current_in = tmp;
-    }
-
-    let in_vec = match current_in.item() {
-        Item::Scalar(_) => 1,
-        Item::Vector(_, vectorization) | Item::NativeVector(_, vectorization) => vectorization,
-        _ => panic!("Invalid input item for special cast"),
-    };
-
-    if matches!(
-        current_in.elem(),
-        Elem::U8
-            | Elem::U16
-            | Elem::U32
-            | Elem::U64
-            | Elem::I8
-            | Elem::I16
-            | Elem::I32
-            | Elem::I64
-            | Elem::Bool
-    ) {
-        // Precision is irrelevant for int, so use bf16 for the range
-        let tmp = Value::tmp(Item::new(Elem::BF16, in_vec));
-        let assign = Instruction::Assign(UnaryInstruction {
-            input: current_in,
-            out: tmp,
-        });
-        writeln!(f, "{assign}")?;
-        current_in = tmp;
-    }
-
-    if matches!(out.elem().unpacked(), Elem::FP4(_) | Elem::FP6(_)) {
-        return cast_to_fp4_fp6(f, current_in, *out);
-    }
-
-    if matches!(out.elem().unpacked(), Elem::FP8(FP8Kind::UE8M0)) {
-        // Scale can't be converted from half...
-        if matches!(current_in.elem(), Elem::F16) {
-            let item = current_in.item().with_elem(Elem::BF16);
-            let tmp = Value::tmp(item);
-            let assign = Instruction::Assign(UnaryInstruction {
-                input: current_in,
-                out: tmp,
-            });
-            writeln!(f, "{assign}")?;
-            current_in = tmp;
+        if out_ty.is_fp8_fp6_fp4(ctx) || out_ty.is_float4x2(ctx) {
+            current = cast_value(scope, current, intermediate_for_ty(ctx, out_ty));
         }
-        return cast_to_scale(f, current_in, *out);
-    }
-
-    if matches!(out.elem().unpacked(), Elem::FP8(_)) {
-        return cast_to_fp8(f, current_in, *out);
-    }
-
-    if current_in.item() != out.item() {
-        let assign = Instruction::Assign(UnaryInstruction {
-            input: current_in,
-            out: *out,
-        });
-        writeln!(f, "{assign}")?;
-    }
-
-    Ok(())
-}
-
-/// Convert any float to fp4/fp6, with round to nearest
-fn cast_to_fp4_fp6<D: Dialect>(
-    f: &mut fmt::Formatter,
-    input: Value<D>,
-    out: Value<D>,
-) -> fmt::Result {
-    let out_opt = out.optimized();
-    let packing = out_opt.item().packing_factor();
-    let packed = packing == 2;
-    let pack_suffix = if packed { "2" } else { "" };
-
-    let (out_ty, interpretation) = match out_opt.elem() {
-        Elem::FP4(kind) => ("fp4", format!("{kind:?}")),
-        Elem::FP4x2(kind) => ("fp4x2", format!("{kind:?}")),
-        Elem::FP6(kind) => ("fp6", format!("{kind:?}")),
-        Elem::FP6x2(kind) => ("fp6x2", format!("{kind:?}")),
-        _ => unreachable!("Must be fp4 or fp6"),
-    };
-
-    let in_ty = match input.elem().unpacked() {
-        Elem::F64 => format!("double{pack_suffix}"),
-        Elem::TF32 | Elem::F32 => format!("float{pack_suffix}"),
-        Elem::F16 => format!("halfraw{pack_suffix}"),
-        Elem::BF16 => format!("bfloat16raw{pack_suffix}"),
-        _ => unreachable!(),
-    };
-
-    let input = input.optimized();
-
-    handle_unroll(f, out, |f, i| {
-        let in_value = float_to_packed(input, i, packing);
-
-        write!(
-            f,
-            "__nv_cvt_{in_ty}_to_{out_ty}({in_value}, __NV_{interpretation}, cudaRoundNearest)",
-        )
-    })
-}
-
-/// Convert any float except f16 to e8m0
-fn cast_to_scale<D: Dialect>(
-    f: &mut fmt::Formatter,
-    input: Value<D>,
-    out: Value<D>,
-) -> fmt::Result {
-    let out_opt = out.optimized();
-    let packing = out_opt.item().packing_factor();
-    let packed = packing > 1;
-    let pack_suffix = if packed { "2" } else { "" };
-
-    let out_ty = match out_opt.elem() {
-        Elem::FP8(_) => "e8m0",
-        Elem::FP8x2(_) => "e8m0x2",
-        _ => unreachable!("Must be scale factor"),
-    };
-
-    let in_ty = match input.elem() {
-        Elem::F64 => format!("double{pack_suffix}"),
-        Elem::TF32 | Elem::F32 => format!("float{pack_suffix}"),
-        Elem::BF16 => format!("bfloat16{pack_suffix}raw"),
-        _ => unreachable!(),
-    };
-
-    let input = input.optimized();
-
-    handle_unroll(f, out, |f, i| {
-        let in_value = float_to_packed(input, i, packing);
-
-        write!(
-            f,
-            "__nv_cvt_{in_ty}_to_{out_ty}({in_value}, __NV_NOSAT, cudaRoundPosInf)",
-        )
-    })
-}
-
-/// Convert any float to fp8 (except e8m0)
-fn cast_to_fp8<D: Dialect>(f: &mut fmt::Formatter, input: Value<D>, out: Value<D>) -> fmt::Result {
-    let out_opt = out.optimized();
-    let packing = out_opt.item().packing_factor();
-    let packed = packing > 1;
-    let pack_suffix = if packed { "2" } else { "" };
-
-    let (out_ty, interpretation) = match out_opt.elem() {
-        Elem::FP8(kind) => ("fp8", format!("{kind:?}")),
-        Elem::FP8x2(kind) => ("fp8x2", format!("{kind:?}")),
-        _ => unreachable!("Must be fp8"),
-    };
-
-    let in_ty = match input.elem() {
-        Elem::F64 => format!("double{pack_suffix}"),
-        Elem::TF32 | Elem::F32 => format!("float{pack_suffix}"),
-        Elem::BF16 => format!("bfloat16raw{pack_suffix}"),
-        Elem::F16 => format!("halfraw{pack_suffix}"),
-        _ => unreachable!(),
-    };
-
-    let input = input.optimized();
-
-    handle_unroll(f, out, |f, i| {
-        let in_value = float_to_packed(input, i, packing);
-
-        write!(
-            f,
-            "__nv_cvt_{in_ty}_to_{out_ty}({in_value}, __NV_NOSAT, __NV_{interpretation})",
-        )
-    })
-}
-
-/// Pack types that normally wouldn't be optimized into a `vec2` for conversion
-fn float_to_packed<D: Dialect>(input: Value<D>, i: usize, packing: usize) -> String {
-    match input.elem() {
-        Elem::TF32 | Elem::F32 => {
-            let i = i * packing;
-            if packing > 1 {
-                format!("float2 {{ {}, {} }}", input.index(i), input.index(i + 1))
-            } else {
-                format!("{}", input.index(i))
-            }
-        }
-        Elem::F64 => {
-            let i = i * packing;
-            if packing > 1 {
-                format!("double2 {{ {}, {} }}", input.index(i), input.index(i + 1))
-            } else {
-                format!("{}", input.index(i))
-            }
-        }
-        Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => format!("{}", input.index(i)),
-        _ => unreachable!(),
+        vec![cast_value(scope, current, out_ty)]
     }
 }
 
-/// Convert any FP8/6/4 except e8m0 to half
-fn cast_minifloat_to_half<D: Dialect>(
-    f: &mut fmt::Formatter,
-    input: Value<D>,
-    out: Value<D>,
-) -> fmt::Result {
-    let in_opt = input.optimized();
-    let out_opt = out.optimized().item();
-
-    let (in_ty, interpretation) = match in_opt.elem() {
-        Elem::FP4(kind) => ("fp4", format!("{kind:?}")),
-        Elem::FP4x2(kind) => ("fp4x2", format!("{kind:?}")),
-        Elem::FP6(kind) => ("fp6", format!("{kind:?}")),
-        Elem::FP6x2(kind) => ("fp6x2", format!("{kind:?}")),
-        Elem::FP8(kind) => ("fp8", format!("{kind:?}")),
-        Elem::FP8x2(kind) => ("fp8x2", format!("{kind:?}")),
-        _ => unreachable!("can only cast minifloat"),
-    };
-
-    let out_ty = match out_opt.elem() {
-        Elem::F16 => "halfraw",
-        Elem::F16x2 => "halfraw2",
-        _ => unreachable!("out type must be half"),
-    };
-
-    handle_unroll(f, out, |f, i| {
-        let input = in_opt.index(i);
-        write!(
-            f,
-            "{}(__nv_cvt_{in_ty}_to_{out_ty}({input}, __NV_{interpretation}))",
-            out_opt.elem()
-        )
-    })
-}
-
-/// Convert an e8m0 scaling factor to bf16
-fn cast_scale_to_bfloat<D: Dialect>(
-    f: &mut fmt::Formatter,
-    input: Value<D>,
-    out: Value<D>,
-) -> fmt::Result {
-    let in_opt = input.optimized();
-    let out_opt = out.optimized().item();
-
-    let in_ty = match in_opt.elem() {
-        Elem::FP8(_) => "e8m0",
-        Elem::FP8x2(_) => "e8m0x2",
-        _ => unreachable!("must be scaling factor in e8m0 format"),
-    };
-
-    let out_ty = match out_opt.elem() {
-        Elem::BF16 => "bf16raw",
-        Elem::BF16x2 => "bf162raw",
-        _ => unreachable!("out type must be half"),
-    };
-
-    handle_unroll(f, out, |f, i| {
-        let input = in_opt.index(i);
-        write!(
-            f,
-            "{}(__nv_cvt_{in_ty}_to_{out_ty}({input}))",
-            out_opt.elem()
-        )
-    })
-}
-
-fn handle_unroll<D: Dialect>(
-    f: &mut fmt::Formatter,
-    out: Value<D>,
-    mut op: impl FnMut(&mut fmt::Formatter, usize) -> fmt::Result,
-) -> fmt::Result {
-    let out_opt = out.item().optimized();
-    let vec = match out_opt {
-        Item::Scalar(_) => 1,
-        Item::Vector(_, vectorization) | Item::NativeVector(_, vectorization) => vectorization,
-        _ => panic!("Invalid input item for special cast"),
-    };
-    let out_var = if out.item() != out_opt {
-        Value::tmp(out_opt)
+fn intermediate_for_ty(ctx: &Context, ty: TypeHandle) -> TypeHandle {
+    let vector_size = ty.vector_size(ctx);
+    let intermediate = if ty.scalar_ty(ctx).deref(ctx).is::<Float8E8M0Type>() {
+        BFloat16Type::get(ctx).to_handle()
+    } else if ty.is_float4x2(ctx) {
+        return VectorType::get(ctx, Float16Type::get(ctx).to_handle(), vector_size * 2)
+            .to_handle();
     } else {
-        out
+        Float16Type::get(ctx).to_handle()
     };
-    write!(f, "{} = ", out_var.fmt_left())?;
-    if vec > 1 {
-        writeln!(f, "{out_opt} {{")?;
+    if vector_size > 1 {
+        VectorType::get(ctx, intermediate, vector_size).to_handle()
+    } else {
+        intermediate
     }
-    for i in 0..vec {
-        op(f, i)?;
-        if i + 1 < vec {
-            f.write_str(",\n")?;
-        }
-    }
-    if vec > 1 {
-        write!(f, "\n}}")?;
-    }
-    f.write_str(";\n")?;
+}
 
-    if out.item() != out_opt {
-        writeln!(
-            f,
-            "{} = reinterpret_cast<{}&>({out_var});",
-            out.fmt_left(),
-            out.item()
-        )?;
+cuda_op_with_out!(CastOp, |op, ctx| {
+    let input = op.input(ctx);
+    let out_ty = op.get_result(ctx).get_type(ctx);
+    if input.is_fp8_fp6_fp4(ctx) || input.is_packed_fp6_fp8_fp4(ctx) {
+        cast_minifloat_to_half(ctx, input)
+    } else if out_ty.is_fp8_fp6_fp4(ctx) || out_ty.is_packed_fp6_fp8_fp4(ctx) {
+        cast_half_to_minifloat(ctx, input, out_ty)
+    } else if out_ty.is_tfloat32(ctx) {
+        format!("nvcuda::wmma::__float_to_tf32({})", input.name(ctx))
+    } else {
+        format!("{}({})", out_ty.to_cpp(ctx), input.name(ctx))
     }
-    Ok(())
+});
+
+// Cast from minifloat to half/bf16. Could be made more generic, but a simple mapping is easier
+// to understand. The naming is very inconsistent (i.e. halfraw2 vs bf162raw)
+fn cast_minifloat_to_half(ctx: &Context, input: Value) -> String {
+    let in_ty = input.get_type(ctx).deref(ctx);
+    let in_val = input.name(ctx);
+    match_ty!((in_ty) {
+        Float8E8M0Type => format!("__nv_bfloat16(__nv_cvt_e8m0_to_bf16raw({in_val}))"),
+        Float8E8M0x2Type => format!("__nv_bfloat162(__nv_cvt_e8m0x2_to_bf162raw({in_val}))"),
+        Float8E4M3Type => format!("__half(__nv_cvt_fp8_to_halfraw({in_val}, __NV_E4M3))"),
+        Float8E4M3x2Type => format!("__half2(__nv_cvt_fp8x2_to_halfraw2({in_val}, __NV_E4M3))"),
+        Float8E5M2Type => format!("__half(__nv_cvt_fp8_to_halfraw({in_val}, __NV_E5M2))"),
+        Float8E5M2x2Type => format!("__half2(__nv_cvt_fp8x2_to_halfraw2({in_val}, __NV_E5M2))"),
+        Float6E2M3Type => format!("__half(__nv_cvt_fp6_to_halfraw({in_val}, __NV_E2M3))"),
+        Float6E2M3x2Type => format!("__half2(__nv_cvt_fp6x2_to_halfraw2({in_val}, __NV_E2M3))"),
+        Float6E3M2Type => format!("__half(__nv_cvt_fp6_to_halfraw({in_val}, __NV_E3M2))"),
+        Float6E3M2x2Type => format!("__half(__nv_cvt_fp6x2_to_halfraw2({in_val}, __NV_E3M2))"),
+        Float4E2M1Type => format!("__half(__nv_cvt_fp4_to_halfraw({in_val}, __NV_E2M1))"),
+        Float4E2M1x2Type => format!("__half2(__nv_cvt_fp4x2_to_halfraw2({in_val}, __NV_E2M1))"),;
+        _ => panic!("Unsupported type {}", in_ty.display(ctx))
+    })
+}
+
+// Cast to minifloat from half/bf16. Could be made more generic, but a simple mapping is easier
+// to understand. The naming is very inconsistent (i.e. halfraw2 vs bf162raw)
+fn cast_half_to_minifloat(ctx: &Context, input: Value, out_ty: TypeHandle) -> String {
+    let in_val = input.name(ctx);
+    match_ty!((out_ty.deref(ctx)) {
+        Float8E8M0Type => format!("__nv_cvt_bfloat16raw_to_e8m0({in_val}, __NV_NOSAT, cudaRoundPosInf)"),
+        Float8E8M0x2Type => format!("__nv_cvt_bfloat162raw_to_e8m0x2({in_val}, __NV_NOSAT, cudaRoundPosInf)"),
+        Float8E4M3Type => format!("__nv_cvt_halfraw_to_fp8({in_val}, __NV_NOSAT, __NV_E4M3)"),
+        Float8E4M3x2Type => format!("__nv_cvt_halfraw2_to_fp8x2({in_val}, __NV_NOSAT, __NV_E4M3)"),
+        Float8E5M2Type => format!("__nv_cvt_halfraw_to_fp8({in_val}, __NV_NOSAT, __NV_E5M2)"),
+        Float8E5M2x2Type => format!("__nv_cvt_halfraw2_to_fp8x2({in_val}, __NV_NOSAT, __NV_E5M2)"),
+        Float6E2M3Type => format!("__nv_cvt_halfraw_to_fp6({in_val}, __NV_E2M3, cudaRoundNearest)"),
+        Float6E2M3x2Type => format!("__nv_cvt_halfraw2_to_fp6x2({in_val}, __NV_E2M3, cudaRoundNearest)"),
+        Float6E3M2Type => format!("__nv_cvt_halfraw_to_fp6({in_val}, __NV_E3M2, cudaRoundNearest)"),
+        Float6E3M2x2Type => format!("__nv_cvt_halfraw2_to_fp6x2({in_val}, __NV_E3M2, cudaRoundNearest)"),
+        Float4E2M1Type => format!("__nv_cvt_halfraw_to_fp4({in_val}, __NV_E2M1, cudaRoundNearest)"),
+        Float4E2M1x2Type => format!("__nv_cvt_halfraw2_to_fp4x2({in_val}, __NV_E2M1, cudaRoundNearest)"),;
+        _ => panic!("Unsupported type {}", out_ty.deref(ctx).display(ctx))
+    })
 }

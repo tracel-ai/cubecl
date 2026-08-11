@@ -1,4 +1,5 @@
-use cubecl_ir::{ConstantValue, Scope, StorageType, Type};
+use cubecl_ir::{ConstantValue, Scope, types::scalar::BoolType};
+use pliron::r#type::TypeHandle;
 
 use crate::prelude::*;
 use crate::{ir::ElemType, prelude::Const};
@@ -25,21 +26,25 @@ impl CubeType for bool {
 }
 
 impl CubeDebug for bool {}
-impl Scalar for bool {}
+impl Scalar for bool {
+    fn elem_type_native() -> ElemType {
+        ElemType::Bool
+    }
+}
 impl CubePrimitive for bool {
     type Scalar = Self;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
-
-    fn as_type_native() -> Option<Type> {
-        Some(StorageType::Scalar(ElemType::Bool).into())
-    }
 
     fn from_const_value(value: ConstantValue) -> Self {
         let ConstantValue::Bool(value) = value else {
             unreachable!()
         };
         value
+    }
+
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        BoolType::get(scope.ctx()).into()
     }
 }
 

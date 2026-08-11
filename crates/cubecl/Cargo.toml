@@ -52,8 +52,14 @@ hip = ["cubecl-hip"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
 metal = ["wgpu-msl"]
 metal-native = ["cubecl-metal"]
+pliron-dump = [
+    "cubecl-cuda?/pliron-dump",
+    "cubecl-hip?/pliron-dump",
+    "cubecl-metal?/pliron-dump",
+    "cubecl-wgpu?/pliron-dump",
+    "cubecl-cpu?/pliron-dump"
+]
 rocm = ["hip"]
-spirv-dump = ["cubecl-wgpu/spirv-dump"]
 vulkan = ["wgpu-spirv"]
 webgpu = ["wgpu"]
 wgpu = ["cubecl-wgpu"]

@@ -23,8 +23,14 @@ default = [
     "cubecl-core/default",
 ]
 
-std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+std = [
+    "cubecl-runtime/std",
+    "cubecl-common/std",
+    "cubecl-core/std",
+    "cubecl-cpp/std",
+]
 
+pliron-dump = ["cubecl-cpp/pliron-dump"]
 rocwmma = []
 
 tracing = [

@@ -6,28 +6,14 @@ use std::{
 };
 
 use cubecl_core::prelude::Visibility;
-use cubecl_opt::Optimizer;
 use rspirv::{binary::Disassemble, dr::Module};
 
-mod arithmetic;
-mod atomic;
-mod bitwise;
-mod branch;
-mod cmma;
-mod compiler;
-mod debug;
-mod extensions;
-mod globals;
-mod instruction;
-mod item;
-mod lookups;
-mod metadata;
-mod subgroup;
-mod sync;
-mod target;
-mod tensor_indexing;
-mod transformers;
-mod value;
+pub mod attributes;
+pub mod compiler;
+pub mod lower;
+pub mod ops;
+pub mod target;
+pub mod types;
 
 pub use compiler::*;
 use serde::{Deserialize, Serialize};
@@ -37,8 +23,6 @@ pub use target::*;
 pub struct SpirvKernel {
     #[serde(skip)]
     pub module: Option<Arc<Module>>,
-    #[serde(skip)]
-    pub optimizer: Option<Arc<Optimizer>>,
 
     pub assembled_module: Vec<u32>,
     pub bindings: Vec<Visibility>,

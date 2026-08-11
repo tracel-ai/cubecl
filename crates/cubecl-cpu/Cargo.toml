@@ -23,7 +23,7 @@ default = [
     "cubecl-core/default",
 ]
 
-mlir-dump = []
+pliron-dump = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 tracing = [
@@ -38,10 +38,10 @@ tracing = [
 cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.2", default-features = false, features = [
     "std",
 ] }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.2", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.2", default-features = false, features = [
     "std",
 ] }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.2", default-features = false }
 cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.2", default-features = false, features = [
     "std",
 ] }
@@ -54,16 +54,21 @@ cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.2", default-featur
 
 
 bytemuck = { workspace = true }
+crossbeam-utils = "0.8.21"
 derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
 paste = { workspace = true }
+pliron = { workspace = true, features = ["std"] }
+pliron-llvm = { workspace = true, features = ["llvm-sys"] }
 serde = { workspace = true }
-sysinfo = { workspace = true }
-tracel-llvm = { workspace = true }
-smallvec = { workspace = true }
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
-crossbeam-utils = "0.8.21"
+sysinfo = { workspace = true }
+# Not used directly, depended on to select its features.
+llvm-sys = { workspace = true }
+
+[build-dependencies]
+tracel-llvm-bundler = { workspace = true }
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "macos", target_os = "freebsd"))'.dependencies]
 libc = { workspace = true }
@@ -81,6 +86,3 @@ cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.2", features = [
 paste = { workspace = true }
 pretty_assertions = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
-
-[build-dependencies]
-tracel-llvm-bundler = { workspace = true }
