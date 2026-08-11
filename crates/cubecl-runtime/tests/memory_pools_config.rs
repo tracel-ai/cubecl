@@ -250,12 +250,16 @@ fn full_capped_pool_spills_to_tail() {
     assert_eq!(report.dynamic[1].pages_peak, 1, "the tail caught the spill");
 }
 
+/// A dry run needs no allocation routing of its own, not even for the tuning
+/// it exists to provoke: every allocation is carved lazily, and resolution is
+/// what installs backing. A measurement resolves because it executes, so it
+/// gets its memory; a skipped launch never resolves, so its reservation costs
+/// nothing.
+///
+/// That symmetry is the whole reason a measurement needs no pool of its own.
 #[test]
 #[serial_test::serial]
-fn dry_run_scratch_stays_out_of_the_plan() {
-    // Inside a dry run, allocations made by a measurement (RealRun) are
-    // scratch for the benchmark being timed, not part of the workload's
-    // stream: they must not inflate the high-water marks the dry run measures.
+fn a_measurement_maps_only_what_it_resolves() {
     let growable = MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
         page_size: MemorySize(MIB),
         max_slice_size: None,
@@ -266,55 +270,36 @@ fn dry_run_scratch_stays_out_of_the_plan() {
 
     let dry_run = DryRun::new();
 
-    // The workload's own allocation lands in the arena as usual.
-    let workload_alloc = memory_management.reserve(64 * 1024).unwrap();
-
-    {
+    // A workload reservation, and a measurement's scratch beside it. At
+    // 600 KiB each they cannot share a 1 MiB page, so the two are separable.
+    let workload = memory_management.reserve(600 * 1024).unwrap();
+    let scratch = {
         let _measurement = RealRun::new();
-        let scratch = memory_management.reserve(300 * 1024).unwrap();
-        assert!(
-            memory_management
-                .get_cursor(scratch.clone().binding())
-                .is_ok(),
-            "measurement scratch is a normal, usable allocation"
-        );
-        drop(scratch);
-        // Same size again: the exact-fit pool reuses the slice.
-        let _scratch = memory_management.reserve(300 * 1024).unwrap();
-    }
+        memory_management.reserve(600 * 1024).unwrap()
+    };
+
+    let report = memory_management.memory_report();
+    assert_eq!(report.dynamic[0].pages, 2, "{report:?}");
+    assert_eq!(
+        report.dynamic[0].pages_unmapped, 2,
+        "neither is backed until something resolves it: {report:?}"
+    );
+
+    // The measurement executes, so it resolves — and that, not its provenance,
+    // is what maps it.
+    memory_management
+        .get_storage(scratch.clone().binding())
+        .unwrap();
 
     let report = memory_management.memory_report();
     assert_eq!(
-        report.dynamic[0].pages_peak, 1,
-        "only the workload's allocation counts toward the plan"
+        report.dynamic[0].pages_unmapped, 1,
+        "the measurement's page is backed and the workload's is not: {report:?}"
     );
-    let scratch = report.dry_run.expect("the dry-run pool is reported");
-    assert_eq!(scratch.pages_peak, 1, "the same-size scratch was reused");
-    assert_eq!(scratch.largest_alloc, 300 * 1024);
 
-    // Outside a dry run a measurement allocates normally: the pools recycle
-    // its scratch fine, and routing it away would change production behavior.
+    drop(workload);
+    drop(scratch);
     drop(dry_run);
-    {
-        let _measurement = RealRun::new();
-        let _normal = memory_management.reserve(512 * 1024).unwrap();
-        let report = memory_management.memory_report();
-        assert_eq!(
-            report.dynamic[0].usage.bytes_in_use,
-            (64 + 512) * 1024,
-            "the allocation landed in the arena, beside the workload's"
-        );
-        assert_eq!(
-            report
-                .dry_run
-                .expect("earlier scratch still reported")
-                .pages_peak,
-            1,
-            "nothing new reached the scratch pool"
-        );
-    }
-
-    drop(workload_alloc);
 }
 
 /// The phase-2 laziness invariant: a dry run's workload reservations carve
@@ -403,12 +388,16 @@ fn dry_run_persistent_reservations_stay_unmapped() {
     memory_management.mode(MemoryAllocationMode::Auto);
 }
 
-/// A measurement's scratch dies at the first workload allocation after it —
-/// as soon as possible, and never *during* a measurement, whose iterations
-/// must stay allocation-free on the exact-fit reuse.
+/// Tuning scratch counts toward the marks like any other allocation, so a plan
+/// is read from a *second* pass: the tune caches are warm by then, and
+/// rebuilding the pools resets the marks the first pass left.
+///
+/// Read from the first pass instead, the plan is sized for scratch that will
+/// never be allocated again — over-provisioning to replace the padding the
+/// report exists to remove.
 #[test]
 #[serial_test::serial]
-fn measurement_scratch_dies_at_the_next_workload_allocation() {
+fn a_warm_second_pass_measures_the_workload_alone() {
     let growable = MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
         page_size: MemorySize(MIB),
         max_slice_size: None,
@@ -418,33 +407,37 @@ fn measurement_scratch_dies_at_the_next_workload_allocation() {
     let mut memory_management = manage(&growable);
 
     let dry_run = DryRun::new();
+
+    // Pass 1: the workload, with a tuning pass allocating scratch while a
+    // workload buffer is live — which is when tuning actually happens.
+    let live = memory_management.reserve(600 * 1024).unwrap();
     {
         let _measurement = RealRun::new();
-        let scratch = memory_management.reserve(300 * 1024).unwrap();
-        drop(scratch);
-        // Same size again: reused, not reallocated — the timed loop stays
-        // allocation-free.
-        let scratch = memory_management.reserve(300 * 1024).unwrap();
+        let scratch = memory_management.reserve(600 * 1024).unwrap();
         drop(scratch);
     }
-
-    // Parked while the measurement was open…
-    let parked = memory_management
-        .memory_report()
-        .dry_run
-        .expect("the scratch pool served the measurement");
-    assert!(parked.usage.bytes_reserved > 0, "{parked:?}");
-    assert_eq!(parked.pages_peak, 1, "exact-fit reuse, one slice");
-
-    // …and returned to the driver at the next workload reservation.
-    let _workload = memory_management.reserve(64 * 1024).unwrap();
-    let flushed = memory_management
-        .memory_report()
-        .dry_run
-        .expect("the peak stays recorded");
+    drop(live);
     assert_eq!(
-        flushed.usage.bytes_reserved, 0,
-        "the batch's scratch went back to the driver: {flushed:?}"
+        memory_management.memory_report().dynamic[0].pages_peak,
+        2,
+        "the scratch is in the marks: it is an allocation like any other"
+    );
+
+    // Rebuilding the pools resets the marks. The tune caches are untouched by
+    // it, so the second pass allocates nothing for them.
+    let resolved = MemoryConfiguration::default()
+        .resolve(Some(&growable), &props())
+        .unwrap();
+    assert!(memory_management.configure(resolved, &props()));
+
+    // Pass 2: the same workload, no tuning.
+    let live = memory_management.reserve(600 * 1024).unwrap();
+    drop(live);
+
+    let report = memory_management.memory_report();
+    assert_eq!(
+        report.dynamic[0].pages_peak, 1,
+        "the plan is the workload's own high-water: {report:?}"
     );
 
     drop(dry_run);

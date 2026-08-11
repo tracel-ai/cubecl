@@ -152,6 +152,12 @@ pub struct MemoryPoolReport {
 /// read this report, and re-install the same layout capped at the observed
 /// `pages_peak`. Padding then comes only from alignment and the first-fit
 /// remainders the dry run already measured.
+///
+/// A tuning pass inside the measured run allocates too, and its scratch counts
+/// toward these marks like anything else. Warming the tune caches in an
+/// earlier pass and rebuilding the pools
+/// ([`configure`](super::MemoryManagement::configure), which resets the marks)
+/// before the measured one leaves the peaks to the workload alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryReport {
     /// One entry per dynamic pool, in allocation-routing order — the same
@@ -159,11 +165,6 @@ pub struct MemoryReport {
     pub dynamic: Vec<MemoryPoolReport>,
     /// The persistent pool (weights, caches; explicit persistent windows).
     pub persistent: MemoryPoolReport,
-    /// The dry-run pool, present when a dry run routed a measurement's
-    /// allocations away from the dynamic pools (autotune scratch — see
-    /// `DryRunPool`). Never part of a derived plan: measurements are already
-    /// cached when the plan is replayed.
-    pub dry_run: Option<MemoryPoolReport>,
 }
 
 /// The managed tensor buffer handle that points to some memory segment.

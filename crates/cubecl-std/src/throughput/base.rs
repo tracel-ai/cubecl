@@ -28,9 +28,9 @@ pub fn measure_peak_throughput<R: Runtime>(
     key: ThroughputKey,
 ) -> ThroughputValue {
     // A throughput probe is a measurement: inside a dry run its launches must
-    // still execute — a skipped launch would be timed anyway and cache a
-    // garbage peak in the device-level throughput store — and the buffers it
-    // allocates are probe scratch, not part of the workload's memory plan.
+    // still execute, or they would be timed anyway and cache a garbage peak in
+    // the device-level throughput store. The guard is read where the launch is
+    // issued, which for these is this thread.
     let _measurement = cubecl_runtime::dry_run::RealRun::new();
 
     let launch_config = launch_config(client, key.dtype());

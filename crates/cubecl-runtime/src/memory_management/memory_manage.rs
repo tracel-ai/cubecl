@@ -1,8 +1,6 @@
 use super::{
     MemoryConfiguration, MemoryPoolOptions, MemoryReport, MemoryUsage, PoolType,
-    memory_pool::{
-        DryRunPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool,
-    },
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool},
 };
 use crate::{
     config::{
@@ -145,8 +143,6 @@ pub enum MemoryAllocationMode {
 pub struct MemoryManagement<Storage> {
     name: String,
     persistent: PersistentPool,
-    /// The measurement-scratch pool a dry run routes to — see [`DryRunPool`].
-    dry_run: DryRunPool,
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
@@ -324,7 +320,7 @@ impl core::fmt::Display for PoolConfigError {
             PoolConfigError::TooManyPools { count } => write!(
                 f,
                 "the pool list has {count} entries, exceeding the maximum of {} dynamic pools",
-                DRY_RUN_POOL_POS - 1
+                PERSISTENT_POOL_POS - 1
             ),
             PoolConfigError::PresetUnavailable { preset } => {
                 write!(f, "the `{preset}` preset is not available in this build")
@@ -385,11 +381,10 @@ impl MemoryConfiguration {
                     return Err(PoolConfigError::EmptyPoolList);
                 }
                 // Slices route through their pool's position, and the
-                // persistent and dry-run pools own the two top sentinel
-                // positions, so the list must stay addressable below them —
-                // checked here so the caller gets the error instead of a panic
-                // on the device thread.
-                if entries.len() >= DRY_RUN_POOL_POS as usize {
+                // persistent pool owns the sentinel position, so the list must
+                // stay addressable below it — checked here so the caller gets
+                // the error instead of a panic on the device thread.
+                if entries.len() >= PERSISTENT_POOL_POS as usize {
                     return Err(PoolConfigError::TooManyPools {
                         count: entries.len(),
                     });
@@ -494,11 +489,6 @@ fn pool_options_from_entry(
 /// [`MemoryManagement::configure`] rebuilds the dynamic pools with a
 /// different count.
 const PERSISTENT_POOL_POS: u8 = u8::MAX;
-
-/// The pool position stamped on [`DryRunPool`] slices. A fixed sentinel for
-/// the same reason as [`PERSISTENT_POOL_POS`]: the pool outlives dynamic-pool
-/// rebuilds.
-const DRY_RUN_POOL_POS: u8 = u8::MAX - 1;
 
 /// Build the dynamic pools for `config` — the shared core of
 /// [`MemoryManagement::from_configuration`] and
@@ -616,9 +606,9 @@ fn build_pools(
     );
 
     assert!(
-        pool_options.len() < DRY_RUN_POOL_POS as usize,
+        pool_options.len() < PERSISTENT_POOL_POS as usize,
         "at most {} dynamic pools are supported",
-        DRY_RUN_POOL_POS - 1
+        PERSISTENT_POOL_POS - 1
     );
 
     pool_options
@@ -683,7 +673,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 properties.alignment,
                 PERSISTENT_POOL_POS,
             ),
-            dry_run: DryRunPool::new(properties.alignment, DRY_RUN_POOL_POS),
             pools,
             storage,
             alloc_reserve_count: 0,
@@ -866,8 +855,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         self.persistent
             .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
-        self.dry_run
-            .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
 
         for pool in self.pools.iter_mut() {
             pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
@@ -900,8 +887,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let slice = if id.location().pool == PERSISTENT_POOL_POS {
             self.persistent.find(&binding)?
-        } else if id.location().pool == DRY_RUN_POOL_POS {
-            self.dry_run.find(&binding)?
         } else {
             let pool =
                 self.pools
@@ -949,8 +934,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
         match location.pool {
             PERSISTENT_POOL_POS => self.persistent.materialize(&mut self.storage, binding),
-            // Always eager: measurements execute against it.
-            DRY_RUN_POOL_POS => Ok(()),
             pool => match self.pools.get_mut(pool as usize) {
                 Some(pool) => pool.materialize(&mut self.storage, binding),
                 None => Ok(()),
@@ -1005,27 +988,18 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // hard about overflow here.
         self.alloc_reserve_count += 1;
 
-        // What backing a fresh allocation gets. Under a dry run the
-        // workload's allocations are reservations only — the stream is being
-        // measured, not executed — so pages are carved without device memory
-        // and materialize on first resolution ([`get_storage`](Self::get_storage)).
-        // A measurement's own allocations stay eager (they execute); outside
-        // a dry run everything is eager, exactly as before.
-        let mapping = match crate::dry_run::dry_run() && !crate::dry_run::measuring() {
+        // What backing a fresh allocation gets. Under a dry run every
+        // allocation is a reservation: pages are carved without device memory
+        // and materialize on first resolution
+        // ([`get_storage`](Self::get_storage)). The rule needs no exception
+        // for the tuning a dry run provokes — a measurement executes, so it
+        // resolves its bindings, so its pages map exactly when it needs them.
+        // What never resolves is what the dry run skipped, which is the memory
+        // this exists to not allocate.
+        let mapping = match crate::dry_run::dry_run() {
             true => PageMapping::Lazy,
             false => PageMapping::Eager,
         };
-
-        // The first workload allocation after a measurement is where the
-        // measurement's scratch dies — as soon as possible, never *during*
-        // one (see [`DryRunPool::flush_free`]). Free outside captures only;
-        // nothing may be freed while one records.
-        if matches!(mapping, PageMapping::Lazy)
-            && self.capture.is_none()
-            && !self.dry_run.is_empty()
-        {
-            self.dry_run.flush_free(&mut self.storage);
-        }
 
         // In an explicit persistent window the pool always serves the
         // allocation (reusing a freed same-size slice when one exists).
@@ -1080,13 +1054,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 )
             },
         );
-
-        // A measurement's allocations are scratch, not part of the workload's
-        // stream — see [`DryRunPool`]. Outside a dry run nothing changes: the
-        // scratch is transient and the dynamic pools recycle it fine.
-        if DryRunPool::serves() {
-            return self.dry_run.reserve(&mut self.storage, size);
-        }
 
         // Serve from the first pool that accepts this size and has capacity. A
         // hard-capped pool that is full falls through to the next accepting
@@ -1165,9 +1132,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
             |m1, m2| m1.combine(m2),
         );
-        memory_usage
-            .combine(self.persistent.get_memory_usage())
-            .combine(self.dry_run.get_memory_usage())
+        memory_usage.combine(self.persistent.get_memory_usage())
     }
 
     /// A structured per-pool report: each pool's shape, usage, and high-water
@@ -1179,13 +1144,15 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// compute — then cap the layout at the `pages_peak` observed here.
     /// Because the pools' placement policy is deterministic, replaying the
     /// same stream against the capped layout fits by construction.
+    ///
+    /// The marks cover everything the pools served, tuning scratch included.
+    /// Warming the tune caches in an earlier pass and rebuilding the pools
+    /// ([`configure`](Self::configure), which resets the marks) before the
+    /// measured one leaves the peaks to the workload alone.
     pub fn memory_report(&self) -> MemoryReport {
-        let dry_run = self.dry_run.report();
-
         MemoryReport {
             dynamic: self.pools.iter().map(|pool| pool.report()).collect(),
             persistent: self.persistent.report(),
-            dry_run: (dry_run.pages_peak > 0).then_some(dry_run),
         }
     }
 
@@ -1219,10 +1186,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             self.capture_touch(&assigned);
             return self.persistent.bind(reserved, assigned, cursor);
         }
-        if pool_index == DRY_RUN_POOL_POS as usize {
-            return self.dry_run.bind(reserved, assigned, cursor);
-        }
-
         self.pools
             .get_mut(pool_index)
             .map(|p| p.bind(reserved, assigned, cursor))
@@ -1238,9 +1201,6 @@ impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
         f.write_str("\n# MemoryManagement\n\n")?;
         f.write_fmt(format_args!(" - name: {:?}\n", self.name))?;
         f.write_fmt(format_args!("\n## Persistent\n\n{}", self.persistent))?;
-        if self.dry_run.report().pages_peak > 0 {
-            f.write_fmt(format_args!("\n## Dry run\n\n{}", self.dry_run))?;
-        }
         f.write_str("\n## Dynamic\n\n")?;
 
         for pool in self.pools.iter() {
