@@ -33,17 +33,13 @@ impl GlobalScale {
     /// The two levels multiply in f32: a block scale is normalized against the per-tensor scale, so
     /// on its own it overflows a narrow `F` by orders of magnitude before the per-tensor scale can
     /// bring the product back into a range `F` holds.
-    // The binding exists to carry the comptime attribute, which needs a statement to attach to.
-    #[allow(clippy::let_and_return)]
     pub fn effective<S: CubePrimitive, F: Numeric, NF: Size>(&self, scale: S) -> Vector<F, NF> {
-        #[comptime]
-        let effective = match self.value {
-            ComptimeOption::Some(global) => {
-                Vector::<F, NF>::cast_from(global * f32::cast_from(scale))
-            }
-            ComptimeOption::None => Vector::<F, NF>::cast_from(scale),
-        };
-        effective
+        if comptime!(self.value.is_some()) {
+            let global = self.value.unwrap();
+            Vector::<F, NF>::cast_from(global * f32::cast_from(scale))
+        } else {
+            Vector::<F, NF>::cast_from(scale)
+        }
     }
 }
 
@@ -150,6 +146,22 @@ impl GlobalScaleCompilationArg {
             }
             None => GlobalScaleExpand::none(),
         }
+    }
+}
+
+impl LaunchArg for GlobalScale {
+    type RuntimeArg<R: Runtime> = GlobalScaleArg<R>;
+    type CompilationArg = GlobalScaleCompilationArg;
+
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        arg.register(launcher)
+    }
+
+    fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> GlobalScaleExpand {
+        arg.expand(builder)
     }
 }
 
