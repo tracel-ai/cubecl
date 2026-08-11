@@ -3,8 +3,7 @@ use cubecl::{
     prelude::*,
     std::throughput::{measure_memory_curve, measure_peak_throughput},
     throughput::{
-        CmmaDims, ComputeCmmaConfig, MemoryAccess, MemoryCurve, MemoryRegime, ThroughputKey,
-        ThroughputMode,
+        CmmaDims, ComputeCmmaConfig, MemoryAccess, MemoryCurve, ThroughputKey, ThroughputMode,
     },
 };
 
@@ -69,10 +68,8 @@ pub fn memory_read<R: Runtime>(device: &R::Device) {
 /// Peak memory throughput as a function of working set size, for both access
 /// patterns.
 ///
-/// The single-size probes above report the last row of each table. A kernel
-/// moving less than that cannot reach it — the ramp rows are what it can
-/// actually hit — and a kernel small enough to sit in cache reads *faster* than
-/// the bus, which is why the regime is printed next to every rate.
+/// The single-size probes above report the last row of each table; the rows
+/// above it are what a kernel moving that much can actually hit.
 pub fn memory_curve<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
 
@@ -88,30 +85,13 @@ fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
     println!("\n  {access:?}");
 
     for point in curve.points() {
-        let regime = curve
-            .ceiling_at(point.bytes)
-            .map(|ceiling| ceiling.regime)
-            .unwrap_or(MemoryRegime::Ramp);
+        let bytes_per_s = curve.ceiling_at(point.bytes).unwrap_or(f64::NAN);
 
         println!(
-            "    {:>10}{:>14}   {}",
+            "    {:>10}{:>14}",
             bytes_label(point.bytes),
-            format!("{:.1} GB/s", point.bytes_per_s() / 1e9),
-            regime_label(regime),
+            format!("{:.1} GB/s", bytes_per_s / 1e9),
         );
-    }
-
-    match curve.saturation_point() {
-        Some(ceiling) => println!("    saturates from {} on", bytes_label(ceiling.working_set)),
-        None => println!("    nothing measured"),
-    }
-}
-
-fn regime_label(regime: MemoryRegime) -> &'static str {
-    match regime {
-        MemoryRegime::Cached => "cached (not bus bandwidth)",
-        MemoryRegime::Ramp => "ramp (too small to saturate)",
-        MemoryRegime::Saturated => "saturated",
     }
 }
 
@@ -186,13 +166,13 @@ fn mode_label(mode: &ThroughputMode) -> &'static str {
     match mode {
         ThroughputMode::ComputeDirect { .. } => "compute-direct",
         ThroughputMode::ComputeCmma { .. } => "compute-cmma",
-        ThroughputMode::Memory => "memory",
-        ThroughputMode::MemoryRead => "memory-read",
-        ThroughputMode::MemoryWorkingSet {
+        ThroughputMode::Memory
+        | ThroughputMode::MemoryWorkingSet {
             access: MemoryAccess::Copy,
             ..
         } => "memory",
-        ThroughputMode::MemoryWorkingSet {
+        ThroughputMode::MemoryRead
+        | ThroughputMode::MemoryWorkingSet {
             access: MemoryAccess::Read,
             ..
         } => "memory-read",

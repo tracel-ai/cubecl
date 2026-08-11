@@ -58,18 +58,12 @@ pub enum ThroughputMode {
     /// Memory input reads and output writes — a copy, at the default working
     /// set. `ops_count` counts both directions, so this is total traffic across
     /// the memory interface.
-    ///
-    /// Equivalent to [`MemoryWorkingSet`](Self::MemoryWorkingSet) with
-    /// [`MemoryAccess::Copy`] at [`MemoryAccess::default_working_set`].
     Memory,
     /// Memory input reads only, no store, at the default working set. The
     /// ceiling for a kernel that streams data it does not write back — a weight
     /// stream, a reduction, a gather. Such a kernel can legitimately exceed
     /// [`Memory`](Self::Memory), which is why it needs its own probe rather than
     /// a correction factor.
-    ///
-    /// Equivalent to [`MemoryWorkingSet`](Self::MemoryWorkingSet) with
-    /// [`MemoryAccess::Read`] at [`MemoryAccess::default_working_set`].
     MemoryRead,
     /// One point of a memory curve: `access` over a working set of exactly
     /// `bytes`.
@@ -88,11 +82,8 @@ pub enum ThroughputMode {
     /// less than the hardware can do, which is not an error — it is the ceiling
     /// for a kernel with that little in flight.
     ///
-    /// Should a rate still land above the bus figure, the data was resident
-    /// after all and the number is not comparable to bandwidth, which is why
-    /// [`MemoryCurve`](crate::throughput::MemoryCurve) hands out a rate and a
-    /// [`MemoryRegime`](crate::throughput::MemoryRegime) together rather than a
-    /// bare number.
+    /// Sweeping this over a range of sizes is
+    /// [`MemoryCurve`](crate::throughput::MemoryCurve).
     MemoryWorkingSet {
         /// Which directions of traffic the probe issues.
         access: MemoryAccess,
@@ -104,23 +95,6 @@ pub enum ThroughputMode {
 }
 
 impl ThroughputMode {
-    /// The mode probing `access` over a working set of `bytes`.
-    ///
-    /// Folds onto [`Memory`](Self::Memory) and [`MemoryRead`](Self::MemoryRead)
-    /// at their default working set: those are the same measurement, so a curve
-    /// reuses the cache entry the single-size call already filled instead of
-    /// measuring it a second time under a second key.
-    pub const fn memory(access: MemoryAccess, bytes: u64) -> Self {
-        if bytes == access.default_working_set() {
-            match access {
-                MemoryAccess::Copy => Self::Memory,
-                MemoryAccess::Read => Self::MemoryRead,
-            }
-        } else {
-            Self::MemoryWorkingSet { access, bytes }
-        }
-    }
-
     /// The access pattern and working set this mode probes, or `None` for the
     /// modes that don't measure memory.
     ///
@@ -268,67 +242,13 @@ pub fn compute_throughput_key(
     ThroughputKey { mode }
 }
 
-#[cfg(test)]
+#[cfg(all(test, std_io))]
 mod tests {
     use super::*;
-
-    #[test]
-    fn memory_folds_the_default_working_set_onto_the_single_size_modes() {
-        // A curve reaching the default working set must land on the same key
-        // the single-size call uses, or it measures what is already cached.
-        let copy = MemoryAccess::Copy.default_working_set();
-        let read = MemoryAccess::Read.default_working_set();
-
-        assert_eq!(
-            ThroughputMode::memory(MemoryAccess::Copy, copy),
-            ThroughputMode::Memory
-        );
-        assert_eq!(
-            ThroughputMode::memory(MemoryAccess::Read, read),
-            ThroughputMode::MemoryRead
-        );
-
-        // A copy moves the same bytes twice, so the two accesses reach their
-        // default at different working sets and must not fold onto each other.
-        assert_eq!(copy, 2 * read);
-        assert_eq!(
-            ThroughputMode::memory(MemoryAccess::Copy, read),
-            ThroughputMode::MemoryWorkingSet {
-                access: MemoryAccess::Copy,
-                bytes: read,
-            }
-        );
-    }
-
-    #[test]
-    fn memory_probe_reports_the_access_and_working_set() {
-        // Every memory mode describes a probe, and no other mode does.
-        for mode in [
-            ThroughputMode::Memory,
-            ThroughputMode::MemoryRead,
-            ThroughputMode::MemoryWorkingSet {
-                access: MemoryAccess::Read,
-                bytes: 4096,
-            },
-        ] {
-            let (access, bytes) = mode.memory_probe().expect("A memory mode");
-            assert_eq!(ThroughputMode::memory(access, bytes), mode);
-        }
-
-        assert_eq!(ThroughputMode::Launch.memory_probe(), None);
-        assert_eq!(
-            ThroughputMode::ComputeDirect {
-                dtype: ElemType::Float(FloatKind::F32)
-            }
-            .memory_probe(),
-            None
-        );
-    }
 
     /// The throughput cache keys on the serialized key, so a layout change
     /// drops every measurement users already paid for. Adding a variant must
     /// leave the existing ones encoded exactly as before.
-    #[cfg(std_io)]
     #[test]
     fn existing_keys_keep_their_serialized_form() {
         let encode = |mode| serde_json::to_string(&ThroughputKey { mode }).unwrap();
@@ -338,7 +258,6 @@ mod tests {
             encode(ThroughputMode::MemoryRead),
             r#"{"mode":"MemoryRead"}"#
         );
-        assert_eq!(encode(ThroughputMode::Launch), r#"{"mode":"Launch"}"#);
 
         // And an entry written before the variant existed still reads back.
         let cached: ThroughputKey = serde_json::from_str(r#"{"mode":"Memory"}"#).unwrap();

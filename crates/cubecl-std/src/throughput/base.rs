@@ -25,21 +25,13 @@ pub fn device_throughput<R: Runtime>(
         .collect()
 }
 
-/// Measure the memory ceiling of `device` across a range of working sets.
-///
-/// See [`measure_memory_curve`].
-pub fn device_memory_curve<R: Runtime>(device: &R::Device, access: MemoryAccess) -> MemoryCurve {
-    measure_memory_curve::<R>(&R::client(device), access)
-}
-
 /// Measure the memory ceiling across a range of working sets, from a few
-/// hundred kilobytes up to as much as the device will allocate.
+/// kilobytes up to as much as the device will allocate.
 ///
 /// One point per size in [`working_set_sweep`], each measured and cached
 /// exactly like the single-size probe — [`measure_peak_throughput`] with a
 /// [`ThroughputMode::MemoryWorkingSet`] key — so a curve costs one probe per
-/// size on the first run and nothing afterwards, and the point at the default
-/// working set is the entry [`ThroughputMode::Memory`] already uses.
+/// size on the first run and nothing afterwards.
 ///
 /// Native only, panics on WASM
 pub fn measure_memory_curve<R: Runtime>(
@@ -50,10 +42,13 @@ pub fn measure_memory_curve<R: Runtime>(
         .into_iter()
         .map(|bytes| {
             let key = ThroughputKey {
-                mode: ThroughputMode::memory(access, bytes),
+                mode: ThroughputMode::MemoryWorkingSet { access, bytes },
             };
 
-            MemoryPoint::new(access, bytes, measure_peak_throughput::<R>(client, key))
+            MemoryPoint {
+                bytes,
+                value: measure_peak_throughput::<R>(client, key),
+            }
         });
 
     MemoryCurve::new(access, points)
