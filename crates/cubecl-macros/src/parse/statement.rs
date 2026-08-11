@@ -6,7 +6,7 @@ use syn::{
 
 use crate::{
     expression::Expression,
-    parse::helpers::is_helper,
+    parse::{asm::parse_asm_call, helpers::is_helper},
     scope::Context,
     statement::{DefineKind, Pattern, Statement},
 };
@@ -181,10 +181,15 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
         }};
 
         Ok(Expression::Verbatim { tokens })
+    } else if mac.path.is_ident("gpu_asm") {
+        Ok(Expression::Asm(parse_asm_call(context, mac.tokens)?))
     } else {
-        Err(syn::Error::new_spanned(
-            mac,
-            "Unsupported macro".to_string().as_str(),
-        ))
+        let mut expand_name = mac.path.clone();
+        let ident = &mut expand_name.segments.last_mut().unwrap().ident;
+        *ident = format_ident!("__expand_{ident}");
+        Ok(Expression::RawMacro {
+            path: expand_name,
+            args: mac.tokens,
+        })
     }
 }

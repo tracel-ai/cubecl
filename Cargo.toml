@@ -11,7 +11,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 rust-version = "1.95"
-version = "0.11.0-pre.1"
+version = "0.11.0-pre.2"
 
 [workspace.lints.rust]
 warnings = "warn"
@@ -24,27 +24,28 @@ broken_intra_doc_links = "warn"
 invalid_html_tags = "warn"
 
 [workspace.dependencies]
-bitflags = { version = "2.9.1", features = ["serde"] }
+bitflags = { version = "2.13.1", features = ["serde"] }
 derive-new = { version = "0.7.0", default-features = false }
 derive_more = { version = "2", default-features = false }
+num = "0.4"
 oneshot = { version = "0.2.1", default-features = false }
 tynm = { version = "0.2" }
 
-clap = { version = "4.5.53" }
+clap = { version = "4.6" }
 
 log = { default-features = false, version = "^0.4.22" }
 
-tokio = { version = "^1.47.1", default-features = false }
+tokio = { version = "^1.53.1", default-features = false }
 
 test-log = { version = "^0.2", default-features = false }
 
 tracing = { version = "^0.1.43", default-features = false }
-tracing-opentelemetry = "^0.32.0"
+tracing-opentelemetry = "^0.33.0"
 tracing-subscriber = "^0.3.20"
 
-opentelemetry = "^0.31.0"
-opentelemetry-otlp = "^0.31.0"
-opentelemetry_sdk = "^0.31.0"
+opentelemetry = "^0.32.0"
+opentelemetry-otlp = "^0.32.0"
+opentelemetry_sdk = "^0.32.0"
 
 
 ciborium = { version = "0.2.2", default-features = false }
@@ -69,7 +70,7 @@ smallvec = { version = "1", features = [
     "const_generics",
     "const_new",
 ] }
-spin = { version = "0.10.0", features = ["mutex", "spin_mutex"] }
+spin = { version = "0.12.2", features = ["mutex", "spin_mutex", "lazylock"] }
 xxhash-rust = { version = "0.8", default-features = false }
 
 rand = { version = "0.10.0", default-features = false, features = [
@@ -78,22 +79,22 @@ rand = { version = "0.10.0", default-features = false, features = [
 
 async-channel = { version = "2.3", default-features = false }
 backtrace = { version = "0.3", default-features = false }
+embassy-time = { version = "0.5", default-features = false }
 etcetera = "0.11.0"
 js-sys = "0.3"
-parking_lot = { version = "0.12.5", default-features = false }
-web-sys = "0.3"
-embassy-time = { version = "0.5", default-features = false }
 md5 = "0.8.0"
+parking_lot = { version = "0.12.5", default-features = false }
 rusqlite = { version = "0.40", features = ["bundled"] }
 sanitize-filename = "0.6"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.45"
+web-sys = "0.3"
 web-time = "1.1.0"
 
 # Testing
 criterion = { version = "0.8", features = ["html_reports"] }
 rstest = "0.26"
-serial_test = "3.1.1"
+serial_test = "4"
 tempfile = "3.20"
 
 bytemuck = "1.16.1"
@@ -114,10 +115,12 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 bumpalo = "3"
 cfg-if = "1.0.0"
 darling = "0.23.0"
-enumset = { version = "1.1.12", default-features = false }
+enumset = { version = "1.1", default-features = false }
 ident_case = "1"
 internment = "0.8"
-itertools = "0.14"
+itertools = { version = "0.15", default-features = false, features = [
+    "use_alloc",
+] }
 paste = "1"
 proc-macro2 = "1"
 quote = "1"
@@ -125,29 +128,45 @@ syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
 thiserror = { version = "2", default-features = false }
 tracy-client = { version = "0.18.0" }
 
-portable-atomic = { version = "1.11", default-features = false, features = [
+portable-atomic = { version = "1.14", default-features = false, features = [
     "serde",
 ] }
 portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
 pretty_assertions = "1.4"
 
 # Async
-embassy-futures = { version = "0.1.1" }                        # for no-std
+embassy-futures = { version = "0.1.1" } # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
-futures-util = { version = "0.3.32", default-features = false, features = ["alloc"] }
+futures-util = { version = "0.3.32", default-features = false, features = [
+    "alloc",
+] }
 
 # CubeCL-CPU
-sysinfo = "0.38"
-tracel-llvm = { version = "22.1.4-5", features = ["mlir-helpers"] }
-tracel-llvm-bundler = { version = "22.1.4-5" }
-### For development
-# tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = [
-#     "mlir-helpers",
-# ] }
-# tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
 libc = "^0.2.186"
+sysinfo = "0.39"
 winapi = { version = "^0.3.9", features = ["processthreadsapi", "winbase"] }
 
+inflections = "1"
+
+# Crates.io
+pliron = { version = "0.17", default-features = false }
+pliron-llvm = { version = "0.17", default-features = false }
+
+# Path
+# pliron = { path = "../pliron", default-features = false }
+# pliron-llvm = { path = "../pliron/pliron-llvm", default-features = false }
+
+# Git
+# pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
+# pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
+
+# These features stop llvm-sys from resolving LLVM itself; cubecl-cpu's build.rs
+# links the bundled toolchain instead.
+llvm-sys = { version = "221", features = [
+    "no-llvm-linking",
+    "disable-alltargets-init",
+] }
+tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "0853480b12e88872d9e3aea23246cfcd8c6205a5" }
 
 cudarc = { version = "0.19.6", features = [
     "std",
@@ -160,20 +179,29 @@ cudarc = { version = "0.19.6", features = [
 ], default-features = false } # CubeCL-CUDA
 
 # CubeCL-SPIR-V
-rspirv = { package = "tracel-rspirv", version = "0.14.0" }
+pliron-spirv = "0.14.0"
+rspirv = { version = "0.14.0", package = "tracel-rspirv" }
+# pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
+# rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
+# pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "7c59c46f4248ba92e3b06d411c0a2e8cce379025" }
+# rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "7c59c46f4248ba92e3b06d411c0a2e8cce379025", package = "tracel-rspirv" }
+rustc_apfloat = "0.2"
 
 # CubeCL-WGPU
 ash = "0.38"
-tracel-ash = "0.39.2"
+tracel-ash = "0.39.5"
 # tracel-ash = { path = "../tracel-ash/crates/ash" }
 
+# wgpu = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
 wgpu = "^30.0.0"
 wgpu-hal = "^30.0.0"
+# wgpu-hal = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
 
 renderdoc = "0.12"
 
 # Build deps
-cfg_aliases = "0.2.1"
+cfg_aliases = "0.2.2"
+
 
 [profile.dev.build-override]
 opt-level = 3

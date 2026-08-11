@@ -1,23 +1,20 @@
-use crate::{
-    compiler::{MlirCompiler, register_supported_types},
-    compute::server::CpuServer,
-    device::CpuDevice,
-};
+use crate::{compiler::PlironCompiler, compute::server::CpuServer, device::CpuDevice};
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     client::ComputeClient,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties,
-        TargetProperties, VectorSize, features::Features,
+        AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
+        IntKind, MemoryDeviceProperties, TargetProperties, Type, UIntKind, VectorSize,
+        features::{AtomicUsage, Features, TypeUsage},
     },
     server::ServerUtilities,
     zspace::{Shape, Strides},
 };
-use cubecl_environment::sync::Arc;
 use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
+use std::sync::Arc;
 use sysinfo::System;
 
 #[derive(Default)]
@@ -29,7 +26,51 @@ pub struct RuntimeOptions {
 #[derive(Debug, Clone)]
 pub struct CpuRuntime;
 
-pub type CpuCompiler = MlirCompiler;
+pub type CpuCompiler = PlironCompiler;
+
+fn register_supported_types(props: &mut DeviceProperties) {
+    props.register_address_type(AddressType::U32);
+    props.register_address_type(AddressType::U64);
+
+    let supported_types = [
+        ElemType::Index,
+        ElemType::UInt(UIntKind::U8),
+        ElemType::UInt(UIntKind::U16),
+        ElemType::UInt(UIntKind::U32),
+        ElemType::UInt(UIntKind::U64),
+        ElemType::Int(IntKind::I8),
+        ElemType::Int(IntKind::I16),
+        ElemType::Int(IntKind::I32),
+        ElemType::Int(IntKind::I64),
+        ElemType::Float(FloatKind::F16),
+        ElemType::Float(FloatKind::F32),
+        ElemType::Float(FloatKind::F64),
+        ElemType::Bool,
+    ];
+
+    let supported_atomic_types = [
+        ElemType::Int(IntKind::I8),
+        ElemType::Int(IntKind::I16),
+        ElemType::Int(IntKind::I32),
+        ElemType::Int(IntKind::I64),
+        ElemType::UInt(UIntKind::U8),
+        ElemType::UInt(UIntKind::U16),
+        ElemType::UInt(UIntKind::U32),
+        ElemType::UInt(UIntKind::U64),
+        ElemType::Float(FloatKind::F16),
+        ElemType::Float(FloatKind::F32),
+        ElemType::Float(FloatKind::F64),
+        ElemType::Bool,
+    ];
+
+    for ty in supported_types {
+        props.register_type_usage(ty, TypeUsage::all());
+    }
+
+    for ty in supported_atomic_types {
+        props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
+    }
+}
 
 impl DeviceService for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
@@ -40,7 +81,7 @@ impl DeviceService for CpuServer {
             .cgroup_limits()
             .map(|g| g.total_memory)
             .unwrap_or(system.total_memory()) as usize;
-        let logger = Arc::new(ServerLogger::default());
+        let logger = cubecl_environment::sync::Arc::new(ServerLogger::default());
 
         let available_parallelism = std::thread::available_parallelism()
             .expect("Can't get available parallelism on this platform")
@@ -84,7 +125,7 @@ impl DeviceService for CpuServer {
             mem_properties.clone(),
             topology.clone(),
             TimingMethod::Device,
-            // The CPU backend JITs through MLIR for whatever host it runs on
+            // The CPU backend JITs through LLVM for whatever host it runs on
             // and persists no compiled code, so there is no per-machine
             // namespace to match against. The architecture is the honest
             // fingerprint: it is what the generated code is valid for.

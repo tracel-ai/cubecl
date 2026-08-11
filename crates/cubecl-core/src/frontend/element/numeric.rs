@@ -1,17 +1,11 @@
-use cubecl_ir::{ConstantValue, Instruction, Operator, Value};
+use cubecl_ir::{ConstantValue, ElemType, ExpandValue, dialect::general::ReadScalarOp};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
-use crate::compute::KernelLauncher;
-use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder};
-use crate::{
-    frontend::{Abs, ModFloor, VectorSum},
-    unexpanded,
-};
-use crate::{
-    frontend::{CubePrimitive, CubeType},
-    prelude::InputScalar,
-};
+use crate::unexpanded;
+use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder, frontend::*};
+use crate::{compute::KernelLauncher, frontend::AtomicNumeric};
+use crate::{frontend::CubeType, prelude::InputScalar};
 use crate::{ir::Scope, prelude::Scalar};
 
 use super::{LaunchArg, NativeAssign, NativeExpand};
@@ -20,17 +14,23 @@ use super::{LaunchArg, NativeAssign, NativeExpand};
 /// Used in kernels that should work for both.
 pub trait Numeric:
     Copy
-    + Abs
-    + VectorSum
-    + ModFloor
+    + ScalarAbs
+    + ScalarVectorSum
+    + ScalarAdd
+    + ScalarSub
+    + ScalarMul
+    + ScalarDiv
+    + ScalarRem
+    + ScalarModFloor
     + Scalar
+    + AtomicNumeric
+    + PlaneNumeric
     + NativeAssign
     + Into<NativeExpand<Self>>
     + Into<ConstantValue>
+    + ScalarPartialOrd
     + num_traits::NumCast
     + num_traits::NumAssign
-    + core::cmp::PartialOrd
-    + core::cmp::PartialEq
     + core::fmt::Debug
     + bytemuck::Zeroable
 {
@@ -38,14 +38,14 @@ pub trait Numeric:
     fn max_value() -> Self;
 
     fn __expand_min_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::__expand_as_type(scope).elem_type();
+        let elem = Self::elem_type(scope);
         let val = elem.min_variable();
         val.into()
     }
 
     fn __expand_max_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::__expand_as_type(scope).elem_type();
-        let val = elem.max_variable();
+        let elem = Self::elem_type(scope);
+        let val = elem.max_variable(scope);
         val.into()
     }
 
@@ -79,8 +79,8 @@ pub trait Numeric:
     }
 
     fn __expand_from_int(scope: &Scope, val: NativeExpand<i64>) -> <Self as CubeType>::ExpandType {
-        let elem = Self::__expand_as_type(scope).elem_type();
-        let val: Value = elem.constant(val.constant().unwrap());
+        let elem = Self::elem_type(scope);
+        let val: ExpandValue = elem.constant(val.constant().unwrap());
 
         val.into()
     }
@@ -88,15 +88,15 @@ pub trait Numeric:
 
 /// Similar to [`ArgSettings`], however only for scalar types that don't depend on the [Runtime]
 /// trait.
-pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
+pub trait ScalarArgSettings: Send + Sync + Scalar {
     /// Register the information to the [`KernelLauncher`].
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
     fn expand_scalar(builder: &mut KernelBuilder) -> NativeExpand<Self> {
-        let ty = Self::__expand_as_type(&builder.scope);
-        let out = builder.create_value(ty);
-        let id = builder.scalar(ty.storage_type());
-        builder.register(Instruction::new(Operator::ReadScalar(id), out));
-        out.into()
+        let storage_ty = Self::elem_type(&builder.scope);
+        let id = builder.scalar(storage_ty);
+        let ty = storage_ty.to_type(builder.ctx_mut());
+        let op = ReadScalarOp::new(builder.ctx_mut(), ty, id);
+        builder.register_with_result(&op).into()
     }
 }
 
@@ -109,7 +109,7 @@ impl<E: ScalarArgType> ScalarArgSettings for E {
 impl ScalarArgSettings for usize {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
         let value = InputScalar::new(*self, launcher.settings.address_type.unsigned_type());
-        InputScalar::register(value, launcher);
+        launcher.register_scalar_raw(value.as_bytes(), ElemType::Index);
     }
 }
 

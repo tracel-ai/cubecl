@@ -22,7 +22,14 @@ default = [
     "cubecl-core/default",
     "cubecl-runtime/default",
 ]
-std = ["cubecl-common/std", "cubecl-core/std", "cubecl-runtime/std"]
+pliron-dump = ["std"]
+std = [
+    "cubecl-common/std",
+    "cubecl-core/std",
+    "cubecl-runtime/std",
+    "pliron/std",
+    "dep:sanitize-filename",
+]
 
 tracing = [
     "cubecl-runtime/tracing",
@@ -33,18 +40,24 @@ tracing = [
 
 [dependencies]
 bitflags = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.1", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.1" }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.1", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.2", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.2" }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.2", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.2", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.2", default-features = false, features = [
     "channel-mutex",
 ] }
 half = { workspace = true }
+itertools = { workspace = true }
+paste = { workspace = true }
+pliron = { workspace = true }
+sanitize-filename = { workspace = true, optional = true }
 serde = { workspace = true }
 
 hashbrown = { workspace = true }
 
+pliron-spirv = { workspace = true }
 rspirv = { workspace = true, features = ["serialize", "deserialize"] }
 
 # Optimizer
-cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.1" }
+cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.2" }

@@ -13,7 +13,7 @@ use core::fmt::{Display, Formatter};
 /// [`ComptimeFloat`](crate::ComptimeFloat) instead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Ratio {
-    numerator: usize,
+    numerator: isize,
     denominator: usize,
 }
 
@@ -23,17 +23,22 @@ impl Ratio {
     /// # Panics
     ///
     /// Panics if `denominator` is zero.
-    pub fn new(numerator: usize, denominator: usize) -> Self {
+    pub fn new(numerator: isize, denominator: usize) -> Self {
         assert!(denominator != 0, "ratio denominator must not be zero");
-        let divisor = gcd(numerator, denominator);
+        let divisor = gcd(numerator.unsigned_abs(), denominator);
+        let reduced_mag = (numerator.unsigned_abs() / divisor) as isize;
         Self {
-            numerator: numerator / divisor,
+            numerator: if numerator < 0 {
+                reduced_mag.wrapping_neg()
+            } else {
+                reduced_mag
+            },
             denominator: denominator / divisor,
         }
     }
 
     /// The reduced numerator.
-    pub fn numerator(self) -> usize {
+    pub fn numerator(self) -> isize {
         self.numerator
     }
 
@@ -80,9 +85,18 @@ mod tests {
     }
 
     #[test]
+    fn reduces_negative_to_lowest_terms() {
+        let r = Ratio::new(-2, 4);
+        assert_eq!(r.numerator(), -1);
+        assert_eq!(r.denominator(), 2);
+    }
+
+    #[test]
     fn equal_fractions_are_equal() {
         assert_eq!(Ratio::new(1, 2), Ratio::new(2, 4));
         assert_eq!(Ratio::new(3, 9), Ratio::new(1, 3));
+        assert_eq!(Ratio::new(-1, 2), Ratio::new(-2, 4));
+        assert_eq!(Ratio::new(-3, 9), Ratio::new(-1, 3));
     }
 
     #[test]
@@ -90,6 +104,21 @@ mod tests {
         let r = Ratio::new(0, 5);
         assert_eq!(r.numerator(), 0);
         assert_eq!(r.denominator(), 1);
+    }
+
+    #[test]
+    fn handles_isize_min_without_overflow() {
+        let r = Ratio::new(isize::MIN, 2);
+        assert_eq!(r.numerator(), isize::MIN / 2);
+        assert_eq!(r.denominator(), 1);
+
+        let r2 = Ratio::new(isize::MIN, 1);
+        assert_eq!(r2.numerator(), isize::MIN);
+        assert_eq!(r2.denominator(), 1);
+
+        let r3 = Ratio::new(isize::MIN, isize::MIN.unsigned_abs());
+        assert_eq!(r3.numerator(), -1);
+        assert_eq!(r3.denominator(), 1);
     }
 
     #[test]
@@ -103,11 +132,18 @@ mod tests {
         let r = Ratio::new(1, 4);
         assert_eq!(r.as_f32(), 0.25);
         assert_eq!(r.as_f64(), 0.25);
+
+        let neg_r = Ratio::new(-1, 4);
+        assert_eq!(neg_r.as_f32(), -0.25);
+        assert_eq!(neg_r.as_f64(), -0.25);
     }
 
     #[test]
     fn display_shows_reduced_form() {
         let r = Ratio::new(6, 8);
         assert_eq!(format!("{}", r), "3/4");
+
+        let neg_r = Ratio::new(-6, 8);
+        assert_eq!(format!("{}", neg_r), "-3/4");
     }
 }

@@ -22,7 +22,7 @@ workspace = true
 browser-cache = ["cubecl-runtime/browser-cache"]
 default = ["cubecl-runtime/default", "cubecl-ir/default"]
 export_tests = ["tempfile", "test-log/trace", "test-log/log", "std"]
-std = ["cubecl-runtime/std", "cubecl-ir/std", "cubecl-environment/std"]
+std = ["cubecl-runtime/std", "pliron/std", "cubecl-environment/std"]
 template = []
 tokio = ["cubecl-runtime/tokio"]
 
@@ -34,17 +34,17 @@ log = { workspace = true }
 test-log = { workspace = true, optional = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
-cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.1", default-features = false, features = [
+cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.2", default-features = false, features = [
     "serde",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.1", default-features = false }
-cubecl-zspace = { path = "../cubecl-zspace", version = "=0.11.0-pre.1" }
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.2", default-features = false }
+cubecl-zspace = { path = "../cubecl-zspace", version = "=0.11.0-pre.2" }
 
 bitflags = { workspace = true }
 bytemuck = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.1", default-features = false }
-cubecl-macros = { path = "../cubecl-macros", version = "=0.11.0-pre.1", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.2", default-features = false }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.2", default-features = false }
+cubecl-macros = { path = "../cubecl-macros", version = "=0.11.0-pre.2", default-features = false }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = [
     "not",
@@ -67,6 +67,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { version = "3.20", optional = true }
 variadics_please = { workspace = true }
+
+pliron = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

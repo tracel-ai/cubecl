@@ -3,7 +3,7 @@ use cubecl_zspace::{Shape, Strides};
 
 use crate::{
     memory_management::{ManagedMemoryBinding, ManagedMemoryHandle},
-    server::CopyDescriptor,
+    server::{CopyDescriptor, TensorMapBinding},
 };
 
 /// Server handle containing the [memory handle](crate::server::Handle).
@@ -70,9 +70,9 @@ impl Handle {
         self.memory.can_mut()
     }
 
-    /// Returns the [`Binding`] corresponding to the current handle.
-    pub fn binding(self) -> Binding {
-        Binding {
+    /// Returns the [`BufferBinding`] corresponding to the current handle.
+    pub fn binding(self) -> BufferBinding {
+        BufferBinding {
             memory: self.memory.binding(),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
@@ -126,16 +126,26 @@ impl Handle {
     }
 }
 
-/// A binding represents a [Handle] that is bound to managed memory.
+/// A resource passed to a kernel function
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug)]
+pub enum KernelResource {
+    /// Buffer resource
+    Buffer(BufferBinding),
+    /// Tensor map resource for CUDA
+    TensorMap(TensorMapBinding),
+}
+
+/// A buffer binding represents a [Handle] that is bound to managed memory.
 ///
 /// The memory used is known by the compute server.
-/// A binding is only valid after being initlized with [`super::ComputeServer::initialize_bindings`]
+/// A buffer binding is only valid after being initlized with [`super::ComputeServer::initialize_bindings`]
 ///
 /// # Notes
 ///
-/// A binding is detached from a [`Handle`], meaning that is won't affect [`Handle::can_mut`].
+/// A buffer binding is detached from a [`Handle`], meaning that is won't affect [`Handle::can_mut`].
 #[derive(Clone, Debug)]
-pub struct Binding {
+pub struct BufferBinding {
     /// The id of the handle the binding is bound to.
     pub memory: ManagedMemoryBinding,
     /// Memory offset in bytes.
@@ -148,7 +158,7 @@ pub struct Binding {
     pub size: u64,
 }
 
-impl Binding {
+impl BufferBinding {
     /// Get the size of the handle, in bytes, accounting for offsets
     pub fn size_in_used(&self) -> u64 {
         self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)

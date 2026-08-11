@@ -4,6 +4,7 @@ use syn::{
     Generics, Token, Type, WhereClause, parse_quote, punctuated::Punctuated, spanned::Spanned,
 };
 
+pub mod asm;
 pub mod assign;
 pub mod autotune;
 pub mod cube_impl;

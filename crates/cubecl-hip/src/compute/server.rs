@@ -14,8 +14,8 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Binding, CopyDescriptor, Handle, KernelArguments, ProfileError, ProfilingToken,
-        ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
+        BufferBinding, CopyDescriptor, Handle, KernelArguments, KernelResource, ProfileError,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
     },
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -272,12 +272,10 @@ impl ComputeServer for HipServer {
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: KernelArguments,
-        mode: ExecutionMode,
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id, launch_mode)
-        {
+        if let Err(err) = self.launch_checked(kernel, count, bindings, stream_id, launch_mode) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
@@ -610,7 +608,7 @@ impl ComputeServer for HipServer {
 
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<GpuResource>, ServerError> {
         let mut command = self.command(
@@ -755,7 +753,7 @@ impl HipServer {
     fn command<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Binding>,
+        handles: impl Iterator<Item = &'a BufferBinding>,
         mode: StreamErrorMode,
     ) -> Result<Command<'_>, ServerError> {
         if mode.flush {
@@ -798,16 +796,18 @@ impl HipServer {
         kernel: Box<dyn CubeTask<HipCompiler>>,
         count: CubeCount,
         bindings: KernelArguments,
-        mode: ExecutionMode,
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) -> Result<(), ServerError> {
-        let mut kernel_id = kernel.id();
+        let kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
-        kernel_id.mode(mode);
+        let buffers = bindings.resources.iter().map(|resource| match resource {
+            KernelResource::Buffer(binding) => binding,
+            KernelResource::TensorMap(tensor_map) => &tensor_map.binding,
+        });
         let mut command = self.command(
             stream_id,
-            bindings.buffers.iter(),
+            buffers,
             StreamErrorMode {
                 ignore: true,
                 flush: false,
@@ -820,7 +820,7 @@ impl HipServer {
         // exists to leave unmapped (and the readback would block on garbage
         // values).
         if launch_mode.is_skipped() {
-            command.compile_only(&kernel_id, kernel, mode, logger)?;
+            command.compile_only(&kernel_id, kernel, logger)?;
             return Ok(());
         }
 
@@ -851,27 +851,24 @@ impl HipServer {
             return Ok(());
         }
 
-        let KernelArguments {
-            buffers,
-            info,
-            tensor_maps,
-        } = bindings;
-
-        debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
+        let KernelArguments { resources, info } = bindings;
 
         let info_handle = info_buffer(&mut command, info.data)?;
 
         // Resolving is also where a dry run's deferred allocations get their
         // device backing, so this can fail on a device the measured plan does
         // not fit — reported, not panicked.
-        let mut resources: Vec<_> = buffers
+        let mut resources = resources
             .into_iter()
-            .map(|b| command.resource(b))
-            .collect::<Result<_, _>>()?;
+            .map(|res| match res {
+                KernelResource::Buffer(b) => command.resource(b),
+                KernelResource::TensorMap(_) => panic!("Can't use tensor maps on HIP"),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         resources.push(command.resource(info_handle.binding())?);
 
-        command.kernel(kernel_id, kernel, mode, count, &resources, logger)?;
+        command.kernel(kernel_id, kernel, count, &resources, logger)?;
 
         Ok(())
     }

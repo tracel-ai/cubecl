@@ -34,10 +34,11 @@ darling = { workspace = true }
 derive-new = { workspace = true }
 derive_more = { workspace = true }
 ident_case = { workspace = true }
-inflections = "1"
+inflections = { workspace = true }
+itertools = { workspace = true }
 prettyplease = "0.2"
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true }
 
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.2", default-features = false }

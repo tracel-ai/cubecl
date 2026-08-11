@@ -72,6 +72,16 @@ impl flex32 {
     pub fn is_nan(&self) -> bool {
         self.0.is_nan()
     }
+
+    /// Raw transmutation from `u32`.
+    pub fn from_bits(bits: u32) -> Self {
+        Self(f32::from_bits(bits))
+    }
+
+    /// Raw transmutation to `u32`.
+    pub fn to_bits(&self) -> u32 {
+        self.0.to_bits()
+    }
 }
 
 impl Mul for flex32 {

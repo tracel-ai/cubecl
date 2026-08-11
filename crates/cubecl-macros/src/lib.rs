@@ -15,7 +15,10 @@ use quote::quote;
 use syn::{Item, visit_mut::VisitMut};
 
 use crate::{
-    generate::{assign::generate_cube_type_mut, into_runtime::generate_into_runtime},
+    generate::{
+        asm::generate_asm_unexpanded, assign::generate_cube_type_mut,
+        into_runtime::generate_into_runtime,
+    },
     parse::{
         cube_type::generate_cube_type, derive_expand::generate_derive_expand,
         helpers::ReplaceDefines,
@@ -208,6 +211,31 @@ pub fn comptime(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn intrinsic(_input: TokenStream) -> TokenStream {
     quote![{ cubecl::unexpanded!() }].into()
+}
+
+/// GPU version of [`asm`](std::arch::asm). Currently parses all the same options, but most are not
+/// applicable to GPU assembly architectures. Should validate and give proper errors at some point.
+/// Also adds a new register spec: the inferred register specifier (`_`). This is because the
+/// specifier isn't actually meaningful in PTX and is currently ignored, with constraints being
+/// inferred from the value type. The reason it's still present is because we may want to add an
+/// explicit `mem` specifier to allow fine-grained memory clobbering, or support for other assembly
+/// formats that do use different register types.
+///
+/// # Example
+/// ```ignored
+/// #use cubecl_macros::cube;
+/// #[cube]
+/// fn do_stuff(input: u32) -> u32 {
+///     let mut out: u32;
+///     gpu_asm!("some.custom.ptx {} {}", out(_) out, in(_) input)
+/// }
+/// ```
+#[proc_macro]
+pub fn gpu_asm(input: TokenStream) -> TokenStream {
+    match generate_asm_unexpanded(input.into()) {
+        Ok(val) => val.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }
 
 /// Makes the function return a compile time value

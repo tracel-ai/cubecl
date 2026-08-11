@@ -9,12 +9,6 @@ pub mod runtime;
 pub use device::*;
 pub use runtime::HipRuntime;
 
-#[cfg(not(feature = "rocwmma"))]
-pub(crate) type HipWmmaCompiler = cubecl_cpp::hip::mma::WmmaIntrinsicCompiler;
-
-#[cfg(feature = "rocwmma")]
-pub(crate) type HipWmmaCompiler = cubecl_cpp::hip::mma::RocWmmaCompiler;
-
 #[cfg(test)]
 mod tests {
     use half::f16;

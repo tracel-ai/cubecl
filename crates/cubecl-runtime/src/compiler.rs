@@ -1,9 +1,8 @@
 use crate::{
     id::KernelId,
     kernel::{CompiledKernel, KernelDefinition, KernelMetadata},
-    server::ExecutionMode,
 };
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use core::hash::Hash;
 use cubecl_common::hash::StableHash;
 use cubecl_environment::backtrace::BackTrace;
@@ -11,7 +10,6 @@ use cubecl_environment::collections::HashMap;
 use cubecl_environment::persistence::{
     CacheOption, Namespace, Store, StoreKey, StoreOptions, StoreValue,
 };
-use cubecl_ir::{ElemType, StorageType};
 use thiserror::Error;
 
 /// A store for `backend`'s compiled artifacts, or `None` when compilation
@@ -77,8 +75,6 @@ pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
         definition: KernelDefinition,
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
-        mode: ExecutionMode,
-        address_type: StorageType,
     ) -> Result<CompiledKernel<C>, CompilationError>;
 }
 
@@ -234,6 +230,15 @@ impl core::fmt::Debug for CompilationError {
     }
 }
 
+impl From<pliron::result::Error> for CompilationError {
+    fn from(value: pliron::result::Error) -> Self {
+        CompilationError::Validation {
+            reason: value.to_string(),
+            backtrace: BackTrace::capture(),
+        }
+    }
+}
+
 /// Compiles the representation into its own representation that can be formatted into tokens.
 pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
     /// The representation for the compiled code.
@@ -246,12 +251,7 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
         &mut self,
         kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
-        mode: ExecutionMode,
-        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError>;
-
-    /// The size of the given element in bytes.
-    fn elem_size(&self, elem: ElemType) -> usize;
 
     /// The default extension for the runtime's kernel/shader code.
     /// Might change based on which compiler is used.

@@ -3,11 +3,16 @@ use cubecl_runtime::{
     client::ComputeClient,
     runtime::Runtime,
     server::CubeDim,
-    throughput::{ThroughputKey, ThroughputMode, ThroughputValue},
+    throughput::{
+        DEFAULT_BUFFER_BYTES, MemoryAccess, MemoryCurve, MemoryPoint, ThroughputKey,
+        ThroughputMode, ThroughputValue, working_set_sweep,
+    },
     tune::{Bounds, Thresholds, Work, calculate_bounds},
 };
 
-use crate::throughput::{compute_cmma, compute_direct, launch_overhead, memory_direct};
+use crate::throughput::{
+    compute_cmma, compute_direct, launch_overhead, memory_direct, memory_read,
+};
 
 /// Measure peak throughput on `device` for each of the given `keys`.
 pub fn device_throughput<R: Runtime>(
@@ -18,6 +23,43 @@ pub fn device_throughput<R: Runtime>(
     keys.iter()
         .map(|key| measure_peak_throughput::<R>(&client, *key))
         .collect()
+}
+
+/// Measure the memory ceiling across a range of working sets, from a few
+/// kilobytes up to as much as the device will allocate.
+///
+/// One point per size in [`working_set_sweep`], each measured and cached
+/// exactly like the single-size probe — [`measure_peak_throughput`] with a
+/// [`ThroughputMode::MemoryWorkingSet`] key — so a curve costs one probe per
+/// size on the first run and nothing afterwards.
+///
+/// Native only, panics on WASM
+pub fn measure_memory_curve<R: Runtime>(
+    client: &ComputeClient<R>,
+    access: MemoryAccess,
+) -> MemoryCurve {
+    let points = working_set_sweep(working_set_cap(client, access))
+        .into_iter()
+        .map(|bytes| {
+            let key = ThroughputKey {
+                mode: ThroughputMode::MemoryWorkingSet { access, bytes },
+            };
+
+            MemoryPoint {
+                bytes,
+                value: measure_peak_throughput::<R>(client, key),
+            }
+        });
+
+    MemoryCurve::new(access, points)
+}
+
+/// The largest working set `access` can be probed at: as much as one buffer can
+/// hold, times the buffers the access touches.
+fn working_set_cap<R: Runtime>(client: &ComputeClient<R>, access: MemoryAccess) -> u64 {
+    let max_alloc = client.properties().memory.max_page_size;
+
+    DEFAULT_BUFFER_BYTES.min(max_alloc) * access.buffers()
 }
 
 /// Computes the peak throughput for a given runtime and key.
@@ -48,7 +90,26 @@ pub fn measure_peak_throughput<R: Runtime>(
             }
             compute_cmma::build_kernel(client, key, cmma_config, launch_config)
         }
-        ThroughputMode::Memory => memory_direct::build_kernel(client, key, launch_config),
+        ThroughputMode::Memory
+        | ThroughputMode::MemoryRead
+        | ThroughputMode::MemoryWorkingSet { .. } => {
+            // The memory modes differ only in access and working set, and
+            // `memory_probe` is the one place that mapping lives.
+            let (access, working_set) = key
+                .mode
+                .memory_probe()
+                .expect("A memory mode describes a probe");
+            let working_set = working_set.min(usize::MAX as u64) as usize;
+
+            match access {
+                MemoryAccess::Copy => {
+                    memory_direct::build_kernel(client, key, launch_config, working_set)
+                }
+                MemoryAccess::Read => {
+                    memory_read::build_kernel(client, key, launch_config, working_set)
+                }
+            }
+        }
         ThroughputMode::Launch => launch_overhead::build_kernel(client, key, launch_config),
     };
 

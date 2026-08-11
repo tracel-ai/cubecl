@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
+use cubecl_core::zspace::metadata::Metadata;
 use cubecl_core::{Runtime, server, zspace::strides};
 use cubecl_core::{calculate_cube_count_elemwise, server::MemoryLayout};
-use cubecl_core::{ir::StorageType, zspace::metadata::Metadata};
 use cubecl_core::{prelude::*, server::CopyDescriptor};
 use cubecl_core::{
     tensor_vector_size_parallel,
@@ -18,7 +18,7 @@ where
     pub handle: server::Handle,
     pub metadata: Box<Metadata>,
     /// The type used as storage.
-    pub dtype: StorageType,
+    pub dtype: ElemType,
     runtime: PhantomData<R>,
 }
 
@@ -64,7 +64,7 @@ where
         Self {
             handle,
             metadata: Box::new(Metadata::new(shape, strides)),
-            dtype: storage.into().storage_type(),
+            dtype: storage.into().elem_type(),
             runtime: PhantomData,
         }
     }
@@ -76,7 +76,7 @@ where
     ) -> Self {
         let storage = storage.into();
         let shape: Shape = shape.into();
-        let elem_size = storage.storage_type().size();
+        let elem_size = storage.elem_type().size();
         let MemoryLayout {
             memory: handle,
             strides,
@@ -86,7 +86,7 @@ where
     }
 
     /// Create a new tensor with a contiguous memory layout.
-    pub fn new_contiguous(shape: impl Into<Shape>, handle: Handle, storage: StorageType) -> Self {
+    pub fn new_contiguous(shape: impl Into<Shape>, handle: Handle, storage: ElemType) -> Self {
         let shape = shape.into();
         let strides = Self::contiguous_strides(&shape);
 
@@ -162,7 +162,7 @@ where
         let num_elements: usize = shape.iter().product();
         let rank = shape.len();
         let output = Self::empty(client, shape, dtype);
-        let dtype = dtype.storage_type();
+        let dtype = dtype.elem_type();
 
         let vector_size = tensor_vector_size_parallel(
             client.io_optimized_vector_sizes(dtype.size()),
@@ -194,12 +194,12 @@ where
 
 pub(crate) mod init {
     use cubecl::prelude::*;
-    use cubecl_core::{self as cubecl, ir::StorageType};
+    use cubecl_core::{self as cubecl};
 
     #[cube(launch_unchecked, address_type = "dynamic")]
     pub fn zeros_array<C: Numeric, N: Size>(
         output: &mut [Vector<C, N>],
-        #[define(C)] _elem: StorageType,
+        #[define(C)] _elem: ElemType,
     ) {
         if ABSOLUTE_POS < output.len() {
             output[ABSOLUTE_POS] = Vector::cast_from(C::from_int(0));

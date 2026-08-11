@@ -1,7 +1,7 @@
 use crate::{WgpuResource, WgpuStorage};
 use cubecl_core::{
     MemoryConfiguration,
-    server::{Binding, IoError},
+    server::{BufferBinding, IoError},
 };
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
@@ -117,7 +117,7 @@ impl WgpuMemManager {
         Ok((resource, binding))
     }
 
-    pub(crate) fn get_resource(&mut self, binding: Binding) -> Result<WgpuResource, IoError> {
+    pub(crate) fn get_resource(&mut self, binding: BufferBinding) -> Result<WgpuResource, IoError> {
         self.memory_pool
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
