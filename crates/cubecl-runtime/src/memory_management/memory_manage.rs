@@ -1,6 +1,8 @@
 use super::{
     MemoryConfiguration, MemoryPoolOptions, MemoryReport, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool},
+    memory_pool::{
+        ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool, page_mapping,
+    },
 };
 use crate::{
     config::{
@@ -996,18 +998,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // hard about overflow here.
         self.alloc_reserve_count += 1;
 
-        // What backing a fresh allocation gets. Under a dry run every
-        // allocation is a reservation: pages are carved without device memory
-        // and materialize on first resolution
-        // ([`get_storage`](Self::get_storage)). The rule needs no exception
-        // for the tuning a dry run provokes — a measurement executes, so it
-        // resolves its bindings, so its pages map exactly when it needs them.
-        // What never resolves is what the dry run skipped, which is the memory
-        // this exists to not allocate.
-        let mapping = match crate::dry_run::dry_run() {
-            true => PageMapping::Lazy,
-            false => PageMapping::Eager,
-        };
+        let mapping = page_mapping();
 
         // In an explicit persistent window the pool always serves the
         // allocation (reusing a freed same-size slice when one exists).

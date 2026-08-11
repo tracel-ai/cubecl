@@ -7,19 +7,52 @@ use crate::{
 
 /// Whether a fresh device page gets real backing at allocation time.
 ///
-/// `Lazy` is the dry-run form: the page's storage id is minted but no driver
-/// memory exists behind it, so the pool's bookkeeping (slice carving,
-/// coalescing, high-water marks) runs identically while the device footprint
-/// stays zero. Backing is installed on demand —
-/// [`MemoryPool::materialize`] — the first time one of the page's slices is
-/// resolved into something that executes. A dry run's skipped launches never
-/// resolve, so only what a measurement actually touches gets mapped.
+/// Either way the pool's bookkeeping — slice carving, coalescing, high-water
+/// marks — is identical; the two differ only in when the driver is asked for
+/// memory. [`page_mapping`] decides which an allocation gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageMapping {
     /// Allocate device memory now.
     Eager,
-    /// Mint the id, defer the device allocation to first resolution.
+    /// Mint the storage id now and defer the device allocation to the first
+    /// time one of the page's slices is resolved
+    /// ([`MemoryPool::materialize`]). Until then the id has no driver memory
+    /// behind it and the page's device footprint is zero.
     Lazy,
+}
+
+/// What backing an allocation made on this thread, right now, should get.
+///
+/// **[`Eager`](PageMapping::Eager) is the answer whenever the allocation will
+/// be used**, which outside a dry run is all of them: a reservation becomes a
+/// kernel argument, a read or a write within microseconds, so deferring it
+/// buys nothing and gives up three things.
+///
+/// - **A failure that can still be recovered.** A device allocation that fails
+///   at reservation is retried by the backends' `Command::reserve` after
+///   reclaiming the stream — the transient-peak case, a build holding float
+///   weights while their quantized copies allocate. Deferred, the same failure
+///   lands at resolution, where there is nothing left to flush and no retry.
+/// - **Infallible resolution.** Resolving a binding is a pure lookup today,
+///   and several launch paths resolve with `expect`. Allocating there would
+///   turn a full device into a panic instead of a queued error.
+/// - **A capture window that cannot allocate.** Graph capture needs every
+///   slice the recorded run touches to exist before recording starts. Eager
+///   reservation is what guarantees that; deferred, a slice warmup reserved
+///   but never resolved would ask the driver for memory mid-capture and fault.
+///
+/// **[`Lazy`](PageMapping::Lazy) is for the one case where the allocation may
+/// never be used**: under a [`DryRun`](crate::dry_run::DryRun) the workload's
+/// launches are compiled and dropped, so most reservations are never resolved
+/// and never need to exist. That is what lets a workload far larger than the
+/// device replay its allocation stream — the pools still measure it, and only
+/// what genuinely executes (a tuning pass, which resolves because it runs)
+/// costs real memory.
+pub fn page_mapping() -> PageMapping {
+    match crate::dry_run::dry_run() {
+        true => PageMapping::Lazy,
+        false => PageMapping::Eager,
+    }
 }
 
 /// Declares how memory is allocated in a reusable pool.
