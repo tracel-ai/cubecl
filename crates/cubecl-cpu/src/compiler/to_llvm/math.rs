@@ -181,9 +181,13 @@ macro_rules! lower_float_fpclass {
                 let intrinsic_type =
                     FuncType::get(ctx, bool_ty, vec![elem_ty, int_ty.into()], false);
 
+                let mut llvm_op = "llvm.is.fpclass".to_string();
+                llvm_op.push('.');
+                llvm_op.push_str(llvm_mangled_ty(ctx, elem_ty).as_str());
+
                 let op = llvm::CallIntrinsicOp::new(
                     ctx,
-                    "llvm.is.fpclass".into(),
+                    llvm_op.into(),
                     intrinsic_type,
                     vec![input, val],
                 );

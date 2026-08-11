@@ -65,7 +65,7 @@ shared_op_with_out!(VectorExtractDynamicOp, |op, ctx| {
     let vector = op.vector(ctx).name(ctx);
     let index = op.index(ctx).name(ctx);
     let elem_ty = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
-    format!("reinterpret_cast<{elem_ty}*>({vector})[{index}]")
+    format!("reinterpret_cast<const {elem_ty}*>(&{vector})[{index}]")
 });
 
 #[cube]
