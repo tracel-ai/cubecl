@@ -47,7 +47,7 @@ pub fn build_kernel<R: Runtime>(
                 BufferArg::from_raw_parts(out_handle.clone(), 1),
                 probe.window_lines,
                 iterations,
-                dtype.into(),
+                dtype,
             )
         };
         let _ = cubecl_core::future::block_on(client.sync());
@@ -66,7 +66,7 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
     output: &mut [Vector<I, N>],
     window: usize,
     n_iter: usize,
-    #[define(I)] _dtype: StorageType,
+    #[define(I)] _dtype: ElemType,
 ) {
     let len = input.len();
     let stride = CUBE_DIM as usize * CUBE_COUNT;
