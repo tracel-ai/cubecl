@@ -177,7 +177,7 @@ impl ComputeServer for DummyServer {
                 .memory_management
                 .get_storage(descriptor.handle.memory)
                 .unwrap();
-            let mut bytes = self.memory_management.storage().get(&storage_h);
+            let mut bytes = self.memory_management.storage().get(&storage_h).unwrap();
             bytes.write()[..data.len()].copy_from_slice(&data);
         }
     }

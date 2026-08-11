@@ -45,11 +45,16 @@ impl ComputeStorage for MetalStorage {
         256 // Metal standard alignment
     }
 
-    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        self.buffers
-            .get(&handle.id)
-            .expect("Buffer not found")
-            .clone()
+    fn get(
+        &mut self,
+        handle: &StorageHandle,
+    ) -> Result<Self::Resource, cubecl_core::server::IoError> {
+        self.buffers.get(&handle.id).cloned().ok_or_else(|| {
+            cubecl_core::server::IoError::StorageHandleNotFound {
+                reason: format!("{} in the Metal buffer storage", handle.id).into(),
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+            }
+        })
     }
 
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, cubecl_core::server::IoError> {

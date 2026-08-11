@@ -1153,11 +1153,14 @@ impl CudaServer {
             (None, handle)
         };
 
+        // Resolving is also where a dry run's deferred allocations get their
+        // device backing, so this can fail on a device the measured plan does
+        // not fit — reported, not panicked.
         let mut resources = bindings
             .buffers
             .into_iter()
-            .map(|binding| command.resource(binding).expect("Resource to exist."))
-            .collect::<Vec<_>>();
+            .map(|binding| command.resource(binding))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let mut tensor_maps = Vec::with_capacity(bindings.tensor_maps.len());
 
@@ -1319,11 +1322,9 @@ impl CudaServer {
             tensor_maps.push(binding);
         }
 
-        resources.extend(
-            info_binding
-                .into_iter()
-                .map(|s| command.resource(s.binding()).expect("Resource to exist")),
-        );
+        if let Some(binding) = info_binding {
+            resources.push(command.resource(binding.binding())?);
+        }
 
         command.kernel(
             kernel_id,

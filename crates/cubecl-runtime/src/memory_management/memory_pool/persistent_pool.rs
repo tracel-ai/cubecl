@@ -275,7 +275,15 @@ impl MemoryPool for PersistentPool {
             return Ok(());
         }
 
-        let real = storage.alloc(slice.effective_size())?;
+        let effective_size = slice.effective_size();
+        let real = storage
+            .alloc(effective_size)
+            .map_err(|err| IoError::StorageMappingFailed {
+                size: effective_size,
+                source: alloc::boxed::Box::new(err),
+                backtrace: BackTrace::capture(),
+            })?;
+        let slice = &mut self.slices[binding.descriptor().slice()];
         slice.storage.id = real.id;
         slice.mapped = true;
 

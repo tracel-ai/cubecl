@@ -85,13 +85,19 @@ impl ComputeStorage for BytesStorage {
         4
     }
 
-    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let allocated_bytes = self.memory.get(&handle.id).unwrap();
+    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
+        let allocated_bytes =
+            self.memory
+                .get(&handle.id)
+                .ok_or_else(|| IoError::StorageHandleNotFound {
+                    reason: alloc::format!("{} in the bytes storage", handle.id).into(),
+                    backtrace: BackTrace::capture(),
+                })?;
 
-        BytesResource {
+        Ok(BytesResource {
             ptr: allocated_bytes.ptr,
             utilization: handle.utilization.clone(),
-        }
+        })
     }
 
     #[cfg_attr(
@@ -176,6 +182,7 @@ mod tests {
 
         storage
             .get(&handle_1)
+            .unwrap()
             .write()
             .iter_mut()
             .enumerate()
@@ -183,7 +190,7 @@ mod tests {
                 *b = i as u8;
             });
 
-        let bytes = storage.get(&handle_2).read().to_vec();
+        let bytes = storage.get(&handle_2).unwrap().read().to_vec();
 
         storage.dealloc(handle_1.id);
         assert_eq!(bytes, &[24, 25, 26, 27, 28, 29, 30, 31]);
@@ -194,7 +201,7 @@ mod tests {
     fn test_read_after_alloc_without_write() {
         let mut storage = BytesStorage::default();
         let handle = storage.alloc(16).unwrap();
-        let resource = storage.get(&handle);
+        let resource = storage.get(&handle).unwrap();
         assert!(resource.read().iter().all(|&b| b == 0));
         storage.dealloc(handle.id);
     }
@@ -212,7 +219,7 @@ mod tests {
     fn test_alloc_dealloc_realloc() {
         let mut storage = BytesStorage::default();
         let h1 = storage.alloc(32).unwrap();
-        storage.get(&h1).write()[0] = 0xAA;
+        storage.get(&h1).unwrap().write()[0] = 0xAA;
         storage.dealloc(h1.id);
         let h2 = storage.alloc(32).unwrap();
         storage.dealloc(h2.id);
@@ -236,10 +243,17 @@ mod tests {
             .collect();
 
         for (i, region) in regions.iter().enumerate() {
-            storage.get(region).write().fill(i as u8);
+            storage.get(region).unwrap().write().fill(i as u8);
         }
         for (i, region) in regions.iter().enumerate() {
-            assert!(storage.get(region).read().iter().all(|&b| b == i as u8));
+            assert!(
+                storage
+                    .get(region)
+                    .unwrap()
+                    .read()
+                    .iter()
+                    .all(|&b| b == i as u8)
+            );
         }
         storage.dealloc(base.id);
     }

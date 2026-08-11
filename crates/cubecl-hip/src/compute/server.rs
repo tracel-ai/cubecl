@@ -861,16 +861,15 @@ impl HipServer {
 
         let info_handle = info_buffer(&mut command, info.data)?;
 
+        // Resolving is also where a dry run's deferred allocations get their
+        // device backing, so this can fail on a device the measured plan does
+        // not fit — reported, not panicked.
         let mut resources: Vec<_> = buffers
             .into_iter()
-            .map(|b| command.resource(b).expect("Resource to exist."))
-            .collect();
+            .map(|b| command.resource(b))
+            .collect::<Result<_, _>>()?;
 
-        resources.push(
-            command
-                .resource(info_handle.binding())
-                .expect("Resource to exist."),
-        );
+        resources.push(command.resource(info_handle.binding())?);
 
         command.kernel(kernel_id, kernel, mode, count, &resources, logger)?;
 

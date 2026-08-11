@@ -79,8 +79,14 @@ pub trait ComputeStorage: Send {
     /// The alignment memory is allocated with in this storage.
     fn alignment(&self) -> usize;
 
-    /// Returns the underlying resource for a specified storage handle
-    fn get(&mut self, handle: &StorageHandle) -> Self::Resource;
+    /// Returns the underlying resource for a specified storage handle.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::StorageHandleNotFound`] when this storage holds no
+    /// allocation for the handle's id — a handle that outlived its allocation,
+    /// or one whose id a deallocation retired.
+    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError>;
 
     /// Allocates `size` units of memory and returns a handle to it
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError>;

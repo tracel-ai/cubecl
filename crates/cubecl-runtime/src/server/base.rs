@@ -921,6 +921,43 @@ pub enum IoError {
         reason: Reason,
     },
 
+    /// The storage backend holds no allocation for a handle's storage id.
+    ///
+    /// One layer below [`IoError::NotFound`]: there the memory manager could
+    /// not route a binding to a slice, here the routing succeeded and the
+    /// allocation the slice names is gone. A handle outliving its page, or a
+    /// storage id a deallocation retired, reaches the storage this way.
+    #[error("the storage holds no allocation for that handle: {reason}\n{backtrace}")]
+    StorageHandleNotFound {
+        /// Which id was looked up, and in which storage.
+        reason: Reason,
+        /// The backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// An allocation carved lazily under a [`DryRun`](crate::dry_run::DryRun)
+    /// could not be given real device backing when it was finally resolved.
+    ///
+    /// Distinct from the same failure at reservation time, and the distinction
+    /// is what a caller acts on: the memory was promised earlier, by a pass
+    /// that measured a plan without paying for it, and is only now being
+    /// charged for. A plan whose replay hits this was measured against more
+    /// device memory than the replay has — warm the tune caches first, or
+    /// measure a smaller one.
+    #[error(
+        "couldn't map storage for a deferred allocation of {size} bytes\nCaused by:\n  {source}"
+    )]
+    StorageMappingFailed {
+        /// The size of the allocation that could not be backed, in bytes.
+        size: u64,
+        /// Why the device allocation failed.
+        source: Box<IoError>,
+        /// The backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// Handle wasn't found in the memory pool
     #[error("couldn't free the handle, since it is currently in used. \n{backtrace}")]
     FreeError {

@@ -1020,7 +1020,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             Some(offset) => handle.offset_end(offset),
             None => handle,
         };
-        Ok(self.storage().get(&handle))
+        self.storage().get(&handle)
     }
 
     /// Record a persistent slice as touched by the active capture window, so

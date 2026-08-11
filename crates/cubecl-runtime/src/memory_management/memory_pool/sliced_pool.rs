@@ -218,7 +218,13 @@ impl MemoryPool for SlicedPool {
         // The virtual carving *is* the layout: allocate the page for real and
         // rebind — every slice keeps its offset, the minted id ceases to
         // exist (it never reached the driver).
-        let real = storage.alloc(self.page_size)?;
+        let real = storage
+            .alloc(self.page_size)
+            .map_err(|err| IoError::StorageMappingFailed {
+                size: self.page_size,
+                source: alloc::boxed::Box::new(err),
+                backtrace: BackTrace::capture(),
+            })?;
         page.rebind_storage(real.id);
         *id = real.id;
 

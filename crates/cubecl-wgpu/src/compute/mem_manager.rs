@@ -133,7 +133,10 @@ impl WgpuMemManager {
             .memory_uniforms
             .get_storage(slice.binding())
             .expect("Failed to find storage!");
-        self.memory_uniforms.storage().get(&handle)
+        self.memory_uniforms
+            .storage()
+            .get(&handle)
+            .expect("Failed to get the uniform's storage!")
     }
 
     pub(crate) fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
