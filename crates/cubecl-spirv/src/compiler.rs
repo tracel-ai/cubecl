@@ -272,9 +272,7 @@ impl SpirvCompiler {
         // verify_operation(module_op, ctx).expect("Failed to verify after passes");
 
         let mut builder = PlironBuilder::default();
-        spirv_module
-            .to_spirv(ctx, &mut builder)
-            .expect("Failed to convert");
+        spirv_module.to_spirv(ctx, &mut builder)?;
         let module = builder.module();
 
         Ok((module, bindings, shared_size))

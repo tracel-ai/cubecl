@@ -52,6 +52,24 @@ impl ToSpirvDialectOp for general::SelectOp {
     }
 }
 
+#[op_interface_impl]
+impl ToSpirvDialectOp for general::PoisonOp {
+    fn to_spirv_dialect(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let op = self.get_operation();
+        let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
+        let new_op = ops::UndefOp::new(ctx, out_ty);
+        rewriter.append_op(ctx, &new_op);
+        rewriter.replace_operation(ctx, op, new_op.get_operation());
+
+        Ok(())
+    }
+}
+
 macro_rules! erase_op {
     ($ty: ty) => {
         #[op_interface_impl]
