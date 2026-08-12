@@ -4,44 +4,36 @@ use core::{default::Default, ops::Deref};
 use serde::{Deserialize, Serialize};
 
 /// Describes a quantization scheme/configuration.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+///
+/// Field order is part of the wire contract: some transports serialize structs positionally, so
+/// fields must never be reordered or inserted, only appended.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct QuantScheme {
     /// The logical data type of quantized input values (e.g., `QInt8`).
     ///
     /// This defines how values are interpreted during computation, independent of how they're stored.
     pub value: QuantValue,
-    /// Precision used for quantization parameters (e.g., scale and biases).
-    ///
-    /// This is the only param a one-level scheme has. [`QuantLevel::BlockTensor`] adds a second one
-    /// for its per-tensor scale, so a consumer that reads this field alone will miss that factor.
-    pub param: QuantParam,
     /// Data type used for storing quantized values.
     pub store: QuantStore,
-    /// Granularity level of quantization (e.g., per-tensor).
-    pub level: QuantLevel,
     /// Quantization mode (e.g., symmetric).
     pub mode: QuantMode,
+    /// The scale levels, innermost first. Private so that ordering and nesting hold by
+    /// construction: go through [`ScaleLevels`] to build them.
+    levels: ScaleLevels,
 }
 
 impl Default for QuantScheme {
     fn default() -> Self {
         Self {
             value: QuantValue::Q8F,
-            param: QuantParam::F32,
             store: QuantStore::PackedU32(0),
-            level: QuantLevel::Tensor,
             mode: QuantMode::Symmetric,
+            levels: ScaleLevels::tensor(QuantParam::F32),
         }
     }
 }
 
 impl QuantScheme {
-    /// Set the quantization level.
-    pub fn with_level(mut self, level: QuantLevel) -> Self {
-        self.level = level;
-        self
-    }
-
     /// Set the quantization mode.
     pub fn with_mode(mut self, mode: QuantMode) -> Self {
         self.mode = mode;
@@ -60,10 +52,54 @@ impl QuantScheme {
         self
     }
 
-    /// Set the precision used for quantization parameters
-    pub fn with_param(mut self, param: QuantParam) -> Self {
-        self.param = param;
+    /// Set the scale levels.
+    pub fn with_scales(mut self, levels: ScaleLevels) -> Self {
+        self.levels = levels;
         self
+    }
+
+    /// The scale levels, innermost first.
+    pub fn levels(&self) -> &[ScaleLevel] {
+        self.levels.levels()
+    }
+
+    /// The scale levels as the owned, fixed-capacity value.
+    pub fn scale_levels(&self) -> ScaleLevels {
+        self.levels
+    }
+
+    /// The innermost level's scale precision, the type block scales are stored in.
+    pub fn param(&self) -> QuantParam {
+        self.levels()[0].param
+    }
+
+    /// The innermost level's block size. [`BlockSize::is_full`] answers whether the scheme is
+    /// per-tensor.
+    pub fn block_size(&self) -> BlockSize {
+        self.levels()[0].block
+    }
+
+    /// Swap two tensor dimensions in every level's block size, mirroring `shape.swap(dim0, dim1)`.
+    ///
+    /// Kept here rather than in each consumer so a level can never be missed: hand-written copies
+    /// of this rewrite have silently skipped the outer level before.
+    pub fn swap_block_dims(&mut self, rank: usize, dim0: usize, dim1: usize) {
+        for level in self.levels.levels_mut() {
+            let mut dims = level.block.to_dim_vec(rank);
+            dims.swap(dim0, dim1);
+            level.block = BlockSize::new(dims);
+        }
+    }
+
+    /// Permute every level's block size, mirroring a permutation of the tensor's axes.
+    ///
+    /// See [`swap_block_dims`](Self::swap_block_dims) for why this is centralized.
+    pub fn permute_block_dims(&mut self, rank: usize, axes: &[usize]) {
+        for level in self.levels.levels_mut() {
+            let dims = level.block.to_dim_vec(rank);
+            let permuted: Vec<u8> = axes.iter().map(|&axis| dims[axis]).collect();
+            level.block = BlockSize::new(permuted);
+        }
     }
 
     /// Returns the size of the quantization storage type in bits.
@@ -107,73 +143,399 @@ impl QuantScheme {
     }
 }
 
-/// Level or granularity of quantization.
+/// Maximum number of scale levels in a scheme. An implementation constant, not API: the committed
+/// shape is the nonempty list, and raising this is a non-breaking change.
 ///
-/// Append new variants, never insert. Some transports serialize this with a format that encodes
-/// variants by position rather than by name, so inserting one silently reinterprets streams and
-/// stored schemes written by an older build.
+/// In theory, we could support an arbitrary number of levels by just bumping this constant,
+/// but in practice it's not needed.
+const MAX_LEVELS: usize = 2;
+
+/// One level of scales: values inside each `block` share one scale, stored as `param`.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum QuantLevel {
-    /// Quantize the whole tensor using a single tensor.
-    Tensor,
-    /// Quantize a tensor using multiple blocks.
-    Block(BlockSize),
-    /// Quantize a tensor using multiple blocks whose scales are themselves normalized by a single
-    /// per-tensor scale.
+pub struct ScaleLevel {
+    /// The extent of one block per tensor dimension. A full block makes the level per-tensor.
+    pub block: BlockSize,
+    /// The precision the level's scales are stored in.
+    pub param: QuantParam,
+}
+
+impl ScaleLevel {
+    /// The shape of the level's scale tensor for a value tensor of `shape`: one scale per block
+    /// along every dimension. A full block yields one scale in every dimension.
+    pub fn grid(&self, shape: &[usize]) -> Vec<usize> {
+        self.block
+            .resolved_dims(shape)
+            .into_iter()
+            .zip(shape)
+            .map(|(block, dim)| dim.div_ceil(block))
+            .collect()
+    }
+}
+
+/// The scale levels of a [`QuantScheme`], innermost first: each level's scales are normalized
+/// against the next level's, and reconstruction multiplies them back together.
+///
+/// Nesting and ordering hold by construction. Order is never specified by the caller: it derives
+/// from containment, since a level whose blocks do not contain the inner level's blocks is invalid
+/// no matter how it is written.
+///
+/// # Examples
+///
+/// One f16 scale per block of 32 values, a single level:
+///
+/// ```
+/// # use cubecl_common::quant::scheme::{BlockSize, QuantParam, ScaleLevels};
+/// let levels = ScaleLevels::block([32], QuantParam::F16);
+/// // storage: [{ block: [32], param: F16 }, { block: full, param: F32 }]
+/// // len: 1                                  ^ unused slot, canonical filler
+///
+/// let [level] = levels.levels() else { unreachable!() };
+/// assert_eq!(level.block, BlockSize::new([32]));
+/// assert_eq!(level.param, QuantParam::F16);
+/// assert_eq!(level.grid(&[8, 64]), vec![8, 2]); // one scale per block of a [8, 64] tensor
+/// ```
+///
+/// NVFP4-style two levels: ue4m3 block scales normalized against one per-tensor f32 scale. The
+/// per-tensor level is held as the full block, and the list stores innermost first however it was
+/// built:
+///
+/// ```
+/// # use cubecl_common::quant::scheme::{QuantParam, ScaleLevels};
+/// let levels = ScaleLevels::block([16], QuantParam::UE4M3).and_tensor(QuantParam::F32);
+/// // storage: [{ block: [16], param: UE4M3 }, { block: full, param: F32 }]
+/// // len: 2                                    ^ the per-tensor level, both slots in use
+/// assert_eq!(
+///     levels,
+///     ScaleLevels::tensor(QuantParam::F32).and_block([16], QuantParam::UE4M3),
+/// );
+///
+/// let [blocks, tensor] = levels.levels() else { unreachable!() };
+/// assert_eq!(blocks.param, QuantParam::UE4M3);
+/// assert!(tensor.block.is_full());
+/// assert_eq!(tensor.grid(&[8, 64]), vec![1, 1]); // one scale for the whole tensor
+/// ```
+///
+/// A two-level scheme exists so block scales can live in a narrow type: the outer per-tensor scale
+/// absorbs the tensor's dynamic range, and the block param only covers the spread between blocks.
+/// That spread is still bounded: a block whose scale falls further below the largest one than the
+/// block param can express is stored at that param's smallest value, far too coarse for it, and
+/// every value in the block quantizes to zero. [`QuantParam::UE4M3`] spans about 2^18 this way, so
+/// a tensor holding a genuine outlier can lose its ordinary values.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ScaleLevels {
+    /// Slots past `len` hold [`ScaleLevels::FILLER`] so derived comparisons stay truthful.
+    storage: [ScaleLevel; MAX_LEVELS],
+    len: u8,
+}
+
+impl ScaleLevels {
+    /// One scale for the whole tensor.
+    pub fn tensor(param: QuantParam) -> Self {
+        Self::one(ScaleLevel {
+            block: BlockSize::full(),
+            param,
+        })
+    }
+
+    /// One scale per block of `block` values.
+    pub fn block(block: impl AsRef<[u8]>, param: QuantParam) -> Self {
+        Self::one(ScaleLevel {
+            block: BlockSize::new(block),
+            param,
+        })
+    }
+
+    /// Add a per-tensor scale level.
     ///
-    /// See [`QuantLevel::block_tensor`] for what that buys and what it does not.
+    /// # Panics
+    ///
+    /// When no valid order exists: a duplicated granularity, blocks that do not nest, or more
+    /// levels than the supported capacity.
+    pub fn and_tensor(self, param: QuantParam) -> Self {
+        self.and(ScaleLevel {
+            block: BlockSize::full(),
+            param,
+        })
+    }
+
+    /// Add a per-block scale level.
+    ///
+    /// # Panics
+    ///
+    /// When no valid order exists: a duplicated granularity, blocks that do not nest, or more
+    /// levels than the supported capacity.
+    pub fn and_block(self, block: impl AsRef<[u8]>, param: QuantParam) -> Self {
+        self.and(ScaleLevel {
+            block: BlockSize::new(block),
+            param,
+        })
+    }
+
+    /// Build from levels in any order, sorted innermost-first by block containment. For dynamic
+    /// inputs like checkpoint headers; literal schemes read better through the named constructors.
+    pub fn try_new(levels: &[ScaleLevel]) -> Result<Self, InvalidScaleLevels> {
+        let (&first, rest) = levels.split_first().ok_or(InvalidScaleLevels::Empty)?;
+        let mut out = Self::one(first);
+        for &level in rest {
+            out.insert(level)?;
+        }
+        Ok(out)
+    }
+
+    /// The levels, innermost first.
+    pub fn levels(&self) -> &[ScaleLevel] {
+        &self.storage[..self.len as usize]
+    }
+
+    /// The number of levels.
+    #[allow(clippy::len_without_is_empty, reason = "never empty by construction")]
+    pub fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    /// These levels without the outermost one, for a consumer that folds an outer scale away and
+    /// serves the rest as a shallower scheme. [`None`] for a single level, which has no inner
+    /// levels to serve.
+    pub fn inner(&self) -> Option<Self> {
+        if self.len == 1 {
+            return None;
+        }
+        let mut storage = self.storage;
+        storage[self.len as usize - 1] = Self::FILLER;
+        Some(Self {
+            storage,
+            len: self.len - 1,
+        })
+    }
+
+    /// The canonical value of unused storage slots.
+    const FILLER: ScaleLevel = ScaleLevel {
+        block: BlockSize::full(),
+        param: QuantParam::F32,
+    };
+
+    /// The list of exactly one level.
+    fn one(level: ScaleLevel) -> Self {
+        Self {
+            storage: [level, Self::FILLER],
+            len: 1,
+        }
+    }
+
+    /// [`insert`](Self::insert) for the chaining constructors, where an invalid level is a
+    /// programmer error rather than a condition to handle.
+    fn and(mut self, level: ScaleLevel) -> Self {
+        self.insert(level)
+            .unwrap_or_else(|invalid| panic!("{invalid}"));
+        self
+    }
+
+    /// Insert one level at the position containment assigns it.
+    fn insert(&mut self, level: ScaleLevel) -> Result<(), InvalidScaleLevels> {
+        let len = self.len as usize;
+        if len == MAX_LEVELS {
+            return Err(InvalidScaleLevels::TooMany);
+        }
+        let mut index = len;
+        for (i, existing) in self.levels().iter().enumerate() {
+            if existing.block == level.block {
+                return Err(InvalidScaleLevels::Duplicate);
+            } else if existing.block.contains(&level.block) {
+                // Containment is transitive, so everything past the first container contains the
+                // level too and needs no check of its own.
+                index = i;
+                break;
+            } else if !level.block.contains(&existing.block) {
+                return Err(InvalidScaleLevels::NotNested);
+            }
+        }
+        self.storage.copy_within(index..len, index + 1);
+        self.storage[index] = level;
+        self.len += 1;
+        Ok(())
+    }
+
+    /// Callers must preserve nesting and canonical order, which a uniform rewrite of every
+    /// level's block does.
+    fn levels_mut(&mut self) -> &mut [ScaleLevel] {
+        &mut self.storage[..self.len as usize]
+    }
+}
+
+/// Why a set of levels cannot form a [`ScaleLevels`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InvalidScaleLevels {
+    /// No levels at all: a scheme has at least one.
+    Empty,
+    /// More levels than the supported capacity.
+    TooMany,
+    /// No containment order exists: for every pair, one level's blocks must contain the other's.
+    NotNested,
+    /// Two levels share the same granularity, so one of them is redundant.
+    Duplicate,
+}
+
+impl core::fmt::Display for InvalidScaleLevels {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            InvalidScaleLevels::Empty => write!(f, "a scheme has at least one scale level"),
+            InvalidScaleLevels::TooMany => {
+                write!(
+                    f,
+                    "more scale levels than the supported capacity {MAX_LEVELS}"
+                )
+            }
+            InvalidScaleLevels::NotNested => {
+                write!(
+                    f,
+                    "each scale level's blocks must contain the previous level's"
+                )
+            }
+            InvalidScaleLevels::Duplicate => {
+                write!(f, "two scale levels share the same granularity")
+            }
+        }
+    }
+}
+
+impl core::error::Error for InvalidScaleLevels {}
+
+impl Serialize for ScaleLevels {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.levels())
+    }
+}
+
+impl<'de> Deserialize<'de> for ScaleLevels {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let levels = Vec::<ScaleLevel>::deserialize(deserializer)?;
+        Self::try_new(&levels).map_err(serde::de::Error::custom)
+    }
+}
+
+/// The `QuantLevel` enum schemes were stored with before scale levels, kept so those artifacts
+/// still load. Deserialization only; nothing writes this shape anymore. Delete together with the
+/// legacy branch of [`QuantScheme`]'s `Deserialize` once stored schemes have migrated.
+#[derive(Deserialize)]
+enum LegacyQuantLevel {
+    Tensor,
+    Block(BlockSize),
     BlockTensor {
-        /// Size of each block. The block scales use [`QuantScheme::param`].
         block: BlockSize,
-        /// Precision of the per-tensor scale. Only a param with more range than the block scales
-        /// use is meaningful.
         global: QuantParam,
     },
 }
 
-impl QuantLevel {
-    /// Converting constructor for [`QuantLevel::Block`]
-    pub fn block(values: impl AsRef<[u8]>) -> Self {
-        QuantLevel::Block(BlockSize::new(values))
-    }
-
-    /// Converting constructor for [`QuantLevel::BlockTensor`].
-    ///
-    /// The per-tensor scale absorbs the tensor's dynamic range, which is what lets the block scales
-    /// live in a narrow type. Without it a block scale has to cover that range on its own, and a
-    /// type like [`QuantParam::UE4M3`] underflows to zero for small values.
-    ///
-    /// What the block param covers is then the spread between blocks, which is still bounded. A
-    /// block whose scale falls further below the largest one than the block param can express is
-    /// stored at that param's smallest value, far too coarse for it, and every value in the block
-    /// quantizes to zero. [`QuantParam::UE4M3`] spans about 2^18 this way, from its smallest
-    /// subnormal to 448, so a tensor holding a genuine outlier can lose its ordinary values.
-    ///
-    /// The quantized view in `cubecl-std` reads the per-tensor scale as an f32 binding of its own,
-    /// and rejects a launch whose bindings disagree with the level rather than reconstruct values
-    /// short by that factor. It rejects `global` in any other param too: there is one per-tensor
-    /// scale for a whole tensor, so a narrower type saves nothing and only costs precision.
-    pub fn block_tensor(values: impl AsRef<[u8]>, global: QuantParam) -> Self {
-        QuantLevel::BlockTensor {
-            block: BlockSize::new(values),
-            global,
-        }
-    }
-
-    /// The block size, for the levels that quantize in blocks.
-    pub fn block_size(&self) -> Option<BlockSize> {
+impl LegacyQuantLevel {
+    /// The old shape split the innermost param off into its own scheme field, passed here.
+    fn into_levels(self, param: QuantParam) -> ScaleLevels {
         match self {
-            QuantLevel::Tensor => None,
-            QuantLevel::Block(block) | QuantLevel::BlockTensor { block, .. } => Some(*block),
+            LegacyQuantLevel::Tensor => ScaleLevels::tensor(param),
+            LegacyQuantLevel::Block(block) => ScaleLevels::one(ScaleLevel { block, param }),
+            LegacyQuantLevel::BlockTensor { block, global } => ScaleLevels {
+                storage: [
+                    ScaleLevel { block, param },
+                    ScaleLevel {
+                        block: BlockSize::full(),
+                        param: global,
+                    },
+                ],
+                len: 2,
+            },
         }
     }
+}
 
-    /// The precision of the per-tensor scale, for the levels that have one.
-    pub fn global_param(&self) -> Option<QuantParam> {
-        match self {
-            QuantLevel::Tensor | QuantLevel::Block(_) => None,
-            QuantLevel::BlockTensor { global, .. } => Some(*global),
+/// Hand-written to also accept the old shape (`value, param, store, level, mode`), which stored
+/// artifacts still carry. Old data only exists in name-keyed formats, so the legacy path lives in
+/// `visit_map` alone; positional formats carry in-flight messages between same-version peers and
+/// only need the current shape.
+impl<'de> Deserialize<'de> for QuantScheme {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SchemeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for SchemeVisitor {
+            type Value = QuantScheme;
+
+            fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                write!(f, "a quantization scheme")
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<QuantScheme, A::Error> {
+                use serde::de::Error;
+                Ok(QuantScheme {
+                    value: seq
+                        .next_element()?
+                        .ok_or_else(|| Error::invalid_length(0, &"value"))?,
+                    store: seq
+                        .next_element()?
+                        .ok_or_else(|| Error::invalid_length(1, &"store"))?,
+                    mode: seq
+                        .next_element()?
+                        .ok_or_else(|| Error::invalid_length(2, &"mode"))?,
+                    levels: seq
+                        .next_element()?
+                        .ok_or_else(|| Error::invalid_length(3, &"levels"))?,
+                })
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<QuantScheme, A::Error> {
+                use serde::de::Error;
+
+                let mut value = None;
+                let mut store = None;
+                let mut mode = None;
+                let mut levels: Option<ScaleLevels> = None;
+                let mut param: Option<QuantParam> = None;
+                let mut level: Option<LegacyQuantLevel> = None;
+
+                while let Some(key) = map.next_key::<alloc::borrow::Cow<str>>()? {
+                    match key.as_ref() {
+                        "value" => value = Some(map.next_value()?),
+                        "store" => store = Some(map.next_value()?),
+                        "mode" => mode = Some(map.next_value()?),
+                        "levels" => levels = Some(map.next_value()?),
+                        "param" => param = Some(map.next_value()?),
+                        "level" => level = Some(map.next_value()?),
+                        _ => {
+                            map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+
+                let levels = match (levels, level, param) {
+                    (Some(levels), None, None) => levels,
+                    (None, Some(level), Some(param)) => level.into_levels(param),
+                    (None, None, None) | (None, Some(_), None) | (None, None, Some(_)) => {
+                        return Err(Error::missing_field("levels"));
+                    }
+                    (Some(_), _, _) => {
+                        return Err(Error::custom(
+                            "a scheme carries either levels or the old level and param, not both",
+                        ));
+                    }
+                };
+
+                Ok(QuantScheme {
+                    value: value.ok_or_else(|| Error::missing_field("value"))?,
+                    store: store.ok_or_else(|| Error::missing_field("store"))?,
+                    mode: mode.ok_or_else(|| Error::missing_field("mode"))?,
+                    levels,
+                })
+            }
         }
+
+        deserializer.deserialize_struct(
+            "QuantScheme",
+            &["value", "store", "mode", "levels"],
+            SchemeVisitor,
+        )
     }
 }
 
@@ -463,7 +825,7 @@ pub enum QuantParam {
 const MAX_DIMS: usize = 5;
 
 /// Copyable block size, specialized version of `SmallVec`.
-#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct BlockSize {
     storage: [u8; MAX_DIMS],
     len: u8,
@@ -471,7 +833,11 @@ pub struct BlockSize {
 
 impl core::fmt::Debug for BlockSize {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(f, "BlockSize({:?})", self.as_slice())
+        if self.is_full() {
+            write!(f, "BlockSize(full)")
+        } else {
+            write!(f, "BlockSize({:?})", self.as_slice())
+        }
     }
 }
 
@@ -479,13 +845,46 @@ impl BlockSize {
     /// Max number of dimensions for block size
     pub const MAX_DIMS: usize = MAX_DIMS;
 
+    /// The dimension value meaning the block covers that axis entirely, resolved against the
+    /// tensor shape by [`resolved_dims`](Self::resolved_dims). Never valid as a literal extent.
+    pub const FULL: u8 = 0;
+
+    /// The block covering the whole tensor at any rank: one scale in total. Rank-free rather than
+    /// spelled per dimension, so a scheme stays independent of the tensors it is applied to.
+    pub const fn full() -> Self {
+        Self {
+            storage: [1; MAX_DIMS],
+            len: 0,
+        }
+    }
+
+    /// Whether this is the [`full`](Self::full) block, which makes its level per-tensor.
+    pub fn is_full(&self) -> bool {
+        self.len == 0
+    }
+
     /// Create a new blocksize from a set of values. The number of values must be `<= MAX_DIMS`.
+    ///
+    /// A dimension of [`FULL`](Self::FULL) covers that axis entirely.
+    ///
+    /// The result is canonical, so equal granularities compare and hash equal however they are
+    /// spelled: values full along every axis, including no values at all, become
+    /// [`full`](Self::full), and leading unit dimensions are dropped, since the missing-dimension
+    /// fill restates them.
     pub fn new(values: impl AsRef<[u8]>) -> Self {
         let values = values.as_ref();
         debug_assert!(
             values.len() <= MAX_DIMS,
             "Tried creating a block size larger than the cap"
         );
+        if values.iter().all(|&value| value == Self::FULL) {
+            return Self::full();
+        }
+        let skip = values
+            .iter()
+            .position(|&value| value != 1)
+            .unwrap_or(values.len() - 1);
+        let values = &values[skip..];
         let len = values.len().min(MAX_DIMS);
         let mut storage = [1; MAX_DIMS];
         storage[..len].copy_from_slice(&values[..len]);
@@ -493,14 +892,6 @@ impl BlockSize {
             storage,
             len: len as u8,
         }
-    }
-
-    /// Create a new blocksize from a set of values. The number of values must be `<= MAX_DIMS`.
-    /// Trims any leading zeros.
-    pub fn new_trim(values: impl AsRef<[u8]>) -> Self {
-        let values = values.as_ref();
-        let first_value = values.iter().position(|s| *s != 1).unwrap_or(0);
-        Self::new(&values[first_value..])
     }
 
     /// Return a slice of only the initialized values
@@ -513,8 +904,12 @@ impl BlockSize {
         self.storage[..self.len as usize].to_vec()
     }
 
-    /// Returns `N` dimensions, unsqueezing if necessary.
+    /// Returns `N` dimensions, unsqueezing if necessary. Missing leading dimensions fill with `1`,
+    /// except for the full block, which is full along every axis at any rank.
     pub fn as_dim<const N: usize>(&self) -> [u8; N] {
+        if self.is_full() {
+            return [Self::FULL; N];
+        }
         let data_len = N.min(self.len as usize);
         let data_start = N - data_len;
         let mut out = [1; N];
@@ -522,8 +917,12 @@ impl BlockSize {
         out
     }
 
-    /// Returns a vector of `len` dimensions, unsqueezing if necessary.
+    /// Returns a vector of `len` dimensions, unsqueezing if necessary. Missing leading dimensions
+    /// fill with `1`, except for the full block, which is full along every axis at any rank.
     pub fn to_dim_vec(&self, len: usize) -> Vec<u8> {
+        if self.is_full() {
+            return vec![Self::FULL; len];
+        }
         let data_len = len.min(self.len as usize);
         let data_start = len - data_len;
         let mut out = vec![1; len];
@@ -531,13 +930,55 @@ impl BlockSize {
         out
     }
 
+    /// The block's extent along every dimension of `shape`, with full dimensions resolved to the
+    /// shape's. This is the only reading of a block size that may enter arithmetic: the raw
+    /// dimensions can hold [`FULL`](Self::FULL), which divides and multiplies as a zero.
+    pub fn resolved_dims(&self, shape: &[usize]) -> Vec<usize> {
+        self.to_dim_vec(shape.len())
+            .into_iter()
+            .zip(shape)
+            .map(|(block, &dim)| {
+                if block == Self::FULL {
+                    dim
+                } else {
+                    block as usize
+                }
+            })
+            .collect()
+    }
+
+    /// Whether every block of `inner` sits inside one block of `self`, the nesting scale levels
+    /// require. Full contains everything; a finite extent contains the extents that divide it.
+    pub fn contains(&self, inner: &BlockSize) -> bool {
+        if self.is_full() {
+            return true;
+        }
+        if inner.is_full() {
+            return false;
+        }
+        let rank = self.len.max(inner.len) as usize;
+        self.to_dim_vec(rank)
+            .into_iter()
+            .zip(inner.to_dim_vec(rank))
+            .all(|(outer, inner)| {
+                outer == Self::FULL || (inner != Self::FULL && outer.is_multiple_of(inner))
+            })
+    }
+
     /// Create an iterator over all stored dimensions
     pub fn iter(&self) -> impl Iterator<Item = &u8> {
         self.as_slice().iter()
     }
 
-    /// Returns the total number of elements in each block
+    /// Returns the total number of elements in each block.
+    ///
+    /// Meaningless for a block with full dimensions, whose element count depends on the tensor:
+    /// resolve through [`resolved_dims`](Self::resolved_dims) instead.
     pub fn num_elements(&self) -> usize {
+        debug_assert!(
+            !self.is_full() && !self.as_slice().contains(&Self::FULL),
+            "a full dimension has no element count without a shape"
+        );
         self.iter().map(|it| *it as usize).product()
     }
 }
@@ -556,9 +997,318 @@ impl<T: AsRef<[u8]>> From<T> for BlockSize {
     }
 }
 
+/// Hand-written to route stored bytes through [`BlockSize::new`]: old artifacts carry
+/// non-canonical spellings (leading unit dimensions), and letting one deserialize raw would break
+/// the promise that equal granularities compare and hash equal.
+impl<'de> Deserialize<'de> for BlockSize {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename = "BlockSize")]
+        struct Raw {
+            storage: [u8; MAX_DIMS],
+            len: u8,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        let len = (raw.len as usize).min(MAX_DIMS);
+        Ok(BlockSize::new(&raw.storage[..len]))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn all_full_blocks_canonicalize_to_one_representation() {
+        assert_eq!(BlockSize::new([]), BlockSize::full());
+        assert_eq!(BlockSize::new([0, 0]), BlockSize::full());
+        assert!(BlockSize::new([0, 0, 0]).is_full());
+        assert!(!BlockSize::new([0, 32]).is_full());
+    }
+
+    #[test]
+    fn full_dimensions_resolve_to_the_shape() {
+        assert_eq!(BlockSize::full().resolved_dims(&[8, 64]), vec![8, 64]);
+        assert_eq!(BlockSize::new([0, 32]).resolved_dims(&[8, 64]), vec![8, 32]);
+        assert_eq!(BlockSize::new([32]).resolved_dims(&[8, 64]), vec![1, 32]);
+    }
+
+    #[test]
+    fn the_grid_is_one_scale_per_block() {
+        let level = |block| ScaleLevel {
+            block,
+            param: QuantParam::F32,
+        };
+        assert_eq!(level(BlockSize::full()).grid(&[8, 64]), vec![1, 1]);
+        assert_eq!(level(BlockSize::new([32])).grid(&[8, 64]), vec![8, 2]);
+        assert_eq!(level(BlockSize::new([0, 32])).grid(&[8, 64]), vec![1, 2]);
+    }
+
+    /// Leading unit dimensions restate the missing-dimension fill, so equal granularities spelled
+    /// at different ranks must land on one representation.
+    #[test]
+    fn leading_unit_dimensions_canonicalize_away() {
+        assert_eq!(BlockSize::new([1, 32]), BlockSize::new([32]));
+        assert_eq!(BlockSize::new([1, 0, 32]), BlockSize::new([0, 32]));
+        assert_eq!(BlockSize::new([1, 1]), BlockSize::new([1]));
+        assert_ne!(BlockSize::new([32, 1]), BlockSize::new([32]));
+    }
+
+    #[test]
+    #[should_panic(expected = "share the same granularity")]
+    fn equal_granularities_spelled_differently_are_still_duplicates() {
+        ScaleLevels::block([1, 32], QuantParam::F16).and_block([32], QuantParam::F32);
+    }
+
+    #[test]
+    fn containment_is_divisibility_with_full_on_top() {
+        assert!(BlockSize::full().contains(&BlockSize::new([32])));
+        assert!(!BlockSize::new([32]).contains(&BlockSize::full()));
+        assert!(BlockSize::new([32]).contains(&BlockSize::new([16])));
+        assert!(!BlockSize::new([16]).contains(&BlockSize::new([32])));
+        assert!(!BlockSize::new([12]).contains(&BlockSize::new([8])));
+    }
+
+    #[test]
+    fn levels_sort_innermost_first_whatever_the_input_order() {
+        let block = ScaleLevel {
+            block: BlockSize::new([16]),
+            param: QuantParam::UE4M3,
+        };
+        let tensor = ScaleLevel {
+            block: BlockSize::full(),
+            param: QuantParam::F32,
+        };
+        let sorted = ScaleLevels::try_new(&[tensor, block]).unwrap();
+        assert_eq!(sorted.levels(), &[block, tensor]);
+        assert_eq!(
+            sorted,
+            ScaleLevels::block([16], QuantParam::UE4M3).and_tensor(QuantParam::F32)
+        );
+    }
+
+    #[test]
+    fn levels_without_a_containment_order_are_rejected() {
+        let a = ScaleLevel {
+            block: BlockSize::new([8]),
+            param: QuantParam::F32,
+        };
+        let b = ScaleLevel {
+            block: BlockSize::new([12]),
+            param: QuantParam::F32,
+        };
+        assert_eq!(
+            ScaleLevels::try_new(&[a, b]),
+            Err(InvalidScaleLevels::NotNested)
+        );
+        assert_eq!(
+            ScaleLevels::try_new(&[a, a]),
+            Err(InvalidScaleLevels::Duplicate)
+        );
+        assert_eq!(ScaleLevels::try_new(&[]), Err(InvalidScaleLevels::Empty));
+    }
+
+    /// An all-full block canonicalizes to the tensor granularity, so adding a tensor level on top
+    /// duplicates it.
+    #[test]
+    #[should_panic(expected = "share the same granularity")]
+    fn two_levels_with_the_same_granularity_are_rejected() {
+        ScaleLevels::block([0, 0], QuantParam::F16).and_tensor(QuantParam::F32);
+    }
+
+    #[test]
+    fn levels_added_in_any_order_sort_by_containment() {
+        assert_eq!(
+            ScaleLevels::tensor(QuantParam::F32).and_block([16], QuantParam::UE4M3),
+            ScaleLevels::block([16], QuantParam::UE4M3).and_tensor(QuantParam::F32),
+        );
+    }
+
+    #[test]
+    fn inner_drops_the_outermost_level() {
+        let two = ScaleLevels::block([16], QuantParam::UE4M3).and_tensor(QuantParam::F32);
+        assert_eq!(
+            two.inner(),
+            Some(ScaleLevels::block([16], QuantParam::UE4M3))
+        );
+    }
+
+    #[test]
+    fn a_single_level_has_no_inner() {
+        assert_eq!(ScaleLevels::tensor(QuantParam::F32).inner(), None);
+    }
+
+    #[test]
+    fn swapping_dims_rewrites_every_level_and_leaves_full_blocks_alone() {
+        let mut scheme = QuantScheme::default()
+            .with_scales(ScaleLevels::block([4, 32], QuantParam::F16).and_tensor(QuantParam::F32));
+        scheme.swap_block_dims(2, 0, 1);
+        assert_eq!(
+            scheme.levels(),
+            ScaleLevels::block([32, 4], QuantParam::F16)
+                .and_tensor(QuantParam::F32)
+                .levels()
+        );
+
+        let mut per_tensor = QuantScheme::default();
+        per_tensor.swap_block_dims(2, 0, 1);
+        assert_eq!(per_tensor, QuantScheme::default());
+    }
+
+    #[test]
+    fn permuting_dims_rewrites_every_level() {
+        let mut scheme =
+            QuantScheme::default().with_scales(ScaleLevels::block([1, 4, 32], QuantParam::F16));
+        scheme.permute_block_dims(3, &[2, 0, 1]);
+        assert_eq!(scheme.block_size(), BlockSize::new([32, 1, 4]));
+    }
+
+    #[test]
+    fn the_default_scheme_is_per_tensor_f32() {
+        let scheme = QuantScheme::default();
+        assert_eq!(
+            scheme.levels(),
+            ScaleLevels::tensor(QuantParam::F32).levels()
+        );
+        assert_eq!(scheme.param(), QuantParam::F32);
+        assert!(scheme.block_size().is_full());
+    }
+
+    mod serde_compat {
+        use super::*;
+        use serde::Serialize;
+
+        /// The scheme shape before scale levels, byte-for-byte as stored artifacts carry it:
+        /// same field names, order, and variant names as the old derives produced.
+        ///
+        /// Declared independently of `LegacyQuantLevel` on purpose: serializing through the shim's
+        /// own type would test it against itself, and a name it gets wrong would pass unnoticed.
+        #[derive(Serialize)]
+        struct OldScheme {
+            value: QuantValue,
+            param: QuantParam,
+            store: QuantStore,
+            level: OldLevel,
+            mode: QuantMode,
+        }
+
+        #[derive(Serialize)]
+        enum OldLevel {
+            #[allow(dead_code)]
+            Tensor,
+            Block(OldBlockSize),
+            BlockTensor {
+                block: OldBlockSize,
+                global: QuantParam,
+            },
+        }
+
+        /// The raw stored shape of a block size, free to spell non-canonical bytes the way old
+        /// artifacts do.
+        #[derive(Serialize)]
+        #[serde(rename = "BlockSize")]
+        struct OldBlockSize {
+            storage: [u8; 5],
+            len: u8,
+        }
+
+        fn old_block(values: &[u8]) -> OldBlockSize {
+            let mut storage = [1; 5];
+            storage[..values.len()].copy_from_slice(values);
+            OldBlockSize {
+                storage,
+                len: values.len() as u8,
+            }
+        }
+
+        fn cbor_round_trip<T: Serialize, O: for<'de> Deserialize<'de>>(value: &T) -> O {
+            let mut bytes = alloc::vec::Vec::new();
+            ciborium::ser::into_writer(value, &mut bytes).unwrap();
+            ciborium::de::from_reader(bytes.as_slice()).unwrap()
+        }
+
+        #[test]
+        fn the_current_shape_round_trips() {
+            for scheme in [
+                QuantScheme::default(),
+                QuantScheme::default()
+                    .with_value(QuantValue::E2M1)
+                    .with_store(QuantStore::PackedNative(0))
+                    .with_scales(
+                        ScaleLevels::block([16], QuantParam::UE4M3).and_tensor(QuantParam::F32),
+                    ),
+            ] {
+                assert_eq!(cbor_round_trip::<_, QuantScheme>(&scheme), scheme);
+            }
+        }
+
+        #[test]
+        fn an_old_per_tensor_scheme_still_loads() {
+            let old = OldScheme {
+                value: QuantValue::Q8S,
+                param: QuantParam::F32,
+                store: QuantStore::Native,
+                level: OldLevel::Tensor,
+                mode: QuantMode::Symmetric,
+            };
+            let loaded: QuantScheme = cbor_round_trip(&old);
+            assert_eq!(
+                loaded,
+                QuantScheme::default()
+                    .with_value(QuantValue::Q8S)
+                    .with_store(QuantStore::Native)
+                    .with_scales(ScaleLevels::tensor(QuantParam::F32))
+            );
+        }
+
+        #[test]
+        fn an_old_block_scheme_still_loads() {
+            let old = OldScheme {
+                value: QuantValue::Q8F,
+                param: QuantParam::F16,
+                store: QuantStore::PackedU32(0),
+                level: OldLevel::Block(old_block(&[32])),
+                mode: QuantMode::Symmetric,
+            };
+            let spelled_wide = OldScheme {
+                level: OldLevel::Block(old_block(&[1, 32])),
+                ..old
+            };
+            // A stored non-canonical spelling lands on the canonical value, so the two hash and
+            // compare equal after loading.
+            assert_eq!(
+                cbor_round_trip::<_, QuantScheme>(&spelled_wide),
+                cbor_round_trip::<_, QuantScheme>(&old)
+            );
+            let loaded: QuantScheme = cbor_round_trip(&old);
+            assert_eq!(
+                loaded,
+                QuantScheme::default().with_scales(ScaleLevels::block([32], QuantParam::F16))
+            );
+        }
+
+        #[test]
+        fn an_old_two_level_scheme_still_loads() {
+            let old = OldScheme {
+                value: QuantValue::Q8F,
+                param: QuantParam::UE4M3,
+                store: QuantStore::PackedU32(0),
+                level: OldLevel::BlockTensor {
+                    block: old_block(&[16]),
+                    global: QuantParam::F32,
+                },
+                mode: QuantMode::Symmetric,
+            };
+            let loaded: QuantScheme = cbor_round_trip(&old);
+            assert_eq!(
+                loaded,
+                QuantScheme::default().with_scales(
+                    ScaleLevels::block([16], QuantParam::UE4M3,).and_tensor(QuantParam::F32)
+                )
+            );
+        }
+    }
 
     #[test]
     fn round_up_never_lands_below_the_scale() {
