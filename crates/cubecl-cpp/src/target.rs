@@ -19,34 +19,6 @@ pub struct Hip;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Metal;
 
-pub trait TargetName {
-    fn name() -> &'static str;
-}
-
-impl TargetName for Shared {
-    fn name() -> &'static str {
-        "shared"
-    }
-}
-
-impl TargetName for Cuda {
-    fn name() -> &'static str {
-        "cuda"
-    }
-}
-
-impl TargetName for Hip {
-    fn name() -> &'static str {
-        "hip"
-    }
-}
-
-impl TargetName for Metal {
-    fn name() -> &'static str {
-        "metal"
-    }
-}
-
 impl Target {
     pub fn ty_prefix(&self, ctx: &Context, ty: impl Typed) -> &'static str {
         if ty.is_half(ctx) {
