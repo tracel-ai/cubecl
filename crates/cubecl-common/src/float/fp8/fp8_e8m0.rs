@@ -80,7 +80,7 @@ impl ue8m0 {
 
 impl Display for ue8m0 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", ue8m0::to_f64(*self))
+        write!(f, "ue8m0({:x})", self.0)
     }
 }
 
