@@ -93,12 +93,15 @@ pub fn register_metal_features(
 }
 
 fn register_features(
-    _adapter: &metal::Adapter,
+    adapter: &metal::Adapter,
     props: &mut DeviceProperties,
     _features: Features,
     _comp_options: &mut WgpuCompilationOptions,
 ) {
     register_types(props);
+    if device_compiles_bfloat(adapter) {
+        register_bf16(props);
+    }
     register_cmma(props);
     props.features.alignment = true;
     props.features.plane.insert(Plane::Ops);
@@ -141,6 +144,43 @@ fn register_types(props: &mut DeviceProperties) {
         props
             .register_atomic_type_usage(Type::atomic(ty), AtomicUsage::Add | AtomicUsage::LoadStore)
     }
+}
+
+/// Registers `bf16` for the msl passthrough. Only called when
+/// [`device_compiles_bfloat`] proved the device+OS pair actually compiles
+/// `bfloat` MSL — the codegen for it already exists in `cubecl-cpp`'s metal
+/// dialect (reductions fall back through `float`, shuffles through `ushort`),
+/// so registration is the only missing link on capable systems.
+fn register_bf16(props: &mut DeviceProperties) {
+    use cubecl_core::ir::{ElemType, FloatKind};
+    props.register_type_usage(ElemType::Float(FloatKind::BF16), TypeUsage::all());
+}
+
+/// Probe-compiles a one-line `bfloat` kernel on the adapter's raw device.
+///
+/// `bfloat` needs MSL 3.1 (macOS 14+ / iOS 17+) AND an Apple6+ GPU family —
+/// rather than encoding that version/family table here (wgpu-hal keeps its
+/// resolved `msl_version` private), the probe tests the real condition
+/// directly: can THIS device on THIS OS compile a `bfloat` kernel? A few
+/// milliseconds, once per device init, and it fails closed on any error.
+fn device_compiles_bfloat(adapter: &metal::Adapter) -> bool {
+    use objc2_foundation::NSString;
+    use objc2_metal::MTLDevice;
+
+    let src = NSString::from_str(concat!(
+        "#include <metal_stdlib>\n",
+        "using namespace metal;\n",
+        "kernel void cubecl_bf16_probe(device bfloat* x [[buffer(0)]],\n",
+        "                              uint i [[thread_position_in_grid]]) {\n",
+        "    x[i] = bfloat(float(x[i]) + 1.0f);\n",
+        "}\n"
+    ));
+    // Default compile options resolve to the OS's newest supported MSL —
+    // the same ceiling wgpu-hal's private `msl_version` ladder tracks.
+    adapter
+        .raw_device()
+        .newLibraryWithSource_options_error(&src, None)
+        .is_ok()
 }
 
 fn register_cmma(props: &mut DeviceProperties) {
