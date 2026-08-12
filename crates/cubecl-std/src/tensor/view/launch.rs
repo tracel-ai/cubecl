@@ -395,7 +395,7 @@ mod dynamic {
 
     use crate::{
         quant::{
-            self, GlobalScaleArg, GlobalScaleCompilationArg,
+            self,
             view::{RegisterDynamic, run_with_quant_type},
         },
         tensor::{
@@ -428,7 +428,7 @@ mod dynamic {
         Quantized {
             values: Box<ViewArg<C, R>>,
             scales: Box<ViewArg<C, R>>,
-            global: GlobalScaleArg<R>,
+            global: Option<BufferArg<R>>,
             scheme: QuantScheme,
         },
     }
@@ -482,7 +482,7 @@ mod dynamic {
         /// Panics for a level that quantizes in two levels, which needs the per-tensor scale
         /// [`ViewArg::new_quantized_two_level`] takes.
         pub fn new_quantized(values: Self, scales: Self, scheme: QuantScheme) -> Self {
-            Self::quantized(values, scales, GlobalScaleArg::none(), scheme)
+            Self::quantized(values, scales, None, scheme)
         }
 
         /// Create a new view arg that dequantizes on read against two levels of scales.
@@ -497,16 +497,16 @@ mod dynamic {
             global: BufferArg<R>,
             scheme: QuantScheme,
         ) -> Self {
-            Self::quantized(values, scales, GlobalScaleArg::new(global), scheme)
+            Self::quantized(values, scales, Some(global), scheme)
         }
 
         fn quantized(
             values: Self,
             scales: Self,
-            global: GlobalScaleArg<R>,
+            global: Option<BufferArg<R>>,
             scheme: QuantScheme,
         ) -> Self {
-            global.validate(scheme.level);
+            quant::check_global_bindings(scheme.level, global.is_some());
             Self::Quantized {
                 values: Box::new(values),
                 scales: Box::new(scales),
@@ -532,7 +532,7 @@ mod dynamic {
         Quantized {
             values: Box<ViewCompilationArg<C>>,
             scales: Box<ViewCompilationArg<C>>,
-            global: GlobalScaleCompilationArg,
+            global: Option<BufferCompilationArg>,
             scheme: QuantScheme,
         },
     }
@@ -736,7 +736,7 @@ mod dynamic {
                     scales,
                     global,
                     scheme,
-                } => quant::view::expand_dynamic(values, scales, global, *scheme, builder),
+                } => quant::view::expand_dynamic(values, scales, global.as_ref(), *scheme, builder),
             }
         }
     }

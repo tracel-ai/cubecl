@@ -1,4 +1,3 @@
-use crate::quant::GlobalScale;
 use cubecl::prelude::*;
 use cubecl_common::quant::scheme::*;
 use cubecl_common::{e2m1x2, e4m3, e5m2};
@@ -6,23 +5,36 @@ use cubecl_core as cubecl;
 
 /// Dequantize a vector of values, where `vector_size * num_quants` is a power of two.
 /// Unaligned values can't be dequantized in place.
+///
+/// `global` is the per-tensor scale of a two-level scheme, already read, and must be present
+/// exactly when `scheme.level` has one.
 #[cube]
 pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
     value: Vector<Q, NQ>,
     scale: S,
-    global: GlobalScale,
+    global: ComptimeOption<f32>,
     #[comptime] scheme: QuantScheme,
 ) -> Vector<F, NF> {
     // Every read from a quantized view lands here, so this is where a binding that disagrees with
     // the scheme has to be caught: the static constructors take a scheme without inspecting it.
-    comptime!(global.validate(scheme.level));
+    comptime!(crate::quant::check_global_bindings(
+        scheme.level,
+        global.is_some()
+    ));
 
     let q_values = match scheme.store {
         QuantStore::Native | QuantStore::PackedNative(_) => Vector::<F, NF>::cast_from(value),
         QuantStore::PackedU32(_) => unpack_cast_u32::<F, NQ, NF>(Vector::cast_from(value), scheme),
     };
 
-    let effective_scale = global.effective::<S, F, NF>(scale);
+    // The two levels multiply in f32: a block scale is normalized against the per-tensor scale, so
+    // on its own it overflows a narrow `F` by orders of magnitude before the per-tensor scale can
+    // bring the product back into a range `F` holds.
+    #[comptime]
+    let effective_scale = match global {
+        ComptimeOption::Some(global) => Vector::<F, NF>::cast_from(global * f32::cast_from(scale)),
+        ComptimeOption::None => Vector::<F, NF>::cast_from(scale),
+    };
 
     match scheme.mode {
         QuantMode::Symmetric => q_values * effective_scale,
@@ -112,7 +124,6 @@ fn cast_masked<F: Numeric, N: Size>(value: u32, #[comptime] scheme: QuantScheme)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quant::GlobalScaleExpand;
     use cubecl_core::ir::{ElemType, Scope, UIntKind};
     use cubecl_core::{define_size, ir::settings::Dim3};
 
@@ -148,7 +159,7 @@ mod tests {
             &scope,
             value,
             one,
-            GlobalScaleExpand::none(),
+            ComptimeOptionExpand::None,
             two_level_scheme(),
         );
     }
@@ -164,7 +175,7 @@ mod tests {
             &scope,
             value,
             one,
-            GlobalScaleExpand::some(one),
+            ComptimeOptionExpand::Some(one),
             QuantScheme::default(),
         );
     }
@@ -179,7 +190,7 @@ mod tests {
             &scope,
             value,
             one,
-            GlobalScaleExpand::some(one),
+            ComptimeOptionExpand::Some(one),
             two_level_scheme(),
         );
     }
