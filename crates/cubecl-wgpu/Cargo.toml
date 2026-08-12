@@ -31,7 +31,7 @@ std = [
 ]
 # 'msl' and 'spirv' features are exclusive
 # TODO find a way to have wgpu runtime auto-compiler to support several compilers at the same time
-msl = ["cubecl-cpp/metal"]
+msl = ["cubecl-cpp/metal", "dep:objc2-metal", "dep:objc2-foundation"]
 profile-tracy = ["tracy-client"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/hash"]
 
@@ -104,6 +104,10 @@ wgpu = { workspace = true, features = ["fragile-send-sync-non-atomic-wasm"] }
 ## On macOS, the `vulkan-portability` feature is required due to the MoltenVK translation layer.
 # To install MoltenVK, install the VulkanSDK: https://vulkan.lunarg.com/sdk/home#mac
 [target.'cfg(target_os = "macos")'.dependencies]
+# bf16 probe gate for the msl passthrough (see backend/metal.rs). Versions
+# match wgpu-hal's own objc2 stack, so these add no new lockfile entries.
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLLibrary"], optional = true }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSError"], optional = true }
 wgpu = { workspace = true, features = [
     "vulkan-portability",
     "fragile-send-sync-non-atomic-wasm",
