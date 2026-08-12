@@ -180,7 +180,7 @@ impl Verify for CompositeConstructOp {
 
 #[derive(Error, Debug)]
 pub enum CompositeOpError {
-    #[error("[CompositeOp]: Index is out of range: index is {_0} but vectorization is {_1}.")]
+    #[error("[CompositeOp]: Index is out of range: index is {_0} but composite size is {_1}.")]
     IndexOutOfRange(usize, usize),
     #[error(
         "[CompositeOp]: Field type doesn't match the inner type of the composite: expected {_0}, got {_1}"
@@ -239,7 +239,6 @@ impl DestructurableAccessorOpInterface for CompositeExtractOp {
     verifier = "custom"
 )]
 #[result_ty(same_as = composite)]
-#[op_interfaces(OperandNOfType<0, VectorType>, ResultNOfType<0, VectorType>)]
 #[op_traits(CanMaterialize, Pure)]
 pub struct CompositeInsertOp {
     pub composite: Value,

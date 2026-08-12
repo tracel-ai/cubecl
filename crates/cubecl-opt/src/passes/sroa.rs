@@ -1,6 +1,6 @@
 //! Scalar replacement of aggregates (SROA) pass.
 //!
-//! Unlike the MLIR version it's cribbing from, this is *not* specific to memory and works for SSA
+//! Unlike the MLIR version it's inspired from, this is *not* specific to memory and works for SSA
 //! composites like slice pointers or vectors. It finds destructurable composites, collects all
 //! uses. Then, if all uses can be safely destructured (they're either extract/insert or load/store
 //! on an indexed pointer), the original composite is destructured into its components and each

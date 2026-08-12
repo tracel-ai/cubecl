@@ -23,7 +23,7 @@ pub trait PromotableRegionOpInterface {
 
     /// Returns true if `region` (a child of this op) can be analysed for
     /// promotion with respect to `alloc`.
-    /// `hasValueStores` is a hint: true when the region contains stores to alloc.
+    /// `has_value_stores` is a hint: true when the region contains stores to alloc.
     fn is_region_promotable(
         &self,
         ctx: &Context,
@@ -33,8 +33,8 @@ pub trait PromotableRegionOpInterface {
     ) -> bool;
 
     /// Called before descending into nested regions.
-    /// `reachingDef` is the value in `slot` on entry to this op.
-    /// Populate `regionsToProcess` with the reaching def each region starts with.
+    /// `reaching_def` is the value in `slot` on entry to this op.
+    /// Populate `regions_to_process` with the reaching def each region starts with.
     /// You may mutate the op in place, but do NOT delete ops or touch terminators.
     fn setup_promotion(
         &self,
