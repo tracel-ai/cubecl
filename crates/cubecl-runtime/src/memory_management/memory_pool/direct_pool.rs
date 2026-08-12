@@ -234,16 +234,24 @@ impl MemoryPool for DirectPool {
         }
     }
 
-    /// Return **every** free slice, whatever the ceiling says: a cleanup is
-    /// the caller stating that reuse is worth less than the memory right now,
-    /// which is exactly the judgement [`reclaim_at`](Self::reclaim_at)
-    /// automates in the absence of one.
+    /// On an explicit cleanup, return **every** free slice, whatever the
+    /// ceiling says: the caller is stating that reuse is worth less than the
+    /// memory right now, which is exactly the judgement
+    /// [`reclaim_at`](Self::reclaim_at) automates in the absence of one.
+    ///
+    /// Periodic (non-explicit) cleanups are ignored — below the ceiling, free
+    /// slices are held for reuse by design, and crossing the ceiling (handled
+    /// in `alloc`) is what returns memory to the driver.
     fn cleanup<Storage: crate::storage::ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
-        _explicit: bool,
+        explicit: bool,
     ) {
+        if !explicit {
+            return;
+        }
+
         for (index, entry) in self.slices.iter_mut().enumerate() {
             let Some(slice) = entry else { continue };
             if !slice.is_free() {
