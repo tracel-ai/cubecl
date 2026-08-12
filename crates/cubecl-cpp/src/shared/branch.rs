@@ -5,8 +5,7 @@ use cubecl_core::ir::{
 use pliron::{basic_block::BasicBlock, linked_list::ContainsLinkedList};
 
 use crate::shared::{
-    CppValue, OpExtCPP, scoped_block, shared_op, shared_op_with_out, ty::TypeExtCPP,
-    unroll::unrolling,
+    CppValue, OpExtCPP, shared_op, shared_op_with_out, ty::TypeExtCPP, unroll::unrolling,
 };
 
 pub fn block_to_cpp(ctx: &Context, block: Ptr<BasicBlock>) -> String {
@@ -47,8 +46,10 @@ shared_op!(SwitchOp, |op, ctx| {
 
 // Only relevant for IR structure
 shared_op!(YieldOp, |_, _| String::new());
+// Terminates a `WhileOp` before-block, which [`WhileOp`] emits inline at the top of the loop
+// body. MSL has no lambdas, so the condition cannot be an expression.
 shared_op!(ConditionOp, |op, ctx| {
-    format!("return {};", op.condition(ctx).name(ctx))
+    format!("if(!{}) break;", op.condition(ctx).name(ctx))
 });
 
 shared_op!(ReturnOp, |op, ctx| {
@@ -73,11 +74,12 @@ shared_op!(RangeLoopOp, |op, ctx| {
     out
 });
 
+// The before-block computes the condition and can span many instructions, so it runs inline at
+// the top of the body and its `ConditionOp` terminator breaks out. Equivalent to `while(cond)`,
+// and unlike a lambda condition it is valid MSL.
 shared_op!(WhileOp, |op, ctx| {
-    let cond = scoped_block! {
-        block_to_cpp(ctx, op.before_block(ctx))
-    };
-    let mut out = format!("while({cond}) {{\n");
+    let mut out = String::from("for(;;) {\n");
+    out.push_str(&block_to_cpp(ctx, op.before_block(ctx)));
     out.push_str(&block_to_cpp(ctx, op.after_block(ctx)));
     out.push_str("}\n");
     out

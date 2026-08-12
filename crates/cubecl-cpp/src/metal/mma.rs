@@ -68,7 +68,7 @@ metal_op!(StoreOp, |op, ctx| {
     format!(
         "
 simdgroup_store(*{mat}, {destination}, {stride});
-simdgroup_barrier(mem_flags::mem_none);"
+simdgroup_barrier(mem_flags::mem_threadgroup);"
     )
 });
 

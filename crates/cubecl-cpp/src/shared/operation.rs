@@ -197,8 +197,10 @@ shared_op_with_out!(FmaOp, |op, ctx| {
     let a = op.a(ctx).name(ctx);
     let b = op.b(ctx).name(ctx);
     let c = op.c(ctx).name(ctx);
-    format!("fma({a}, {b}, {c});")
+    format!("fma({a}, {b}, {c})")
 });
+// Vectors are plain structs in every C++ target, so no `fma` overload accepts one.
+crate::shared::unroll::unrolling!(FmaOp);
 
 shared_op!(CommentOp, |op, ctx| {
     let content = String::from(op.comment(ctx).clone());
