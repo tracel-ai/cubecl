@@ -28,6 +28,7 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, SharedMemoryBindings},
+    metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -69,6 +70,14 @@ pub struct WgpuStream {
     /// Kept alive here until the next `flush` ties their release to the submission's completion.
     /// See [`ScheduleTask::Execute::pins`](crate::schedule::ScheduleTask).
     shared_bindings: SharedMemoryBindings,
+    /// Reusable per-launch info uniforms (kernel shapes/strides/scalars), keyed
+    /// by the exact info words they were built from — same scheme as the CUDA
+    /// and HIP servers. A hit reuses the already-uploaded uniform buffer, so a
+    /// stable-shape launch costs no uniform reservation and no
+    /// `queue.write_buffer`. The cached [`ManagedMemoryHandle`] keeps the slice
+    /// reserved past the per-flush release in
+    /// [`WgpuMemManager::release_uniforms`].
+    pub(crate) info_cache: MetadataInfoCache<(ManagedMemoryHandle, WgpuResource)>,
 }
 
 impl WgpuStream {
@@ -138,6 +147,11 @@ impl WgpuStream {
             submission_load: SubmissionLoad::default(),
             pending_write_count: 0,
             shared_bindings: SharedMemoryBindings::default(),
+            // Tighter entry cap than the default policy: the uniforms pool is
+            // bucketed exclusive pages with a 32 KiB minimum, so every cached
+            // entry pins a whole page (512 × 32 KiB ≈ 16 MiB worst case) —
+            // unlike CUDA/HIP where an entry is a small dynamic-pool slice.
+            info_cache: MetadataInfoCache::new(MetadataCachePolicy::new(512, 2048)),
         }
     }
 
@@ -427,8 +441,33 @@ impl WgpuStream {
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
-        let resource = self.mem_manage.reserve_uniform(data.len() as u64);
+        let (_handle, resource) = self.mem_manage.reserve_uniform(data.len() as u64);
         self.write_to_buffer(&resource, data);
+        resource
+    }
+
+    /// Stage the metadata info `words` into a uniform, reusing a cached one
+    /// when a launch has already staged these exact words. The info is
+    /// read-only metadata (no buffer bindings), so sharing it across launches —
+    /// even of different kernels — is sound; see
+    /// [`MetadataInfoCache`](cubecl_runtime::metadata_cache::MetadataInfoCache).
+    /// A hit's buffer bytes always equal the key bytes, so it is byte-identical
+    /// to what the miss path would have built and uploaded.
+    pub(crate) fn info_uniform(&mut self, words: &[u64]) -> WgpuResource {
+        let size = core::mem::size_of_val(words);
+        if !self.info_cache.should_cache(size) {
+            return self.create_uniform(bytemuck::cast_slice(words));
+        }
+        // Look up by the borrowed words — a hit clones nothing but the
+        // resource. On a miss we build the uniform and clone the words into
+        // the cache as the key.
+        if let Some((_handle, resource)) = self.info_cache.get(words) {
+            return resource;
+        }
+        let (handle, resource) = self.mem_manage.reserve_uniform(size as u64);
+        self.write_to_buffer(&resource, bytemuck::cast_slice(words));
+        self.info_cache
+            .insert(words.to_vec(), (handle, resource.clone()));
         resource
     }
 
