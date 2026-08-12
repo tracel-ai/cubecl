@@ -235,13 +235,17 @@ impl WgpuStream {
             staging_info.push(Some((staging, binding, size)));
         }
 
-        // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
-        let _ = self
-            .flush(StreamErrorMode {
-                ignore: true,
-                flush: false,
-            })
-            .ok();
+        // Flush all commands to the queue, so GPU gets started on copying to the
+        // staging buffer. This is also where accumulated stream errors resurface:
+        // a kernel that failed at launch (e.g. a compilation error) never wrote
+        // the buffers this read is about to return, so returning bytes instead of
+        // the error would silently hand back stale memory.
+        if let Err(err) = self.flush(StreamErrorMode {
+            ignore: false,
+            flush: true,
+        }) {
+            return Box::pin(async move { Err(err) });
+        }
 
         for entry in staging_info.iter() {
             if let Some((staging, _binding, _size)) = entry {
