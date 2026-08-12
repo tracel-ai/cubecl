@@ -29,6 +29,7 @@ use pliron::{
     parsable::{IntoParseResult, Parsable},
     printable::Printable,
     r#type::{TypeHandle, type_cast},
+    utils::table::{HMap, SmallSet},
     verify_err,
 };
 use thiserror::Error;
@@ -36,9 +37,18 @@ use thiserror::Error;
 use crate::{
     AddressSpace, CanMaterialize, NoSideEffects, Pure,
     attributes::IndexAttr,
-    dialect::{general::PoisonOp, ptr_value_ty},
-    interfaces::{IndexableType, TriviallyUnrollable, aliasing::AliasingOp},
+    dialect::{general::PoisonOp, math::index_attr, ptr_value_ty},
+    interfaces::{
+        IndexableType, TriviallyUnrollable, TypedExt,
+        aliasing::AliasingOp,
+        memory_slot::{
+            DeletionKind, DestructurableAccessorOpInterface, DestructurableConstructorOpInterface,
+            DestructurableTypeInterface, DestructurableValueSlot, LogicalResult,
+            SafeMemorySlotAccessOpInterface, ValueSlot,
+        },
+    },
     prelude::*,
+    try_cast_ty,
     types::{PointerType, scalar::IndexType},
 };
 
@@ -161,6 +171,69 @@ impl PromotableAllocationInterface for DeclareVariableOp {
     }
 }
 
+#[op_interface_impl]
+impl DestructurableConstructorOpInterface for DeclareVariableOp {
+    fn destructurable_values(&self, ctx: &Context) -> Vec<DestructurableValueSlot> {
+        if self.addr_space(ctx).0 != AddressSpace::Local || self.initializer(ctx).is_some() {
+            return vec![];
+        }
+        let value_ty = self.value_ty(ctx).get_type(ctx);
+        let ty = value_ty.deref(ctx);
+        let Some(destructurable) = type_cast::<dyn DestructurableTypeInterface>(&*ty) else {
+            return vec![];
+        };
+        let Some(destructured_type) = destructurable.subelement_index_map(ctx) else {
+            return vec![];
+        };
+
+        vec![DestructurableValueSlot {
+            slot: ValueSlot::new(self.get_result(ctx), value_ty),
+            subelement_types: destructured_type,
+        }]
+    }
+
+    fn destructure(
+        &self,
+        ctx: &mut Context,
+        _value: &DestructurableValueSlot,
+        used_indices: &SmallSet<AttrObj, 8>,
+        rewriter: &mut PassRewriter,
+        new_constructors: &mut Vec<TraitOp<dyn DestructurableConstructorOpInterface>>,
+    ) -> HMap<AttrObj, ValueSlot> {
+        let addr_space = self.addr_space(ctx).0;
+        let destructured_type = {
+            let ty = self.value_ty(ctx).get_type(ctx).deref(ctx);
+            let destructurable = try_cast_ty!(ty, ctx, dyn DestructurableTypeInterface);
+            destructurable.subelement_index_map(ctx).unwrap()
+        };
+
+        let mut slot_map = HMap::new();
+        for used_index in used_indices {
+            let value_ty = destructured_type[used_index];
+            let align = value_ty.align(ctx);
+            let suballoc = DeclareVariableOp::new(ctx, value_ty, addr_space, align, None);
+            rewriter.append_op(ctx, &suballoc);
+
+            let slot = ValueSlot::new(suballoc.get_result(ctx), value_ty);
+            slot_map.insert(used_index.clone(), slot);
+            new_constructors.push(TraitOp::try_from_op(suballoc.get_operation(), ctx).unwrap());
+        }
+
+        slot_map
+    }
+
+    fn handle_destructuring_complete(
+        &self,
+        ctx: &mut Context,
+        value: &DestructurableValueSlot,
+        rewriter: &mut PassRewriter,
+    ) -> Option<TraitOp<dyn DestructurableConstructorOpInterface>> {
+        assert_eq!(value.slot.value, self.get_result(ctx));
+        rewriter.erase_operation(ctx, self.get_operation());
+        None
+    }
+}
+
 fn variable_ptr_ty(
     ctx: &Context,
     value_ty: &TypeAttr,
@@ -189,6 +262,53 @@ pub struct IndexOp {
 impl AliasingOp for IndexOp {
     fn source_ptr(&self, ctx: &Context) -> Option<Value> {
         Some(self.base(ctx))
+    }
+}
+
+fn const_index(ctx: &Context, value: Value) -> Option<usize> {
+    let def_op = value.defining_op()?;
+    let const_def = def_op.as_op::<ConstantOp>(ctx)?;
+    let attr = const_def.get_value(ctx);
+    let attr = attr.downcast_ref::<IndexAttr>()?;
+    Some(attr.0)
+}
+
+#[op_interface_impl]
+impl DestructurableAccessorOpInterface for IndexOp {
+    fn can_rewire(
+        &self,
+        ctx: &Context,
+        value: &DestructurableValueSlot,
+        used_indices: &mut SmallSet<AttrObj, 8>,
+        must_be_safely_used: &mut Vec<ValueSlot>,
+    ) -> bool {
+        if self.base(ctx) != value.slot.value {
+            return false;
+        }
+        let Some(index) = const_index(ctx, self.index(ctx)) else {
+            return false;
+        };
+        let attr = index_attr(index);
+        let elem_ty = value.subelement_types[&attr];
+        used_indices.insert(attr);
+
+        let used_slot = ValueSlot::new(self.get_result(ctx), elem_ty);
+        must_be_safely_used.push(used_slot);
+        true
+    }
+
+    fn rewire(
+        &self,
+        ctx: &mut Context,
+        _value: &DestructurableValueSlot,
+        subvalues: &HMap<AttrObj, ValueSlot>,
+        rewriter: &mut PassRewriter,
+    ) -> DeletionKind {
+        let index = const_index(ctx, self.index(ctx)).expect("checked before");
+        let index_attr = index_attr(index);
+        let new_slot = &subvalues[&index_attr];
+        rewriter.replace_value_uses_with(ctx, self.get_result(ctx), new_slot.value);
+        DeletionKind::Delete
     }
 }
 
@@ -254,6 +374,18 @@ impl PromotableOpInterface for LoadOp {
             return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
         }
         rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![*reaching_def]);
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl SafeMemorySlotAccessOpInterface for LoadOp {
+    fn ensure_only_safe_accesses(
+        &self,
+        _: &Context,
+        _: &ValueSlot,
+        _: &mut Vec<ValueSlot>,
+    ) -> LogicalResult {
         Ok(())
     }
 }
@@ -328,6 +460,18 @@ impl PromotableOpInterface for StoreOp {
     }
 }
 
+#[op_interface_impl]
+impl SafeMemorySlotAccessOpInterface for StoreOp {
+    fn ensure_only_safe_accesses(
+        &self,
+        _: &Context,
+        _: &ValueSlot,
+        _: &mut Vec<ValueSlot>,
+    ) -> LogicalResult {
+        Ok(())
+    }
+}
+
 #[cube_op(name = "memory.copy")]
 #[result_ty(none)]
 #[op_interfaces(OperandNOfType<0, PointerType>, SameOperandsType)]
@@ -338,4 +482,16 @@ pub struct CopyOp {
     #[operand(ptr_write)]
     pub destination: Value,
     pub len: IndexAttr,
+}
+
+#[op_interface_impl]
+impl SafeMemorySlotAccessOpInterface for CopyOp {
+    fn ensure_only_safe_accesses(
+        &self,
+        _: &Context,
+        _: &ValueSlot,
+        _: &mut Vec<ValueSlot>,
+    ) -> LogicalResult {
+        Ok(())
+    }
 }

@@ -12,7 +12,7 @@ use crate::{
     target::{CtxTarget, Target},
 };
 
-shared_op_with_out!(VectorInitOp, |op, ctx| {
+shared_op_with_out!(CompositeConstructOp, |op, ctx| {
     let values = op.values(ctx).iter().map(|it| it.name(ctx)).join(", ");
     let ty = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
     format!("{ty}{{{values}}}")
@@ -25,9 +25,10 @@ shared_op_with_out!(VectorBroadcastOp, |op, ctx| {
     format!("{ty}{{{values}}}")
 });
 
-shared_op_with_out!(VectorInsertOp, |op, ctx| {
-    let vector_size = op.vector(ctx).vector_size(ctx);
-    let vector = op.vector(ctx).name(ctx);
+shared_op_with_out!(CompositeInsertOp, |op, ctx| {
+    assert!(op.composite(ctx).is_vector(ctx));
+    let vector_size = op.composite(ctx).vector_size(ctx);
+    let vector = op.composite(ctx).name(ctx);
     let value = op.value(ctx).name(ctx);
     let index = op.index(ctx).0;
     let new_values = (0..vector_size)
@@ -42,8 +43,9 @@ shared_op_with_out!(VectorInsertOp, |op, ctx| {
     format!("{{{new_values}}}")
 });
 
-shared_op_with_out!(VectorExtractOp, |op, ctx| {
-    let vector = op.vector(ctx).name(ctx);
+shared_op_with_out!(CompositeExtractOp, |op, ctx| {
+    assert!(op.composite(ctx).is_vector(ctx));
+    let vector = op.composite(ctx).name(ctx);
     let index = op.index(ctx).0;
     format!("{vector}.i_{index}")
 });

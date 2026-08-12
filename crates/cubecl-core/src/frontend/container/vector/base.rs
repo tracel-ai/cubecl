@@ -81,7 +81,7 @@ mod new {
 mod components {
     use cubecl_ir::{
         dialect::vector::{
-            VectorExtractDynamicOp, VectorExtractOp, VectorInsertDynamicOp, VectorInsertOp,
+            CompositeExtractOp, CompositeInsertOp, VectorExtractDynamicOp, VectorInsertDynamicOp,
         },
         interfaces::TypedExt,
     };
@@ -94,7 +94,7 @@ mod components {
             intrinsic!(|scope| {
                 let this = self.read_value(scope);
                 if this.vector_size(scope.ctx()) > 1 {
-                    let op = VectorExtractOp::new(scope.ctx_mut(), this, index);
+                    let op = CompositeExtractOp::new(scope.ctx_mut(), this, index);
                     scope.register_with_result(&op).into()
                 } else {
                     this.into()
@@ -107,7 +107,7 @@ mod components {
                 let this = self.read_value(scope);
                 let value = value.read_value(scope);
                 if this.vector_size(scope.ctx()) > 1 {
-                    let op = VectorInsertOp::new(scope.ctx_mut(), this, value, index);
+                    let op = CompositeInsertOp::new(scope.ctx_mut(), this, value, index);
                     let new_value = scope.register_with_result(&op).into();
                     assign::expand_element(scope, new_value, self.expand);
                 } else {

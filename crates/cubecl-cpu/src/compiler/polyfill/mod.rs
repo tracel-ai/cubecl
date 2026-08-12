@@ -2,7 +2,7 @@ pub mod math;
 pub mod ordered_atomic;
 pub mod synchronization;
 
-use cubecl_core::ir::prelude::*;
+use cubecl_core::ir::{NamedRewrite, prelude::*};
 
 use cubecl_core::ir::{Scope, dialect::base::OperationPtrExt};
 
@@ -17,7 +17,7 @@ pub trait LowerOp {
 
 pub type LowerComplexOpPass = MatchRewritePass<LowerComplexOp>;
 
-#[derive(new, Default, Clone, Copy)]
+#[derive(new, Default, Clone, Copy, NamedRewrite)]
 pub struct LowerComplexOp;
 
 impl MatchRewrite for LowerComplexOp {

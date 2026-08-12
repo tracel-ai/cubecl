@@ -5,19 +5,22 @@
 //!
 //! All terminators are reused from `branch`.
 
+use cubecl_macros_internal::NamedRewrite;
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
     builtin::attributes::{IntegerAttr, VecAttr},
     irbuild::inserter::OpInsertionPoint,
     linked_list::ContainsLinkedList,
-    opts::{constants::ConstFoldInterface, dce::SideEffects},
+    opts::{constants::ConstFoldInterface, dce::SideEffects, mem2reg::AllocInfo},
     region::Region,
+    utils::table::{HMap, SmallMap},
 };
 
 use crate::{
     attributes::BoolAttr,
-    dialect::branch::{self, DeadRegionOp, YieldOp, block_side_effects},
+    dialect::branch::{self, ConditionOp, DeadRegionOp, YieldOp, block_side_effects},
+    interfaces::memory_slot::PromotableRegionOpInterface,
     prelude::*,
     types::scalar::BoolType,
 };
@@ -199,6 +202,54 @@ impl BranchToSCFOp for branch::IfOp {
     }
 }
 
+#[op_interface_impl]
+impl PromotableRegionOpInterface for IfOp {
+    fn is_region_promotable(&self, _: &Context, _: &AllocInfo, _: Ptr<Region>, _: bool) -> bool {
+        true
+    }
+
+    fn setup_promotion(
+        &self,
+        ctx: &mut Context,
+        _: &AllocInfo,
+        reaching_def: Value,
+        _: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, Value, 2>,
+    ) {
+        regions_to_process.insert(self.then_region(ctx), reaching_def);
+        regions_to_process.insert(self.else_region(ctx), reaching_def);
+    }
+
+    fn finalize_promotion(
+        &self,
+        ctx: &mut Context,
+        alloc: &AllocInfo,
+        entry_reaching_def: Value,
+        has_value_stores: bool,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, Value>,
+    ) -> Value {
+        if !has_value_stores {
+            return entry_reaching_def;
+        }
+
+        update_terminator::<YieldOp>(
+            ctx,
+            self.then_block(ctx),
+            entry_reaching_def,
+            reaching_at_block_end,
+        );
+        update_terminator::<YieldOp>(
+            ctx,
+            self.else_block(ctx),
+            entry_reaching_def,
+            reaching_at_block_end,
+        );
+
+        let res_idx = Operation::push_result(self.get_operation(), ctx, alloc.ty);
+        self.get_result(ctx, res_idx)
+    }
+}
+
 #[pliron_op(
     name = "scf.switch",
     format,
@@ -308,6 +359,53 @@ impl BranchToSCFOp for branch::SwitchOp {
         rewriter.append_operation(ctx, op);
         rewriter.replace_operation(ctx, self.get_operation(), op);
         Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl PromotableRegionOpInterface for SwitchOp {
+    fn is_region_promotable(&self, _: &Context, _: &AllocInfo, _: Ptr<Region>, _: bool) -> bool {
+        true
+    }
+
+    fn setup_promotion(
+        &self,
+        ctx: &mut Context,
+        _: &AllocInfo,
+        reaching_def: Value,
+        _: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, Value, 2>,
+    ) {
+        regions_to_process.insert(self.default_region(ctx), reaching_def);
+        for case_region in self.case_regions(ctx) {
+            regions_to_process.insert(case_region, reaching_def);
+        }
+    }
+
+    fn finalize_promotion(
+        &self,
+        ctx: &mut Context,
+        alloc: &AllocInfo,
+        reaching_def: Value,
+        has_value_stores: bool,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, Value>,
+    ) -> Value {
+        if !has_value_stores {
+            return reaching_def;
+        }
+
+        update_terminator::<YieldOp>(
+            ctx,
+            self.default_block(ctx),
+            reaching_def,
+            reaching_at_block_end,
+        );
+        for case_block in self.case_blocks(ctx) {
+            update_terminator::<YieldOp>(ctx, case_block, reaching_def, reaching_at_block_end);
+        }
+
+        let res_idx = Operation::push_result(self.get_operation(), ctx, alloc.ty);
+        self.get_operation().deref(ctx).get_result(res_idx)
     }
 }
 
@@ -440,6 +538,56 @@ impl BranchToSCFOp for branch::RangeLoopOp {
     }
 }
 
+#[op_interface_impl]
+impl PromotableRegionOpInterface for RangeLoopOp {
+    fn is_region_promotable(&self, _: &Context, _: &AllocInfo, _: Ptr<Region>, _: bool) -> bool {
+        true
+    }
+
+    fn setup_promotion(
+        &self,
+        ctx: &mut Context,
+        alloc: &AllocInfo,
+        reaching_def: Value,
+        has_value_stores: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, Value, 2>,
+    ) {
+        let body_region = self.loop_region(ctx);
+        if !has_value_stores {
+            regions_to_process.insert(body_region, reaching_def);
+            return;
+        }
+
+        self.push_initial_carried_value(ctx, reaching_def);
+        let idx = BasicBlock::push_argument(self.loop_body(ctx), ctx, alloc.ty);
+        let new_arg = self.loop_body(ctx).deref(ctx).get_argument(idx);
+        regions_to_process.insert(body_region, new_arg);
+    }
+
+    fn finalize_promotion(
+        &self,
+        ctx: &mut Context,
+        alloc: &AllocInfo,
+        entry_reaching_def: Value,
+        has_value_stores: bool,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, Value>,
+    ) -> Value {
+        if !has_value_stores {
+            return entry_reaching_def;
+        }
+
+        update_terminator::<YieldOp>(
+            ctx,
+            self.loop_body(ctx),
+            entry_reaching_def,
+            reaching_at_block_end,
+        );
+
+        let idx = Operation::push_result(self.get_operation(), ctx, alloc.ty);
+        self.get_operation().deref(ctx).get_result(idx)
+    }
+}
+
 #[pliron_op(name = "scf.while", format, verifier = "succ")]
 #[op_interfaces(NRegionsInterface<2>, SingleBlockRegionInterface)]
 pub struct WhileOp;
@@ -564,6 +712,64 @@ impl BranchToSCFOp for branch::WhileOp {
     }
 }
 
+#[op_interface_impl]
+impl PromotableRegionOpInterface for WhileOp {
+    fn is_region_promotable(&self, _: &Context, _: &AllocInfo, _: Ptr<Region>, _: bool) -> bool {
+        true
+    }
+
+    fn setup_promotion(
+        &self,
+        ctx: &mut Context,
+        alloc: &AllocInfo,
+        reaching_def: Value,
+        has_value_stores: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, Value, 2>,
+    ) {
+        let before_region = self.before_region(ctx);
+        let after_region = self.after_region(ctx);
+        if !has_value_stores {
+            regions_to_process.insert(before_region, reaching_def);
+            regions_to_process.insert(after_region, reaching_def);
+            return;
+        }
+
+        self.push_initial_carried_value(ctx, reaching_def);
+
+        let idx = BasicBlock::push_argument(self.before_block(ctx), ctx, alloc.ty);
+        let new_arg = self.before_block(ctx).deref(ctx).get_argument(idx);
+        regions_to_process.insert(before_region, new_arg);
+
+        let idx = BasicBlock::push_argument(self.after_block(ctx), ctx, alloc.ty);
+        let new_arg = self.after_block(ctx).deref(ctx).get_argument(idx);
+        regions_to_process.insert(after_region, new_arg);
+    }
+
+    fn finalize_promotion(
+        &self,
+        ctx: &mut Context,
+        alloc: &AllocInfo,
+        reaching_def: Value,
+        has_value_stores: bool,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, Value>,
+    ) -> Value {
+        if !has_value_stores {
+            return reaching_def;
+        }
+
+        let before = self.before_block(ctx);
+        let last_arg = before.deref(ctx).arguments().last();
+        update_terminator::<ConditionOp>(ctx, before, last_arg.unwrap(), reaching_at_block_end);
+
+        let after = self.after_block(ctx);
+        let last_arg = after.deref(ctx).arguments().last();
+        update_terminator::<YieldOp>(ctx, after, last_arg.unwrap(), reaching_at_block_end);
+
+        let idx = Operation::push_result(self.get_operation(), ctx, alloc.ty);
+        self.get_operation().deref(ctx).get_result(idx)
+    }
+}
+
 #[op_interface]
 trait BranchToSCFOp {
     verify_op_succ!();
@@ -577,7 +783,7 @@ trait BranchToSCFOp {
 
 pub type BranchToSCFPass = DialectConversionPass<BranchToSCFConversion>;
 
-#[derive(Default)]
+#[derive(Default, NamedRewrite)]
 pub struct BranchToSCFConversion;
 
 impl DialectConversion for BranchToSCFConversion {
@@ -596,4 +802,21 @@ impl DialectConversion for BranchToSCFConversion {
         let to_scf = op_cast::<dyn BranchToSCFOp>(&*dyn_op).unwrap();
         to_scf.to_scf(ctx, rewriter, operands_info)
     }
+}
+
+fn update_terminator<T: Op>(
+    ctx: &Context,
+    block: Ptr<BasicBlock>,
+    default_reaching_def: Value,
+    reaching_at_block_end: &HMap<Ptr<BasicBlock>, Value>,
+) {
+    let Some(term) = block.deref(ctx).get_terminator(ctx) else {
+        return;
+    };
+    if !term.is_op::<T>(ctx) {
+        return;
+    }
+    let block_reaching_def = reaching_at_block_end.get(&block).copied();
+    let block_reaching_def = block_reaching_def.unwrap_or(default_reaching_def);
+    Operation::push_operand(term, ctx, block_reaching_def);
 }

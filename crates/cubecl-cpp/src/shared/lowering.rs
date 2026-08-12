@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use cubecl_core::ir::{Scope, dialect::base::OperationPtrExt, prelude::*};
+use cubecl_core::ir::{NamedRewrite, Scope, dialect::base::OperationPtrExt, prelude::*};
 
 use crate::target::Shared;
 
@@ -15,7 +15,7 @@ pub trait LowerOp<T = Shared> {
 
 pub type LowerOpsCppPass<T> = MatchRewritePass<LowerOpsCpp<T>>;
 
-#[derive(new, Default, Clone, Copy)]
+#[derive(new, Default, Clone, Copy, NamedRewrite)]
 pub struct LowerOpsCpp<T> {
     _target: PhantomData<T>,
 }

@@ -10,16 +10,12 @@ use cubecl_ir::{
     OpInserter, SliceMetadata, VectorSize,
     attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface},
     dialect::{
-        OperationPtrExt,
-        branch::RangeLoopOp,
-        general::{AggregateConstructOp, ReinterpretCastOp},
+        OperationPtrExt, branch::RangeLoopOp, general::ReinterpretCastOp,
+        vector::CompositeConstructOp,
     },
     interfaces::{TypedExt, aliasing::PointerExt},
     pliron::{context::Context, printable::Printable, r#type::Typed, value::Value},
-    types::{
-        ArrayType, PointerType, RuntimeArrayType, VectorType,
-        aggregate::{MetadataKind, PtrAggregateType},
-    },
+    types::{ArrayType, PointerType, RuntimeArrayType, VectorType, aggregate::SliceType},
 };
 
 pub type SliceExpand<T> = NativeExpand<[T]>;
@@ -529,8 +525,8 @@ pub fn from_raw_parts<E: CubePrimitive>(
     let list_ty = list.get_type(scope.ctx());
     let offset = offset.read_value(scope);
     let length = length.read_value(scope);
-    let ty = PtrAggregateType::get(scope.ctx(), list_ty, MetadataKind::Slice).to_handle();
-    let op = AggregateConstructOp::new(scope.ctx_mut(), ty, vec![list, offset, length]);
+    let ty = SliceType::get(scope.ctx(), list_ty).to_handle();
+    let op = CompositeConstructOp::new(scope.ctx_mut(), ty, vec![list, offset, length]);
     scope.register_with_result(&op).into()
 }
 

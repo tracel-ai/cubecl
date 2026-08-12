@@ -223,7 +223,8 @@ shared_op_with_out!(ReinterpretCastOp, |op, ctx| {
 
 shared_op_with_out!(LoadOp, |op, ctx| format!("*{}", op.ptr(ctx).name(ctx)));
 shared_op!(StoreOp, |op, ctx| {
-    format!("*{} = {};", op.ptr(ctx).name(ctx), op.value(ctx).name(ctx))
+    let value = op.value(ctx).name(ctx);
+    format!("*{} = {value};\n", op.ptr(ctx).name(ctx))
 });
 
 macro_rules! lower_unop {

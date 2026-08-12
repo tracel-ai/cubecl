@@ -14,15 +14,12 @@ use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 #[cfg(feature = "pliron-dump")]
 use std::{path::PathBuf, str::FromStr};
 
-use cubecl_opt::passes::simple_cse::SimpleCSEPass;
+use cubecl_opt::passes::{simple_cse::SimpleCSEPass, sroa::SROAPass};
 use cubecl_runtime::compiler::CompilationError;
 
 use cubecl_core::{
-    Compiler,
-    ir::dialect::scf::BranchToSCFPass,
-    ir::rewrite::SimplifyOpsPass,
-    post_processing::{bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass},
-    prelude::*,
+    Compiler, ir::dialect::scf::BranchToSCFPass, ir::rewrite::SimplifyOpsPass,
+    post_processing::bitwise::PromoteBitwisePass, prelude::*,
 };
 use pliron::{
     builtin::ops::{FuncOp, ModuleOp},
@@ -112,13 +109,14 @@ impl PlironCompiler {
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
         func_passes.add_pass(InsertConstantEmulationPass);
-        func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(SROAPass);
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(LowerComplexOpPass::default());
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(SROAPass);
         func_passes.add_pass(BranchToSCFPass::default());
         func_passes.add_pass(SCFToLlvmCf::default());
         func_passes.add_pass(LowerEntryAbiPass::new(

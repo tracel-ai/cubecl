@@ -46,8 +46,8 @@ use crate::{
     dialect::{
         OperationPtrExt,
         branch::{IfOp, ReturnOp, YieldOp},
-        general::AggregateExtractOp,
         memory::DeclareVariableOp,
+        vector::CompositeExtractOp,
     },
     interfaces::{ScalarType, TypedExt},
     read_value,
@@ -759,7 +759,7 @@ impl Scope {
 
     pub fn extract_field(&self, aggregate: Value, field: usize) -> Value {
         let ctx = self.ctx_mut();
-        let op = AggregateExtractOp::new(ctx, aggregate, field);
+        let op = CompositeExtractOp::new(ctx, aggregate, field);
         self.register_with_result(&op)
     }
 

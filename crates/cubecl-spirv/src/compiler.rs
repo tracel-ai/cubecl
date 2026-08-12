@@ -15,7 +15,6 @@ use cubecl_core::{
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
-        disaggregate::DisaggregatePass,
         saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
@@ -32,7 +31,7 @@ use cubecl_ir::{
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, mem2reg::Mem2RegPass,
-    simple_cse::SimpleCSEPass,
+    simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::CompilationError;
 use pliron::{
@@ -164,6 +163,13 @@ impl SpirvCompiler {
         let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>();
         let module_op = module.get_operation();
 
+        #[cfg(feature = "pliron-dump")]
+        if let Some(print_dir) = &ir_printing_dir {
+            use pliron::printable::Printable;
+            let str = std::format!("{}", module_op.disp(ctx));
+            std::fs::write(print_dir.join("initial.plir"), &str).unwrap();
+        }
+
         verify_operation(module.get_operation(), ctx)?;
 
         let config = PMConfig {
@@ -179,7 +185,7 @@ impl SpirvCompiler {
         let mut passes = OpPass::<ModuleOp, Passes>::default();
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
-        func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(SROAPass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
             settings.execution_mode,
             settings.kernel_name,
@@ -199,8 +205,11 @@ impl SpirvCompiler {
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(LowerOpsSpirvPass::default());
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(SROAPass);
+
         func_passes.add_pass(Mem2RegPass);
 
+        func_passes.add_pass(SROAPass);
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(DCEPass);

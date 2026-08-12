@@ -1,4 +1,5 @@
 use cubecl_core::ir::{Scope, prelude::*, verify_op_succ};
+use cubecl_ir::NamedRewrite;
 use pliron::derive::op_interface;
 
 #[op_interface]
@@ -12,7 +13,7 @@ pub trait LowerOp {
 
 pub type LowerOpsSpirvPass = MatchRewritePass<LowerOpsSpirv>;
 
-#[derive(Default)]
+#[derive(Default, NamedRewrite)]
 pub struct LowerOpsSpirv;
 
 impl MatchRewrite for LowerOpsSpirv {

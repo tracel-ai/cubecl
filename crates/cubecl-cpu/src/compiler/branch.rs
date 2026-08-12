@@ -1,6 +1,5 @@
 //! Lowering of the cubecl structured `scf` dialect to an unstructured LLVM CFG.
 
-use cubecl_core::ir::dialect::BlockPtrExt;
 use cubecl_core::ir::dialect::branch::{self, ConditionOp, IsExitTerminator};
 use cubecl_core::ir::dialect::cmp::{SLessThanOp, ULessThanOp};
 use cubecl_core::ir::dialect::general::CastOp;
@@ -8,6 +7,7 @@ use cubecl_core::ir::dialect::math::IAddOp;
 use cubecl_core::ir::dialect::scf::{IfOp, RangeLoopOp, SwitchOp, WhileOp};
 use cubecl_core::ir::interfaces::ScalarType;
 use cubecl_core::ir::prelude::*;
+use cubecl_core::ir::{NamedRewrite, dialect::BlockPtrExt};
 use pliron::basic_block::BasicBlock;
 use pliron::builtin::attributes::IntegerAttr;
 use pliron::builtin::types::{IntegerType, Signedness};
@@ -364,7 +364,7 @@ fn less_than(
 
 pub type SCFToLlvmCf = DialectConversionPass<CfToLlvmConversion>;
 
-#[derive(Default)]
+#[derive(Default, NamedRewrite)]
 pub struct CfToLlvmConversion;
 
 impl DialectConversion for CfToLlvmConversion {

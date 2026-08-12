@@ -2,7 +2,10 @@ use core::marker::PhantomData;
 
 use cubecl_core::{
     self as cubecl,
-    ir::{Builtin, ContextExt, dialect::general::ReadBuiltinOp, rewrite::MatchRewritePass},
+    ir::{
+        Builtin, ContextExt, NamedRewrite, dialect::general::ReadBuiltinOp,
+        rewrite::MatchRewritePass,
+    },
     prelude::*,
 };
 use pliron::value::Value;
@@ -71,7 +74,7 @@ pub fn constant(#[comptime] value: u32) -> u32 {
     value
 }
 
-#[derive(Default)]
+#[derive(Default, NamedRewrite)]
 pub struct LowerBuiltins<T> {
     _target: PhantomData<T>,
 }

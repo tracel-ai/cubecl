@@ -1,5 +1,6 @@
 use cubecl_core::ir::{
-    dialect::vector::{VectorExtractOp, VectorInitOp},
+    NamedRewrite,
+    dialect::vector::{CompositeConstructOp, CompositeExtractOp},
     interfaces::{MaterializableOp, TypedExt},
     prelude::*,
     rewrite::MatchRewritePass,
@@ -23,7 +24,7 @@ pub type CppUnrollPass = MatchRewritePass<CppUnroll>;
 
 // Different implementation because the semantics are a bit different than the full unroll pass.
 // It's also much simpler.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, NamedRewrite)]
 pub struct CppUnroll;
 
 impl MatchRewrite for CppUnroll {
@@ -54,7 +55,7 @@ impl MatchRewrite for CppUnroll {
                 // validate other args for equality so we don't get implicit broadcasts
                 *opd
             } else {
-                let extract = VectorExtractOp::new(ctx, *opd, i);
+                let extract = CompositeExtractOp::new(ctx, *opd, i);
                 extract.get_operation().insert_before(ctx, op);
                 extract.get_result(ctx)
             }
@@ -68,7 +69,7 @@ impl MatchRewrite for CppUnroll {
         };
 
         let new_values = (0..vec_ty.vectorization).map(|i| run_one(ctx, i)).collect();
-        let new_vec = VectorInitOp::new(ctx, new_values);
+        let new_vec = CompositeConstructOp::new(ctx, res.get_type(ctx), new_values);
         new_vec.get_operation().insert_before(ctx, op);
         rewriter.replace_operation(ctx, op, new_vec.get_operation());
 

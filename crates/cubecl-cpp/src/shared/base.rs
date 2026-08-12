@@ -28,7 +28,6 @@ use cubecl_core::{
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
-        disaggregate::DisaggregatePass,
         saturating::LowerSaturatingArithmeticPass,
     },
     prelude::KernelDefinition,
@@ -37,6 +36,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, simple_cse::SimpleCSEPass,
+    sroa::SROAPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -197,7 +197,7 @@ where
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
         func_passes.add_pass(LowerInfoPass);
-        func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(SROAPass);
         func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
             kernel.settings.execution_mode,
             kernel.settings.kernel_name,
@@ -225,10 +225,12 @@ where
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(SROAPass);
 
         // SCCP/DCE may unlock more mem2reg opportunities, and vice versa. So we do a sandwich.
         func_passes.add_pass(Mem2RegPass);
 
+        func_passes.add_pass(SROAPass);
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());

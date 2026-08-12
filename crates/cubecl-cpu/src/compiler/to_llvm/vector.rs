@@ -1,8 +1,12 @@
 use super::prelude::*;
 use cubecl_core::ir::dialect::vector::{
-    self, VectorBroadcastOp, VectorExtractDynamicOp, VectorExtractOp, VectorInsertDynamicOp,
-    VectorInsertOp,
+    self, CompositeExtractOp, CompositeInsertOp, VectorBroadcastOp, VectorExtractDynamicOp,
+    VectorInsertDynamicOp,
 };
+
+fn is_vector(ctx: &Context, ty: impl Typed) -> bool {
+    ty.get_type(ctx).deref(ctx).is::<LlvmVectorType>()
+}
 
 /// Broadcast `scalar` to every lane of `vec_ty`, with the poison/insertelement/shufflevector idiom
 /// LLVM folds back into a splat.
@@ -49,17 +53,18 @@ impl ToLLVMDialect for VectorBroadcastOp {
 }
 
 #[op_interface_impl]
-impl ToLLVMDialect for VectorInsertOp {
+impl ToLLVMDialect for CompositeInsertOp {
     fn rewrite(
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
+        assert!(is_vector(ctx, self.composite(ctx)));
         let index = self.index(ctx).0 as i32;
         let index = insert_i32_const(ctx, rewriter, index);
 
-        let inserted = llvm::InsertElementOp::new(ctx, self.vector(ctx), self.value(ctx), index);
+        let inserted = llvm::InsertElementOp::new(ctx, self.composite(ctx), self.value(ctx), index);
         rewriter.insert_op(ctx, &inserted);
         rewriter.replace_operation_with_values(
             ctx,
@@ -91,17 +96,18 @@ impl ToLLVMDialect for VectorInsertDynamicOp {
 }
 
 #[op_interface_impl]
-impl ToLLVMDialect for VectorExtractOp {
+impl ToLLVMDialect for CompositeExtractOp {
     fn rewrite(
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
+        assert!(is_vector(ctx, self.composite(ctx)));
         let index = self.index(ctx).0 as i32;
         let index = insert_i32_const(ctx, rewriter, index);
 
-        let extracted = llvm::ExtractElementOp::new(ctx, self.vector(ctx), index);
+        let extracted = llvm::ExtractElementOp::new(ctx, self.composite(ctx), index);
         rewriter.insert_op(ctx, &extracted);
         rewriter.replace_operation_with_values(
             ctx,
