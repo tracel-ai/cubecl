@@ -180,14 +180,18 @@ fn log_result<K: AutotuneKey>(
         return;
     }
 
-    // Shared by both sinks, and resolved only once one of them is listening: it assumes a candidate
-    // succeeded, which is not true of every tuning pass.
-    let fastest = results
+    // Shared by both sinks, and resolved only once one of them is listening.
+    // The sort puts any success first, so `None` here means *no* candidate
+    // measured — which still happens: an all-failed plan can decide an
+    // unmeasured winner (see `Schedule::run_plan`), and the report must not
+    // be what kills it. The schedule already warned with the full results;
+    // there is no measurement to record.
+    let Some(fastest) = results
         .first()
-        .expect("At least one kernel needed.")
-        .outcome
-        .as_ref()
-        .expect("At least one kernel has to succeed.");
+        .and_then(|result| result.outcome.as_ref().ok())
+    else {
+        return;
+    };
 
     if recording {
         write_record(logger, key, results, log_context, fastest);

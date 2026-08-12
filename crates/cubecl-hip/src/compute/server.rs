@@ -29,7 +29,10 @@ use cubecl_runtime::{
     dry_run::LaunchMode,
     id::GraphId,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
+    memory_management::{
+        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
+        MemoryUsage,
+    },
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
     stream::MultiStream,
@@ -633,6 +636,17 @@ impl ComputeServer for HipServer {
         Ok(command.memory_usage())
     }
 
+    fn memory_report(&mut self, stream_id: StreamId) -> Result<MemoryReport, ServerError> {
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: false,
+                flush: false,
+            },
+        )?;
+        Ok(command.memory_report())
+    }
+
     fn stream_ids(&self) -> Vec<StreamId> {
         self.streams.stream_ids().collect()
     }
@@ -666,14 +680,18 @@ impl ComputeServer for HipServer {
         command.allocation_mode(mode)
     }
 
-    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
+    fn install_memory_pools(
+        &mut self,
+        config: MemoryConfiguration,
+        stream_id: StreamId,
+    ) -> Result<(), InstallMemoryPoolsError> {
         // Streams created from now on build their GPU pools with the new
         // layout; memory is per stream, so already-created streams keep theirs.
         self.streams.backend_mut().set_gpu_pools(config.clone());
         let (_, props) = self.streams.backend_mut().gpu_pools();
 
-        // The calling stream's pools are rebuilt in place (kept, with a log,
-        // when something is still live in them).
+        // The calling stream's pools are rebuilt in place, keeping the old
+        // layout when something is still live in them.
         let mut command = match self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -682,10 +700,10 @@ impl ComputeServer for HipServer {
             },
         ) {
             Ok(val) => val,
-            // Server is in error.
-            Err(_) => return false,
+            // Server is in error; the failure itself surfaces at the next sync.
+            Err(_) => return Err(InstallMemoryPoolsError::StreamUnavailable),
         };
-        command.configure_memory_pools(config, &props)
+        command.install_memory_pools(config, &props)
     }
 }
 
@@ -796,6 +814,16 @@ impl HipServer {
             },
         )?;
 
+        // A skipped launch stops here, after compilation and before anything
+        // that touches a buffer: resolving resources, uploading metadata or
+        // reading a dynamic cube count would materialize memory a dry run
+        // exists to leave unmapped (and the readback would block on garbage
+        // values).
+        if launch_mode.is_skipped() {
+            command.compile_only(&kernel_id, kernel, logger)?;
+            return Ok(());
+        }
+
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
             // TODO: HIP doesn't have an exact equivalent of dynamic dispatch. Instead, kernels are free to launch other kernels.
@@ -827,19 +855,20 @@ impl HipServer {
 
         let info_handle = info_buffer(&mut command, info.data)?;
 
-        let resources = resources.into_iter().map(|res| match res {
-            KernelResource::Buffer(b) => command.resource(b).expect("Resource to exist."),
-            KernelResource::TensorMap(_) => panic!("Can't use tensor maps on HIP"),
-        });
-        let mut resources = resources.collect::<Vec<_>>();
+        // Resolving is also where a dry run's deferred allocations get their
+        // device backing, so this can fail on a device the measured plan does
+        // not fit — reported, not panicked.
+        let mut resources = resources
+            .into_iter()
+            .map(|res| match res {
+                KernelResource::Buffer(b) => command.resource(b),
+                KernelResource::TensorMap(_) => panic!("Can't use tensor maps on HIP"),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
-        resources.push(
-            command
-                .resource(info_handle.binding())
-                .expect("Resource to exist."),
-        );
+        resources.push(command.resource(info_handle.binding())?);
 
-        command.kernel(kernel_id, kernel, count, &resources, logger, launch_mode)?;
+        command.kernel(kernel_id, kernel, count, &resources, logger)?;
 
         Ok(())
     }

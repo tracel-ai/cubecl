@@ -1,7 +1,7 @@
 use crate::{
     memory_management::{
         BytesFormat, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation, MemoryUsage,
-        memory_pool::{Slice, calculate_padding},
+        memory_pool::{PageMapping, Slice, calculate_padding},
     },
     server::IoError,
     storage::{StorageHandle, StorageUtilization},
@@ -23,17 +23,35 @@ pub struct MemoryPage {
     /// Memory alignment.
     alignment: u64,
     location_base: MemoryLocation,
+    /// Whether the page's [`StorageId`](crate::storage::StorageId) is backed
+    /// by a real device allocation. A page carved under a dry run starts
+    /// unmapped — its id is minted but no driver memory exists behind it —
+    /// and is [rebound](Self::rebind_storage) to a real allocation the first
+    /// time one of its slices is resolved into a kernel argument, read or
+    /// write. Everything else about the page (slice offsets, coalescing,
+    /// high-water accounting) behaves identically either way.
+    mapped: bool,
 }
 
 impl MemoryPage {
     /// Creates a new memory page with the given storage and memory alignment.
-    pub fn new(storage: StorageHandle, alignment: u64, location_base: MemoryLocation) -> Self {
+    ///
+    /// `mapping` says whether `storage`'s id is already backed by a device
+    /// allocation ([`PageMapping::Eager`]) or is a minted id awaiting one
+    /// ([`PageMapping::Lazy`]) — see [`mapped`](Self::mapped).
+    pub fn new(
+        storage: StorageHandle,
+        alignment: u64,
+        location_base: MemoryLocation,
+        mapping: PageMapping,
+    ) -> Self {
         let mut this = MemoryPage {
             storage: storage.clone(),
             slices: Vec::new(),
             slices_tmp: Vec::new(),
             alignment,
             location_base,
+            mapped: matches!(mapping, PageMapping::Eager),
         };
 
         let slice = Slice::new(storage, 0);
@@ -44,6 +62,28 @@ impl MemoryPage {
         this.slices.push(slice);
 
         this
+    }
+
+    /// Whether the page's storage id is backed by a real device allocation.
+    pub fn is_mapped(&self) -> bool {
+        self.mapped
+    }
+
+    /// The page-wide storage id (the one every slice on the page shares).
+    pub fn storage_id(&self) -> crate::storage::StorageId {
+        self.storage.id
+    }
+
+    /// Bind the page to a real device allocation: rewrite the page-wide
+    /// storage id and every slice's copy of it (offsets and sizes are already
+    /// correct — the virtual carving *is* the layout). The old minted id
+    /// simply ceases to exist; it never reached the driver.
+    pub fn rebind_storage(&mut self, id: crate::storage::StorageId) {
+        self.storage.id = id;
+        for slice in self.slices.iter_mut() {
+            slice.storage.id = id;
+        }
+        self.mapped = true;
     }
 
     /// Binds a user defined [`ManagedMemoryHandle`] to a slice in this memory pool.
@@ -712,6 +752,6 @@ mod tests {
     fn new_memory_page(size: u64) -> MemoryPage {
         let storage = StorageHandle::new(StorageId::new(), StorageUtilization { offset: 0, size });
 
-        MemoryPage::new(storage, 4, MemoryLocation::new(0, 0, 0))
+        MemoryPage::new(storage, 4, MemoryLocation::new(0, 0, 0), PageMapping::Eager)
     }
 }

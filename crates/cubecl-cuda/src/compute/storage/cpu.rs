@@ -63,11 +63,14 @@ impl ComputeStorage for PinnedMemoryStorage {
         self.mem_alignment
     }
 
-    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
         let memory = self
             .memory
             .get(&handle.id)
-            .expect("Storage handle not found");
+            .ok_or_else(|| IoError::StorageHandleNotFound {
+                reason: format!("{} in the CUDA pinned storage", handle.id).into(),
+                backtrace: BackTrace::capture(),
+            })?;
 
         let offset = handle.offset() as usize;
         let size = handle.size() as usize;
@@ -75,12 +78,12 @@ impl ComputeStorage for PinnedMemoryStorage {
         // SAFETY: `memory.ptr` was allocated by `cuMemAllocHost_v2` with at least
         // `offset + size` bytes. The `add(offset)` produces a pointer within the allocation
         // bounds as guaranteed by the storage handle's offset/size validation.
-        unsafe {
+        Ok(unsafe {
             PinnedMemoryResource {
                 ptr: memory.ptr.cast::<u8>().add(offset),
                 size,
             }
-        }
+        })
     }
 
     #[cfg_attr(

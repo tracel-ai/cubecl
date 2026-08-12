@@ -133,11 +133,18 @@ impl WgpuMemManager {
             .memory_uniforms
             .get_storage(slice.binding())
             .expect("Failed to find storage!");
-        self.memory_uniforms.storage().get(&handle)
+        self.memory_uniforms
+            .storage()
+            .get(&handle)
+            .expect("Failed to get the uniform's storage!")
     }
 
     pub(crate) fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
         self.memory_pool.memory_usage()
+    }
+
+    pub(crate) fn memory_report(&self) -> cubecl_runtime::memory_management::MemoryReport {
+        self.memory_pool.memory_report()
     }
 
     pub(crate) fn memory_cleanup(&mut self, explicit: bool) {
@@ -148,15 +155,19 @@ impl WgpuMemManager {
         self.memory_pool.mode(mode);
     }
 
-    /// Rebuild the main pool with a new layout. Returns `false` (keeping the
-    /// old layout, with a log) when something is still live in it. The staging
-    /// and uniforms pools keep their deliberate configurations.
-    pub(crate) fn configure_memory_pools(
+    /// Rebuild the main pool with a new layout, keeping the old one when
+    /// something is still live in it. The staging and uniforms pools keep
+    /// their deliberate configurations.
+    ///
+    /// # Errors
+    ///
+    /// [`InstallMemoryPoolsError::PoolsInUse`] when the rebuild was refused.
+    pub(crate) fn install_memory_pools(
         &mut self,
         config: MemoryConfiguration,
         props: &MemoryDeviceProperties,
-    ) -> bool {
-        self.memory_pool.configure(config, props)
+    ) -> Result<(), cubecl_runtime::memory_management::InstallMemoryPoolsError> {
+        self.memory_pool.install_pools(config, props)
     }
 
     pub(crate) fn release_uniforms(&mut self) {

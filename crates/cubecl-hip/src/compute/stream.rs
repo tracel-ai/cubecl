@@ -97,7 +97,7 @@ pub struct HipStreamBackend {
     is_integrated: bool,
     logger: Arc<ServerLogger>,
     /// Programmatic main-GPU pool layout (see
-    /// [`ComputeServer::configure_memory_pools`](cubecl_runtime::server::ComputeServer::configure_memory_pools)):
+    /// [`ComputeServer::install_memory_pools`](cubecl_runtime::server::ComputeServer::install_memory_pools)):
     /// streams created after it is set build their GPU pools from it instead
     /// of the runtime default. Auxiliary pools are unaffected.
     #[new(default)]
@@ -141,7 +141,7 @@ impl EventStreamBackend for HipStreamBackend {
         let storage = GpuStorage::new(self.mem_alignment);
 
         // The main GPU pool honors the programmatic pool override when one was
-        // installed (`configure_memory_pools`). The pinned pool below is left
+        // installed (`install_memory_pools`). The pinned pool below is left
         // alone: the override targets GPU activations, and the other pools
         // have deliberate configurations that must not be overridden.
         let (gpu_config, gpu_props) = self.gpu_pools();

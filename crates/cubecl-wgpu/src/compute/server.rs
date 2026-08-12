@@ -29,7 +29,9 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(feature = "spirv")]
 use cubecl_runtime::compiler::{KernelCacheKey, compilation_store, store_compiled};
-use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage, SharedMemoryBindings};
+use cubecl_runtime::memory_management::{
+    InstallMemoryPoolsError, ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
+};
 use cubecl_runtime::{
     compiler::{CompilationCache, CubeTask},
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -481,6 +483,12 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         Ok(stream.mem_manage.memory_usage())
     }
 
+    fn memory_report(&mut self, stream_id: StreamId) -> Result<MemoryReport, ServerError> {
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        Ok(stream.mem_manage.memory_report())
+    }
+
     fn stream_ids(&self) -> Vec<StreamId> {
         self.scheduler.stream_ids().collect()
     }
@@ -497,7 +505,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         stream.mem_manage.mode(mode);
     }
 
-    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
+    fn install_memory_pools(
+        &mut self,
+        config: MemoryConfiguration,
+        stream_id: StreamId,
+    ) -> Result<(), InstallMemoryPoolsError> {
         // Streams created from now on build their main pool with the new
         // layout; memory is per stream, so already-created streams keep theirs.
         self.scheduler
@@ -506,11 +518,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             .set_gpu_pools(config.clone());
         let (_, props) = self.scheduler.backend_mut().factory().gpu_pools();
 
-        // The calling stream's pools are rebuilt in place (kept, with a log,
-        // when something is still live in them).
+        // The calling stream's pools are rebuilt in place, keeping the old
+        // layout when something is still live in them.
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.mem_manage.configure_memory_pools(config, &props)
+        stream.mem_manage.install_memory_pools(config, &props)
     }
 }
 

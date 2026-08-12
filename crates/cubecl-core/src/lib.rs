@@ -47,6 +47,9 @@ pub use cubecl_runtime::benchmark;
 pub use cubecl_runtime::client;
 pub use cubecl_runtime::compiler::{CompilationError, Compiler, CubeTask};
 pub use cubecl_runtime::memory_management::MemoryUsage;
+pub use cubecl_runtime::memory_management::{
+    InstallMemoryPoolsError, MemoryPoolKind, MemoryPoolReport, MemoryReport,
+};
 pub use cubecl_runtime::server;
 pub use cubecl_runtime::throughput;
 pub use cubecl_runtime::tune;

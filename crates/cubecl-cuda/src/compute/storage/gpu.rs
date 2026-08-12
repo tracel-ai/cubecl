@@ -145,21 +145,24 @@ impl ComputeStorage for GpuStorage {
         self.mem_alignment
     }
 
-    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let (ptr, _) = self
-            .memory
-            .get(&handle.id)
-            .expect("Storage handle not found");
+    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
+        let (ptr, _) =
+            self.memory
+                .get(&handle.id)
+                .ok_or_else(|| IoError::StorageHandleNotFound {
+                    reason: format!("{} in the CUDA gpu storage", handle.id).into(),
+                    backtrace: BackTrace::capture(),
+                })?;
 
         let offset = handle.offset();
         let size = handle.size();
         let ptr = self.ptr_bindings.register(ptr + offset);
 
-        GpuResource::new(
+        Ok(GpuResource::new(
             *ptr,
             ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
             size,
-        )
+        ))
     }
 
     #[cfg_attr(

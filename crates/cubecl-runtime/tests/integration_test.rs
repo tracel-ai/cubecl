@@ -590,3 +590,68 @@ fn a_dry_run_still_autotunes() {
         "the candidates were measured inside the dry run, so the fast one won"
     );
 }
+
+/// The other half of what a dry run leaves alone: memory. A reservation no
+/// executed launch, read or write ever touches gets no device backing — the
+/// skipped launch resolves nothing — and backing is installed on demand the
+/// first time the buffer is actually dereferenced.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_dry_run_reserves_without_mapping() {
+    use cubecl_runtime::dry_run::DryRun;
+    use cubecl_runtime::memory_management::MemoryPoolReport;
+
+    let client = test_client(&DummyDevice);
+    let dry_run = DryRun::new();
+
+    // Big enough to land in a large-page pool of its own: the parallel tests
+    // in this binary allocate a few bytes at a time, so nothing else touches
+    // (or materializes) that pool's pages while this test looks at them.
+    const SIZE: u64 = 32 * 1024 * 1024;
+
+    // The pool the reservation actually landed in — self-identified by the
+    // high-water it left, so the test tracks `accept`'s routing instead of
+    // predicting it.
+    fn arena(report: &cubecl_runtime::memory_management::MemoryReport) -> MemoryPoolReport {
+        report
+            .dynamic
+            .iter()
+            .find(|pool| pool.largest_alloc == SIZE)
+            .expect("some pool served the buffer")
+            .clone()
+    }
+
+    // A workload-sized buffer, launched against only inside the dry run: the
+    // launch is compiled and dropped before resolving any resource.
+    let out = client.empty(SIZE as usize);
+    client.launch(
+        Box::new(KernelTask::new(DummyElementwiseAddition)),
+        CubeCount::Static(1, 1, 1),
+        KernelArguments::new().with_buffers(vec![
+            out.clone().binding(),
+            out.clone().binding(),
+            out.clone().binding(),
+        ]),
+    );
+
+    let report = client.memory_report().unwrap();
+    let pool = arena(&report);
+    assert_eq!(
+        pool.pages_unmapped, pool.pages,
+        "the reservation must have no device backing: {report:?}"
+    );
+    assert!(pool.pages >= 1, "{report:?}");
+
+    // Reading is a resolution: the backing appears exactly there.
+    let data = client.read_one(out).unwrap();
+    assert_eq!(data.len(), SIZE as usize);
+    let report = client.memory_report().unwrap();
+    assert_eq!(
+        arena(&report).pages_unmapped,
+        0,
+        "resolution installed the backing: {report:?}"
+    );
+
+    drop(dry_run);
+}

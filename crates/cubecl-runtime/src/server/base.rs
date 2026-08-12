@@ -8,7 +8,8 @@ use crate::{
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
-        ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration, MemoryUsage,
+        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
+        MemoryReport, MemoryUsage,
     },
     runtime::Runtime,
     server::{BufferBinding, KernelResource},
@@ -504,6 +505,12 @@ where
     /// Memory usage of the given stream.
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
 
+    /// Structured per-pool report of the given stream's **main GPU** memory:
+    /// each pool's shape, usage, and high-water marks, in allocation-routing
+    /// order. The read side of a measured memory plan — see
+    /// [`MemoryManagement::memory_report`](crate::memory_management::MemoryManagement::memory_report).
+    fn memory_report(&mut self, stream_id: StreamId) -> Result<MemoryReport, ServerError>;
+
     /// Stream ids the client should iterate to aggregate across the device.
     ///
     /// Default is just the calling stream, which is correct for
@@ -519,23 +526,35 @@ where
     /// Install a new dynamic-pool layout for the device's **main GPU** memory.
     ///
     /// The calling stream's pools are rebuilt in place (see
-    /// [`MemoryManagement::configure`](crate::memory_management::MemoryManagement::configure)
+    /// [`MemoryManagement::install_pools`](crate::memory_management::MemoryManagement::install_pools)
     /// — a rebuild only happens when nothing is live in them), and the layout
     /// becomes the one every stream created afterwards is built with. Pool
     /// layouts are a purely programmatic, runtime setting — there is no
     /// config-file pathway — so callers size them per workload (e.g. per model,
     /// just before loading it).
     ///
-    /// Returns `true` when the calling stream's pools were rebuilt now, and
-    /// `false` when they kept the old layout (something was still live in
-    /// them); the layout still applies to streams created afterwards.
+    /// # Errors
     ///
-    /// The default is a no-op returning `false` for servers without
-    /// configurable pools.
-    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
+    /// [`PoolsInUse`](InstallMemoryPoolsError::PoolsInUse) when the calling
+    /// stream kept its old layout because something was still live in its
+    /// pools — e.g. a garbage-collection task that has not released its
+    /// cross-stream pins yet, which can lag behind an explicit
+    /// [`memory_cleanup`](Self::memory_cleanup). The layout still applies to
+    /// streams created afterwards; retry to rebuild the calling stream too.
+    ///
+    /// [`StreamUnavailable`](InstallMemoryPoolsError::StreamUnavailable) when
+    /// the calling stream is already in an error state, so its pools could not
+    /// be reached. Future streams still get the layout.
+    ///
+    /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from servers
+    /// without configurable pools, which is the default implementation.
+    fn install_memory_pools(
+        &mut self,
+        config: MemoryConfiguration,
+        stream_id: StreamId,
+    ) -> Result<(), InstallMemoryPoolsError> {
         let _ = (config, stream_id);
-        log::warn!("Memory pool configuration isn't supported by this server; keeping defaults");
-        false
+        Err(InstallMemoryPoolsError::Unsupported)
     }
 
     /// Enable collecting timestamps.
@@ -900,6 +919,43 @@ pub enum IoError {
         backtrace: BackTrace,
         /// The reason the handle is invalid.
         reason: Reason,
+    },
+
+    /// The storage backend holds no allocation for a handle's storage id.
+    ///
+    /// One layer below [`IoError::NotFound`]: there the memory manager could
+    /// not route a binding to a slice, here the routing succeeded and the
+    /// allocation the slice names is gone. A handle outliving its page, or a
+    /// storage id a deallocation retired, reaches the storage this way.
+    #[error("the storage holds no allocation for that handle: {reason}\n{backtrace}")]
+    StorageHandleNotFound {
+        /// Which id was looked up, and in which storage.
+        reason: Reason,
+        /// The backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// An allocation carved lazily under a [`DryRun`](crate::dry_run::DryRun)
+    /// could not be given real device backing when it was finally resolved.
+    ///
+    /// Distinct from the same failure at reservation time, and the distinction
+    /// is what a caller acts on: the memory was promised earlier, by a pass
+    /// that measured a plan without paying for it, and is only now being
+    /// charged for. A plan whose replay hits this was measured against more
+    /// device memory than the replay has — warm the tune caches first, or
+    /// measure a smaller one.
+    #[error(
+        "couldn't map storage for a deferred allocation of {size} bytes\nCaused by:\n  {source}"
+    )]
+    StorageMappingFailed {
+        /// The size of the allocation that could not be backed, in bytes.
+        size: u64,
+        /// Why the device allocation failed.
+        source: Box<IoError>,
+        /// The backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
     },
 
     /// Handle wasn't found in the memory pool

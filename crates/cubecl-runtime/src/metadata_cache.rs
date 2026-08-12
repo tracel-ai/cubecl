@@ -220,6 +220,20 @@ impl<V> MetadataInfoCache<V> {
     pub fn clear(&mut self) {
         self.entries.clear();
     }
+
+    /// Drop every entry no live graph pins (releasing their held `V`s),
+    /// keeping the pinned ones — their device pointers are recorded inside
+    /// captured graphs that will replay against them.
+    ///
+    /// The explicit-cleanup hook. Cached info buffers are live slices in the
+    /// dynamic memory pools, and a pool rebuild
+    /// ([`MemoryManagement::install_pools`](crate::memory_management::MemoryManagement::install_pools))
+    /// refuses while anything is alive in them — without this, the first
+    /// launches on a stream would make its pools permanently
+    /// un-reconfigurable.
+    pub fn clear_unpinned(&mut self) {
+        self.entries.retain(|_, entry| entry.locks > 0);
+    }
 }
 
 impl<V: Clone> MetadataInfoCache<V> {
@@ -356,6 +370,33 @@ mod tests {
         let cache = cache(8);
         assert!(cache.should_cache(64), "within max_cached_size");
         assert!(!cache.should_cache(65), "over max_cached_size");
+    }
+
+    /// An explicit cleanup drops every entry except the ones live graphs pin:
+    /// the unpinned buffers are what keeps the dynamic pools from ever being
+    /// rebuilt, and the pinned ones are what recorded graphs replay against.
+    #[test]
+    fn clear_unpinned_keeps_only_graph_pinned_entries() {
+        let mut cache = cache(8);
+        cache.insert(key(0), 0);
+
+        // A capture touches entry 1 (fresh) and seals it under a graph.
+        cache.mode(CacheMode::Capture);
+        cache.insert(key(1), 1);
+        cache.capture_commit(GraphId::new());
+        cache.mode(CacheMode::Normal);
+
+        cache.insert(key(2), 2);
+        assert_eq!(cache.len(), 3);
+
+        cache.clear_unpinned();
+        assert!(cache.get(&key(0)).is_none(), "unpinned entries are dropped");
+        assert!(cache.get(&key(2)).is_none(), "unpinned entries are dropped");
+        assert_eq!(
+            cache.get(&key(1)),
+            Some(1),
+            "a graph-pinned entry survives: its pointer is recorded in the graph"
+        );
     }
 
     #[test]

@@ -109,18 +109,24 @@ impl ComputeStorage for GpuStorage {
         self.mem_alignment
     }
 
-    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let ptr = (*self.memory.get(&handle.id).unwrap()) as u64;
+    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
+        let ptr = *self
+            .memory
+            .get(&handle.id)
+            .ok_or_else(|| IoError::StorageHandleNotFound {
+                reason: format!("{} in the HIP gpu storage", handle.id).into(),
+                backtrace: BackTrace::capture(),
+            })? as u64;
 
         let offset = handle.offset();
         let size = handle.size();
         let ptr = self.ptr_bindings.register(ptr + offset);
 
-        GpuResource::new(
+        Ok(GpuResource::new(
             *ptr as cubecl_hip_sys::hipDeviceptr_t,
             std::ptr::from_ref(ptr) as *mut std::ffi::c_void,
             size,
-        )
+        ))
     }
 
     #[cfg_attr(

@@ -23,7 +23,7 @@ use cubecl_runtime::{
     compiler::CubeTask,
     dry_run::LaunchMode,
     logging::ServerLogger,
-    memory_management::ManagedMemoryHandle,
+    memory_management::{InstallMemoryPoolsError, ManagedMemoryHandle},
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
     stream::{EventStreamBackend, MultiStream, ResolvedStreams},
@@ -663,6 +663,15 @@ impl ComputeServer for MetalServer {
         Ok(stream.memory_management.memory_usage())
     }
 
+    fn memory_report(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<cubecl_runtime::memory_management::MemoryReport, ServerError> {
+        let mut resolved = self.streams.resolve(stream_id, std::iter::empty(), false)?;
+        let stream = resolved.current();
+        Ok(stream.memory_management.memory_report())
+    }
+
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
             let stream = resolved.current();
@@ -681,20 +690,25 @@ impl ComputeServer for MetalServer {
         }
     }
 
-    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
+    fn install_memory_pools(
+        &mut self,
+        config: MemoryConfiguration,
+        stream_id: StreamId,
+    ) -> Result<(), InstallMemoryPoolsError> {
         // Streams created from now on build their GPU pools with the new
         // layout; memory is per stream, so already-created streams keep theirs.
         self.streams.backend_mut().set_gpu_pools(config.clone());
         let (_, props) = self.streams.backend_mut().gpu_pools();
 
-        // The calling stream's pools are rebuilt in place (kept, with a log,
-        // when something is still live in them).
+        // The calling stream's pools are rebuilt in place, keeping the old
+        // layout when something is still live in them.
         match self.streams.resolve(stream_id, std::iter::empty(), false) {
             Ok(mut resolved) => {
                 let stream = resolved.current();
-                stream.memory_management.configure(config, &props)
+                stream.memory_management.install_pools(config, &props)
             }
-            Err(_) => false,
+            // Server is in error; the failure itself surfaces at the next sync.
+            Err(_) => Err(InstallMemoryPoolsError::StreamUnavailable),
         }
     }
 }

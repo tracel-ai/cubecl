@@ -25,7 +25,7 @@ pub struct MemoryConfig {
 /// This is a **programmatic** setting, deliberately not a config-file one —
 /// pool layouts are dynamic (e.g. resized per model just before a load) and
 /// must not freeze at startup. Apply it with
-/// [`configure_memory_pools`](crate::client::ComputeClient::configure_memory_pools):
+/// [`install_memory_pools`](crate::client::ComputeClient::install_memory_pools):
 /// it rebuilds the calling stream's pools in place and becomes the layout for
 /// streams created afterwards. Auxiliary pools (pinned CPU, staging, uniforms)
 /// are never affected.
@@ -64,6 +64,20 @@ pub enum MemoryPoolConfig {
         /// Period (in parent allocation count) after which unused pages are
         /// deallocated. `None` never deallocates.
         dealloc_period: Option<u64>,
+    },
+    /// Every allocation is its own device allocation, reused by exact size
+    /// ([`PoolType::Direct`](crate::memory_management::PoolType::Direct)).
+    ///
+    /// Wastes only alignment padding, at the cost of a device allocation per
+    /// distinct size rather than per page.
+    Direct {
+        /// Reserved bytes above which the pool returns free slices to the
+        /// driver, releasing just enough for the allocation that crossed it.
+        ///
+        /// A watermark, not a budget: an allocation that still does not fit
+        /// once everything free is gone is served anyway. `None` never
+        /// reclaims on its own, leaving it to an explicit cleanup.
+        reclaim_at: Option<MemorySize>,
     },
     /// Allocations are slices of larger pages
     /// ([`PoolType::SlicedPages`](crate::memory_management::PoolType::SlicedPages)).

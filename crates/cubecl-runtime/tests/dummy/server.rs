@@ -177,7 +177,7 @@ impl ComputeServer for DummyServer {
                 .memory_management
                 .get_storage(descriptor.handle.memory)
                 .unwrap();
-            let mut bytes = self.memory_management.storage().get(&storage_h);
+            let mut bytes = self.memory_management.storage().get(&storage_h).unwrap();
             bytes.write()[..data.len()].copy_from_slice(&data);
         }
     }
@@ -209,6 +209,25 @@ impl ComputeServer for DummyServer {
         stream_id: StreamId,
         launch_mode: cubecl_runtime::dry_run::LaunchMode,
     ) {
+        let kernel = match kernel.compile(kernel.define(), &mut DummyCompiler, &()) {
+            Ok(kernel) => kernel,
+            Err(err) => {
+                // Recorded once, in the error queue. Tagging the profiler is the drain's
+                // job, exactly as on a real server: a launch failure the queue never gets
+                // drained for would otherwise be reported twice.
+                let err = cubecl_runtime::server::LaunchError::from(err);
+                self.errors.push(err.into());
+                return;
+            }
+        };
+
+        // Compiled above, exactly as a real server does — and, exactly as a
+        // real server does, a skipped launch stops before anything touches a
+        // buffer, so a dry run's lazily-carved allocations stay unmapped.
+        if launch_mode.is_skipped() {
+            return;
+        }
+
         let mut resources: Vec<_> = bindings
             .resources
             .into_iter()
@@ -237,22 +256,6 @@ impl ComputeServer for DummyServer {
         });
 
         let mut resources: Vec<_> = resources.iter_mut().collect();
-        let kernel = match kernel.compile(kernel.define(), &mut DummyCompiler, &()) {
-            Ok(kernel) => kernel,
-            Err(err) => {
-                // Recorded once, in the error queue. Tagging the profiler is the drain's
-                // job, exactly as on a real server: a launch failure the queue never gets
-                // drained for would otherwise be reported twice.
-                let err = cubecl_runtime::server::LaunchError::from(err);
-                self.errors.push(err.into());
-                return;
-            }
-        };
-
-        // Compiled above, exactly as a real server does.
-        if launch_mode.is_skipped() {
-            return;
-        }
 
         kernel.repr.unwrap().compute(resources.as_mut_slice());
     }
@@ -263,6 +266,13 @@ impl ComputeServer for DummyServer {
 
     fn memory_usage(&mut self, _stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         Ok(self.memory_management.memory_usage())
+    }
+
+    fn memory_report(
+        &mut self,
+        _stream_id: StreamId,
+    ) -> Result<cubecl_runtime::memory_management::MemoryReport, ServerError> {
+        Ok(self.memory_management.memory_report())
     }
 
     fn memory_cleanup(&mut self, _stream_id: StreamId) {

@@ -1,4 +1,5 @@
 use cubecl_core::server::IoError;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use std::num::NonZeroU64;
@@ -100,14 +101,20 @@ impl ComputeStorage for WgpuStorage {
         self.mem_alignment
     }
 
-    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let memory = self.memory.get(&handle.id).unwrap();
-        WgpuResource::new(
+    fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
+        let memory = self
+            .memory
+            .get(&handle.id)
+            .ok_or_else(|| IoError::StorageHandleNotFound {
+                reason: format!("{} in the wgpu buffer storage", handle.id).into(),
+                backtrace: BackTrace::capture(),
+            })?;
+        Ok(WgpuResource::new(
             memory.buffer.clone(),
             memory.address,
             handle.offset(),
             handle.size(),
-        )
+        ))
     }
 
     #[cfg_attr(

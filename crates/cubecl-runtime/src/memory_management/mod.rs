@@ -21,6 +21,19 @@ pub enum PoolType {
         /// The minimum number of bytes to allocate in this pool.
         max_alloc_size: u64,
     },
+    /// Give every allocation its own device allocation, sized to the request
+    /// and reused by exact size.
+    ///
+    /// No carving at all, so it wastes only alignment padding. Worth it where
+    /// padding matters more than allocation count — under a
+    /// [`DryRun`](crate::dry_run::DryRun), where unresolved reservations never
+    /// reach the driver at all, or on a device the workload barely fits.
+    Direct {
+        /// Reserved bytes above which free slices are returned to the driver.
+        /// A watermark rather than a budget; `None` reclaims only on an
+        /// explicit cleanup.
+        reclaim_at: Option<u64>,
+    },
     /// Use a memory where each allocation is a slice of a bigger allocation.
     SlicedPages {
         /// The page size to allocate.

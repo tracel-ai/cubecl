@@ -1,5 +1,7 @@
 use crate::{
-    memory_management::{BytesFormat, MemoryLocation, MemoryUsage},
+    memory_management::{
+        BytesFormat, MemoryLocation, MemoryPoolKind, MemoryPoolReport, MemoryUsage,
+    },
     server::IoError,
     storage::{ComputeStorage, StorageUtilization},
 };
@@ -7,7 +9,9 @@ use crate::{
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 
-use super::{ManagedMemoryBinding, ManagedMemoryHandle, MemoryPool, Slice, calculate_padding};
+use super::{
+    ManagedMemoryBinding, ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding,
+};
 
 /// A memory pool that allocates buffers in a range of sizes and reuses them to minimize allocations.
 ///
@@ -23,6 +27,11 @@ pub struct ExclusiveMemoryPool {
     max_alloc_size: u64,
     cur_avg_size: f64,
     location_base: MemoryLocation,
+    /// The most pages ever held at once (pages come and go with
+    /// `dealloc_period`, so the current count understates the peak).
+    pages_peak: u64,
+    /// The largest allocation ever served, in requested (pre-padding) bytes.
+    largest_alloc: u64,
 }
 
 impl core::fmt::Display for ExclusiveMemoryPool {
@@ -77,6 +86,23 @@ impl ExclusiveMemoryPool {
             max_alloc_size,
             cur_avg_size: max_alloc_size as f64 / 2.0,
             location_base: MemoryLocation::new(pool_pos, 0, 0),
+            pages_peak: 0,
+            largest_alloc: 0,
+        }
+    }
+
+    /// A structured snapshot of the pool: shape, usage, high-water marks.
+    pub(crate) fn report(&self) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Exclusive {
+                max_alloc_size: self.max_alloc_size,
+            },
+            usage: self.get_memory_usage(),
+            pages: self.pages.len() as u64,
+            pages_peak: self.pages_peak,
+            // This pool only allocates eagerly.
+            pages_unmapped: 0,
+            largest_alloc: self.largest_alloc,
         }
     }
 
@@ -116,6 +142,7 @@ impl ExclusiveMemoryPool {
             // This means allocations start as "suspected as unused" and over time will be kept for longer.
             free_count: ALLOC_AFTER_FREE - 1,
         });
+        self.pages_peak = self.pages_peak.max(self.pages.len() as u64);
 
         let idx = self.pages.len() - 1;
         Ok((idx, &mut self.pages[idx]))
@@ -137,14 +164,20 @@ impl MemoryPool for ExclusiveMemoryPool {
 
         let padding = calculate_padding(size, self.alignment);
 
-        self.get_free_page(size).map(|page| {
+        let handle = self.get_free_page(size).map(|page| {
             // Return a smaller part of the slice. By construction, we only ever
             // get a page with a big enough size, so this is ok to do.
             page.slice.storage.utilization = StorageUtilization { offset: 0, size };
             page.slice.padding = padding;
             page.free_count = page.free_count.saturating_sub(1);
             page.slice.handle.clone()
-        })
+        });
+
+        if handle.is_some() {
+            self.largest_alloc = self.largest_alloc.max(size);
+        }
+
+        handle
     }
 
     #[cfg_attr(
@@ -155,6 +188,11 @@ impl MemoryPool for ExclusiveMemoryPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
+        // Always eager: this pool serves the preset layouts and the auxiliary
+        // (staging/uniform/pinned) managers, whose buffers are written right
+        // after reservation — laziness would only move the same allocation
+        // one call later.
+        _mapping: PageMapping,
     ) -> Result<ManagedMemoryHandle, IoError> {
         if size > self.max_alloc_size {
             return Err(IoError::BufferTooBig {
@@ -168,6 +206,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         let mut location = self.location_base;
         location.page = idx as u16;
         handle.descriptor().update_location(location);
+        self.largest_alloc = self.largest_alloc.max(size);
 
         Ok(handle)
     }

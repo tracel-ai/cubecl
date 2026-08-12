@@ -4,7 +4,10 @@ use crate::{
     id::GraphId,
     kernel::KernelMetadata,
     logging::ProfileLevel,
-    memory_management::{MemoryAllocationMode, MemoryConfiguration, MemoryUsage},
+    memory_management::{
+        InstallMemoryPoolsError, MemoryAllocationMode, MemoryConfiguration, MemoryReport,
+        MemoryUsage,
+    },
     runtime::Runtime,
     server::{
         CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle, IoError,
@@ -1039,6 +1042,25 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap_or_resume()
     }
 
+    /// Structured per-pool report of the **calling stream's** main GPU memory:
+    /// each pool's shape, usage, and high-water marks, in allocation-routing
+    /// order.
+    ///
+    /// The read side of a measured memory plan — install a layout with
+    /// [`install_memory_pools`](Self::install_memory_pools), measure under a
+    /// [`DryRun`](crate::dry_run::DryRun), cap at the observed peaks; the full
+    /// cycle is on [`MemoryReport`].
+    ///
+    /// Unlike [`memory_usage`](Self::memory_usage), which aggregates across
+    /// streams, this reads one stream: pools are per stream, and a plan is
+    /// measured and installed on the stream that runs the workload.
+    pub fn memory_report(&self) -> Result<MemoryReport, ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.memory_report(stream_id))
+            .unwrap_or_resume()
+    }
+
     /// Get all devices of a specific type available to this runtime
     pub fn enumerate_devices(&self, type_id: u16) -> Vec<DeviceId> {
         R::enumerate_devices(type_id, self.info())
@@ -1084,30 +1106,52 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Install a new dynamic-pool layout for the device's main GPU memory.
     ///
+    /// This replaces the pools themselves, not just a setting they read. It
+    /// lands in two places:
+    ///
+    /// - **The calling stream's pools are rebuilt in place**, discarding the
+    ///   old ones — which is why it only happens when nothing is live in them,
+    ///   and why the high-water marks in
+    ///   [`memory_report`](Self::memory_report) start over.
+    /// - **The layout becomes the one every stream created afterwards is
+    ///   built with.** Other streams that already exist keep theirs; memory is
+    ///   per stream, and rebuilding a stream this call is not synchronized
+    ///   with would swap pools under its live slices.
+    ///
     /// Pool layouts are a purely programmatic, runtime setting — there is no
     /// config-file pathway — sized per workload (e.g. per model, just before
-    /// loading it). The current stream's pools are rebuilt in place when
-    /// nothing is live in them (reconfigure at a quiescent point, e.g. right
-    /// after unloading a model), and the layout applies to every stream
-    /// created afterwards. Auxiliary pools (pinned CPU, staging, uniforms) and
+    /// loading it), so install at a quiescent point such as right after
+    /// unloading a model. Auxiliary pools (pinned CPU, staging, uniforms) and
     /// the persistent pool are never affected.
     ///
-    /// Returns `true` when the current stream's pools were rebuilt now.
-    /// Returns `false` when they kept the old layout because something was
-    /// still live in them — e.g. a garbage-collection task that has not
-    /// released its cross-stream pins yet, which can lag behind an explicit
-    /// [`memory_cleanup`](Self::memory_cleanup). The layout still applies to
-    /// streams created afterwards; retry after the remaining work drains to
-    /// rebuild the current stream too.
+    /// # Errors
+    ///
+    /// [`PoolsInUse`](InstallMemoryPoolsError::PoolsInUse) when the current
+    /// stream kept its old layout because something was still live in its
+    /// pools — e.g. a garbage-collection task that has not released its
+    /// cross-stream pins yet, which can lag behind an explicit
+    /// [`memory_cleanup`](Self::memory_cleanup). Nothing is disturbed, the
+    /// layout still applies to streams created afterwards, and retrying after
+    /// the remaining work drains rebuilds the current stream too.
+    ///
+    /// [`StreamUnavailable`](InstallMemoryPoolsError::StreamUnavailable) when
+    /// the current stream is already in an error state; that failure surfaces
+    /// at the next flush or sync, as usual.
+    ///
+    /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from a runtime
+    /// with no configurable pools, where retrying will never succeed.
     ///
     /// # Panics
     ///
     /// Panics if the layout is invalid (empty list, too many pools, zero page
     /// size, slice larger than page, cap smaller than page, unavailable
-    /// preset) — an explicit layout that cannot be honored must not be
-    /// silently replaced.
-    #[must_use = "a `false` return means the current stream kept its old pool layout"]
-    pub fn configure_memory_pools(&self, pools: &MemoryPoolsConfig) -> bool {
+    /// preset) — that is a bad layout literal rather than a runtime condition,
+    /// and an explicit layout that cannot be honored must not be silently
+    /// replaced.
+    pub fn install_memory_pools(
+        &self,
+        pools: &MemoryPoolsConfig,
+    ) -> Result<(), InstallMemoryPoolsError> {
         let config =
             match MemoryConfiguration::default().resolve(Some(pools), &self.properties().memory) {
                 Ok(config) => config,
@@ -1115,7 +1159,7 @@ impl<R: Runtime> ComputeClient<R> {
             };
         let stream_id = self.stream_id();
         self.device
-            .submit_blocking(move |server| server.configure_memory_pools(config, stream_id))
+            .submit_blocking(move |server| server.install_memory_pools(config, stream_id))
             .unwrap_or_resume()
     }
 

@@ -24,10 +24,12 @@ use cubecl_hip_sys::{
 };
 use cubecl_runtime::{
     compiler::CubeTask,
-    dry_run::LaunchMode,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
+    memory_management::{
+        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle,
+        MemoryReport,
+    },
     stream::ResolvedStreams,
 };
 use std::{ffi::c_void, sync::Arc};
@@ -68,6 +70,11 @@ impl<'a> Command<'a> {
         self.streams.current().memory_management_gpu.memory_usage()
     }
 
+    /// Structured per-pool report of the current stream's main GPU memory.
+    pub fn memory_report(&mut self) -> MemoryReport {
+        self.streams.current().memory_management_gpu.memory_report()
+    }
+
     /// Explicitly cleanup gpu memory on the current stream.
     pub fn memory_cleanup(&mut self) {
         let stream = self.streams.current();
@@ -82,6 +89,14 @@ impl<'a> Command<'a> {
             let sys = stream.sys;
             stream.drop_queue.flush(|| Fence::new(sys));
             stream.drop_queue.flush(|| Fence::new(sys));
+            // The info cache's buffers are live slices in the dynamic pools;
+            // an explicit cleanup exists to leave those pools empty (e.g. for
+            // a rebuild sized to the next workload), so every entry not
+            // pinned by a live graph goes too. Skipped while recording for the
+            // same reason the flush is: an entry the recording has not touched
+            // yet would come back as a fresh allocation inside the capture
+            // window, which is illegal.
+            stream.info_cache.clear_unpinned();
         }
         stream.memory_management_gpu.cleanup(true);
         stream.memory_management_cpu.cleanup(true);
@@ -96,18 +111,21 @@ impl<'a> Command<'a> {
         self.streams.current().memory_management_gpu.mode(mode)
     }
 
-    /// Rebuild the current stream's main-GPU pools with a new layout. Returns
-    /// `false` (keeping the old layout, with a log) when something is still
-    /// live in them.
-    pub fn configure_memory_pools(
+    /// Rebuild the current stream's main-GPU pools with a new layout, keeping
+    /// the old one when something is still live in them.
+    ///
+    /// # Errors
+    ///
+    /// [`InstallMemoryPoolsError::PoolsInUse`] when the rebuild was refused.
+    pub fn install_memory_pools(
         &mut self,
         config: MemoryConfiguration,
         props: &MemoryDeviceProperties,
-    ) -> bool {
+    ) -> Result<(), InstallMemoryPoolsError> {
         self.streams
             .current()
             .memory_management_gpu
-            .configure(config, props)
+            .install_pools(config, props)
     }
 
     /// Allocates a new GPU memory buffer of the specified size.
@@ -438,7 +456,26 @@ impl<'a> Command<'a> {
         Box::pin(async { fence.wait_sync() })
     }
 
+    /// Compile and cache `kernel` without launching — everything a skipped
+    /// launch owes the caches, and nothing else: no buffer is resolved, so a
+    /// dry run's lazily-carved allocations stay unmapped.
+    pub fn compile_only(
+        &mut self,
+        kernel_id: &KernelId,
+        kernel: Box<dyn CubeTask<HipCompiler>>,
+        logger: Arc<ServerLogger>,
+    ) -> Result<(), LaunchError> {
+        if !self.ctx.is_loaded(kernel_id) {
+            self.ctx.compile_kernel(kernel_id, kernel, logger)?;
+        }
+        Ok(())
+    }
+
     /// Executes a registered HIP kernel with the specified parameters.
+    ///
+    /// Always launches: a skipped launch stops at
+    /// [`compile_only`](Self::compile_only) in the server, before any resource
+    /// is resolved, so it never reaches here.
     ///
     /// # Parameters
     ///
@@ -452,7 +489,6 @@ impl<'a> Command<'a> {
     /// # Panics
     ///
     /// * If the execution fails, with an error message or profiling error.
-    #[allow(clippy::too_many_arguments)]
     pub fn kernel(
         &mut self,
         kernel_id: KernelId,
@@ -460,15 +496,8 @@ impl<'a> Command<'a> {
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
         logger: Arc<ServerLogger>,
-        launch_mode: LaunchMode,
     ) -> Result<(), LaunchError> {
-        if !self.ctx.is_loaded(&kernel_id) {
-            self.ctx.compile_kernel(&kernel_id, kernel, logger)?;
-        }
-
-        if launch_mode.is_skipped() {
-            return Ok(());
-        }
+        self.compile_only(&kernel_id, kernel, logger)?;
 
         let stream = self.streams.current();
 

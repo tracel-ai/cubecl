@@ -33,7 +33,10 @@ use cubecl_runtime::{
     dry_run::LaunchMode,
     id::GraphId,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
+    memory_management::{
+        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
+        MemoryUsage,
+    },
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
     stream::MultiStream,
@@ -638,6 +641,17 @@ impl ComputeServer for CudaServer {
         Ok(command.memory_usage())
     }
 
+    fn memory_report(&mut self, stream_id: StreamId) -> Result<MemoryReport, ServerError> {
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: false,
+                flush: false,
+            },
+        )?;
+        Ok(command.memory_report())
+    }
+
     fn stream_ids(&self) -> Vec<StreamId> {
         self.streams.stream_ids().collect()
     }
@@ -670,14 +684,18 @@ impl ComputeServer for CudaServer {
         command.allocation_mode(mode)
     }
 
-    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
+    fn install_memory_pools(
+        &mut self,
+        config: MemoryConfiguration,
+        stream_id: StreamId,
+    ) -> Result<(), InstallMemoryPoolsError> {
         // Streams created from now on build their GPU pools with the new
         // layout; memory is per stream, so already-created streams keep theirs.
         self.streams.backend_mut().set_gpu_pools(config.clone());
         let (_, props) = self.streams.backend_mut().gpu_pools();
 
-        // The calling stream's pools are rebuilt in place (kept, with a log,
-        // when something is still live in them).
+        // The calling stream's pools are rebuilt in place, keeping the old
+        // layout when something is still live in them.
         let mut command = match self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -686,10 +704,10 @@ impl ComputeServer for CudaServer {
             },
         ) {
             Ok(val) => val,
-            // Server is in error.
-            Err(_) => return false,
+            // Server is in error; the failure itself surfaces at the next sync.
+            Err(_) => return Err(InstallMemoryPoolsError::StreamUnavailable),
         };
-        command.configure_memory_pools(config, &props)
+        command.install_memory_pools(config, &props)
     }
 }
 
@@ -1080,6 +1098,16 @@ impl CudaServer {
             },
         )?;
 
+        // A skipped launch stops here, after compilation and before anything
+        // that touches a buffer: resolving resources, building tensor maps,
+        // uploading metadata or reading a dynamic cube count would
+        // materialize memory a dry run exists to leave unmapped (and the
+        // readback would block on garbage values).
+        if launch_mode.is_skipped() {
+            command.compile_only(&kernel_id, kernel, logger)?;
+            return Ok(());
+        }
+
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
             // TODO: CUDA doesn't have an exact equivalent of dynamic dispatch. Instead, kernels are free to launch other kernels.
@@ -1133,14 +1161,17 @@ impl CudaServer {
         // refine this to minimize allocations.
         let mut tensor_maps = Vec::new();
 
+        // Resolving is also where a dry run's deferred allocations get their
+        // device backing, so this can fail on a device the measured plan does
+        // not fit — reported, not panicked.
         for resource in bindings.resources.into_iter() {
             match resource {
                 KernelResource::Buffer(binding) => {
-                    let resource = command.resource(binding).expect("Resource to exist.");
+                    let resource = command.resource(binding)?;
                     resources.push(resource.binding);
                 }
                 KernelResource::TensorMap(TensorMapBinding { map, binding }) => {
-                    let resource = command.resource(binding).expect("Resource exists.");
+                    let resource = command.resource(binding)?;
                     let device_ptr = resource.ptr as *mut c_void;
 
                     let tensor_map = create_tensor_map(map, device_ptr, address_type)?;
@@ -1150,22 +1181,12 @@ impl CudaServer {
             }
         }
 
-        resources.extend(info_binding.into_iter().map(|s| {
-            command
-                .resource(s.binding())
-                .expect("Resource to exist")
-                .binding
-        }));
+        if let Some(binding) = info_binding {
+            resources.push(command.resource(binding.binding())?.binding);
+        }
         resources.extend(info_const);
 
-        command.kernel(
-            kernel_id,
-            kernel,
-            count,
-            &mut resources,
-            logger,
-            launch_mode,
-        )?;
+        command.kernel(kernel_id, kernel, count, &mut resources, logger)?;
 
         Ok(())
     }
