@@ -14,6 +14,7 @@ pub mod lower;
 pub mod ops;
 pub mod target;
 pub mod types;
+pub mod validate;
 
 pub use compiler::*;
 use serde::{Deserialize, Serialize};

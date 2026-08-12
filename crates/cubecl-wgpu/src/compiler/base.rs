@@ -209,7 +209,22 @@ impl WgpuCompiler for AutoCompiler {
             #[cfg(feature = "spirv")]
             AutoRepresentation::SpirV(repr) => repr.shared_size,
         });
-        check_shared_memory(shared_bytes, props)
+        check_shared_memory(shared_bytes, props)?;
+
+        #[cfg(feature = "spirv")]
+        if let Some(module) = repr.as_ref().and_then(|repr| match repr {
+            AutoRepresentation::SpirV(repr) => repr.module.as_ref(),
+            _ => None,
+        }) {
+            cubecl_spirv::validate::check_cmma_types(module, props).map_err(|reason| {
+                LaunchError::CompilationError(CompilationError::Validation {
+                    reason,
+                    backtrace: BackTrace::capture(),
+                })
+            })?;
+        }
+
+        Ok(())
     }
 
     fn normalize_repr(
@@ -332,7 +347,18 @@ impl WgpuCompiler for cubecl_spirv::SpirvCompiler {
         props: &DeviceProperties,
     ) -> Result<(), LaunchError> {
         let shared_bytes = repr.as_ref().map(|repr| repr.shared_size);
-        check_shared_memory(shared_bytes, props)
+        check_shared_memory(shared_bytes, props)?;
+
+        if let Some(module) = repr.as_ref().and_then(|repr| repr.module.as_ref()) {
+            cubecl_spirv::validate::check_cmma_types(module, props).map_err(|reason| {
+                LaunchError::CompilationError(CompilationError::Validation {
+                    reason,
+                    backtrace: BackTrace::capture(),
+                })
+            })?;
+        }
+
+        Ok(())
     }
 
     fn normalize_repr(
