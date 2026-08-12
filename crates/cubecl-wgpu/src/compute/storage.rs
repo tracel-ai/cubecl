@@ -27,7 +27,7 @@ impl core::fmt::Debug for WgpuStorage {
 }
 
 /// The memory resource that can be allocated for wgpu.
-#[derive(new, Debug)]
+#[derive(new, Debug, Clone)]
 pub struct WgpuResource {
     /// The wgpu buffer.
     pub buffer: wgpu::Buffer,
