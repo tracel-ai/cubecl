@@ -116,6 +116,7 @@ impl PlironCompiler {
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(LowerComplexOpPass::default());
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(SROAPass);
         func_passes.add_pass(BranchToSCFPass::default());
         func_passes.add_pass(SCFToLlvmCf::default());
         func_passes.add_pass(LowerEntryAbiPass::new(

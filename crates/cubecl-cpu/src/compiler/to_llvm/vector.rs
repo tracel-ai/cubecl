@@ -4,6 +4,10 @@ use cubecl_core::ir::dialect::vector::{
     VectorInsertDynamicOp,
 };
 
+fn is_vector(ctx: &Context, ty: impl Typed) -> bool {
+    ty.get_type(ctx).deref(ctx).is::<LlvmVectorType>()
+}
+
 /// Broadcast `scalar` to every lane of `vec_ty`, with the poison/insertelement/shufflevector idiom
 /// LLVM folds back into a splat.
 pub fn insert_splat(
@@ -56,7 +60,7 @@ impl ToLLVMDialect for CompositeInsertOp {
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        assert!(self.composite(ctx).is_vector(ctx));
+        assert!(is_vector(ctx, self.composite(ctx)));
         let index = self.index(ctx).0 as i32;
         let index = insert_i32_const(ctx, rewriter, index);
 
@@ -99,7 +103,7 @@ impl ToLLVMDialect for CompositeExtractOp {
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        assert!(self.composite(ctx).is_vector(ctx));
+        assert!(is_vector(ctx, self.composite(ctx)));
         let index = self.index(ctx).0 as i32;
         let index = insert_i32_const(ctx, rewriter, index);
 
