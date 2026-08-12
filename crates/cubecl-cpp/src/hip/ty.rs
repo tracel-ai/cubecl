@@ -43,3 +43,8 @@ hip_ty!(UniformPointerType, |ty, ctx| format!(
 ));
 
 ty_includes!(Hip, [MatrixType] => "rocwmma/rocwmma.hpp");
+// hiprtc's builtin header only declares the legacy `hip_bfloat16` struct;
+// `__hip_bfloat16` (the CUDA-compatible type emitted above) needs the real
+// header, exactly as the pre-pliron dialect included it whenever bf16 appeared.
+// (`__half` needs no include: the builtin header covers it.)
+ty_includes!(Hip, [BFloat16Type, crate::cuda::ty::BFloat16x2Type] => "hip/hip_bf16.h");
