@@ -1,15 +1,19 @@
 use cubecl::prelude::*;
 use cubecl_common::{
     e2m1, e2m1x2,
-    quant::scheme::{QuantLevel, QuantParam, QuantScheme, QuantValue},
+    quant::scheme::{QuantParam, QuantScheme, QuantValue, ScaleLevels},
 };
+use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::{self as cubecl};
 use half::f16;
 
-use crate::tensor::{
-    View,
-    launch::ViewArg,
-    layout::{plain::PlainLayout, *},
+use crate::{
+    quant::view::QuantizedView,
+    tensor::{
+        View,
+        launch::{ScaleBindings, ViewArg},
+        layout::{plain::PlainLayout, *},
+    },
 };
 
 #[derive(CubeType, CubeLaunch)]
@@ -93,7 +97,8 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
         unsafe { BufferArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
-    let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
+    let quantized_view =
+        ViewArg::new_quantized(values_view, ScaleBindings::one(scales_view), scheme);
     let float_view = ViewArg::new_array::<PlainLayout>(
         unsafe { BufferArg::from_raw_parts(float_values, 16) },
         (),
@@ -161,7 +166,8 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
         unsafe { BufferArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
-    let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
+    let quantized_view =
+        ViewArg::new_quantized(values_view, ScaleBindings::one(scales_view), scheme);
     let float_view = ViewArg::new_array::<PlainLayout>(
         unsafe { BufferArg::from_raw_parts(float_values, 16) },
         (),
@@ -197,6 +203,66 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     assert_eq!(&actual_float, &float_data);
 }
 
+/// A view whose values share one scale: the scale rides in a register and the scales view is
+/// never read. Built in cube code, since only a caller that knows its values share a block can
+/// say so.
+#[cube(launch_unchecked)]
+pub fn kernel_uniform_quantized_view<F: Float, N: Size>(
+    values: View<'_, Vector<u32, Const<1>>, Coords1d>,
+    scales: View<'_, f32, Coords1d>,
+    scale: InputScalar,
+    output: &mut [Vector<F, N>],
+    #[comptime] scheme: QuantScheme,
+) {
+    let view = QuantizedView::<u32, Const<1>, f32, F, N, Coords1d>::new_uniform(
+        values,
+        scales,
+        scale.get::<f32>(),
+        scheme,
+    )
+    .view();
+    let pos = UNIT_POS as usize;
+    if pos < view.shape() {
+        output[pos] = view.read(pos);
+    }
+}
+
+/// The uniform view reconstructs exactly what a per-value scale of the same value would: the
+/// scales buffer is filled with a number that would be wrong if it were read.
+pub fn test_quantized_uniform_scale<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R>,
+    scheme: QuantScheme,
+) {
+    let vector_size_float = 8;
+    let scale = 2f32.powi(-3);
+
+    let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
+    // Never read: a uniform view resolves its scale without touching this.
+    let scales = client.create_from_slice(f32::as_bytes(&[f32::NAN, f32::NAN]));
+    let output = client.empty(16 * size_of::<F>());
+
+    let expected = (0..16)
+        .map(|i| F::new(scale * (i as f32 - 8.0)))
+        .collect::<Vec<_>>();
+
+    unsafe {
+        kernel_uniform_quantized_view::launch_unchecked::<F, R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(16),
+            vector_size_float,
+            ViewArg::new_array::<PlainLayout>(BufferArg::from_raw_parts(values, 2), ()),
+            ViewArg::new_array::<PlainLayout>(BufferArg::from_raw_parts(scales, 2), ()),
+            InputScalar::new(scale, ElemType::Float(FloatKind::F32)),
+            BufferArg::from_raw_parts(output.clone(), 16),
+            scheme,
+        );
+    }
+
+    let actual = client.read_one_unchecked(output);
+    assert_eq!(F::from_bytes(&actual), &expected);
+}
+
 /// Two levels of scales: per-block scales normalized by one per-tensor scale.
 ///
 /// Neither level reconstructs the values alone here: a block scale is far above the values it helps
@@ -212,7 +278,9 @@ pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: 
 
     let scheme = QuantScheme::default()
         .with_value(QuantValue::Q4F)
-        .with_level(QuantLevel::block_tensor([block as u8], QuantParam::F32));
+        .with_scales(
+            ScaleLevels::block([block as u8], QuantParam::F32).and_tensor(QuantParam::F32),
+        );
 
     // A power of two, so the reconstruction owes exactly the values the expectation computes.
     let global_scale = 2f32.powi(-20);
@@ -243,8 +311,11 @@ pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: 
         );
         // The per-tensor scale is read from its first element, so it binds as a plain buffer.
         let global_buffer = unsafe { BufferArg::from_raw_parts(global.clone(), 1) };
-        let quantized_view =
-            ViewArg::new_quantized_two_level(values_view, scales_view, global_buffer, scheme);
+        let quantized_view = ViewArg::new_quantized(
+            values_view,
+            ScaleBindings::two(scales_view, global_buffer),
+            scheme,
+        );
 
         unsafe {
             kernel_quantized_view::launch_unchecked::<F, R>(
@@ -312,6 +383,26 @@ macro_rules! testgen_quantized_view {
             cubecl_std::tests::view::quantized::test_quantized_per_tensor_fp4::<TestRuntime, $ty>(
                 client, 2,
             );
+        }
+
+        /// Every level shape, since a uniform scale stands for whatever the caller folded into
+        /// it: the scheme no longer says how many scales a read needs.
+        #[$crate::tests::test_log::test]
+        fn test_quantized_view_uniform_scale() {
+            use cubecl_common::quant::scheme::{QuantParam, QuantValue, ScaleLevels};
+            let client = TestRuntime::client(&Default::default());
+            let base = cubecl_common::quant::scheme::QuantScheme::default()
+                .with_value(QuantValue::Q4F);
+            for levels in [
+                ScaleLevels::tensor(QuantParam::F32),
+                ScaleLevels::block([8], QuantParam::F32),
+                ScaleLevels::block([8], QuantParam::F32).and_tensor(QuantParam::F32),
+            ] {
+                cubecl_std::tests::view::quantized::test_quantized_uniform_scale::<TestRuntime, $ty>(
+                    client.clone(),
+                    base.with_scales(levels),
+                );
+            }
         }
 
         #[$crate::tests::test_log::test]

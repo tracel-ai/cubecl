@@ -3,13 +3,13 @@ use std::marker::PhantomData;
 use super::*;
 use crate::tensor::{
     View, ViewExpand, ViewOperations, ViewOperationsExpand,
-    launch::{ViewArg, ViewCompilationArg},
+    launch::{ScaleBindings, ScaleBindingsCompilationArg, ViewArg, ViewCompilationArg},
     layout::Coordinates,
 };
 use cubecl::prelude::*;
 use cubecl_common::{
     e2m1x2, e4m3, e5m2,
-    quant::scheme::{QuantLevel, QuantParam, QuantScheme, QuantStore, QuantValue},
+    quant::scheme::{QuantParam, QuantScheme, QuantStore, QuantValue},
     ue8m0,
 };
 use cubecl_core::{
@@ -40,8 +40,7 @@ pub struct QuantizedView<
 > {
     values: View<'a, Vector<Q, NQ>, C>,
     scales: View<'a, S, C>,
-    /// Per-tensor scale of a two-level scheme, already read from its binding.
-    global: ComptimeOption<f32>,
+    scale_mode: ScaleMode,
     #[cube(comptime)]
     scheme: QuantScheme,
     #[cube(comptime)]
@@ -52,16 +51,40 @@ pub struct QuantizedView<
 impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
     QuantizedView<'a, Q, NQ, S, F, NF, C>
 {
+    /// A view addressing one scale per position through `scales`.
+    ///
+    /// Takes a one-level scheme: an outer level's scale never rides a signature here, it is
+    /// either bound at launch or already folded by a caller using
+    /// [`new_uniform`](Self::new_uniform).
     pub fn new(
         values: View<'a, Vector<Q, NQ>, C>,
         scales: View<'a, S, C>,
-        global: ComptimeOption<f32>,
+        #[comptime] scheme: QuantScheme,
+    ) -> Self {
+        comptime!(crate::quant::check_scale_bindings(&scheme, 1));
+        QuantizedView::<'a, Q, NQ, S, F, NF, C> {
+            values,
+            scales,
+            scale_mode: ScaleMode::new_Addressed(),
+            scheme,
+            _ty: PhantomData,
+        }
+    }
+
+    /// [`new`](Self::new) for values that share one scale: `scale` is the whole scale for every
+    /// value read through this view, whatever levels the caller folded into it, so the scales
+    /// view rides along unread. Only a caller that knows the values it will read share a block
+    /// can say so, which is why this exists on the cube side.
+    pub fn new_uniform(
+        values: View<'a, Vector<Q, NQ>, C>,
+        scales: View<'a, S, C>,
+        scale: f32,
         #[comptime] scheme: QuantScheme,
     ) -> Self {
         QuantizedView::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
-            global,
+            scale_mode: ScaleMode::new_Uniform(scale),
             scheme,
             _ty: PhantomData,
         }
@@ -89,15 +112,53 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
     pub fn new(
         values: ViewExpand<'a, Vector<Q, NQ>, C>,
         scales: ViewExpand<'a, S, C>,
-        global: ComptimeOptionExpand<f32>,
+        scale_mode: ScaleModeExpand,
         scheme: QuantScheme,
     ) -> Self {
         QuantizedViewExpand::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
-            global,
+            scale_mode,
             scheme,
             _ty: PhantomData,
+        }
+    }
+
+    /// Dequantize `value` with the effective scale this view's mode assigns it, reading the
+    /// per-position scale through `read_scale` only when one is addressed.
+    fn dequant(
+        &self,
+        scope: &Scope,
+        value: NativeExpand<Vector<Q, NQ>>,
+        read_scale: impl FnOnce(&Scope) -> NativeExpand<S>,
+    ) -> NativeExpand<Vector<F, NF>> {
+        // The addressed modes are where the mode can disagree with the scheme: the static
+        // constructors take a scheme without inspecting it. A uniform scale stands for whatever
+        // the caller folded into it, so the scheme says nothing about it.
+        match self.scale_mode {
+            ScaleModeExpand::Addressed => {
+                assert!(
+                    self.scheme.levels().len() == 1,
+                    "every scale is addressed, but {:?} has outer levels nothing folds in",
+                    self.scheme,
+                );
+                let scale = read_scale(scope);
+                dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.scheme)
+            }
+            ScaleModeExpand::Folded(outer_scale) => {
+                assert!(
+                    self.scheme.levels().len() > 1,
+                    "a folded outer scale rides along, but {:?} has no outer level it could hold",
+                    self.scheme,
+                );
+                check_outer_levels(&self.scheme);
+                let scale = read_scale(scope);
+                let scale = fold_outer_scale::expand::<S>(scope, outer_scale, scale);
+                dequantize_aligned::expand::<Q, f32, F, NQ, NF>(scope, value, scale, self.scheme)
+            }
+            ScaleModeExpand::Uniform(scale) => {
+                dequantize_aligned::expand::<Q, f32, F, NQ, NF>(scope, value, scale, self.scheme)
+            }
         }
     }
 
@@ -132,9 +193,9 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         pos: <C>::ExpandType,
     ) -> NativeExpand<Vector<F, NF>> {
         let value = self.values.clone().__expand_read_method(scope, pos.clone());
-        let scale = self.scales.clone().__expand_read_method(scope, pos);
-
-        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.global, self.scheme)
+        self.dequant(scope, value, |scope| {
+            self.scales.clone().__expand_read_method(scope, pos)
+        })
     }
 
     fn __expand_read_checked_method(
@@ -146,9 +207,9 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             .values
             .clone()
             .__expand_read_checked_method(scope, pos.clone());
-        let scale = self.scales.clone().__expand_read_checked_method(scope, pos);
-
-        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.global, self.scheme)
+        self.dequant(scope, value, |scope| {
+            self.scales.clone().__expand_read_checked_method(scope, pos)
+        })
     }
 
     fn __expand_read_masked_method(
@@ -161,19 +222,11 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             .values
             .clone()
             .__expand_read_checked_method(scope, pos.clone());
-        let scale = self
-            .scales
-            .clone()
-            .__expand_read_checked_method(scope, pos.clone());
-        let in_bounds = self.__expand_is_in_bounds_method(scope, pos);
+        let in_bounds = self.__expand_is_in_bounds_method(scope, pos.clone());
 
-        let value = dequantize_aligned::expand::<Q, S, F, NQ, NF>(
-            scope,
-            value,
-            scale,
-            self.global,
-            self.scheme,
-        );
+        let value = self.dequant(scope, value, |scope| {
+            self.scales.clone().__expand_read_checked_method(scope, pos)
+        });
         select::expand::<Vector<F, NF>>(scope, in_bounds, value, mask_value)
     }
 
@@ -186,12 +239,11 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             .values
             .clone()
             .__expand_read_unchecked_method(scope, pos.clone());
-        let scale = self
-            .scales
-            .clone()
-            .__expand_read_unchecked_method(scope, pos);
-
-        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.global, self.scheme)
+        self.dequant(scope, value, |scope| {
+            self.scales
+                .clone()
+                .__expand_read_unchecked_method(scope, pos)
+        })
     }
 
     fn __expand_as_linear_slice_method(
@@ -236,45 +288,38 @@ fn quant_vector_size_q(vector_size: usize, num_quants: usize) -> usize {
     vector_size / num_quants
 }
 
-/// Register the per-tensor scale's binding, checking it against the level so the two cannot
-/// register apart. Registered as f32 to match the element type [`expand_global`] reads it back
-/// with.
-fn register_global<R: Runtime>(
-    global: Option<BufferArg<R>>,
-    level: QuantLevel,
+/// Register the outer level's per-tensor scale binding. Registered as f32 to match the element
+/// type [`expand_scale_mode`] reads it back with.
+fn register_outer_scale<R: Runtime>(
+    outer_scale: Option<BufferArg<R>>,
     launcher: &mut KernelLauncher<R>,
 ) -> Option<BufferCompilationArg> {
-    check_global_bindings(level, global.is_some());
-    global.map(|global| <[f32] as LaunchArg>::register(global, launcher))
+    outer_scale.map(|outer_scale| <[f32] as LaunchArg>::register(outer_scale, launcher))
 }
 
-/// Read the per-tensor scale into the scope the view is built in, checking it against the level
-/// so the two cannot expand apart.
+/// The scale mode a launch's bindings expand to.
 ///
-/// One read for the whole kernel: the scale is a single value for the entire tensor, and a read
-/// per element would be a global load the optimizer cannot hoist back out of a loop. Reading it as
-/// f32 is what keeps the two levels multiplying in f32 later, since a block scale alone can
-/// overflow a narrow `F`.
-fn expand_global(
-    global: Option<&BufferCompilationArg>,
-    level: QuantLevel,
+/// An outer scale is read once for the whole kernel: it is a single value for the entire tensor,
+/// and a read per element would be a global load the optimizer cannot hoist back out of a loop.
+/// Reading it as f32 is what keeps the levels multiplying in f32 later, since a block scale alone
+/// can overflow a narrow `F`.
+fn expand_scale_mode(
+    outer_scale: Option<&BufferCompilationArg>,
     builder: &mut KernelBuilder,
-) -> ComptimeOptionExpand<f32> {
-    check_global_bindings(level, global.is_some());
-    match global {
-        Some(global) => {
-            let buffer = <[f32] as LaunchArg>::expand(global, builder);
+) -> ScaleModeExpand {
+    match outer_scale {
+        Some(outer_scale) => {
+            let buffer = <[f32] as LaunchArg>::expand(outer_scale, builder);
             let pos = NativeExpand::<usize>::from_lit(&builder.scope, 0);
-            ComptimeOptionExpand::Some(*buffer.__expand_index_method(&builder.scope, pos))
+            ScaleModeExpand::Folded(*buffer.__expand_index_method(&builder.scope, pos))
         }
-        None => ComptimeOptionExpand::None,
+        None => ScaleModeExpand::Addressed,
     }
 }
 
 struct ExpandDynamic<'a, E: Numeric, N: Size, C: Coordinates + 'static> {
     values: &'a ViewCompilationArg<C>,
-    scales: &'a ViewCompilationArg<C>,
-    global: Option<&'a BufferCompilationArg>,
+    scales: &'a ScaleBindingsCompilationArg<C>,
     scheme: QuantScheme,
     builder: &'a mut KernelBuilder,
     _ty: PhantomData<(E, N)>,
@@ -292,18 +337,19 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
         let vector_size_q = quant_vector_size_q(vector_size, self.scheme.num_quants());
         self.builder.scope.register_size::<NQ>(vector_size_q);
 
+        check_scale_bindings(&self.scheme, self.scales.len());
+
         let values = View::<Vector<Q, NQ>, C>::expand(self.values, self.builder);
-        let scales = View::<S, C>::expand(self.scales, self.builder);
-        let global = expand_global(self.global, self.scheme.level, self.builder);
-        let view = QuantizedViewExpand::new(values, scales, global, self.scheme);
+        let scales = View::<S, C>::expand(&self.scales.inner, self.builder);
+        let scale_mode = expand_scale_mode(self.scales.outer_scale.as_ref(), self.builder);
+        let view = QuantizedViewExpand::new(values, scales, scale_mode, self.scheme);
         ViewExpand::new(&self.builder.scope, view)
     }
 }
 
 pub(crate) struct RegisterDynamic<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> {
     pub values: ViewArg<C, R>,
-    pub scales: ViewArg<C, R>,
-    pub global: Option<BufferArg<R>>,
+    pub scales: ScaleBindings<C, R>,
     pub scheme: QuantScheme,
     pub launcher: &'a mut KernelLauncher<R>,
     pub _ty: PhantomData<E>,
@@ -323,13 +369,17 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
             scope.register_size::<NQ>(vector_size_q);
         });
 
+        check_scale_bindings(&self.scheme, self.scales.len());
+
         let values = View::<Vector<Q, NQ>, C>::register(self.values, self.launcher);
-        let scales = View::<S, C>::register(self.scales, self.launcher);
-        let global = register_global(self.global, self.scheme.level, self.launcher);
+        let inner = View::<S, C>::register(*self.scales.inner, self.launcher);
+        let outer_scale = register_outer_scale(self.scales.outer_scale, self.launcher);
         ViewCompilationArg::Quantized {
             values: Box::new(values),
-            scales: Box::new(scales),
-            global,
+            scales: ScaleBindingsCompilationArg {
+                inner: Box::new(inner),
+                outer_scale,
+            },
             scheme: self.scheme,
         }
     }
@@ -339,7 +389,7 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
 /// required but aren't available, and only the dynamic schema is known.
 pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) -> F::Output {
     fn run_with_q<F: RunWithQuantType, Q: Scalar>(func: F, scheme: QuantScheme) -> F::Output {
-        match scheme.param {
+        match scheme.param() {
             QuantParam::F32 => func.execute::<Q, f32>(),
             QuantParam::F16 => func.execute::<Q, f16>(),
             QuantParam::BF16 => func.execute::<Q, bf16>(),
@@ -372,8 +422,7 @@ pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) ->
 /// quantization from the kernel using the view.
 pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
     values: &ViewCompilationArg<C>,
-    scales: &ViewCompilationArg<C>,
-    global: Option<&BufferCompilationArg>,
+    scales: &ScaleBindingsCompilationArg<C>,
     scheme: QuantScheme,
     builder: &mut KernelBuilder,
 ) -> ViewExpand<'static, E, C> {
@@ -382,15 +431,13 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
     // To specify tighter trait bounds
     fn expand_dynamic_f<F: Numeric, NF: Size, C: Coordinates + 'static>(
         values: &ViewCompilationArg<C>,
-        scales: &ViewCompilationArg<C>,
-        global: Option<&BufferCompilationArg>,
+        scales: &ScaleBindingsCompilationArg<C>,
         scheme: QuantScheme,
         builder: &mut KernelBuilder,
     ) -> ViewExpand<'static, Vector<F, NF>, C> {
         let func = ExpandDynamic {
             values,
             scales,
-            global,
             scheme,
             builder,
             _ty: PhantomData::<(F, NF)>,
@@ -409,22 +456,22 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
         match E::Scalar::elem_type(builder) {
             ElemType::Float(ty) => match ty {
                 FloatKind::F16 => t(expand_dynamic_f::<f16, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, scheme, builder,
                 )),
                 FloatKind::BF16 => t(expand_dynamic_f::<bf16, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, scheme, builder,
                 )),
                 FloatKind::Flex32 => t(expand_dynamic_f::<flex32, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, scheme, builder,
                 )),
                 FloatKind::F32 => t(expand_dynamic_f::<f32, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, scheme, builder,
                 )),
                 FloatKind::TF32 => t(expand_dynamic_f::<tf32, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, scheme, builder,
                 )),
                 FloatKind::F64 => t(expand_dynamic_f::<f64, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, scheme, builder,
                 )),
                 FloatKind::E2M1
                 | FloatKind::E2M1x2
@@ -442,7 +489,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
 #[cfg(test)]
 mod tests {
     use super::{RunWithQuantType, quant_vector_size_q, run_with_quant_type};
-    use cubecl_common::quant::scheme::{QuantLevel, QuantParam, QuantScheme};
+    use cubecl_common::quant::scheme::{QuantParam, QuantScheme, ScaleLevels};
     use cubecl_core::prelude::Scalar;
 
     struct Dispatched;
@@ -460,12 +507,12 @@ mod tests {
         assert!(run_with_quant_type(Dispatched, QuantScheme::default()));
     }
 
-    /// The per-tensor scale is read through a binding of its own, so a level that has one does not
+    /// The per-tensor scale is read through a binding of its own, so an outer level does not
     /// change how the value and block scale types dispatch.
     #[test]
     fn two_level_scheme_dispatches() {
-        let scheme =
-            QuantScheme::default().with_level(QuantLevel::block_tensor([32], QuantParam::F32));
+        let scheme = QuantScheme::default()
+            .with_scales(ScaleLevels::block([32], QuantParam::F32).and_tensor(QuantParam::F32));
         assert!(run_with_quant_type(Dispatched, scheme));
     }
 
