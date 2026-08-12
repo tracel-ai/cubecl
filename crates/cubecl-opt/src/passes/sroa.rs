@@ -1,3 +1,32 @@
+//! Scalar replacement of aggregates (SROA) pass.
+//!
+//! Unlike the MLIR version it's cribbing from, this is *not* specific to memory and works for SSA
+//! composites like slice pointers or vectors. It finds destructurable composites, collects all
+//! uses. Then, if all uses can be safely destructured (they're either extract/insert or load/store
+//! on an indexed pointer), the original composite is destructured into its components and each
+//! usage is replaced by a destructured one. For `IndexOp`/`CompositeExtractOp` this means removing
+//! the op and replacing its result value with the destructured input, for example.
+//!
+//! Example
+//! ```ignore
+//! v0 = cube.constant 0.0: f32
+//! v1 = cube.constant 1.0: f32
+//! v2 = composite.construct v0, v1
+//! v3 = composite.extract v2[0]
+//! v4 = composite.extract v2[1]
+//! v5 = math.add v3, v4
+//! ```
+//! gets destructured to
+//! ```ignore
+//! v0 = cube.constant 0.0: f32
+//! v1 = cube.constant 1.0: f32
+//! v5 = math.add v0, v1
+//! ```
+//!
+//! This pattern is very common in C++ due to unrolling, but there are many other patterns handled
+//! by this pass.
+//!
+
 use alloc::vec::Vec;
 use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
