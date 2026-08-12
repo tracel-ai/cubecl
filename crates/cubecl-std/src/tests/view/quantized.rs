@@ -275,6 +275,11 @@ pub fn test_quantized_two_level_narrow_float<R: Runtime>(client: ComputeClient<R
     if !client.properties().supports_type(f16::cube_type()) {
         return;
     }
+    // The unroll pass cannot split the narrowing f32 -> f16 cast this test exists to exercise,
+    // so a target whose native vectors are narrower than the vec8 loads dies at compile.
+    if client.properties().hardware.max_vector_size < 8 {
+        return;
+    }
 
     test_quantized_two_level_int::<R, f16>(client);
 }
