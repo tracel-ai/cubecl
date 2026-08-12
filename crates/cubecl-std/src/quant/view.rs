@@ -9,7 +9,7 @@ use crate::tensor::{
 use cubecl::prelude::*;
 use cubecl_common::{
     e2m1x2, e4m3, e5m2,
-    quant::scheme::{QuantParam, QuantScheme, QuantStore, QuantValue},
+    quant::scheme::{QuantLevel, QuantParam, QuantScheme, QuantStore, QuantValue},
     ue8m0,
 };
 use cubecl_core::{
@@ -89,16 +89,13 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
     pub fn new(
         values: ViewExpand<'a, Vector<Q, NQ>, C>,
         scales: ViewExpand<'a, S, C>,
-        global: Option<NativeExpand<f32>>,
+        global: ComptimeOptionExpand<f32>,
         scheme: QuantScheme,
     ) -> Self {
         QuantizedViewExpand::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
-            global: match global {
-                Some(global) => ComptimeOptionExpand::Some(global),
-                None => ComptimeOptionExpand::None,
-            },
+            global,
             scheme,
             _ty: PhantomData,
         }
@@ -239,19 +236,39 @@ fn quant_vector_size_q(vector_size: usize, num_quants: usize) -> usize {
     vector_size / num_quants
 }
 
-/// Read the per-tensor scale into the scope the view is built in.
+/// Register the per-tensor scale's binding, checking it against the level so the two cannot
+/// register apart. Registered as f32 to match the element type [`expand_global`] reads it back
+/// with.
+fn register_global<R: Runtime>(
+    global: Option<BufferArg<R>>,
+    level: QuantLevel,
+    launcher: &mut KernelLauncher<R>,
+) -> Option<BufferCompilationArg> {
+    check_global_bindings(level, global.is_some());
+    global.map(|global| <[f32] as LaunchArg>::register(global, launcher))
+}
+
+/// Read the per-tensor scale into the scope the view is built in, checking it against the level
+/// so the two cannot expand apart.
 ///
 /// One read for the whole kernel: the scale is a single value for the entire tensor, and a read
 /// per element would be a global load the optimizer cannot hoist back out of a loop. Reading it as
 /// f32 is what keeps the two levels multiplying in f32 later, since a block scale alone can
 /// overflow a narrow `F`.
-fn expand_global_scale(
-    global: &BufferCompilationArg,
+fn expand_global(
+    global: Option<&BufferCompilationArg>,
+    level: QuantLevel,
     builder: &mut KernelBuilder,
-) -> NativeExpand<f32> {
-    let buffer = <[f32] as LaunchArg>::expand(global, builder);
-    let pos = NativeExpand::<usize>::from_lit(&builder.scope, 0);
-    *buffer.__expand_index_method(&builder.scope, pos)
+) -> ComptimeOptionExpand<f32> {
+    check_global_bindings(level, global.is_some());
+    match global {
+        Some(global) => {
+            let buffer = <[f32] as LaunchArg>::expand(global, builder);
+            let pos = NativeExpand::<usize>::from_lit(&builder.scope, 0);
+            ComptimeOptionExpand::Some(*buffer.__expand_index_method(&builder.scope, pos))
+        }
+        None => ComptimeOptionExpand::None,
+    }
 }
 
 struct ExpandDynamic<'a, E: Numeric, N: Size, C: Coordinates + 'static> {
@@ -271,17 +288,13 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
     fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output {
         define_size!(NQ);
 
-        check_global_bindings(self.scheme.level, self.global.is_some());
-
         let vector_size = N::__expand_value(&self.builder.scope);
         let vector_size_q = quant_vector_size_q(vector_size, self.scheme.num_quants());
         self.builder.scope.register_size::<NQ>(vector_size_q);
 
         let values = View::<Vector<Q, NQ>, C>::expand(self.values, self.builder);
         let scales = View::<S, C>::expand(self.scales, self.builder);
-        let global = self
-            .global
-            .map(|global| expand_global_scale(global, self.builder));
+        let global = expand_global(self.global, self.scheme.level, self.builder);
         let view = QuantizedViewExpand::new(values, scales, global, self.scheme);
         ViewExpand::new(&self.builder.scope, view)
     }
@@ -304,10 +317,6 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
     fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output {
         define_size!(NQ);
 
-        // Caught again on the dequantization path, but reporting it here names the launch that
-        // asked for it rather than a kernel being expanded.
-        check_global_bindings(self.scheme.level, self.global.is_some());
-
         self.launcher.with_scope(|scope| {
             let vector_size_q =
                 quant_vector_size_q(E::__expand_vector_size(scope), self.scheme.num_quants());
@@ -316,10 +325,7 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
 
         let values = View::<Vector<Q, NQ>, C>::register(self.values, self.launcher);
         let scales = View::<S, C>::register(self.scales, self.launcher);
-        // Registered as f32 to match the element type `expand_global_scale` reads it back with.
-        let global = self
-            .global
-            .map(|global| <[f32] as LaunchArg>::register(global, self.launcher));
+        let global = register_global(self.global, self.scheme.level, self.launcher);
         ViewCompilationArg::Quantized {
             values: Box::new(values),
             scales: Box::new(scales),
