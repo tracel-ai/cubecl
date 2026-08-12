@@ -680,7 +680,9 @@ pub(super) fn float_attr(ctx: &Context, ty: TypeHandle, val: f64) -> AttrObj {
 
 #[cube_op(name = "math.fma")]
 #[result_ty(same_as = a)]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType)]
+// Element-wise, so the unroll pass can split a wide vector fma into narrower
+// ones — the same latent failure CastOp had before it was marked.
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
 #[op_traits(Pure, CanMaterialize)]
 pub struct FmaOp {
     pub a: Value,
