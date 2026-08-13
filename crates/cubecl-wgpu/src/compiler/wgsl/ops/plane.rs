@@ -16,7 +16,7 @@ impl LowerOp for ElectOp {
 
 #[cube]
 fn elect() -> bool {
-    UNIT_POS_PLANE == 0
+    plane_min(UNIT_POS_PLANE) == UNIT_POS_PLANE
 }
 
 wgsl_op_with_out!(AllOp; |op, ctx| {
