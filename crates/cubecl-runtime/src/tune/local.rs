@@ -118,6 +118,44 @@ where
         super::check_autotune_outputs(checks_outputs)
     }
 
+    /// Run the cache-hit winner; if its launch fails, fall back to the
+    /// remaining candidates instead of panicking.
+    ///
+    /// The autotune key does not capture everything launch-time validation
+    /// checks (and benchmark inputs are not always identical to the real
+    /// ones), so a winner tuned on one representative can be an invalid
+    /// config for a later cache hit. Panicking here is not a recoverable
+    /// position for the caller: on an async device runner the panic is
+    /// caught and warn-logged by the task loop while the op's registered
+    /// outputs stay unwritten, which surfaces as silent NaN corruption in
+    /// training. Falling back trades one slow launch for a correct result.
+    fn execute_hit<'a, I: TuneInputs, Out: AutotuneOutput>(
+        operations: &TunableSet<AK, I, Out>,
+        inputs: <I as TuneInputs>::At<'a>,
+        fastest_index: usize,
+    ) -> Out
+    where
+        <I as TuneInputs>::At<'a>: Clone + Send,
+    {
+        match operations.fastest(fastest_index).execute(inputs.clone()) {
+            Ok(out) => out,
+            Err(err) => {
+                log::warn!(
+                    "Autotune winner {fastest_index} failed at launch ({err:?}); falling back to remaining candidates."
+                );
+                for i in 0..operations.len() {
+                    if i == fastest_index {
+                        continue;
+                    }
+                    if let Ok(out) = operations.fastest(i).execute(inputs.clone()) {
+                        return out;
+                    }
+                }
+                panic!("All autotune operations failed after the selected winner failed: {err:?}");
+            }
+        }
+    }
+
     /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
     /// the first call for a given key.
     pub fn execute<'a, R: Runtime, I: TuneInputs, Out>(
@@ -155,10 +193,7 @@ where
         // `fastest` also resets the tuner cache if the environment switched, so
         // a miss here falls through to `check_tune`, which re-hydrates.
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
-            return operations
-                .fastest(fastest_index)
-                .execute(inputs)
-                .expect("Should run when selected by autotune.");
+            return Self::execute_hit(&operations, inputs, fastest_index);
         }
 
         let fastest = tuner.check_tune::<R, I, Out>(
@@ -172,10 +207,9 @@ where
 
         // Run the execution depending on the cache state.
         match fastest {
-            TuneCacheResult::Hit { fastest_index } => operations
-                .fastest(fastest_index)
-                .execute(inputs)
-                .expect("Should run when selected by autotune."),
+            TuneCacheResult::Hit { fastest_index } => {
+                Self::execute_hit(&operations, inputs, fastest_index)
+            }
             TuneCacheResult::Unchecked | TuneCacheResult::Miss => {
                 panic!(
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
@@ -191,5 +225,80 @@ where
                 panic!("All autotune operations failed, no viable operation found.");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tune::{Tunable, TunableSet};
+    use alloc::string::{String, ToString};
+    use alloc::sync::Arc;
+    use alloc::vec::Vec;
+    use core::fmt::Display;
+    use cubecl_environment::sync::Mutex;
+
+    #[derive(Hash, Eq, PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct FakeKey;
+
+    impl Display for FakeKey {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str("FakeKey")
+        }
+    }
+
+    impl AutotuneKey for FakeKey {}
+
+    /// The autotune key does not capture everything launch-time validation
+    /// checks, so a cached winner can fail on a later cache hit even though
+    /// it benchmarked fine. That failure must fall back to the remaining
+    /// candidates (in order, skipping the winner) instead of panicking.
+    #[test_log::test]
+    fn cache_hit_winner_failure_falls_back() {
+        let ran: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let log = |name: &'static str, ok: bool| {
+            let ran = ran.clone();
+            move |_: u32| {
+                ran.lock().push(name.to_string());
+                if ok { Ok(()) } else { Err("invalid config") }
+            }
+        };
+
+        let set: TunableSet<FakeKey, u32, ()> = TunableSet::new_cloning_inputs(|_: &u32| FakeKey)
+            .with(Tunable::new(
+                "winner_now_invalid",
+                log("winner_now_invalid", false),
+            ))
+            .with(Tunable::new("also_broken", log("also_broken", false)))
+            .with(Tunable::new("works", log("works", true)));
+
+        LocalTuner::<FakeKey, String>::execute_hit(&set, 7u32, 0);
+
+        assert_eq!(
+            ran.lock().as_slice(),
+            ["winner_now_invalid", "also_broken", "works"]
+        );
+    }
+
+    /// A winner that keeps working takes the fast path untouched.
+    #[test_log::test]
+    fn cache_hit_winner_success_runs_alone() {
+        let ran: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let ran2 = ran.clone();
+        let ran3 = ran.clone();
+
+        let set: TunableSet<FakeKey, u32, ()> = TunableSet::new_cloning_inputs(|_: &u32| FakeKey)
+            .with(Tunable::new("winner", move |_: u32| {
+                ran2.lock().push("winner".to_string());
+                Ok::<(), String>(())
+            }))
+            .with(Tunable::new("unused", move |_: u32| {
+                ran3.lock().push("unused".to_string());
+                Ok::<(), String>(())
+            }));
+
+        LocalTuner::<FakeKey, String>::execute_hit(&set, 7u32, 0);
+
+        assert_eq!(ran.lock().as_slice(), ["winner"]);
     }
 }
