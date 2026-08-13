@@ -257,7 +257,10 @@ impl SpirvCompiler {
         passes.add_pass(ConvertArgsPass);
         passes.add_pass(NestedOpsPass::new(func_passes));
 
-        passes.run(spirv_module_op, ctx, &mut analyses).unwrap();
+        // The conversion pass reports ops it must not compile (e.g.
+        // cube.poison) as errors, not bugs; surface them as a compilation
+        // error instead of panicking the device thread.
+        passes.run(spirv_module_op, ctx, &mut analyses)?;
 
         let (shared_size, shared_args) = lower_shared(ctx, spirv_module);
         declare_entry_point(ctx, spirv_module, shared_args);
