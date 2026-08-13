@@ -310,8 +310,13 @@ no_half!(PowfOp);
 
 shared_op_with_out!(PowiOp, |op, ctx| {
     let lhs = op.lhs(ctx);
-    let rhs = op.rhs(ctx).name(ctx);
-    format!("pow({}, {rhs})", lhs.name(ctx))
+    let rhs = op.rhs(ctx);
+    // The exponent arrives as an integer, and `pow(float, int)` resolves to CUDA's `powif`,
+    // which the headers declare but nothing defines — ptxas then fails the whole module with
+    // "Unresolved extern function '_Z5powiffi'". Cast to land on the float overload instead,
+    // which is exact for integral exponents, negative bases included.
+    let ty = lhs.get_type(ctx).to_cpp(ctx);
+    format!("pow({}, ({ty}){})", lhs.name(ctx), rhs.name(ctx))
 });
 unrolling!(PowiOp);
 no_half!(PowiOp);
