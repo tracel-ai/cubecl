@@ -47,8 +47,6 @@ metal_op!(PrintfOp, |op, ctx| {
 
 metal_op!(SyncOp, |op, ctx| {
     match op.scope(ctx).0 {
-        // Lanes stage tiles through threadgroup memory and read back what their neighbours
-        // wrote, so this must order those accesses. `mem_none` only orders execution.
         SyncScope::Plane => "simdgroup_barrier(mem_flags::mem_threadgroup);\n",
         SyncScope::Cube => "threadgroup_barrier(mem_flags::mem_threadgroup);\n",
         SyncScope::Device => "threadgroup_barrier(mem_flags::mem_device);\n",

@@ -23,7 +23,7 @@ use pliron::{
 
 use crate::{
     error::{CompileError, Result},
-    shared::{CppValue, format_const, lowering::LowerOp, ty::TypeExtCPP},
+    shared::{CppValue, format_const, lowering::LowerOp, ty::TypeExtCPP, unroll::unrolling},
     target::{Shared, dispatch_target},
 };
 
@@ -199,8 +199,7 @@ shared_op_with_out!(FmaOp, |op, ctx| {
     let c = op.c(ctx).name(ctx);
     format!("fma({a}, {b}, {c})")
 });
-// Vectors are plain structs in every C++ target, so no `fma` overload accepts one.
-crate::shared::unroll::unrolling!(FmaOp);
+unrolling!(FmaOp);
 
 shared_op!(CommentOp, |op, ctx| {
     let content = String::from(op.comment(ctx).clone());

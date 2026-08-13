@@ -1,8 +1,8 @@
 use cubecl_core::ir::{dialect::vector::*, interfaces::TypedExt, prelude::*};
 
 use crate::{
-    metal::{metal_op, metal_op_with_out},
-    shared::{CppValue, ty::TypeExtCPP},
+    metal::metal_op_with_out,
+    shared::{scoped_block, ty::TypeExtCPP},
 };
 
 metal_op_with_out!(MagnitudeOp, |op, ctx| {
@@ -30,33 +30,35 @@ metal_op_with_out!(FDotOp, |op, ctx| {
     format!("dot({reinterpret}({lhs}), {reinterpret}({rhs}))")
 });
 
-// Copy-then-assign rather than an aggregate literal, working around a Metal compiler bug that
-// makes long chains of literal constructors blow up combinatorially. Emitted as statements
-// because the result must be assigned field-wise and MSL has no lambdas.
-metal_op!(CompositeInsertOp, |op, ctx| {
+// Workaround for Metal compiler bug that causes combinatorial explosion with large aggregate
+// literal chains. No idea what they're doing wrong but this works around it. Keep it Metal only
+// because it's slightly less clean and less analyzable than the literal constructor.
+metal_op_with_out!(CompositeInsertOp, |op, ctx| {
     assert!(op.composite(ctx).is_vector(ctx));
     let vector = op.composite(ctx).name(ctx);
     let value = op.value(ctx).name(ctx);
     let index = op.index(ctx).0;
-    let out = op.get_result(ctx).name(ctx);
     let vector_ty = op.composite(ctx).get_type(ctx).to_cpp(ctx);
-    format!("{vector_ty} {out} = {vector};\n{out}.i_{index} = {value};\n")
+    scoped_block!(
+        format!("{vector_ty} tmp = {vector};")
+        format!("tmp.i_{index} = {value};")
+        "return tmp;"
+    )
 });
 
-metal_op!(VectorInsertDynamicOp, |op, ctx| {
+metal_op_with_out!(VectorInsertDynamicOp, |op, ctx| {
     let vector = op.vector(ctx).name(ctx);
     let value = op.value(ctx).name(ctx);
     let index = op.index(ctx).name(ctx);
     let elem_ty = op.value(ctx).get_type(ctx).to_cpp(ctx);
-    let out = op.get_result(ctx).name(ctx);
     let vector_ty = op.vector(ctx).get_type(ctx).to_cpp(ctx);
-    format!(
-        "{vector_ty} {out} = {vector};\n\
-         *(reinterpret_cast<thread {elem_ty}*>(&{out}) + {index}) = {value};\n"
+    scoped_block!(
+        format!("{vector_ty} tmp = {vector};")
+        format!("*(reinterpret_cast<thread {elem_ty}*>(&tmp) + {index}) = {value};")
+        "return tmp;"
     )
 });
 
-// Indexes the vector's storage, so it casts the ADDRESS of the vector, not its value.
 metal_op_with_out!(VectorExtractDynamicOp, |op, ctx| {
     let vector = op.vector(ctx).name(ctx);
     let index = op.index(ctx).name(ctx);
