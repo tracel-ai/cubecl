@@ -4,16 +4,23 @@ use cubecl_core::ir::{
 };
 use pliron::{basic_block::BasicBlock, linked_list::ContainsLinkedList};
 
-use crate::shared::{
-    CppValue, OpExtCPP, scoped_block, shared_op, shared_op_with_out, ty::TypeExtCPP,
-    unroll::unrolling,
+use crate::{
+    error::EmissionErrors,
+    shared::{
+        CppValue, OpExtCPP, scoped_block, shared_op, shared_op_with_out, ty::TypeExtCPP,
+        unroll::unrolling,
+    },
 };
 
 pub fn block_to_cpp(ctx: &Context, block: Ptr<BasicBlock>) -> String {
     let mut out = String::new();
     let ops = block.deref(ctx).iter(ctx);
     for op in ops {
-        out.push_str(&op.to_cpp(ctx).unwrap());
+        // `Display` can't fail, so record the error and let `compile_ir` fail the compilation.
+        match op.to_cpp(ctx) {
+            Ok(cpp) => out.push_str(&cpp),
+            Err(err) => ctx.aux_ty::<EmissionErrors>().record(err),
+        }
     }
     out
 }

@@ -1,7 +1,9 @@
 use crate::{
     cuda::{mma::CudaCmmaCompiler, packed_ops::PackOpsPass},
+    error::EmissionErrors,
     hip::{arch::AmdWmma, mma::HipCmmaCompiler},
     shared::{
+        OpExtCPP,
         builtin::{LowerBuiltins, LowerBuiltinsPass},
         convert::PromoteUnsupportedTypesPass,
         lowering::{LowerOpsAfterUnrollCppPass, LowerOpsCppPass},
@@ -257,10 +259,32 @@ where
         let shared_memory_size = shared_memory_size(&ctx, module_op);
         let buffers = buffers(&ctx, entry_func);
 
+        // Emit here rather than lazily from `Display`, so an op that survives lowering with no
+        // `OpToCPP` impl fails the compilation instead of panicking on the compiler thread.
+        ctx.set_aux_ty(EmissionErrors::default());
+        let source = module.get_operation().to_cpp(&ctx);
+        let recorded = ctx.aux_ty::<EmissionErrors>().take();
+        let source = match (source, recorded.is_empty()) {
+            (Ok(source), true) => source,
+            (source, _) => {
+                let mut reason = "Can't emit cpp kernel\nCaused by:\n".to_string();
+                for error in source.err().into_iter().chain(recorded) {
+                    reason += "  ";
+                    reason += &error.to_string();
+                    reason += "\n";
+                }
+                return Err(CompilationError::Validation {
+                    reason,
+                    backtrace: BackTrace::capture(),
+                });
+            }
+        };
+
         let compute_kernel = ComputeKernel {
             ctx,
             shared_memory_size,
             buffers,
+            source,
         };
 
         #[cfg(feature = "pliron-dump")]
