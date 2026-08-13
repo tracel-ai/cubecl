@@ -31,7 +31,12 @@ std = [
 ]
 # 'msl' and 'spirv' features are exclusive
 # TODO find a way to have wgpu runtime auto-compiler to support several compilers at the same time
-msl = ["cubecl-cpp/metal"]
+msl = [
+    "cubecl-cpp/metal",
+    "dep:objc2",
+    "dep:objc2-foundation",
+    "dep:objc2-metal",
+]
 profile-tracy = ["tracy-client"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/hash"]
 
@@ -108,6 +113,13 @@ wgpu = { workspace = true, features = [
     "vulkan-portability",
     "fragile-send-sync-non-atomic-wasm",
 ] }
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", optional = true }
+objc2-metal = { version = "0.3", features = ["MTLLibrary"], optional = true }
+
+
 ## Uncomment if targeting metal through msl feature
 # wgpu = { git = "https://github.com/tracel-ai/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"], rev = "624db2ae762b83446693020ae637e2c5879b3af9" }
 ## For development on wgpu uncomment this one and make it point to your local wgpu repo

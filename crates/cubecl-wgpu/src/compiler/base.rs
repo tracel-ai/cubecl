@@ -167,7 +167,9 @@ impl WgpuCompiler for AutoCompiler {
                 AutoCompiler::SpirV(Default::default())
             }
             #[cfg(feature = "msl")]
-            wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
+            wgpu::Backend::Metal if options.supports_msl_compiler => {
+                AutoCompiler::Msl(Default::default())
+            }
             _ => AutoCompiler::Wgsl(Default::default()),
         }
     }
