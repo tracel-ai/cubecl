@@ -45,11 +45,26 @@ impl<T: Scalar + CubePartialOrd, N: Size> PlaneOp<T, N> for OpMax {
     }
 }
 
+/// The number of units that actually take part in a plane operation.
+///
+/// A cube smaller than the plane leaves the upper lanes of the plane inactive. The butterfly
+/// folds below must not reach past the last active lane: shuffling from a lane that isn't
+/// running returns an unspecified value (the CUDA shuffles are masked with `__activemask()`,
+/// so this reads as garbage rather than hanging), and folding that garbage into the
+/// accumulator corrupts the result. `plane_sum` and `plane_max` happen to survive it — the
+/// garbage reads as zero, which is the identity for one and below every input for the other —
+/// but `plane_min` and `plane_prod` do not.
+#[cube]
+fn plane_dim_checked() -> u32 {
+    min(PLANE_DIM, CUBE_DIM)
+}
+
 #[cube]
 pub fn plane_reduce<T: Scalar, N: Size, Op: PlaneOp<T, N>>(val: Vector<T, N>) -> Vector<T, N> {
+    let plane_dim = plane_dim_checked();
     let mut acc = val;
     let mut offset = 1;
-    while offset < PLANE_DIM {
+    while offset < plane_dim {
         acc = Op::apply(acc, plane_shuffle_xor(acc, offset));
         offset *= 2;
     }
@@ -60,9 +75,10 @@ pub fn plane_reduce<T: Scalar, N: Size, Op: PlaneOp<T, N>>(val: Vector<T, N>) ->
 pub fn plane_reduce_inclusive<T: Scalar, N: Size, Op: PlaneOp<T, N>>(
     val: Vector<T, N>,
 ) -> Vector<T, N> {
+    let plane_dim = plane_dim_checked();
     let mut acc = val;
     let mut offset = 1;
-    while offset < PLANE_DIM {
+    while offset < plane_dim {
         let tmp = Op::apply(acc, plane_shuffle_up(acc, offset));
         if UNIT_POS_PLANE >= offset {
             acc = tmp;

@@ -484,6 +484,53 @@ pub fn test_plane_min<
     );
 }
 
+/// Regression test for plane reductions over a cube smaller than the plane.
+///
+/// Every other test in this file launches a full plane, so nothing here covers the case where
+/// the upper lanes of the plane are inactive. A butterfly fold that keeps folding past the last
+/// active lane shuffles from a unit that isn't running and gets back an unspecified value —
+/// zero, in practice. That is the identity for `plane_sum` and below every input for
+/// `plane_max`, so both survive it; `plane_min` returns 0.0 instead of the true minimum.
+///
+/// The inputs here are all strictly positive so that a fold reaching an inactive lane is
+/// visible in the result rather than masked by it.
+pub fn test_plane_min_partial<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: ComputeClient<TestRuntime>,
+) {
+    let vectorization = 1;
+    // Below the minimum plane width of any supported backend, so the plane is always
+    // partially filled.
+    let cube_dim = 4usize;
+    let buffer_len = 32usize;
+
+    let input: Vec<f32> = (0..buffer_len).map(|x| (x + 1) as f32).collect();
+
+    // Only the units below `cube_dim` run, so only their values take part in the reduction.
+    let mut expected = input.clone();
+    expected[0] = input[..cube_dim].iter().copied().fold(f32::INFINITY, f32::min);
+
+    let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
+    let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
+
+    test_plane_operation::<TestRuntime, F, _>(
+        &input,
+        &expected,
+        client.clone(),
+        |cube_count, handle| {
+            kernel_min::launch::<F, TestRuntime>(
+                &client,
+                cube_count,
+                CubeDim::new_1d(cube_dim as u32),
+                vectorization,
+                handle,
+            )
+        },
+    );
+}
+
 pub fn test_plane_all<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
@@ -1004,6 +1051,14 @@ macro_rules! testgen_plane {
         #[$crate::runtime_tests::test_log::test]
         fn test_plane_min_vec4() {
             impl_test_plane_min(4);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_plane_min_partial() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_min_partial::<TestRuntime, FloatType>(
+                client.clone(),
+            );
         }
 
         #[$crate::runtime_tests::test_log::test]
