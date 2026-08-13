@@ -1,8 +1,8 @@
-use crate::shared::{OpExtCPP, ty::TypeExtCPP};
+use crate::shared::ty::TypeExtCPP;
 
-use cubecl_core::ir::{ContextExt, GlobalState, metadata::Info};
+use cubecl_core::ir::metadata::Info;
 use cubecl_runtime::kernel::Visibility;
-use pliron::{context::Context, op::Op};
+use pliron::context::Context;
 
 use core::fmt::{Display, Write};
 
@@ -10,13 +10,17 @@ pub struct ComputeKernel {
     pub ctx: Context,
     pub shared_memory_size: usize,
     pub buffers: Vec<Visibility>,
+    /// The emitted source, rendered once during `compile_ir`.
+    ///
+    /// Emission happens there rather than here because `Display` cannot report a failure, and
+    /// an op that reaches the emitter without a lowering has to fail the *compilation* — not
+    /// panic on the compiler thread while the launch reports success.
+    pub source: String,
 }
 
 impl Display for ComputeKernel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let module = self.ctx.aux_ty::<GlobalState>().module;
-        let module = module.get_operation().to_cpp(&self.ctx).unwrap();
-        f.write_str(&module)
+        f.write_str(&self.source)
     }
 }
 
