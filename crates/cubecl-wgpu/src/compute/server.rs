@@ -496,6 +496,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
+        // The info cache's buffers are live slices in the uniforms pool; an
+        // explicit cleanup exists to leave the pools empty, so every entry not
+        // pinned by a live graph goes too (entries are recreated on their next
+        // miss).
+        stream.info_cache.clear_unpinned();
         stream.mem_manage.memory_cleanup(true);
     }
 

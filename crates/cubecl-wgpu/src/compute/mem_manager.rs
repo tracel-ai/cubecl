@@ -122,21 +122,28 @@ impl WgpuMemManager {
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
 
-    pub(crate) fn reserve_uniform(&mut self, size: u64) -> WgpuResource {
+    /// Reserve a uniform slice and resolve its resource. The returned
+    /// [`ManagedMemoryHandle`] owns the slice: the uniform stays reserved as
+    /// long as a clone of it is held (the info cache holds one for cached
+    /// metadata buffers), on top of the per-flush retention in `self.uniforms`.
+    pub(crate) fn reserve_uniform(&mut self, size: u64) -> (ManagedMemoryHandle, WgpuResource) {
         let slice = self
             .memory_uniforms
             .reserve(size)
             .expect("Must have enough memory for a uniform");
         // Keep track of this uniform until it is released.
         self.uniforms.push(slice.clone());
+        let retained = slice.clone();
         let handle = self
             .memory_uniforms
             .get_storage(slice.binding())
             .expect("Failed to find storage!");
-        self.memory_uniforms
+        let resource = self
+            .memory_uniforms
             .storage()
             .get(&handle)
-            .expect("Failed to get the uniform's storage!")
+            .expect("Failed to get the uniform's storage!");
+        (retained, resource)
     }
 
     pub(crate) fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
@@ -149,6 +156,13 @@ impl WgpuMemManager {
 
     pub(crate) fn memory_cleanup(&mut self, explicit: bool) {
         self.memory_pool.cleanup(explicit);
+        // An explicit cleanup also reclaims the uniforms pool: the info cache
+        // holds uniform slices across flushes, so this is where the pages of
+        // just-released entries (see `MetadataInfoCache::clear_unpinned`) are
+        // actually returned to the driver.
+        if explicit {
+            self.memory_uniforms.cleanup(explicit);
+        }
     }
 
     pub(crate) fn mode(&mut self, mode: MemoryAllocationMode) {
