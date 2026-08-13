@@ -79,17 +79,58 @@ fn request_device(
     }
 }
 
+#[cfg(target_vendor = "apple")]
 pub fn register_metal_features(
     adapter: &wgpu::Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
-) {
+) -> bool {
+    // Canary for ensuring the current Metal language version is 3.2+.
+    const LAMBDA_CANARY: &str = r#"
+        #include <metal_stdlib>
+        using namespace metal;
+
+        kernel void __canary__(device float* out [[buffer(0)]]) {
+            auto f = [](float x) -> float { return x * 2.0; };
+            out[0] = f(1.0);
+        }
+    "#;
+
     let features = adapter.features();
     unsafe {
-        if let Some(adapter) = adapter.as_hal::<hal::api::Metal>() {
-            register_features(&adapter, props, features, comp_options);
+        use objc2_foundation::NSString;
+        use objc2_metal::{MTLDevice, MTLGPUFamily};
+
+        let Some(adapter) = adapter.as_hal::<hal::api::Metal>() else {
+            return false;
+        };
+        let raw = adapter.raw_device();
+        if !raw.supportsFamily(MTLGPUFamily::Apple7) {
+            return false;
+        };
+        let canary = NSString::from_str(LAMBDA_CANARY);
+        if raw
+            .newLibraryWithSource_options_error(&canary, None)
+            .is_err()
+        {
+            // This is a fixable issue, so we should warn users.
+            log::warn!(
+                "Device can support native MSL, but Metal compiler version is too old. Upgrading to 3.2 or higher is recommended."
+            );
+            return false;
         }
+        register_features(&adapter, props, features, comp_options);
     }
+    true
+}
+
+#[cfg(not(target_vendor = "apple"))]
+pub fn register_metal_features(
+    _: &wgpu::Adapter,
+    _: &mut DeviceProperties,
+    _: &mut WgpuCompilationOptions,
+) -> bool {
+    false
 }
 
 fn register_features(

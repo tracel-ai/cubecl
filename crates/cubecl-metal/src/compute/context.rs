@@ -52,7 +52,7 @@ impl MetalContext {
     ) -> Self {
         let msl_compile_options = MTLCompileOptions::new();
         // MSL 3.1 for native `bfloat`.
-        msl_compile_options.setLanguageVersion(MTLLanguageVersion::Version3_1);
+        msl_compile_options.setLanguageVersion(MTLLanguageVersion::Version3_2);
         // Compile with IEEE-safe math by default; per-op fast math is opted into separately.
         // `mathMode` disables FP reassociation/contraction, `mathFloatingPointFunctions`
         // keeps math functions precise.
@@ -91,20 +91,20 @@ impl MetalContext {
         let definition = kernel.define();
         let cache_key = KernelCacheKey::new(kernel_id, &definition);
 
-        if let Some(cache) = self.msl_cache.as_mut() {
-            if let Some(entry) = cache.remove(&cache_key) {
-                log::trace!("Using MSL cache");
+        if let Some(cache) = self.msl_cache.as_mut()
+            && let Some(entry) = cache.remove(&cache_key)
+        {
+            log::trace!("Using MSL cache");
 
-                let compiled = self.create_pipeline_from_source(
-                    &entry.source,
-                    &entry.entrypoint_name,
-                    entry.cube_dim.into(),
-                )?;
+            let compiled = self.create_pipeline_from_source(
+                &entry.source,
+                &entry.entrypoint_name,
+                entry.cube_dim.into(),
+            )?;
 
-                self.compiled_kernels
-                    .insert(kernel_id.clone(), compiled.clone());
-                return Ok(compiled);
-            }
+            self.compiled_kernels
+                .insert(kernel_id.clone(), compiled.clone());
+            return Ok(compiled);
         }
 
         log::trace!("Compiling kernel to MSL");

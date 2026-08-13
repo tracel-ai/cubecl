@@ -31,7 +31,7 @@ std = [
 ]
 # 'msl' and 'spirv' features are exclusive
 # TODO find a way to have wgpu runtime auto-compiler to support several compilers at the same time
-msl = ["cubecl-cpp/metal"]
+msl = ["cubecl-cpp/metal", "dep:objc2-foundation", "dep:objc2-metal"]
 profile-tracy = ["tracy-client"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/hash"]
 
@@ -78,6 +78,14 @@ tracel-ash = { workspace = true, optional = true }
 cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.2", features = [
     "metal",
 ], optional = true }
+
+# Metal bindings only exist on Apple platforms. Keeping them in a target table
+# means other platforms never even download them, so workspace-wide builds and
+# clippy work everywhere (the crate itself is empty off-Apple, see lib.rs).
+# They are only used for checking device compatibility.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2-foundation = { version = "0.3", optional = true }
+objc2-metal = { version = "0.3", features = ["MTLLibrary"], optional = true }
 
 # Validation
 wgpu-hal = { workspace = true, optional = true }

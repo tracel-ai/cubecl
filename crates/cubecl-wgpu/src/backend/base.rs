@@ -350,8 +350,7 @@ pub fn register_metal_features(
     _memory_config: &MemoryConfiguration,
 ) -> bool {
     if is_metal(adapter) {
-        metal::register_metal_features(adapter, props, comp_options);
-        true
+        metal::register_metal_features(adapter, props, comp_options)
     } else {
         false
     }
