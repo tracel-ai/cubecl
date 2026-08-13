@@ -596,7 +596,12 @@ impl Scope {
         let yield_ = YieldOp::new(ctx).get_operation();
         yield_.insert_at_back(else_block, ctx);
         self.register(&predication);
-        self.register(&YieldOp::new(ctx));
+        // The insertion cursor can sit inside a block that already ends with a
+        // terminator — e.g. the then-block of an earlier predication, whose
+        // trailing yield was placed when that predication was built. Appending
+        // another yield there would leave the block with two terminators, which
+        // fails module verification. Only terminate the block if it isn't yet.
+        self.terminate_yield();
         self.inserter()
             .set_insertion_point_to_block_start(then_block);
     }

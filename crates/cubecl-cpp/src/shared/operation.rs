@@ -23,8 +23,13 @@ use pliron::{
 
 use crate::{
     error::{CompileError, Result},
-    shared::{CppValue, format_const, lowering::LowerOp, ty::TypeExtCPP, unroll::unrolling},
-    target::{Shared, dispatch_target},
+    shared::{
+        CppValue, format_const,
+        lowering::LowerOp,
+        ty::{TypeExtCPP, TypedExtCPP},
+        unroll::unrolling,
+    },
+    target::{CtxTarget, Shared, Target, dispatch_target},
 };
 
 #[op_interface]
@@ -197,8 +202,24 @@ shared_op_with_out!(FmaOp, |op, ctx| {
     let a = op.a(ctx).name(ctx);
     let b = op.b(ctx).name(ctx);
     let c = op.c(ctx).name(ctx);
-    format!("fma({a}, {b}, {c})")
+    let res = op.get_result(ctx);
+    // CUDA/HIP headers have no `fma` overload for `__half`/bf16 — the call is
+    // ambiguous between the double/float/_Float16 candidates — so the half
+    // types go through the dedicated intrinsics. Metal's `fma` is generic over
+    // its scalar and vector float types, including half.
+    let f = if matches!(ctx.target(), Target::Metal) {
+        "fma"
+    } else if res.is_half(ctx) {
+        "__hfma"
+    } else if res.is_half2(ctx) {
+        "__hfma2"
+    } else {
+        "fma"
+    };
+    format!("{f}({a}, {b}, {c})")
 });
+// `fma` has no vector overloads in CUDA/HIP headers, so a vector fma must be
+// scalarized lane by lane like the other math functions.
 unrolling!(FmaOp);
 
 shared_op!(CommentOp, |op, ctx| {

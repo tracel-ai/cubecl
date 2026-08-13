@@ -323,6 +323,88 @@ test_powi_impl!(
 );
 
 #[cube(launch_unchecked)]
+fn test_fma_kernel<F: Float, N: Size>(
+    a: &[Vector<F, N>],
+    b: &[Vector<F, N>],
+    c: &[Vector<F, N>],
+    output: &mut [Vector<F, N>],
+) {
+    if ABSOLUTE_POS < c.len() {
+        output[ABSOLUTE_POS] = fma(a[ABSOLUTE_POS], b[ABSOLUTE_POS], c[ABSOLUTE_POS]);
+    }
+}
+
+macro_rules! test_fma_impl {
+    (
+        $test_name:ident,
+        $float_type:ident,
+        [$({
+            input_vectorization: $input_vectorization:expr,
+            a: $a:expr,
+            b: $b:expr,
+            c: $c:expr,
+            expected: $expected:expr
+        }),*]) => {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
+            $(
+            {
+                let a = $a;
+                let b = $b;
+                let c = $c;
+                let output_handle = client.empty($expected.len() * core::mem::size_of::<$float_type>());
+                let a_handle = client.create_from_slice($float_type::as_bytes(a));
+                let b_handle = client.create_from_slice($float_type::as_bytes(b));
+                let c_handle = client.create_from_slice($float_type::as_bytes(c));
+
+                unsafe {
+                    test_fma_kernel::launch_unchecked::<F, R>(
+                        &client,
+                        CubeCount::Static(1, 1, 1),
+                        CubeDim::new_1d((a.len() / $input_vectorization as usize) as u32),
+                        $input_vectorization,
+                        BufferArg::from_raw_parts(a_handle, a.len()),
+                        BufferArg::from_raw_parts(b_handle, b.len()),
+                        BufferArg::from_raw_parts(c_handle, c.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                    )
+                };
+
+                assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
+            }
+            )*
+        }
+    };
+}
+
+test_fma_impl!(
+    test_fma,
+    F,
+    [
+        {
+            input_vectorization: 1,
+            a: as_type![F: 1., -3.1, -2.4, 15.1],
+            b: as_type![F: -1., 23.1, -1.4, 5.1],
+            c: as_type![F: 2., 0.5, -1., -8.],
+            expected: as_type![F: 1., -71.11, 2.36, 69.01]
+        },
+        {
+            input_vectorization: 2,
+            a: as_type![F: 1., -3.1, -2.4, 15.1],
+            b: as_type![F: -1., 23.1, -1.4, 5.1],
+            c: as_type![F: 2., 0.5, -1., -8.],
+            expected: as_type![F: 1., -71.11, 2.36, 69.01]
+        },
+        {
+            input_vectorization: 4,
+            a: as_type![F: 1., -3.1, -2.4, 15.1],
+            b: as_type![F: -1., 23.1, -1.4, 5.1],
+            c: as_type![F: 2., 0.5, -1., -8.],
+            expected: as_type![F: 1., -71.11, 2.36, 69.01]
+        }
+    ]
+);
+
+#[cube(launch_unchecked)]
 fn test_mulhi_kernel<N: Size>(
     lhs: &[Vector<u32, N>],
     rhs: &[Vector<u32, N>],
@@ -423,6 +505,7 @@ macro_rules! testgen_binary {
             add_test!(test_rhypot);
             add_test!(test_powi);
             add_test!(test_atan2);
+            add_test!(test_fma);
         }
     };
 }

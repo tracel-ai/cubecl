@@ -117,6 +117,7 @@ const_eval!(BoolNotOp, {
 
 #[cube_op(name = "cube.cast")]
 #[result_ty(argument)]
+#[op_interfaces(TriviallyUnrollable)]
 #[op_traits(Pure, CanMaterialize)]
 pub struct CastOp {
     pub input: Value,
