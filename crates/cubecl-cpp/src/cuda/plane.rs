@@ -73,7 +73,9 @@ impl LowerOp<Cuda> for ElectOp {
         let u32 = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle();
         let ptx = ptx_block! {
             ".reg .pred %%px;"
-            "elect.sync _|%%px, 0xffffffff;"
+            ".reg .b32 %mask;"
+            "activemask.b32 %mask;"
+            "elect.sync _|%%px, %mask;"
             "selp.b32 $0, 1, 0, %%px;"
         };
         let op = InlinePtxOp::new_volatile(ctx, Some(u32), ptx, vec![]);

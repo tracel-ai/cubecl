@@ -4,7 +4,7 @@ use crate::{
     shared::{
         builtin::{LowerBuiltins, LowerBuiltinsPass},
         convert::PromoteUnsupportedTypesPass,
-        lowering::LowerOpsCppPass,
+        lowering::{LowerOpsAfterUnrollCppPass, LowerOpsCppPass},
         metadata::LowerInfoPass,
         signature::{
             CollectIncludesPass, DeclareInfoTypeOp, DeclareVectorTypesPass, buffers,
@@ -220,6 +220,7 @@ where
 
         func_passes.add_pass(CppUnrollPass::default());
         func_passes.add_pass(LowerBuiltinsPass::<T>::default());
+        func_passes.add_pass(LowerOpsAfterUnrollCppPass::<T>::default());
 
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);

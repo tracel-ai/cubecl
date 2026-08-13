@@ -3,7 +3,21 @@ use cubecl_ir::{dialect::plane::*, interfaces::TypedExt, prelude::*};
 
 use crate::compiler::wgsl::{lower::LowerOp, to_wgsl::wgsl_op_with_out};
 
-wgsl_op_with_out!(ElectOp; |_, _| "subgroupElect()".into());
+// wgsl_op_with_out!(ElectOp; |_, _| "subgroupElect()".into());
+
+// Naga is missing `subgroupElect()` even though it's now part of the WGSL spec. So just polyfill
+// for now and replace with the native call when WGPU implements it.
+#[op_interface_impl]
+impl LowerOp for ElectOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        vec![elect::expand(scope).read_value(scope)]
+    }
+}
+
+#[cube]
+fn elect() -> bool {
+    UNIT_POS_PLANE == 0
+}
 
 wgsl_op_with_out!(AllOp; |op, ctx| {
     format!("subgroupAll({})", op.input(ctx).name(ctx))
