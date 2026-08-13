@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    attributes::{BoolAttr, FloatAttr, IndexAttr},
+    attributes::{BoolAttr, FloatAttr, IndexAttr, ZeroAttr},
     types::barrier::BarrierTokenType,
     verify_attr_succ,
 };
@@ -90,6 +90,16 @@ impl CppConstantAttr for BoolAttr {
     }
     fn to_cpp(&self, _ctx: &Context) -> String {
         self.0.to_string()
+    }
+}
+
+#[attr_interface_impl]
+impl CppConstantAttr for ZeroAttr {
+    fn as_f64(&self, _ctx: &Context) -> f64 {
+        0.0
+    }
+    fn to_cpp(&self, _ctx: &Context) -> String {
+        "{}".to_string()
     }
 }
 

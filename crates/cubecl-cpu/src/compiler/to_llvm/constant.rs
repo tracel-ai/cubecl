@@ -1,10 +1,11 @@
 use super::prelude::*;
-use cubecl_core::ir::attributes::{BoolAttr, FloatAttr, IndexAttr};
+use cubecl_core::ir::attributes::{BoolAttr, FloatAttr, IndexAttr, ZeroAttr};
 use half::f16;
 use pliron::{
     builtin::ops::ConstantOp,
     utils::apfloat::{self, Float},
 };
+use pliron_llvm::ops::ZeroOp;
 
 /// Width LLVM expects for vector lane indices, intrinsic flags and `alloca` sizes.
 pub const I32_WIDTH: u32 = 32;
@@ -73,6 +74,17 @@ pub fn convert_attr(ctx: &mut Context, value: AttrObj) -> AttrObj {
     }
 }
 
+pub fn constant_op(ctx: &mut Context, value: AttrObj) -> Ptr<Operation> {
+    // Upstream doesn't want to add `ZeroAttr` support to `ConstantOp`
+    if let Some(zero) = value.downcast_ref::<ZeroAttr>() {
+        let ty = cube_type_to_llvm(ctx, zero.ty);
+        ZeroOp::new(ctx, ty).get_operation()
+    } else {
+        let attr = convert_attr(ctx, value);
+        llvm::ConstantOp::new(ctx, attr).get_operation()
+    }
+}
+
 #[op_interface_impl]
 impl ToLLVMDialect for ConstantOp {
     fn rewrite(
@@ -82,13 +94,12 @@ impl ToLLVMDialect for ConstantOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let value = self.get_value(ctx);
-        let const_value = convert_attr(ctx, value);
 
-        let llvm_const = llvm::ConstantOp::new(ctx, const_value);
-        rewriter.insert_operation(ctx, llvm_const.get_operation());
+        let llvm_const = constant_op(ctx, value);
+        rewriter.insert_operation(ctx, llvm_const);
 
         let old_op = self.get_operation();
-        rewriter.replace_operation(ctx, old_op, llvm_const.get_operation());
+        rewriter.replace_operation(ctx, old_op, llvm_const);
 
         Ok(())
     }
