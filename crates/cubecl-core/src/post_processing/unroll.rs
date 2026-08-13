@@ -113,10 +113,11 @@ impl CustomUnrollOp for DeclareVariableOp {
         // Unroll it as well, or we end up with a broken
         // `array<vec4<f32>, 8> = array<vec8<f32>, 4>()`.
         let unrolled_init = |ctx: &Context| {
-            self.initializer(ctx).map(|init| match init.is::<ZeroAttr>() {
-                true => ZeroAttr::new(new_value_ty).into(),
-                false => init.clone(),
-            })
+            self.initializer(ctx)
+                .map(|init| match init.is::<ZeroAttr>() {
+                    true => ZeroAttr::new(new_value_ty).into(),
+                    false => init.clone(),
+                })
         };
 
         // Array doesn't change size, so no need to duplicate the declaration
