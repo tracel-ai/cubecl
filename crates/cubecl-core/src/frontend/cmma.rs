@@ -55,6 +55,7 @@ use cubecl_macros::{comptime_type, cube, intrinsic};
 use alloc::format;
 use cubecl_ir::{
     ExpandValue, Scope, VectorSize,
+    attributes::ZeroAttr,
     dialect::matrix::{
         ColIndexOp, LdMatrixOp, MmaManualOp, MmaManualScaledOp, RowIndexOp, StMatrixOp,
     },
@@ -284,7 +285,8 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
             let elem = C::Scalar::__expand_as_type(scope);
             let matrix_ty =
                 MatrixType::get(scope.ctx(), ident, (m, n, k).into(), elem, layout, S::SCOPE);
-            let elem = scope.create_local_mut(matrix_ty, None);
+            let null = ZeroAttr::new(matrix_ty);
+            let elem = scope.create_local_mut(matrix_ty, Some(null.into()));
             MatrixExpand {
                 elem,
                 ident,

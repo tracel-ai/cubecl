@@ -7,9 +7,9 @@ use core::hash::Hash;
 use cubecl_common::hash::StableHash;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
-use cubecl_environment::persistence::{
-    CacheOption, Namespace, Store, StoreKey, StoreOptions, StoreValue,
-};
+#[cfg(std_io)]
+use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
+use cubecl_environment::persistence::{Store, StoreKey, StoreValue};
 use thiserror::Error;
 
 /// A store for `backend`'s compiled artifacts, or `None` when compilation

@@ -1,4 +1,4 @@
-use crate::compiler::to_llvm::ty::scalar_alignment;
+use crate::compiler::to_llvm::{constant::constant_op, ty::scalar_alignment};
 
 use super::prelude::*;
 use cubecl_core::ir::{
@@ -24,20 +24,13 @@ impl ToLLVMDialect for DeclareVariableOp {
             return Ok(());
         }
 
-        let (elem_ty, count) = {
-            let value_ty = value_ty.deref(ctx);
-            match value_ty.downcast_ref::<CubeArrayType>() {
-                Some(array) => (array.inner, array.length),
-                None => (self.value_ty(ctx).get_type(ctx), 1),
-            }
-        };
-        let elem_ty = cube_type_to_llvm(ctx, elem_ty);
+        let elem_ty = cube_type_to_llvm(ctx, value_ty);
 
         let entry_block = enclosing_entry_block(ctx, self.get_operation());
         let insertion_point = rewriter.get_insertion_point();
         rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(entry_block));
 
-        let size = insert_i32_const(ctx, rewriter, count as i32);
+        let size = insert_i32_const(ctx, rewriter, 1);
 
         let alloca = llvm::AllocaOp::new(ctx, elem_ty, size);
         let size_op = size.defining_op().expect("constant defines its result");
@@ -48,11 +41,10 @@ impl ToLLVMDialect for DeclareVariableOp {
 
         let initializer = self.initializer(ctx).map(|initializer| initializer.clone());
         if let Some(initializer) = initializer {
-            let initializer = convert_attr(ctx, initializer);
-            let constant = llvm::ConstantOp::new(ctx, initializer);
-            rewriter.insert_op(ctx, &constant);
+            let constant = constant_op(ctx, initializer);
+            rewriter.insert_operation(ctx, constant);
 
-            let store = llvm::StoreOp::new(ctx, constant.get_result(ctx), alloca.get_result(ctx));
+            let store = llvm::StoreOp::new(ctx, constant.result(ctx), alloca.get_result(ctx));
             store.set_alignment(ctx, self.alignment(ctx).0 as u32);
             rewriter.insert_op(ctx, &store);
         }

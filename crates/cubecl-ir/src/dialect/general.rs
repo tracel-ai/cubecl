@@ -183,6 +183,7 @@ impl AliasingOp for ReinterpretCastOp {
 
 #[cube_op(name = "cube.select")]
 #[result_ty(same_as = true_value)]
+#[op_interfaces(TriviallyUnrollable)]
 #[op_traits(Pure, CanMaterialize)]
 pub struct SelectOp {
     pub condition: Value,

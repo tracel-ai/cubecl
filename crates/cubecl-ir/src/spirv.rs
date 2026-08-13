@@ -24,7 +24,7 @@ use pliron::{
 use pliron_spirv::{
     ops::{AccessChainOp, InBoundsAccessChainOp, LoadOp, LoopOp, SelectionOp},
     spirv::StorageClass,
-    types::{FloatType, PointerType, VectorType},
+    types::{ArrayType, FloatType, PointerType, VectorType, khr::CooperativeMatrixType},
 };
 
 NoMemoryEffect!(InBoundsAccessChainOp);
@@ -65,6 +65,20 @@ impl AlignedType for FloatType {
 impl AlignedType for VectorType {
     fn align(&self, ctx: &Context) -> usize {
         self.count as usize * self.element_type.align(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl AlignedType for ArrayType {
+    fn align(&self, ctx: &Context) -> usize {
+        self.element_type.align(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl AlignedType for CooperativeMatrixType {
+    fn align(&self, ctx: &Context) -> usize {
+        self.component_type.align(ctx)
     }
 }
 

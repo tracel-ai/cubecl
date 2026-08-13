@@ -27,6 +27,7 @@ use crate::{
         CppValue, format_const,
         lowering::LowerOp,
         ty::{TypeExtCPP, TypedExtCPP},
+        unroll::unrolling,
     },
     target::{CtxTarget, Shared, Target, dispatch_target},
 };
@@ -215,11 +216,11 @@ shared_op_with_out!(FmaOp, |op, ctx| {
     } else {
         "fma"
     };
-    format!("{f}({a}, {b}, {c});")
+    format!("{f}({a}, {b}, {c})")
 });
 // `fma` has no vector overloads in CUDA/HIP headers, so a vector fma must be
 // scalarized lane by lane like the other math functions.
-crate::shared::unroll::unrolling!(FmaOp);
+unrolling!(FmaOp);
 
 shared_op!(CommentOp, |op, ctx| {
     let content = String::from(op.comment(ctx).clone());
