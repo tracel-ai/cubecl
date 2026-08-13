@@ -1,6 +1,6 @@
 use super::prelude::*;
 use cubecl_core::ir::types::{
-    AtomicType,
+    ArrayType, AtomicType,
     scalar::{Float16Type, Float32Type, Float64Type, FloatFlex32Type},
 };
 use pliron::printable::Printable;
@@ -29,6 +29,10 @@ impl_cube_to_llvm_type!(Float16Type, self, ctx => FP16Type::get(ctx));
 impl_cube_to_llvm_type!(CubePointerType, self, ctx => LlvmPointerType::get(ctx, 0));
 impl_cube_to_llvm_type!(CubeVectorType, self, ctx => LlvmVectorType::get(ctx, cube_type_to_llvm(ctx, self.inner), self.vectorization as u32, VectorTypeKind::Fixed));
 impl_cube_to_llvm_type!(AtomicType, self, ctx => cube_type_to_llvm(ctx, self.inner));
+impl_cube_to_llvm_type!(ArrayType, self, ctx => {
+    let inner = cube_type_to_llvm(ctx, self.inner);
+    LlvmArrayType::get(ctx, inner, self.length as u64)
+});
 
 /// Convert a cubecl type to its LLVM-dialect equivalent, or return it unchanged when no
 /// conversion applies.

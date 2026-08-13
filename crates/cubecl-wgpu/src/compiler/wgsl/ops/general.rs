@@ -1,6 +1,6 @@
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{
-    attributes::{BoolAttr, FloatAttr, IndexAttr},
+    attributes::{BoolAttr, FloatAttr, IndexAttr, ZeroAttr},
     dialect::general::*,
     interfaces::TypedExt,
     prelude::*,
@@ -106,6 +106,13 @@ impl AttrToWgsl for FloatAttr {
 impl AttrToWgsl for BoolAttr {
     fn to_wgsl(&self, _ctx: &Context) -> String {
         format!("{}", self.0)
+    }
+}
+
+#[attr_interface_impl]
+impl AttrToWgsl for ZeroAttr {
+    fn to_wgsl(&self, ctx: &Context) -> String {
+        format!("{}()", self.ty.to_wgsl(ctx))
     }
 }
 
