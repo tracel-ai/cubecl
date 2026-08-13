@@ -45,11 +45,20 @@ impl<T: Scalar + CubePartialOrd, N: Size> PlaneOp<T, N> for OpMax {
     }
 }
 
+/// The number of units that actually take part in a plane operation. A cube smaller than the
+/// plane leaves the upper lanes inactive, and shuffling from an inactive lane returns an
+/// unspecified value, so the folds below must not reach past the last active lane.
+#[cube]
+fn plane_dim_checked() -> u32 {
+    min(PLANE_DIM, CUBE_DIM)
+}
+
 #[cube]
 pub fn plane_reduce<T: Scalar, N: Size, Op: PlaneOp<T, N>>(val: Vector<T, N>) -> Vector<T, N> {
+    let plane_dim = plane_dim_checked();
     let mut acc = val;
     let mut offset = 1;
-    while offset < PLANE_DIM {
+    while offset < plane_dim {
         acc = Op::apply(acc, plane_shuffle_xor(acc, offset));
         offset *= 2;
     }
@@ -60,9 +69,10 @@ pub fn plane_reduce<T: Scalar, N: Size, Op: PlaneOp<T, N>>(val: Vector<T, N>) ->
 pub fn plane_reduce_inclusive<T: Scalar, N: Size, Op: PlaneOp<T, N>>(
     val: Vector<T, N>,
 ) -> Vector<T, N> {
+    let plane_dim = plane_dim_checked();
     let mut acc = val;
     let mut offset = 1;
-    while offset < PLANE_DIM {
+    while offset < plane_dim {
         let tmp = Op::apply(acc, plane_shuffle_up(acc, offset));
         if UNIT_POS_PLANE >= offset {
             acc = tmp;
