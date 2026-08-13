@@ -121,7 +121,7 @@ pub fn register_metal_features(
             );
             return false;
         }
-
+        comp_options.supports_msl_compiler = true;
         register_features(&adapter, props, features, comp_options);
     }
     true
