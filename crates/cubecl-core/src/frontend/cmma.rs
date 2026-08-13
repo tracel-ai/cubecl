@@ -52,6 +52,7 @@ use crate::{self as cubecl, prelude::*};
 use core::marker::PhantomData;
 use cubecl_macros::{comptime_type, cube, intrinsic};
 
+use alloc::format;
 use cubecl_ir::{
     ExpandValue, Scope, VectorSize,
     dialect::matrix::{
@@ -247,6 +248,39 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
         layout: MatrixLayout,
     ) -> Self {
         intrinsic!(|scope| {
+            // Devices only accept the exact (element type, rows, columns, use)
+            // fragment combinations they advertise; anything else is undefined
+            // behavior at runtime — on RADV for instance, loads and stores
+            // silently produce garbage. Cube-scope matrices have flexible
+            // dimensions and are validated by their own feature set.
+            let props = scope.state().device_properties.clone();
+            if let Some(props) = props.filter(|_| S::SCOPE == types::MatrixScope::Plane) {
+                let elem_ty = C::Scalar::elem_type(scope);
+                let cmma = &props.features.matmul.cmma;
+                let supported = cmma.iter().any(|cfg| match ident {
+                    MatrixIdent::A => {
+                        cfg.a_type == elem_ty && cfg.m as usize == m && cfg.k as usize == k
+                    }
+                    MatrixIdent::B => {
+                        cfg.b_type == elem_ty && cfg.k as usize == k && cfg.n as usize == n
+                    }
+                    MatrixIdent::Accumulator => {
+                        cfg.cd_type == elem_ty && cfg.m as usize == m && cfg.n as usize == n
+                    }
+                });
+                if !supported {
+                    let (rows, cols) = match ident {
+                        MatrixIdent::A => (m, k),
+                        MatrixIdent::B => (k, n),
+                        MatrixIdent::Accumulator => (m, n),
+                    };
+                    scope.push_error(format!(
+                        "the device doesn't support a {rows}x{cols} {ident:?} cooperative \
+                         matrix fragment of {elem_ty:?}; supported configurations: {cmma:?}"
+                    ));
+                }
+            }
+
             let elem = C::Scalar::__expand_as_type(scope);
             let matrix_ty =
                 MatrixType::get(scope.ctx(), ident, (m, n, k).into(), elem, layout, S::SCOPE);
