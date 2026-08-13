@@ -69,6 +69,12 @@ macro_rules! function {
     };
 }
 
+/// `tanh` computed in f32, for targets whose fp16 headers have no half-precision `tanh`.
+#[cube]
+pub(crate) fn tanh_via_f32<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    Vector::cast_from(Vector::<f32, N>::cast_from(input).tanh())
+}
+
 function!(LogOp, "log", packable);
 // function!(FastLog, "__logf", no_half);
 function!(SinOp, "sin", packable);
