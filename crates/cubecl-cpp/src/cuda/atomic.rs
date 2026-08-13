@@ -21,7 +21,20 @@ use crate::{
     target::Cuda,
 };
 
-fn atom_vec(ctx: &Context, val: impl Typed) -> &'static str {
+/// Whether `val` is a pair of halves that `atom` addresses through its packed `f16x2`/`bf16x2`
+/// type rather than a vector qualifier.
+///
+/// PTX has no `.v2.f16` — vector qualifiers on `atom` exist only for `f32`/`f64`, from sm_90 on.
+/// A 2-wide half is instead one 32-bit operand typed `f16x2`, so it carries no qualifier and
+/// packs into a single register.
+fn is_packed_half_pair(ctx: &Context, val: impl Typed + Copy) -> bool {
+    val.is_half(ctx) && val.vector_size(ctx) == 2
+}
+
+fn atom_vec(ctx: &Context, val: impl Typed + Copy) -> &'static str {
+    if is_packed_half_pair(ctx, val) {
+        return "";
+    }
     match val.vector_size(ctx) {
         1 => "",
         2 => ".v2",
@@ -40,8 +53,16 @@ fn atom_ftz(ctx: &Context, val: impl Typed) -> &'static str {
 }
 
 // Signed only matters for cmp, addition is signless. And it's not supported for `s64`, only `u64`
-fn atom_ty(ctx: &Context, val: impl Typed) -> &'static str {
+fn atom_ty(ctx: &Context, val: impl Typed + Copy) -> &'static str {
     let scalar_ty = val.scalar_ty(ctx);
+    // A 2-wide half is the packed `f16x2`/`bf16x2` operand type, not a vector of `f16`.
+    if is_packed_half_pair(ctx, val) {
+        return if scalar_ty.is_float16(ctx) {
+            "f16x2"
+        } else {
+            "bf16x2"
+        };
+    }
     if scalar_ty.is_float64(ctx) {
         "f64"
     } else if scalar_ty.is_float32(ctx) {
@@ -63,7 +84,7 @@ fn atom_ty(ctx: &Context, val: impl Typed) -> &'static str {
     }
 }
 
-fn atom_ty_cmp(ctx: &Context, val: impl Typed) -> &'static str {
+fn atom_ty_cmp(ctx: &Context, val: impl Typed + Copy) -> &'static str {
     let scalar_ty = val.scalar_ty(ctx);
     if scalar_ty.is_int_of_width(ctx, 64) && scalar_ty.is_signed_int(ctx) {
         "s64"
@@ -79,7 +100,11 @@ fn as_registers(scope: &Scope, val: Value) -> Value {
     let vec = val.vector_size(scope.ctx());
     let u16 = IntegerType::get(scope.ctx(), 16, Signedness::Unsigned).to_handle();
     let u32 = IntegerType::get(scope.ctx(), 32, Signedness::Unsigned).to_handle();
-    if vec > 1 && val.is_half(scope.ctx()) {
+    // A half pair goes in as one packed 32-bit register, matching the `f16x2`/`bf16x2` operand
+    // type `atom_ty` picks for it, rather than as two 16-bit ones.
+    if is_packed_half_pair(scope.ctx(), val) {
+        reinterpret_value(scope, val, u32)
+    } else if vec > 1 && val.is_half(scope.ctx()) {
         let vec_ty = VectorType::get(scope.ctx(), u16, vec);
         reinterpret_value(scope, val, vec_ty.to_handle())
     } else if vec > 1 && val.is_half2(scope.ctx()) {
