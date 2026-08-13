@@ -18,7 +18,7 @@ use crate::{
         math::{index_attr, int_attr},
         pure_binop, pure_unop,
     },
-    interfaces::{ScalarType, TypedExt, aliasing::AliasingOp},
+    interfaces::{ScalarType, TriviallyUnrollable, TypedExt, aliasing::AliasingOp},
     prelude::*,
     types::scalar::IndexType,
 };
@@ -182,6 +182,7 @@ impl AliasingOp for ReinterpretCastOp {
 
 #[cube_op(name = "cube.select")]
 #[result_ty(same_as = true_value)]
+#[op_interfaces(TriviallyUnrollable)]
 #[op_traits(Pure, CanMaterialize)]
 pub struct SelectOp {
     pub condition: Value,

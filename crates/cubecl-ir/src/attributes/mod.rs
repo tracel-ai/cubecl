@@ -20,14 +20,14 @@ use pliron::{
     operation::Operation,
     parsable::{IntoParseResult, Parsable, ParseResult, StateStream},
     printable::{self, Printable},
-    r#type::TypeHandle,
+    r#type::{TypeHandle, type_impls},
     utils::apint::{APInt, bw},
 };
 
 use crate::{
     ConstantValue,
     apfloat::{APFloat, APFloatType},
-    interfaces::ConstantAttr,
+    interfaces::{ConstantAttr, TypedExt},
     settings::Dim3,
     try_cast_ty,
     types::scalar::*,
@@ -80,6 +80,55 @@ macro_rules! ext_attribute {
             }
         }
     };
+}
+
+/// A zero-value attribute, used for zero-initializing arbitrary types with whatever "zero" means
+/// for it. Arrays get all fields zero-initialized, floats and ints initialize to zero, booleans
+/// to false, etc.
+#[pliron_attr(name = "cube.zero", format = "`[zero: ` $ty `]`", verifier = "succ")]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
+pub struct ZeroAttr {
+    pub ty: TypeHandle,
+}
+materialize_const!(ZeroAttr);
+
+impl ZeroAttr {
+    pub fn new(ty: impl Into<TypeHandle>) -> Self {
+        Self { ty: ty.into() }
+    }
+}
+
+#[attr_interface_impl]
+impl TypedAttrInterface for ZeroAttr {
+    fn get_type(&self, _ctx: &Context) -> TypeHandle {
+        self.ty
+    }
+}
+
+#[attr_interface_impl]
+impl ConstantAttr for ZeroAttr {
+    fn as_const_val(&self, ctx: &Context) -> ConstantValue {
+        let ty = self.ty.deref(ctx);
+        if type_impls::<dyn APFloatType>(&*ty) {
+            ConstantValue::Float(0.0)
+        } else if self.ty.is_unsigned_int(ctx) || self.ty.is_index(ctx) {
+            ConstantValue::UInt(0)
+        } else if self.ty.is_signed_int(ctx) {
+            ConstantValue::Int(0)
+        } else if self.ty.is_bool(ctx) {
+            ConstantValue::Bool(false)
+        } else {
+            panic!("Invalid value type for `as_const_val`")
+        }
+    }
+    fn float_as_f64(&self, ctx: &Context) -> Option<f64> {
+        let ty = self.ty.deref(ctx);
+        if type_impls::<dyn APFloatType>(&*ty) {
+            Some(0.0)
+        } else {
+            None
+        }
+    }
 }
 
 #[pliron_attr(name = "cube.index", format = "$0", verifier = "succ")]

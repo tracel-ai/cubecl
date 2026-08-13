@@ -36,7 +36,7 @@ use thiserror::Error;
 
 use crate::{
     AddressSpace, CanMaterialize, NoSideEffects, Pure,
-    attributes::IndexAttr,
+    attributes::{IndexAttr, ZeroAttr},
     dialect::{general::PoisonOp, math::index_attr, ptr_value_ty},
     interfaces::{
         IndexableType, TriviallyUnrollable, TypedExt,
@@ -174,7 +174,12 @@ impl PromotableAllocationInterface for DeclareVariableOp {
 #[op_interface_impl]
 impl DestructurableConstructorOpInterface for DeclareVariableOp {
     fn destructurable_values(&self, ctx: &Context) -> Vec<DestructurableValueSlot> {
-        if self.addr_space(ctx).0 != AddressSpace::Local || self.initializer(ctx).is_some() {
+        if self.addr_space(ctx).0 != AddressSpace::Local {
+            return vec![];
+        }
+        if let Some(init) = self.initializer(ctx)
+            && !init.is::<ZeroAttr>()
+        {
             return vec![];
         }
         let value_ty = self.value_ty(ctx).get_type(ctx);
@@ -201,6 +206,9 @@ impl DestructurableConstructorOpInterface for DeclareVariableOp {
         new_constructors: &mut Vec<TraitOp<dyn DestructurableConstructorOpInterface>>,
     ) -> HMap<AttrObj, ValueSlot> {
         let addr_space = self.addr_space(ctx).0;
+        let init = self.initializer(ctx).map(|it| {
+            assert!(it.is::<ZeroAttr>());
+        });
         let destructured_type = {
             let ty = self.value_ty(ctx).get_type(ctx).deref(ctx);
             let destructurable = try_cast_ty!(ty, ctx, dyn DestructurableTypeInterface);
@@ -210,8 +218,9 @@ impl DestructurableConstructorOpInterface for DeclareVariableOp {
         let mut slot_map = HMap::new();
         for used_index in used_indices {
             let value_ty = destructured_type[used_index];
+            let init = init.map(|_| ZeroAttr::new(value_ty).into());
             let align = value_ty.align(ctx);
-            let suballoc = DeclareVariableOp::new(ctx, value_ty, addr_space, align, None);
+            let suballoc = DeclareVariableOp::new(ctx, value_ty, addr_space, align, init);
             rewriter.append_op(ctx, &suballoc);
 
             let slot = ValueSlot::new(suballoc.get_result(ctx), value_ty);
