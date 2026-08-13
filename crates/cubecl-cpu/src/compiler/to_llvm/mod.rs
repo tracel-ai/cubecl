@@ -41,7 +41,8 @@ pub mod prelude {
     };
     pub use pliron_llvm::ops as llvm;
     pub use pliron_llvm::types::{
-        FuncType, PointerType as LlvmPointerType, VectorType as LlvmVectorType, VectorTypeKind,
+        ArrayType as LlvmArrayType, FuncType, PointerType as LlvmPointerType,
+        VectorType as LlvmVectorType, VectorTypeKind,
     };
 }
 

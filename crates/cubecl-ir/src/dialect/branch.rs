@@ -12,7 +12,10 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    CanMaterialize, NoMemoryEffect, Pure, attributes::BoolAttr, prelude::*, types::scalar::BoolType,
+    CanMaterialize, NoMemoryEffect, Pure,
+    attributes::{BoolAttr, ZeroAttr},
+    prelude::*,
+    types::scalar::BoolType,
 };
 
 /// Marker for terminators that do not return, i.e. `UnreachableOp`. In Rust terms, they return `!`.
@@ -281,10 +284,12 @@ impl ConstFoldInterface for IfOp {
         let Some(attr) = operand_attrs[0].as_ref() else {
             return IRStatus::Unchanged;
         };
-        let Some(attr) = attr.downcast_ref::<BoolAttr>() else {
+        let zero = attr.downcast_ref::<ZeroAttr>().map(|_| false);
+        let bool = attr.downcast_ref::<BoolAttr>().map(|it| it.0);
+        let Some(const_cond) = zero.or(bool) else {
             return IRStatus::Unchanged;
         };
-        let (taken, not_taken) = match attr.0 {
+        let (taken, not_taken) = match const_cond {
             true => (self.then_block(ctx), self.else_block(ctx)),
             false => (self.else_block(ctx), self.then_block(ctx)),
         };

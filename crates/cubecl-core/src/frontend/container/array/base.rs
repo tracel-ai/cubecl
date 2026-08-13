@@ -33,7 +33,7 @@ impl<E> AsMutExpand for ArrayExpand<E> {
 
 /// Module that contains the implementation details of the new function.
 mod new {
-    use cubecl_ir::types::ArrayType;
+    use cubecl_ir::{attributes::ZeroAttr, types::ArrayType};
     use cubecl_macros::intrinsic;
 
     use super::*;
@@ -49,7 +49,8 @@ mod new {
                 // so it needs to be prepared in advance.
                 let elem = T::__expand_as_type(scope);
                 let ty = ArrayType::get(scope.ctx(), elem, length);
-                let buffer = scope.create_local_mut(ty, None);
+                let null = ZeroAttr::new(ty);
+                let buffer = scope.create_local_mut(ty, Some(null.into()));
                 let slice = slice::from_raw_parts::<T>(
                     scope,
                     buffer,

@@ -1,11 +1,15 @@
-use cubecl_ir::{attributes::IndexAttr, prelude::*, verify_attr_succ};
+use cubecl_ir::{
+    attributes::{BoolAttr, IndexAttr, ZeroAttr},
+    prelude::*,
+    verify_attr_succ,
+};
 
 use pliron::{
     attribute::{AttrObj, attr_cast},
     builtin::{attr_interfaces::TypedAttrInterface, attributes::IntegerAttr},
     utils::apint::{APInt, bw},
 };
-use pliron_spirv::attrs::FloatAttr;
+use pliron_spirv::attrs::{FloatAttr, NullAttr};
 
 use crate::types::ty_to_spirv_dialect;
 
@@ -52,11 +56,19 @@ impl ToSpirvDialectAttr for cubecl_ir::attributes::FloatAttr {
 }
 
 #[attr_interface_impl]
-impl ToSpirvDialectAttr for cubecl_ir::attributes::BoolAttr {
+impl ToSpirvDialectAttr for BoolAttr {
     fn to_spirv_dialect(&self, ctx: &Context) -> AttrObj {
         let ty = ty_to_spirv_dialect(ctx, self.get_type(ctx));
         let value = if self.0 { 1 } else { 0 };
         let value = APInt::from_u8(value, bw(1));
         IntegerAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), value).into()
+    }
+}
+
+#[attr_interface_impl]
+impl ToSpirvDialectAttr for ZeroAttr {
+    fn to_spirv_dialect(&self, ctx: &Context) -> AttrObj {
+        let ty = ty_to_spirv_dialect(ctx, self.get_type(ctx));
+        NullAttr::new(ty).into()
     }
 }

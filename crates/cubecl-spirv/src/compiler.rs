@@ -257,7 +257,10 @@ impl SpirvCompiler {
         passes.add_pass(ConvertArgsPass);
         passes.add_pass(NestedOpsPass::new(func_passes));
 
-        passes.run(spirv_module_op, ctx, &mut analyses).unwrap();
+        // The conversion pass reports ops it must not compile (e.g.
+        // cube.poison) as errors, not bugs; surface them as a compilation
+        // error instead of panicking the device thread.
+        passes.run(spirv_module_op, ctx, &mut analyses)?;
 
         let (shared_size, shared_args) = lower_shared(ctx, spirv_module);
         declare_entry_point(ctx, spirv_module, shared_args);
@@ -272,9 +275,7 @@ impl SpirvCompiler {
         // verify_operation(module_op, ctx).expect("Failed to verify after passes");
 
         let mut builder = PlironBuilder::default();
-        spirv_module
-            .to_spirv(ctx, &mut builder)
-            .expect("Failed to convert");
+        spirv_module.to_spirv(ctx, &mut builder)?;
         let module = builder.module();
 
         Ok((module, bindings, shared_size))

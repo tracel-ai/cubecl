@@ -47,7 +47,7 @@ metal_op!(PrintfOp, |op, ctx| {
 
 metal_op!(SyncOp, |op, ctx| {
     match op.scope(ctx).0 {
-        SyncScope::Plane => "simdgroup_barrier(mem_flags::mem_none);\n",
+        SyncScope::Plane => "simdgroup_barrier(mem_flags::mem_threadgroup);\n",
         SyncScope::Cube => "threadgroup_barrier(mem_flags::mem_threadgroup);\n",
         SyncScope::Device => "threadgroup_barrier(mem_flags::mem_device);\n",
         SyncScope::Unit => "",

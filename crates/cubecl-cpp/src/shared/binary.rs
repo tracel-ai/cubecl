@@ -197,7 +197,7 @@ fn min_bf16<T: Numeric, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector
 fn max_bf16<T: Numeric, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
     let lhs = Vector::<f32, N>::cast_from(lhs);
     let rhs = Vector::<f32, N>::cast_from(rhs);
-    Vector::cast_from(lhs.min(rhs))
+    Vector::cast_from(lhs.max(rhs))
 }
 
 lower_target_binop!(FMinOp, min_bf16, Hip, |op, ctx| {

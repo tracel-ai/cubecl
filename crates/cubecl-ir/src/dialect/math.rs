@@ -680,7 +680,7 @@ pub(super) fn float_attr(ctx: &Context, ty: TypeHandle, val: f64) -> AttrObj {
 
 #[cube_op(name = "math.fma")]
 #[result_ty(same_as = a)]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
 #[op_traits(Pure, CanMaterialize)]
 pub struct FmaOp {
     pub a: Value,

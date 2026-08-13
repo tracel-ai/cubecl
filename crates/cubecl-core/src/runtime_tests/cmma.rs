@@ -517,6 +517,38 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R>, cube_dimensions: Cube
     assert_eq!(test_simple_1_expected(), actual);
 }
 
+#[cube(launch)]
+pub fn kernel_unsupported_fragment(out: &mut [f32]) {
+    let acc = cmma::Matrix::<f32>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        3usize,
+        5usize,
+        7usize,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+    cmma::store(out, &acc, 5, cmma::MatrixLayout::RowMajor);
+}
+
+pub fn test_unsupported_fragment<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
+    let out = client.empty(core::mem::size_of::<f32>() * 16);
+
+    kernel_unsupported_fragment::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        cube_dimensions,
+        unsafe { BufferArg::from_raw_parts(out, 16) },
+    );
+
+    let result = client.flush();
+    let error = result.expect_err("a fragment shape no device advertises must fail compilation");
+    let message = alloc::format!("{error:?}");
+    assert!(
+        message.contains("cooperative matrix fragment"),
+        "expected a cooperative matrix validation error, got: {message}"
+    );
+}
+
 pub fn test_simple_1_expected() -> Vec<f32> {
     vec![
         504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504.,
@@ -1705,6 +1737,16 @@ macro_rules! testgen_cmma {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_simple_1_vectorized_offset::<TestRuntime>(
+                client,
+                cube_dimensions,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_unsupported_fragment() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_unsupported_fragment::<TestRuntime>(
                 client,
                 cube_dimensions,
             );

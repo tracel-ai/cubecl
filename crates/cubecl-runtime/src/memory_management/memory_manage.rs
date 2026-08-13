@@ -633,14 +633,22 @@ fn build_pools(
                 });
             }
 
-            // Add pools from big to small.
+            // Allocations bigger than the sliced ladder get exact-size
+            // exclusive pages. A sliced tail pool here would materialize a
+            // whole `max_page` page (a quarter of device memory) for the
+            // first allocation that lands in it — on unified-memory devices
+            // that alone can consume a large share of host RAM. Exclusive
+            // pages allocate exactly what is requested and are released once
+            // they sit unused for a full dealloc period.
+            let max_alloc = max_page / memory_alignment * memory_alignment;
+            let dealloc_period = (BASE_DEALLOC_PERIOD as f64
+                * (1.0 + max_alloc as f64 / (DEALLOC_SCALE_MB as f64)).round())
+                as u64;
             pools.push(MemoryPoolOptions {
-                pool_type: PoolType::SlicedPages {
-                    page_size: max_page / memory_alignment * memory_alignment,
-                    max_slice_size: max_page / memory_alignment * memory_alignment,
-                    max_pool_size: None,
+                pool_type: PoolType::ExclusivePages {
+                    max_alloc_size: max_alloc,
                 },
-                dealloc_period: None,
+                dealloc_period: Some(dealloc_period),
             });
             pools
         }
@@ -1077,6 +1085,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
         self.alloc_reserve_count += 1;
+
+        // Drive the pools' periodic deallocation. Each pool gates itself on
+        // its own `dealloc_period` (pools without one no-op), so this is a few
+        // comparisons per reservation — without it, pages freed long ago are
+        // never returned to the driver until an explicit cleanup, which on
+        // long-running processes lets every stream's pools grow monotonically.
+        self.cleanup(false);
 
         let mapping = PageMapping::current();
 
