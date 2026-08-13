@@ -98,6 +98,7 @@ pub fn register_metal_features(
 
     let features = adapter.features();
     unsafe {
+        use objc2::rc::autoreleasepool;
         use objc2_foundation::NSString;
         use objc2_metal::{MTLDevice, MTLGPUFamily};
 
@@ -108,17 +109,19 @@ pub fn register_metal_features(
         if !raw.supportsFamily(MTLGPUFamily::Apple7) {
             return false;
         };
-        let canary = NSString::from_str(LAMBDA_CANARY);
-        if raw
-            .newLibraryWithSource_options_error(&canary, None)
-            .is_err()
-        {
+        let supports_lambdas = autoreleasepool(|_| {
+            let canary = NSString::from_str(LAMBDA_CANARY);
+            raw.newLibraryWithSource_options_error(&canary, None)
+                .is_ok()
+        });
+        if !supports_lambdas {
             // This is a fixable issue, so we should warn users.
             log::warn!(
                 "Device can support native MSL, but Metal compiler version is too old. Upgrading to 3.2 or higher is recommended."
             );
             return false;
         }
+
         register_features(&adapter, props, features, comp_options);
     }
     true

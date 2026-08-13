@@ -1218,6 +1218,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "itertools 0.15.0",
  "log",
+ "objc2",
  "objc2-foundation",
  "objc2-metal",
  "paste",

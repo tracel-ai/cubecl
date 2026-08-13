@@ -31,7 +31,12 @@ std = [
 ]
 # 'msl' and 'spirv' features are exclusive
 # TODO find a way to have wgpu runtime auto-compiler to support several compilers at the same time
-msl = ["cubecl-cpp/metal", "dep:objc2-foundation", "dep:objc2-metal"]
+msl = [
+    "cubecl-cpp/metal",
+    "dep:objc2",
+    "dep:objc2-foundation",
+    "dep:objc2-metal",
+]
 profile-tracy = ["tracy-client"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash", "cubecl-common/hash"]
 
@@ -110,6 +115,7 @@ wgpu = { workspace = true, features = [
 ] }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = { version = "0.6", optional = true }
 objc2-foundation = { version = "0.3", optional = true }
 objc2-metal = { version = "0.3", features = ["MTLLibrary"], optional = true }
 
