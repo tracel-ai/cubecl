@@ -2,7 +2,7 @@ use alloc::{boxed::Box, vec, vec::Vec};
 use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
     VectorSize,
-    attributes::IndexAttr,
+    attributes::{IndexAttr, ZeroAttr},
     dialect::{
         base::OperationPtrExt,
         general::CopyOp,
@@ -109,15 +109,29 @@ impl CustomUnrollOp for DeclareVariableOp {
         let new_value_ty = unroll_ty(ctx, value_ty, state.max_vector_size);
         let new_ptr_ty = PointerType::get(ctx, new_value_ty, addr_space.0);
 
+        // The initializer has a type too, and it must match the declaration.
+        // Unroll it as well, or we end up with a broken
+        // `array<vec4<f32>, 8> = array<vec8<f32>, 4>()`.
+        let unrolled_init = |ctx: &Context| {
+            self.initializer(ctx).map(|init| match init.is::<ZeroAttr>() {
+                true => ZeroAttr::new(new_value_ty).into(),
+                false => init.clone(),
+            })
+        };
+
         // Array doesn't change size, so no need to duplicate the declaration
         if new_value_ty.size(ctx) == value_ty.size(ctx) {
+            let init = unrolled_init(ctx);
             self.set_value_ty(ctx, new_value_ty);
             self.get_result(ctx).set_type(ctx, new_ptr_ty.into());
+            if let Some(init) = init {
+                self.set_initializer(ctx, init);
+            }
         } else {
             let factor = current_vec / state.max_vector_size;
             let mut results = vec![];
             for _ in 0..factor {
-                let init = self.initializer(ctx).map(|init| init.clone());
+                let init = unrolled_init(ctx);
                 let new_op = DeclareVariableOp::new(ctx, new_value_ty, addr_space, align, init);
                 new_op
                     .get_operation()
