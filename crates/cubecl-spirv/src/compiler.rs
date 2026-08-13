@@ -23,7 +23,7 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
-    dialect::scf::BranchToSCFPass,
+    dialect::{scf::BranchToSCFPass, ssa_matrix::MatrixToSSAPass},
     prelude::{SingleBlockRegionInterface, SymbolOpInterface},
     rewrite::visit_all_ops_of_type_mut,
     settings::{Dim3, KernelSettings},
@@ -194,6 +194,7 @@ impl SpirvCompiler {
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
         func_passes.add_pass(BranchToSCFPass::default());
+        func_passes.add_pass(MatrixToSSAPass::default());
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(LowerBuiltinsPass);

@@ -89,8 +89,11 @@ synchronizes!(StoreOp, SyncScope::Plane);
 #[result_ty(none)]
 #[op_traits(CanMaterialize)]
 pub struct MultiplyAccumulateOp {
+    #[operand(ptr_read)]
     pub mat_a: Value,
+    #[operand(ptr_read)]
     pub mat_b: Value,
+    #[operand(ptr_read)]
     pub mat_c: Value,
     #[operand(ptr_write)]
     pub mat_d: Value,
@@ -275,6 +278,16 @@ impl Parsable for ElementwiseOp {
 
         let op = ElementwiseOp::new(ctx, mat_in, mat_out, closure, captures);
         Ok(OpObj::new(op)).into_parse_result()
+    }
+}
+
+#[op_interface_impl]
+impl MemoryEffects for ElementwiseOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![
+            MemoryEffect::Read(self.matrix_in(ctx)),
+            MemoryEffect::Write(self.matrix_out(ctx)),
+        ]
     }
 }
 
