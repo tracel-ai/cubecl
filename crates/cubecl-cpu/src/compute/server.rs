@@ -12,7 +12,8 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{
         BufferBinding, ComputeServer, CopyDescriptor, IoError, KernelArguments, KernelResource,
-        ProfileError, ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerError,
+        ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -319,7 +320,10 @@ impl ComputeServer for CpuServer {
         // correct rather than an oversight — nothing is scheduled, so there is
         // no work for a later stream to order against.
         if launch_mode.is_skipped() {
-            self.compile_only(kernel).unwrap();
+            if let Err(err) = self.compile_only(kernel) {
+                let stream = self.scheduler.stream(&stream_id);
+                stream.error(ServerError::Launch(LaunchError::CompilationError(err)));
+            }
             return;
         }
 
@@ -335,9 +339,15 @@ impl ComputeServer for CpuServer {
             })
             .for_each(|b| self.streams_pool.push(b.stream));
         let bindings = self.prepare_bindings(bindings);
-        let task = self
-            .prepare_task(kernel, count, bindings, stream_id)
-            .unwrap();
+        let task = match self.prepare_task(kernel, count, bindings, stream_id) {
+            Ok(task) => task,
+            Err(err) => {
+                // We make the stream that would execute the kernel in error.
+                let stream = self.scheduler.stream(&stream_id);
+                stream.error(ServerError::Launch(LaunchError::CompilationError(err)));
+                return;
+            }
+        };
 
         self.scheduler.register(stream_id, task, &self.streams_pool);
     }
