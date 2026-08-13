@@ -20,6 +20,21 @@ use cubecl_core::{
 };
 use half::{bf16, f16};
 
+/// How much of each read's scale already sits in a register; whatever the register does not hold
+/// is read per position through the scales view. The discriminant is comptime, so each variant
+/// compiles its own kernel with nothing of the others in it.
+#[derive(Clone, Copy, CubeType, CubeLaunch)]
+pub enum ScaleInRegister {
+    /// The scales view holds the whole scale: each read looks it up at its position.
+    Nothing,
+    /// The product of every outer level's scale, each covering the whole tensor; each read still
+    /// looks its innermost scale up and multiplies this in.
+    OuterLevels(f32),
+    /// The whole scale for every value the view serves, whatever the caller multiplied into it.
+    /// The scales view is never read: its address arithmetic and its load leave the kernel.
+    WholeScale(f32),
+}
+
 /// View that dequantizes after loads. Scales layout should take values coordinates and map them
 /// to the corresponding scale.
 ///
@@ -40,7 +55,7 @@ pub struct QuantizedView<
 > {
     values: View<'a, Vector<Q, NQ>, C>,
     scales: View<'a, S, C>,
-    scale_mode: ScaleMode,
+    scale_in_register: ScaleInRegister,
     #[cube(comptime)]
     scheme: QuantScheme,
     #[cube(comptime)]
@@ -51,11 +66,11 @@ pub struct QuantizedView<
 impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
     QuantizedView<'a, Q, NQ, S, F, NF, C>
 {
-    /// A view addressing one scale per position through `scales`.
+    /// A view reading every scale per position through `scales`.
     ///
     /// Takes a one-level scheme: an outer level's scale never rides a signature here, it is
-    /// either bound at launch or already folded by a caller using
-    /// [`new_uniform`](Self::new_uniform).
+    /// either bound at launch or already multiplied in by a caller using
+    /// [`new_with_whole_scale`](Self::new_with_whole_scale).
     pub fn new(
         values: View<'a, Vector<Q, NQ>, C>,
         scales: View<'a, S, C>,
@@ -65,17 +80,36 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         QuantizedView::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
-            scale_mode: ScaleMode::new_Addressed(),
+            scale_in_register: ScaleInRegister::new_Nothing(),
+            scheme,
+            _ty: PhantomData,
+        }
+    }
+
+    /// [`new`](Self::new) with every outer level's scale already multiplied into `outer_scale`:
+    /// each read still looks the innermost level's scale up through `scales`, then multiplies the
+    /// register in. Takes a scheme whose outer levels the register stands for; a one-level scheme
+    /// has no outer levels and reads through [`new`](Self::new).
+    pub fn new_with_outer_scale(
+        values: View<'a, Vector<Q, NQ>, C>,
+        scales: View<'a, S, C>,
+        outer_scale: f32,
+        #[comptime] scheme: QuantScheme,
+    ) -> Self {
+        QuantizedView::<'a, Q, NQ, S, F, NF, C> {
+            values,
+            scales,
+            scale_in_register: ScaleInRegister::new_OuterLevels(outer_scale),
             scheme,
             _ty: PhantomData,
         }
     }
 
     /// [`new`](Self::new) for values that share one scale: `scale` is the whole scale for every
-    /// value read through this view, whatever levels the caller folded into it, so the scales
+    /// value read through this view, whatever levels the caller multiplied into it, so the scales
     /// view rides along unread. Only a caller that knows the values it will read share a block
     /// can say so, which is why this exists on the cube side.
-    pub fn new_uniform(
+    pub fn new_with_whole_scale(
         values: View<'a, Vector<Q, NQ>, C>,
         scales: View<'a, S, C>,
         scale: f32,
@@ -84,7 +118,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         QuantizedView::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
-            scale_mode: ScaleMode::new_Uniform(scale),
+            scale_in_register: ScaleInRegister::new_WholeScale(scale),
             scheme,
             _ty: PhantomData,
         }
@@ -112,51 +146,51 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
     pub fn new(
         values: ViewExpand<'a, Vector<Q, NQ>, C>,
         scales: ViewExpand<'a, S, C>,
-        scale_mode: ScaleModeExpand,
+        scale_in_register: ScaleInRegisterExpand,
         scheme: QuantScheme,
     ) -> Self {
         QuantizedViewExpand::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
-            scale_mode,
+            scale_in_register,
             scheme,
             _ty: PhantomData,
         }
     }
 
-    /// Dequantize `value` with the effective scale this view's mode assigns it, reading the
-    /// per-position scale through `read_scale` only when one is addressed.
+    /// Dequantize `value` with the effective scale this view assigns it, reading the per-position
+    /// scale through `read_scale` unless the register holds the whole scale.
     fn dequant(
         &self,
         scope: &Scope,
         value: NativeExpand<Vector<Q, NQ>>,
         read_scale: impl FnOnce(&Scope) -> NativeExpand<S>,
     ) -> NativeExpand<Vector<F, NF>> {
-        // The addressed modes are where the mode can disagree with the scheme: the static
-        // constructors take a scheme without inspecting it. A uniform scale stands for whatever
-        // the caller folded into it, so the scheme says nothing about it.
-        match self.scale_mode {
-            ScaleModeExpand::Addressed => {
+        // The reading variants are where the register can disagree with the scheme: the static
+        // constructors take a scheme without inspecting it. A whole scale stands for whatever the
+        // caller multiplied into it, so the scheme says nothing about it.
+        match self.scale_in_register {
+            ScaleInRegisterExpand::Nothing => {
                 assert!(
                     self.scheme.levels().len() == 1,
-                    "every scale is addressed, but {:?} has outer levels nothing folds in",
+                    "every scale is read from the scales view, but {:?} has outer levels nothing multiplies in",
                     self.scheme,
                 );
                 let scale = read_scale(scope);
                 dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.scheme)
             }
-            ScaleModeExpand::Folded(outer_scale) => {
+            ScaleInRegisterExpand::OuterLevels(outer_scale) => {
                 assert!(
                     self.scheme.levels().len() > 1,
-                    "a folded outer scale rides along, but {:?} has no outer level it could hold",
+                    "an outer scale rides in a register, but {:?} has no outer level it could hold",
                     self.scheme,
                 );
                 check_outer_levels(&self.scheme);
                 let scale = read_scale(scope);
-                let scale = fold_outer_scale::expand::<S>(scope, outer_scale, scale);
+                let scale = multiply_outer_scale::expand::<S>(scope, outer_scale, scale);
                 dequantize_aligned::expand::<Q, f32, F, NQ, NF>(scope, value, scale, self.scheme)
             }
-            ScaleModeExpand::Uniform(scale) => {
+            ScaleInRegisterExpand::WholeScale(scale) => {
                 dequantize_aligned::expand::<Q, f32, F, NQ, NF>(scope, value, scale, self.scheme)
             }
         }
@@ -289,7 +323,7 @@ fn quant_vector_size_q(vector_size: usize, num_quants: usize) -> usize {
 }
 
 /// Register the outer level's per-tensor scale binding. Registered as f32 to match the element
-/// type [`expand_scale_mode`] reads it back with.
+/// type [`expand_scale_in_register`] reads it back with.
 fn register_outer_scale<R: Runtime>(
     outer_scale: Option<BufferArg<R>>,
     launcher: &mut KernelLauncher<R>,
@@ -297,23 +331,23 @@ fn register_outer_scale<R: Runtime>(
     outer_scale.map(|outer_scale| <[f32] as LaunchArg>::register(outer_scale, launcher))
 }
 
-/// The scale mode a launch's bindings expand to.
+/// The register scale a launch's bindings expand to.
 ///
 /// An outer scale is read once for the whole kernel: it is a single value for the entire tensor,
 /// and a read per element would be a global load the optimizer cannot hoist back out of a loop.
 /// Reading it as f32 is what keeps the levels multiplying in f32 later, since a block scale alone
 /// can overflow a narrow `F`.
-fn expand_scale_mode(
+fn expand_scale_in_register(
     outer_scale: Option<&BufferCompilationArg>,
     builder: &mut KernelBuilder,
-) -> ScaleModeExpand {
+) -> ScaleInRegisterExpand {
     match outer_scale {
         Some(outer_scale) => {
             let buffer = <[f32] as LaunchArg>::expand(outer_scale, builder);
             let pos = NativeExpand::<usize>::from_lit(&builder.scope, 0);
-            ScaleModeExpand::Folded(*buffer.__expand_index_method(&builder.scope, pos))
+            ScaleInRegisterExpand::OuterLevels(*buffer.__expand_index_method(&builder.scope, pos))
         }
-        None => ScaleModeExpand::Addressed,
+        None => ScaleInRegisterExpand::Nothing,
     }
 }
 
@@ -341,8 +375,9 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
 
         let values = View::<Vector<Q, NQ>, C>::expand(self.values, self.builder);
         let scales = View::<S, C>::expand(&self.scales.inner, self.builder);
-        let scale_mode = expand_scale_mode(self.scales.outer_scale.as_ref(), self.builder);
-        let view = QuantizedViewExpand::new(values, scales, scale_mode, self.scheme);
+        let scale_in_register =
+            expand_scale_in_register(self.scales.outer_scale.as_ref(), self.builder);
+        let view = QuantizedViewExpand::new(values, scales, scale_in_register, self.scheme);
         ViewExpand::new(&self.builder.scope, view)
     }
 }

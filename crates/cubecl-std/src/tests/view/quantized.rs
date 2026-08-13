@@ -203,18 +203,80 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     assert_eq!(&actual_float, &float_data);
 }
 
-/// A view whose values share one scale: the scale rides in a register and the scales view is
-/// never read. Built in cube code, since only a caller that knows its values share a block can
-/// say so.
+/// A view built in cube code with the outer level's scale already in a register: block scales
+/// are still read per position, the register multiplies in.
 #[cube(launch_unchecked)]
-pub fn kernel_uniform_quantized_view<F: Float, N: Size>(
+pub fn kernel_outer_scale_quantized_view<F: Float, N: Size>(
+    values: View<'_, Vector<u32, Const<1>>, Coords1d>,
+    scales: View<'_, f32, Coords1d>,
+    outer_scale: InputScalar,
+    output: &mut [Vector<F, N>],
+    #[comptime] scheme: QuantScheme,
+) {
+    let view = QuantizedView::<u32, Const<1>, f32, F, N, Coords1d>::new_with_outer_scale(
+        values,
+        scales,
+        outer_scale.get::<f32>(),
+        scheme,
+    )
+    .view();
+    let pos = UNIT_POS as usize;
+    if pos < view.shape() {
+        output[pos] = view.read(pos);
+    }
+}
+
+/// [`new_with_outer_scale`](QuantizedView::new_with_outer_scale) reconstructs exactly what the two-binding launch
+/// path does: block scales read per position, the per-tensor scale riding in the register.
+pub fn test_quantized_outer_scale<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let vector_size_float = 8;
+    let block = 8;
+
+    let scheme = QuantScheme::default()
+        .with_value(QuantValue::Q4F)
+        .with_scales(
+            ScaleLevels::block([block as u8], QuantParam::F32).and_tensor(QuantParam::F32),
+        );
+
+    let global_scale = 2f32.powi(-20);
+    let block_scales = [2f32.powi(18), 2f32.powi(19)];
+    let expected = (0..16)
+        .map(|i| F::new(global_scale * block_scales[i / block] * (i as f32 - 8.0)))
+        .collect::<Vec<_>>();
+
+    let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
+    let scales = client.create_from_slice(f32::as_bytes(&block_scales));
+    let output = client.empty(16 * size_of::<F>());
+
+    unsafe {
+        kernel_outer_scale_quantized_view::launch_unchecked::<F, R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(16),
+            vector_size_float,
+            ViewArg::new_array::<PlainLayout>(BufferArg::from_raw_parts(values, 2), ()),
+            ViewArg::new_array::<PlainLayout>(BufferArg::from_raw_parts(scales, 2), ()),
+            InputScalar::new(global_scale, ElemType::Float(FloatKind::F32)),
+            BufferArg::from_raw_parts(output.clone(), 16),
+            scheme,
+        );
+    }
+
+    let actual = client.read_one_unchecked(output);
+    assert_eq!(F::from_bytes(&actual), &expected);
+}
+
+/// A view whose whole scale rides in a register, so the scales view is never read. Built in cube
+/// code, since only a caller that knows its values share a block can say so.
+#[cube(launch_unchecked)]
+pub fn kernel_whole_scale_quantized_view<F: Float, N: Size>(
     values: View<'_, Vector<u32, Const<1>>, Coords1d>,
     scales: View<'_, f32, Coords1d>,
     scale: InputScalar,
     output: &mut [Vector<F, N>],
     #[comptime] scheme: QuantScheme,
 ) {
-    let view = QuantizedView::<u32, Const<1>, f32, F, N, Coords1d>::new_uniform(
+    let view = QuantizedView::<u32, Const<1>, f32, F, N, Coords1d>::new_with_whole_scale(
         values,
         scales,
         scale.get::<f32>(),
@@ -227,9 +289,9 @@ pub fn kernel_uniform_quantized_view<F: Float, N: Size>(
     }
 }
 
-/// The uniform view reconstructs exactly what a per-value scale of the same value would: the
+/// The whole-scale view reconstructs exactly what a per-value scale of the same value would: the
 /// scales buffer is filled with a number that would be wrong if it were read.
-pub fn test_quantized_uniform_scale<R: Runtime, F: Float + CubeElement>(
+pub fn test_quantized_whole_scale<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
     scheme: QuantScheme,
 ) {
@@ -237,7 +299,7 @@ pub fn test_quantized_uniform_scale<R: Runtime, F: Float + CubeElement>(
     let scale = 2f32.powi(-3);
 
     let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
-    // Never read: a uniform view resolves its scale without touching this.
+    // Never read: a whole-scale view resolves its scale without touching this.
     let scales = client.create_from_slice(f32::as_bytes(&[f32::NAN, f32::NAN]));
     let output = client.empty(16 * size_of::<F>());
 
@@ -246,7 +308,7 @@ pub fn test_quantized_uniform_scale<R: Runtime, F: Float + CubeElement>(
         .collect::<Vec<_>>();
 
     unsafe {
-        kernel_uniform_quantized_view::launch_unchecked::<F, R>(
+        kernel_whole_scale_quantized_view::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(16),
@@ -385,10 +447,10 @@ macro_rules! testgen_quantized_view {
             );
         }
 
-        /// Every level shape, since a uniform scale stands for whatever the caller folded into
-        /// it: the scheme no longer says how many scales a read needs.
+        /// Every level shape, since a whole scale stands for whatever the caller multiplied
+        /// into it: the scheme no longer says how many scales a read needs.
         #[$crate::tests::test_log::test]
-        fn test_quantized_view_uniform_scale() {
+        fn test_quantized_view_whole_scale() {
             use cubecl_common::quant::scheme::{QuantParam, QuantValue, ScaleLevels};
             let client = TestRuntime::client(&Default::default());
             let base = cubecl_common::quant::scheme::QuantScheme::default()
@@ -398,11 +460,19 @@ macro_rules! testgen_quantized_view {
                 ScaleLevels::block([8], QuantParam::F32),
                 ScaleLevels::block([8], QuantParam::F32).and_tensor(QuantParam::F32),
             ] {
-                cubecl_std::tests::view::quantized::test_quantized_uniform_scale::<TestRuntime, $ty>(
+                cubecl_std::tests::view::quantized::test_quantized_whole_scale::<TestRuntime, $ty>(
                     client.clone(),
                     base.with_scales(levels),
                 );
             }
+        }
+
+        #[$crate::tests::test_log::test]
+        fn test_quantized_view_outer_scale() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_std::tests::view::quantized::test_quantized_outer_scale::<TestRuntime, $ty>(
+                client,
+            );
         }
 
         #[$crate::tests::test_log::test]

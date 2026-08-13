@@ -26,13 +26,13 @@ pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF:
     }
 }
 
-/// The effective scale of values whose outer levels fold on top of their own.
+/// The effective scale of values whose outer levels multiply on top of their own.
 ///
 /// The levels multiply in f32: an inner scale is normalized against the outer ones, so on its own
 /// it overflows a narrow compute type by orders of magnitude before the outer scales can bring
 /// the product back into range.
 #[cube]
-pub fn fold_outer_scale<S: CubePrimitive>(outer_scale: f32, scale: S) -> f32 {
+pub fn multiply_outer_scale<S: CubePrimitive>(outer_scale: f32, scale: S) -> f32 {
     outer_scale * f32::cast_from(scale)
 }
 
