@@ -117,10 +117,6 @@ const_eval!(BoolNotOp, {
 
 #[cube_op(name = "cube.cast")]
 #[result_ty(argument)]
-// Element-wise, so a wide vector cast splits into narrower casts lane-group by
-// lane-group — without this the unroll pass (used when a kernel's vector width
-// exceeds the target's, e.g. 8-wide q4 lanes against SPIR-V's max of 4) fails
-// on any vector cast.
 #[op_interfaces(TriviallyUnrollable)]
 #[op_traits(Pure, CanMaterialize)]
 pub struct CastOp {
