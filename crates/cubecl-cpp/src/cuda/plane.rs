@@ -1,6 +1,8 @@
 use cubecl_core::{
+    self as cubecl,
     frontend::cast_value,
-    ir::{ContextExt, dialect::plane::*, types::scalar::BoolType},
+    ir::{ContextExt, Scope, dialect::plane::*, types::scalar::BoolType},
+    prelude::*,
 };
 use pliron::{
     builtin::types::{IntegerType, Signedness},
@@ -13,7 +15,7 @@ use crate::{
     cuda::{cuda_op_with_out, ptx::InlinePtxOp},
     ptx_block,
     shared::{CompilationOptions, lowering::LowerOp},
-    target::Cuda,
+    target::{Cuda, Shared},
 };
 
 cuda_op_with_out!(BroadcastOp, |op, ctx| {
@@ -83,4 +85,18 @@ impl LowerOp<Cuda> for ElectOp {
         let cast = cast_value(scope, op.result(ctx).unwrap(), BoolType::get(ctx).into());
         vec![cast]
     }
+}
+
+// Use the same lowering as WGSL. It's technically not correct if lane 0 is inactive, but it's
+// consistent and the same polyfill used by Nvidia's own CUTLASS.
+#[op_interface_impl]
+impl LowerOp<Shared> for ElectOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        vec![elect::expand(scope).read_value(scope)]
+    }
+}
+
+#[cube]
+fn elect() -> bool {
+    UNIT_POS_PLANE == 0
 }
