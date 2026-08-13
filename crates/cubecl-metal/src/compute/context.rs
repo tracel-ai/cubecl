@@ -51,7 +51,7 @@ impl MetalContext {
         compilation_options: cubecl_cpp::shared::CompilationOptions,
     ) -> Self {
         let msl_compile_options = MTLCompileOptions::new();
-        // MSL 3.1 for native `bfloat`.
+        // MSL 3.2 for lambdas.
         msl_compile_options.setLanguageVersion(MTLLanguageVersion::Version3_2);
         // Compile with IEEE-safe math by default; per-op fast math is opted into separately.
         // `mathMode` disables FP reassociation/contraction, `mathFloatingPointFunctions`
