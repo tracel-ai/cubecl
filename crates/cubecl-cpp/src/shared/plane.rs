@@ -103,6 +103,24 @@ pub fn elect() -> bool {
     UNIT_POS_PLANE == 0
 }
 
+/// Fallback lowering for `plane.elect`, for every target without a native election.
+///
+/// CUDA lowers this to PTX `elect.sync`, but only from Hopper on — `should_lower` there is
+/// gated on `supports_features.elect_sync`, which the runtime sets only for `arch >= 90`.
+/// Metal and HIP have no lowering at all. Without a fallback the op survives to the emitter
+/// and fails as an `UnsupportedOp`, so this must stay unconditional: the target-specific
+/// pass runs before this one and already claims the op wherever a native election exists.
+///
+/// Note this elects lane 0 rather than the lowest *active* lane, which is what `elect.sync`
+/// gives you. The two agree whenever the plane is converged, which is the case for every
+/// current caller; they diverge only under non-uniform control flow.
+#[op_interface_impl]
+impl LowerOp for plane::ElectOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        vec![elect::expand(scope).read_value(scope)]
+    }
+}
+
 define_scalar!(T);
 define_size!(S);
 
