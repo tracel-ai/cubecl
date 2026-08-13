@@ -104,12 +104,14 @@ wgpu = { workspace = true, features = ["fragile-send-sync-non-atomic-wasm"] }
 ## On macOS, the `vulkan-portability` feature is required due to the MoltenVK translation layer.
 # To install MoltenVK, install the VulkanSDK: https://vulkan.lunarg.com/sdk/home#mac
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-foundation = { version = "0.3", optional = true }
-objc2-metal = { version = "0.3", features = ["MTLLibrary"], optional = true }
 wgpu = { workspace = true, features = [
     "vulkan-portability",
     "fragile-send-sync-non-atomic-wasm",
 ] }
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2-foundation = { version = "0.3", optional = true }
+objc2-metal = { version = "0.3", features = ["MTLLibrary"], optional = true }
 
 
 ## Uncomment if targeting metal through msl feature
