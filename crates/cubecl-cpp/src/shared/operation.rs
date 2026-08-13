@@ -23,7 +23,7 @@ use pliron::{
 
 use crate::{
     error::{CompileError, Result},
-    shared::{CppValue, format_const, lowering::LowerOp, ty::TypeExtCPP},
+    shared::{CppValue, format_const, lowering::LowerOp, ty::TypeExtCPP, unroll::unrolling},
     target::{Shared, dispatch_target},
 };
 
@@ -197,8 +197,9 @@ shared_op_with_out!(FmaOp, |op, ctx| {
     let a = op.a(ctx).name(ctx);
     let b = op.b(ctx).name(ctx);
     let c = op.c(ctx).name(ctx);
-    format!("fma({a}, {b}, {c});")
+    format!("fma({a}, {b}, {c})")
 });
+unrolling!(FmaOp);
 
 shared_op!(CommentOp, |op, ctx| {
     let content = String::from(op.comment(ctx).clone());

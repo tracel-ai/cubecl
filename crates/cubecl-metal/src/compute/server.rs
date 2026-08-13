@@ -102,7 +102,7 @@ fn resolve_origin_resource(
     }
 
     let offset = storage_handle.offset();
-    let resource = stream.memory_management.storage().get(&storage_handle);
+    let resource = stream.memory_management.storage().get(&storage_handle)?;
 
     Ok((resource, offset))
 }
