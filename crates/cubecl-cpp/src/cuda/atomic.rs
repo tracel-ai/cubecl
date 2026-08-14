@@ -14,10 +14,11 @@ use pliron::{
 
 use crate::{
     cuda::{
+        packed_ops::packable,
         ptx::InlinePtxOp,
         ty::{BFloat16x2Type, Float16x2Type},
     },
-    shared::{lowering::LowerOp, ty::TypedExtCPP},
+    shared::{lowering::LowerOpAfterUnroll, ty::TypedExtCPP},
     target::Cuda,
 };
 
@@ -97,7 +98,7 @@ fn as_registers(scope: &Scope, val: Value) -> Value {
 macro_rules! atomic_binop {
     ($ty: ty, $op: literal, $atom_ty: ident) => {
         #[op_interface_impl]
-        impl LowerOp<Cuda> for $ty {
+        impl LowerOpAfterUnroll<Cuda> for $ty {
             fn lower(&self, scope: &Scope) -> Vec<Value> {
                 let ctx = scope.ctx_mut();
                 let ptr = self.ptr(ctx);
@@ -122,6 +123,10 @@ macro_rules! atomic_binop {
         }
     };
 }
+
+packable!(AtomicFAddOp);
+packable!(AtomicFMinOp);
+packable!(AtomicFMaxOp);
 
 atomic_binop!(AtomicIAddOp, "add", atom_ty);
 atomic_binop!(AtomicFAddOp, "add", atom_ty);

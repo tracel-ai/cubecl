@@ -7,7 +7,11 @@ use pliron::{
     value::Value,
 };
 
-use crate::{hip::hip_op_with_out, shared::lowering::LowerOp, target::Hip};
+use crate::{
+    hip::hip_op_with_out,
+    shared::{elect, lowering::LowerOp},
+    target::Hip,
+};
 
 hip_op_with_out!(BroadcastOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
@@ -83,5 +87,12 @@ impl LowerOp<Hip> for BallotOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let value = self.input(scope.ctx()).into();
         vec![ballot::expand(scope, value).read_value(scope)]
+    }
+}
+
+#[op_interface_impl]
+impl LowerOp<Hip> for ElectOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        vec![elect::expand::<u64>(scope).read_value(scope)]
     }
 }

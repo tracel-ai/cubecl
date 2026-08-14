@@ -593,13 +593,12 @@ pub fn test_plane_elect<
     F: Float + num_traits::Float + CubeElement + Display,
 >(
     client: ComputeClient<TestRuntime>,
-    vectorization: VectorSize,
 ) {
     let plane_size = 32;
-    let input = vec![0.0; plane_size as usize * vectorization];
+    let input = vec![0.0; plane_size as usize];
 
     let mut expected = input.clone();
-    expected[20] = vectorization as f32;
+    expected[20] = 1.0;
 
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
@@ -609,7 +608,7 @@ pub fn test_plane_elect<
         &expected,
         client.clone(),
         |cube_count, handle| {
-            kernel_any::launch::<F, TestRuntime>(
+            kernel_elect::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
                 CubeDim::new_1d(plane_size),
@@ -1022,27 +1021,15 @@ macro_rules! testgen_plane {
             );
         }
 
-        fn impl_test_plane_elect(vectorization: VectorSize) {
+        fn impl_test_plane_elect() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::plane::test_plane_elect::<TestRuntime, FloatType>(
                 client.clone(),
-                vectorization,
             );
         }
-        #[ignore]
         #[$crate::runtime_tests::test_log::test]
         fn test_plane_elect_vec1() {
-            impl_test_plane_elect(1);
-        }
-        #[ignore]
-        #[$crate::runtime_tests::test_log::test]
-        fn test_plane_elect_vec2() {
-            impl_test_plane_elect(2);
-        }
-        #[ignore]
-        #[$crate::runtime_tests::test_log::test]
-        fn test_plane_elect_vec4() {
-            impl_test_plane_elect(4);
+            impl_test_plane_elect();
         }
 
         fn impl_test_plane_broadcast(vectorization: VectorSize) {
