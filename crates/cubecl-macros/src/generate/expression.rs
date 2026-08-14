@@ -504,6 +504,7 @@ impl Expression {
                                     GenericArgument::Type(syn::Type::Path(syn::TypePath {
                                         qself: ty.qself.clone(),
                                         path: syn::Path::from(segment.clone()),
+                                        attrs: Default::default(),
                                     }))
                                 } else {
                                     p.clone()
