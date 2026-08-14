@@ -28,8 +28,8 @@ use half::{bf16, f16};
 pub enum KnownScale {
     /// Nothing known up front: each read looks its whole scale up at its position.
     None,
-    /// The product of every outer level's scale, each covering the whole tensor; each read still
-    /// looks its innermost scale up and multiplies this in.
+    /// The per-tensor scale of a two-level scheme; each read still looks its block scale up and
+    /// multiplies this in.
     Outer(f32),
     /// The whole scale, whatever the caller multiplied into it. The scales view is never read:
     /// its address arithmetic and its load leave the kernel.
@@ -69,8 +69,8 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
 {
     /// A view reading every scale per position through `scales`.
     ///
-    /// Takes a one-level scheme: an outer level's scale never rides a signature here, it is
-    /// either bound at launch or already multiplied in by a caller using
+    /// Takes a one-level scheme: the per-tensor scale of a two-level one never rides a signature
+    /// here, it is either bound at launch or already multiplied in by a caller using
     /// [`new_with_whole_scale`](Self::new_with_whole_scale).
     pub fn new(
         values: View<'a, Vector<Q, NQ>, C>,
@@ -87,10 +87,10 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         }
     }
 
-    /// [`new`](Self::new) with every outer level's scale already multiplied into `outer_scale`:
-    /// each read still looks the innermost level's scale up through `scales`, then multiplies the
-    /// register in. Takes a scheme whose outer levels the register stands for; a one-level scheme
-    /// has no outer levels and reads through [`new`](Self::new).
+    /// [`new`](Self::new) with the per-tensor scale already read into `outer_scale`: each read
+    /// still looks its block scale up through `scales`, then multiplies the register in. Takes a
+    /// two-level scheme, whose per-tensor level the register stands for; a one-level scheme reads
+    /// through [`new`](Self::new).
     pub fn new_with_outer_scale(
         values: View<'a, Vector<Q, NQ>, C>,
         scales: View<'a, S, C>,
@@ -174,7 +174,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             KnownScaleExpand::None => {
                 assert!(
                     self.scheme.num_levels() == 1,
-                    "every scale is read from the scales view, but {:?} has outer levels nothing multiplies in",
+                    "every scale is read from the scales view, but {:?} has a per-tensor scale nothing multiplies in",
                     self.scheme,
                 );
                 let scale = read_scale(scope);
@@ -183,7 +183,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             KnownScaleExpand::Outer(outer_scale) => {
                 assert!(
                     self.scheme.num_levels() > 1,
-                    "an outer scale rides in a register, but {:?} has no outer level it could hold",
+                    "an outer scale rides in a register, but {:?} has no per-tensor level over its blocks it could hold",
                     self.scheme,
                 );
                 check_outer_levels(&self.scheme);
@@ -323,8 +323,8 @@ fn quant_vector_size_q(vector_size: usize, num_quants: usize) -> usize {
     vector_size / num_quants
 }
 
-/// Register the outer level's per-tensor scale binding. Registered as f32 to match the element
-/// type [`expand_known_scale`] reads it back with.
+/// Register the per-tensor scale binding. Registered as f32 to match the element type
+/// [`expand_known_scale`] reads it back with.
 fn register_outer_scale<R: Runtime>(
     outer_scale: Option<BufferArg<R>>,
     launcher: &mut KernelLauncher<R>,
@@ -336,8 +336,8 @@ fn register_outer_scale<R: Runtime>(
 ///
 /// An outer scale is read once for the whole kernel: it is a single value for the entire tensor,
 /// and a read per element would be a global load the optimizer cannot hoist back out of a loop.
-/// Reading it as f32 is what keeps the levels multiplying in f32 later, since a block scale alone
-/// can overflow a narrow `F`.
+/// Reading it as f32 is what keeps the two scales multiplying in f32 later, since a block scale
+/// alone can overflow a narrow `F`.
 fn expand_known_scale(
     outer_scale: Option<&BufferCompilationArg>,
     builder: &mut KernelBuilder,
@@ -542,8 +542,8 @@ mod tests {
         assert!(run_with_quant_type(Dispatched, QuantScheme::default()));
     }
 
-    /// The per-tensor scale is read through a binding of its own, so an outer level does not
-    /// change how the value and block scale types dispatch.
+    /// The per-tensor scale is read through a binding of its own, so it does not change how the
+    /// value and block scale types dispatch.
     #[test]
     fn two_level_scheme_dispatches() {
         let scheme = QuantScheme::default()

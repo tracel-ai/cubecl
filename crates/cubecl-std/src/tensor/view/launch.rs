@@ -432,11 +432,11 @@ mod dynamic {
         },
     }
 
-    /// The scale bindings of a quantized view, one per scheme level, innermost first.
+    /// The scale bindings of a quantized view, one per scheme level.
     ///
-    /// Only the innermost level's scales are addressed per position, so it binds as a view; an
-    /// outer level covers the whole tensor and binds as a buffer holding its one scale in the
-    /// first element, read once per kernel as f32.
+    /// Only the block scales are addressed per position, so they bind as a view; the per-tensor
+    /// scale of a two-level scheme covers the whole tensor and binds as a buffer holding its one
+    /// scale in the first element, read once per kernel as f32.
     pub struct ScaleBindings<C: Coordinates, R: Runtime> {
         pub(crate) inner: Box<ViewArg<C, R>>,
         pub(crate) outer_scale: Option<BufferArg<R>>,
@@ -461,7 +461,7 @@ mod dynamic {
         }
 
         /// The number of bound levels, matched against the scheme's at construction: the inner
-        /// binding plus every outer one.
+        /// binding plus the outer scale when bound.
         #[allow(clippy::len_without_is_empty, reason = "never empty by construction")]
         pub fn len(&self) -> usize {
             1 + self.outer_scale.iter().count()

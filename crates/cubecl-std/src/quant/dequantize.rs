@@ -8,8 +8,8 @@ use cubecl_core as cubecl;
 ///
 /// `scale` is the effective scale for these values: how many scale levels the scheme has and how
 /// they combine is the caller's business, folded before the call. This is what keeps the
-/// primitive per-read arithmetic, serving equally a one-level read, a view folding an outer level
-/// per position, or a tile handing every read one register.
+/// primitive per-read arithmetic, serving equally a one-level read, a view multiplying the
+/// per-tensor scale in per read, or a tile handing every read one register.
 #[cube]
 pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
     value: Vector<Q, NQ>,
@@ -26,11 +26,11 @@ pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF:
     }
 }
 
-/// The effective scale of values whose outer levels multiply on top of their own.
+/// The effective scale of values whose per-tensor scale multiplies on top of their block scale.
 ///
-/// The levels multiply in f32: an inner scale is normalized against the outer ones, so on its own
-/// it overflows a narrow compute type by orders of magnitude before the outer scales can bring
-/// the product back into range.
+/// The two multiply in f32: a block scale is normalized against the per-tensor one, so on its own
+/// it overflows a narrow compute type by orders of magnitude before the outer scale can bring the
+/// product back into range.
 #[cube]
 pub fn multiply_outer_scale<S: CubePrimitive>(outer_scale: f32, scale: S) -> f32 {
     outer_scale * f32::cast_from(scale)
