@@ -1,4 +1,4 @@
-use cubecl_common::quant::scheme::{QuantParam, QuantScheme};
+use cubecl_common::quant::scheme::{QuantParam, QuantScheme, ScaleGranularity};
 use cubecl_core::prelude::Scalar;
 
 /// Run an arbitrary function with the quantization types from the scheme.
@@ -34,9 +34,9 @@ pub fn check_scale_bindings(scheme: &QuantScheme, bindings: usize) {
 pub fn check_outer_levels(scheme: &QuantScheme) {
     for outer in &scheme.levels()[1..] {
         assert!(
-            outer.block.is_full(),
+            outer.granularity == ScaleGranularity::Tensor,
             "the quantized view only serves outer levels covering the whole tensor, not {:?}",
-            outer.block,
+            outer.granularity,
         );
         assert!(
             outer.param == QuantParam::F32,
