@@ -5,7 +5,6 @@ use cubecl_core::{
 };
 use pliron::{
     builtin::types::{IntegerType, Signedness},
-    context::Context,
     derive::op_interface_impl,
     value::Value,
 };
@@ -64,11 +63,6 @@ cuda_op_with_out!(BallotOp, |op, ctx| {
 
 #[op_interface_impl]
 impl LowerOp<Cuda> for ElectOp {
-    fn should_lower(&self, ctx: &Context) -> bool {
-        let opts = ctx.aux_ty::<CompilationOptions>();
-        opts.supports_features.elect_sync
-    }
-
     fn lower(&self, scope: &cubecl_core::ir::Scope) -> Vec<Value> {
         let ctx = scope.ctx_mut();
         let opts = ctx.aux_ty::<CompilationOptions>();
