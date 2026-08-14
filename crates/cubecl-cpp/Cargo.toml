@@ -31,7 +31,6 @@ std = [
     "cubecl-common/std",
     "cubecl-core/std",
     "cubecl-opt/std",
-    "pliron/std",
 ]
 
 tracing = [
@@ -62,3 +61,6 @@ paste = { workspace = true }
 pliron = { workspace = true }
 sanitize-filename = { workspace = true }
 thiserror = { workspace = true }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+pliron = { workspace = true, features = ["std"] }
