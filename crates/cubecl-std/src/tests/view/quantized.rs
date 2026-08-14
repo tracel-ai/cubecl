@@ -232,8 +232,9 @@ pub fn test_quantized_outer_scale<R: Runtime, F: Float + CubeElement>(client: Co
     let vector_size_float = 8;
     let block = 8;
 
-    let scheme = QuantScheme::per_block([block as u8], ScaleDtype::F32)
-        .and_per_tensor(ScaleDtype::F32)
+    let scheme = QuantScheme::default()
+        .per_block([block as u8], ScaleDtype::F32)
+        .per_tensor(ScaleDtype::F32)
         .with_value(QuantValue::Q4F);
 
     let global_scale = 2f32.powi(-20);
@@ -336,8 +337,9 @@ pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: 
     let vector_size_float = 8;
     let block = 8;
 
-    let scheme = QuantScheme::per_block([block as u8], ScaleDtype::F32)
-        .and_per_tensor(ScaleDtype::F32)
+    let scheme = QuantScheme::default()
+        .per_block([block as u8], ScaleDtype::F32)
+        .per_tensor(ScaleDtype::F32)
         .with_value(QuantValue::Q4F);
 
     // A power of two, so the reconstruction owes exactly the values the expectation computes.
@@ -450,9 +452,9 @@ macro_rules! testgen_quantized_view {
             use cubecl_common::quant::scheme::{QuantScheme, QuantValue, ScaleDtype};
             let client = TestRuntime::client(&Default::default());
             for scheme in [
-                QuantScheme::per_tensor(ScaleDtype::F32),
-                QuantScheme::per_block([8], ScaleDtype::F32),
-                QuantScheme::per_block([8], ScaleDtype::F32).and_per_tensor(ScaleDtype::F32),
+                QuantScheme::default().per_tensor(ScaleDtype::F32),
+                QuantScheme::default().per_block([8], ScaleDtype::F32),
+                QuantScheme::default().per_block([8], ScaleDtype::F32).per_tensor(ScaleDtype::F32),
             ] {
                 cubecl_std::tests::view::quantized::test_quantized_whole_scale::<TestRuntime, $ty>(
                     client.clone(),

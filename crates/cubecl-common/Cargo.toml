@@ -46,7 +46,6 @@ derive_more = { workspace = true, features = [
     "add_assign",
     "mul_assign",
     "display",
-    "error",
     "deref",
     "deref_mut",
 ] }

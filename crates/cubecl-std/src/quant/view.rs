@@ -173,7 +173,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         match self.known_scale {
             KnownScaleExpand::None => {
                 assert!(
-                    self.scheme.levels().len() == 1,
+                    self.scheme.num_levels() == 1,
                     "every scale is read from the scales view, but {:?} has outer levels nothing multiplies in",
                     self.scheme,
                 );
@@ -182,7 +182,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             }
             KnownScaleExpand::Outer(outer_scale) => {
                 assert!(
-                    self.scheme.levels().len() > 1,
+                    self.scheme.num_levels() > 1,
                     "an outer scale rides in a register, but {:?} has no outer level it could hold",
                     self.scheme,
                 );
@@ -546,7 +546,9 @@ mod tests {
     /// change how the value and block scale types dispatch.
     #[test]
     fn two_level_scheme_dispatches() {
-        let scheme = QuantScheme::per_block([32], ScaleDtype::F32).and_per_tensor(ScaleDtype::F32);
+        let scheme = QuantScheme::default()
+            .per_block([32], ScaleDtype::F32)
+            .per_tensor(ScaleDtype::F32);
         assert!(run_with_quant_type(Dispatched, scheme));
     }
 
