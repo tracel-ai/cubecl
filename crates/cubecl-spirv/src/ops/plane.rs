@@ -1,8 +1,8 @@
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{dialect::plane, interfaces::TypedExt, prelude::*, types::scalar::BoolType};
 use pliron::builtin::ops::ConstantOp;
-use pliron_spirv::ops::{self};
-use rspirv::spirv::{GroupOperation, MemoryAccess, Scope};
+use pliron_spirv::ops::{self, ControlBarrierOp};
+use rspirv::spirv::{GroupOperation, MemoryAccess, MemorySemantics, Scope};
 
 use crate::{
     lower::LowerOp,
@@ -162,6 +162,16 @@ impl ToSpirvDialectOp for plane::UniformLoadOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        // `workgroup_uniform_load` is a barrier plus a load: WGSL's
+        // `workgroupUniformLoad` synchronises, and callers rely on that to
+        // publish a value written by one unit before the rest read it.
+        let sync = ControlBarrierOp::new(
+            ctx,
+            Scope::Workgroup,
+            Scope::Workgroup,
+            MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::WORKGROUP_MEMORY,
+        );
+        rewriter.append_op(ctx, &sync);
         let ptr = self.ptr(ctx);
         let align = self.result_type(ctx).align(ctx) as u32;
         let out_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
@@ -181,6 +191,16 @@ impl ToSpirvDialectOp for plane::AtomicUniformLoadOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        // `workgroup_uniform_load` is a barrier plus a load: WGSL's
+        // `workgroupUniformLoad` synchronises, and callers rely on that to
+        // publish a value written by one unit before the rest read it.
+        let sync = ControlBarrierOp::new(
+            ctx,
+            Scope::Workgroup,
+            Scope::Workgroup,
+            MemorySemantics::ACQUIRE_RELEASE | MemorySemantics::WORKGROUP_MEMORY,
+        );
+        rewriter.append_op(ctx, &sync);
         let ptr = self.ptr(ctx);
         let semantics = semantics_r(ctx, ptr);
         let out_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
