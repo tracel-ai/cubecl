@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_common::{
     e2m1, e2m1x2,
-    quant::scheme::{QuantParam, QuantScheme, QuantValue, ScaleLevels},
+    quant::scheme::{QuantScheme, QuantValue, ScaleDtype},
 };
 use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::{self as cubecl};
@@ -232,11 +232,9 @@ pub fn test_quantized_outer_scale<R: Runtime, F: Float + CubeElement>(client: Co
     let vector_size_float = 8;
     let block = 8;
 
-    let scheme = QuantScheme::default()
-        .with_value(QuantValue::Q4F)
-        .with_scales(
-            ScaleLevels::block([block as u8], QuantParam::F32).and_tensor(QuantParam::F32),
-        );
+    let scheme = QuantScheme::per_block([block as u8], ScaleDtype::F32)
+        .and_per_tensor(ScaleDtype::F32)
+        .with_value(QuantValue::Q4F);
 
     let global_scale = 2f32.powi(-20);
     let block_scales = [2f32.powi(18), 2f32.powi(19)];
@@ -338,11 +336,9 @@ pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: 
     let vector_size_float = 8;
     let block = 8;
 
-    let scheme = QuantScheme::default()
-        .with_value(QuantValue::Q4F)
-        .with_scales(
-            ScaleLevels::block([block as u8], QuantParam::F32).and_tensor(QuantParam::F32),
-        );
+    let scheme = QuantScheme::per_block([block as u8], ScaleDtype::F32)
+        .and_per_tensor(ScaleDtype::F32)
+        .with_value(QuantValue::Q4F);
 
     // A power of two, so the reconstruction owes exactly the values the expectation computes.
     let global_scale = 2f32.powi(-20);
@@ -451,18 +447,16 @@ macro_rules! testgen_quantized_view {
         /// into it: the scheme no longer says how many scales a read needs.
         #[$crate::tests::test_log::test]
         fn test_quantized_view_whole_scale() {
-            use cubecl_common::quant::scheme::{QuantParam, QuantValue, ScaleLevels};
+            use cubecl_common::quant::scheme::{QuantScheme, QuantValue, ScaleDtype};
             let client = TestRuntime::client(&Default::default());
-            let base = cubecl_common::quant::scheme::QuantScheme::default()
-                .with_value(QuantValue::Q4F);
-            for levels in [
-                ScaleLevels::tensor(QuantParam::F32),
-                ScaleLevels::block([8], QuantParam::F32),
-                ScaleLevels::block([8], QuantParam::F32).and_tensor(QuantParam::F32),
+            for scheme in [
+                QuantScheme::per_tensor(ScaleDtype::F32),
+                QuantScheme::per_block([8], ScaleDtype::F32),
+                QuantScheme::per_block([8], ScaleDtype::F32).and_per_tensor(ScaleDtype::F32),
             ] {
                 cubecl_std::tests::view::quantized::test_quantized_whole_scale::<TestRuntime, $ty>(
                     client.clone(),
-                    base.with_scales(levels),
+                    scheme.with_value(QuantValue::Q4F),
                 );
             }
         }

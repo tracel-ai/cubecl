@@ -146,9 +146,8 @@ mod tests {
 
         for scheme in [
             QuantScheme::default(),
-            QuantScheme::default().with_scales(ScaleLevels::block([32], QuantParam::F32)),
-            QuantScheme::default()
-                .with_scales(ScaleLevels::block([32], QuantParam::F32).and_tensor(QuantParam::F32)),
+            QuantScheme::per_block([32], ScaleDtype::F32),
+            QuantScheme::per_block([32], ScaleDtype::F32).and_per_tensor(ScaleDtype::F32),
         ] {
             dequantize_aligned::expand::<f32, f32, f32, N1, N1>(&scope, value, one, scheme);
         }

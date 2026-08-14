@@ -1,4 +1,4 @@
-use cubecl_common::quant::scheme::{QuantParam, QuantScheme, ScaleGranularity};
+use cubecl_common::quant::scheme::{QuantScheme, ScaleDtype, ScaleGranularity};
 use cubecl_core::prelude::Scalar;
 
 /// Run an arbitrary function with the quantization types from the scheme.
@@ -39,9 +39,9 @@ pub fn check_outer_levels(scheme: &QuantScheme) {
             outer.granularity,
         );
         assert!(
-            outer.param == QuantParam::F32,
+            outer.dtype == ScaleDtype::F32,
             "an outer scale binds as f32, but the scheme stores it as {:?}",
-            outer.param,
+            outer.dtype,
         );
     }
 }
@@ -49,32 +49,28 @@ pub fn check_outer_levels(scheme: &QuantScheme) {
 #[cfg(test)]
 mod tests {
     use super::check_scale_bindings;
-    use cubecl_common::quant::scheme::{QuantParam, QuantScheme, ScaleLevels};
-
-    fn scheme(levels: ScaleLevels) -> QuantScheme {
-        QuantScheme::default().with_scales(levels)
-    }
+    use cubecl_common::quant::scheme::{QuantScheme, ScaleDtype};
 
     #[test]
     fn a_one_level_scheme_takes_one_binding() {
-        check_scale_bindings(&scheme(ScaleLevels::tensor(QuantParam::F32)), 1);
-        check_scale_bindings(&scheme(ScaleLevels::block([32], QuantParam::F32)), 1);
+        check_scale_bindings(&QuantScheme::per_tensor(ScaleDtype::F32), 1);
+        check_scale_bindings(&QuantScheme::per_block([32], ScaleDtype::F32), 1);
     }
 
     #[test]
     fn a_two_level_scheme_takes_two_bindings() {
         check_scale_bindings(
-            &scheme(ScaleLevels::block([32], QuantParam::F32).and_tensor(QuantParam::F32)),
+            &QuantScheme::per_block([32], ScaleDtype::F32).and_per_tensor(ScaleDtype::F32),
             2,
         );
     }
 
-    /// The binding is f32, so a level naming another param would have its scale read as f32 bytes.
+    /// The binding is f32, so a level naming another dtype would have its scale read as f32 bytes.
     #[test]
     #[should_panic(expected = "binds as f32, but")]
     fn a_two_level_scheme_storing_the_tensor_scale_narrower_is_rejected() {
         check_scale_bindings(
-            &scheme(ScaleLevels::block([32], QuantParam::F32).and_tensor(QuantParam::BF16)),
+            &QuantScheme::per_block([32], ScaleDtype::F32).and_per_tensor(ScaleDtype::BF16),
             2,
         );
     }
@@ -84,7 +80,7 @@ mod tests {
     fn a_two_level_scheme_with_one_binding_is_rejected() {
         // Would otherwise dequantize against the block scales alone, dropping the per-tensor factor.
         check_scale_bindings(
-            &scheme(ScaleLevels::block([32], QuantParam::F32).and_tensor(QuantParam::F32)),
+            &QuantScheme::per_block([32], ScaleDtype::F32).and_per_tensor(ScaleDtype::F32),
             1,
         );
     }
@@ -92,6 +88,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "takes as many scale bindings, but 2 were provided")]
     fn a_one_level_scheme_with_two_bindings_is_rejected() {
-        check_scale_bindings(&scheme(ScaleLevels::tensor(QuantParam::F32)), 2);
+        check_scale_bindings(&QuantScheme::per_tensor(ScaleDtype::F32), 2);
     }
 }

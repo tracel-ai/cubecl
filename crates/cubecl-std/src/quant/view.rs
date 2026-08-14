@@ -9,7 +9,7 @@ use crate::tensor::{
 use cubecl::prelude::*;
 use cubecl_common::{
     e2m1x2, e4m3, e5m2,
-    quant::scheme::{QuantParam, QuantScheme, QuantStore, QuantValue},
+    quant::scheme::{QuantScheme, QuantStore, QuantValue, ScaleDtype},
     ue8m0,
 };
 use cubecl_core::{
@@ -424,12 +424,12 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
 /// required but aren't available, and only the dynamic schema is known.
 pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) -> F::Output {
     fn run_with_q<F: RunWithQuantType, Q: Scalar>(func: F, scheme: QuantScheme) -> F::Output {
-        match scheme.param() {
-            QuantParam::F32 => func.execute::<Q, f32>(),
-            QuantParam::F16 => func.execute::<Q, f16>(),
-            QuantParam::BF16 => func.execute::<Q, bf16>(),
-            QuantParam::UE8M0 => func.execute::<Q, ue8m0>(),
-            QuantParam::UE4M3 => func.execute::<Q, e4m3>(),
+        match scheme.scale_dtype() {
+            ScaleDtype::F32 => func.execute::<Q, f32>(),
+            ScaleDtype::F16 => func.execute::<Q, f16>(),
+            ScaleDtype::BF16 => func.execute::<Q, bf16>(),
+            ScaleDtype::UE8M0 => func.execute::<Q, ue8m0>(),
+            ScaleDtype::UE4M3 => func.execute::<Q, e4m3>(),
         }
     }
 
@@ -524,7 +524,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
 #[cfg(test)]
 mod tests {
     use super::{RunWithQuantType, quant_vector_size_q, run_with_quant_type};
-    use cubecl_common::quant::scheme::{QuantParam, QuantScheme, ScaleLevels};
+    use cubecl_common::quant::scheme::{QuantScheme, ScaleDtype};
     use cubecl_core::prelude::Scalar;
 
     struct Dispatched;
@@ -546,8 +546,7 @@ mod tests {
     /// change how the value and block scale types dispatch.
     #[test]
     fn two_level_scheme_dispatches() {
-        let scheme = QuantScheme::default()
-            .with_scales(ScaleLevels::block([32], QuantParam::F32).and_tensor(QuantParam::F32));
+        let scheme = QuantScheme::per_block([32], ScaleDtype::F32).and_per_tensor(ScaleDtype::F32);
         assert!(run_with_quant_type(Dispatched, scheme));
     }
 

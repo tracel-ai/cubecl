@@ -1,13 +1,11 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::{default::Default, ops::Deref};
+use derive_more::{Display, Error};
 use serde::{Deserialize, Serialize};
 
 /// Describes a quantization scheme/configuration.
-///
-/// Field order is part of the wire contract: some transports serialize structs positionally, so
-/// fields must never be reordered or inserted, only appended.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct QuantScheme {
     /// The logical data type of quantized input values (e.g., `QInt8`).
     ///
@@ -18,8 +16,10 @@ pub struct QuantScheme {
     /// Quantization mode (e.g., symmetric).
     pub mode: QuantMode,
     /// The scale levels, innermost first. Private so that ordering and nesting hold by
-    /// construction: go through [`ScaleLevels`] to build them.
-    levels: ScaleLevels,
+    /// construction: build them through the `per_*` constructors and
+    /// [`and_per_tensor`](Self::and_per_tensor), or [`with_scales`](Self::with_scales) for a
+    /// dynamic list.
+    levels: ScaleSequence,
 }
 
 impl Default for QuantScheme {
@@ -28,7 +28,7 @@ impl Default for QuantScheme {
             value: QuantValue::Q8F,
             store: QuantStore::PackedU32(0),
             mode: QuantMode::Symmetric,
-            levels: ScaleLevels::tensor(QuantParam::F32),
+            levels: ScaleSequence::tensor(ScaleDtype::F32),
         }
     }
 }
@@ -52,8 +52,62 @@ impl QuantScheme {
         self
     }
 
-    /// Set the scale levels.
-    pub fn with_scales(mut self, levels: ScaleLevels) -> Self {
+    /// A scheme with one scale for the whole tensor, stored as `dtype`. Every other field is
+    /// [`Default`]'s, adjusted through the `with_*` setters.
+    pub fn per_tensor(dtype: ScaleDtype) -> Self {
+        Self {
+            levels: ScaleSequence::tensor(dtype),
+            ..Self::default()
+        }
+    }
+
+    /// A scheme with one scale per block of `block` values, stored as `dtype`. Every other field
+    /// is [`Default`]'s, adjusted through the `with_*` setters.
+    ///
+    /// ```
+    /// # use cubecl_common::quant::scheme::{BlockSize, ScaleDtype, QuantScheme, ScaleGranularity};
+    /// let scheme = QuantScheme::per_block([32], ScaleDtype::F16);
+    ///
+    /// let [level] = scheme.levels() else { unreachable!() };
+    /// assert_eq!(level.granularity, ScaleGranularity::Block(BlockSize::new([32])));
+    /// assert_eq!(level.dtype, ScaleDtype::F16);
+    /// assert_eq!(level.grid(&[8, 64]), vec![8, 2]); // one scale per block of a [8, 64] tensor
+    /// ```
+    pub fn per_block(block: impl AsRef<[u8]>, dtype: ScaleDtype) -> Self {
+        Self {
+            levels: ScaleSequence::block(block, dtype),
+            ..Self::default()
+        }
+    }
+
+    /// Add a per-tensor scale level on top of the existing levels. After
+    /// [`per_block`](Self::per_block), this is the outer level the block scales are normalized
+    /// against:
+    ///
+    /// ```
+    /// # use cubecl_common::quant::scheme::{ScaleDtype, QuantScheme, ScaleGranularity};
+    /// let scheme = QuantScheme::per_block([16], ScaleDtype::UE4M3).and_per_tensor(ScaleDtype::F32);
+    ///
+    /// let [blocks, tensor] = scheme.levels() else { unreachable!() };
+    /// assert_eq!(blocks.dtype, ScaleDtype::UE4M3);
+    /// assert_eq!(tensor.granularity, ScaleGranularity::Tensor);
+    /// assert_eq!(tensor.grid(&[8, 64]), vec![1, 1]); // one scale for the whole tensor
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// When the sequence already carries a per-tensor level, [`Default`]'s included.
+    pub fn and_per_tensor(mut self, dtype: ScaleDtype) -> Self {
+        self.levels = self.levels.and(ScaleLevel {
+            granularity: ScaleGranularity::Tensor,
+            dtype,
+        });
+        self
+    }
+
+    /// Set the scale levels. For a dynamic list built through [`ScaleSequence::try_new`]; literal
+    /// schemes read better through the `per_*` constructors.
+    pub fn with_scales(mut self, levels: ScaleSequence) -> Self {
         self.levels = levels;
         self
     }
@@ -64,13 +118,13 @@ impl QuantScheme {
     }
 
     /// The scale levels as the owned, fixed-capacity value.
-    pub fn scale_levels(&self) -> ScaleLevels {
+    pub fn scale_sequence(&self) -> ScaleSequence {
         self.levels
     }
 
     /// The innermost level's scale precision, the type block scales are stored in.
-    pub fn param(&self) -> QuantParam {
-        self.levels()[0].param
+    pub fn scale_dtype(&self) -> ScaleDtype {
+        self.levels()[0].dtype
     }
 
     /// The innermost level's scale granularity.
@@ -205,13 +259,13 @@ impl ScaleGranularity {
     }
 }
 
-/// One level of scales: values inside each region share one scale, stored as `param`.
+/// One level of scales: values inside each region share one scale, stored as `dtype`.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ScaleLevel {
     /// The region covered by one scale.
     pub granularity: ScaleGranularity,
     /// The precision the level's scales are stored in.
-    pub param: QuantParam,
+    pub dtype: ScaleDtype,
 }
 
 impl ScaleLevel {
@@ -224,119 +278,60 @@ impl ScaleLevel {
 /// The scale levels of a [`QuantScheme`], innermost first: each level's scales are normalized
 /// against the next level's, and reconstruction multiplies them back together.
 ///
-/// Nesting and ordering hold by construction. Order is never specified by the caller: it derives
-/// from containment, since a level whose regions do not contain the inner level's regions is
-/// invalid no matter how it is written.
-///
-/// # Examples
-///
-/// One f16 scale per block of 32 values, a single level:
-///
-/// ```
-/// # use cubecl_common::quant::scheme::{BlockSize, QuantParam, ScaleGranularity, ScaleLevels};
-/// let levels = ScaleLevels::block([32], QuantParam::F16);
-/// // storage: [{ granularity: Block([32]), param: F16 }, { granularity: Tensor, param: F32 }]
-/// // len: 1                                                   ^ unused slot, canonical filler
-///
-/// let [level] = levels.levels() else { unreachable!() };
-/// assert_eq!(level.granularity, ScaleGranularity::Block(BlockSize::new([32])));
-/// assert_eq!(level.param, QuantParam::F16);
-/// assert_eq!(level.grid(&[8, 64]), vec![8, 2]); // one scale per block of a [8, 64] tensor
-/// ```
-///
-/// NVFP4-style two levels: ue4m3 block scales normalized against one per-tensor f32 scale. The
-/// list stores innermost first however it was built:
-///
-/// ```
-/// # use cubecl_common::quant::scheme::{QuantParam, ScaleGranularity, ScaleLevels};
-/// let levels = ScaleLevels::block([16], QuantParam::UE4M3).and_tensor(QuantParam::F32);
-/// // storage: [{ granularity: Block([16]), param: UE4M3 }, { granularity: Tensor, param: F32 }]
-/// // len: 2                                                     ^ both slots in use
-/// assert_eq!(
-///     levels,
-///     ScaleLevels::tensor(QuantParam::F32).and_block([16], QuantParam::UE4M3),
-/// );
-///
-/// let [blocks, tensor] = levels.levels() else { unreachable!() };
-/// assert_eq!(blocks.param, QuantParam::UE4M3);
-/// assert_eq!(tensor.granularity, ScaleGranularity::Tensor);
-/// assert_eq!(tensor.grid(&[8, 64]), vec![1, 1]); // one scale for the whole tensor
-/// ```
+/// Built through [`QuantScheme`]'s `per_*` constructors, or [`try_new`](Self::try_new) for a
+/// dynamic list. Nesting and ordering hold by construction.
+/// Order is never specified by the caller: it derives from containment, since a level whose
+/// regions do not contain the inner level's regions is invalid no matter how it is written.
 ///
 /// A two-level scheme exists so block scales can live in a narrow type: the outer per-tensor scale
-/// absorbs the tensor's dynamic range, and the block param only covers the spread between blocks.
+/// absorbs the tensor's dynamic range, and the block dtype only covers the spread between blocks.
 /// That spread is still bounded: a block whose scale falls further below the largest one than the
-/// block param can express is stored at that param's smallest value, far too coarse for it, and
-/// every value in the block quantizes to zero. [`QuantParam::UE4M3`] spans about 2^18 this way, so
+/// block dtype can express is stored at that dtype's smallest value, far too coarse for it, and
+/// every value in the block quantizes to zero. [`ScaleDtype::UE4M3`] spans about 2^18 this way, so
 /// a tensor holding a genuine outlier can lose its ordinary values.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub struct ScaleLevels {
-    /// Slots past `len` hold [`ScaleLevels::FILLER`] so derived comparisons stay truthful.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScaleSequence {
+    /// Slots past `len` hold [`ScaleSequence::FILLER`] so derived comparisons stay truthful.
     storage: [ScaleLevel; MAX_LEVELS],
     len: u8,
 }
 
 /// Hand-written: `storage` precedes `len`, so a derived `Ord` would compare filler bytes before
 /// level count.
-impl PartialOrd for ScaleLevels {
+impl PartialOrd for ScaleSequence {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ScaleLevels {
+impl Ord for ScaleSequence {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         (self.len, self.levels()).cmp(&(other.len, other.levels()))
     }
 }
 
-impl ScaleLevels {
+impl ScaleSequence {
     /// One scale for the whole tensor.
-    pub fn tensor(param: QuantParam) -> Self {
+    fn tensor(dtype: ScaleDtype) -> Self {
         Self::one(ScaleLevel {
             granularity: ScaleGranularity::Tensor,
-            param,
+            dtype,
         })
     }
 
     /// One scale per block of `block` values.
-    pub fn block(block: impl AsRef<[u8]>, param: QuantParam) -> Self {
+    fn block(block: impl AsRef<[u8]>, dtype: ScaleDtype) -> Self {
         Self::one(ScaleLevel {
             granularity: ScaleGranularity::Block(BlockSize::new(block)),
-            param,
-        })
-    }
-
-    /// Add a per-tensor scale level.
-    ///
-    /// # Panics
-    ///
-    /// When no valid order exists: a duplicated granularity, blocks that do not nest, or more
-    /// levels than the supported capacity.
-    pub fn and_tensor(self, param: QuantParam) -> Self {
-        self.and(ScaleLevel {
-            granularity: ScaleGranularity::Tensor,
-            param,
-        })
-    }
-
-    /// Add a per-block scale level.
-    ///
-    /// # Panics
-    ///
-    /// When no valid order exists: a duplicated granularity, blocks that do not nest, or more
-    /// levels than the supported capacity.
-    pub fn and_block(self, block: impl AsRef<[u8]>, param: QuantParam) -> Self {
-        self.and(ScaleLevel {
-            granularity: ScaleGranularity::Block(BlockSize::new(block)),
-            param,
+            dtype,
         })
     }
 
     /// Build from levels in any order, sorted innermost-first by block containment. For dynamic
-    /// inputs like checkpoint headers; literal schemes read better through the named constructors.
-    pub fn try_new(levels: &[ScaleLevel]) -> Result<Self, InvalidScaleLevels> {
-        let (&first, rest) = levels.split_first().ok_or(InvalidScaleLevels::Empty)?;
+    /// inputs like checkpoint headers; literal schemes read better through [`QuantScheme`]'s
+    /// builders.
+    pub fn try_new(levels: &[ScaleLevel]) -> Result<Self, InvalidScaleSequence> {
+        let (&first, rest) = levels.split_first().ok_or(InvalidScaleSequence::Empty)?;
         let mut out = Self::one(first);
         for &level in rest {
             out.insert(level)?;
@@ -373,7 +368,7 @@ impl ScaleLevels {
     /// The canonical value of unused storage slots.
     const FILLER: ScaleLevel = ScaleLevel {
         granularity: ScaleGranularity::Tensor,
-        param: QuantParam::F32,
+        dtype: ScaleDtype::F32,
     };
 
     /// The list of exactly one level.
@@ -384,7 +379,7 @@ impl ScaleLevels {
         }
     }
 
-    /// [`insert`](Self::insert) for the chaining constructors, where an invalid level is a
+    /// [`insert`](Self::insert) for the chaining builders, where an invalid level is a
     /// programmer error rather than a condition to handle.
     fn and(mut self, level: ScaleLevel) -> Self {
         self.insert(level)
@@ -393,22 +388,22 @@ impl ScaleLevels {
     }
 
     /// Insert one level at the position containment assigns it.
-    fn insert(&mut self, level: ScaleLevel) -> Result<(), InvalidScaleLevels> {
+    fn insert(&mut self, level: ScaleLevel) -> Result<(), InvalidScaleSequence> {
         let len = self.len as usize;
         if len == MAX_LEVELS {
-            return Err(InvalidScaleLevels::TooMany);
+            return Err(InvalidScaleSequence::TooMany);
         }
         let mut index = len;
         for (i, existing) in self.levels().iter().enumerate() {
             if existing.granularity == level.granularity {
-                return Err(InvalidScaleLevels::Duplicate);
+                return Err(InvalidScaleSequence::Duplicate);
             } else if existing.granularity.contains(&level.granularity) {
                 // Containment is transitive, so everything past the first container contains the
                 // level too and needs no check of its own.
                 index = i;
                 break;
             } else if !level.granularity.contains(&existing.granularity) {
-                return Err(InvalidScaleLevels::NotNested);
+                return Err(InvalidScaleSequence::NotNested);
             }
         }
         let mut storage = self.storage;
@@ -421,7 +416,7 @@ impl ScaleLevels {
             .iter()
             .any(|l| l.granularity != ScaleGranularity::Tensor)
         {
-            return Err(InvalidScaleLevels::OuterNotTensor);
+            return Err(InvalidScaleSequence::OuterNotTensor);
         }
         self.storage = storage;
         self.len = new_len as u8;
@@ -435,219 +430,49 @@ impl ScaleLevels {
     }
 }
 
-/// Why a set of levels cannot form a [`ScaleLevels`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InvalidScaleLevels {
+/// Why a set of levels cannot form a [`ScaleSequence`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Display, Error)]
+pub enum InvalidScaleSequence {
     /// No levels at all: a scheme has at least one.
+    #[display("a scheme has at least one scale level")]
     Empty,
     /// More levels than the supported capacity.
+    #[display("more scale levels than the supported capacity {MAX_LEVELS}")]
     TooMany,
     /// No containment order exists: for every pair, one level's regions must contain the other's.
+    #[display("each scale level's regions must contain the previous level's")]
     NotNested,
     /// Two levels share the same granularity, so one of them is redundant.
+    #[display("two scale levels share the same granularity")]
     Duplicate,
     /// A level other than the innermost does not cover the whole tensor. Only the innermost
     /// level's scales are addressed per position, so every other level must be per-tensor.
+    #[display("every scale level but the innermost must cover the whole tensor")]
     OuterNotTensor,
 }
 
-impl core::fmt::Display for InvalidScaleLevels {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        match self {
-            InvalidScaleLevels::Empty => write!(f, "a scheme has at least one scale level"),
-            InvalidScaleLevels::TooMany => {
-                write!(
-                    f,
-                    "more scale levels than the supported capacity {MAX_LEVELS}"
-                )
-            }
-            InvalidScaleLevels::NotNested => {
-                write!(
-                    f,
-                    "each scale level's regions must contain the previous level's"
-                )
-            }
-            InvalidScaleLevels::Duplicate => {
-                write!(f, "two scale levels share the same granularity")
-            }
-            InvalidScaleLevels::OuterNotTensor => {
-                write!(
-                    f,
-                    "every scale level but the innermost must cover the whole tensor"
-                )
-            }
-        }
-    }
-}
-
-impl core::error::Error for InvalidScaleLevels {}
-
-impl Serialize for ScaleLevels {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_seq(self.levels())
-    }
-}
-
-impl<'de> Deserialize<'de> for ScaleLevels {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let levels = Vec::<ScaleLevel>::deserialize(deserializer)?;
-        Self::try_new(&levels).map_err(serde::de::Error::custom)
-    }
-}
-
-/// The `QuantLevel` enum shape legacy stored schemes carry, kept so those artifacts still load.
-/// Deserialization only. Delete together with the legacy branch of [`QuantScheme`]'s
-/// `Deserialize` once stored schemes have migrated.
-#[derive(Deserialize)]
-enum LegacyQuantLevel {
-    Tensor,
-    Block(BlockSize),
-    BlockTensor {
-        block: BlockSize,
-        global: QuantParam,
-    },
-}
-
-impl LegacyQuantLevel {
-    /// The legacy shape splits the innermost param off into its own scheme field, passed here.
-    fn into_levels(self, param: QuantParam) -> Result<ScaleLevels, InvalidScaleLevels> {
-        match self {
-            LegacyQuantLevel::Tensor => Ok(ScaleLevels::tensor(param)),
-            LegacyQuantLevel::Block(block) => Ok(ScaleLevels::one(ScaleLevel {
-                granularity: ScaleGranularity::Block(block),
-                param,
-            })),
-            LegacyQuantLevel::BlockTensor { block, global } => ScaleLevels::try_new(&[
-                ScaleLevel {
-                    granularity: ScaleGranularity::Block(block),
-                    param,
-                },
-                ScaleLevel {
-                    granularity: ScaleGranularity::Tensor,
-                    param: global,
-                },
-            ]),
-        }
-    }
-}
-
-/// Hand-written to also accept the legacy shape (`value, param, store, level, mode`), which
-/// stored artifacts still carry. Legacy data only exists in name-keyed formats, so that path
-/// lives in `visit_map` alone; positional formats carry in-flight messages between same-version
-/// peers and only need the current shape.
-impl<'de> Deserialize<'de> for QuantScheme {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct SchemeVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for SchemeVisitor {
-            type Value = QuantScheme;
-
-            fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                write!(f, "a quantization scheme")
-            }
-
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                self,
-                mut seq: A,
-            ) -> Result<QuantScheme, A::Error> {
-                use serde::de::Error;
-                Ok(QuantScheme {
-                    value: seq
-                        .next_element()?
-                        .ok_or_else(|| Error::invalid_length(0, &"value"))?,
-                    store: seq
-                        .next_element()?
-                        .ok_or_else(|| Error::invalid_length(1, &"store"))?,
-                    mode: seq
-                        .next_element()?
-                        .ok_or_else(|| Error::invalid_length(2, &"mode"))?,
-                    levels: seq
-                        .next_element()?
-                        .ok_or_else(|| Error::invalid_length(3, &"levels"))?,
-                })
-            }
-
-            fn visit_map<A: serde::de::MapAccess<'de>>(
-                self,
-                mut map: A,
-            ) -> Result<QuantScheme, A::Error> {
-                use serde::de::Error;
-
-                let mut value = None;
-                let mut store = None;
-                let mut mode = None;
-                let mut levels: Option<ScaleLevels> = None;
-                let mut param: Option<QuantParam> = None;
-                let mut level: Option<LegacyQuantLevel> = None;
-
-                while let Some(key) = map.next_key::<alloc::borrow::Cow<str>>()? {
-                    match key.as_ref() {
-                        "value" => value = Some(map.next_value()?),
-                        "store" => store = Some(map.next_value()?),
-                        "mode" => mode = Some(map.next_value()?),
-                        "levels" => levels = Some(map.next_value()?),
-                        "param" => param = Some(map.next_value()?),
-                        "level" => level = Some(map.next_value()?),
-                        _ => {
-                            map.next_value::<serde::de::IgnoredAny>()?;
-                        }
-                    }
-                }
-
-                let levels = match (levels, level, param) {
-                    (Some(levels), None, None) => levels,
-                    (None, Some(level), Some(param)) => {
-                        level.into_levels(param).map_err(Error::custom)?
-                    }
-                    (None, None, None) => return Err(Error::missing_field("levels")),
-                    (None, Some(_), None) => return Err(Error::missing_field("param")),
-                    (None, None, Some(_)) => return Err(Error::missing_field("level")),
-                    (Some(_), _, _) => {
-                        return Err(Error::custom(
-                            "a scheme carries either levels or the old level and param, not both",
-                        ));
-                    }
-                };
-
-                Ok(QuantScheme {
-                    value: value.ok_or_else(|| Error::missing_field("value"))?,
-                    store: store.ok_or_else(|| Error::missing_field("store"))?,
-                    mode: mode.ok_or_else(|| Error::missing_field("mode"))?,
-                    levels,
-                })
-            }
-        }
-
-        deserializer.deserialize_struct(
-            "QuantScheme",
-            &["value", "store", "mode", "levels"],
-            SchemeVisitor,
-        )
-    }
-}
-
-impl QuantParam {
-    /// The largest finite value representable by the parameter type.
+impl ScaleDtype {
+    /// The largest finite value representable by the dtype.
     ///
     /// A two-level scheme picks its per-tensor scale so that the largest block scale lands here,
     /// which is what keeps the block scales inside the range their type can express. That recipe
-    /// only holds for a block param narrower than the scale it divides: dividing by
-    /// [`QuantParam::F32`]'s or [`QuantParam::UE8M0`]'s maximum drives the per-tensor scale
+    /// only holds for a block dtype narrower than the scale it divides: dividing by
+    /// [`ScaleDtype::F32`]'s or [`ScaleDtype::UE8M0`]'s maximum drives the per-tensor scale
     /// subnormal and the renormalized block scales to infinity. A two-level scheme has nothing to
     /// gain from those params anyway, since their block scales already reach the full range.
     pub fn max_representable(&self) -> f32 {
         match self {
-            QuantParam::F32 => f32::MAX,
-            QuantParam::F16 => half::f16::MAX.to_f32(),
-            QuantParam::BF16 => half::bf16::MAX.to_f32(),
+            ScaleDtype::F32 => f32::MAX,
+            ScaleDtype::F16 => half::f16::MAX.to_f32(),
+            ScaleDtype::BF16 => half::bf16::MAX.to_f32(),
             // Spelled out because `ue8m0` and `e4m3` sit behind the `fp8` feature and this
             // function is not gated. The tests check both against those types when it is on.
-            QuantParam::UE8M0 => f32::from_bits(0x7F00_0000), // 2^127
-            QuantParam::UE4M3 => 448.0,
+            ScaleDtype::UE8M0 => f32::from_bits(0x7F00_0000), // 2^127
+            ScaleDtype::UE4M3 => 448.0,
         }
     }
 
-    /// The smallest value representable by the parameter type that is not below `scale`.
+    /// The smallest value representable by the dtype that is not below `scale`.
     ///
     /// Storing a quantization scale wants this rather than the nearest value. Rounding down puts
     /// the scale below what calibration asked for, so every value at the block maximum clips to
@@ -660,14 +485,14 @@ impl QuantParam {
     /// `scale` must not be negative. Symmetric quantization only produces non-negative scales,
     /// and the stepping below walks away from zero for a negative input.
     ///
-    /// [`QuantParam::UE8M0`] answers [`None`]. Its minimum is 2^-127, subnormal in f32, where the
+    /// [`ScaleDtype::UE8M0`] answers [`None`]. Its minimum is 2^-127, subnormal in f32, where the
     /// grid below no longer holds.
     pub fn round_up(&self, scale: f32) -> Option<f32> {
         match self {
-            QuantParam::F32 => {
+            ScaleDtype::F32 => {
                 return Some(scale);
             }
-            QuantParam::UE8M0 => {
+            ScaleDtype::UE8M0 => {
                 return None;
             }
             _ => {}
@@ -699,7 +524,7 @@ impl QuantParam {
         ))
     }
 
-    /// The param's grid, expressed on the f32 bit pattern. See [`F32Grid`].
+    /// The dtype's grid, expressed on the f32 bit pattern. See [`F32Grid`].
     ///
     /// bf16 reports no subnormal range because it does not need the separate treatment: its pattern
     /// is f32's top half all the way down, so the bit step stays right where the others stop. Its
@@ -708,55 +533,55 @@ impl QuantParam {
     ///
     /// # Panics
     ///
-    /// For [`QuantParam::F32`], which is the grid itself, and [`QuantParam::UE8M0`], which is not
+    /// For [`ScaleDtype::F32`], which is the grid itself, and [`ScaleDtype::UE8M0`], which is not
     /// yet supported.
     pub fn f32_grid(&self) -> F32Grid {
-        /// One f32 ulp per param ulp: the mantissa bits f32 carries and the param does not.
+        /// One f32 ulp per dtype ulp: the mantissa bits f32 carries and the dtype does not.
         const fn bit_step(mantissa_digits: u32) -> u32 {
             1 << (f32::MANTISSA_DIGITS - mantissa_digits)
         }
 
         match self {
-            QuantParam::F16 => F32Grid {
+            ScaleDtype::F16 => F32Grid {
                 bit_step: bit_step(half::f16::MANTISSA_DIGITS),
                 subnormals: Some(SubnormalRange {
                     min_normal: half::f16::MIN_POSITIVE.to_f32(),
                     spacing: half::f16::MIN_POSITIVE_SUBNORMAL.to_f32(),
                 }),
             },
-            QuantParam::BF16 => F32Grid {
+            ScaleDtype::BF16 => F32Grid {
                 bit_step: bit_step(half::bf16::MANTISSA_DIGITS),
                 subnormals: None,
             },
             // Spelled out rather than read off `e4m3`, which sits behind the `fp8` feature while
             // this is not gated. The tests check them against that type when it is on.
-            QuantParam::UE4M3 => F32Grid {
+            ScaleDtype::UE4M3 => F32Grid {
                 bit_step: bit_step(4),
                 subnormals: Some(SubnormalRange {
                     min_normal: 0.015625, // 2^-6
                     spacing: 0.001953125, // 2^-9
                 }),
             },
-            QuantParam::F32 => {
+            ScaleDtype::F32 => {
                 unimplemented!("F32 is the grid, it has no narrower one to round onto")
             }
-            QuantParam::UE8M0 => unimplemented!("UE8M0 scales are not yet supported"),
+            ScaleDtype::UE8M0 => unimplemented!("UE8M0 scales are not yet supported"),
         }
     }
 }
 
 /// A narrower float format's grid, laid over the f32 bit pattern.
 ///
-/// f32 carries every param this exists for exactly, so the grid can be walked there rather than
-/// through the storage type. A value representable in the param leaves the low f32 mantissa bits
-/// zero, so one param ulp is an increment at that position and the carry into the exponent falls
+/// f32 carries every dtype this exists for exactly, so the grid can be walked there rather than
+/// through the storage type. A value representable in the dtype leaves the low f32 mantissa bits
+/// zero, so one dtype ulp is an increment at that position and the carry into the exponent falls
 /// out on its own. Working in f32 also keeps the grid available to backends with no narrow integer,
 /// and to builds without the `fp8` feature.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct F32Grid {
     /// One step up in the normal range, as an increment on the f32 bit pattern.
     pub bit_step: u32,
-    /// The param's subnormals, for the formats whose subnormals land in f32's normal range.
+    /// The dtype's subnormals, for the formats whose subnormals land in f32's normal range.
     pub subnormals: Option<SubnormalRange>,
 }
 
@@ -770,13 +595,13 @@ pub struct SubnormalRange {
 }
 
 impl F32Grid {
-    /// Clears the mantissa bits the param does not carry, truncating a bit pattern onto the grid.
+    /// Clears the mantissa bits the dtype does not carry, truncating a bit pattern onto the grid.
     pub fn truncate_mask(&self) -> u32 {
         !(self.bit_step - 1)
     }
 
     /// Added to a bit pattern before [`truncate_mask`](Self::truncate_mask) to turn that truncation
-    /// into a round up. The carry it can produce is only safe below the param's maximum, which is
+    /// into a round up. The carry it can produce is only safe below the dtype's maximum, which is
     /// why callers saturate there first.
     pub fn round_up_bias(&self) -> u32 {
         self.bit_step - 1
@@ -891,12 +716,9 @@ pub enum QuantMode {
     Symmetric,
 }
 
-/// Quantization floating-point precision.
-///
-/// This is used to represent the floating-point precision of quantization parameters like the scale(s)
-/// or the accumulation precision used during operations like matrix multiplication.
+/// The data type a scale level stores its scales in.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum QuantParam {
+pub enum ScaleDtype {
     /// Full precision.
     F32,
     /// Half precision.
@@ -912,7 +734,7 @@ pub enum QuantParam {
 const MAX_DIMS: usize = 5;
 
 /// Copyable block size, specialized version of `SmallVec`.
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockSize {
     storage: [u8; MAX_DIMS],
     len: u8,
@@ -1071,29 +893,6 @@ impl<T: AsRef<[u8]>> From<T> for BlockSize {
     }
 }
 
-/// Hand-written to canonicalize stored bytes: artifacts can carry non-canonical spellings
-/// (leading unit dimensions), and letting one deserialize raw would break the promise that equal
-/// granularities compare and hash equal.
-impl<'de> Deserialize<'de> for BlockSize {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(rename = "BlockSize")]
-        struct Raw {
-            storage: [u8; MAX_DIMS],
-            len: u8,
-        }
-
-        let raw = Raw::deserialize(deserializer)?;
-        let len = raw.len as usize;
-        if len > MAX_DIMS {
-            return Err(serde::de::Error::custom(
-                "block size length exceeds the dimension cap",
-            ));
-        }
-        Ok(BlockSize::canonicalize(&raw.storage[..len]))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1122,7 +921,7 @@ mod tests {
     fn the_grid_is_one_scale_per_region() {
         let level = |granularity| ScaleLevel {
             granularity,
-            param: QuantParam::F32,
+            dtype: ScaleDtype::F32,
         };
         assert_eq!(level(ScaleGranularity::Tensor).grid(&[8, 64]), vec![1, 1]);
         assert_eq!(
@@ -1154,9 +953,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "share the same granularity")]
     fn equal_granularities_spelled_differently_are_still_duplicates() {
-        ScaleLevels::block([1, 32], QuantParam::F16).and_block([32], QuantParam::F32);
+        let level = |block: &[u8]| ScaleLevel {
+            granularity: ScaleGranularity::Block(BlockSize::new(block)),
+            dtype: ScaleDtype::F32,
+        };
+        assert_eq!(
+            ScaleSequence::try_new(&[level(&[1, 32]), level(&[32])]),
+            Err(InvalidScaleSequence::Duplicate)
+        );
     }
 
     #[test]
@@ -1172,17 +977,19 @@ mod tests {
     fn levels_sort_innermost_first_whatever_the_input_order() {
         let block = ScaleLevel {
             granularity: ScaleGranularity::Block(BlockSize::new([16])),
-            param: QuantParam::UE4M3,
+            dtype: ScaleDtype::UE4M3,
         };
         let tensor = ScaleLevel {
             granularity: ScaleGranularity::Tensor,
-            param: QuantParam::F32,
+            dtype: ScaleDtype::F32,
         };
-        let sorted = ScaleLevels::try_new(&[tensor, block]).unwrap();
+        let sorted = ScaleSequence::try_new(&[tensor, block]).unwrap();
         assert_eq!(sorted.levels(), &[block, tensor]);
         assert_eq!(
             sorted,
-            ScaleLevels::block([16], QuantParam::UE4M3).and_tensor(QuantParam::F32)
+            QuantScheme::per_block([16], ScaleDtype::UE4M3)
+                .and_per_tensor(ScaleDtype::F32)
+                .scale_sequence()
         );
     }
 
@@ -1190,60 +997,64 @@ mod tests {
     fn levels_without_a_containment_order_are_rejected() {
         let a = ScaleLevel {
             granularity: ScaleGranularity::Block(BlockSize::new([8])),
-            param: QuantParam::F32,
+            dtype: ScaleDtype::F32,
         };
         let b = ScaleLevel {
             granularity: ScaleGranularity::Block(BlockSize::new([12])),
-            param: QuantParam::F32,
+            dtype: ScaleDtype::F32,
         };
         assert_eq!(
-            ScaleLevels::try_new(&[a, b]),
-            Err(InvalidScaleLevels::NotNested)
+            ScaleSequence::try_new(&[a, b]),
+            Err(InvalidScaleSequence::NotNested)
         );
         assert_eq!(
-            ScaleLevels::try_new(&[a, a]),
-            Err(InvalidScaleLevels::Duplicate)
+            ScaleSequence::try_new(&[a, a]),
+            Err(InvalidScaleSequence::Duplicate)
         );
-        assert_eq!(ScaleLevels::try_new(&[]), Err(InvalidScaleLevels::Empty));
+        assert_eq!(
+            ScaleSequence::try_new(&[]),
+            Err(InvalidScaleSequence::Empty)
+        );
+    }
+
+    /// [`Default`] already carries a per-tensor level.
+    #[test]
+    #[should_panic(expected = "share the same granularity")]
+    fn adding_a_tensor_level_to_the_default_panics() {
+        QuantScheme::default().and_per_tensor(ScaleDtype::F32);
     }
 
     #[test]
     #[should_panic(expected = "share the same granularity")]
     fn two_levels_with_the_same_granularity_are_rejected() {
-        ScaleLevels::tensor(QuantParam::F16).and_tensor(QuantParam::F32);
-    }
-
-    #[test]
-    fn levels_added_in_any_order_sort_by_containment() {
-        assert_eq!(
-            ScaleLevels::tensor(QuantParam::F32).and_block([16], QuantParam::UE4M3),
-            ScaleLevels::block([16], QuantParam::UE4M3).and_tensor(QuantParam::F32),
-        );
+        QuantScheme::per_tensor(ScaleDtype::F16).and_per_tensor(ScaleDtype::F32);
     }
 
     #[test]
     fn inner_drops_the_outermost_level() {
-        let two = ScaleLevels::block([16], QuantParam::UE4M3).and_tensor(QuantParam::F32);
+        let two = QuantScheme::per_block([16], ScaleDtype::UE4M3)
+            .and_per_tensor(ScaleDtype::F32)
+            .scale_sequence();
         assert_eq!(
             two.inner(),
-            Some(ScaleLevels::block([16], QuantParam::UE4M3))
+            Some(ScaleSequence::block([16], ScaleDtype::UE4M3))
         );
     }
 
     #[test]
     fn a_single_level_has_no_inner() {
-        assert_eq!(ScaleLevels::tensor(QuantParam::F32).inner(), None);
+        assert_eq!(QuantScheme::default().scale_sequence().inner(), None);
     }
 
     #[test]
     fn swapping_dims_rewrites_every_block_and_leaves_tensor_granularity_alone() {
-        let mut scheme = QuantScheme::default()
-            .with_scales(ScaleLevels::block([4, 32], QuantParam::F16).and_tensor(QuantParam::F32));
+        let mut scheme =
+            QuantScheme::per_block([4, 32], ScaleDtype::F16).and_per_tensor(ScaleDtype::F32);
         scheme.swap_block_dims(2, 0, 1);
         assert_eq!(
             scheme.levels(),
-            ScaleLevels::block([32, 4], QuantParam::F16)
-                .and_tensor(QuantParam::F32)
+            QuantScheme::per_block([32, 4], ScaleDtype::F16)
+                .and_per_tensor(ScaleDtype::F32)
                 .levels()
         );
 
@@ -1254,8 +1065,7 @@ mod tests {
 
     #[test]
     fn swapping_dims_preserves_partial_full_blocks() {
-        let mut scheme = QuantScheme::default()
-            .with_scales(ScaleLevels::block([BlockSize::FULL, 1], QuantParam::F32));
+        let mut scheme = QuantScheme::per_block([BlockSize::FULL, 1], ScaleDtype::F32);
         scheme.swap_block_dims(2, 0, 1);
         assert_eq!(scheme.block_size(), Some(BlockSize::new([BlockSize::FULL])));
         assert_eq!(
@@ -1266,8 +1076,7 @@ mod tests {
 
     #[test]
     fn permuting_dims_rewrites_every_level() {
-        let mut scheme =
-            QuantScheme::default().with_scales(ScaleLevels::block([1, 4, 32], QuantParam::F16));
+        let mut scheme = QuantScheme::per_block([1, 4, 32], ScaleDtype::F16);
         scheme.permute_block_dims(3, &[2, 0, 1]);
         assert_eq!(scheme.block_size(), Some(BlockSize::new([32, 1, 4])));
     }
@@ -1277,158 +1086,23 @@ mod tests {
         let scheme = QuantScheme::default();
         assert_eq!(
             scheme.levels(),
-            ScaleLevels::tensor(QuantParam::F32).levels()
+            ScaleSequence::tensor(ScaleDtype::F32).levels()
         );
-        assert_eq!(scheme.param(), QuantParam::F32);
+        assert_eq!(scheme.scale_dtype(), ScaleDtype::F32);
         assert_eq!(scheme.granularity(), ScaleGranularity::Tensor);
         assert_eq!(scheme.block_size(), None);
     }
 
-    mod serde_compat {
-        use super::*;
-        use serde::Serialize;
-
-        /// The scheme shape before scale levels, byte-for-byte as stored artifacts carry it:
-        /// same field names, order, and variant names as the old derives produced.
-        ///
-        /// Declared independently of `LegacyQuantLevel` on purpose: serializing through the shim's
-        /// own type would test it against itself, and a name it gets wrong would pass unnoticed.
-        #[derive(Serialize)]
-        struct OldScheme {
-            value: QuantValue,
-            param: QuantParam,
-            store: QuantStore,
-            level: OldLevel,
-            mode: QuantMode,
-        }
-
-        #[derive(Serialize)]
-        enum OldLevel {
-            #[allow(dead_code)]
-            Tensor,
-            Block(OldBlockSize),
-            BlockTensor {
-                block: OldBlockSize,
-                global: QuantParam,
-            },
-        }
-
-        /// The raw stored shape of a block size, free to spell non-canonical bytes the way old
-        /// artifacts do.
-        #[derive(Serialize)]
-        #[serde(rename = "BlockSize")]
-        struct OldBlockSize {
-            storage: [u8; 5],
-            len: u8,
-        }
-
-        fn old_block(values: &[u8]) -> OldBlockSize {
-            let mut storage = [1; 5];
-            storage[..values.len()].copy_from_slice(values);
-            OldBlockSize {
-                storage,
-                len: values.len() as u8,
-            }
-        }
-
-        fn cbor_round_trip<T: Serialize, O: for<'de> Deserialize<'de>>(value: &T) -> O {
-            let mut bytes = alloc::vec::Vec::new();
-            ciborium::ser::into_writer(value, &mut bytes).unwrap();
-            ciborium::de::from_reader(bytes.as_slice()).unwrap()
-        }
-
-        #[test]
-        fn the_current_shape_round_trips() {
-            for scheme in [
-                QuantScheme::default(),
-                QuantScheme::default()
-                    .with_value(QuantValue::E2M1)
-                    .with_store(QuantStore::PackedNative(0))
-                    .with_scales(
-                        ScaleLevels::block([16], QuantParam::UE4M3).and_tensor(QuantParam::F32),
-                    ),
-            ] {
-                assert_eq!(cbor_round_trip::<_, QuantScheme>(&scheme), scheme);
-            }
-        }
-
-        #[test]
-        fn an_old_per_tensor_scheme_still_loads() {
-            let old = OldScheme {
-                value: QuantValue::Q8S,
-                param: QuantParam::F32,
-                store: QuantStore::Native,
-                level: OldLevel::Tensor,
-                mode: QuantMode::Symmetric,
-            };
-            let loaded: QuantScheme = cbor_round_trip(&old);
-            assert_eq!(
-                loaded,
-                QuantScheme::default()
-                    .with_value(QuantValue::Q8S)
-                    .with_store(QuantStore::Native)
-                    .with_scales(ScaleLevels::tensor(QuantParam::F32))
-            );
-        }
-
-        #[test]
-        fn an_old_block_scheme_still_loads() {
-            let old = OldScheme {
-                value: QuantValue::Q8F,
-                param: QuantParam::F16,
-                store: QuantStore::PackedU32(0),
-                level: OldLevel::Block(old_block(&[32])),
-                mode: QuantMode::Symmetric,
-            };
-            let spelled_wide = OldScheme {
-                level: OldLevel::Block(old_block(&[1, 32])),
-                ..old
-            };
-            // A stored non-canonical spelling lands on the canonical value, so the two hash and
-            // compare equal after loading.
-            assert_eq!(
-                cbor_round_trip::<_, QuantScheme>(&spelled_wide),
-                cbor_round_trip::<_, QuantScheme>(&old)
-            );
-            let loaded: QuantScheme = cbor_round_trip(&old);
-            assert_eq!(
-                loaded,
-                QuantScheme::default().with_scales(ScaleLevels::block([32], QuantParam::F16))
-            );
-        }
-
-        #[test]
-        fn an_old_two_level_scheme_still_loads() {
-            let old = OldScheme {
-                value: QuantValue::Q8F,
-                param: QuantParam::UE4M3,
-                store: QuantStore::PackedU32(0),
-                level: OldLevel::BlockTensor {
-                    block: old_block(&[16]),
-                    global: QuantParam::F32,
-                },
-                mode: QuantMode::Symmetric,
-            };
-            let loaded: QuantScheme = cbor_round_trip(&old);
-            assert_eq!(
-                loaded,
-                QuantScheme::default().with_scales(
-                    ScaleLevels::block([16], QuantParam::UE4M3,).and_tensor(QuantParam::F32)
-                )
-            );
-        }
-    }
-
     #[test]
     fn round_up_never_lands_below_the_scale() {
-        for param in [QuantParam::F16, QuantParam::BF16, QuantParam::UE4M3] {
+        for dtype in [ScaleDtype::F16, ScaleDtype::BF16, ScaleDtype::UE4M3] {
             for exp in -12..8 {
                 for step in 1..17 {
                     let scale = (step as f32 / 16.0) * 2f32.powi(exp);
-                    let up = param.round_up(scale).unwrap();
+                    let up = dtype.round_up(scale).unwrap();
                     assert!(
                         up >= scale,
-                        "{param:?}: {up} is below {scale}, which clips the block maximum"
+                        "{dtype:?}: {up} is below {scale}, which clips the block maximum"
                     );
                 }
             }
@@ -1437,27 +1111,27 @@ mod tests {
 
     #[test]
     fn round_up_saturates_rather_than_stepping_off_the_top() {
-        for param in [QuantParam::F16, QuantParam::BF16, QuantParam::UE4M3] {
-            let max = param.max_representable();
-            assert_eq!(param.round_up(max).unwrap(), max);
-            assert!(param.round_up(max * 2.0).unwrap().is_finite());
+        for dtype in [ScaleDtype::F16, ScaleDtype::BF16, ScaleDtype::UE4M3] {
+            let max = dtype.max_representable();
+            assert_eq!(dtype.round_up(max).unwrap(), max);
+            assert!(dtype.round_up(max * 2.0).unwrap().is_finite());
         }
     }
 
     /// Every variant is dispatched somewhere, so none of them may panic here.
     #[test]
     fn round_up_answers_for_every_param() {
-        for param in [
-            QuantParam::F32,
-            QuantParam::F16,
-            QuantParam::BF16,
-            QuantParam::UE8M0,
-            QuantParam::UE4M3,
+        for dtype in [
+            ScaleDtype::F32,
+            ScaleDtype::F16,
+            ScaleDtype::BF16,
+            ScaleDtype::UE8M0,
+            ScaleDtype::UE4M3,
         ] {
             assert_eq!(
-                param.round_up(0.3).is_some(),
-                param != QuantParam::UE8M0,
-                "{param:?}"
+                dtype.round_up(0.3).is_some(),
+                dtype != ScaleDtype::UE8M0,
+                "{dtype:?}"
             );
         }
     }
@@ -1465,7 +1139,7 @@ mod tests {
     #[test]
     fn round_up_is_the_identity_for_f32() {
         for scale in [1.0e-30, 0.1, 1.0, 12345.678, f32::MAX] {
-            assert_eq!(QuantParam::F32.round_up(scale).unwrap(), scale);
+            assert_eq!(ScaleDtype::F32.round_up(scale).unwrap(), scale);
         }
     }
 
@@ -1477,18 +1151,18 @@ mod tests {
         #[test]
         fn round_up_is_the_nearest_representable_value_not_below() {
             // Rounding up must not overshoot: stepping down from the answer has to land below.
-            for param in [QuantParam::F16, QuantParam::BF16, QuantParam::UE4M3] {
+            for dtype in [ScaleDtype::F16, ScaleDtype::BF16, ScaleDtype::UE4M3] {
                 for exp in -8..6 {
                     let scale = 1.7 * 2f32.powi(exp);
-                    let up = param.round_up(scale).unwrap();
+                    let up = dtype.round_up(scale).unwrap();
                     assert_eq!(
                         up,
-                        param.round_up(up).unwrap(),
-                        "{param:?}: not idempotent at {scale}"
+                        dtype.round_up(up).unwrap(),
+                        "{dtype:?}: not idempotent at {scale}"
                     );
                     assert!(
-                        step(param, up, -1) < scale,
-                        "{param:?}: {up} overshoots {scale} by at least a step"
+                        step(dtype, up, -1) < scale,
+                        "{dtype:?}: {up} overshoots {scale} by at least a step"
                     );
                 }
             }
@@ -1500,39 +1174,39 @@ mod tests {
         /// down below it, and still looks idempotent.
         #[test]
         fn f32_grid_matches_the_storage_types() {
-            for param in [QuantParam::F16, QuantParam::BF16, QuantParam::UE4M3] {
-                let grid = param.f32_grid();
+            for dtype in [ScaleDtype::F16, ScaleDtype::BF16, ScaleDtype::UE4M3] {
+                let grid = dtype.f32_grid();
 
                 // bf16 deliberately reports no subnormal range, since its bit step covers them too.
                 if let Some(subnormals) = grid.subnormals {
                     assert_eq!(
                         subnormals.min_normal,
-                        min_normal(param),
-                        "{param:?}: minimum normal"
+                        min_normal(dtype),
+                        "{dtype:?}: minimum normal"
                     );
                     assert_eq!(
                         subnormals.spacing,
-                        step(param, 0.0, 1),
-                        "{param:?}: subnormal spacing"
+                        step(dtype, 0.0, 1),
+                        "{dtype:?}: subnormal spacing"
                     );
                 }
 
                 // Walk the whole normal range: one step on the f32 pattern has to be one step in
                 // the type, at every exponent.
-                let mut value = min_normal(param);
-                let max = param.max_representable();
+                let mut value = min_normal(dtype);
+                let max = dtype.max_representable();
                 while value < max {
                     let stepped = f32::from_bits(value.to_bits() + grid.bit_step);
                     assert_eq!(
                         stepped,
-                        step(param, value, 1),
-                        "{param:?}: step above {value}"
+                        step(dtype, value, 1),
+                        "{dtype:?}: step above {value}"
                     );
                     value = stepped;
                 }
                 assert_eq!(
                     value, max,
-                    "{param:?}: the grid has to land exactly on the maximum"
+                    "{dtype:?}: the grid has to land exactly on the maximum"
                 );
             }
         }
@@ -1540,7 +1214,7 @@ mod tests {
         #[test]
         fn max_representable_matches_the_e4m3_type() {
             assert_eq!(
-                QuantParam::UE4M3.max_representable(),
+                ScaleDtype::UE4M3.max_representable(),
                 crate::e4m3::MAX.to_f32()
             );
         }
@@ -1550,38 +1224,38 @@ mod tests {
         #[test]
         fn max_representable_matches_the_e8m0_type() {
             assert_eq!(
-                QuantParam::UE8M0.max_representable(),
+                ScaleDtype::UE8M0.max_representable(),
                 crate::ue8m0::MAX.to_f32()
             );
         }
 
-        /// `offset` representable steps from `value` in `param`, for positive values. Counted on
+        /// `offset` representable steps from `value` in `dtype`, for positive values. Counted on
         /// the storage type's own bit pattern, so this is an oracle independent of the grid under
         /// test.
-        fn step(param: QuantParam, value: f32, offset: i32) -> f32 {
-            match param {
-                QuantParam::F16 => half::f16::from_bits(
+        fn step(dtype: ScaleDtype, value: f32, offset: i32) -> f32 {
+            match dtype {
+                ScaleDtype::F16 => half::f16::from_bits(
                     (half::f16::from_f32(value).to_bits() as i32 + offset) as u16,
                 )
                 .to_f32(),
-                QuantParam::BF16 => half::bf16::from_bits(
+                ScaleDtype::BF16 => half::bf16::from_bits(
                     (half::bf16::from_f32(value).to_bits() as i32 + offset) as u16,
                 )
                 .to_f32(),
-                QuantParam::UE4M3 => crate::e4m3::from_bits(
+                ScaleDtype::UE4M3 => crate::e4m3::from_bits(
                     (crate::e4m3::from_f32(value).to_bits() as i32 + offset) as u8,
                 )
                 .to_f32(),
-                QuantParam::F32 | QuantParam::UE8M0 => unreachable!(),
+                ScaleDtype::F32 | ScaleDtype::UE8M0 => unreachable!(),
             }
         }
 
-        fn min_normal(param: QuantParam) -> f32 {
-            match param {
-                QuantParam::F16 => half::f16::MIN_POSITIVE.to_f32(),
-                QuantParam::BF16 => half::bf16::MIN_POSITIVE.to_f32(),
-                QuantParam::UE4M3 => crate::e4m3::MIN_POSITIVE.to_f32(),
-                QuantParam::F32 | QuantParam::UE8M0 => unreachable!(),
+        fn min_normal(dtype: ScaleDtype) -> f32 {
+            match dtype {
+                ScaleDtype::F16 => half::f16::MIN_POSITIVE.to_f32(),
+                ScaleDtype::BF16 => half::bf16::MIN_POSITIVE.to_f32(),
+                ScaleDtype::UE4M3 => crate::e4m3::MIN_POSITIVE.to_f32(),
+                ScaleDtype::F32 | ScaleDtype::UE8M0 => unreachable!(),
             }
         }
     }

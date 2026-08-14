@@ -46,6 +46,7 @@ derive_more = { workspace = true, features = [
     "add_assign",
     "mul_assign",
     "display",
+    "error",
     "deref",
     "deref_mut",
 ] }
@@ -79,7 +80,6 @@ spin = { workspace = true, features = [
 cfg_aliases = { workspace = true }
 
 [dev-dependencies]
-ciborium = { workspace = true, features = ["std"] }
 criterion = { workspace = true }
 dashmap = { workspace = true }
 tempfile = { workspace = true }
