@@ -25,7 +25,7 @@ use cubecl_ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
     dialect::{scf::BranchToSCFPass, ssa_matrix::MatrixToSSAPass},
     prelude::{SingleBlockRegionInterface, SymbolOpInterface},
-    rewrite::visit_all_ops_of_type_mut,
+    rewrite::{CanonicalizePass, visit_all_ops_of_type_mut},
     settings::{Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
@@ -214,6 +214,7 @@ impl SpirvCompiler {
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(CanonicalizePass::default());
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);
