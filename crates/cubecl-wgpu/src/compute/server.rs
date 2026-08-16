@@ -197,7 +197,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             return Ok(pipeline.clone());
         }
 
-        let definition = kernel.define();
         let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
 
         if let Some(Ok(pipeline)) = cached {
@@ -207,6 +206,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         validate_cube_dim(&self.utilities.properties, &kernel_id)?;
         validate_units(&self.utilities.properties, &kernel_id)?;
+
+        let definition = kernel.define();
 
         let mut compiler = C::init(self.backend, &self.compilation_options);
         let mut compiled = compiler.compile_kernel(self, kernel, definition)?;

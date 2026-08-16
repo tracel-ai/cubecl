@@ -144,8 +144,6 @@ impl CudaContext {
         kernel: Box<dyn CubeTask<CudaCompiler>>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let definition = kernel.define();
-
         let key = match self.try_load_cached(kernel_id)? {
             Ok(()) => return Ok(()),
             Err(key) => key,
@@ -156,6 +154,7 @@ impl CudaContext {
         validate_cube_dim(&self.properties, kernel_id)?;
         validate_units(&self.properties, kernel_id)?;
 
+        let definition = kernel.define();
         let mut kernel_compiled = kernel.compile(
             definition,
             &mut Default::default(),

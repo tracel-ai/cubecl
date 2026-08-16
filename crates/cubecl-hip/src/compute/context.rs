@@ -135,8 +135,6 @@ impl HipContext {
         cube_kernel: Box<dyn CubeTask<HipCompiler>>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let definition = cube_kernel.define();
-
         let key = match self.try_load_cached(kernel_id)? {
             Ok(()) => return Ok(()),
             Err(key) => key,
@@ -147,6 +145,7 @@ impl HipContext {
 
         // CubeCL compilation
         // jitc = just-in-time compiled
+        let definition = cube_kernel.define();
         let mut jitc_kernel = cube_kernel.compile(
             definition,
             &mut Default::default(),
