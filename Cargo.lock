@@ -347,6 +347,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "buildid"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "834a85d2478807f41c43251c7ad226e1185bc34feb2133872f796a11b57155ae"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "log",
+ "winapi",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1128,6 +1140,7 @@ name = "cubecl-runtime"
 version = "0.11.0-pre.2"
 dependencies = [
  "ahash",
+ "buildid",
  "bytemuck",
  "cfg-if",
  "cfg_aliases",

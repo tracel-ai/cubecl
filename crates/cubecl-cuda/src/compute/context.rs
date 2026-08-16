@@ -12,8 +12,10 @@ use crate::{
     install::{cccl_include_path, include_path},
 };
 use cubecl_core::{
+    hash::{StableHash, StableHasher},
+    ir::DeviceProperties,
+    prelude::*,
     server::ResourceLimitError,
-    {ir::DeviceProperties, prelude::*},
 };
 use cubecl_environment::persistence::Store;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
@@ -41,6 +43,9 @@ pub(crate) struct CudaContext {
     /// name: see [`CudaContext::is_loaded`].
     modules: CompilationCache<KernelId, CompiledKernel>,
     ptx_cache: Option<Store<KernelCacheKey, PtxCacheEntry>>,
+    /// Cache mapping C++ code hashes to the key that first compiled them. We can skip the slow CUDA
+    /// compiler if we already have a compiled artifact for the same code.
+    second_line_ptx_cache: Option<Store<StableHash, KernelCacheKey>>,
     pub timestamps: TimestampProfiler,
     pub arch: CudaArchitecture,
     pub compilation_options: CompilationOptions,
@@ -69,11 +74,14 @@ impl CudaContext {
         arch: CudaArchitecture,
     ) -> Self {
         let ptx_cache = compilation_store("cuda", format!("ptx_sm{}", arch.version));
+        let second_line_ptx_cache =
+            compilation_store("cuda-second-line", format!("ptx_sm{}", arch.version));
 
         Self {
             context,
             modules: CompilationCache::mirroring(&ptx_cache),
             ptx_cache,
+            second_line_ptx_cache,
             arch,
             timestamps: TimestampProfiler::default(),
             compilation_options,
@@ -102,16 +110,12 @@ impl CudaContext {
         unsafe { cudarc::driver::result::ctx::set_current(self.context) }
     }
 
-    pub fn compile_kernel(
+    fn try_load_cached(
         &mut self,
         kernel_id: &KernelId,
-        kernel: Box<dyn CubeTask<CudaCompiler>>,
-        logger: Arc<ServerLogger>,
-    ) -> Result<(), LaunchError> {
-        let definition = kernel.define();
-
+    ) -> Result<Result<(), Option<KernelCacheKey>>, CompilationError> {
         let key = if let Some(cache) = self.ptx_cache.as_mut() {
-            let key = KernelCacheKey::new(kernel_id, &definition);
+            let key = KernelCacheKey::new(kernel_id);
 
             if let Some(entry) = cache.remove(&key) {
                 log::trace!("Using PTX cache");
@@ -123,11 +127,26 @@ impl CudaContext {
                     kernel_id.cube_dim.into(),
                     entry.shared_mem_bytes,
                 )?;
-                return Ok(());
+                return Ok(Ok(()));
             }
             Some(key)
         } else {
             None
+        };
+        Ok(Err(key))
+    }
+
+    pub fn compile_kernel(
+        &mut self,
+        kernel_id: &KernelId,
+        kernel: Box<dyn CubeTask<CudaCompiler>>,
+        logger: Arc<ServerLogger>,
+    ) -> Result<(), LaunchError> {
+        let definition = kernel.define();
+
+        let key = match self.try_load_cached(kernel_id)? {
+            Ok(()) => return Ok(()),
+            Err(key) => key,
         };
 
         log::trace!("Compiling kernel");
@@ -150,6 +169,27 @@ impl CudaContext {
                 kernel_compiled.source = formatted;
             }
         }
+
+        let cpp_hash = if let Some(cache) = self.ptx_cache.as_mut() {
+            let key = key.unwrap();
+            let second_line_cache = self.second_line_ptx_cache.as_mut().unwrap();
+            let cpp_hash = StableHasher::hash_one(&kernel_compiled.source);
+
+            if let Some(old_key) = second_line_cache.purge_key(&cpp_hash)
+                && let Some(entry) = cache.purge_key(&old_key)
+            {
+                log::trace!("Using second-line PTX cache");
+                store_compiled(cache, key, entry);
+                store_compiled(second_line_cache, cpp_hash, key);
+                self.try_load_cached(kernel_id)?
+                    .expect("Should be cached now");
+                return Ok(());
+            }
+
+            Some(cpp_hash)
+        } else {
+            None
+        };
 
         let cube_dim = kernel_compiled.cube_dim;
         let arch = if self.arch.version >= 90 {
@@ -213,15 +253,18 @@ impl CudaContext {
         let repr = kernel_compiled.repr.unwrap();
 
         if let Some(cache) = &mut self.ptx_cache {
+            let second_line_cache = self.second_line_ptx_cache.as_mut().unwrap();
+            let key = key.unwrap();
             store_compiled(
                 cache,
-                key.unwrap(),
+                key,
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
                     shared_mem_bytes: repr.shared_memory_size,
                     ptx: ptx.clone(),
                 },
             );
+            store_compiled(second_line_cache, cpp_hash.unwrap(), key);
         }
 
         self.load_ptx(

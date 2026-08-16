@@ -2,8 +2,10 @@ use super::storage::gpu::GpuResource;
 use crate::runtime::HipCompiler;
 use crate::{compute::stream::Stream, runtime::HipComputeKernel};
 use cubecl_core::{
+    hash::{StableHash, StableHasher},
+    ir::DeviceProperties,
+    prelude::*,
     server::ResourceLimitError,
-    {ir::DeviceProperties, prelude::*},
 };
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
@@ -38,6 +40,9 @@ pub(crate) struct HipContext {
     pub compilation_options: CompilationOptions,
     pub properties: DeviceProperties,
     pub compilation_cache: Option<Store<KernelCacheKey, CompilationCacheEntry>>,
+    /// Cache mapping C++ code hashes to the key that first compiled them. We can skip the slow HIP
+    /// compiler if we already have a compiled artifact for the same code.
+    pub second_line_compilation_cache: Option<Store<StableHash, KernelCacheKey>>,
 }
 
 #[derive(Debug)]
@@ -66,13 +71,15 @@ impl HipContext {
         properties: DeviceProperties,
         fingerprint: String,
     ) -> Self {
-        let compilation_cache = compilation_store("hip", fingerprint);
+        let compilation_cache = compilation_store("hip", &fingerprint);
+        let second_line_compilation_cache = compilation_store("hip-second-line", fingerprint);
 
         Self {
             modules: CompilationCache::mirroring(&compilation_cache),
             timestamps: TimestampProfiler::default(),
             compilation_options,
             compilation_cache,
+            second_line_compilation_cache,
             properties,
         }
     }
@@ -91,6 +98,32 @@ impl HipContext {
         self.modules.contains(kernel_id)
     }
 
+    fn try_load_cached(
+        &mut self,
+        kernel_id: &KernelId,
+    ) -> Result<Result<(), Option<KernelCacheKey>>, CompilationError> {
+        let key = if let Some(cache) = self.compilation_cache.as_mut() {
+            let key = KernelCacheKey::new(kernel_id);
+
+            if let Some(entry) = cache.remove(&key) {
+                log::trace!("Using compilation cache");
+
+                self.load_compiled_binary(
+                    entry.binary,
+                    kernel_id.clone(),
+                    entry.entrypoint_name,
+                    kernel_id.cube_dim.into(),
+                    entry.shared_mem_bytes,
+                )?;
+                return Ok(Ok(()));
+            }
+            Some(key)
+        } else {
+            None
+        };
+        Ok(Err(key))
+    }
+
     /// Compiles a kernel.
     pub fn compile_kernel(
         &mut self,
@@ -100,22 +133,9 @@ impl HipContext {
     ) -> Result<(), LaunchError> {
         let definition = cube_kernel.define();
 
-        let key = if let Some(cache) = self.compilation_cache.as_mut() {
-            let key = KernelCacheKey::new(kernel_id, &definition);
-            if let Some(entry) = cache.remove(&key) {
-                log::trace!("Using compilation cache");
-                self.load_compiled_binary(
-                    entry.binary,
-                    kernel_id.clone(),
-                    entry.entrypoint_name,
-                    kernel_id.cube_dim.into(),
-                    entry.shared_mem_bytes,
-                )?;
-                return Ok(());
-            }
-            Some(key)
-        } else {
-            None
+        let key = match self.try_load_cached(kernel_id)? {
+            Ok(()) => return Ok(()),
+            Err(key) => key,
         };
 
         validate_cube_dim(&self.properties, kernel_id)?;
@@ -139,6 +159,26 @@ impl HipContext {
             }
         }
         logger.log_compilation(&jitc_kernel);
+
+        let cpp_hash = if let Some(cache) = self.compilation_cache.as_mut() {
+            let key = key.unwrap();
+            let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
+            let cpp_hash = StableHasher::hash_one(&jitc_kernel.source);
+
+            if let Some(old_key) = second_line_cache.purge_key(&cpp_hash)
+                && let Some(entry) = cache.purge_key(&old_key)
+            {
+                log::trace!("Using second-line compilation cache");
+                store_compiled(cache, key, entry);
+                store_compiled(second_line_cache, cpp_hash, key);
+                self.try_load_cached(kernel_id)?
+                    .expect("Should be cached now");
+                return Ok(());
+            }
+            Some(cpp_hash)
+        } else {
+            None
+        };
 
         // Create HIP Program
         // SAFETY: Calling HIP RTC FFI to create a program from source. The `CString` ensures
@@ -264,15 +304,18 @@ impl HipContext {
         let repr = jitc_kernel.repr.unwrap();
 
         if let Some(cache) = self.compilation_cache.as_mut() {
+            let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
+            let key = key.unwrap();
             store_compiled(
                 cache,
-                key.unwrap(),
+                key,
                 CompilationCacheEntry {
                     entrypoint_name: jitc_kernel.entrypoint_name.clone(),
                     shared_mem_bytes: repr.shared_memory_size,
                     binary: code.clone(),
                 },
             );
+            store_compiled(second_line_cache, cpp_hash.unwrap(), key);
         }
 
         self.load_compiled_binary(

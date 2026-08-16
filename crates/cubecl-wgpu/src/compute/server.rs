@@ -194,7 +194,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         }
 
         let definition = kernel.define();
-        let cached = self.load_cached_pipeline(&kernel_id, &definition, bindings, mode)?;
+        let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
 
         if let Some(Ok(pipeline)) = cached {
             self.pipelines.insert(kernel_id, pipeline.clone());

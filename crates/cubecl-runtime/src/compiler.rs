@@ -4,7 +4,7 @@ use crate::{
 };
 use alloc::string::{String, ToString};
 use core::hash::Hash;
-use cubecl_common::hash::StableHash;
+use cubecl_common::hash::{StableHash, StableHasher};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 #[cfg(std_io)]
@@ -87,16 +87,19 @@ pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
 pub struct KernelCacheKey {
     /// Hash of the [kernel id](KernelId).
     pub id: StableHash,
-    /// Hash of the [kernel definition](KernelDefinition).
-    pub ir: StableHash,
+    /// Hash of the [build id](buildid::build_id).
+    pub build_id: StableHash,
 }
 
 impl KernelCacheKey {
     /// Create a key from a kernel id and its expanded definition.
-    pub fn new(id: &KernelId, definition: &KernelDefinition) -> Self {
+    pub fn new(id: &KernelId) -> Self {
+        let build_id = buildid::build_id();
+        let build_id_hash = StableHasher::hash_one(&build_id);
+        std::println!("build id: {build_id:?}, build_id_hash: {build_id_hash}");
         Self {
             id: id.stable_hash(),
-            ir: definition.stable_hash(),
+            build_id: build_id_hash,
         }
     }
 }
