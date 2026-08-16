@@ -95,7 +95,7 @@ pub struct KernelCacheKey {
 }
 
 impl KernelCacheKey {
-    /// Create a key from a kernel id and its expanded definition.
+    /// Create a key from a kernel id and the current build ID.
     pub fn new(id: &KernelId, build_id: StableHash) -> Self {
         Self {
             id: id.stable_hash(),
