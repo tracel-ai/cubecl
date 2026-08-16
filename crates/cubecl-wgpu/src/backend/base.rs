@@ -45,7 +45,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         let res = if let Some(cache) = self.spirv_cache.as_mut() {
             let key = (
                 self.utilities.properties_hash,
-                KernelCacheKey::new(kernel_id),
+                KernelCacheKey::new(kernel_id, self.build_id),
             );
             if let Some(entry) = cache.remove(&key) {
                 use crate::ParamsTransfer;

@@ -12,7 +12,9 @@ use cubecl_cpp::shared::CompilationOptions;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::Store;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
-use cubecl_runtime::compiler::{CompilationCache, compilation_store, store_compiled};
+use cubecl_runtime::compiler::{
+    CompilationCache, build_id::build_id_hash, compilation_store, store_compiled,
+};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     compiler::CompilationError,
@@ -43,6 +45,7 @@ pub(crate) struct HipContext {
     /// Cache mapping C++ code hashes to the key that first compiled them. We can skip the slow HIP
     /// compiler if we already have a compiled artifact for the same code.
     pub second_line_compilation_cache: Option<Store<StableHash, KernelCacheKey>>,
+    build_id: StableHash,
 }
 
 #[derive(Debug)]
@@ -81,6 +84,7 @@ impl HipContext {
             compilation_cache,
             second_line_compilation_cache,
             properties,
+            build_id: build_id_hash(),
         }
     }
 
@@ -103,7 +107,7 @@ impl HipContext {
         kernel_id: &KernelId,
     ) -> Result<Result<(), Option<KernelCacheKey>>, CompilationError> {
         let key = if let Some(cache) = self.compilation_cache.as_mut() {
-            let key = KernelCacheKey::new(kernel_id);
+            let key = KernelCacheKey::new(kernel_id, self.build_id);
 
             if let Some(entry) = cache.remove(&key) {
                 log::trace!("Using compilation cache");

@@ -75,6 +75,8 @@ pub struct WgpuServer<C: WgpuCompiler> {
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
     pub(crate) spirv_cache: Option<Store<(u64, KernelCacheKey), cubecl_spirv::SpirvCacheEntry>>,
+    #[cfg(feature = "spirv")]
+    pub(crate) build_id: cubecl_common::hash::StableHash,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
@@ -147,6 +149,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             ),
             #[cfg(feature = "spirv")]
             spirv_cache,
+            #[cfg(feature = "spirv")]
+            build_id: cubecl_runtime::compiler::build_id::build_id_hash(),
             backend,
             utilities: Arc::new(utilities),
             shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),

@@ -2,7 +2,7 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_runtime::{
-    compiler::CompilationError,
+    compiler::{CompilationError, build_id},
     validation::{validate_cube_dim, validate_units},
 };
 
@@ -50,6 +50,7 @@ pub(crate) struct CudaContext {
     pub arch: CudaArchitecture,
     pub compilation_options: CompilationOptions,
     pub properties: DeviceProperties,
+    build_id: StableHash,
 }
 
 #[derive(Debug)]
@@ -86,6 +87,7 @@ impl CudaContext {
             timestamps: TimestampProfiler::default(),
             compilation_options,
             properties,
+            build_id: build_id::build_id_hash(),
         }
     }
 
@@ -115,7 +117,7 @@ impl CudaContext {
         kernel_id: &KernelId,
     ) -> Result<Result<(), Option<KernelCacheKey>>, CompilationError> {
         let key = if let Some(cache) = self.ptx_cache.as_mut() {
-            let key = KernelCacheKey::new(kernel_id);
+            let key = KernelCacheKey::new(kernel_id, self.build_id);
 
             if let Some(entry) = cache.remove(&key) {
                 log::trace!("Using PTX cache");
