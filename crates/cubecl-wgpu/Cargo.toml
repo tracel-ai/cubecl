@@ -26,7 +26,6 @@ std = [
     "cubecl-core/std",
     "cubecl-cpp/std",
     "cubecl-opt/std",
-    "pliron/std",
     "sanitize-filename",
 ]
 # 'msl' and 'spirv' features are exclusive
@@ -93,6 +92,9 @@ derive-new = { workspace = true }
 hashbrown = { workspace = true }
 
 cfg-if = { workspace = true }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+pliron = { workspace = true, features = ["std"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen-futures = { workspace = true }

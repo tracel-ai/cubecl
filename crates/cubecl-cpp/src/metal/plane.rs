@@ -43,6 +43,8 @@ metal_op_with_out!(ShuffleDownOp, |op, ctx| {
     format!("simd_shuffle_down({val}, {delta});")
 });
 
+metal_op_with_out!(ElectOp, |_, _| { "simd_is_first()".into() });
+
 metal_op_with_out!(AllOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_all({val});")

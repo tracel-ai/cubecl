@@ -252,7 +252,7 @@ impl CubeTraitImpl {
         ReplaceDefines.visit_item_impl_mut(&mut item_impl);
 
         let struct_name = *item_impl.self_ty;
-        let trait_name = item_impl.trait_.unwrap().1;
+        let trait_name = item_impl.trait_.unwrap().0;
 
         let mut attrs = item_impl.attrs;
         attrs.retain(|attr| !attr.path().is_ident("cube"));

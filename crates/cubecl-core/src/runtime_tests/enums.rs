@@ -299,6 +299,36 @@ pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R>) {
     assert_eq!(actual[0], 5);
 }
 
+#[cube(launch)]
+pub fn kernel_comptime_option_scalar(opt: ComptimeOption<f32>, output: &mut [f32]) {
+    // The comptime marker keeps the match on the expand-time discriminant: without it, a match
+    // with a single payload arm is classified as a runtime match, which ComptimeOption is not.
+    #[comptime]
+    let value = match opt {
+        ComptimeOption::Some(x) => x,
+        ComptimeOption::None => 999.0,
+    };
+    output[0] = value;
+}
+
+pub fn test_comptime_option_scalar<R: Runtime>(client: &ComputeClient<R>) {
+    let read = |args: ComptimeOptionArgs<f32, R>| {
+        let array = client.empty(core::mem::size_of::<f32>());
+        kernel_comptime_option_scalar::launch(
+            client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            args,
+            unsafe { BufferArg::from_raw_parts(array.clone(), 1) },
+        );
+        let bytes = client.read_one_unchecked(array);
+        f32::from_bytes(&bytes)[0]
+    };
+
+    assert_eq!(read(ComptimeOptionArgs::Some(3.5)), 3.5);
+    assert_eq!(read(ComptimeOptionArgs::None), 999.0);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_enums {
@@ -344,6 +374,14 @@ macro_rules! testgen_enums {
                 );
                 cubecl_core::runtime_tests::enums::test_array_float_int::<TestRuntime, i32>(
                     &client, 20,
+                );
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn comptime_option_scalar() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_comptime_option_scalar::<TestRuntime>(
+                    &client,
                 );
             }
 

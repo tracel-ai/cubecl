@@ -8,7 +8,7 @@ use cubecl_core::ir::{
     interfaces::TypedExt,
     match_ty,
     prelude::*,
-    types::{ArrayType, AtomicType, RuntimeArrayType, VectorType, scalar::*},
+    types::{ArrayType, AtomicType, PointerType, RuntimeArrayType, VectorType, scalar::*},
 };
 use pliron::{
     builtin::{
@@ -150,12 +150,19 @@ pub trait TypedExtCPP: Typed {
     }
 
     fn packed_type(&self, ctx: &Context) -> TypeHandle {
+        let ty = self.get_type(ctx).deref(ctx);
+        if let Some(ptr) = ty.downcast_ref::<PointerType>() {
+            return PointerType::get(ctx, ptr.inner.packed_type(ctx), ptr.address_space)
+                .to_handle();
+        } else if let Some(atomic) = ty.downcast_ref::<AtomicType>() {
+            return AtomicType::get(ctx, atomic.inner.packed_type(ctx)).to_handle();
+        }
+
         assert!(self.can_pack(ctx), "Should be packable");
         // Already natively packed
         if self.is_float4x2(ctx) {
             return self.get_type(ctx);
         }
-        let ty = self.get_type(ctx).deref(ctx);
         let vec = ty.downcast_ref::<VectorType>().unwrap();
         let scalar = vec.inner.deref(ctx);
         let scalar = match_ty!((scalar) {

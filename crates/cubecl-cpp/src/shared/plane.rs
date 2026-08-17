@@ -6,7 +6,7 @@ use cubecl_core::{
 
 use crate::{
     cuda::packed_ops::packable,
-    shared::{lowering::LowerOp, unroll::unrolling},
+    shared::{lowering::LowerOp, shared_op_with_out, unroll::unrolling},
     target::{CtxTarget, Target},
 };
 
@@ -82,11 +82,6 @@ pub fn plane_reduce_exclusive<T: Numeric, N: Size, Op: PlaneOp<T, N>>(
     select(UNIT_POS_PLANE == 0, Vector::new(T::from_int(default)), shfl)
 }
 
-#[cube]
-pub fn elect() -> bool {
-    UNIT_POS_PLANE == 0
-}
-
 define_scalar!(T);
 define_size!(S);
 
@@ -144,3 +139,22 @@ packable!(plane::ShuffleDownOp);
 
 unrolling!(plane::AllOp);
 unrolling!(plane::AnyOp);
+
+#[cube_op(name = "cpp.activemask")]
+#[result_ty(argument)]
+struct ActiveMask {}
+shared_op_with_out!(ActiveMask, |_, _| "__activemask()".into());
+
+#[cube]
+fn activemask<T: Int>() -> T {
+    intrinsic!(|scope| {
+        let mask = ActiveMask::new(scope.ctx_mut(), T::__expand_as_type(scope));
+        scope.register_with_result(&mask).into()
+    })
+}
+
+// Lowest active lane, requires a generic because HIP uses u64 and CUDA uses u32 for `__activemask()`
+#[cube]
+pub fn elect<T: Int>() -> bool {
+    u32::cast_from(activemask::<T>().trailing_zeros()) == UNIT_POS_PLANE
+}
