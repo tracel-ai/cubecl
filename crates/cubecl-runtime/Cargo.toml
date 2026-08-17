@@ -44,7 +44,13 @@ tracing = { workspace = true, features = ["attributes"], optional = true }
 
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.2", default-features = false }
+# `serde` and `hash` are needed unconditionally (StableHash in id/kernel/
+# compiler, PartialEq on BenchmarkComputations) — not just by the persistent
+# cache, so they can't live only in the desktop target section below.
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.2", default-features = false, features = [
+    "serde",
+    "hash",
+] }
 cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.2", default-features = false }
 cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.2", default-features = false, features = [
     "serde",
@@ -82,6 +88,10 @@ serde_json = { workspace = true, features = ["std"] }
 
 # Tracy if enabled.
 tracy-client = { workspace = true, optional = true }
+
+# The tuner resolves async autotune samples on the browser event loop.
+[target.'cfg(target_family = "wasm")'.dependencies]
+wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true, features = ["thread_rng"] }
