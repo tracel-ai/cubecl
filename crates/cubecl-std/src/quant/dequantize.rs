@@ -26,6 +26,24 @@ pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF:
     }
 }
 
+/// [`dequantize_aligned`] for a scale a caller folded in f32, forming the product there too and
+/// narrowing only the result.
+///
+/// A folded scale reaches further down than what it produces: one below `F`'s smallest subnormal
+/// still scales quantized values into ordinary `F` ones. Narrowing it to `F` first rounds it to
+/// zero and takes the whole read with it, which is the failure two-level quantization exists to
+/// avoid in the first place.
+#[cube]
+pub fn dequantize_aligned_wide<Q: Scalar, F: Numeric, NQ: Size, NF: Size>(
+    value: Vector<Q, NQ>,
+    scale: f32,
+    #[comptime] scheme: QuantScheme,
+) -> Vector<F, NF> {
+    Vector::<F, NF>::cast_from(dequantize_aligned::<Q, f32, f32, NQ, NF>(
+        value, scale, scheme,
+    ))
+}
+
 /// The effective scale of values whose per-tensor scale multiplies on top of their block scale.
 ///
 /// The two multiply in f32: a block scale is normalized against the per-tensor one, so on its own

@@ -189,10 +189,10 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
                 check_outer_levels(&self.scheme);
                 let scale = read_scale(scope);
                 let scale = multiply_outer_scale::expand::<S>(scope, outer_scale, scale);
-                dequantize_aligned::expand::<Q, f32, F, NQ, NF>(scope, value, scale, self.scheme)
+                dequantize_aligned_wide::expand::<Q, F, NQ, NF>(scope, value, scale, self.scheme)
             }
             KnownScaleExpand::Whole(scale) => {
-                dequantize_aligned::expand::<Q, f32, F, NQ, NF>(scope, value, scale, self.scheme)
+                dequantize_aligned_wide::expand::<Q, F, NQ, NF>(scope, value, scale, self.scheme)
             }
         }
     }
