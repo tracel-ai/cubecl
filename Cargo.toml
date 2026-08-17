@@ -112,7 +112,7 @@ num-traits = { version = "0.2.19", default-features = false, features = [
     "libm",
 ] } # libm is for no_std
 
-buildid = "1"
+buildid = "1.0.5" # 1.0.5 is the min required for a fix
 bumpalo = "3"
 cfg-if = "1.0.0"
 enumset = { version = "1.1", default-features = false }
