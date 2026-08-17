@@ -47,11 +47,11 @@ pub fn dequantize_aligned_wide<Q: Scalar, F: Numeric, NQ: Size, NF: Size>(
 /// The effective scale of values whose per-tensor scale multiplies on top of their block scale.
 ///
 /// The two multiply in f32: a block scale is normalized against the per-tensor one, so on its own
-/// it overflows a narrow compute type by orders of magnitude before the outer scale can bring the
+/// it overflows a narrow compute type by orders of magnitude before the global scale can bring the
 /// product back into range.
 #[cube]
-pub fn multiply_outer_scale<S: CubePrimitive>(outer_scale: f32, scale: S) -> f32 {
-    outer_scale * f32::cast_from(scale)
+pub fn multiply_global_scale<S: CubePrimitive>(global_scale: f32, scale: S) -> f32 {
+    global_scale * f32::cast_from(scale)
 }
 
 /// Unpack a set of values from u32, and convert to the specified floating point format.

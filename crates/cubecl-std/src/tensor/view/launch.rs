@@ -439,7 +439,7 @@ mod dynamic {
     /// scale in the first element, read once per kernel as f32.
     pub struct ScaleBindings<C: Coordinates, R: Runtime> {
         pub(crate) inner: Box<ViewArg<C, R>>,
-        pub(crate) outer_scale: Option<BufferArg<R>>,
+        pub(crate) global_scale: Option<BufferArg<R>>,
     }
 
     impl<C: Coordinates, R: Runtime> ScaleBindings<C, R> {
@@ -447,24 +447,24 @@ mod dynamic {
         pub fn one(scales: ViewArg<C, R>) -> Self {
             Self {
                 inner: Box::new(scales),
-                outer_scale: None,
+                global_scale: None,
             }
         }
 
         /// The bindings of a two-level scheme: the block scales and the per-tensor scale they are
         /// normalized against.
-        pub fn two(scales: ViewArg<C, R>, outer_scale: BufferArg<R>) -> Self {
+        pub fn two(scales: ViewArg<C, R>, global_scale: BufferArg<R>) -> Self {
             Self {
                 inner: Box::new(scales),
-                outer_scale: Some(outer_scale),
+                global_scale: Some(global_scale),
             }
         }
 
         /// The number of bound levels, matched against the scheme's at construction: the inner
-        /// binding plus the outer scale when bound.
+        /// binding plus the global scale when bound.
         #[allow(clippy::len_without_is_empty, reason = "never empty by construction")]
         pub fn len(&self) -> usize {
-            1 + self.outer_scale.iter().count()
+            1 + self.global_scale.iter().count()
         }
     }
 
@@ -472,34 +472,34 @@ mod dynamic {
     #[derive(Clone)]
     pub struct ScaleBindingsCompilationArg<C: Coordinates> {
         pub(crate) inner: Box<ViewCompilationArg<C>>,
-        pub(crate) outer_scale: Option<BufferCompilationArg>,
+        pub(crate) global_scale: Option<BufferCompilationArg>,
     }
 
     impl<C: Coordinates> ScaleBindingsCompilationArg<C> {
         /// See [`ScaleBindings::len`].
         #[allow(clippy::len_without_is_empty, reason = "never empty by construction")]
         pub fn len(&self) -> usize {
-            1 + self.outer_scale.iter().count()
+            1 + self.global_scale.iter().count()
         }
     }
 
     impl<C: Coordinates> Eq for ScaleBindingsCompilationArg<C> {}
     impl<C: Coordinates> PartialEq for ScaleBindingsCompilationArg<C> {
         fn eq(&self, other: &Self) -> bool {
-            self.inner == other.inner && self.outer_scale == other.outer_scale
+            self.inner == other.inner && self.global_scale == other.global_scale
         }
     }
     impl<C: Coordinates> core::hash::Hash for ScaleBindingsCompilationArg<C> {
         fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
             self.inner.hash(state);
-            self.outer_scale.hash(state);
+            self.global_scale.hash(state);
         }
     }
     impl<C: Coordinates> core::fmt::Debug for ScaleBindingsCompilationArg<C> {
         fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
             f.debug_struct("ScaleBindings")
                 .field("inner", &self.inner)
-                .field("outer_scale", &self.outer_scale)
+                .field("global_scale", &self.global_scale)
                 .finish()
         }
     }
@@ -552,7 +552,7 @@ mod dynamic {
         /// corresponding scale.
         ///
         /// Panics when the bindings and the scheme's levels disagree in count, since a missing
-        /// level would be dropped from the reconstruction, and for an outer level this reader
+        /// level would be dropped from the reconstruction, and for an global level this reader
         /// cannot serve. See [`quant::check_scale_bindings`].
         pub fn new_quantized(
             values: Self,

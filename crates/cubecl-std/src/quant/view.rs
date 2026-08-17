@@ -30,7 +30,7 @@ pub enum KnownScale {
     None,
     /// The per-tensor scale of a two-level scheme; each read still looks its block scale up and
     /// multiplies this in.
-    Outer(f32),
+    Global(f32),
     /// The whole scale, whatever the caller multiplied into it. The scales view is never read:
     /// its address arithmetic and its load leave the kernel.
     Whole(f32),
@@ -87,20 +87,20 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         }
     }
 
-    /// [`new`](Self::new) with the per-tensor scale already read into `outer_scale`: each read
+    /// [`new`](Self::new) with the per-tensor scale already read into `global_scale`: each read
     /// still looks its block scale up through `scales`, then multiplies the register in. Takes a
     /// two-level scheme, whose per-tensor level the register stands for; a one-level scheme reads
     /// through [`new`](Self::new).
-    pub fn new_with_outer_scale(
+    pub fn new_with_global_scale(
         values: View<'a, Vector<Q, NQ>, C>,
         scales: View<'a, S, C>,
-        outer_scale: f32,
+        global_scale: f32,
         #[comptime] scheme: QuantScheme,
     ) -> Self {
         QuantizedView::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
-            known_scale: KnownScale::new_Outer(outer_scale),
+            known_scale: KnownScale::new_Global(global_scale),
             scheme,
             _ty: PhantomData,
         }
@@ -180,15 +180,15 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
                 let scale = read_scale(scope);
                 dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.scheme)
             }
-            KnownScaleExpand::Outer(outer_scale) => {
+            KnownScaleExpand::Global(global_scale) => {
                 assert!(
                     self.scheme.num_levels() > 1,
-                    "an outer scale rides in a register, but {:?} has no per-tensor level over its blocks it could hold",
+                    "an global scale rides in a register, but {:?} has no per-tensor level over its blocks it could hold",
                     self.scheme,
                 );
-                check_outer_levels(&self.scheme);
+                check_global_levels(&self.scheme);
                 let scale = read_scale(scope);
-                let scale = multiply_outer_scale::expand::<S>(scope, outer_scale, scale);
+                let scale = multiply_global_scale::expand::<S>(scope, global_scale, scale);
                 dequantize_aligned_wide::expand::<Q, F, NQ, NF>(scope, value, scale, self.scheme)
             }
             KnownScaleExpand::Whole(scale) => {
@@ -325,28 +325,28 @@ fn quant_vector_size_q(vector_size: usize, num_quants: usize) -> usize {
 
 /// Register the per-tensor scale binding. Registered as f32 to match the element type
 /// [`expand_known_scale`] reads it back with.
-fn register_outer_scale<R: Runtime>(
-    outer_scale: Option<BufferArg<R>>,
+fn register_global_scale<R: Runtime>(
+    global_scale: Option<BufferArg<R>>,
     launcher: &mut KernelLauncher<R>,
 ) -> Option<BufferCompilationArg> {
-    outer_scale.map(|outer_scale| <[f32] as LaunchArg>::register(outer_scale, launcher))
+    global_scale.map(|global_scale| <[f32] as LaunchArg>::register(global_scale, launcher))
 }
 
 /// The known scale a launch's bindings expand to.
 ///
-/// An outer scale is read once for the whole kernel: it is a single value for the entire tensor,
+/// An global scale is read once for the whole kernel: it is a single value for the entire tensor,
 /// and a read per element would be a global load the optimizer cannot hoist back out of a loop.
 /// Reading it as f32 is what keeps the two scales multiplying in f32 later, since a block scale
 /// alone can overflow a narrow `F`.
 fn expand_known_scale(
-    outer_scale: Option<&BufferCompilationArg>,
+    global_scale: Option<&BufferCompilationArg>,
     builder: &mut KernelBuilder,
 ) -> KnownScaleExpand {
-    match outer_scale {
-        Some(outer_scale) => {
-            let buffer = <[f32] as LaunchArg>::expand(outer_scale, builder);
+    match global_scale {
+        Some(global_scale) => {
+            let buffer = <[f32] as LaunchArg>::expand(global_scale, builder);
             let pos = NativeExpand::<usize>::from_lit(&builder.scope, 0);
-            KnownScaleExpand::Outer(*buffer.__expand_index_method(&builder.scope, pos))
+            KnownScaleExpand::Global(*buffer.__expand_index_method(&builder.scope, pos))
         }
         None => KnownScaleExpand::None,
     }
@@ -376,7 +376,7 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
 
         let values = View::<Vector<Q, NQ>, C>::expand(self.values, self.builder);
         let scales = View::<S, C>::expand(&self.scales.inner, self.builder);
-        let known_scale = expand_known_scale(self.scales.outer_scale.as_ref(), self.builder);
+        let known_scale = expand_known_scale(self.scales.global_scale.as_ref(), self.builder);
         let view = QuantizedViewExpand::new(values, scales, known_scale, self.scheme);
         ViewExpand::new(&self.builder.scope, view)
     }
@@ -408,12 +408,12 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
 
         let values = View::<Vector<Q, NQ>, C>::register(self.values, self.launcher);
         let inner = View::<S, C>::register(*self.scales.inner, self.launcher);
-        let outer_scale = register_outer_scale(self.scales.outer_scale, self.launcher);
+        let global_scale = register_global_scale(self.scales.global_scale, self.launcher);
         ViewCompilationArg::Quantized {
             values: Box::new(values),
             scales: ScaleBindingsCompilationArg {
                 inner: Box::new(inner),
-                outer_scale,
+                global_scale,
             },
             scheme: self.scheme,
         }

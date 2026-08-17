@@ -203,20 +203,20 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     assert_eq!(&actual_float, &float_data);
 }
 
-/// A view built in cube code with the outer level's scale already in a register: block scales
+/// A view built in cube code with the global level's scale already in a register: block scales
 /// are still read per position, the register multiplies in.
 #[cube(launch_unchecked)]
-pub fn kernel_outer_scale_quantized_view<F: Float, N: Size>(
+pub fn kernel_global_scale_quantized_view<F: Float, N: Size>(
     values: View<'_, Vector<u32, Const<1>>, Coords1d>,
     scales: View<'_, f32, Coords1d>,
-    outer_scale: InputScalar,
+    global_scale: InputScalar,
     output: &mut [Vector<F, N>],
     #[comptime] scheme: QuantScheme,
 ) {
-    let view = QuantizedView::<u32, Const<1>, f32, F, N, Coords1d>::new_with_outer_scale(
+    let view = QuantizedView::<u32, Const<1>, f32, F, N, Coords1d>::new_with_global_scale(
         values,
         scales,
-        outer_scale.get::<f32>(),
+        global_scale.get::<f32>(),
         scheme,
     )
     .view();
@@ -226,9 +226,9 @@ pub fn kernel_outer_scale_quantized_view<F: Float, N: Size>(
     }
 }
 
-/// [`new_with_outer_scale`](QuantizedView::new_with_outer_scale) reconstructs exactly what the two-binding launch
+/// [`new_with_global_scale`](QuantizedView::new_with_global_scale) reconstructs exactly what the two-binding launch
 /// path does: block scales read per position, the per-tensor scale riding in the register.
-pub fn test_quantized_outer_scale<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_quantized_global_scale<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let vector_size_float = 8;
     let block = 8;
 
@@ -248,7 +248,7 @@ pub fn test_quantized_outer_scale<R: Runtime, F: Float + CubeElement>(client: Co
     let output = client.empty(16 * size_of::<F>());
 
     unsafe {
-        kernel_outer_scale_quantized_view::launch_unchecked::<F, R>(
+        kernel_global_scale_quantized_view::launch_unchecked::<F, R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(16),
@@ -464,9 +464,9 @@ macro_rules! testgen_quantized_view {
         }
 
         #[$crate::tests::test_log::test]
-        fn test_quantized_view_outer_scale() {
+        fn test_quantized_view_global_scale() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_std::tests::view::quantized::test_quantized_outer_scale::<TestRuntime, $ty>(
+            cubecl_std::tests::view::quantized::test_quantized_global_scale::<TestRuntime, $ty>(
                 client,
             );
         }

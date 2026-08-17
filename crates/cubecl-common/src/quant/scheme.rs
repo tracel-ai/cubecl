@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 ///     .per_tensor(ScaleDtype::F32);
 /// ```
 ///
-/// A two-level scheme exists so block scales can live in a narrow type: the outer per-tensor scale
+/// A two-level scheme exists so block scales can live in a narrow type: the global per-tensor scale
 /// absorbs the tensor's dynamic range, and the block dtype only covers the spread between blocks.
 /// That spread is still bounded: a block whose scale falls further below the largest one than the
 /// block dtype can express is stored at that dtype's smallest value, far too coarse for it, and
@@ -91,7 +91,7 @@ impl QuantScheme {
         self
     }
 
-    /// The per-tensor scale level, the outer level when a block level is present.
+    /// The per-tensor scale level, the global level when a block level is present.
     ///
     /// A scheme storing no level at all resolves here to a per-tensor f32 scale; the resolution
     /// is not stored, so such a scheme compares equal to [`Default`], not to an explicit
