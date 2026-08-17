@@ -150,7 +150,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             #[cfg(feature = "spirv")]
             spirv_cache,
             #[cfg(feature = "spirv")]
-            build_id: cubecl_runtime::compiler::build_id::build_id_hash(),
+            build_id: cubecl_runtime::compiler::build_id_hash(),
             backend,
             utilities: Arc::new(utilities),
             shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),

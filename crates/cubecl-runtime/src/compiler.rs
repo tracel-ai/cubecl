@@ -4,7 +4,7 @@ use crate::{
 };
 use alloc::string::{String, ToString};
 use core::hash::Hash;
-use cubecl_common::hash::StableHash;
+use cubecl_common::hash::{StableHash, StableHasher};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 #[cfg(std_io)]
@@ -12,8 +12,13 @@ use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
 use cubecl_environment::persistence::{Store, StoreKey, StoreValue};
 use thiserror::Error;
 
-/// Modified `buildid`
-pub mod build_id;
+/// Platform-specific build identifier, changes on rebuild
+pub type BuildId = Option<&'static [u8]>;
+
+/// Pre-hashed build ID
+pub fn build_id_hash() -> StableHash {
+    StableHasher::hash_one(&buildid::build_id())
+}
 
 /// A store for `backend`'s compiled artifacts, or `None` when compilation
 /// caching is disabled or the target has nowhere durable to put them.

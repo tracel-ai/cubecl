@@ -13,7 +13,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::Store;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::compiler::{
-    CompilationCache, build_id::build_id_hash, compilation_store, store_compiled,
+    CompilationCache, build_id_hash, compilation_store, store_compiled,
 };
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{

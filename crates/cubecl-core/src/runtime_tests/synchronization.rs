@@ -258,8 +258,6 @@ pub fn test_workgroup_uniform_load_vec<R: Runtime>(client: ComputeClient<R>) {
     assert!(f32::from_bytes(&actual).iter().all(|&x| x == 7.0f32));
 }
 
-#[allow(missing_docs)]
-
 /// `workgroup_uniform_load` has to synchronise on its own: one unit publishes a
 /// value and the rest read it back through the uniform load, with no explicit
 /// `sync_cube` in between. The value is used as a loop bound, so a stale read

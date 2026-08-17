@@ -2,7 +2,7 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_runtime::{
-    compiler::{CompilationError, build_id},
+    compiler::{CompilationError, build_id_hash},
     validation::{validate_cube_dim, validate_units},
 };
 
@@ -87,7 +87,7 @@ impl CudaContext {
             timestamps: TimestampProfiler::default(),
             compilation_options,
             properties,
-            build_id: build_id::build_id_hash(),
+            build_id: build_id_hash(),
         }
     }
 

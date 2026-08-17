@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_runtime::{
-    compiler::{CubeTask, KernelCacheKey, build_id},
+    compiler::{CubeTask, KernelCacheKey, build_id_hash},
     logging::ServerLogger,
 };
 use objc2::rc::Retained;
@@ -72,7 +72,7 @@ impl MetalContext {
         Self {
             compiled_kernels: CompilationCache::mirroring(&msl_cache),
             msl_cache,
-            build_id: build_id::build_id_hash(),
+            build_id: build_id_hash(),
             device,
             compilation_options,
             msl_compile_options,
