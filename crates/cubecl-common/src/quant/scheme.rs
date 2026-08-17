@@ -523,12 +523,7 @@ impl BlockSize {
     /// complete trailing dimension. Whole-tensor granularity is a scheme's per-tensor level, not
     /// a block size.
     pub fn new(values: impl AsRef<[u8]>) -> Self {
-        let values = values.as_ref();
-        debug_assert!(
-            values.len() <= MAX_DIMS,
-            "Tried creating a block size larger than the cap"
-        );
-        Self::canonicalize(values)
+        Self::canonicalize(values.as_ref())
     }
 
     fn canonicalize(values: &[u8]) -> Self {
@@ -537,6 +532,10 @@ impl BlockSize {
             .position(|&value| value != 1)
             .unwrap_or(values.len());
         let values = &values[skip..];
+        debug_assert!(
+            values.len() <= MAX_DIMS,
+            "Tried creating a block size larger than the cap"
+        );
         let len = values.len().min(MAX_DIMS);
         let mut storage = [1; MAX_DIMS];
         storage[..len].copy_from_slice(&values[..len]);
@@ -654,6 +653,14 @@ mod tests {
     #[test]
     fn unit_dimensions_ahead_of_a_full_block_canonicalize_away() {
         assert_eq!(BlockSize::new([1, 0]), BlockSize::new([0]));
+    }
+
+    #[test]
+    fn leading_unit_dimensions_beyond_the_cap_still_canonicalize() {
+        assert_eq!(
+            BlockSize::new([1, 1, 8, 4, 2, 3]),
+            BlockSize::new([8, 4, 2, 3])
+        );
     }
 
     #[test]
