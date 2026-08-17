@@ -32,8 +32,10 @@ pub(crate) struct FlushingPolicyState {
 impl FlushingPolicyState {
     /// Record a newly staged [`Bytes`] allocation.
     pub(crate) fn register(&mut self, bytes: &Bytes) {
-        self.bytes_count += 1;
-        self.bytes_size += bytes.len() as u32;
+        self.bytes_count = self.bytes_count.saturating_add(1);
+        self.bytes_size = self
+            .bytes_size
+            .saturating_add(u32::try_from(bytes.len()).unwrap_or(u32::MAX));
     }
 
     /// Reset all counters, typically called after a flush.
@@ -96,6 +98,20 @@ mod policy_tests {
         // Only 2 allocations but already over the size limit.
         s.register(&Bytes::from_elems(vec![0u8; 60]));
         s.register(&Bytes::from_elems(vec![0u8; 60]));
+        assert!(s.should_flush(&policy()));
+    }
+
+    #[test]
+    fn register_saturates_instead_of_overflowing() {
+        // Regression test for #1359: staging allocations without an intervening
+        // reset must not panic with "attempt to add with overflow".
+        let mut s = FlushingPolicyState {
+            bytes_count: u32::MAX,
+            bytes_size: u32::MAX - 1,
+        };
+        s.register(&Bytes::from_elems(vec![0u8; 8]));
+        assert_eq!(s.bytes_count, u32::MAX);
+        assert_eq!(s.bytes_size, u32::MAX);
         assert!(s.should_flush(&policy()));
     }
 
