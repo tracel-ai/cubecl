@@ -9,6 +9,7 @@
 use cubecl_core::ir::dialect::atomic::AtomicLoadOp;
 use cubecl_core::ir::dialect::memory::LoadOp;
 use cubecl_core::ir::dialect::plane::{AtomicUniformLoadOp, UniformLoadOp};
+use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope, SyncScopeAttr};
 use cubecl_core::ir::prelude::*;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -81,6 +82,12 @@ pub fn atomic_fetch_add_acq_rel(atomic: &Atomic<u32>, value: u32) -> u32 {
 #[op_interface_impl]
 impl LowerOp for UniformLoadOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
+        // Barrier first: these ops are a sync plus a load, so a value written
+        // by one unit is visible to the rest.
+        scope.register(&SyncOp::new(
+            scope.ctx_mut(),
+            SyncScopeAttr::new(SyncScope::Cube),
+        ));
         let ptr = self.ptr(scope.ctx());
         vec![scope.register_with_result(&LoadOp::new(scope.ctx_mut(), ptr))]
     }
@@ -89,6 +96,12 @@ impl LowerOp for UniformLoadOp {
 #[op_interface_impl]
 impl LowerOp for AtomicUniformLoadOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
+        // Barrier first: these ops are a sync plus a load, so a value written
+        // by one unit is visible to the rest.
+        scope.register(&SyncOp::new(
+            scope.ctx_mut(),
+            SyncScopeAttr::new(SyncScope::Cube),
+        ));
         let ptr = self.ptr(scope.ctx());
         vec![scope.register_with_result(&AtomicLoadOp::new(scope.ctx_mut(), ptr))]
     }
