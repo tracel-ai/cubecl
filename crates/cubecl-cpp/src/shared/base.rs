@@ -28,6 +28,7 @@ use cubecl_core::{
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
+        minifloat::{LowerMinifloatCast, LowerMinifloatCastPass, NativeFp8},
         saturating::LowerSaturatingArithmeticPass,
     },
     prelude::KernelDefinition,
@@ -204,6 +205,15 @@ where
         )));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
 
+        // CUDA converts fp8 with cuda_fp8.h, which carries its own software path below sm_89.
+        let native_fp8 = match T::target() {
+            Target::Cuda => NativeFp8::ALL,
+            Target::Hip | Target::Metal => NativeFp8::NONE,
+        };
+        func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
+            native_fp8,
+        )));
+
         // Shared lowerings can create ops that need target-specific lowerings, but target-specific
         // lowerings should take priority. So we just run the target-specific lowerings twice.
         func_passes.add_pass(LowerOpsCppPass::<T>::default());
@@ -313,6 +323,14 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
 
     for ty in supported_types {
         props.register_type_usage(ty, TypeUsage::all());
+    }
+
+    // Converted natively or in software, never computed on: everything casts to compute.
+    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
+        props.register_type_usage(
+            ElemType::Float(ty),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
     }
 
     for ty in supported_atomic_types {
