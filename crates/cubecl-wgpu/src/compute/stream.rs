@@ -648,6 +648,39 @@ impl WgpuStream {
         Ok(())
     }
 
+    /// Start a new compute pass if needed. The `forget_lifetime` allows
+    /// storing this with a 'static lifetime, but the compute pass must
+    /// be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
+    ///
+    /// An associated function over the individual fields (rather than a
+    /// `&mut self` method) so callers keep access to their other fields while
+    /// the returned pass borrows `compute_pass`.
+    fn current_pass<'a>(
+        compute_pass: &'a mut Option<wgpu::ComputePass<'static>>,
+        timings: &mut Timings,
+        encoder: &mut wgpu::CommandEncoder,
+        device: &wgpu::Device,
+    ) -> &'a mut wgpu::ComputePass<'static> {
+        compute_pass.get_or_insert_with(|| {
+            let writes = if let Timings::Device(query_time) = timings {
+                query_time.register_profile_device(device).map(|query_set| {
+                    wgpu::ComputePassTimestampWrites {
+                        query_set,
+                        beginning_of_pass_write_index: Some(0),
+                        end_of_pass_write_index: Some(1),
+                    }
+                })
+            } else {
+                None
+            };
+            encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: writes,
+                })
+                .forget_lifetime()
+        })
+    }
     fn register_pipeline(
         &mut self,
         pipeline: Arc<ComputePipeline>,
@@ -669,28 +702,12 @@ impl WgpuStream {
             })
             .collect::<Vec<_>>();
 
-        // Start a new compute pass if needed. The forget_lifetime allows
-        // to store this with a 'static lifetime, but the compute pass must
-        // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
-        let pass = self.compute_pass.get_or_insert_with(|| {
-            let writes = if let Timings::Device(query_time) = &mut self.timings {
-                query_time
-                    .register_profile_device(&self.device)
-                    .map(|query_set| wgpu::ComputePassTimestampWrites {
-                        query_set,
-                        beginning_of_pass_write_index: Some(0),
-                        end_of_pass_write_index: Some(1),
-                    })
-            } else {
-                None
-            };
-            self.encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
-                    timestamp_writes: writes,
-                })
-                .forget_lifetime()
-        });
+        let pass = Self::current_pass(
+            &mut self.compute_pass,
+            &mut self.timings,
+            &mut self.encoder,
+            &self.device,
+        );
 
         self.tasks_count += 1;
 
