@@ -889,6 +889,7 @@ dependencies = [
  "bytemuck",
  "cubecl-common",
  "cubecl-core",
+ "cubecl-cpu",
  "cubecl-environment",
  "cubecl-opt",
  "cubecl-runtime",

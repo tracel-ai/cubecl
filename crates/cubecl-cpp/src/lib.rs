@@ -20,3 +20,6 @@ pub mod target;
 
 #[cfg(feature = "metal")]
 pub type MslCompiler = shared::CppCompiler<target::Metal>;
+
+#[cfg(test)]
+mod tests;
