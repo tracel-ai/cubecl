@@ -62,3 +62,6 @@ impl Display for SpirvKernel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

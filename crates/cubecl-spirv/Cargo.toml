@@ -65,3 +65,7 @@ cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.2" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 pliron = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+# The CPU runtime lends a client to expand kernels for codegen tests; nothing runs on it.
+cubecl-cpu = { path = "../cubecl-cpu", version = "=0.11.0-pre.2" }

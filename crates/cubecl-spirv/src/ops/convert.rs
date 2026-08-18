@@ -6,7 +6,7 @@ use cubecl_core::{
 };
 use cubecl_ir::{Scope, dialect::general::CastOp, interfaces::TypedExt, prelude::*};
 use pliron::printable::Printable;
-use pliron_spirv::{ops::*, types::FloatType};
+use pliron_spirv::{decorations::DecoratableOp, ops::*, types::FloatType};
 
 use crate::{lower::LowerOp, ops::to_spirv_dialect::ToSpirvDialectOp, types::ty_to_spirv_dialect};
 
@@ -78,6 +78,11 @@ pub(crate) fn cast(
         rewriter.append_op_with_result(ctx, &conv)
     } else if in_float && out_float {
         let conv = FConvertOp::new(ctx, out_ty, from);
+        // Native fp8 otherwise sends overflow to NaN (e4m3) or inf (e5m2); the codecs and every
+        // other backend clip to the largest finite value.
+        if Fp8Format::of_type(ctx, to_ty).is_some() {
+            conv.set_decoration_saturated_to_largest_float8_normal_conversion_ext(ctx);
+        }
         rewriter.append_op_with_result(ctx, &conv)
     } else {
         panic!(
