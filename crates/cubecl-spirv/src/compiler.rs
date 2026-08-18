@@ -15,6 +15,7 @@ use cubecl_core::{
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
+        minifloat::{LowerMinifloatCast, LowerMinifloatCastPass, NativeFp8},
         saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
@@ -193,6 +194,12 @@ impl SpirvCompiler {
         func_passes.add_pass(UnrollPass::new(comp_opts.vulkan.max_vector_size));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
+        func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
+            match comp_opts.vulkan.supports_float8 {
+                true => NativeFp8::ALL,
+                false => NativeFp8::NONE,
+            },
+        )));
         func_passes.add_pass(BranchToSCFPass::default());
 
         passes.add_pass(NestedOpsPass::new(func_passes));

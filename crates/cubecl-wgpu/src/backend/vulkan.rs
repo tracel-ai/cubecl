@@ -362,6 +362,12 @@ fn register_features(
         comp_options.vulkan.supports_fp_fast_math = true;
     }
 
+    if let Some(float8) = &extended_feat.float8
+        && float8.shader_float8 == TRUE
+    {
+        comp_options.vulkan.supports_float8 = true;
+    }
+
     if let Some(wg_explicit_layout) = &extended_feat.wg_explicit_layout
         && wg_explicit_layout.workgroup_memory_explicit_layout == TRUE
     {
@@ -453,8 +459,8 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         .buf_16
         .is_some_and(|it| it.uniform_and_storage_buffer16_bit_access == TRUE);
     let storage8 = ext_feat
-        .buf_16
-        .is_some_and(|it| it.uniform_and_storage_buffer16_bit_access == TRUE);
+        .buf_8
+        .is_some_and(|it| it.uniform_and_storage_buffer8_bit_access == TRUE);
 
     for ty in default_types {
         props.register_type_usage(ty, TypeUsage::all());
@@ -510,6 +516,14 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
                 ElemType::UInt(UIntKind::U8),
                 TypeUsage::maybe_store(storage8),
             );
+            // fp8 converts natively with `VK_EXT_shader_float8` and in software otherwise; either
+            // way it lives in 8-bit ints, so it stores exactly where they do.
+            for kind in [FloatKind::E4M3, FloatKind::E5M2] {
+                props.register_type_usage(ElemType::Float(kind), TypeUsage::Conversion);
+                if storage8 {
+                    props.register_type_usage(ElemType::Float(kind), TypeUsage::Buffer);
+                }
+            }
         }
     }
 
@@ -522,17 +536,6 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         }
         if bfloat16.shader_b_float16_dot_product == TRUE {
             props.register_type_usage(ElemType::Float(FloatKind::BF16), TypeUsage::DotProduct);
-        }
-    }
-
-    if let Some(float8) = ext_feat.float8
-        && float8.shader_float8 == TRUE
-    {
-        props.register_type_usage(ElemType::Float(FloatKind::E4M3), TypeUsage::Conversion);
-        props.register_type_usage(ElemType::Float(FloatKind::E5M2), TypeUsage::Conversion);
-        if storage8 {
-            props.register_type_usage(ElemType::Float(FloatKind::E4M3), TypeUsage::Buffer);
-            props.register_type_usage(ElemType::Float(FloatKind::E5M2), TypeUsage::Buffer);
         }
     }
 

@@ -1,6 +1,7 @@
 use cubecl_core::{
     self as cubecl, define_scalar, define_size,
     num_traits::{One, Zero},
+    post_processing::minifloat::Fp8Format,
     prelude::*,
 };
 use cubecl_ir::{Scope, dialect::general::CastOp, interfaces::TypedExt, prelude::*};
@@ -45,10 +46,15 @@ pub(crate) fn cast(
 
     let in_float = in_ty_spirv.deref(ctx).is::<FloatType>();
     let in_sint = in_ty.is_signed_int(ctx);
-    let in_uint = in_ty.is_unsigned_int(ctx) || in_ty.is_index(ctx);
+    // fp8 without a SPIR-V float type is emulated: the value is its byte, zero extended.
+    let in_uint = in_ty.is_unsigned_int(ctx)
+        || in_ty.is_index(ctx)
+        || (!in_float && Fp8Format::of_type(ctx, in_ty).is_some());
     let out_float = to_ty_spirv.deref(ctx).is::<FloatType>();
     let out_sint = to_ty.is_signed_int(ctx);
-    let out_uint = to_ty.is_unsigned_int(ctx) || to_ty.is_index(ctx);
+    let out_uint = to_ty.is_unsigned_int(ctx)
+        || to_ty.is_index(ctx)
+        || (!out_float && Fp8Format::of_type(ctx, to_ty).is_some());
 
     if in_ty_spirv == to_ty_spirv {
         from
