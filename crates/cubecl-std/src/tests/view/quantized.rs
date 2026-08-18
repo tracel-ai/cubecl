@@ -1,9 +1,9 @@
 use cubecl::prelude::*;
 use cubecl_common::{
-    e2m1, e2m1x2,
+    e2m1, e2m1x2, e4m3,
     quant::scheme::{QuantMode, QuantScheme, QuantValue, ScaleDtype},
 };
-use cubecl_core::ir::{ElemType, FloatKind};
+use cubecl_core::ir::{ElemType, FloatKind, features::TypeUsage};
 use cubecl_core::{self as cubecl};
 use half::f16;
 
@@ -398,6 +398,77 @@ pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: 
     }
 }
 
+/// Two levels with the block scales stored as e4m3, the layout the second level exists for. Runs
+/// natively or through cubecl's software fp8 conversion, whichever the runtime has.
+pub fn test_quantized_two_level_ue4m3<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R>,
+) {
+    let usage = client.properties().type_usage(e4m3::elem_type_native());
+    if !usage.is_superset(TypeUsage::Conversion | TypeUsage::Buffer) {
+        return;
+    }
+    let vector_size_float = 8;
+    let block = 8;
+
+    let scheme = QuantScheme::default()
+        .per_block([block as u8], ScaleDtype::UE4M3)
+        .per_tensor(ScaleDtype::F32)
+        .with_value(QuantValue::Q4F);
+
+    // Powers of two and short mantissas, so every product is exact in f16 too.
+    let global_scale = 2f32.powi(-3);
+    let block_scales = [e4m3::from_f32(1.5), e4m3::from_f32(0.1171875)];
+    assert_eq!(block_scales.map(|s| s.to_f32()), [1.5, 0.1171875]);
+    let expected = (0..16)
+        .map(|i| F::new(global_scale * block_scales[i / block].to_f32() * (i as f32 - 8.0)))
+        .collect::<Vec<_>>();
+
+    let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
+    let scales = client.create_from_slice(&block_scales.map(|s| s.to_bits()));
+    let global = client.create_from_slice(f32::as_bytes(&[global_scale]));
+
+    for mode in [
+        ReadMode::Read,
+        ReadMode::Checked,
+        ReadMode::Masked,
+        ReadMode::Unchecked,
+    ] {
+        let output = client.empty(16 * size_of::<F>());
+
+        let values_view = ViewArg::new_array::<PlainLayout>(
+            unsafe { BufferArg::from_raw_parts(values.clone(), 2) },
+            (),
+        );
+        let scales_view = ViewArg::new_array::<PlainLayout>(
+            unsafe { BufferArg::from_raw_parts(scales.clone(), 2) },
+            (),
+        );
+        let global_buffer = unsafe { BufferArg::from_raw_parts(global.clone(), 1) };
+        let quantized_view = ViewArg::new_quantized(
+            values_view,
+            ScaleBindings::two(scales_view, global_buffer),
+            scheme,
+        );
+
+        unsafe {
+            kernel_quantized_view::launch_unchecked::<F, R>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_1d(2),
+                vector_size_float,
+                quantized_view,
+                BufferArg::from_raw_parts(output.clone(), 16),
+                mode,
+            );
+        }
+
+        let actual = client.read_one_unchecked(output);
+        let actual = F::from_bytes(&actual);
+
+        assert_eq!(actual, &expected, "reading through {mode:?}");
+    }
+}
+
 /// The per-tensor scale earns the f32 intermediate its keep here: the block scales overflow `f16`,
 /// so folding the multiply back into `F` reconstructs every value as infinity.
 ///
@@ -559,6 +630,14 @@ macro_rules! testgen_quantized_view {
         fn test_quantized_view_lookup() {
             let client = TestRuntime::client(&Default::default());
             cubecl_std::tests::view::quantized::test_quantized_lookup::<TestRuntime, $ty>(client);
+        }
+
+        #[$crate::tests::test_log::test]
+        fn test_quantized_view_two_level_ue4m3() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_std::tests::view::quantized::test_quantized_two_level_ue4m3::<TestRuntime, $ty>(
+                client,
+            );
         }
 
         #[$crate::tests::test_log::test]
