@@ -282,14 +282,6 @@ impl core::fmt::Debug for ResourceLimitError {
     }
 }
 
-/// The error returned by the default (unsupported) graph-capture methods.
-fn graph_capture_unsupported() -> ServerError {
-    ServerError::Generic {
-        reason: alloc::string::String::from("graph capture is not supported by this backend"),
-        backtrace: BackTrace::capture(),
-    }
-}
-
 /// Error that can happen asynchronously while executing registered kernels.
 #[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
@@ -342,6 +334,25 @@ pub enum ServerError {
 impl Debug for ServerError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{self}")
+    }
+}
+
+impl ServerError {
+    /// A graph-capture call the stream's lifecycle does not allow — a
+    /// `begin_capture` without `graph_prepare`, a second overlapping capture, a
+    /// replay of an unknown graph, or an operation a capture window cannot
+    /// record. `reason` names the call and what was wrong with it.
+    pub fn graph_state(reason: impl Into<String>) -> Self {
+        Self::Generic {
+            reason: reason.into(),
+            backtrace: BackTrace::capture(),
+        }
+    }
+
+    /// The error the default (unsupported) graph-capture methods return, for a
+    /// backend that has no graph support at all.
+    pub fn graph_capture_unsupported() -> Self {
+        Self::graph_state("graph capture is not supported by this backend")
     }
 }
 
@@ -470,7 +481,7 @@ where
     /// HIP) overrides these methods.
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = stream_id;
-        Err(graph_capture_unsupported())
+        Err(ServerError::graph_capture_unsupported())
     }
 
     /// Stop recording (see [`begin_capture`](ComputeServer::begin_capture)),
@@ -478,7 +489,7 @@ where
     /// [`GraphId`], ready to [replay](ComputeServer::replay).
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let _ = stream_id;
-        Err(graph_capture_unsupported())
+        Err(ServerError::graph_capture_unsupported())
     }
 
     /// Replay the graph identified by `graph` on `stream_id` — one dispatch that
