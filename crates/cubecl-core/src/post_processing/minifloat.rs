@@ -99,7 +99,10 @@ impl Fp8Format {
 
 /// Decodes fp8 bit patterns held in the low byte of each lane. Bits above the byte are ignored.
 #[cube]
-pub fn fp8_bits_to_f32<N: Size>(bits: Vector<u32, N>, #[comptime] format: Fp8Format) -> Vector<f32, N> {
+pub fn fp8_bits_to_f32<N: Size>(
+    bits: Vector<u32, N>,
+    #[comptime] format: Fp8Format,
+) -> Vector<f32, N> {
     let mantissa_bits = comptime![format.mantissa_bits()];
     let exponent_mask = comptime![(1u32 << format.exponent_bits()) - 1];
     let mantissa_mask = comptime![(1u32 << mantissa_bits) - 1];
@@ -139,7 +142,10 @@ pub fn fp8_bits_to_f32<N: Size>(bits: Vector<u32, N>, #[comptime] format: Fp8For
 /// than producing NaN or inf, matching the host codecs; a quantization scale must never come back
 /// as something that poisons every value it scales.
 #[cube]
-pub fn f32_to_fp8_bits<N: Size>(value: Vector<f32, N>, #[comptime] format: Fp8Format) -> Vector<u32, N> {
+pub fn f32_to_fp8_bits<N: Size>(
+    value: Vector<f32, N>,
+    #[comptime] format: Fp8Format,
+) -> Vector<u32, N> {
     let mantissa_bits = comptime![format.mantissa_bits()];
     let mantissa_shift = comptime![23 - mantissa_bits];
     let bias = comptime![format.bias()];
@@ -177,7 +183,11 @@ pub fn f32_to_fp8_bits<N: Size>(value: Vector<f32, N>, #[comptime] format: Fp8Fo
         + lsb;
     let normal = rounded >> Vector::new(mantissa_shift);
 
-    let code = select_many(magnitude.less_than(&Vector::new(min_normal)), subnormal, normal);
+    let code = select_many(
+        magnitude.less_than(&Vector::new(min_normal)),
+        subnormal,
+        normal,
+    );
     let code = select_many(
         magnitude.greater_than(&Vector::new(max_value)),
         Vector::new(max_code),
@@ -228,7 +238,8 @@ pub struct LowerMinifloatCast {
 
 impl LowerMinifloatCast {
     fn emulated(&self, ctx: &Context, value: impl Typed) -> Option<Fp8Format> {
-        Fp8Format::of_type(ctx, value.scalar_ty(ctx)).filter(|format| !self.native.contains(*format))
+        Fp8Format::of_type(ctx, value.scalar_ty(ctx))
+            .filter(|format| !self.native.contains(*format))
     }
 }
 
@@ -291,8 +302,14 @@ mod tests {
 
     #[test]
     fn field_constants_agree_with_the_codecs() {
-        assert_eq!(Fp8Format::E4M3.max_value(), cubecl_common::e4m3::MAX.to_f32());
-        assert_eq!(Fp8Format::E5M2.max_value(), cubecl_common::e5m2::MAX.to_f32());
+        assert_eq!(
+            Fp8Format::E4M3.max_value(),
+            cubecl_common::e4m3::MAX.to_f32()
+        );
+        assert_eq!(
+            Fp8Format::E5M2.max_value(),
+            cubecl_common::e5m2::MAX.to_f32()
+        );
         assert_eq!(
             Fp8Format::E4M3.max_code(),
             cubecl_common::e4m3::MAX.to_bits() as u32
