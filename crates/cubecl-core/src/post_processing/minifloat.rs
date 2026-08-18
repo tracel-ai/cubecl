@@ -17,6 +17,18 @@ use crate::{self as cubecl, prelude::*};
 
 define_size!(N);
 
+/// The bits of the f32 mantissa field, the sign bit and everything under it.
+const F32_MANTISSA_BITS: u32 = f32::MANTISSA_DIGITS - 1;
+const F32_MANTISSA_MASK: u32 = (1 << F32_MANTISSA_BITS) - 1;
+const F32_MAGNITUDE_MASK: u32 = u32::MAX >> 1;
+const F32_EXPONENT_BIAS: u32 = (f32::MAX_EXP - 1) as u32;
+const F32_INFINITY_BITS: u32 = f32::INFINITY.to_bits();
+const F32_NAN_BITS: u32 = F32_INFINITY_BITS | 1 << (F32_MANTISSA_BITS - 1);
+/// The sign bit of an fp8 code, and how far it sits below f32's.
+const FP8_SIGN_BIT: u32 = 0x80;
+const FP8_MAGNITUDE_MASK: u32 = FP8_SIGN_BIT - 1;
+const SIGN_SHIFT: u32 = 31 - 7;
+
 /// An 8-bit float encoding, by its field widths.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Fp8Format {
@@ -76,12 +88,14 @@ impl Fp8Format {
 
     /// The smallest normal value, `2^(1 - bias)`.
     pub const fn min_normal(self) -> f32 {
-        f32::from_bits((127 + 1 - self.bias()) << 23)
+        f32::from_bits((F32_EXPONENT_BIAS + 1 - self.bias()) << F32_MANTISSA_BITS)
     }
 
     /// The distance between subnormals, `2^(1 - bias - mantissa_bits)`.
     pub const fn subnormal_step(self) -> f32 {
-        f32::from_bits((127 + 1 - self.bias() - self.mantissa_bits()) << 23)
+        f32::from_bits(
+            (F32_EXPONENT_BIAS + 1 - self.bias() - self.mantissa_bits()) << F32_MANTISSA_BITS,
+        )
     }
 
     /// The format of a scalar type, if it is one of these.
@@ -106,16 +120,16 @@ pub fn fp8_bits_to_f32<N: Size>(
     let mantissa_bits = comptime![format.mantissa_bits()];
     let exponent_mask = comptime![(1u32 << format.exponent_bits()) - 1];
     let mantissa_mask = comptime![(1u32 << mantissa_bits) - 1];
-    let rebias = comptime![127 - format.bias()];
-    let mantissa_shift = comptime![23 - mantissa_bits];
+    let rebias = comptime![F32_EXPONENT_BIAS - format.bias()];
+    let mantissa_shift = comptime![F32_MANTISSA_BITS - mantissa_bits];
     let subnormal_step = comptime![format.subnormal_step()];
 
-    let sign = (bits & Vector::new(0x80u32)) << Vector::new(24u32);
+    let sign = (bits & Vector::new(FP8_SIGN_BIT)) << Vector::new(SIGN_SHIFT);
     let exponent = (bits >> Vector::new(mantissa_bits)) & Vector::new(exponent_mask);
     let mantissa = bits & Vector::new(mantissa_mask);
 
     let normal = sign
-        | ((exponent + Vector::new(rebias)) << Vector::new(23u32))
+        | ((exponent + Vector::new(rebias)) << Vector::new(F32_MANTISSA_BITS))
         | (mantissa << Vector::new(mantissa_shift));
     let subnormal = sign
         | Vector::<u32, N>::reinterpret(
@@ -123,14 +137,18 @@ pub fn fp8_bits_to_f32<N: Size>(
         );
     let value = select_many(exponent.equal(&Vector::new(0u32)), subnormal, normal);
 
-    let nan = sign | Vector::new(0x7FC0_0000u32);
+    let nan = sign | Vector::new(F32_NAN_BITS);
     let result = if comptime![format.has_infinity()] {
-        let inf = sign | Vector::new(0x7F80_0000u32);
+        let inf = sign | Vector::new(F32_INFINITY_BITS);
         let special = select_many(mantissa.equal(&Vector::new(0u32)), inf, nan);
         select_many(exponent.equal(&Vector::new(exponent_mask)), special, value)
     } else {
-        let magnitude = bits & Vector::new(0x7Fu32);
-        select_many(magnitude.equal(&Vector::new(0x7Fu32)), nan, value)
+        let magnitude = bits & Vector::new(FP8_MAGNITUDE_MASK);
+        select_many(
+            magnitude.equal(&Vector::new(FP8_MAGNITUDE_MASK)),
+            nan,
+            value,
+        )
     };
 
     Vector::<f32, N>::reinterpret(result)
@@ -147,7 +165,7 @@ pub fn f32_to_fp8_bits<N: Size>(
     #[comptime] format: Fp8Format,
 ) -> Vector<u32, N> {
     let mantissa_bits = comptime![format.mantissa_bits()];
-    let mantissa_shift = comptime![23 - mantissa_bits];
+    let mantissa_shift = comptime![F32_MANTISSA_BITS - mantissa_bits];
     let bias = comptime![format.bias()];
     let half_ulp = comptime![1u32 << (mantissa_shift - 1)];
     let subnormal_scale = comptime![1.0 / format.subnormal_step()];
@@ -157,8 +175,8 @@ pub fn f32_to_fp8_bits<N: Size>(
     let nan_code = comptime![format.nan_code()];
 
     let bits = Vector::<u32, N>::reinterpret(value);
-    let sign = (bits >> Vector::new(24u32)) & Vector::new(0x80u32);
-    let magnitude_bits = bits & Vector::new(0x7FFF_FFFFu32);
+    let sign = (bits >> Vector::new(SIGN_SHIFT)) & Vector::new(FP8_SIGN_BIT);
+    let magnitude_bits = bits & Vector::new(F32_MAGNITUDE_MASK);
     let magnitude = Vector::<f32, N>::reinterpret(magnitude_bits);
 
     // Below the smallest normal the code is a count of subnormal steps: truncate, then round to
@@ -175,10 +193,11 @@ pub fn f32_to_fp8_bits<N: Size>(
 
     // In the normal range, rebias the exponent and round the mantissa in place; a mantissa that
     // rounds over carries into the exponent on its own.
-    let exponent = (magnitude_bits >> Vector::new(23u32)) + Vector::new(bias);
-    let mantissa = magnitude_bits & Vector::new(0x007F_FFFFu32);
+    let exponent = (magnitude_bits >> Vector::new(F32_MANTISSA_BITS)) + Vector::new(bias);
+    let mantissa = magnitude_bits & Vector::new(F32_MANTISSA_MASK);
     let lsb = (mantissa >> Vector::new(mantissa_shift)) & Vector::new(1u32);
-    let rounded = ((exponent - Vector::new(127u32)) << Vector::new(23u32) | mantissa)
+    let rounded = ((exponent - Vector::new(F32_EXPONENT_BIAS)) << Vector::new(F32_MANTISSA_BITS)
+        | mantissa)
         + Vector::new(half_ulp - 1)
         + lsb;
     let normal = rounded >> Vector::new(mantissa_shift);
@@ -194,7 +213,7 @@ pub fn f32_to_fp8_bits<N: Size>(
         code,
     );
     let code = select_many(
-        magnitude_bits.greater_than(&Vector::new(0x7F80_0000u32)),
+        magnitude_bits.greater_than(&Vector::new(F32_INFINITY_BITS)),
         Vector::new(nan_code),
         code,
     );
