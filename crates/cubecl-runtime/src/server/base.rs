@@ -282,14 +282,6 @@ impl core::fmt::Debug for ResourceLimitError {
     }
 }
 
-/// The error returned by the default (unsupported) graph-capture methods.
-fn graph_capture_unsupported() -> ServerError {
-    ServerError::Generic {
-        reason: alloc::string::String::from("graph capture is not supported by this backend"),
-        backtrace: BackTrace::capture(),
-    }
-}
-
 /// Error that can happen asynchronously while executing registered kernels.
 #[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
@@ -342,6 +334,25 @@ pub enum ServerError {
 impl Debug for ServerError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{self}")
+    }
+}
+
+impl ServerError {
+    /// A graph-capture call the stream's lifecycle does not allow — a
+    /// `begin_capture` without `graph_prepare`, a second overlapping capture, a
+    /// replay of an unknown graph, or an operation a capture window cannot
+    /// record. `reason` names the call and what was wrong with it.
+    pub fn graph_state(reason: impl Into<String>) -> Self {
+        Self::Generic {
+            reason: reason.into(),
+            backtrace: BackTrace::capture(),
+        }
+    }
+
+    /// The error the default (unsupported) graph-capture methods return, for a
+    /// backend that has no graph support at all.
+    pub fn graph_capture_unsupported() -> Self {
+        Self::graph_state("graph capture is not supported by this backend")
     }
 }
 
@@ -443,8 +454,10 @@ where
     /// into a stable pool and snapshot it, so every buffer allocated between
     /// here and [`end_capture`](ComputeServer::end_capture) can be pinned for
     /// the graph's lifetime. Call this **before** the warmup run so the capture
-    /// window itself needs no fresh device allocation — a device malloc inside
-    /// the capture is illegal.
+    /// window reuses the slices warmup left in the pool rather than allocating
+    /// its own — which a hardware-graph backend cannot do at all (a device
+    /// malloc inside the capture is illegal there), and which on any backend
+    /// would grow the memory a graph pins beyond what it replays against.
     ///
     /// Prefer having kernels already **autotuned before** this call: any
     /// transient benchmark buffers autotune allocates while the window is armed
@@ -454,23 +467,33 @@ where
     /// warm up only to populate the pool.
     ///
     /// A no-op by default (harmless on backends without graph support); a
-    /// hardware-graph backend enables its persistent pool + capture recording.
+    /// backend with graph support enables its persistent pool + capture
+    /// recording.
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = stream_id;
         Ok(())
     }
 
     /// Begin recording the launches issued on `stream_id` into a graph instead
-    /// of executing them, so the sequence can later be [replayed](ComputeServer::replay)
-    /// as a single dispatch. Between this call and [`end_capture`](ComputeServer::end_capture)
-    /// the stream must not synchronize or allocate fresh device memory — call
-    /// [`graph_prepare`](ComputeServer::graph_prepare) and warm up first.
+    /// of executing them, so the sequence can later be
+    /// [replayed](ComputeServer::replay) without paying the launch path again.
+    /// Call [`graph_prepare`](ComputeServer::graph_prepare) and warm up first.
     ///
-    /// The default is unsupported; a backend with hardware graph support (CUDA,
-    /// HIP) overrides these methods.
+    /// Between this call and [`end_capture`](ComputeServer::end_capture) the
+    /// stream must not synchronize — a read, a sync or a profile either aborts
+    /// the capture or is refused — and should not allocate fresh device memory,
+    /// which `graph_prepare` plus a warmup run is what avoids. Whether an
+    /// operation the window cannot record fails the call or fails
+    /// `end_capture`, and whether a mid-window allocation is fatal, is the
+    /// backend's to say; see [`StreamCaptureState::Capture`](crate::stream::StreamCaptureState).
+    ///
+    /// The default is unsupported. Two shapes of backend override it: a
+    /// **hardware graph** (CUDA, HIP), where the driver records a replayable
+    /// graph object, and a **software graph** (wgpu), where the runtime records
+    /// fully-resolved dispatches and re-encodes them on replay.
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = stream_id;
-        Err(graph_capture_unsupported())
+        Err(ServerError::graph_capture_unsupported())
     }
 
     /// Stop recording (see [`begin_capture`](ComputeServer::begin_capture)),
@@ -478,11 +501,14 @@ where
     /// [`GraphId`], ready to [replay](ComputeServer::replay).
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let _ = stream_id;
-        Err(graph_capture_unsupported())
+        Err(ServerError::graph_capture_unsupported())
     }
 
-    /// Replay the graph identified by `graph` on `stream_id` — one dispatch that
-    /// re-runs the whole recorded launch sequence against its original buffers.
+    /// Replay the graph identified by `graph` on `stream_id`, re-running the
+    /// whole recorded launch sequence against its original buffers. A hardware
+    /// graph replays as a single dispatch; a software graph re-encodes the
+    /// recorded dispatches, which is still far cheaper than the launch path but
+    /// stays O(n) in recorded launches.
     ///
     /// Fire-and-forget, like [`launch`](ComputeServer::launch): the call enqueues
     /// the dispatch and returns without waiting, so a failure is **not** returned
@@ -494,10 +520,13 @@ where
         let _ = (graph, stream_id);
     }
 
-    /// Release the graph identified by `graph`, destroying its executable and
-    /// unpinning the buffers it retained. The backend must ensure any in-flight
-    /// replay on `stream_id` has completed first (replay returns at enqueue
-    /// time). A no-op by default and for an unknown id.
+    /// Release the graph identified by `graph`, destroying whatever it recorded
+    /// and unpinning the buffers it retained. Replay returns at enqueue time,
+    /// so the backend must guarantee no in-flight replay can still read those
+    /// buffers once they return to the pool — by syncing `stream_id` where
+    /// nothing weaker will do (CUDA, HIP), or by relying on the queue ordering
+    /// that already places a submitted replay ahead of any later write (wgpu).
+    /// A no-op by default and for an unknown id.
     fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {
         let _ = (graph, stream_id);
     }

@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
+use super::graph::WgpuGraph;
 use super::storage::{WgpuResource, WgpuStorage};
 use crate::WgpuCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
@@ -36,6 +38,7 @@ use cubecl_runtime::{
     compiler::{CompilationCache, CubeTask},
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
+    id::GraphId,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
@@ -82,6 +85,10 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
     /// Reusable buffers for the cross-stream input bindings of each launch.
     shared_bindings_pool: LeasePool<SharedMemoryBindings>,
+    /// Captured graphs owned by this server, keyed by the [`GraphId`] handed to
+    /// the client. `end_capture` inserts, `replay` looks up, `graph_destroy`
+    /// removes (dropping the [`WgpuGraph`] unpins the buffers it retained).
+    graphs: HashMap<GraphId, WgpuGraph>,
     _compiler: PhantomData<C>,
 }
 
@@ -154,6 +161,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             backend,
             utilities: Arc::new(utilities),
             shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
+            graphs: HashMap::new(),
             _compiler: PhantomData,
         }
     }
@@ -316,6 +324,15 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        // A read is a host sync: it cannot be recorded, and the recorded work
+        // has not executed, so there is nothing meaningful to read anyway.
+        if let Err(err) = self
+            .scheduler
+            .stream(&stream_id)
+            .reject_while_recording("read")
+        {
+            return Box::pin(async move { Err(err) });
+        }
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
@@ -345,6 +362,17 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
+        // Writes go on the queue, not the encoder — they cannot be recorded
+        // into a software graph (v1; CUDA records them as memcpy nodes).
+        // Reject them lazily so `end_capture` fails the capture instead of
+        // handing back a graph missing an operation.
+        {
+            let stream = self.scheduler.stream(&stream_id);
+            if let Err(err) = stream.reject_while_recording("write") {
+                stream.errors.push(err);
+                return;
+            }
+        }
         for (desc, data) in descriptors {
             let stream = self.scheduler.stream(&desc.handle.stream);
 
@@ -459,6 +487,13 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
     /// Returns the total time of GPU work this sync completes.
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
+        if let Err(err) = self
+            .scheduler
+            .stream(&stream_id)
+            .reject_while_recording("sync")
+        {
+            return Box::pin(async move { Err(err) });
+        }
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
 
@@ -466,6 +501,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        // Recorded launches do not execute, so a profile of the window would
+        // measure nothing.
+        self.scheduler
+            .stream(&stream_id)
+            .reject_while_recording("start_profile")?;
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.start_profile()
@@ -533,6 +573,144 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.install_memory_pools(config, &props)
+    }
+
+    fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        // Drain queued tasks first so pre-capture work is not attributed to
+        // the capture window.
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+
+        stream.capturing.prepare()?;
+
+        // Route every allocation from here until `end_capture` into the
+        // persistent pools and track the touched slices: warmup populates the
+        // pools with the capture run's full working set, the recorded run
+        // reuses those slices, and everything it touches is pinned to the
+        // graph at `end_capture`. The non-`NoCapture` state also isolates this
+        // stream in the scheduler (see `requires_isolation`).
+        stream.mem_manage.capture_begin();
+        Ok(())
+    }
+
+    fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        // Materialize the warmup work queued in the scheduler before the
+        // recording window opens.
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+
+        stream.capturing.begin()?;
+
+        // Submit the warmup work and surface its queued errors now, so a
+        // warmup failure is reported here — where the diagnostic points at the
+        // cause — instead of failing `end_capture` later.
+        if let Err(err) = stream.flush(StreamErrorMode {
+            ignore: false,
+            flush: true,
+        }) {
+            // The capture never opened: disarm retention and return to
+            // `NoCapture`, so a failed `start_capture` leaves the stream fully
+            // usable and re-capturable.
+            stream.mem_manage.capture_end();
+            stream.info_cache.capture_discard();
+            stream.capturing.abort();
+            return Err(err);
+        }
+
+        // Warmup is over: release the slices it retained so the recorded run
+        // reuses them instead of growing the pools further.
+        stream.mem_manage.capture_priming_end();
+        Ok(())
+    }
+
+    fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
+        // Materialize the recorded launches still queued in the scheduler.
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+
+        // The capture is over even on the failure path below, so an error here
+        // doesn't leave the stream stuck in capture/persistent state.
+        stream.capturing.end()?;
+        let recording = stream.take_recording();
+        let mut retained = stream.mem_manage.capture_end();
+
+        // An error queued during the window (a rejected write, a failed
+        // binding) means the recording is missing an operation: reject the
+        // capture rather than hand back a graph that silently skips work.
+        // `begin_capture` drained pre-window errors, so anything here arose
+        // inside the window.
+        let errors = stream.flush_errors_queue();
+        if !errors.is_empty() {
+            stream.info_cache.capture_discard();
+            return Err(ServerError::ServerUnhealthy {
+                errors,
+                backtrace: BackTrace::capture(),
+            });
+        }
+
+        let id = GraphId::new();
+        // Seal the info-cache entries this capture pinned under the graph's
+        // id, so `graph_destroy` can release them later.
+        stream.info_cache.capture_commit(id);
+        retained.extend(recording.uniform_pins);
+        self.graphs.insert(
+            id,
+            WgpuGraph {
+                tasks: recording.tasks,
+                _retained: retained,
+                _shared: recording.shared,
+            },
+        );
+        Ok(id)
+    }
+
+    fn replay(&mut self, graph: GraphId, stream_id: StreamId) {
+        // Order the replay after previously queued work on this stream.
+        self.scheduler.execute_streams(vec![stream_id]);
+
+        // Fire-and-forget like `launch`: on failure, push the error onto the
+        // stream's queue so it surfaces on the next flush/sync rather than
+        // blocking the caller here.
+        let Some(wgpu_graph) = self.graphs.get(&graph) else {
+            let stream = self.scheduler.stream(&stream_id);
+            stream.errors.push(ServerError::graph_state(
+                "replay was given an unknown or already-destroyed graph",
+            ));
+            return;
+        };
+        let stream = self.scheduler.stream(&stream_id);
+        if let Err(err) = stream.reject_while_recording("replay") {
+            stream.errors.push(err);
+            return;
+        }
+        stream.replay_graph(wgpu_graph);
+    }
+
+    fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {
+        // No-op for an unknown id (e.g. a double release). The graph is held
+        // until the end of this function, so its pins outlive the flush below.
+        let Some(wgpu_graph) = self.graphs.remove(&graph) else {
+            return;
+        };
+        let stream = self.scheduler.stream(&stream_id);
+        // Submit any replay still sitting in the encoder before the pins drop:
+        // a `queue.write_buffer` onto a reclaimed slice runs at the *next*
+        // submit, ahead of everything already in the encoder, so it would reach
+        // the GPU before the still-unsubmitted replay that reads it. The `Write`
+        // path flushes on its own account, so this covers the writes that do
+        // not — the uniform uploads in `create_uniform`/`info_uniform`. Once the
+        // replay is submitted, queue ordering makes releasing the slices safe
+        // with no host sync, unlike CUDA.
+        let _ = stream
+            .flush(StreamErrorMode {
+                ignore: true,
+                flush: false,
+            })
+            .ok();
+        // Release the info-cache entries this graph pinned; entries no other
+        // live graph still pins are dropped, freeing their buffers.
+        stream.info_cache.graph_release(graph);
+        drop(wgpu_graph);
     }
 }
 

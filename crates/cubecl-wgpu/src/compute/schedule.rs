@@ -13,7 +13,7 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::SharedMemoryBindings,
-    stream::{StreamFactory, scheduler::SchedulerStreamBackend},
+    stream::{StreamCaptureState, StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
 /// Defines tasks that can be scheduled on a WGPU stream.
@@ -181,7 +181,8 @@ impl BindingsResource {
         mut self,
         stream: &mut WgpuStream,
     ) -> (Vec<WgpuResource>, Vec<WgpuResource>, Option<Addresses>) {
-        let info = (!self.info.data.is_empty()).then(|| stream.info_uniform(&self.info.data));
+        let info = (!self.info.data.is_empty())
+            .then(|| stream.info_uniform(core::mem::take(&mut self.info.data)));
         match self.compiler_info {
             CompilerInfo::Vulkan { params_transfer } => {
                 let addresses = self
@@ -232,5 +233,13 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
 
     fn factory(&mut self) -> &mut Self::Factory {
         &mut self.factory
+    }
+
+    fn requires_isolation(stream: &Self::Stream) -> bool {
+        // For the whole prepare → record window: warmup must prime this
+        // stream's own pools, and the recording must contain exactly this
+        // stream's tasks — interleaved execution would do either on an
+        // arbitrary stream.
+        stream.capturing != StreamCaptureState::NoCapture
     }
 }
