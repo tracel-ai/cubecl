@@ -42,6 +42,8 @@ pub struct QuantizedView<
     scales: View<'a, S, C>,
     /// Per-tensor scale of a two-level scheme, already read from its binding.
     global: ComptimeOption<f32>,
+    /// A lookup scheme's `2^bits`-entry table, present exactly under [`QuantMode::Lookup`].
+    table: ComptimeOption<Box<[f32]>>,
     #[cube(comptime)]
     scheme: QuantScheme,
     #[cube(comptime)]
@@ -56,12 +58,14 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         values: View<'a, Vector<Q, NQ>, C>,
         scales: View<'a, S, C>,
         global: ComptimeOption<f32>,
+        table: ComptimeOption<Box<[f32]>>,
         #[comptime] scheme: QuantScheme,
     ) -> Self {
         QuantizedView::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
             global,
+            table,
             scheme,
             _ty: PhantomData,
         }
@@ -90,12 +94,14 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         values: ViewExpand<'a, Vector<Q, NQ>, C>,
         scales: ViewExpand<'a, S, C>,
         global: ComptimeOptionExpand<f32>,
+        table: ComptimeOptionExpand<Box<[f32]>>,
         scheme: QuantScheme,
     ) -> Self {
         QuantizedViewExpand::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
             global,
+            table,
             scheme,
             _ty: PhantomData,
         }
@@ -134,7 +140,14 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         let value = self.values.clone().__expand_read_method(scope, pos.clone());
         let scale = self.scales.clone().__expand_read_method(scope, pos);
 
-        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.global, self.scheme)
+        dequantize_aligned::expand::<Q, S, F, NQ, NF>(
+            scope,
+            value,
+            scale,
+            self.global,
+            self.table.clone(),
+            self.scheme,
+        )
     }
 
     fn __expand_read_checked_method(
@@ -148,7 +161,14 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             .__expand_read_checked_method(scope, pos.clone());
         let scale = self.scales.clone().__expand_read_checked_method(scope, pos);
 
-        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.global, self.scheme)
+        dequantize_aligned::expand::<Q, S, F, NQ, NF>(
+            scope,
+            value,
+            scale,
+            self.global,
+            self.table.clone(),
+            self.scheme,
+        )
     }
 
     fn __expand_read_masked_method(
@@ -172,6 +192,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             value,
             scale,
             self.global,
+            self.table.clone(),
             self.scheme,
         );
         select::expand::<Vector<F, NF>>(scope, in_bounds, value, mask_value)
@@ -191,7 +212,14 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             .clone()
             .__expand_read_unchecked_method(scope, pos);
 
-        dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.global, self.scheme)
+        dequantize_aligned::expand::<Q, S, F, NQ, NF>(
+            scope,
+            value,
+            scale,
+            self.global,
+            self.table.clone(),
+            self.scheme,
+        )
     }
 
     fn __expand_as_linear_slice_method(
@@ -271,10 +299,39 @@ fn expand_global(
     }
 }
 
+/// Register the lookup table's binding, checking it against the scheme so the two cannot register
+/// apart. Registered as f32 to match the element type [`expand_table`] reads it back with.
+fn register_table<R: Runtime>(
+    table: Option<BufferArg<R>>,
+    scheme: &QuantScheme,
+    launcher: &mut KernelLauncher<R>,
+) -> Option<BufferCompilationArg> {
+    check_table_bindings(scheme, table.is_some());
+    table.map(|table| <[f32] as LaunchArg>::register(table, launcher))
+}
+
+/// Expand the lookup table into the scope the view is built in, checking it against the scheme so
+/// the two cannot expand apart. Unlike the per-tensor scale this stays a buffer: the field read
+/// from each packed word picks the entry, so there is nothing to hoist.
+fn expand_table(
+    table: Option<&BufferCompilationArg>,
+    scheme: &QuantScheme,
+    builder: &mut KernelBuilder,
+) -> ComptimeOptionExpand<Box<[f32]>> {
+    check_table_bindings(scheme, table.is_some());
+    match table {
+        Some(table) => {
+            ComptimeOptionExpand::Some(<Box<[f32]> as LaunchArg>::expand(table, builder))
+        }
+        None => ComptimeOptionExpand::None,
+    }
+}
+
 struct ExpandDynamic<'a, E: Numeric, N: Size, C: Coordinates + 'static> {
     values: &'a ViewCompilationArg<C>,
     scales: &'a ViewCompilationArg<C>,
     global: Option<&'a BufferCompilationArg>,
+    table: Option<&'a BufferCompilationArg>,
     scheme: QuantScheme,
     builder: &'a mut KernelBuilder,
     _ty: PhantomData<(E, N)>,
@@ -295,7 +352,8 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
         let values = View::<Vector<Q, NQ>, C>::expand(self.values, self.builder);
         let scales = View::<S, C>::expand(self.scales, self.builder);
         let global = expand_global(self.global, self.scheme.level, self.builder);
-        let view = QuantizedViewExpand::new(values, scales, global, self.scheme);
+        let table = expand_table(self.table, &self.scheme, self.builder);
+        let view = QuantizedViewExpand::new(values, scales, global, table, self.scheme);
         ViewExpand::new(&self.builder.scope, view)
     }
 }
@@ -304,6 +362,7 @@ pub(crate) struct RegisterDynamic<'a, E: CubePrimitive, C: Coordinates + 'static
     pub values: ViewArg<C, R>,
     pub scales: ViewArg<C, R>,
     pub global: Option<BufferArg<R>>,
+    pub table: Option<BufferArg<R>>,
     pub scheme: QuantScheme,
     pub launcher: &'a mut KernelLauncher<R>,
     pub _ty: PhantomData<E>,
@@ -326,10 +385,12 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
         let values = View::<Vector<Q, NQ>, C>::register(self.values, self.launcher);
         let scales = View::<S, C>::register(self.scales, self.launcher);
         let global = register_global(self.global, self.scheme.level, self.launcher);
+        let table = register_table(self.table, &self.scheme, self.launcher);
         ViewCompilationArg::Quantized {
             values: Box::new(values),
             scales: Box::new(scales),
             global,
+            table,
             scheme: self.scheme,
         }
     }
@@ -374,6 +435,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
     values: &ViewCompilationArg<C>,
     scales: &ViewCompilationArg<C>,
     global: Option<&BufferCompilationArg>,
+    table: Option<&BufferCompilationArg>,
     scheme: QuantScheme,
     builder: &mut KernelBuilder,
 ) -> ViewExpand<'static, E, C> {
@@ -384,6 +446,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
         values: &ViewCompilationArg<C>,
         scales: &ViewCompilationArg<C>,
         global: Option<&BufferCompilationArg>,
+        table: Option<&BufferCompilationArg>,
         scheme: QuantScheme,
         builder: &mut KernelBuilder,
     ) -> ViewExpand<'static, Vector<F, NF>, C> {
@@ -391,6 +454,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
             values,
             scales,
             global,
+            table,
             scheme,
             builder,
             _ty: PhantomData::<(F, NF)>,
@@ -409,22 +473,22 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
         match E::Scalar::elem_type(builder) {
             ElemType::Float(ty) => match ty {
                 FloatKind::F16 => t(expand_dynamic_f::<f16, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, global, table, scheme, builder,
                 )),
                 FloatKind::BF16 => t(expand_dynamic_f::<bf16, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, global, table, scheme, builder,
                 )),
                 FloatKind::Flex32 => t(expand_dynamic_f::<flex32, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, global, table, scheme, builder,
                 )),
                 FloatKind::F32 => t(expand_dynamic_f::<f32, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, global, table, scheme, builder,
                 )),
                 FloatKind::TF32 => t(expand_dynamic_f::<tf32, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, global, table, scheme, builder,
                 )),
                 FloatKind::F64 => t(expand_dynamic_f::<f64, NF, C>(
-                    values, scales, global, scheme, builder,
+                    values, scales, global, table, scheme, builder,
                 )),
                 FloatKind::E2M1
                 | FloatKind::E2M1x2

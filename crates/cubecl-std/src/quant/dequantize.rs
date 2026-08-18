@@ -7,12 +7,14 @@ use cubecl_core as cubecl;
 /// Unaligned values can't be dequantized in place.
 ///
 /// `global` is the per-tensor scale of a two-level scheme, already read, and must be present
-/// exactly when `scheme.level` has one.
+/// exactly when `scheme.level` has one. `table` is a lookup scheme's `2^bits`-entry table, and
+/// must be present exactly when `scheme.mode` is [`QuantMode::Lookup`].
 #[cube]
 pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
     value: Vector<Q, NQ>,
     scale: S,
     global: ComptimeOption<f32>,
+    table: ComptimeOption<Box<[f32]>>,
     #[comptime] scheme: QuantScheme,
 ) -> Vector<F, NF> {
     // Every read from a quantized view lands here, so this is where a binding that disagrees with
@@ -21,10 +23,13 @@ pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF:
         scheme.level,
         global.is_some()
     ));
+    comptime!(crate::quant::check_table_bindings(&scheme, table.is_some()));
 
     let q_values = match scheme.store {
         QuantStore::Native | QuantStore::PackedNative(_) => Vector::<F, NF>::cast_from(value),
-        QuantStore::PackedU32(_) => unpack_cast_u32::<F, NQ, NF>(Vector::cast_from(value), scheme),
+        QuantStore::PackedU32(_) => {
+            unpack_cast_u32::<F, NQ, NF>(Vector::cast_from(value), table.clone(), scheme)
+        }
     };
 
     // The two levels multiply in f32: a block scale is normalized against the per-tensor scale, so
@@ -37,14 +42,19 @@ pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF:
     };
 
     match scheme.mode {
-        QuantMode::Symmetric => q_values * effective_scale,
+        // Lookup already resolved the field to its table entry in the unpack; both modes are one
+        // scale multiply from there.
+        QuantMode::Symmetric | QuantMode::Lookup => q_values * effective_scale,
     }
 }
 
 /// Unpack a set of values from u32, and convert to the specified floating point format.
+/// `table` decodes each field under [`QuantMode::Lookup`] and must be `None` otherwise
+/// ([`dequantize_aligned`] checks the pairing).
 #[cube]
 pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
     value: Vector<u32, NQ>,
+    table: ComptimeOption<Box<[f32]>>,
     #[comptime] scheme: QuantScheme,
 ) -> Vector<F, NF> {
     let num_quants = scheme.num_quants();
@@ -64,7 +74,7 @@ pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
             let shift = packed_idx * size_bits;
             let value = (packed_val >> shift as u32) & mask;
 
-            let float_value = cast_masked::<F, NP>(value, scheme);
+            let float_value = cast_masked::<F, NP>(value, table.clone(), scheme);
 
             #[unroll]
             for native_idx in 0..native_packing {
@@ -88,14 +98,35 @@ fn packing_mask(scheme: QuantScheme) -> u32 {
 }
 
 /// Cast a masked-out value in the low `n` bits of a `u32` to the specified float type.
-/// Applies sign conversion for integer quantization before casting to the float type,
+/// With a `table` the value is an index and the cast is its lookup; otherwise sign conversion
+/// is applied for integer quantization before casting to the float type,
 /// while minifloats are simply truncated to `u8`, reinterpreted and then cast.
 /// For `e2m1`, casting is done on the packed `e2m1x2` representation.
 ///
 /// # Returns
 /// Two floating point numbers for `e2m1`, one for all other formats.
 #[cube]
-fn cast_masked<F: Numeric, N: Size>(value: u32, #[comptime] scheme: QuantScheme) -> Vector<F, N> {
+fn cast_masked<F: Numeric, N: Size>(
+    value: u32,
+    table: ComptimeOption<Box<[f32]>>,
+    #[comptime] scheme: QuantScheme,
+) -> Vector<F, N> {
+    #[comptime]
+    match table {
+        // The field indexes the table; the mask already bounds it to `2^bits`, the table's
+        // required length.
+        ComptimeOption::Some(t) => Vector::<F, N>::cast_from(t[value as usize]),
+        ComptimeOption::None => cast_masked_plain::<F, N>(value, scheme),
+    }
+}
+
+/// The tableless arm of [`cast_masked`]: sign conversion for the integers, bit reinterpretation
+/// for the minifloats.
+#[cube]
+fn cast_masked_plain<F: Numeric, N: Size>(
+    value: u32,
+    #[comptime] scheme: QuantScheme,
+) -> Vector<F, N> {
     match scheme.value {
         // For minifloat we can assume if they're supported then u8 is supported
         QuantValue::E5M2 => Vector::<F, N>::cast_from(e5m2::from_bits(value as u8)),
@@ -160,6 +191,7 @@ mod tests {
             value,
             one,
             ComptimeOptionExpand::None,
+            ComptimeOptionExpand::None,
             two_level_scheme(),
         );
     }
@@ -176,6 +208,7 @@ mod tests {
             value,
             one,
             ComptimeOptionExpand::Some(one),
+            ComptimeOptionExpand::None,
             QuantScheme::default(),
         );
     }
@@ -191,6 +224,7 @@ mod tests {
             value,
             one,
             ComptimeOptionExpand::Some(one),
+            ComptimeOptionExpand::None,
             two_level_scheme(),
         );
     }

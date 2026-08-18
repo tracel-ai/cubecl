@@ -429,6 +429,7 @@ mod dynamic {
             values: Box<ViewArg<C, R>>,
             scales: Box<ViewArg<C, R>>,
             global: Option<BufferArg<R>>,
+            table: Option<BufferArg<R>>,
             scheme: QuantScheme,
         },
     }
@@ -482,7 +483,7 @@ mod dynamic {
         /// Panics for a level that quantizes in two levels, which needs the per-tensor scale
         /// [`ViewArg::new_quantized_two_level`] takes.
         pub fn new_quantized(values: Self, scales: Self, scheme: QuantScheme) -> Self {
-            Self::quantized(values, scales, None, scheme)
+            Self::quantized(values, scales, None, None, scheme)
         }
 
         /// Create a new view arg that dequantizes on read against two levels of scales.
@@ -497,20 +498,40 @@ mod dynamic {
             global: BufferArg<R>,
             scheme: QuantScheme,
         ) -> Self {
-            Self::quantized(values, scales, Some(global), scheme)
+            Self::quantized(values, scales, Some(global), None, scheme)
+        }
+
+        /// Create a new view arg that dequantizes on read through a lookup table
+        /// ([`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode::Lookup)): each stored
+        /// field indexes `table` and a read reconstructs `table[field] * scale`.
+        ///
+        /// `table` must hold `2^bits` f32 entries — the mask bounds every index to that range, so
+        /// a shorter buffer is read out of bounds. Panics for a scheme whose mode is not lookup,
+        /// whose store is not packed-u32, or whose value is a minifloat (an index has no float
+        /// semantics; use the integer value of the same width).
+        pub fn new_quantized_lookup(
+            values: Self,
+            scales: Self,
+            table: BufferArg<R>,
+            scheme: QuantScheme,
+        ) -> Self {
+            Self::quantized(values, scales, None, Some(table), scheme)
         }
 
         fn quantized(
             values: Self,
             scales: Self,
             global: Option<BufferArg<R>>,
+            table: Option<BufferArg<R>>,
             scheme: QuantScheme,
         ) -> Self {
             quant::check_global_bindings(scheme.level, global.is_some());
+            quant::check_table_bindings(&scheme, table.is_some());
             Self::Quantized {
                 values: Box::new(values),
                 scales: Box::new(scales),
                 global,
+                table,
                 scheme,
             }
         }
@@ -533,6 +554,7 @@ mod dynamic {
             values: Box<ViewCompilationArg<C>>,
             scales: Box<ViewCompilationArg<C>>,
             global: Option<BufferCompilationArg>,
+            table: Option<BufferCompilationArg>,
             scheme: QuantScheme,
         },
     }
@@ -567,18 +589,21 @@ mod dynamic {
                         values,
                         scales,
                         global,
+                        table,
                         scheme,
                     },
                     ViewCompilationArg::Quantized {
                         values: values_other,
                         scales: scales_other,
                         global: global_other,
+                        table: table_other,
                         scheme: scheme_other,
                     },
                 ) => {
                     values == values_other
                         && scales == scales_other
                         && global == global_other
+                        && table == table_other
                         && scheme == scheme_other
                 }
                 _ => false,
@@ -604,11 +629,13 @@ mod dynamic {
                     values,
                     scales,
                     global,
+                    table,
                     scheme,
                 } => {
                     values.hash(ra_expand_state);
                     scales.hash(ra_expand_state);
                     global.hash(ra_expand_state);
+                    table.hash(ra_expand_state);
                     scheme.hash(ra_expand_state);
                 }
             }
@@ -636,12 +663,14 @@ mod dynamic {
                     values,
                     scales,
                     global,
+                    table,
                     scheme,
                 } => f
                     .debug_struct("QuantizedView")
                     .field("values", &values)
                     .field("scales", &scales)
                     .field("global", &global)
+                    .field("table", &table)
                     .field("scheme", &scheme)
                     .finish(),
             }
@@ -682,12 +711,14 @@ mod dynamic {
                     values,
                     scales,
                     global,
+                    table,
                     scheme,
                 } => {
                     let register = RegisterDynamic {
                         values: *values,
                         scales: *scales,
                         global,
+                        table,
                         scheme,
                         launcher,
                         _ty: PhantomData::<E>,
@@ -735,8 +766,16 @@ mod dynamic {
                     values,
                     scales,
                     global,
+                    table,
                     scheme,
-                } => quant::view::expand_dynamic(values, scales, global.as_ref(), *scheme, builder),
+                } => quant::view::expand_dynamic(
+                    values,
+                    scales,
+                    global.as_ref(),
+                    table.as_ref(),
+                    *scheme,
+                    builder,
+                ),
             }
         }
     }
