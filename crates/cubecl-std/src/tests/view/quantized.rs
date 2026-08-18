@@ -8,7 +8,7 @@ use cubecl_core::{self as cubecl};
 use half::f16;
 
 use crate::{
-    quant::view::QuantizedView,
+    quant::view::{KnownScale, QuantizedView},
     tensor::{
         View,
         launch::{ScaleBindings, ViewArg},
@@ -213,10 +213,10 @@ pub fn kernel_global_scale_quantized_view<F: Float, N: Size>(
     output: &mut [Vector<F, N>],
     #[comptime] scheme: QuantScheme,
 ) {
-    let view = QuantizedView::<u32, Const<1>, f32, F, N, Coords1d>::new_with_global_scale(
+    let view = QuantizedView::<u32, Const<1>, f32, F, N, Coords1d>::new_with_known_scale(
         values,
         scales,
-        global_scale.get::<f32>(),
+        KnownScale::new_Global(global_scale.get::<f32>()),
         scheme,
     )
     .view();
@@ -226,8 +226,8 @@ pub fn kernel_global_scale_quantized_view<F: Float, N: Size>(
     }
 }
 
-/// [`new_with_global_scale`](QuantizedView::new_with_global_scale) reconstructs exactly what the two-binding launch
-/// path does: block scales read per position, the per-tensor scale riding in the register.
+/// A [`KnownScale::Global`] register reconstructs exactly what the two-binding launch path does:
+/// block scales read per position, the per-tensor scale riding in the register.
 pub fn test_quantized_global_scale<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let vector_size_float = 8;
     let block = 8;
@@ -275,10 +275,10 @@ pub fn kernel_whole_scale_quantized_view<F: Float, N: Size>(
     output: &mut [Vector<F, N>],
     #[comptime] scheme: QuantScheme,
 ) {
-    let view = QuantizedView::<u32, Const<1>, f32, F, N, Coords1d>::new_with_whole_scale(
+    let view = QuantizedView::<u32, Const<1>, f32, F, N, Coords1d>::new_with_known_scale(
         values,
         scales,
-        scale.get::<f32>(),
+        KnownScale::new_Whole(scale.get::<f32>()),
         scheme,
     )
     .view();

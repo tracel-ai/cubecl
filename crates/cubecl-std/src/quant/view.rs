@@ -85,8 +85,8 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
     /// A view reading every scale per position through `scales`.
     ///
     /// Takes a one-level scheme: the per-tensor scale of a two-level one never rides a signature
-    /// here, it is either bound at launch or already multiplied in by a caller using
-    /// [`new_with_whole_scale`](Self::new_with_whole_scale).
+    /// here, it is either bound at launch or already held by a caller as a [`KnownScale`] passed
+    /// to [`new_with_known_scale`](Self::new_with_known_scale).
     pub fn new(
         values: View<'a, Vector<Q, NQ>, C>,
         scales: View<'a, S, C>,
@@ -102,46 +102,10 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         }
     }
 
-    /// [`new`](Self::new) with the per-tensor scale already read into `global_scale`: each read
-    /// still looks its block scale up through `scales`, then multiplies the register in. Takes a
-    /// two-level scheme, whose per-tensor level the register stands for; a one-level scheme reads
-    /// through [`new`](Self::new).
-    pub fn new_with_global_scale(
-        values: View<'a, Vector<Q, NQ>, C>,
-        scales: View<'a, S, C>,
-        global_scale: f32,
-        #[comptime] scheme: QuantScheme,
-    ) -> Self {
-        QuantizedView::<'a, Q, NQ, S, F, NF, C> {
-            values,
-            scales,
-            known_scale: KnownScale::new_Global(global_scale),
-            scheme,
-            _ty: PhantomData,
-        }
-    }
-
-    /// [`new`](Self::new) for values that share one scale: `scale` is the whole scale for every
-    /// value read through this view, whatever levels the caller multiplied into it, so the scales
-    /// view rides along unread. Only a caller that knows the values it will read share a block
-    /// can say so, which is why this exists on the cube side.
-    pub fn new_with_whole_scale(
-        values: View<'a, Vector<Q, NQ>, C>,
-        scales: View<'a, S, C>,
-        scale: f32,
-        #[comptime] scheme: QuantScheme,
-    ) -> Self {
-        QuantizedView::<'a, Q, NQ, S, F, NF, C> {
-            values,
-            scales,
-            known_scale: KnownScale::new_Whole(scale),
-            scheme,
-            _ty: PhantomData,
-        }
-    }
-
     /// [`new`](Self::new) with whatever the caller already knows of the scale, in whichever
-    /// [`KnownScale`] form it holds it. Reads assert the register agrees with the scheme.
+    /// [`KnownScale`] form it holds it. Only a caller that knows what its reads share can say
+    /// so, which is why this exists on the cube side. Reads assert the register agrees with the
+    /// scheme.
     pub fn new_with_known_scale(
         values: View<'a, Vector<Q, NQ>, C>,
         scales: View<'a, S, C>,
