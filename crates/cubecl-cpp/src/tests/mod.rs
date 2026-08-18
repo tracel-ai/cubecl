@@ -50,7 +50,14 @@ fn cuda_converts_fp8_with_the_header_intrinsics() {
     let source = fp8_round_trip_source::<Cuda>();
     assert!(source.contains("cuda_fp8.h"), "{source}");
     assert!(source.contains("__nv_cvt_fp8_to_halfraw"), "{source}");
-    assert!(source.contains("__nv_cvt_halfraw_to_fp8"), "{source}");
+    // Straight from f32 and saturating: the f16 detour rounds twice and NOSAT is the header's
+    // software path.
+    assert!(
+        source.contains("__nv_cvt_float_to_fp8(") && source.contains("__NV_SATFINITE"),
+        "{source}"
+    );
+    assert!(!source.contains("__NV_NOSAT"), "{source}");
+    assert!(!source.contains("__nv_cvt_halfraw_to_fp8"), "{source}");
 }
 
 #[test]
