@@ -230,16 +230,6 @@ impl DeviceService for CudaServer {
             device_props.features.copy_async = true;
         }
 
-        if arch_version >= 89 {
-            device_props.register_type_usage(
-                ElemType::Float(FloatKind::E4M3),
-                TypeUsage::Conversion | TypeUsage::Buffer,
-            );
-            device_props.register_type_usage(
-                ElemType::Float(FloatKind::E5M2),
-                TypeUsage::Conversion | TypeUsage::Buffer,
-            );
-        }
         if arch_version >= 90 {
             device_props.features.tma.insert(Tma::Base);
             device_props.register_opaque_type(OpaqueType::TensorMap);
