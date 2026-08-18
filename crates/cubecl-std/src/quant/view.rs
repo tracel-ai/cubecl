@@ -25,6 +25,7 @@ use half::{bf16, f16};
 /// scales view. The discriminant is comptime, so each variant compiles its own kernel with
 /// nothing of the others in it.
 #[derive(Clone, Copy, CubeType, CubeLaunch)]
+#[expand(derive(Clone, Copy))]
 pub enum KnownScale {
     /// Nothing known up front: each read looks its whole scale up at its position.
     None,
@@ -34,6 +35,20 @@ pub enum KnownScale {
     /// The whole scale, whatever the caller multiplied into it. The scales view is never read:
     /// its address arithmetic and its load leave the kernel.
     Whole(f32),
+}
+
+#[cube]
+impl KnownScale {
+    /// The scale a value dequantizes against once `scale`, looked up for its position, meets what
+    /// this register holds.
+    pub fn effective(&self, scale: f32) -> f32 {
+        #[comptime]
+        match self {
+            KnownScale::None => scale,
+            KnownScale::Global(global) => global * scale,
+            KnownScale::Whole(whole) => *whole,
+        }
+    }
 }
 
 /// View that dequantizes after loads. Scales layout should take values coordinates and map them
@@ -120,6 +135,23 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             values,
             scales,
             known_scale: KnownScale::new_Whole(scale),
+            scheme,
+            _ty: PhantomData,
+        }
+    }
+
+    /// [`new`](Self::new) with whatever the caller already knows of the scale, in whichever
+    /// [`KnownScale`] form it holds it. Reads assert the register agrees with the scheme.
+    pub fn new_with_known_scale(
+        values: View<'a, Vector<Q, NQ>, C>,
+        scales: View<'a, S, C>,
+        known_scale: KnownScale,
+        #[comptime] scheme: QuantScheme,
+    ) -> Self {
+        QuantizedView::<'a, Q, NQ, S, F, NF, C> {
+            values,
+            scales,
+            known_scale,
             scheme,
             _ty: PhantomData,
         }
