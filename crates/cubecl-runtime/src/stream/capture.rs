@@ -177,7 +177,7 @@ mod tests {
     }
 
     /// A rejected transition leaves the stream exactly as it was, so a caller
-    /// that mis-orders a call can recover by issuing the right one — the
+    /// that miss orders a call can recover by issuing the right one — the
     /// property `wgpu_graph_lifecycle_state_errors` defends end to end.
     #[test]
     fn a_rejected_transition_changes_nothing() {
