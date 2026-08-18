@@ -398,8 +398,6 @@ pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: 
     }
 }
 
-/// Two levels with the block scales stored as e4m3, the layout the second level exists for. Runs
-/// natively or through cubecl's software fp8 conversion, whichever the runtime has.
 pub fn test_quantized_two_level_ue4m3<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
 ) {

@@ -82,11 +82,7 @@ impl LowerOp<Cuda> for CastOp {
     }
 }
 
-/// Whether `input` converts into `out_ty` with one `__nv_cvt_*` call and no intermediate.
-///
-/// fp8 has an intrinsic from every float width, and has to use it: routing f32 through f16 first
-/// rounds twice, and a value one f32 ulp past an f16 tie then lands on the wrong fp8 code. Wide
-/// sources are fine, f16/bf16 pairs pack into the `x2` converters and the rest unroll to scalars.
+/// fp8 must convert straight from its source: an f16 detour rounds twice.
 fn encodes_directly(ctx: &Context, input: Value, out_ty: TypeHandle) -> bool {
     if !out_ty.is_float8(ctx) {
         return intermediate_for_ty(ctx, out_ty) == input.get_type(ctx);
@@ -163,10 +159,7 @@ fn cast_minifloat_to_half(ctx: &Context, input: Value) -> String {
 
 // Cast to minifloat from half/bf16 (fp8 also from float/double). Could be made more generic, but
 // a simple mapping is easier to understand. The naming is very inconsistent (i.e. halfraw2 vs
-// bf162raw).
-//
-// fp8 saturates: `__NV_SATFINITE` is what the codecs and every other backend do on overflow, and
-// the only mode with a hardware instruction; `__NV_NOSAT` is the header's software path even on
+// bf162raw). fp8 saturates like the codecs; `__NV_NOSAT` is the header's software path even on
 // sm_89.
 fn cast_half_to_minifloat(ctx: &Context, input: Value, out_ty: TypeHandle) -> String {
     let in_val = input.name(ctx);
@@ -188,7 +181,6 @@ fn cast_half_to_minifloat(ctx: &Context, input: Value, out_ty: TypeHandle) -> St
     })
 }
 
-/// The `__nv_cvt_<source>_to_fp8` / `_to_fp8x2` variant for a float source or a packed pair.
 fn fp8_source_prefix(ctx: &Context, input: Value) -> &'static str {
     let scalar = input.get_type(ctx).scalar_ty(ctx);
     match_ty!((scalar.deref(ctx)) {

@@ -28,7 +28,6 @@ impl_cube_to_llvm_type!(Float64Type, self, ctx => FP64Type::get(ctx));
 impl_cube_to_llvm_type!(Float32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(FloatFlex32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(Float16Type, self, ctx => FP16Type::get(ctx));
-// LLVM has no fp8 types; the bytes are stored as-is and every conversion is lowered before this.
 impl_cube_to_llvm_type!(Float8E4M3Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(Float8E5M2Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(CubePointerType, self, ctx => LlvmPointerType::get(ctx, 0));

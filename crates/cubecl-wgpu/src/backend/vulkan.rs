@@ -516,8 +516,6 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
                 ElemType::UInt(UIntKind::U8),
                 TypeUsage::maybe_store(storage8),
             );
-            // fp8 converts natively with `VK_EXT_shader_float8` and in software otherwise; either
-            // way it lives in 8-bit ints, so it stores exactly where they do.
             for kind in [FloatKind::E4M3, FloatKind::E5M2] {
                 props.register_type_usage(ElemType::Float(kind), TypeUsage::Conversion);
                 if storage8 {

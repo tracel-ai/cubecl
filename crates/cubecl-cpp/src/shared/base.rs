@@ -352,7 +352,6 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
         props.register_type_usage(ty, TypeUsage::all());
     }
 
-    // Converted natively or in software, never computed on: everything casts to compute.
     for ty in [FloatKind::E4M3, FloatKind::E5M2] {
         props.register_type_usage(
             ElemType::Float(ty),

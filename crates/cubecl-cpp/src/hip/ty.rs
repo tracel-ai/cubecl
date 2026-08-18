@@ -31,7 +31,6 @@ pub(super) use hip_ty;
 
 hip_ty!(Float16Type, |_, _| "__half".into());
 hip_ty!(BFloat16Type, |_, _| "__hip_bfloat16".into());
-// fp8 converts through the software polyfill, so its storage is the bare byte.
 hip_ty!(Float8E4M3Type, |_, _| "uint8_t".into());
 hip_ty!(Float8E5M2Type, |_, _| "uint8_t".into());
 
