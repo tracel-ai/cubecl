@@ -1178,6 +1178,7 @@ dependencies = [
  "bitflags 2.13.1",
  "cubecl-common",
  "cubecl-core",
+ "cubecl-cpu",
  "cubecl-environment",
  "cubecl-ir",
  "cubecl-opt",
