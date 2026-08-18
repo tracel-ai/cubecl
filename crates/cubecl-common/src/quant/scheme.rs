@@ -509,19 +509,12 @@ impl BlockSize {
     /// Max number of dimensions for block size
     pub const MAX_DIMS: usize = MAX_DIMS;
 
-    /// The dimension value meaning the block covers that axis entirely, resolved against the
-    /// tensor shape by [`resolved_dims`](Self::resolved_dims). Never valid as a literal extent.
-    pub const FULL: u8 = 0;
-
     /// Create a new blocksize from a set of values. The number of values must be `<= MAX_DIMS`.
-    ///
-    /// A dimension of [`FULL`](Self::FULL) covers that axis entirely.
     ///
     /// The result is canonical, so equal rank-relative blocks compare and hash equal however they
     /// are spelled: leading unit dimensions are dropped, since the missing-dimension fill restates
-    /// them. In particular, `[1, FULL]` canonicalizes to `[FULL]`; both mean a block spanning the
-    /// complete trailing dimension. Whole-tensor granularity is a scheme's per-tensor level, not
-    /// a block size.
+    /// them. In particular, `[1, 32]` canonicalizes to `[32]`. Whole-tensor granularity is a
+    /// scheme's per-tensor level, not a block size.
     pub fn new(values: impl AsRef<[u8]>) -> Self {
         Self::canonicalize(values.as_ref())
     }
@@ -574,35 +567,13 @@ impl BlockSize {
         out
     }
 
-    /// The block's extent along every dimension of `shape`, with full dimensions resolved to the
-    /// shape's. This is the only reading of a block size that may enter arithmetic: the raw
-    /// dimensions can hold [`FULL`](Self::FULL), which divides and multiplies as a zero.
-    pub fn resolved_dims(&self, shape: &[usize]) -> Vec<usize> {
+    /// How many blocks cover each dimension of `shape`, which is the shape of the scale grid:
+    /// one scale per block.
+    pub fn num_blocks(&self, shape: &[usize]) -> Vec<usize> {
         self.to_dim_vec(shape.len())
             .into_iter()
             .zip(shape)
-            .map(|(block, &dim)| {
-                if block == Self::FULL {
-                    dim
-                } else {
-                    block as usize
-                }
-            })
-            .collect()
-    }
-
-    /// The shape of the grid of blocks laid over a tensor of `shape`: one scale per block.
-    pub fn grid(&self, shape: &[usize]) -> Vec<usize> {
-        self.to_dim_vec(shape.len())
-            .into_iter()
-            .zip(shape)
-            .map(|(block, &dim)| {
-                if block == Self::FULL {
-                    1
-                } else {
-                    dim.div_ceil(block as usize)
-                }
-            })
+            .map(|(block, &dim)| dim.div_ceil(block as usize))
             .collect()
     }
 
@@ -612,15 +583,7 @@ impl BlockSize {
     }
 
     /// Returns the total number of elements in each block.
-    ///
-    /// Meaningless for a block with full dimensions, whose element count depends on the tensor:
-    /// resolve through [`resolved_dims`](Self::resolved_dims) instead.
     pub fn num_elements(&self) -> usize {
-        // Not a debug_assert!: a release build must not silently multiply FULL as zero.
-        assert!(
-            !self.as_slice().contains(&Self::FULL),
-            "a full dimension has no element count without a shape"
-        );
         self.iter().map(|it| *it as usize).product()
     }
 }
@@ -644,15 +607,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn full_dimensions_remain_rank_relative() {
-        assert_ne!(BlockSize::new([0]), BlockSize::new([0, 0]));
-        assert_eq!(BlockSize::new([0]).to_dim_vec(2), vec![1, 0]);
-        assert_eq!(BlockSize::new([0, 0]).to_dim_vec(2), vec![0, 0]);
+    fn blocks_remain_rank_relative() {
+        assert_ne!(BlockSize::new([32]), BlockSize::new([32, 32]));
+        assert_eq!(BlockSize::new([32]).to_dim_vec(2), vec![1, 32]);
+        assert_eq!(BlockSize::new([32, 32]).to_dim_vec(2), vec![32, 32]);
     }
 
     #[test]
-    fn unit_dimensions_ahead_of_a_full_block_canonicalize_away() {
-        assert_eq!(BlockSize::new([1, 0]), BlockSize::new([0]));
+    fn leading_unit_dimensions_canonicalize_away() {
+        assert_eq!(BlockSize::new([1, 32]), BlockSize::new([32]));
     }
 
     #[test]
@@ -664,19 +627,15 @@ mod tests {
     }
 
     #[test]
-    fn full_dimensions_resolve_to_the_shape() {
-        assert_eq!(BlockSize::new([0]).resolved_dims(&[8, 64]), vec![1, 64]);
-        assert_eq!(BlockSize::new([0, 0]).resolved_dims(&[8, 64]), vec![8, 64]);
-        assert_eq!(BlockSize::new([0, 32]).resolved_dims(&[8, 64]), vec![8, 32]);
-        assert_eq!(BlockSize::new([32]).resolved_dims(&[8, 64]), vec![1, 32]);
+    fn there_is_one_block_per_scale() {
+        assert_eq!(BlockSize::new([32]).num_blocks(&[8, 64]), vec![8, 2]);
+        assert_eq!(BlockSize::new([4, 32]).num_blocks(&[8, 64]), vec![2, 2]);
+        assert_eq!(BlockSize::new([32]).num_blocks(&[4, 8, 64]), vec![4, 8, 2]);
     }
 
     #[test]
-    fn the_grid_is_one_scale_per_block() {
-        assert_eq!(BlockSize::new([32]).grid(&[8, 64]), vec![8, 2]);
-        assert_eq!(BlockSize::new([0, 32]).grid(&[8, 64]), vec![1, 2]);
-        assert_eq!(BlockSize::new([0, 0]).grid(&[8, 64]), vec![1, 1]);
-        assert_eq!(BlockSize::new([0, 0]).grid(&[4, 8, 64]), vec![4, 1, 1]);
+    fn a_partial_block_still_takes_a_scale() {
+        assert_eq!(BlockSize::new([32]).num_blocks(&[8, 70]), vec![8, 3]);
     }
 
     #[test]
@@ -739,14 +698,10 @@ mod tests {
     }
 
     #[test]
-    fn swapping_dims_preserves_partial_full_blocks() {
-        let mut scheme = QuantScheme::default().per_block([BlockSize::FULL, 1], ScaleDtype::F32);
+    fn swapping_dims_canonicalizes_the_block() {
+        let mut scheme = QuantScheme::default().per_block([32, 1], ScaleDtype::F32);
         scheme.swap_block_dims(2, 0, 1);
-        assert_eq!(scheme.block_size(), Some(BlockSize::new([BlockSize::FULL])));
-        assert_eq!(
-            scheme.block_size().unwrap().resolved_dims(&[8, 64]),
-            vec![1, 64]
-        );
+        assert_eq!(scheme.block_size(), Some(BlockSize::new([32])));
     }
 
     #[test]
