@@ -10,6 +10,8 @@ use cubecl_ir::{
 };
 use pliron::r#type::TypeHandle;
 
+use cubecl_common::{e4m3, e5m2};
+
 use crate::{self as cubecl, prelude::*};
 
 define_size!(N);
@@ -19,10 +21,10 @@ const F32_MANTISSA_MASK: u32 = (1 << F32_MANTISSA_BITS) - 1;
 const F32_MAGNITUDE_MASK: u32 = u32::MAX >> 1;
 const F32_EXPONENT_BIAS: u32 = (f32::MAX_EXP - 1) as u32;
 const F32_INFINITY_BITS: u32 = f32::INFINITY.to_bits();
-const F32_NAN_BITS: u32 = F32_INFINITY_BITS | 1 << (F32_MANTISSA_BITS - 1);
-const FP8_SIGN_BIT: u32 = 0x80;
+const F32_NAN_BITS: u32 = f32::NAN.to_bits();
+const FP8_SIGN_BIT: u32 = 1 << (u8::BITS - 1);
 const FP8_MAGNITUDE_MASK: u32 = FP8_SIGN_BIT - 1;
-const SIGN_SHIFT: u32 = 31 - 7;
+const SIGN_SHIFT: u32 = u32::BITS - u8::BITS;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Fp8Format {
@@ -32,56 +34,66 @@ pub enum Fp8Format {
 
 impl Fp8Format {
     pub const fn exponent_bits(self) -> u32 {
-        match self {
-            Fp8Format::E4M3 => 4,
-            Fp8Format::E5M2 => 5,
-        }
+        7 - self.mantissa_bits()
     }
 
     pub const fn mantissa_bits(self) -> u32 {
         match self {
-            Fp8Format::E4M3 => 3,
-            Fp8Format::E5M2 => 2,
+            Fp8Format::E4M3 => e4m3::MANTISSA_DIGITS - 1,
+            Fp8Format::E5M2 => e5m2::MANTISSA_DIGITS - 1,
         }
     }
 
     pub const fn bias(self) -> u32 {
-        match self {
-            Fp8Format::E4M3 => 7,
-            Fp8Format::E5M2 => 15,
-        }
+        let min_exp = match self {
+            Fp8Format::E4M3 => e4m3::MIN_EXP,
+            Fp8Format::E5M2 => e5m2::MIN_EXP,
+        };
+        (2 - min_exp) as u32
     }
 
     pub const fn max_value(self) -> f32 {
         match self {
-            Fp8Format::E4M3 => 448.0,
-            Fp8Format::E5M2 => 57344.0,
+            Fp8Format::E4M3 => e4m3::MAX.to_f32(),
+            Fp8Format::E5M2 => e5m2::MAX.to_f32(),
         }
     }
 
     pub const fn max_code(self) -> u32 {
         match self {
-            Fp8Format::E4M3 => 0x7E,
-            Fp8Format::E5M2 => 0x7B,
+            Fp8Format::E4M3 => e4m3::MAX.to_bits() as u32,
+            Fp8Format::E5M2 => e5m2::MAX.to_bits() as u32,
         }
     }
 
     pub const fn nan_code(self) -> u32 {
-        0x7F
+        let nan = match self {
+            Fp8Format::E4M3 => e4m3::NAN.to_bits(),
+            Fp8Format::E5M2 => e5m2::NAN.to_bits(),
+        };
+        nan as u32 & FP8_MAGNITUDE_MASK
     }
 
     pub const fn has_infinity(self) -> bool {
-        matches!(self, Fp8Format::E5M2)
+        self.decode(self.max_code() + 1).is_infinite()
     }
 
     pub const fn min_normal(self) -> f32 {
-        f32::from_bits((F32_EXPONENT_BIAS + 1 - self.bias()) << F32_MANTISSA_BITS)
+        match self {
+            Fp8Format::E4M3 => e4m3::MIN_POSITIVE.to_f32(),
+            Fp8Format::E5M2 => e5m2::MIN_POSITIVE.to_f32(),
+        }
     }
 
     pub const fn subnormal_step(self) -> f32 {
-        f32::from_bits(
-            (F32_EXPONENT_BIAS + 1 - self.bias() - self.mantissa_bits()) << F32_MANTISSA_BITS,
-        )
+        self.decode(1)
+    }
+
+    const fn decode(self, code: u32) -> f32 {
+        match self {
+            Fp8Format::E4M3 => e4m3::from_bits(code as u8).to_f32(),
+            Fp8Format::E5M2 => e5m2::from_bits(code as u8).to_f32(),
+        }
     }
 
     pub fn of_type(ctx: &Context, ty: TypeHandle) -> Option<Self> {
@@ -287,45 +299,4 @@ fn encode(scope: &Scope, value: Value, format: Fp8Format, result_ty: TypeHandle)
     let bits = f32_to_fp8_bits::expand::<N>(scope, value.into(), format).read_value(scope);
     let bytes = cast_value(scope, bits, Vector::<u8, N>::__expand_as_type(scope));
     reinterpret_value(scope, bytes, result_ty)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn field_constants_agree_with_the_codecs() {
-        assert_eq!(
-            Fp8Format::E4M3.max_value(),
-            cubecl_common::e4m3::MAX.to_f32()
-        );
-        assert_eq!(
-            Fp8Format::E5M2.max_value(),
-            cubecl_common::e5m2::MAX.to_f32()
-        );
-        assert_eq!(
-            Fp8Format::E4M3.max_code(),
-            cubecl_common::e4m3::MAX.to_bits() as u32
-        );
-        assert_eq!(
-            Fp8Format::E5M2.max_code(),
-            cubecl_common::e5m2::MAX.to_bits() as u32
-        );
-        assert_eq!(
-            Fp8Format::E4M3.min_normal(),
-            cubecl_common::e4m3::MIN_POSITIVE.to_f32()
-        );
-        assert_eq!(
-            Fp8Format::E5M2.min_normal(),
-            cubecl_common::e5m2::MIN_POSITIVE.to_f32()
-        );
-        assert_eq!(
-            Fp8Format::E4M3.subnormal_step(),
-            cubecl_common::e4m3::from_bits(1).to_f32()
-        );
-        assert_eq!(
-            Fp8Format::E5M2.subnormal_step(),
-            cubecl_common::e5m2::from_bits(1).to_f32()
-        );
-    }
 }
