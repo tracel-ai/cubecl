@@ -75,6 +75,8 @@ pub struct WgpuServer<C: WgpuCompiler> {
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
     pub(crate) spirv_cache: Option<Store<(u64, KernelCacheKey), cubecl_spirv::SpirvCacheEntry>>,
+    #[cfg(feature = "spirv")]
+    pub(crate) build_id: cubecl_common::hash::StableHash,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
@@ -147,6 +149,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             ),
             #[cfg(feature = "spirv")]
             spirv_cache,
+            #[cfg(feature = "spirv")]
+            build_id: cubecl_runtime::compiler::build_id_hash(),
             backend,
             utilities: Arc::new(utilities),
             shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
@@ -193,8 +197,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             return Ok(pipeline.clone());
         }
 
-        let definition = kernel.define();
-        let cached = self.load_cached_pipeline(&kernel_id, &definition, bindings, mode)?;
+        let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
 
         if let Some(Ok(pipeline)) = cached {
             self.pipelines.insert(kernel_id, pipeline.clone());
@@ -203,6 +206,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         validate_cube_dim(&self.utilities.properties, &kernel_id)?;
         validate_units(&self.utilities.properties, &kernel_id)?;
+
+        let definition = kernel.define();
 
         let mut compiler = C::init(self.backend, &self.compilation_options);
         let mut compiled = compiler.compile_kernel(self, kernel, definition)?;
