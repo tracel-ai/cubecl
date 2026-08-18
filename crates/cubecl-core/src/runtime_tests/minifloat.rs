@@ -219,7 +219,6 @@ fn fp8_supported<R: Runtime>(client: &ComputeClient<R>) -> bool {
     usable(e4m3::supported_uses(client)) && usable(e5m2::supported_uses(client))
 }
 
-/// Every one of the 256 bit patterns of both formats decodes to what the host codec says.
 pub fn test_fp8_decode_exhaustive<R: Runtime>(client: ComputeClient<R>, vector_size: VectorSize) {
     if !fp8_supported(&client) {
         println!("Unsupported, skipping");
@@ -266,7 +265,6 @@ pub fn test_fp8_decode_exhaustive<R: Runtime>(client: ComputeClient<R>, vector_s
     }
 }
 
-/// Every f16 value, plus the rounding and range edges, encodes to the byte the host codec gives.
 pub fn test_fp8_encode_exhaustive<R: Runtime>(client: ComputeClient<R>, vector_size: VectorSize) {
     if !fp8_supported(&client) {
         println!("Unsupported, skipping");
@@ -277,7 +275,6 @@ pub fn test_fp8_encode_exhaustive<R: Runtime>(client: ComputeClient<R>, vector_s
         .map(|bits| half::f16::from_bits(bits).to_f32())
         .collect();
     values.extend(fp8_encode_edges());
-    // The kernel reads whole vectors, and every lane must hold a value the codec was asked about.
     while !values.len().is_multiple_of(vector_size) {
         values.push(0.0);
     }
@@ -334,8 +331,6 @@ pub fn test_fp8_encode_exhaustive<R: Runtime>(client: ComputeClient<R>, vector_s
     }
 }
 
-/// Values at the edges of what encoding has to get right: ties in both rounding regimes of both
-/// formats, the underflow and saturation boundaries, and the specials.
 fn fp8_encode_edges() -> Vec<f32> {
     let mut edges = vec![
         0.0,
@@ -374,7 +369,6 @@ fn fp8_encode_edges() -> Vec<f32> {
         ]);
     }
     for value in [1.0f32, 1.5, 3.0, 100.0, 1000.0] {
-        // Halfway between neighbouring codes, on both sides of an even code, from a few ulps away.
         for step in [1.0 / 8.0, 1.0 / 4.0] {
             let half = value * step / 2.0;
             edges.extend([value + half, value + half * 3.0, value - half]);

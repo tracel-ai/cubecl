@@ -1,5 +1,4 @@
-//! Codegen assertions on the generated C++ text: which fp8 path each dialect emits, without a
-//! device. The IR is expanded through the CPU runtime's client and printed by each dialect.
+//! The IR is expanded through the CPU runtime's client, so no device is involved.
 
 use cubecl_common::e4m3;
 use cubecl_core::{self as cubecl, ir::settings::Dim3, prelude::*};
@@ -20,7 +19,6 @@ fn fp8_round_trip(input: &[e4m3], output: &mut [e4m3]) {
     output[ABSOLUTE_POS] = e4m3::cast_from(value * 2.0);
 }
 
-/// The C++ a target's dialect prints for [`fp8_round_trip`].
 fn fp8_round_trip_source<T: CppTarget>() -> String
 where
     CppCompiler<T>: Compiler<CompilationOptions = CompilationOptions>,
@@ -50,8 +48,6 @@ fn cuda_converts_fp8_with_the_header_intrinsics() {
     let source = fp8_round_trip_source::<Cuda>();
     assert!(source.contains("cuda_fp8.h"), "{source}");
     assert!(source.contains("__nv_cvt_fp8_to_halfraw"), "{source}");
-    // Straight from f32 and saturating: the f16 detour rounds twice and NOSAT is the header's
-    // software path.
     assert!(
         source.contains("__nv_cvt_float_to_fp8(") && source.contains("__NV_SATFINITE"),
         "{source}"
@@ -73,7 +69,6 @@ fn metal_converts_fp8_in_software_on_bytes() {
     assert_software_fp8(&source);
 }
 
-/// The fp8 buffers are plain bytes and no vendor conversion intrinsic or header is named.
 fn assert_software_fp8(source: &str) {
     assert!(source.contains("uint8_t const*"), "{source}");
     for vendor in ["__nv_", "cuda_fp8", "__hip_fp8", "hip_fp8"] {

@@ -1,5 +1,4 @@
-//! Codegen assertions on the SPIR-V text for both fp8 states of a driver, without a device. The
-//! IR is expanded through the CPU runtime's client and compiled with the option set by hand.
+//! The IR is expanded through the CPU runtime's client, so no device is involved.
 
 use cubecl_common::e4m3;
 use cubecl_core::{
@@ -17,7 +16,6 @@ fn fp8_round_trip(input: &[e4m3], output: &mut [e4m3]) {
     output[ABSOLUTE_POS] = e4m3::cast_from(value * 2.0);
 }
 
-/// The disassembled SPIR-V of [`fp8_round_trip`] for a driver with or without fp8.
 fn fp8_round_trip_spirv(supports_float8: bool) -> String {
     let client = CpuRuntime::client(&Default::default());
     let settings =

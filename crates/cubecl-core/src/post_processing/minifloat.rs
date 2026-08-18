@@ -1,8 +1,5 @@
-//! Software fp8 conversion for targets without hardware fp8.
-//!
-//! The polyfills work on `u32` bit patterns and use no 8- or 16-bit types, so they also serve
-//! backends that cannot store a byte, given the bits in a word. [`LowerMinifloatCast`] rewrites
-//! the casts a target cannot convert natively into them.
+//! Software fp8 conversion, on `u32` bit patterns only so that a backend with no 8- or 16-bit types
+//! can still call it on the bits in a word.
 
 use cubecl_ir::{
     NamedRewrite, Scope,
@@ -17,24 +14,19 @@ use crate::{self as cubecl, prelude::*};
 
 define_size!(N);
 
-/// The bits of the f32 mantissa field, the sign bit and everything under it.
 const F32_MANTISSA_BITS: u32 = f32::MANTISSA_DIGITS - 1;
 const F32_MANTISSA_MASK: u32 = (1 << F32_MANTISSA_BITS) - 1;
 const F32_MAGNITUDE_MASK: u32 = u32::MAX >> 1;
 const F32_EXPONENT_BIAS: u32 = (f32::MAX_EXP - 1) as u32;
 const F32_INFINITY_BITS: u32 = f32::INFINITY.to_bits();
 const F32_NAN_BITS: u32 = F32_INFINITY_BITS | 1 << (F32_MANTISSA_BITS - 1);
-/// The sign bit of an fp8 code, and how far it sits below f32's.
 const FP8_SIGN_BIT: u32 = 0x80;
 const FP8_MAGNITUDE_MASK: u32 = FP8_SIGN_BIT - 1;
 const SIGN_SHIFT: u32 = 31 - 7;
 
-/// An 8-bit float encoding, by its field widths.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Fp8Format {
-    /// 4 exponent bits, 3 mantissa bits, bias 7. No infinities; `S.1111.111` is its only NaN.
     E4M3,
-    /// 5 exponent bits, 2 mantissa bits, bias 15. IEEE-like: an all-ones exponent is inf or NaN.
     E5M2,
 }
 
@@ -60,7 +52,6 @@ impl Fp8Format {
         }
     }
 
-    /// The largest finite value.
     pub const fn max_value(self) -> f32 {
         match self {
             Fp8Format::E4M3 => 448.0,
@@ -68,7 +59,6 @@ impl Fp8Format {
         }
     }
 
-    /// The code of [`max_value`](Self::max_value), sign bit clear.
     pub const fn max_code(self) -> u32 {
         match self {
             Fp8Format::E4M3 => 0x7E,
@@ -76,29 +66,24 @@ impl Fp8Format {
         }
     }
 
-    /// The code an encoded NaN takes, sign bit clear.
     pub const fn nan_code(self) -> u32 {
         0x7F
     }
 
-    /// Whether an all-ones exponent means inf or NaN, as in IEEE 754.
     pub const fn has_infinity(self) -> bool {
         matches!(self, Fp8Format::E5M2)
     }
 
-    /// The smallest normal value, `2^(1 - bias)`.
     pub const fn min_normal(self) -> f32 {
         f32::from_bits((F32_EXPONENT_BIAS + 1 - self.bias()) << F32_MANTISSA_BITS)
     }
 
-    /// The distance between subnormals, `2^(1 - bias - mantissa_bits)`.
     pub const fn subnormal_step(self) -> f32 {
         f32::from_bits(
             (F32_EXPONENT_BIAS + 1 - self.bias() - self.mantissa_bits()) << F32_MANTISSA_BITS,
         )
     }
 
-    /// The format of a scalar type, if it is one of these.
     pub fn of_type(ctx: &Context, ty: TypeHandle) -> Option<Self> {
         let ty = ty.deref(ctx);
         if ty.is::<Float8E4M3Type>() {
@@ -111,7 +96,7 @@ impl Fp8Format {
     }
 }
 
-/// Decodes fp8 bit patterns held in the low byte of each lane. Bits above the byte are ignored.
+/// Bits above the low byte are ignored.
 #[cube]
 pub fn fp8_bits_to_f32<N: Size>(
     bits: Vector<u32, N>,
@@ -154,11 +139,8 @@ pub fn fp8_bits_to_f32<N: Size>(
     Vector::<f32, N>::reinterpret(result)
 }
 
-/// Encodes to fp8 bit patterns in the low byte of each lane, upper bits zero.
-///
-/// Rounds to nearest even. Overflow and infinities saturate to the largest finite value rather
-/// than producing NaN or inf, matching the host codecs; a quantization scale must never come back
-/// as something that poisons every value it scales.
+/// Round to nearest even; overflow and infinities saturate to the largest finite value, as the host
+/// codecs do.
 #[cube]
 pub fn f32_to_fp8_bits<N: Size>(
     value: Vector<f32, N>,
@@ -179,8 +161,7 @@ pub fn f32_to_fp8_bits<N: Size>(
     let magnitude_bits = bits & Vector::new(F32_MAGNITUDE_MASK);
     let magnitude = Vector::<f32, N>::reinterpret(magnitude_bits);
 
-    // Below the smallest normal the code is a count of subnormal steps: truncate, then round to
-    // nearest even by hand, which needs no float rounding mode and survives fast-math.
+    // Rounding by hand: the usual magic-number trick does not survive fast-math reassociation.
     let steps = magnitude * Vector::new(subnormal_scale);
     let truncated = Vector::<u32, N>::cast_from(steps);
     let fraction = steps - Vector::<f32, N>::cast_from(truncated);
@@ -191,8 +172,6 @@ pub fn f32_to_fp8_bits<N: Size>(
     let round_up = Vector::<u32, N>::cast_from(above_half.or(tie_to_odd));
     let subnormal = truncated + round_up;
 
-    // In the normal range, rebias the exponent and round the mantissa in place; a mantissa that
-    // rounds over carries into the exponent on its own.
     let exponent = (magnitude_bits >> Vector::new(F32_MANTISSA_BITS)) + Vector::new(bias);
     let mantissa = magnitude_bits & Vector::new(F32_MANTISSA_MASK);
     let lsb = (mantissa >> Vector::new(mantissa_shift)) & Vector::new(1u32);
@@ -221,7 +200,6 @@ pub fn f32_to_fp8_bits<N: Size>(
     code | sign
 }
 
-/// Which fp8 formats a target converts in hardware; every other minifloat cast is lowered.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NativeFp8 {
     pub e4m3: bool,
@@ -248,8 +226,6 @@ impl NativeFp8 {
 
 pub type LowerMinifloatCastPass = MatchRewritePass<LowerMinifloatCast>;
 
-/// Lowers casts to and from fp8 the target has no instruction for into integer bit manipulation,
-/// through `f32`.
 #[derive(new, Clone, Copy, Debug, Default, NamedRewrite)]
 pub struct LowerMinifloatCast {
     pub native: NativeFp8,
@@ -269,7 +245,7 @@ impl MatchRewrite for LowerMinifloatCast {
         }
         let input = op.operand(ctx, 0);
         let result = op.result(ctx);
-        // Bool casts are lowered by the backends themselves and are not what an fp8 buffer holds.
+        // Bool casts belong to the backends' own lowering.
         if input.scalar_ty(ctx).is_bool(ctx) || result.scalar_ty(ctx).is_bool(ctx) {
             return false;
         }
@@ -300,14 +276,12 @@ impl MatchRewrite for LowerMinifloatCast {
     }
 }
 
-/// fp8 lanes to `f32` lanes: reinterpret as bytes, widen, decode.
 fn decode(scope: &Scope, value: Value, format: Fp8Format) -> Value {
     let bytes = reinterpret_value(scope, value, Vector::<u8, N>::__expand_as_type(scope));
     let bits = cast_value(scope, bytes, Vector::<u32, N>::__expand_as_type(scope));
     fp8_bits_to_f32::expand::<N>(scope, bits.into(), format).read_value(scope)
 }
 
-/// Any numeric lanes to fp8 lanes: widen to `f32`, encode, narrow to bytes, reinterpret.
 fn encode(scope: &Scope, value: Value, format: Fp8Format, result_ty: TypeHandle) -> Value {
     let value = cast_value(scope, value, Vector::<f32, N>::__expand_as_type(scope));
     let bits = f32_to_fp8_bits::expand::<N>(scope, value.into(), format).read_value(scope);

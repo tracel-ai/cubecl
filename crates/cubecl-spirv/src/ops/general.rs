@@ -43,8 +43,7 @@ impl ToSpirvDialectOp for general::ReinterpretCastOp {
             .lookup_most_recent_type(input)
             .unwrap_or_else(|| input.get_type(ctx));
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
-        // Two cube types can share one SPIR-V type (emulated fp8 is a byte), and a bitcast to
-        // the same type is invalid SPIR-V.
+        // Emulated fp8 and u8 share one SPIR-V type, and a same-type bitcast is invalid.
         if ty_to_spirv_dialect(ctx, from_ty) == out_ty {
             rewriter.replace_operation_with_values(ctx, op, vec![input]);
         } else {

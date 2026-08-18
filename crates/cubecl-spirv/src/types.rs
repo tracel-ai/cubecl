@@ -75,8 +75,6 @@ float_type!(FloatFlex32Type, 32, None);
 float_type!(Float16Type, 16, None);
 float_type!(BFloat16Type, 16, Some(FPEncoding::BFloat16KHR));
 
-/// Without `VK_EXT_shader_float8` an fp8 value is its byte: `OpTypeFloat 8` would be rejected,
-/// and every conversion has already been lowered to integer arithmetic on that byte.
 macro_rules! fp8_type {
     ($ty: ty, $encoding: expr) => {
         #[type_interface_impl]

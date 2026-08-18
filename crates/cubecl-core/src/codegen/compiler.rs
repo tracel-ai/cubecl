@@ -17,7 +17,6 @@ pub struct VulkanCompilationOptions {
     pub supports_arbitrary_bitwise: bool,
     pub supports_uniform_standard_layout: bool,
     pub supports_uniform_unsized_array: bool,
-    /// Whether the driver has `VK_EXT_shader_float8`; without it fp8 casts are lowered in software.
     pub supports_float8: bool,
 
     pub max_spirv_version: (u8, u8),
