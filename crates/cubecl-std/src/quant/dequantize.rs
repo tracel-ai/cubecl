@@ -87,6 +87,37 @@ pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
     out
 }
 
+/// Unpack `NF` consecutive fields of one `u32` word starting at field `first` (a runtime index),
+/// cast but **unscaled** — the caller multiplies by whatever scale its lines carry. The sub-word
+/// counterpart of [`unpack_cast_u32`], for reads whose served line is narrower than a word:
+/// `NF` may be any divisor of the packing factor, and `first` selects which slice of the word
+/// this line is. `e2m1` is refused — its native pairs cannot be split at a field boundary.
+#[cube]
+pub fn unpack_fields<F: Numeric, NF: Size>(
+    word: u32,
+    first: u32,
+    table: ComptimeOption<Box<[f32]>>,
+    #[comptime] scheme: QuantScheme,
+) -> Vector<F, NF> {
+    comptime!(assert!(
+        !matches!(scheme.value, QuantValue::E2M1),
+        "unpack_fields: e2m1 decodes in native pairs, which a sub-word line would split"
+    ));
+    let size_bits = scheme.size_bits_value();
+    let mask = comptime![packing_mask(scheme)];
+    let size!(N1) = 1usize;
+
+    let mut out = Vector::<F, NF>::empty();
+    #[unroll]
+    for j in 0..NF::value() {
+        let shift = (first + j as u32) * size_bits as u32;
+        let field = (word >> shift) & mask;
+        let value = cast_masked::<F, N1>(field, table.clone(), scheme);
+        out.insert(j, value.extract(0usize));
+    }
+    out
+}
+
 /// The mask required for each packed value, taking into account the native packing required for
 /// `e2m1`.
 fn packing_mask(scheme: QuantScheme) -> u32 {
