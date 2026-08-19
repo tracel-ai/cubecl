@@ -24,7 +24,6 @@ impl ThreadTask for ComputeTask {
 
 impl ComputeTask {
     pub fn compute(&mut self) {
-        // self.pliron_data.push_builtin();
         self.pliron_engine.run_kernel(&mut self.pliron_data);
         self.pliron_data.complete_unit();
         self.atomic_counter
