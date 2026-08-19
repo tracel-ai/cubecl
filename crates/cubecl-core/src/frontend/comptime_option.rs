@@ -1,7 +1,7 @@
 use crate::{self as cubecl};
 use cubecl::prelude::*;
 
-#[derive(Default, Clone, Copy, CubeType)]
+#[derive(Default, Clone, Copy, CubeType, CubeLaunch)]
 pub enum ComptimeOption<T: CubeType> {
     #[default]
     None,
@@ -57,11 +57,6 @@ impl<T: CubeType> ComptimeOptionExpand<T> {
     }
 }
 
-pub enum ComptimeOptionArgs<T: LaunchArg, R: Runtime> {
-    Some(<T as LaunchArg>::RuntimeArg<R>),
-    None,
-}
-
 impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>>
     for ComptimeOptionArgs<T, R>
 {
@@ -69,86 +64,6 @@ impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>>
         match value {
             Some(arg) => Self::Some(arg),
             None => Self::None,
-        }
-    }
-}
-
-impl<T: LaunchArg + 'static + CubeType> LaunchArg for ComptimeOption<T> {
-    type RuntimeArg<R: Runtime> = ComptimeOptionArgs<T, R>;
-    type CompilationArg = ComptimeOptionCompilationArg<T>;
-
-    fn register<R: Runtime>(
-        arg: Self::RuntimeArg<R>,
-        launcher: &mut KernelLauncher<R>,
-    ) -> Self::CompilationArg {
-        match arg {
-            ComptimeOptionArgs::Some(arg) => {
-                ComptimeOptionCompilationArg::Some(T::register(arg, launcher))
-            }
-            ComptimeOptionArgs::None => ComptimeOptionCompilationArg::None,
-        }
-    }
-
-    fn expand(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> <Self as CubeType>::ExpandType {
-        match arg {
-            ComptimeOptionCompilationArg::Some(arg) => {
-                ComptimeOptionExpand::Some(T::expand(arg, builder))
-            }
-            ComptimeOptionCompilationArg::None => ComptimeOptionExpand::None,
-        }
-    }
-}
-
-pub enum ComptimeOptionCompilationArg<T: LaunchArg> {
-    Some(<T as LaunchArg>::CompilationArg),
-    None,
-}
-
-impl<T: LaunchArg> Clone for ComptimeOptionCompilationArg<T> {
-    fn clone(&self) -> Self {
-        match self {
-            ComptimeOptionCompilationArg::Some(arg) => {
-                ComptimeOptionCompilationArg::Some(arg.clone())
-            }
-            ComptimeOptionCompilationArg::None => ComptimeOptionCompilationArg::None,
-        }
-    }
-}
-
-impl<T: LaunchArg> PartialEq for ComptimeOptionCompilationArg<T> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                ComptimeOptionCompilationArg::Some(arg_0),
-                ComptimeOptionCompilationArg::Some(arg_1),
-            ) => arg_0 == arg_1,
-            (ComptimeOptionCompilationArg::None, ComptimeOptionCompilationArg::None) => true,
-            _ => false,
-        }
-    }
-}
-
-impl<T: LaunchArg> Eq for ComptimeOptionCompilationArg<T> {}
-
-impl<T: LaunchArg> core::hash::Hash for ComptimeOptionCompilationArg<T> {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            ComptimeOptionCompilationArg::Some(arg) => {
-                arg.hash(state);
-            }
-            ComptimeOptionCompilationArg::None => {}
-        };
-    }
-}
-
-impl<T: LaunchArg> core::fmt::Debug for ComptimeOptionCompilationArg<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            ComptimeOptionCompilationArg::Some(arg) => f.debug_tuple("Some").field(arg).finish(),
-            ComptimeOptionCompilationArg::None => write!(f, "None"),
         }
     }
 }

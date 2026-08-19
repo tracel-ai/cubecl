@@ -1,10 +1,10 @@
 use cubecl_core::{
     frontend::cast_value,
     ir::{ContextExt, dialect::plane::*, types::scalar::BoolType},
+    prelude::*,
 };
 use pliron::{
     builtin::types::{IntegerType, Signedness},
-    context::Context,
     derive::op_interface_impl,
     value::Value,
 };
@@ -12,7 +12,7 @@ use pliron::{
 use crate::{
     cuda::{cuda_op_with_out, ptx::InlinePtxOp},
     ptx_block,
-    shared::{CompilationOptions, lowering::LowerOp},
+    shared::{CompilationOptions, elect, lowering::LowerOp},
     target::Cuda,
 };
 
@@ -63,22 +63,25 @@ cuda_op_with_out!(BallotOp, |op, ctx| {
 
 #[op_interface_impl]
 impl LowerOp<Cuda> for ElectOp {
-    fn should_lower(&self, ctx: &Context) -> bool {
-        let opts = ctx.aux_ty::<CompilationOptions>();
-        opts.supports_features.elect_sync
-    }
-
     fn lower(&self, scope: &cubecl_core::ir::Scope) -> Vec<Value> {
         let ctx = scope.ctx_mut();
-        let u32 = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle();
-        let ptx = ptx_block! {
-            ".reg .pred %%px;"
-            "elect.sync _|%%px, 0xffffffff;"
-            "selp.b32 $0, 1, 0, %%px;"
-        };
-        let op = InlinePtxOp::new_volatile(ctx, Some(u32), ptx, vec![]);
-        scope.register(&op);
-        let cast = cast_value(scope, op.result(ctx).unwrap(), BoolType::get(ctx).into());
-        vec![cast]
+        let opts = ctx.aux_ty::<CompilationOptions>();
+        let native_elect = opts.supports_features.elect_sync;
+        if native_elect {
+            let u32 = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle();
+            let ptx = ptx_block! {
+                ".reg .pred %%px;"
+                ".reg .b32 %mask;"
+                "activemask.b32 %mask;"
+                "elect.sync _|%%px, %mask;"
+                "selp.b32 $0, 1, 0, %%px;"
+            };
+            let op = InlinePtxOp::new_volatile(ctx, Some(u32), ptx, vec![]);
+            scope.register(&op);
+            let cast = cast_value(scope, op.result(ctx).unwrap(), BoolType::get(ctx).into());
+            vec![cast]
+        } else {
+            vec![elect::expand::<u32>(scope).read_value(scope)]
+        }
     }
 }

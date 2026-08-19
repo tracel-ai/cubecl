@@ -427,11 +427,109 @@ mod dynamic {
         ),
         Quantized {
             values: Box<ViewArg<C, R>>,
-            scales: Box<ViewArg<C, R>>,
-            global: Option<BufferArg<R>>,
-            table: Option<BufferArg<R>>,
+            scales: ScaleBindings<C, R>,
             scheme: QuantScheme,
         },
+    }
+
+    /// The scale bindings of a quantized view, one per scheme level.
+    ///
+    /// Only the block scales are addressed per position, so they bind as a view; the per-tensor
+    /// scale of a two-level scheme covers the whole tensor and binds as a buffer holding its one
+    /// scale in the first element, read once per kernel as f32.
+    pub struct ScaleBindings<C: Coordinates, R: Runtime> {
+        pub(crate) inner: Box<ViewArg<C, R>>,
+        pub(crate) global_scale: Option<BufferArg<R>>,
+        /// A lookup scheme's `2^bits`-entry table, present exactly under
+        /// [`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode). Not a scale level —
+        /// [`len`](Self::len) never counts it — but it rides here because it is the same kind of
+        /// thing: a side binding the dequantizing read folds in.
+        pub(crate) table: Option<BufferArg<R>>,
+    }
+
+    impl<C: Coordinates, R: Runtime> ScaleBindings<C, R> {
+        /// The binding of a one-level scheme's scales.
+        pub fn one(scales: ViewArg<C, R>) -> Self {
+            Self {
+                inner: Box::new(scales),
+                global_scale: None,
+                table: None,
+            }
+        }
+
+        /// The bindings of a two-level scheme: the block scales and the per-tensor scale they are
+        /// normalized against.
+        pub fn two(scales: ViewArg<C, R>, global_scale: BufferArg<R>) -> Self {
+            Self {
+                inner: Box::new(scales),
+                global_scale: Some(global_scale),
+                table: None,
+            }
+        }
+
+        /// The bindings of a one-level lookup scheme
+        /// ([`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode)): the scales and the
+        /// table each stored field indexes, so a read reconstructs `table[field] * scale`.
+        ///
+        /// `table` must hold `2^bits` f32 entries — registration checks its length against the
+        /// scheme, and the unpack's mask bounds every index to that range.
+        pub fn lookup(scales: ViewArg<C, R>, table: BufferArg<R>) -> Self {
+            Self {
+                inner: Box::new(scales),
+                global_scale: None,
+                table: Some(table),
+            }
+        }
+
+        /// The number of bound scale levels, matched against the scheme's at construction: the
+        /// inner binding plus the global scale when bound. The lookup table is not a level and is
+        /// never counted; its presence is checked against the scheme's mode instead
+        /// ([`quant::check_table_bindings`]).
+        #[allow(clippy::len_without_is_empty, reason = "never empty by construction")]
+        pub fn len(&self) -> usize {
+            1 + self.global_scale.iter().count()
+        }
+    }
+
+    /// [`ScaleBindings`] between registration and expansion.
+    #[derive(Clone)]
+    pub struct ScaleBindingsCompilationArg<C: Coordinates> {
+        pub(crate) inner: Box<ViewCompilationArg<C>>,
+        pub(crate) global_scale: Option<BufferCompilationArg>,
+        pub(crate) table: Option<BufferCompilationArg>,
+    }
+
+    impl<C: Coordinates> ScaleBindingsCompilationArg<C> {
+        /// See [`ScaleBindings::len`].
+        #[allow(clippy::len_without_is_empty, reason = "never empty by construction")]
+        pub fn len(&self) -> usize {
+            1 + self.global_scale.iter().count()
+        }
+    }
+
+    impl<C: Coordinates> Eq for ScaleBindingsCompilationArg<C> {}
+    impl<C: Coordinates> PartialEq for ScaleBindingsCompilationArg<C> {
+        fn eq(&self, other: &Self) -> bool {
+            self.inner == other.inner
+                && self.global_scale == other.global_scale
+                && self.table == other.table
+        }
+    }
+    impl<C: Coordinates> core::hash::Hash for ScaleBindingsCompilationArg<C> {
+        fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+            self.inner.hash(state);
+            self.global_scale.hash(state);
+            self.table.hash(state);
+        }
+    }
+    impl<C: Coordinates> core::fmt::Debug for ScaleBindingsCompilationArg<C> {
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            f.debug_struct("ScaleBindings")
+                .field("inner", &self.inner)
+                .field("global_scale", &self.global_scale)
+                .field("table", &self.table)
+                .finish()
+        }
     }
 
     impl<C: Coordinates, R: Runtime> ViewArg<C, R> {
@@ -477,61 +575,23 @@ mod dynamic {
             ViewArg::TensorMapIm2col(buffer, layout)
         }
 
-        /// Create a new view arg that dequantizes on read.
-        /// The scales layout should take values indices and map them to the corresponding scale.
+        /// Create a new view arg that dequantizes on read, against one scale binding per scheme
+        /// level. The inner scales layout should take values indices and map them to the
+        /// corresponding scale.
         ///
-        /// Panics for a level that quantizes in two levels, which needs the per-tensor scale
-        /// [`ViewArg::new_quantized_two_level`] takes.
-        pub fn new_quantized(values: Self, scales: Self, scheme: QuantScheme) -> Self {
-            Self::quantized(values, scales, None, None, scheme)
-        }
-
-        /// Create a new view arg that dequantizes on read against two levels of scales.
-        /// The scales layout should take values indices and map them to the corresponding scale.
-        ///
-        /// `global` holds the per-tensor scale the block scales are normalized against, read as f32
-        /// from its first element. Panics for a level that has no per-tensor scale, since it would
-        /// be dropped from the reconstruction, and for one that stores the scale in another param.
-        pub fn new_quantized_two_level(
+        /// Panics when the bindings and the scheme's levels disagree in count, since a missing
+        /// level would be dropped from the reconstruction, and for an global level this reader
+        /// cannot serve. See [`quant::check_scale_bindings`].
+        pub fn new_quantized(
             values: Self,
-            scales: Self,
-            global: BufferArg<R>,
+            scales: ScaleBindings<C, R>,
             scheme: QuantScheme,
         ) -> Self {
-            Self::quantized(values, scales, Some(global), None, scheme)
-        }
-
-        /// Create a new view arg that dequantizes on read through a lookup table
-        /// ([`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode::Lookup)): each stored
-        /// field indexes `table` and a read reconstructs `table[field] * scale`.
-        ///
-        /// `table` must hold `2^bits` f32 entries — the mask bounds every index to that range, so
-        /// a shorter buffer is read out of bounds. Panics for a scheme whose mode is not lookup,
-        /// whose store is not packed-u32, or whose value is a minifloat (an index has no float
-        /// semantics; use the integer value of the same width).
-        pub fn new_quantized_lookup(
-            values: Self,
-            scales: Self,
-            table: BufferArg<R>,
-            scheme: QuantScheme,
-        ) -> Self {
-            Self::quantized(values, scales, None, Some(table), scheme)
-        }
-
-        fn quantized(
-            values: Self,
-            scales: Self,
-            global: Option<BufferArg<R>>,
-            table: Option<BufferArg<R>>,
-            scheme: QuantScheme,
-        ) -> Self {
-            quant::check_global_bindings(scheme.level, global.is_some());
-            quant::check_table_bindings(&scheme, table.is_some());
+            quant::check_scale_bindings(&scheme, scales.len());
+            quant::check_table_bindings(&scheme, scales.table.is_some());
             Self::Quantized {
                 values: Box::new(values),
-                scales: Box::new(scales),
-                global,
-                table,
+                scales,
                 scheme,
             }
         }
@@ -552,9 +612,7 @@ mod dynamic {
         },
         Quantized {
             values: Box<ViewCompilationArg<C>>,
-            scales: Box<ViewCompilationArg<C>>,
-            global: Option<BufferCompilationArg>,
-            table: Option<BufferCompilationArg>,
+            scales: ScaleBindingsCompilationArg<C>,
             scheme: QuantScheme,
         },
     }
@@ -588,24 +646,14 @@ mod dynamic {
                     ViewCompilationArg::Quantized {
                         values,
                         scales,
-                        global,
-                        table,
                         scheme,
                     },
                     ViewCompilationArg::Quantized {
                         values: values_other,
                         scales: scales_other,
-                        global: global_other,
-                        table: table_other,
                         scheme: scheme_other,
                     },
-                ) => {
-                    values == values_other
-                        && scales == scales_other
-                        && global == global_other
-                        && table == table_other
-                        && scheme == scheme_other
-                }
+                ) => values == values_other && scales == scales_other && scheme == scheme_other,
                 _ => false,
             }
         }
@@ -628,14 +676,10 @@ mod dynamic {
                 ViewCompilationArg::Quantized {
                     values,
                     scales,
-                    global,
-                    table,
                     scheme,
                 } => {
                     values.hash(ra_expand_state);
                     scales.hash(ra_expand_state);
-                    global.hash(ra_expand_state);
-                    table.hash(ra_expand_state);
                     scheme.hash(ra_expand_state);
                 }
             }
@@ -662,15 +706,11 @@ mod dynamic {
                 ViewCompilationArg::Quantized {
                     values,
                     scales,
-                    global,
-                    table,
                     scheme,
                 } => f
                     .debug_struct("QuantizedView")
                     .field("values", &values)
                     .field("scales", &scales)
-                    .field("global", &global)
-                    .field("table", &table)
                     .field("scheme", &scheme)
                     .finish(),
             }
@@ -710,15 +750,11 @@ mod dynamic {
                 ViewArg::Quantized {
                     values,
                     scales,
-                    global,
-                    table,
                     scheme,
                 } => {
                     let register = RegisterDynamic {
                         values: *values,
-                        scales: *scales,
-                        global,
-                        table,
+                        scales,
                         scheme,
                         launcher,
                         _ty: PhantomData::<E>,
@@ -765,17 +801,8 @@ mod dynamic {
                 ViewCompilationArg::Quantized {
                     values,
                     scales,
-                    global,
-                    table,
                     scheme,
-                } => quant::view::expand_dynamic(
-                    values,
-                    scales,
-                    global.as_ref(),
-                    table.as_ref(),
-                    *scheme,
-                    builder,
-                ),
+                } => quant::view::expand_dynamic(values, scales, *scheme, builder),
             }
         }
     }

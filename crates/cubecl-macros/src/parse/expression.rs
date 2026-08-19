@@ -596,7 +596,7 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, Option<QSelf>, PathSeg
             let is_primitive = PRIMITIVES.contains(&name.as_str());
             if is_assoc || is_primitive {
                 let mut path = path.clone();
-                let name = path.segments.pop().unwrap().into_value();
+                let name = path.segments.pop().unwrap();
                 path.segments.pop_punct();
                 Some((path, qself.clone(), name))
             } else {

@@ -3,9 +3,9 @@ use std::collections::{HashMap, HashSet};
 use inflections::case::to_snake_case;
 use quote::{ToTokens, format_ident, quote};
 use syn::{
-    FnArg, GenericArgument, GenericParam, Generics, Ident, Lifetime, Path, Signature, TraitItemFn,
-    Type, TypeMacro, TypeParamBound, parse, parse_quote, punctuated::Punctuated, spanned::Spanned,
-    token::Mut, visit_mut::VisitMut,
+    FnArg, GenericArgument, GenericParam, Generics, Ident, Lifetime, Path, ReceiverKind, Signature,
+    TraitItemFn, Type, TypeMacro, TypeParamBound, parse, parse_quote, punctuated::Punctuated,
+    spanned::Spanned, token::Mut, visit_mut::VisitMut,
 };
 
 use crate::{
@@ -39,7 +39,14 @@ impl KernelSignature {
             .inputs
             .iter()
             .flat_map(|arg| match arg {
-                FnArg::Receiver(receiver) => type_used_lifetimes(&receiver.ty),
+                FnArg::Receiver(receiver) => match &receiver.kind {
+                    syn::ReceiverKind::Value => HashSet::new(),
+                    syn::ReceiverKind::Reference(and, lifetime, mut_) => {
+                        type_used_lifetimes(&parse_quote!(#and #lifetime #mut_ Self))
+                    }
+                    syn::ReceiverKind::Typed(_, ty) => type_used_lifetimes(ty),
+                    _ => unimplemented!("Unsupported receiver kind"),
+                },
                 FnArg::Typed(pat_type) => type_used_lifetimes(&pat_type.ty),
             })
             .collect();
@@ -68,20 +75,22 @@ impl KernelSignature {
             generics.params.insert(0, parse_quote!('infer));
             for input in sig.inputs.iter_mut() {
                 match input {
-                    FnArg::Receiver(receiver) => {
-                        type_patch_inferred_lifetimes(&mut receiver.ty);
-                        if let Some((token, lifetime)) = receiver.reference.as_mut() {
-                            match lifetime {
-                                Some(lifetime) if lifetime.ident == "_" => {
-                                    lifetime.ident = Ident::new("infer", lifetime.ident.span());
-                                }
-                                Some(_) => {}
-                                other => {
-                                    *other = Some(Lifetime::new("'infer", token.span()));
-                                }
+                    FnArg::Receiver(receiver) => match &mut receiver.kind {
+                        ReceiverKind::Value => {}
+                        ReceiverKind::Reference(and, lifetime, _) => match lifetime {
+                            Some(lifetime) if lifetime.ident == "_" => {
+                                lifetime.ident = Ident::new("infer", lifetime.ident.span());
                             }
+                            Some(_) => {}
+                            other => {
+                                *other = Some(Lifetime::new("'infer", and.span()));
+                            }
+                        },
+                        ReceiverKind::Typed(_, ty) => {
+                            type_patch_inferred_lifetimes(ty);
                         }
-                    }
+                        _ => unreachable!("Already panics above"),
+                    },
                     FnArg::Typed(pat_type) => type_patch_inferred_lifetimes(&mut pat_type.ty),
                 }
             }
@@ -94,7 +103,7 @@ impl KernelSignature {
         let returns = match sig.output {
             syn::ReturnType::Default => KernelReturns::ExpandType(parse_quote![()]),
             syn::ReturnType::Type(_, ty) => match *ty.clone() {
-                Type::Macro(TypeMacro { mac }) => {
+                Type::Macro(TypeMacro { mac, attrs: _ }) => {
                     if mac.path.is_ident("comptime_type") {
                         let inner_type = parse::<Type>(mac.tokens.into())
                             .expect("Interior of comptime_type macro should be a valid type.");
@@ -242,22 +251,47 @@ impl KernelParam {
         let param = match param {
             FnArg::Typed(param) => param,
             FnArg::Receiver(param) => {
-                let normalized_ty = expand_kernel_ty(*param.ty.clone(), false)?;
+                let span = param.span();
+                match param.kind {
+                    ReceiverKind::Value => {
+                        let ty: Type = parse_quote!(Self);
+                        let normalized_ty = expand_kernel_ty(ty.clone(), false)?;
+                        return Ok(KernelParam {
+                            name: Ident::new("self", span),
+                            ty,
+                            normalized_ty,
+                            defines: Vec::new(),
+                            is_const: false,
+                            mutability: param.mutability,
+                        });
+                    }
+                    ReceiverKind::Reference(and, lifetime, mut_) => {
+                        let ty: Type = parse_quote!(#and #lifetime #mut_ Self);
+                        let normalized_ty = expand_kernel_ty(ty.clone(), false)?;
 
-                let mutability = if param.reference.is_none() {
-                    param.mutability
-                } else {
-                    None
-                };
+                        return Ok(KernelParam {
+                            name: Ident::new("self", span),
+                            ty,
+                            normalized_ty,
+                            defines: Vec::new(),
+                            is_const: false,
+                            mutability: None,
+                        });
+                    }
+                    ReceiverKind::Typed(_, ty) => {
+                        let normalized_ty = expand_kernel_ty(*ty.clone(), false)?;
 
-                return Ok(KernelParam {
-                    name: Ident::new("self", param.span()),
-                    ty: *param.ty,
-                    normalized_ty,
-                    defines: Vec::new(),
-                    is_const: false,
-                    mutability,
-                });
+                        return Ok(KernelParam {
+                            name: Ident::new("self", span),
+                            ty: *ty,
+                            normalized_ty,
+                            defines: Vec::new(),
+                            is_const: false,
+                            mutability: param.mutability,
+                        });
+                    }
+                    _ => todo!(),
+                }
             }
         };
         let Pattern {

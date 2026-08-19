@@ -1,11 +1,6 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::{
-    compute::{
-        command::Command,
-        context::HipContext,
-        fence::Fence,
-        stream::{HipStreamBackend, StreamCaptureState},
-    },
+    compute::{command::Command, context::HipContext, fence::Fence, stream::HipStreamBackend},
     runtime::HipCompiler,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
@@ -113,16 +108,6 @@ unsafe fn count_memory_nodes(graph: cubecl_hip_sys::hipGraph_t) -> usize {
             )
         })
         .count()
-}
-
-/// Build a [`ServerError`] for a graph-capture call issued in the wrong state
-/// (e.g. `begin_capture` without `graph_prepare`, or a second overlapping
-/// capture on the same stream).
-fn graph_state_error(reason: impl Into<String>) -> ServerError {
-    ServerError::Generic {
-        reason: reason.into(),
-        backtrace: BackTrace::capture(),
-    }
 }
 
 /// Build — or reuse from the cache — the device buffer holding a launch's info words.
@@ -309,22 +294,7 @@ impl ComputeServer for HipServer {
             },
         )?;
         let stream = command.streams.current();
-        // A capture must be prepared exactly once before it starts; reject a
-        // second prepare or a prepare over a live capture so two captures can
-        // never overlap on one stream.
-        match stream.capturing {
-            StreamCaptureState::NoCapture => {}
-            StreamCaptureState::Prepare => {
-                return Err(graph_state_error(
-                    "graph_prepare: a graph capture is already prepared on this stream",
-                ));
-            }
-            StreamCaptureState::Capture => {
-                return Err(graph_state_error(
-                    "graph_prepare: a graph capture is already recording on this stream",
-                ));
-            }
-        }
+        stream.capturing.prepare()?;
         // Route every allocation from here until `end_capture` into the
         // persistent pool and snapshot which slices are already in use. Called
         // before the warmup run, so the pool is warm before `begin_capture` —
@@ -337,7 +307,6 @@ impl ComputeServer for HipServer {
         // device (a fresh pinned allocation mid-capture would fault the same way).
         stream.memory_management_gpu.capture_begin();
         stream.memory_management_cpu.capture_begin();
-        stream.capturing = StreamCaptureState::Prepare;
         Ok(())
     }
 
@@ -350,24 +319,9 @@ impl ComputeServer for HipServer {
             },
         )?;
         let stream = command.streams.current();
-        // A capture must be armed by `graph_prepare` first: the persistent pool
-        // it primes (warmed by the run between prepare and here) is what lets
-        // the window reuse slices with no illegal mid-capture `hipMalloc`.
-        // Reject an unprepared start, and reject a second start over a live
-        // capture, so captures never overlap on one stream.
-        match stream.capturing {
-            StreamCaptureState::Prepare => {}
-            StreamCaptureState::NoCapture => {
-                return Err(graph_state_error(
-                    "begin_capture: call graph_prepare before starting a capture",
-                ));
-            }
-            StreamCaptureState::Capture => {
-                return Err(graph_state_error(
-                    "begin_capture: a graph capture is already recording on this stream",
-                ));
-            }
-        }
+        // Rejected before the reclaim below runs: a drop-queue flush issued on
+        // a stream that is already recording would abort its live capture.
+        stream.capturing.begin()?;
         // Reclaim deferred frees before the capture window opens: warmup's
         // pinned staging buffers (and any other drop-queued slices) sit in the
         // drop queue until flushed, so without this the capture run finds no
@@ -404,13 +358,12 @@ impl ComputeServer for HipServer {
             stream.memory_management_cpu.capture_end();
             // Unpin any info-cache entries warmup pinned; the capture is off.
             stream.info_cache.capture_discard();
-            stream.capturing = StreamCaptureState::NoCapture;
+            stream.capturing.abort();
             return Err(err);
         }
-        // Recording now; suppress fenced drop-queue flushes on the execution
-        // path for the duration of the capture (a host sync would abort it).
-        // The deferred staging buffers are reclaimed in `end_capture`.
-        stream.capturing = StreamCaptureState::Capture;
+        // Recording now: fenced drop-queue flushes on the execution path are
+        // suppressed for the duration of the capture (a host sync would abort
+        // it). The deferred staging buffers are reclaimed in `end_capture`.
         Ok(())
     }
 
@@ -433,14 +386,12 @@ impl ComputeServer for HipServer {
                 },
             )?;
             let stream = command.streams.current();
-            // Only a recording stream can be ended; reject a stray `end_capture`
-            // (nothing prepared/started, or the capture already ended) instead of
-            // calling `hipStreamEndCapture` on a stream that never began one.
-            if !stream.capturing.is_recording() {
-                return Err(graph_state_error(
-                    "end_capture: no graph capture is recording on this stream",
-                ));
-            }
+            // Rejected before `hipStreamEndCapture` runs on a stream that never
+            // began a capture. The state leaves capture mode here, so the
+            // failure paths below cannot wedge the stream in it — they
+            // re-enable the deferred fenced flushes and restore the allocation
+            // mode on the way out.
+            stream.capturing.end()?;
             // SAFETY: ends the capture begun on this stream and instantiates the
             // recorded graph into an executable; the intermediate `graph` is freed
             // whether or not instantiation succeeds, leaving only the `exec` the
@@ -461,7 +412,7 @@ impl ComputeServer for HipServer {
                     let alloc_nodes = count_memory_nodes(graph);
                     if alloc_nodes > 0 {
                         cubecl_hip_sys::hipGraphDestroy(graph);
-                        return Err(graph_state_error(format!(
+                        return Err(ServerError::graph_state(format!(
                             "capture recorded {alloc_nodes} memory node(s): an allocation inside \
                              the capture window makes the graph un-relaunchable, so the capture \
                              is rejected (the persistent pool should have served this allocation)"
@@ -482,10 +433,6 @@ impl ComputeServer for HipServer {
                     instantiated.map(|_| exec)
                 })
             };
-            // The capture is over even if it failed to instantiate: re-enable the
-            // deferred fenced flushes and restore the allocation mode, so an error
-            // here doesn't leave the stream stuck in capture/persistent state.
-            stream.capturing = StreamCaptureState::NoCapture;
             // Pin every buffer the graph touched so the pool never reuses that
             // memory for the graph's lifetime — both the GPU slices and the pinned
             // staging slices the recorded info copies still read from on replay.

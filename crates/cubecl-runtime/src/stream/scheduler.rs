@@ -21,6 +21,15 @@ pub trait SchedulerStreamBackend {
     fn flush(stream: &mut Self::Stream);
     /// Returns a mutable reference to the stream factory.
     fn factory(&mut self) -> &mut Self::Factory;
+    /// Whether this stream currently requires its own tasks to execute on
+    /// itself — no interleaving of its tasks onto another stream, and no other
+    /// stream's tasks onto it. While any stream involved in an execution
+    /// requires isolation, the scheduler falls back to the sequential path.
+    /// A graph capture engages this for its whole prepare → record window.
+    /// Defaults to `false`.
+    fn requires_isolation(_stream: &Self::Stream) -> bool {
+        false
+    }
 }
 
 /// Represents a multi-stream scheduler that manages task execution across multiple streams.
@@ -194,10 +203,14 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             }
         }
 
-        // Create schedules for each stream to be executed.
+        // Create schedules for each stream to be executed, noting on the way
+        // whether any of them refuses to have its tasks interleaved (see
+        // [`SchedulerStreamBackend::requires_isolation`]).
         let mut schedules = Vec::new();
+        let mut isolation = false;
         for index in indices {
             let stream = unsafe { self.pool.get_mut_index(index) }; // Note: `unsafe` usage assumes valid index.
+            isolation |= B::requires_isolation(&stream.stream);
             let tasks = stream.flush();
             let num_tasks = tasks.len();
 
@@ -213,10 +226,14 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             return;
         }
 
-        // Execute schedules based on the configured strategy.
+        // Execute schedules based on the configured strategy. Interleaving is
+        // suspended while any involved stream requires isolation; the
+        // sequential path keeps every task on the stream that owns it.
         match self.strategy {
-            SchedulerStrategy::Interleave => self.execute_schedules_interleave(schedules),
-            SchedulerStrategy::Sequential => self.execute_schedules_sequence(schedules),
+            SchedulerStrategy::Interleave if !isolation => {
+                self.execute_schedules_interleave(schedules)
+            }
+            _ => self.execute_schedules_sequence(schedules),
         }
     }
 

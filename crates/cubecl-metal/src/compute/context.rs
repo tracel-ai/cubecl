@@ -1,9 +1,10 @@
 use crate::MetalCompiler;
+use cubecl_common::hash::StableHash;
 use cubecl_core::prelude::*;
 use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_runtime::{
-    compiler::{CubeTask, KernelCacheKey},
+    compiler::{CubeTask, KernelCacheKey, build_id_hash},
     logging::ServerLogger,
 };
 use objc2::rc::Retained;
@@ -41,6 +42,7 @@ pub struct MetalContext {
     compiled_kernels: CompilationCache<KernelId, CompiledKernel>,
     /// On-disk MSL source cache for faster recompilation across runs.
     msl_cache: Option<Store<KernelCacheKey, MslCacheEntry>>,
+    build_id: StableHash,
     compilation_options: cubecl_cpp::shared::CompilationOptions,
     msl_compile_options: Retained<MTLCompileOptions>,
 }
@@ -70,6 +72,7 @@ impl MetalContext {
         Self {
             compiled_kernels: CompilationCache::mirroring(&msl_cache),
             msl_cache,
+            build_id: build_id_hash(),
             device,
             compilation_options,
             msl_compile_options,
@@ -88,8 +91,7 @@ impl MetalContext {
             return Ok(compiled.clone());
         }
 
-        let definition = kernel.define();
-        let cache_key = KernelCacheKey::new(kernel_id, &definition);
+        let cache_key = KernelCacheKey::new(kernel_id, self.build_id);
 
         if let Some(cache) = self.msl_cache.as_mut()
             && let Some(entry) = cache.remove(&cache_key)
@@ -109,6 +111,7 @@ impl MetalContext {
 
         log::trace!("Compiling kernel to MSL");
 
+        let definition = kernel.define();
         let mut kernel_compiled = kernel.compile(
             definition,
             &mut Default::default(),
