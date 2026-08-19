@@ -6,7 +6,8 @@ use crate::compiler::polyfill::synchronization::SYNC_CUBE_STATE_LEN;
 
 /// Data shared by every unit of a launch: the pointer table (the buffer data pointers indexed by
 /// binding position, then the shared memory blocks), the metadata array and the cube barrier
-/// counters. All but the counters point into server-owned storage that must outlive the launch.
+/// counters. The buffer pointers stay valid because `keepalive` pins their storage; the
+/// shared-memory blocks because the stream drains before a shared-memory launch.
 #[derive(Default)]
 pub struct SharedData {
     pub buffer_ptrs: Vec<*mut c_void>,
@@ -20,9 +21,9 @@ pub struct SharedData {
     pub keepalive: Vec<Box<dyn std::any::Any + Send>>,
 }
 
-/// Safety: the pointers target server-owned storage that outlives the launch,
-/// `sync_cube_state` is atomic, and `keepalive` is only ever dropped — hence
-/// `Send` without `Sync` on its contents.
+/// Safety: the storage behind the pointers outlives the launch (see the struct
+/// doc), `sync_cube_state` is atomic, and `keepalive` is only ever dropped —
+/// hence `Send` without `Sync` on its contents.
 unsafe impl Send for SharedData {}
 unsafe impl Sync for SharedData {}
 

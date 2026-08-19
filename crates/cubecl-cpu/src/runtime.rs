@@ -95,9 +95,10 @@ impl DeviceService for CpuServer {
         );
         let max_cube_count = (u32::MAX, u32::MAX, u32::MAX);
         // Kernels size their stages against shared memory ("as big as shared
-        // memory allows"), so a whole-RAM report lets one launch reserve tens
-        // of GB. Report a cache-sized, GPU-like figure existing kernel
-        // geometries are designed for.
+        // memory allows"), so reporting whole RAM lets one matmul launch
+        // reserve tens of GB and abort. Stopgap until stage selection is
+        // CPU-aware upstream: report a cache-sized, GPU-like figure existing
+        // kernel geometries are designed for.
         const MAX_SHARED_MEMORY_SIZE: usize = 64 * 1024;
         let topology = HardwareProperties {
             load_width: 512,

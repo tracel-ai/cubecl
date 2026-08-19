@@ -18,8 +18,10 @@ impl ThreadAffinity for Platform {
     }
 
     fn physical_core(cpu: CoreId) -> Option<CoreId> {
-        // sysfs lists a core's siblings smallest-first, so the first entry is
-        // the same for every sibling of the core and serves as its identity.
+        // libc exposes only the affinity mask; the kernel publishes SMT
+        // topology solely through sysfs, its stable ABI for it. The siblings
+        // list is smallest-first, so the first entry is the same for every
+        // sibling of the core and serves as its identity.
         let list = std::fs::read_to_string(format!(
             "/sys/devices/system/cpu/cpu{}/topology/thread_siblings_list",
             cpu.0
