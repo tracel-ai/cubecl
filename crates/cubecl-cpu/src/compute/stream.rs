@@ -114,12 +114,22 @@ impl CpuStream {
     }
 
     fn flush_uncheck(&mut self) {
+        // Spin briefly, then yield between polls: the client is not pinned,
+        // and a pure spin parked on a worker's logical CPU keeps that worker
+        // off it until the next timer tick (~3 ms unit-start stalls).
+        const SPINS_BEFORE_YIELD: u32 = 1_000;
+        let mut spins = 0u32;
         while self
             .atomic_counter
             .load(std::sync::atomic::Ordering::Acquire)
             != self.next_counter_step
         {
-            std::hint::spin_loop();
+            spins += 1;
+            if spins < SPINS_BEFORE_YIELD {
+                std::hint::spin_loop();
+            } else {
+                std::thread::yield_now();
+            }
         }
     }
 
