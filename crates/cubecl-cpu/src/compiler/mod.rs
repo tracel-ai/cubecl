@@ -20,9 +20,10 @@ use cubecl_runtime::compiler::CompilationError;
 use cubecl_core::{
     Compiler,
     ir::dialect::scf::BranchToSCFPass,
+    ir::features::EnumSet,
     ir::rewrite::SimplifyOpsPass,
     post_processing::bitwise::PromoteBitwisePass,
-    post_processing::minifloat::{LowerMinifloatCast, LowerMinifloatCastPass, NativeFp8},
+    post_processing::minifloat::{LowerMinifloatCast, LowerMinifloatCastPass},
     prelude::*,
 };
 use pliron::{
@@ -119,7 +120,7 @@ impl PlironCompiler {
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
-            NativeFp8::NONE,
+            EnumSet::empty(),
         )));
         func_passes.add_pass(LowerComplexOpPass::default());
         func_passes.add_pass(DCEPass);

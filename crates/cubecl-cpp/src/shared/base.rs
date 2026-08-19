@@ -22,7 +22,7 @@ use core::marker::PhantomData;
 use cubecl_core::{
     ir::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
-        features::{AtomicUsage, TypeUsage},
+        features::{AtomicUsage, EnumSet, TypeUsage},
         metadata::Info,
         rewrite::SimplifyOpsPass,
         settings::Dim3,
@@ -30,7 +30,7 @@ use cubecl_core::{
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
-        minifloat::{LowerMinifloatCast, LowerMinifloatCastPass, NativeFp8},
+        minifloat::{LowerMinifloatCast, LowerMinifloatCastPass},
         saturating::LowerSaturatingArithmeticPass,
     },
     prelude::KernelDefinition,
@@ -209,8 +209,8 @@ where
 
         // CUDA converts fp8 with cuda_fp8.h, which carries its own software path below sm_89.
         let native_fp8 = match T::target() {
-            Target::Cuda => NativeFp8::ALL,
-            Target::Hip | Target::Metal => NativeFp8::NONE,
+            Target::Cuda => EnumSet::all(),
+            Target::Hip | Target::Metal => EnumSet::empty(),
         };
         func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
             native_fp8,

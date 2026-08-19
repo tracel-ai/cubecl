@@ -11,11 +11,14 @@ use crate::{
 };
 use cubecl_core::{
     Compiler, WgpuCompilationOptions,
-    ir::{ContextExt, attributes::FuncInterface, ident, metadata::Info, rewrite::SimplifyOpsPass},
+    ir::{
+        ContextExt, attributes::FuncInterface, features::EnumSet, ident, metadata::Info,
+        rewrite::SimplifyOpsPass,
+    },
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
-        minifloat::{LowerMinifloatCast, LowerMinifloatCastPass, NativeFp8},
+        minifloat::{LowerMinifloatCast, LowerMinifloatCastPass},
         saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
@@ -195,9 +198,10 @@ impl SpirvCompiler {
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
         func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
-            match comp_opts.vulkan.supports_float8 {
-                true => NativeFp8::ALL,
-                false => NativeFp8::NONE,
+            if comp_opts.vulkan.supports_float8 {
+                EnumSet::all()
+            } else {
+                EnumSet::empty()
             },
         )));
         func_passes.add_pass(BranchToSCFPass::default());

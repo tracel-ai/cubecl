@@ -8,6 +8,7 @@ use cubecl_ir::{
     prelude::*,
     types::scalar::{Float8E4M3Type, Float8E5M2Type},
 };
+use enumset::{EnumSet, EnumSetType};
 use pliron::r#type::TypeHandle;
 
 use cubecl_common::{e4m3, e5m2};
@@ -26,7 +27,7 @@ const FP8_SIGN_BIT: u32 = 1 << (u8::BITS - 1);
 const FP8_MAGNITUDE_MASK: u32 = FP8_SIGN_BIT - 1;
 const SIGN_SHIFT: u32 = u32::BITS - u8::BITS;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Hash, EnumSetType)]
 pub enum Fp8Format {
     E4M3,
     E5M2,
@@ -75,7 +76,10 @@ impl Fp8Format {
     }
 
     pub const fn has_infinity(self) -> bool {
-        self.decode(self.max_code() + 1).is_infinite()
+        match self {
+            Fp8Format::E4M3 => false,
+            Fp8Format::E5M2 => true,
+        }
     }
 
     pub const fn min_normal(self) -> f32 {
@@ -160,7 +164,7 @@ pub fn f32_to_fp8_bits<N: Size>(
 ) -> Vector<u32, N> {
     let mantissa_bits = comptime![format.mantissa_bits()];
     let mantissa_shift = comptime![F32_MANTISSA_BITS - mantissa_bits];
-    let bias = comptime![format.bias()];
+    let rebias = comptime![format.bias().wrapping_sub(F32_EXPONENT_BIAS)];
     let half_ulp = comptime![1u32 << (mantissa_shift - 1)];
     let subnormal_scale = comptime![1.0 / format.subnormal_step()];
     let min_normal = comptime![format.min_normal()];
@@ -184,13 +188,11 @@ pub fn f32_to_fp8_bits<N: Size>(
     let round_up = Vector::<u32, N>::cast_from(above_half.or(tie_to_odd));
     let subnormal = truncated + round_up;
 
-    let exponent = (magnitude_bits >> Vector::new(F32_MANTISSA_BITS)) + Vector::new(bias);
+    let exponent = (magnitude_bits >> Vector::new(F32_MANTISSA_BITS)) + Vector::new(rebias);
     let mantissa = magnitude_bits & Vector::new(F32_MANTISSA_MASK);
     let lsb = (mantissa >> Vector::new(mantissa_shift)) & Vector::new(1u32);
-    let rounded = ((exponent - Vector::new(F32_EXPONENT_BIAS)) << Vector::new(F32_MANTISSA_BITS)
-        | mantissa)
-        + Vector::new(half_ulp - 1)
-        + lsb;
+    let rounded =
+        ((exponent << Vector::new(F32_MANTISSA_BITS)) | mantissa) + Vector::new(half_ulp - 1) + lsb;
     let normal = rounded >> Vector::new(mantissa_shift);
 
     let code = select_many(
@@ -212,35 +214,11 @@ pub fn f32_to_fp8_bits<N: Size>(
     code | sign
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct NativeFp8 {
-    pub e4m3: bool,
-    pub e5m2: bool,
-}
-
-impl NativeFp8 {
-    pub const NONE: Self = Self {
-        e4m3: false,
-        e5m2: false,
-    };
-    pub const ALL: Self = Self {
-        e4m3: true,
-        e5m2: true,
-    };
-
-    pub fn contains(self, format: Fp8Format) -> bool {
-        match format {
-            Fp8Format::E4M3 => self.e4m3,
-            Fp8Format::E5M2 => self.e5m2,
-        }
-    }
-}
-
 pub type LowerMinifloatCastPass = MatchRewritePass<LowerMinifloatCast>;
 
 #[derive(new, Clone, Copy, Debug, Default, NamedRewrite)]
 pub struct LowerMinifloatCast {
-    pub native: NativeFp8,
+    pub native: EnumSet<Fp8Format>,
 }
 
 impl LowerMinifloatCast {
