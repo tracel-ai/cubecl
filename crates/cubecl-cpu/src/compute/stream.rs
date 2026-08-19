@@ -84,9 +84,16 @@ impl CpuStream {
     }
 
     pub fn enqueue_task(&mut self, task: ScheduleTask) {
-        self.flush_uncheck();
+        // Launches pipeline: `ComputeTask::is_ready` orders tasks and the
+        // launch's resources ride in `SharedData::keepalive`, so the client
+        // only drains where that protocol does not cover:
+        // * a host `Write`, which copies on this thread and would race a
+        //   queued kernel reading the buffer;
+        // * a shared-memory kernel, whose pool reservations are released at
+        //   enqueue — sound only while one such launch has the pool to itself.
         match task {
             ScheduleTask::Write { data, mut buffer } => {
+                self.flush_uncheck();
                 buffer.resource_mut().write().copy_from_slice(&data);
             }
             ScheduleTask::Execute {
@@ -96,6 +103,9 @@ impl CpuStream {
                 cube_count,
                 ..
             } => {
+                if !pliron_engine.requirements().shared_memories.blocks.is_empty() {
+                    self.flush_uncheck();
+                }
                 // No unit cap: the threadpool grows to fit any cube_dim, one
                 // worker per unit for barrier kernels.
                 let units = cube_dim.num_elems();

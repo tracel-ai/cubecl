@@ -14,8 +14,15 @@ pub struct SharedData {
     /// Counters backing `sync_cube`, shared by the units taking part in the barrier. They start
     /// at zero and every barrier leaves them back at zero.
     pub sync_cube_state: [AtomicU32; SYNC_CUBE_STATE_LEN],
+    /// The launch's `ManagedResource`s, pinning their memory handles until the
+    /// last unit drops so the pool cannot recycle a buffer a pipelined kernel
+    /// still points into.
+    pub keepalive: Vec<Box<dyn std::any::Any + Send>>,
 }
 
+/// Safety: the pointers target server-owned storage that outlives the launch,
+/// `sync_cube_state` is atomic, and `keepalive` is only ever dropped — hence
+/// `Send` without `Sync` on its contents.
 unsafe impl Send for SharedData {}
 unsafe impl Sync for SharedData {}
 
@@ -28,12 +35,18 @@ pub struct PlironData {
 }
 
 impl PlironData {
-    pub fn new(buffer_ptrs: Vec<*mut c_void>, metadata: Vec<u64>, cube_count: [u32; 3]) -> Self {
+    pub fn new(
+        buffer_ptrs: Vec<*mut c_void>,
+        metadata: Vec<u64>,
+        cube_count: [u32; 3],
+        keepalive: Vec<Box<dyn std::any::Any + Send>>,
+    ) -> Self {
         Self {
             shared: Arc::new(SharedData {
                 buffer_ptrs,
                 metadata,
                 sync_cube_state: Default::default(),
+                keepalive,
             }),
             builtins: [cube_count[0], cube_count[1], cube_count[2], 0, 0, 0],
         }
