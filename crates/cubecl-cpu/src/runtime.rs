@@ -77,7 +77,8 @@ impl DeviceService for CpuServer {
         let options = RuntimeOptions::default();
         let mut system = System::new();
         system.refresh_memory();
-        let max_shared_memory_size = system
+        // Bounds the allocator's page size, not a kernel's shared memory.
+        let total_memory = system
             .cgroup_limits()
             .map(|g| g.total_memory)
             .unwrap_or(system.total_memory()) as usize;
@@ -93,12 +94,17 @@ impl DeviceService for CpuServer {
             available_parallelism,
         );
         let max_cube_count = (u32::MAX, u32::MAX, u32::MAX);
+        // Kernels size their stages against shared memory ("as big as shared
+        // memory allows"), so a whole-RAM report lets one launch reserve tens
+        // of GB. Report a cache-sized, GPU-like figure existing kernel
+        // geometries are designed for.
+        const MAX_SHARED_MEMORY_SIZE: usize = 64 * 1024;
         let topology = HardwareProperties {
             load_width: 512,
             plane_size_min: 1,
             plane_size_max: 1,
             max_bindings: u32::MAX,
-            max_shared_memory_size,
+            max_shared_memory_size: MAX_SHARED_MEMORY_SIZE,
             max_cube_count,
             num_cpu_cores: Some(available_parallelism as u32),
             max_units_per_cube: available_parallelism,
@@ -113,7 +119,7 @@ impl DeviceService for CpuServer {
         const ALIGNMENT: u64 = 8;
 
         let mem_properties = MemoryDeviceProperties {
-            max_page_size: max_shared_memory_size as u64,
+            max_page_size: total_memory as u64,
             alignment: ALIGNMENT,
         };
 
