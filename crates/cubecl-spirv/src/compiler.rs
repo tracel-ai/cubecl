@@ -197,12 +197,12 @@ impl SpirvCompiler {
         func_passes.add_pass(UnrollPass::new(comp_opts.vulkan.max_vector_size));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
+        let native_fp8 = match comp_opts.vulkan.supports_float8 {
+            true => EnumSet::all(),
+            false => EnumSet::empty(),
+        };
         func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
-            if comp_opts.vulkan.supports_float8 {
-                EnumSet::all()
-            } else {
-                EnumSet::empty()
-            },
+            native_fp8,
         )));
         func_passes.add_pass(BranchToSCFPass::default());
         func_passes.add_pass(MatrixToSSAPass::default());
