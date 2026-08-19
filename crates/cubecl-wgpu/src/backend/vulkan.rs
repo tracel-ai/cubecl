@@ -516,11 +516,19 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
                 ElemType::UInt(UIntKind::U8),
                 TypeUsage::maybe_store(storage8),
             );
-            for kind in [FloatKind::E4M3, FloatKind::E5M2] {
-                props.register_type_usage(ElemType::Float(kind), TypeUsage::Conversion);
-                if storage8 {
-                    props.register_type_usage(ElemType::Float(kind), TypeUsage::Buffer);
-                }
+        }
+    }
+
+    // Emulated fp8 is an 8-bit int, so `shaderInt8` carries it; native fp8 needs neither.
+    let emulated_fp8 = ext_feat
+        .float16_int8
+        .is_some_and(|it| it.shader_int8 == TRUE);
+    let native_fp8 = ext_feat.float8.is_some_and(|it| it.shader_float8 == TRUE);
+    if emulated_fp8 || native_fp8 {
+        for kind in [FloatKind::E4M3, FloatKind::E5M2] {
+            props.register_type_usage(ElemType::Float(kind), TypeUsage::Conversion);
+            if storage8 {
+                props.register_type_usage(ElemType::Float(kind), TypeUsage::Buffer);
             }
         }
     }
