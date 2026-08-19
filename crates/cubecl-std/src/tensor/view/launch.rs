@@ -440,6 +440,11 @@ mod dynamic {
     pub struct ScaleBindings<C: Coordinates, R: Runtime> {
         pub(crate) inner: Box<ViewArg<C, R>>,
         pub(crate) global_scale: Option<BufferArg<R>>,
+        /// A lookup scheme's `2^bits`-entry table, present exactly under
+        /// [`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode). Not a scale level —
+        /// [`len`](Self::len) never counts it — but it rides here because it is the same kind of
+        /// thing: a side binding the dequantizing read folds in.
+        pub(crate) table: Option<BufferArg<R>>,
     }
 
     impl<C: Coordinates, R: Runtime> ScaleBindings<C, R> {
@@ -448,6 +453,7 @@ mod dynamic {
             Self {
                 inner: Box::new(scales),
                 global_scale: None,
+                table: None,
             }
         }
 
@@ -457,11 +463,28 @@ mod dynamic {
             Self {
                 inner: Box::new(scales),
                 global_scale: Some(global_scale),
+                table: None,
             }
         }
 
-        /// The number of bound levels, matched against the scheme's at construction: the inner
-        /// binding plus the global scale when bound.
+        /// The bindings of a one-level lookup scheme
+        /// ([`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode)): the scales and the
+        /// table each stored field indexes, so a read reconstructs `table[field] * scale`.
+        ///
+        /// `table` must hold `2^bits` f32 entries — registration checks its length against the
+        /// scheme, and the unpack's mask bounds every index to that range.
+        pub fn lookup(scales: ViewArg<C, R>, table: BufferArg<R>) -> Self {
+            Self {
+                inner: Box::new(scales),
+                global_scale: None,
+                table: Some(table),
+            }
+        }
+
+        /// The number of bound scale levels, matched against the scheme's at construction: the
+        /// inner binding plus the global scale when bound. The lookup table is not a level and is
+        /// never counted; its presence is checked against the scheme's mode instead
+        /// ([`quant::check_table_bindings`]).
         #[allow(clippy::len_without_is_empty, reason = "never empty by construction")]
         pub fn len(&self) -> usize {
             1 + self.global_scale.iter().count()
@@ -473,6 +496,7 @@ mod dynamic {
     pub struct ScaleBindingsCompilationArg<C: Coordinates> {
         pub(crate) inner: Box<ViewCompilationArg<C>>,
         pub(crate) global_scale: Option<BufferCompilationArg>,
+        pub(crate) table: Option<BufferCompilationArg>,
     }
 
     impl<C: Coordinates> ScaleBindingsCompilationArg<C> {
@@ -486,13 +510,16 @@ mod dynamic {
     impl<C: Coordinates> Eq for ScaleBindingsCompilationArg<C> {}
     impl<C: Coordinates> PartialEq for ScaleBindingsCompilationArg<C> {
         fn eq(&self, other: &Self) -> bool {
-            self.inner == other.inner && self.global_scale == other.global_scale
+            self.inner == other.inner
+                && self.global_scale == other.global_scale
+                && self.table == other.table
         }
     }
     impl<C: Coordinates> core::hash::Hash for ScaleBindingsCompilationArg<C> {
         fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
             self.inner.hash(state);
             self.global_scale.hash(state);
+            self.table.hash(state);
         }
     }
     impl<C: Coordinates> core::fmt::Debug for ScaleBindingsCompilationArg<C> {
@@ -500,6 +527,7 @@ mod dynamic {
             f.debug_struct("ScaleBindings")
                 .field("inner", &self.inner)
                 .field("global_scale", &self.global_scale)
+                .field("table", &self.table)
                 .finish()
         }
     }
@@ -560,6 +588,7 @@ mod dynamic {
             scheme: QuantScheme,
         ) -> Self {
             quant::check_scale_bindings(&scheme, scales.len());
+            quant::check_table_bindings(&scheme, scales.table.is_some());
             Self::Quantized {
                 values: Box::new(values),
                 scales,

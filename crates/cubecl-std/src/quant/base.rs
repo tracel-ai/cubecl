@@ -40,10 +40,58 @@ pub fn check_global_levels(scheme: &QuantScheme) {
     }
 }
 
+/// Panic when the lookup-table binding and the scheme disagree.
+///
+/// The table binds as a buffer of its own, so nothing ties it to the mode: a missing one leaves
+/// [`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode) nothing to index, an extra one
+/// is a caller quantizing differently than the scheme it passed. Lookup is also only wired where
+/// the decode goes through the packed-u32 unpack, and only for the integer values whose field is
+/// a plain bit range — a minifloat field carries its own float semantics, which an index does not
+/// have.
+///
+/// The table must hold `2^bits` f32 entries; [`register_table`](crate::quant::view) checks the
+/// binding's length against that, the one host-side site holding both.
+pub fn check_table_bindings(scheme: &QuantScheme, table_provided: bool) {
+    use cubecl_common::quant::scheme::{QuantMode, QuantStore, QuantValue};
+    match (scheme.mode, table_provided) {
+        (QuantMode::Lookup, false) => {
+            panic!(
+                "{:?} takes a lookup table, but none was provided",
+                scheme.mode
+            )
+        }
+        (QuantMode::Lookup, true) => {
+            assert!(
+                matches!(scheme.store, QuantStore::PackedU32(_)),
+                "lookup decode is only wired for packed-u32 storage, got {:?}",
+                scheme.store
+            );
+            assert!(
+                !matches!(
+                    scheme.value,
+                    QuantValue::E5M2 | QuantValue::E4M3 | QuantValue::E2M1
+                ),
+                "a lookup field is an index, so a minifloat value ({:?}) has nothing to mean; \
+                 use the integer value of the same width",
+                scheme.value
+            );
+        }
+        (_, true) => {
+            panic!(
+                "a lookup table was provided, but {:?} does not take one",
+                scheme.mode
+            )
+        }
+        (_, false) => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::check_scale_bindings;
-    use cubecl_common::quant::scheme::{QuantScheme, ScaleDtype};
+    use super::{check_scale_bindings, check_table_bindings};
+    use cubecl_common::quant::scheme::{
+        QuantMode, QuantScheme, QuantStore, QuantValue, ScaleDtype,
+    };
 
     #[test]
     fn a_one_level_scheme_takes_one_binding() {
@@ -89,5 +137,55 @@ mod tests {
     #[should_panic(expected = "takes as many scale bindings, but 2 were provided")]
     fn a_one_level_scheme_with_two_bindings_is_rejected() {
         check_scale_bindings(&QuantScheme::default().per_tensor(ScaleDtype::F32), 2);
+    }
+
+    fn lookup_scheme() -> QuantScheme {
+        QuantScheme::default()
+            .with_value(QuantValue::Q4F)
+            .with_mode(QuantMode::Lookup)
+    }
+
+    #[test]
+    fn a_lookup_scheme_takes_a_table() {
+        check_table_bindings(&lookup_scheme(), true);
+    }
+
+    #[test]
+    fn a_symmetric_scheme_takes_no_table() {
+        check_table_bindings(&QuantScheme::default(), false);
+    }
+
+    #[test]
+    #[should_panic(expected = "takes a lookup table, but none was provided")]
+    fn a_lookup_scheme_without_a_table_is_rejected() {
+        // Would otherwise fall back to the integer cast and reconstruct the index itself.
+        check_table_bindings(&lookup_scheme(), false);
+    }
+
+    #[test]
+    #[should_panic(expected = "does not take one")]
+    fn a_symmetric_scheme_with_a_table_is_rejected() {
+        check_table_bindings(&QuantScheme::default(), true);
+    }
+
+    /// Only the packed-u32 unpack decodes through the table; the native paths cast the storage
+    /// element directly and would silently ignore it.
+    #[test]
+    #[should_panic(expected = "only wired for packed-u32 storage")]
+    fn a_native_lookup_scheme_is_rejected() {
+        let scheme = QuantScheme::default()
+            .with_value(QuantValue::Q8F)
+            .with_store(QuantStore::Native)
+            .with_mode(QuantMode::Lookup);
+        check_table_bindings(&scheme, true);
+    }
+
+    #[test]
+    #[should_panic(expected = "a lookup field is an index")]
+    fn a_minifloat_lookup_scheme_is_rejected() {
+        let scheme = QuantScheme::default()
+            .with_value(QuantValue::E4M3)
+            .with_mode(QuantMode::Lookup);
+        check_table_bindings(&scheme, true);
     }
 }
