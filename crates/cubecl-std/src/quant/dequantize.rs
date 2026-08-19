@@ -6,39 +6,52 @@ use cubecl_core as cubecl;
 /// Dequantize a vector of values, where `vector_size * num_quants` is a power of two.
 /// Unaligned values can't be dequantized in place.
 ///
-/// `global` is the per-tensor scale of a two-level scheme, already read, and must be present
-/// exactly when `scheme.level` has one.
+/// `scale` is the effective scale for these values: how many scale levels the scheme has and how
+/// they combine is the caller's business, folded before the call. This is what keeps the
+/// primitive per-read arithmetic, serving equally a one-level read, a view multiplying the
+/// per-tensor scale in per read, or a tile handing every read one register.
 #[cube]
 pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
     value: Vector<Q, NQ>,
     scale: S,
-    global: ComptimeOption<f32>,
     #[comptime] scheme: QuantScheme,
 ) -> Vector<F, NF> {
-    // Every read from a quantized view lands here, so this is where a binding that disagrees with
-    // the scheme has to be caught: the static constructors take a scheme without inspecting it.
-    comptime!(crate::quant::check_global_bindings(
-        scheme.level,
-        global.is_some()
-    ));
-
     let q_values = match scheme.store {
         QuantStore::Native | QuantStore::PackedNative(_) => Vector::<F, NF>::cast_from(value),
         QuantStore::PackedU32(_) => unpack_cast_u32::<F, NQ, NF>(Vector::cast_from(value), scheme),
     };
 
-    // The two levels multiply in f32: a block scale is normalized against the per-tensor scale, so
-    // on its own it overflows a narrow `F` by orders of magnitude before the per-tensor scale can
-    // bring the product back into a range `F` holds.
-    #[comptime]
-    let effective_scale = match global {
-        ComptimeOption::Some(global) => Vector::<F, NF>::cast_from(global * f32::cast_from(scale)),
-        ComptimeOption::None => Vector::<F, NF>::cast_from(scale),
-    };
-
     match scheme.mode {
-        QuantMode::Symmetric => q_values * effective_scale,
+        QuantMode::Symmetric => q_values * Vector::<F, NF>::cast_from(scale),
     }
+}
+
+/// [`dequantize_aligned`] for a scale a caller folded in f32, forming the product there too and
+/// narrowing only the result.
+///
+/// A folded scale reaches further down than what it produces: one below `F`'s smallest subnormal
+/// still scales quantized values into ordinary `F` ones. Narrowing it to `F` first rounds it to
+/// zero and takes the whole read with it, which is the failure two-level quantization exists to
+/// avoid in the first place.
+#[cube]
+pub fn dequantize_aligned_wide<Q: Scalar, F: Numeric, NQ: Size, NF: Size>(
+    value: Vector<Q, NQ>,
+    scale: f32,
+    #[comptime] scheme: QuantScheme,
+) -> Vector<F, NF> {
+    Vector::<F, NF>::cast_from(dequantize_aligned::<Q, f32, f32, NQ, NF>(
+        value, scale, scheme,
+    ))
+}
+
+/// The effective scale of values whose per-tensor scale multiplies on top of their block scale.
+///
+/// The two multiply in f32: a block scale is normalized against the per-tensor one, so on its own
+/// it overflows a narrow compute type by orders of magnitude before the global scale can bring the
+/// product back into range.
+#[cube]
+pub fn multiply_global_scale<S: CubePrimitive>(global_scale: f32, scale: S) -> f32 {
+    global_scale * f32::cast_from(scale)
 }
 
 /// Unpack a set of values from u32, and convert to the specified floating point format.
@@ -141,57 +154,22 @@ mod tests {
         scope
     }
 
-    fn two_level_scheme() -> QuantScheme {
-        QuantScheme::default().with_level(QuantLevel::block_tensor([32], QuantParam::F32))
-    }
-
-    /// Expanding is where a binding that disagrees with the scheme has to be caught: the static
-    /// constructors take a scheme without inspecting it, so a guard on the dynamic dispatcher alone
-    /// leaves them open.
+    /// The primitive is level-agnostic: it takes the effective scale for the values it unpacks,
+    /// and how many levels folded into that scale is the caller's business.
     #[test]
-    #[should_panic(expected = "takes a per-tensor scale, but no global was provided")]
-    fn expanding_a_two_level_scheme_without_a_global_panics() {
+    fn expanding_takes_one_scale_whatever_the_levels() {
         let scope = test_scope();
         let one = f32::__expand_new(&scope, 1.0);
         let value = Vector::<f32, N1>::__expand_new(&scope, one);
 
-        dequantize_aligned::expand::<f32, f32, f32, N1, N1>(
-            &scope,
-            value,
-            one,
-            ComptimeOptionExpand::None,
-            two_level_scheme(),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "does not take a per-tensor scale")]
-    fn expanding_a_one_level_scheme_with_a_global_panics() {
-        let scope = test_scope();
-        let one = f32::__expand_new(&scope, 1.0);
-        let value = Vector::<f32, N1>::__expand_new(&scope, one);
-
-        dequantize_aligned::expand::<f32, f32, f32, N1, N1>(
-            &scope,
-            value,
-            one,
-            ComptimeOptionExpand::Some(one),
+        for scheme in [
             QuantScheme::default(),
-        );
-    }
-
-    #[test]
-    fn expanding_a_two_level_scheme_with_a_global_works() {
-        let scope = test_scope();
-        let one = f32::__expand_new(&scope, 1.0);
-        let value = Vector::<f32, N1>::__expand_new(&scope, one);
-
-        dequantize_aligned::expand::<f32, f32, f32, N1, N1>(
-            &scope,
-            value,
-            one,
-            ComptimeOptionExpand::Some(one),
-            two_level_scheme(),
-        );
+            QuantScheme::default().per_block([32], ScaleDtype::F32),
+            QuantScheme::default()
+                .per_block([32], ScaleDtype::F32)
+                .per_tensor(ScaleDtype::F32),
+        ] {
+            dequantize_aligned::expand::<f32, f32, f32, N1, N1>(&scope, value, one, scheme);
+        }
     }
 }

@@ -827,7 +827,6 @@ version = "0.11.0-pre.2"
 dependencies = [
  "bytemuck",
  "cfg_aliases",
- "ciborium",
  "criterion",
  "cubecl-environment",
  "dashmap",

@@ -1,4 +1,4 @@
-use cubecl_common::quant::scheme::{QuantLevel, QuantParam};
+use cubecl_common::quant::scheme::{QuantScheme, ScaleDtype};
 use cubecl_core::prelude::Scalar;
 
 /// Run an arbitrary function with the quantization types from the scheme.
@@ -9,63 +9,85 @@ pub trait RunWithQuantType {
     fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output;
 }
 
-/// Panic when the per-tensor scale binding and the level disagree.
+/// Panic when the scale bindings and the scheme's levels disagree.
 ///
-/// The per-tensor scale binds as a buffer of its own, so nothing ties it to the level: a missing
-/// one is dropped from the reconstruction and every value comes back short by that factor, an
-/// extra one is a caller quantizing differently than the scheme it passed.
+/// Every level binds a scale buffer of its own, so nothing ties the bindings to the scheme: a
+/// missing level is dropped from the reconstruction and every value comes back short by that
+/// factor, an extra one is a caller quantizing differently than the scheme it passed.
 ///
-/// The binding is f32, and a level storing the scale in anything else is rejected rather than read
-/// as f32 bytes. There is one per-tensor scale for a whole tensor, so a narrower type saves nothing
-/// and only reintroduces rounding error.
-pub fn check_global_bindings(level: QuantLevel, global_provided: bool) {
-    match (level.global_param(), global_provided) {
-        (None, false) | (Some(QuantParam::F32), true) => {}
-        (Some(_), false) => {
-            panic!("{level:?} takes a per-tensor scale, but no global was provided")
-        }
-        (None, true) => {
-            panic!("global was provided, but {level:?} does not take a per-tensor scale")
-        }
-        (Some(param), true) => {
-            panic!("the per-tensor scale binds as f32, but {level:?} stores it as {param:?}")
-        }
+/// The global level is further constrained by what this reader serves: it binds as f32 rather than
+/// being read as f32 bytes. It has one scale for the whole tensor, so a narrower type saves
+/// nothing and only reintroduces rounding error.
+pub fn check_scale_bindings(scheme: &QuantScheme, bindings: usize) {
+    let levels = scheme.num_levels();
+    assert!(
+        bindings == levels,
+        "a scheme with {levels} scale level(s) takes as many scale bindings, but {bindings} were provided",
+    );
+    check_global_levels(scheme);
+}
+
+/// The global-level half of [`check_scale_bindings`], for a consumer holding global scales already
+/// folded into a register rather than as countable bindings.
+pub fn check_global_levels(scheme: &QuantScheme) {
+    if scheme.block_scale().is_some()
+        && let Some(tensor) = scheme.tensor_scale()
+    {
+        assert!(
+            tensor == ScaleDtype::F32,
+            "an global scale binds as f32, but the scheme stores it as {tensor:?}",
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::check_global_bindings;
-    use cubecl_common::quant::scheme::{QuantLevel, QuantParam};
+    use super::check_scale_bindings;
+    use cubecl_common::quant::scheme::{QuantScheme, ScaleDtype};
 
     #[test]
-    fn a_one_level_scheme_takes_no_global() {
-        check_global_bindings(QuantLevel::Tensor, false);
-        check_global_bindings(QuantLevel::block([32]), false);
+    fn a_one_level_scheme_takes_one_binding() {
+        check_scale_bindings(&QuantScheme::default().per_tensor(ScaleDtype::F32), 1);
+        check_scale_bindings(&QuantScheme::default().per_block([32], ScaleDtype::F32), 1);
     }
 
     #[test]
-    fn a_two_level_scheme_takes_an_f32_global() {
-        check_global_bindings(QuantLevel::block_tensor([32], QuantParam::F32), true);
+    fn a_two_level_scheme_takes_two_bindings() {
+        check_scale_bindings(
+            &QuantScheme::default()
+                .per_block([32], ScaleDtype::F32)
+                .per_tensor(ScaleDtype::F32),
+            2,
+        );
     }
 
-    /// The binding is f32, so a level naming another param would have its scale read as f32 bytes.
+    /// The binding is f32, so a level naming another dtype would have its scale read as f32 bytes.
     #[test]
     #[should_panic(expected = "binds as f32, but")]
-    fn a_two_level_scheme_storing_the_global_narrower_is_rejected() {
-        check_global_bindings(QuantLevel::block_tensor([32], QuantParam::BF16), true);
+    fn a_two_level_scheme_storing_the_tensor_scale_narrower_is_rejected() {
+        check_scale_bindings(
+            &QuantScheme::default()
+                .per_block([32], ScaleDtype::F32)
+                .per_tensor(ScaleDtype::BF16),
+            2,
+        );
     }
 
     #[test]
-    #[should_panic(expected = "takes a per-tensor scale, but no global was provided")]
-    fn a_two_level_scheme_without_a_global_is_rejected() {
+    #[should_panic(expected = "takes as many scale bindings, but 1 were provided")]
+    fn a_two_level_scheme_with_one_binding_is_rejected() {
         // Would otherwise dequantize against the block scales alone, dropping the per-tensor factor.
-        check_global_bindings(QuantLevel::block_tensor([32], QuantParam::F32), false);
+        check_scale_bindings(
+            &QuantScheme::default()
+                .per_block([32], ScaleDtype::F32)
+                .per_tensor(ScaleDtype::F32),
+            1,
+        );
     }
 
     #[test]
-    #[should_panic(expected = "does not take a per-tensor scale")]
-    fn a_one_level_scheme_with_a_global_is_rejected() {
-        check_global_bindings(QuantLevel::Tensor, true);
+    #[should_panic(expected = "takes as many scale bindings, but 2 were provided")]
+    fn a_one_level_scheme_with_two_bindings_is_rejected() {
+        check_scale_bindings(&QuantScheme::default().per_tensor(ScaleDtype::F32), 2);
     }
 }
