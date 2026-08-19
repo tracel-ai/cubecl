@@ -104,11 +104,31 @@ impl DispatcherWorker {
     }
 }
 
+/// How long an idle worker spins on `try_recv` before parking in the blocking
+/// `recv`. A parked worker costs a futex wake per launch — and a barrier
+/// kernel runs at the latency of its last-woken unit — while the budget caps
+/// what an actually-idle pool burns.
+const IDLE_SPIN: std::time::Duration = std::time::Duration::from_micros(200);
+
 impl Worker for DispatcherWorker {
     fn work(mut self) {
         loop {
             if self.aside.is_empty() {
-                let task = self.rx.recv();
+                let mut received = None;
+                let spin_start = std::time::Instant::now();
+                while spin_start.elapsed() < IDLE_SPIN {
+                    match self.rx.try_recv() {
+                        Ok(task) => {
+                            received = Some(task);
+                            break;
+                        }
+                        Err(_) => std::hint::spin_loop(),
+                    }
+                }
+                let task = match received {
+                    Some(task) => Ok(task),
+                    None => self.rx.recv(),
+                };
                 if let Ok(mut task) = task {
                     if task.is_ready() {
                         task.compute();
