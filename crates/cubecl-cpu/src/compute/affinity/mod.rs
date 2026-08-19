@@ -10,9 +10,24 @@ mod windows;
 #[cfg(target_os = "windows")]
 use windows::Platform;
 
-#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "windows")))]
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+use macos::Platform;
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos"
+)))]
 mod fallback;
-#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "windows")))]
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos"
+)))]
 use fallback::Platform;
 
 /// A logical CPU, by the number the operating system enumerates it under.
