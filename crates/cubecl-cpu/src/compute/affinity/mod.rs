@@ -30,6 +30,9 @@ trait ThreadAffinity {
     /// SMT sibling, or `None` when the topology cannot be read.
     fn physical_core(cpu: CoreId) -> Option<CoreId>;
 
+    /// Bytes of a core's L1 data cache, or `None` when it cannot be read.
+    fn l1d_cache_size() -> Option<usize>;
+
     /// Pins the calling thread to `cpu`.
     fn pin_current(cpu: CoreId);
 }
@@ -56,4 +59,9 @@ pub fn get_active_cores() -> impl Iterator<Item = CoreId> {
 /// Pins the calling thread to `core_id`.
 pub fn set_for_current(core_id: CoreId) {
     Platform::pin_current(core_id);
+}
+
+/// Bytes of a core's L1 data cache, or `None` when it cannot be read.
+pub fn l1d_cache_size() -> Option<usize> {
+    Platform::l1d_cache_size()
 }

@@ -1,4 +1,4 @@
-use crate::{compiler::PlironCompiler, compute::server::CpuServer, device::CpuDevice};
+use crate::{compiler::PlironCompiler, compute::affinity, compute::server::CpuServer, device::CpuDevice};
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
@@ -96,16 +96,17 @@ impl DeviceService for CpuServer {
         let max_cube_count = (u32::MAX, u32::MAX, u32::MAX);
         // Kernels size their stages against shared memory ("as big as shared
         // memory allows"), so reporting whole RAM lets one matmul launch
-        // reserve tens of GB and abort. Stopgap until stage selection is
-        // CPU-aware upstream: report a cache-sized, GPU-like figure existing
-        // kernel geometries are designed for.
-        const MAX_SHARED_MEMORY_SIZE: usize = 64 * 1024;
+        // reserve tens of GB and abort. GPU shared memory is carved from L1,
+        // so the L1d size is its honest CPU analogue — reporting the L2
+        // measured ~2.5x worse on decode gemv, stages outgrowing what stays
+        // resident. GPU-like floor when the topology cannot be read.
+        let max_shared_memory_size = affinity::l1d_cache_size().unwrap_or(64 * 1024);
         let topology = HardwareProperties {
             load_width: 512,
             plane_size_min: 1,
             plane_size_max: 1,
             max_bindings: u32::MAX,
-            max_shared_memory_size: MAX_SHARED_MEMORY_SIZE,
+            max_shared_memory_size,
             max_cube_count,
             num_cpu_cores: Some(available_parallelism as u32),
             max_units_per_cube: available_parallelism,

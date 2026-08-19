@@ -22,6 +22,11 @@ impl ThreadAffinity for Platform {
         None
     }
 
+    fn l1d_cache_size() -> Option<usize> {
+        // Needs `GetLogicalProcessorInformation`, not implemented yet.
+        None
+    }
+
     fn pin_current(cpu: CoreId) {
         let mask: u64 = 1 << cpu.0;
         unsafe { SetThreadAffinityMask(GetCurrentThread(), mask as DWORD_PTR) };

@@ -31,6 +31,16 @@ impl ThreadAffinity for Platform {
         Some(CoreId(first))
     }
 
+    fn l1d_cache_size() -> Option<usize> {
+        (0..=5).find_map(|index| {
+            let cache = format!("/sys/devices/system/cpu/cpu0/cache/index{index}");
+            let read = |file: &str| std::fs::read_to_string(format!("{cache}/{file}")).ok();
+            (read("level")?.trim() == "1").then_some(())?;
+            (read("type")?.trim() == "Data").then_some(())?;
+            parse_cache_size(read("size")?.trim())
+        })
+    }
+
     fn pin_current(cpu: CoreId) {
         let mut set = new_cpu_set();
         let tid = unsafe { syscall(SYS_gettid) } as libc::id_t;
@@ -38,6 +48,17 @@ impl ThreadAffinity for Platform {
         unsafe { CPU_SET(cpu.0, &mut set) };
         unsafe { sched_setaffinity(0, mem::size_of::<cpu_set_t>(), &set) };
     }
+}
+
+/// Parses sysfs cache sizes, e.g. `"1024K"` or `"32M"`.
+fn parse_cache_size(size: &str) -> Option<usize> {
+    let (number, unit) = size.split_at(size.len().checked_sub(1)?);
+    let scale = match unit {
+        "K" => 1024,
+        "M" => 1024 * 1024,
+        _ => return None,
+    };
+    Some(number.parse::<usize>().ok()? * scale)
 }
 
 fn get_affinity_mask() -> cpu_set_t {
