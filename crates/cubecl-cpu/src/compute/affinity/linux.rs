@@ -1,25 +1,41 @@
 use std::mem;
 
-use super::CoreId;
+use super::{CoreId, ThreadAffinity};
 use libc::{
     CPU_ISSET, CPU_SET, CPU_SETSIZE, SYS_gettid, cpu_set_t, sched_getaffinity, sched_setaffinity,
     syscall,
 };
 
-pub fn get_active_cores() -> impl Iterator<Item = CoreId> {
-    let affinity_mask = get_affinity_mask();
+pub(super) struct Platform;
 
-    (0..CPU_SETSIZE as usize)
-        .filter(move |i| unsafe { CPU_ISSET(*i, &affinity_mask) })
-        .map(CoreId)
-}
+impl ThreadAffinity for Platform {
+    fn active_cpus() -> Vec<CoreId> {
+        let affinity_mask = get_affinity_mask();
+        (0..CPU_SETSIZE as usize)
+            .filter(|i| unsafe { CPU_ISSET(*i, &affinity_mask) })
+            .map(CoreId)
+            .collect()
+    }
 
-pub fn set_for_current(core_id: CoreId) {
-    let mut set = new_cpu_set();
-    let tid = unsafe { syscall(SYS_gettid) } as libc::id_t;
-    unsafe { libc::setpriority(libc::PRIO_PROCESS, tid, 0) };
-    unsafe { CPU_SET(core_id.0, &mut set) };
-    unsafe { sched_setaffinity(0, mem::size_of::<cpu_set_t>(), &set) };
+    fn physical_core(cpu: CoreId) -> Option<CoreId> {
+        // sysfs lists a core's siblings smallest-first, so the first entry is
+        // the same for every sibling of the core and serves as its identity.
+        let list = std::fs::read_to_string(format!(
+            "/sys/devices/system/cpu/cpu{}/topology/thread_siblings_list",
+            cpu.0
+        ))
+        .ok()?;
+        let first = list.split(['-', ',']).next()?.trim().parse().ok()?;
+        Some(CoreId(first))
+    }
+
+    fn pin_current(cpu: CoreId) {
+        let mut set = new_cpu_set();
+        let tid = unsafe { syscall(SYS_gettid) } as libc::id_t;
+        unsafe { libc::setpriority(libc::PRIO_PROCESS, tid, 0) };
+        unsafe { CPU_SET(cpu.0, &mut set) };
+        unsafe { sched_setaffinity(0, mem::size_of::<cpu_set_t>(), &set) };
+    }
 }
 
 fn get_affinity_mask() -> cpu_set_t {
