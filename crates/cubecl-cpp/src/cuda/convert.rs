@@ -12,6 +12,7 @@ use cubecl_core::{
         prelude::*,
         types::{VectorType, scalar::*},
     },
+    post_processing::minifloat::Fp8Format,
     prelude::*,
 };
 use pliron::{printable::Printable, utils::apfloat::Float8E5M2};
@@ -72,7 +73,7 @@ impl LowerOp<Cuda> for CastOp {
         if (out_ty.is_fp8_fp6_fp4(ctx) || out_ty.is_float4x2(ctx))
             && !encodes_directly(ctx, current, out_ty)
         {
-            let intermediate = match out_ty.is_float8(ctx) {
+            let intermediate = match is_fp8(ctx, out_ty) {
                 true => f32_like(ctx, out_ty),
                 false => intermediate_for_ty(ctx, out_ty),
             };
@@ -84,7 +85,7 @@ impl LowerOp<Cuda> for CastOp {
 
 /// fp8 must convert straight from its source: an f16 detour rounds twice.
 fn encodes_directly(ctx: &Context, input: Value, out_ty: TypeHandle) -> bool {
-    if !out_ty.is_float8(ctx) {
+    if !is_fp8(ctx, out_ty) {
         return intermediate_for_ty(ctx, out_ty) == input.get_type(ctx);
     }
     let scalar = input.get_type(ctx).scalar_ty(ctx);
@@ -94,14 +95,13 @@ fn encodes_directly(ctx: &Context, input: Value, out_ty: TypeHandle) -> bool {
         || scalar.is_float64(ctx)
 }
 
+/// `is_float8` also covers e8m0, which only ever converts from bf16.
+fn is_fp8(ctx: &Context, ty: TypeHandle) -> bool {
+    Fp8Format::of_type(ctx, ty.scalar_ty(ctx)).is_some()
+}
+
 fn f32_like(ctx: &Context, ty: TypeHandle) -> TypeHandle {
-    let vector_size = ty.vector_size(ctx);
-    let scalar = Float32Type::get(ctx).to_handle();
-    if vector_size > 1 {
-        VectorType::get(ctx, scalar, vector_size).to_handle()
-    } else {
-        scalar
-    }
+    vectorized(ctx, Float32Type::get(ctx).to_handle(), ty.vector_size(ctx))
 }
 
 fn intermediate_for_ty(ctx: &Context, ty: TypeHandle) -> TypeHandle {
@@ -114,10 +114,15 @@ fn intermediate_for_ty(ctx: &Context, ty: TypeHandle) -> TypeHandle {
     } else {
         Float16Type::get(ctx).to_handle()
     };
+    vectorized(ctx, intermediate, vector_size)
+}
+
+/// A width-1 `VectorType` is a distinct handle from the bare scalar, which callers compare against.
+fn vectorized(ctx: &Context, scalar: TypeHandle, vector_size: usize) -> TypeHandle {
     if vector_size > 1 {
-        VectorType::get(ctx, intermediate, vector_size).to_handle()
+        VectorType::get(ctx, scalar, vector_size).to_handle()
     } else {
-        intermediate
+        scalar
     }
 }
 
@@ -157,10 +162,8 @@ fn cast_minifloat_to_half(ctx: &Context, input: Value) -> String {
     })
 }
 
-// Cast to minifloat from half/bf16 (fp8 also from float/double). Could be made more generic, but
-// a simple mapping is easier to understand. The naming is very inconsistent (i.e. halfraw2 vs
-// bf162raw). fp8 saturates like the codecs; `__NV_NOSAT` is the header's software path even on
-// sm_89.
+// The naming is very inconsistent (i.e. halfraw2 vs bf162raw). fp8 saturates like the codecs;
+// `__NV_NOSAT` is the header's software path even on sm_89.
 fn cast_half_to_minifloat(ctx: &Context, input: Value, out_ty: TypeHandle) -> String {
     let in_val = input.name(ctx);
     let fp8_source = || fp8_source_prefix(ctx, input);
