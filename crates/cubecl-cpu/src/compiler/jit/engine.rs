@@ -62,14 +62,14 @@ impl PlironEngine {
 
         let llvm_ctx = Rc::new(LLVMContext::default());
         let llvm_module = to_llvm_ir::convert_module(ctx, &llvm_ctx, module)?;
-        if std::env::var("CUBECL_DEBUG_LLVM_IR").is_ok() {
-            println!("{llvm_module}");
+        if let Some(dir) = ir_dump_path(kernel_name) {
+            let _ = std::fs::write(dir.join("llvm.ll"), llvm_module.to_string());
         }
 
         let llvm_module = optimize(llvm_module, &llvm_ctx, kernel_name)
             .unwrap_or_else(|err| panic!("LLVM optimization failed for '{kernel_name}': {err}"));
-        if std::env::var("CUBECL_DEBUG_LLVM_IR_OPT").is_ok() {
-            println!("; === after {PASS_PIPELINE} ===\n{llvm_module}");
+        if let Some(dir) = ir_dump_path(kernel_name) {
+            let _ = std::fs::write(dir.join("llvm.opt.ll"), llvm_module.to_string());
         }
 
         let lljit = LLVMLLJIT::new_with_default_builder().expect("failed to create LLJIT");
@@ -118,6 +118,15 @@ impl Display for PlironEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Pliron JIT engine")
     }
+}
+
+/// The kernel's dump directory when `CUBECL_DEBUG_PLIRON` is set: the LLVM IR
+/// stages land beside the pliron pass dumps.
+fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
+    let dir = std::env::var("CUBECL_DEBUG_PLIRON").ok()?;
+    let path = std::path::Path::new(&dir).join(kernel_name);
+    std::fs::create_dir_all(&path).ok()?;
+    Some(path)
 }
 
 /// The pipeline run before the JIT: LLJIT runs no IR-level passes of its own,
