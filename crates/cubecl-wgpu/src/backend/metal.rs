@@ -100,24 +100,25 @@ pub fn register_metal_features(
     unsafe {
         use objc2::rc::autoreleasepool;
         use objc2_foundation::NSString;
-        use objc2_metal::{MTLDevice, MTLGPUFamily};
+        use objc2_metal::{MTLCompileOptions, MTLDevice, MTLGPUFamily, MTLLanguageVersion};
 
         let Some(adapter) = adapter.as_hal::<hal::api::Metal>() else {
             return false;
         };
         let raw = adapter.raw_device();
-        if !raw.supportsFamily(MTLGPUFamily::Apple7) {
+        if !raw.supportsFamily(MTLGPUFamily::Metal3) {
             return false;
         };
-        let supports_lambdas = autoreleasepool(|_| {
+        let canary_result = autoreleasepool(|_| {
             let canary = NSString::from_str(LAMBDA_CANARY);
-            raw.newLibraryWithSource_options_error(&canary, None)
-                .is_ok()
+            let options = MTLCompileOptions::new();
+            options.setLanguageVersion(MTLLanguageVersion::Version3_2);
+            raw.newLibraryWithSource_options_error(&canary, Some(&options))
         });
-        if !supports_lambdas {
+        if let Err(err) = canary_result {
             // This is a fixable issue, so we should warn users.
             log::warn!(
-                "Device can support native MSL, but Metal compiler version is too old. Upgrading to 3.2 or higher is recommended."
+                "Device can support native MSL, but Metal compiler version is too old. Upgrading to 3.2 or higher is recommended. MSL 3.2 canary compilation failed: {err:?}"
             );
             return false;
         }
