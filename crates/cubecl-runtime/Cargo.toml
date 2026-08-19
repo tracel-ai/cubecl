@@ -67,6 +67,7 @@ serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true, optional = true }
 
 ahash = { version = "0.8.12", default-features = false }
+buildid = { workspace = true }
 md5 = { workspace = true }
 thiserror = { workspace = true }
 

@@ -4,13 +4,21 @@ use crate::{
 };
 use alloc::string::{String, ToString};
 use core::hash::Hash;
-use cubecl_common::hash::StableHash;
+use cubecl_common::hash::{StableHash, StableHasher};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 #[cfg(std_io)]
 use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
 use cubecl_environment::persistence::{Store, StoreKey, StoreValue};
 use thiserror::Error;
+
+/// Platform-specific build identifier, changes on rebuild
+pub type BuildId = Option<&'static [u8]>;
+
+/// Pre-hashed build ID
+pub fn build_id_hash() -> StableHash {
+    StableHasher::hash_one(&buildid::build_id())
+}
 
 /// A store for `backend`'s compiled artifacts, or `None` when compilation
 /// caching is disabled or the target has nowhere durable to put them.
@@ -87,16 +95,16 @@ pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
 pub struct KernelCacheKey {
     /// Hash of the [kernel id](KernelId).
     pub id: StableHash,
-    /// Hash of the [kernel definition](KernelDefinition).
-    pub ir: StableHash,
+    /// Hash of the [build id](buildid::build_id).
+    pub build_id: StableHash,
 }
 
 impl KernelCacheKey {
-    /// Create a key from a kernel id and its expanded definition.
-    pub fn new(id: &KernelId, definition: &KernelDefinition) -> Self {
+    /// Create a key from a kernel id and the current build ID.
+    pub fn new(id: &KernelId, build_id: StableHash) -> Self {
         Self {
             id: id.stable_hash(),
-            ir: definition.stable_hash(),
+            build_id,
         }
     }
 }

@@ -1,4 +1,5 @@
 use super::{
+    graph::{GraphRecording, ReplayDispatch, ReplayTask, WgpuGraph},
     mem_manager::WgpuMemManager,
     poll::WgpuPoll,
     timings::{QueryProfiler, TimestampQuerySetBudget},
@@ -29,6 +30,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
+    stream::StreamCaptureState,
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -78,6 +80,14 @@ pub struct WgpuStream {
     /// reserved past the per-flush release in
     /// [`WgpuMemManager::release_uniforms`].
     pub(crate) info_cache: MetadataInfoCache<(ManagedMemoryHandle, WgpuResource)>,
+    /// This stream's position in the graph-capture lifecycle (see
+    /// [`StreamCaptureState`]). Enforces the ordered `graph_prepare` →
+    /// `begin_capture` → `end_capture` transitions; while recording, enqueued
+    /// launches append to `recording` instead of the encoder.
+    pub(crate) capturing: StreamCaptureState,
+    /// The launches recorded since `begin_capture`, drained into a
+    /// [`WgpuGraph`] at `end_capture`.
+    recording: GraphRecording,
 }
 
 impl WgpuStream {
@@ -152,7 +162,30 @@ impl WgpuStream {
             // entry pins a whole page (512 × 32 KiB ≈ 16 MiB worst case) —
             // unlike CUDA/HIP where an entry is a small dynamic-pool slice.
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::new(512, 2048)),
+            capturing: StreamCaptureState::NoCapture,
+            recording: GraphRecording::default(),
         }
+    }
+
+    /// Refuse `operation` while a capture is recording on this stream.
+    ///
+    /// A software graph records dispatches and nothing else, so everything a
+    /// launch is not — a read, a sync, a profile, a host write, a replay — has
+    /// no recorded form and must not silently do nothing. One place builds the
+    /// refusal so every caller reports the same thing; whether that refusal is
+    /// returned to the caller or queued as a stream error is the caller's call.
+    ///
+    /// # Errors
+    ///
+    /// Fails while [`StreamCaptureState::Capture`] is set, naming `operation`.
+    pub(crate) fn reject_while_recording(&self, operation: &str) -> Result<(), ServerError> {
+        if !self.capturing.is_recording() {
+            return Ok(());
+        }
+        Err(ServerError::graph_state(format!(
+            "{operation}: a wgpu capture window records dispatches only, so this operation \
+             cannot be part of a graph"
+        )))
     }
 
     /// Enqueue a [`ScheduleTask`] on this stream.
@@ -163,6 +196,12 @@ impl WgpuStream {
     pub fn enqueue_task(&mut self, task: ScheduleTask) {
         match task {
             ScheduleTask::Write { data, buffer } => {
+                // Defensive: the server already rejects writes while recording,
+                // and `begin_capture` drains the queue, so none should reach here.
+                if let Err(err) = self.reject_while_recording("write") {
+                    self.errors.push(err);
+                    return;
+                }
                 // It is important to flush before writing, as the write operation is inserted
                 // into the QUEUE not the encoder. We want to make sure all outstanding work
                 // happens _before_ the write operation.
@@ -180,6 +219,25 @@ impl WgpuStream {
                 resources,
                 mut shared_inputs,
             } => {
+                // The capture lifecycle drives the info cache: while a graph is
+                // prepared or recording, every buffer is cached, none is
+                // evicted, and touched entries are pinned to the graph being
+                // built (see [`StreamCaptureState::cache_mode`]). Set on the
+                // launch path, before anything resolves an info buffer, as the
+                // hardware backends do.
+                self.info_cache.mode(self.capturing.cache_mode());
+
+                if self.capturing.is_recording() {
+                    // Cross-stream input pins belong to the graph for its whole
+                    // lifetime, not to the next submission.
+                    self.recording
+                        .shared
+                        .bindings
+                        .append(&mut shared_inputs.bindings);
+                    let (resources, custom_handles, addresses) = resources.into_resources(self);
+                    self.record_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
+                    return;
+                }
                 // Drain into the stream's pending pins; the handle returns its buffer to the
                 // server pool when it drops at the end of this arm.
                 self.shared_bindings
@@ -445,7 +503,13 @@ impl WgpuStream {
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
-        let (_handle, resource) = self.mem_manage.reserve_uniform(data.len() as u64);
+        let (handle, resource) = self.mem_manage.reserve_uniform(data.len() as u64);
+        // A uniform created inside a recording window (e.g. a Vulkan address
+        // buffer) is referenced by the recorded task on every replay, so it is
+        // pinned to the recording instead of released on the next flush.
+        if self.capturing.is_recording() {
+            self.recording.uniform_pins.push(handle);
+        }
         self.write_to_buffer(&resource, data);
         resource
     }
@@ -455,23 +519,20 @@ impl WgpuStream {
     /// read-only metadata (no buffer bindings), so sharing it across launches —
     /// even of different kernels — is sound; see
     /// [`MetadataInfoCache`](cubecl_runtime::metadata_cache::MetadataInfoCache).
-    /// A hit's buffer bytes always equal the key bytes, so it is byte-identical
-    /// to what the miss path would have built and uploaded.
-    pub(crate) fn info_uniform(&mut self, words: &[u64]) -> WgpuResource {
-        let size = core::mem::size_of_val(words);
+    /// `words` is taken by value so a miss hands it to the cache as the key
+    /// without cloning. A hit's buffer bytes always equal the key bytes, so it
+    /// is byte-identical to what the miss path would have built and uploaded.
+    pub(crate) fn info_uniform(&mut self, words: Vec<u64>) -> WgpuResource {
+        let size = core::mem::size_of_val(words.as_slice());
         if !self.info_cache.should_cache(size) {
-            return self.create_uniform(bytemuck::cast_slice(words));
+            return self.create_uniform(bytemuck::cast_slice(&words));
         }
-        // Look up by the borrowed words — a hit clones nothing but the
-        // resource. On a miss we build the uniform and clone the words into
-        // the cache as the key.
-        if let Some((_handle, resource)) = self.info_cache.get(words) {
+        if let Some((_handle, resource)) = self.info_cache.get(&words) {
             return resource;
         }
         let (handle, resource) = self.mem_manage.reserve_uniform(size as u64);
-        self.write_to_buffer(&resource, bytemuck::cast_slice(words));
-        self.info_cache
-            .insert(words.to_vec(), (handle, resource.clone()));
+        self.write_to_buffer(&resource, bytemuck::cast_slice(&words));
+        self.info_cache.insert(words, (handle, resource.clone()));
         resource
     }
 
@@ -648,6 +709,156 @@ impl WgpuStream {
         Ok(())
     }
 
+    /// Start a new compute pass if needed. The `forget_lifetime` allows
+    /// storing this with a 'static lifetime, but the compute pass must
+    /// be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
+    ///
+    /// An associated function over the individual fields (rather than a
+    /// `&mut self` method) so callers keep access to their other fields while
+    /// the returned pass borrows `compute_pass`.
+    fn current_pass<'a>(
+        compute_pass: &'a mut Option<wgpu::ComputePass<'static>>,
+        timings: &mut Timings,
+        encoder: &mut wgpu::CommandEncoder,
+        device: &wgpu::Device,
+    ) -> &'a mut wgpu::ComputePass<'static> {
+        compute_pass.get_or_insert_with(|| {
+            let writes = if let Timings::Device(query_time) = timings {
+                query_time.register_profile_device(device).map(|query_set| {
+                    wgpu::ComputePassTimestampWrites {
+                        query_set,
+                        beginning_of_pass_write_index: Some(0),
+                        end_of_pass_write_index: Some(1),
+                    }
+                })
+            } else {
+                None
+            };
+            encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: writes,
+                })
+                .forget_lifetime()
+        })
+    }
+
+    /// Record one launch into the in-progress recording instead of encoding
+    /// it: the counterpart of [`register_pipeline`](Self::register_pipeline)
+    /// while a capture is recording. Everything a replay needs is resolved
+    /// here, once — the bind group is built, the indirect-dispatch buffer is
+    /// resolved — so replaying is nothing but re-encoding prebuilt state.
+    fn record_pipeline(
+        &mut self,
+        pipeline: Arc<ComputePipeline>,
+        resources: &[WgpuResource],
+        custom_resources: &[WgpuResource],
+        immediates: Option<Addresses>,
+        dispatch: &CubeCount,
+    ) {
+        // An empty dispatch is a no-op on the normal path; record nothing.
+        if dispatch.is_empty() {
+            return;
+        }
+
+        let bind_group = (!resources.is_empty()).then(|| {
+            let entries = resources
+                .iter()
+                .enumerate()
+                .map(|(i, r)| wgpu::BindGroupEntry {
+                    binding: i as u32,
+                    resource: r.as_wgpu_bind_resource(),
+                })
+                .collect::<Vec<_>>();
+            let group_layout = pipeline.get_bind_group_layout(0);
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &group_layout,
+                entries: &entries,
+            })
+        });
+
+        let dispatch = match dispatch.clone() {
+            CubeCount::Static(x, y, z) => ReplayDispatch::Static(x, y, z),
+            CubeCount::Dynamic(binding) => match self.mem_manage.get_resource(binding) {
+                Ok(resource) => ReplayDispatch::Dynamic(resource),
+                Err(err) => {
+                    // The recording is now incomplete; `end_capture` sees the
+                    // queued error and rejects the capture.
+                    self.errors.push(err.into());
+                    return;
+                }
+            },
+        };
+
+        self.recording.tasks.push(ReplayTask {
+            pipeline,
+            bind_group,
+            immediates,
+            transitions: custom_resources.to_vec(),
+            dispatch,
+        });
+    }
+
+    /// Move the in-progress recording out of the stream (leaving it empty),
+    /// for `end_capture` to seal into a [`WgpuGraph`].
+    pub(crate) fn take_recording(&mut self) -> GraphRecording {
+        core::mem::take(&mut self.recording)
+    }
+
+    /// Re-encode a captured graph's tasks — one dispatch per recorded launch,
+    /// prebuilt state only — and let the normal `tasks_max`/submission-load
+    /// batching decide when to submit. Fire-and-forget like a launch: the
+    /// work lands on this stream's encoder in recorded order.
+    pub(crate) fn replay_graph(&mut self, graph: &WgpuGraph) {
+        // Consecutive tasks often share a pipeline (decode loops); skip the
+        // redundant `set_pipeline`. Pass state does not survive a flush, so
+        // the tracking resets whenever the pass was closed.
+        let mut last_pipeline: Option<&Arc<ComputePipeline>> = None;
+
+        for task in graph.tasks.iter() {
+            if self.compute_pass.is_none() {
+                last_pipeline = None;
+            }
+            let pass = Self::current_pass(
+                &mut self.compute_pass,
+                &mut self.timings,
+                &mut self.encoder,
+                &self.device,
+            );
+
+            if !last_pipeline.is_some_and(|prev| Arc::ptr_eq(prev, &task.pipeline)) {
+                pass.set_pipeline(&task.pipeline);
+                last_pipeline = Some(&task.pipeline);
+            }
+            if let Some(bind_group) = &task.bind_group {
+                pass.set_bind_group(0, bind_group, &[]);
+            }
+            if let Some(immediates) = &task.immediates {
+                pass.set_immediates(0, bytemuck::cast_slice(immediates));
+            }
+            if !task.transitions.is_empty() {
+                let buffer_transitions =
+                    task.transitions
+                        .iter()
+                        .map(|resource| wgpu::BufferTransition {
+                            buffer: &resource.buffer,
+                            state: wgpu::BufferUses::STORAGE_READ_WRITE,
+                        });
+                pass.transition_resources(buffer_transitions, iter::empty());
+            }
+            match &task.dispatch {
+                ReplayDispatch::Static(x, y, z) => pass.dispatch_workgroups(*x, *y, *z),
+                ReplayDispatch::Dynamic(resource) => {
+                    pass.dispatch_workgroups_indirect(&resource.buffer, resource.offset)
+                }
+            }
+
+            self.tasks_count += 1;
+            self.flush_if_needed();
+        }
+    }
+
     fn register_pipeline(
         &mut self,
         pipeline: Arc<ComputePipeline>,
@@ -669,28 +880,12 @@ impl WgpuStream {
             })
             .collect::<Vec<_>>();
 
-        // Start a new compute pass if needed. The forget_lifetime allows
-        // to store this with a 'static lifetime, but the compute pass must
-        // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
-        let pass = self.compute_pass.get_or_insert_with(|| {
-            let writes = if let Timings::Device(query_time) = &mut self.timings {
-                query_time
-                    .register_profile_device(&self.device)
-                    .map(|query_set| wgpu::ComputePassTimestampWrites {
-                        query_set,
-                        beginning_of_pass_write_index: Some(0),
-                        end_of_pass_write_index: Some(1),
-                    })
-            } else {
-                None
-            };
-            self.encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
-                    timestamp_writes: writes,
-                })
-                .forget_lifetime()
-        });
+        let pass = Self::current_pass(
+            &mut self.compute_pass,
+            &mut self.timings,
+            &mut self.encoder,
+            &self.device,
+        );
 
         self.tasks_count += 1;
 
