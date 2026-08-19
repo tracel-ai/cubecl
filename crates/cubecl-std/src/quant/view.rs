@@ -307,7 +307,19 @@ fn register_table<R: Runtime>(
     launcher: &mut KernelLauncher<R>,
 ) -> Option<BufferCompilationArg> {
     check_table_bindings(scheme, table.is_some());
-    table.map(|table| <[f32] as LaunchArg>::register(table, launcher))
+    table.map(|table| {
+        // The mask bounds every index to `2^bits`, so a shorter table reads out of bounds and a
+        // longer one was built for another width; both decode as garbage, so both are refused
+        // here, the one place that holds the buffer and the scheme together on the host.
+        let entries = 1usize << scheme.size_bits_value();
+        assert_eq!(
+            table.len(),
+            entries,
+            "a {}-bit lookup scheme indexes a table of exactly {entries} entries",
+            scheme.size_bits_value()
+        );
+        <[f32] as LaunchArg>::register(table, launcher)
+    })
 }
 
 /// Expand the lookup table into the scope the view is built in, checking it against the scheme so

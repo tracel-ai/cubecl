@@ -92,6 +92,10 @@ pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
 /// counterpart of [`unpack_cast_u32`], for reads whose served line is narrower than a word:
 /// `NF` may be any divisor of the packing factor, and `first` selects which slice of the word
 /// this line is. `e2m1` is refused — its native pairs cannot be split at a field boundary.
+///
+/// **The caller must keep `first + NF <= num_quants`.** `first` is runtime, so nothing here can
+/// check it, and a shift at or past 32 is not an error on most ISAs — the hardware masks the
+/// shift amount to 5 bits and the read silently lands on the wrong fields.
 #[cube]
 pub fn unpack_fields<F: Numeric, NF: Size>(
     word: u32,
