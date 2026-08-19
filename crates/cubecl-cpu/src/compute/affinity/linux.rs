@@ -70,3 +70,16 @@ fn get_affinity_mask() -> cpu_set_t {
 fn new_cpu_set() -> cpu_set_t {
     unsafe { std::mem::zeroed::<cpu_set_t>() }
 }
+
+/// What the tests in [`super`] need of this platform beyond the trait.
+#[cfg(test)]
+impl Platform {
+    /// sysfs reports a real topology here.
+    pub(super) const READS_TOPOLOGY: bool = true;
+
+    /// The CPU the calling thread is on, which a pinned thread cannot leave.
+    pub(super) fn current_cpu() -> Option<CoreId> {
+        let cpu = unsafe { libc::sched_getcpu() };
+        usize::try_from(cpu).ok().map(CoreId)
+    }
+}

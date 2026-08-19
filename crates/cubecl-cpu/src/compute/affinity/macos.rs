@@ -74,3 +74,16 @@ fn sysctl(name: &CStr) -> Option<u64> {
     // little-endian targets macOS runs on.
     (ret == 0 && (size == 4 || size == 8)).then_some(value)
 }
+
+/// What the tests in [`super`] need of this platform beyond the trait.
+#[cfg(test)]
+impl Platform {
+    /// The `hw` sysctls report a real topology here.
+    pub(super) const READS_TOPOLOGY: bool = true;
+
+    /// Darwin only hints at affinity and offers userspace no way to ask which
+    /// CPU a thread is on, so the pinning test has nothing to check against.
+    pub(super) fn current_cpu() -> Option<CoreId> {
+        None
+    }
+}

@@ -147,7 +147,12 @@ futures-util = { version = "0.3.32", default-features = false, features = [
 # CubeCL-CPU
 libc = "^0.2.186"
 sysinfo = "0.39"
-winapi = { version = "^0.3.9", features = ["processthreadsapi", "winbase"] }
+winapi = { version = "^0.3.9", features = [
+    "processthreadsapi",
+    "processtopologyapi",
+    "sysinfoapi",
+    "winbase",
+] }
 
 inflections = "1"
 
