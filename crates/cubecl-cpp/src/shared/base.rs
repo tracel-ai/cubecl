@@ -22,7 +22,7 @@ use core::marker::PhantomData;
 use cubecl_core::{
     ir::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
-        features::{AtomicUsage, TypeUsage},
+        features::{AtomicUsage, EnumSet, TypeUsage},
         metadata::Info,
         rewrite::SimplifyOpsPass,
         settings::Dim3,
@@ -30,6 +30,7 @@ use cubecl_core::{
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
+        minifloat::{Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass},
         saturating::LowerSaturatingArithmeticPass,
     },
     prelude::KernelDefinition,
@@ -206,6 +207,16 @@ where
         )));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
 
+        // CUDA converts fp8 with cuda_fp8.h, which carries its own software path below sm_89.
+        let native_fp8 = match T::target() {
+            Target::Cuda => EnumSet::all(),
+            Target::Hip | Target::Metal => EnumSet::empty(),
+        };
+        func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
+            native_fp8,
+            Fp8Container::Bytes,
+        )));
+
         // Shared lowerings can create ops that need target-specific lowerings, but target-specific
         // lowerings should take priority. So we just run the target-specific lowerings twice.
         func_passes.add_pass(LowerOpsCppPass::<T>::default());
@@ -247,7 +258,7 @@ where
         passes.add_pass(DeclareVectorTypesPass);
         passes.add_pass(CollectIncludesPass::<T>::default());
 
-        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
+        passes.run(module_op, &mut ctx, &mut analyses)?;
 
         #[cfg(feature = "metal")]
         if T::target() == Target::Metal {
@@ -340,6 +351,13 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
 
     for ty in supported_types {
         props.register_type_usage(ty, TypeUsage::all());
+    }
+
+    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
+        props.register_type_usage(
+            ElemType::Float(ty),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
     }
 
     for ty in supported_atomic_types {

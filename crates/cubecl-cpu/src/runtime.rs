@@ -1,4 +1,6 @@
-use crate::{compiler::PlironCompiler, compute::affinity, compute::server::CpuServer, device::CpuDevice};
+use crate::{
+    compiler::PlironCompiler, compute::affinity, compute::server::CpuServer, device::CpuDevice,
+};
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
@@ -65,6 +67,13 @@ fn register_supported_types(props: &mut DeviceProperties) {
 
     for ty in supported_types {
         props.register_type_usage(ty, TypeUsage::all());
+    }
+
+    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
+        props.register_type_usage(
+            ElemType::Float(ty),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
     }
 
     for ty in supported_atomic_types {
@@ -150,11 +159,7 @@ impl DeviceService for CpuServer {
             (),
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
-        CpuServer::new(
-            mem_properties,
-            options.memory_config,
-            Arc::new(utilities),
-        )
+        CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {

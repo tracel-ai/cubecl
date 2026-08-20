@@ -223,6 +223,12 @@ fn register_types(props: &mut DeviceProperties) {
     for ty in types {
         props.register_type_usage(ty, TypeUsage::all());
     }
+    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
+        props.register_type_usage(
+            ElemType::Float(ty),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
+    }
 
     // Metal natively supports the full integer atomic set; float atomics are
     // limited to add + load/store (no native float min/max).

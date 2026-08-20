@@ -48,11 +48,8 @@ impl CpuServer {
         memory_config: MemoryConfiguration,
         utilities: Arc<ServerUtilities<CpuServer>>,
     ) -> Self {
-        let backend = ScheduledCpuBackend::new(
-            memory_properties,
-            memory_config,
-            utilities.logger.clone(),
-        );
+        let backend =
+            ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 

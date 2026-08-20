@@ -29,7 +29,31 @@ use crate::{
 binop_to_spirv_dialect!(general::BoolAndOp => ops::LogicalAndOp);
 binop_to_spirv_dialect!(general::BoolOrOp => ops::LogicalOrOp);
 unop_to_spirv_dialect!(general::BoolNotOp => ops::LogicalNotOp);
-unop_to_spirv_dialect!(general::ReinterpretCastOp => ops::BitcastOp);
+#[op_interface_impl]
+impl ToSpirvDialectOp for general::ReinterpretCastOp {
+    fn to_spirv_dialect(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let op = self.get_operation();
+        let input = op.operand(ctx, 0);
+        let from_ty = operands_info
+            .lookup_most_recent_type(input)
+            .unwrap_or_else(|| input.get_type(ctx));
+        let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
+        // Emulated fp8 and u8 share one SPIR-V type, and a same-type bitcast is invalid.
+        if ty_to_spirv_dialect(ctx, from_ty) == out_ty {
+            rewriter.replace_operation_with_values(ctx, op, vec![input]);
+        } else {
+            let new_op = ops::BitcastOp::new(ctx, out_ty, input);
+            rewriter.append_op(ctx, &new_op);
+            rewriter.replace_operation(ctx, op, new_op.get_operation());
+        }
+        Ok(())
+    }
+}
 
 #[op_interface_impl]
 impl ToSpirvDialectOp for general::SelectOp {

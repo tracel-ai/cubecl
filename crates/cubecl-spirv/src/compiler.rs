@@ -11,10 +11,17 @@ use crate::{
 };
 use cubecl_core::{
     Compiler, WgpuCompilationOptions,
-    ir::{ContextExt, attributes::FuncInterface, ident, metadata::Info, rewrite::SimplifyOpsPass},
+    ir::{
+        ContextExt, attributes::FuncInterface, features::EnumSet, ident, metadata::Info,
+        rewrite::SimplifyOpsPass,
+    },
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
+        minifloat::{
+            Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass, LowerMinifloatCompare,
+            LowerMinifloatComparePass,
+        },
         saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
@@ -193,6 +200,17 @@ impl SpirvCompiler {
         func_passes.add_pass(UnrollPass::new(comp_opts.vulkan.max_vector_size));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
+        let native_fp8 = match comp_opts.vulkan.supports_float8 {
+            true => EnumSet::all(),
+            false => EnumSet::empty(),
+        };
+        func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
+            native_fp8,
+            Fp8Container::Bytes,
+        )));
+        func_passes.add_pass(LowerMinifloatComparePass::new(LowerMinifloatCompare::new(
+            Fp8Container::Bytes,
+        )));
         func_passes.add_pass(BranchToSCFPass::default());
         func_passes.add_pass(MatrixToSSAPass::default());
 
@@ -219,7 +237,7 @@ impl SpirvCompiler {
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);
 
-        passes.run(module_op, ctx, &mut analyses).unwrap();
+        passes.run(module_op, ctx, &mut analyses)?;
 
         let bindings = (0..entry.deref(ctx).get_num_arguments()).map(|i| {
             let io = entry_func.get_arg_attr::<BufferIOAttr>(ctx, i, &ATTR_BUFFER_IO);
@@ -243,7 +261,7 @@ impl SpirvCompiler {
         func_passes.add_pass(DCEPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
-        passes.run(module_op, ctx, &mut analyses).unwrap();
+        passes.run(module_op, ctx, &mut analyses)?;
 
         verify_operation(module_op, ctx)?;
 

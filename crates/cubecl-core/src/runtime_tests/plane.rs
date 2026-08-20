@@ -500,7 +500,10 @@ pub fn test_plane_min_partial<
     let input: Vec<f32> = (0..buffer_len).map(|x| (x + 1) as f32).collect();
 
     let mut expected = input.clone();
-    expected[0] = input[..cube_dim].iter().copied().fold(f32::INFINITY, f32::min);
+    expected[0] = input[..cube_dim]
+        .iter()
+        .copied()
+        .fold(f32::INFINITY, f32::min);
 
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();

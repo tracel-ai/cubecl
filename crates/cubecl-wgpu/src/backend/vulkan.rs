@@ -362,6 +362,18 @@ fn register_features(
         comp_options.vulkan.supports_fp_fast_math = true;
     }
 
+    // Native fp8 takes no comparison, so equality and the bool conversion read the value as an
+    // 8-bit integer instead. `shaderInt8` is what makes that integer legal, and every device that
+    // reports `shaderFloat8` reports it too, so requiring both costs nothing.
+    if let Some(float8) = &extended_feat.float8
+        && float8.shader_float8 == TRUE
+        && extended_feat
+            .float16_int8
+            .is_some_and(|it| it.shader_int8 == TRUE)
+    {
+        comp_options.vulkan.supports_float8 = true;
+    }
+
     if let Some(wg_explicit_layout) = &extended_feat.wg_explicit_layout
         && wg_explicit_layout.workgroup_memory_explicit_layout == TRUE
     {
@@ -453,8 +465,8 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         .buf_16
         .is_some_and(|it| it.uniform_and_storage_buffer16_bit_access == TRUE);
     let storage8 = ext_feat
-        .buf_16
-        .is_some_and(|it| it.uniform_and_storage_buffer16_bit_access == TRUE);
+        .buf_8
+        .is_some_and(|it| it.uniform_and_storage_buffer8_bit_access == TRUE);
 
     for ty in default_types {
         props.register_type_usage(ty, TypeUsage::all());
@@ -513,6 +525,20 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         }
     }
 
+    // Emulated fp8 is an 8-bit int, and native fp8 falls back to one to compare, so `shaderInt8`
+    // carries fp8 either way.
+    let supports_fp8 = ext_feat
+        .float16_int8
+        .is_some_and(|it| it.shader_int8 == TRUE);
+    if supports_fp8 {
+        for kind in [FloatKind::E4M3, FloatKind::E5M2] {
+            props.register_type_usage(ElemType::Float(kind), TypeUsage::Conversion);
+            if storage8 {
+                props.register_type_usage(ElemType::Float(kind), TypeUsage::Buffer);
+            }
+        }
+    }
+
     if let Some(bfloat16) = ext_feat.bfloat16 {
         if bfloat16.shader_b_float16_type == TRUE {
             props.register_type_usage(ElemType::Float(FloatKind::BF16), TypeUsage::Conversion);
@@ -522,17 +548,6 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         }
         if bfloat16.shader_b_float16_dot_product == TRUE {
             props.register_type_usage(ElemType::Float(FloatKind::BF16), TypeUsage::DotProduct);
-        }
-    }
-
-    if let Some(float8) = ext_feat.float8
-        && float8.shader_float8 == TRUE
-    {
-        props.register_type_usage(ElemType::Float(FloatKind::E4M3), TypeUsage::Conversion);
-        props.register_type_usage(ElemType::Float(FloatKind::E5M2), TypeUsage::Conversion);
-        if storage8 {
-            props.register_type_usage(ElemType::Float(FloatKind::E4M3), TypeUsage::Buffer);
-            props.register_type_usage(ElemType::Float(FloatKind::E5M2), TypeUsage::Buffer);
         }
     }
 
