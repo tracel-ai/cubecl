@@ -51,12 +51,12 @@ const_eval!(BoolAndOp, {
     BoolAttr: |lhs, rhs| lhs && rhs,
     // false && x -> false
     custom: |lhs, _| match lhs?.as_const_val(ctx) {
-        ConstantValue::Bool(false) => Some(BoolAttr::new(false)),
+        ConstantValue::Bool(false) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
         _ => None
     },
     // x && false -> false
     custom: |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Bool(false) => Some(BoolAttr::new(false)),
+        ConstantValue::Bool(false) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
         _ => None
     }
 });
@@ -83,12 +83,12 @@ const_eval!(BoolOrOp, {
     BoolAttr: |lhs, rhs| lhs || rhs,
     // true || x -> true
     custom: |lhs, _| match lhs?.as_const_val(ctx) {
-        ConstantValue::Bool(true) => Some(BoolAttr::new(true)),
+        ConstantValue::Bool(true) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
         _ => None
     },
     // x || true -> true
     custom: |_, rhs| match rhs?.as_const_val(ctx) {
-        ConstantValue::Bool(true) => Some(BoolAttr::new(true)),
+        ConstantValue::Bool(true) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
         _ => None
     }
 });

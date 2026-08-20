@@ -396,7 +396,7 @@ const_eval!(SDivOp, {
     // x / x -> 1
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(false))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
         } else {
             None
         }
@@ -429,7 +429,7 @@ const_eval!(UDivOp, {
     // x / x -> 1
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(false))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
         } else {
             None
         }
