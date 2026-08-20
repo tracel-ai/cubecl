@@ -1,4 +1,4 @@
-use crate::compiler::to_llvm::{constant::constant_op, ty::scalar_alignment};
+use crate::shared::to_llvm::{constant::constant_op, ty::scalar_alignment};
 
 use super::prelude::*;
 use cubecl_core::ir::{

@@ -1,9 +1,9 @@
 # CPU Runtime
 
-MLIR-based JIT runtime for CubeCL. It lowers CubeCL IR to optimized IR, then to
-MLIR, then to LLVM, and executes the result in-process through the MLIR
-`ExecutionEngine`, using SIMD where the host CPU supports it. LLVM/MLIR is
-vendored through `tracel-llvm-bundler`, so there is no system LLVM to install.
+CPU runtime for CubeCL. It executes kernels in-process on a worker thread pool,
+using SIMD where the host CPU supports it. Compilation is delegated to
+[`cubecl-llvm`](../cubecl-llvm), which JIT-compiles each kernel through LLVM;
+this crate owns the memory management, scheduling and execution around it.
 
 ## Setup
 
@@ -14,45 +14,38 @@ Add `cubecl` with the `cpu` feature:
 cubecl = { version = "*", features = ["cpu"] }
 ```
 
-Nothing else is required. On macOS the Homebrew library path is configured
-automatically by the crate's `build.rs`.
+## Layout
 
-## Debugging the compiler (MLIR dump)
+| Module                | What it does                                                        |
+| --------------------- | ------------------------------------------------------------------- |
+| `compute::server`     | The `ComputeServer` impl: allocation, launches and reads            |
+| `compute::threadpool` | Worker threads, and the per-unit dispatch of a launch               |
+| `compute::affinity`   | Core topology and thread pinning, per platform                      |
+| `runtime`             | `CpuRuntime`, device properties and the supported type/atomic table |
 
-When a kernel miscompiles or you are modifying the lowering passes, you can dump
-every intermediate representation the compiler goes through.
+## Tuning
 
-Setting `CUBECL_DEBUG_MLIR` auto-enables the `mlir-dump` feature at build time
-(see `build.rs`), so a single command is enough — no extra `--features` flag:
+| Variable                | Effect                                                           |
+| ----------------------- | ---------------------------------------------------------------- |
+| `CUBECL_CPU_STACK_SIZE` | Worker thread stack size, in bytes                               |
+| `CUBECL_CPU_STACK_MB`   | Same, in MiB; used only when `CUBECL_CPU_STACK_SIZE` is unset    |
 
-```bash
-CUBECL_DEBUG_MLIR=./debug cargo test -p cubecl-cpu
-```
+This is the stack of the worker threads the JIT'd kernels run on, so a kernel's
+own stack frame comes out of it. Both variables are floored at 16 MiB, and the
+default is 64 MiB.
 
-Use any binary, test, or example that launches a CPU kernel. Each kernel writes
-a subfolder named after its kernel name under the directory you chose. The
-following artifacts are produced per kernel:
+## Debugging
 
-| File                     | What it is                       | How to inspect                          |
-| ------------------------ | -------------------------------- | --------------------------------------- |
-| `cubecl.ir.txt`          | Raw CubeCL IR                    | text                                    |
-| `cubecl-opt.ir.txt`      | IR after the optimization passes | text                                    |
-| `cubecl-opt.ir.dot`      | Control-flow graph of the kernel | `dot -Tsvg cubecl-opt.ir.dot > cfg.svg` |
-| `<module>/N_<pass>.mlir` | MLIR after each lowering pass    | text trace where lowering diverges      |
-| `mlir_output.so`         | Final compiled shared object     | `llvm-objdump -d mlir_output.so`        |
-
-To enable the dump feature explicitly without the env var (for example from
-another crate that depends on `cubecl-cpu`):
-
-```bash
-cargo run --features cpu,cubecl-cpu/mlir-dump
-```
+To dump the IR a kernel goes through on its way to machine code, see
+[Debugging the compiler](../cubecl-llvm/README.md#debugging-the-compiler) in
+`cubecl-llvm`.
 
 ## Troubleshooting
 
-- **Segfaults during execution.** Kernel invocation is `unsafe` and a bad pointer or shape will
-  segfault rather than return an error. Dump the IR and inspect the per-pass
-  `.mlir` files to find where the generated code diverges from what you expect.
-- **Compilation / verifier errors.** The MLIR verifier runs after the pass
-  pipeline; a failure panics with the underlying MLIR diagnostic, which usually
-  names the offending operation and make CubeCL crash just after.
+- **Segfaults during execution.** Kernel invocation is `unsafe`, so a bad
+  pointer or shape segfaults rather than returning an error. Dump the IR and
+  inspect the per-pass `.plir` files to find where the generated code diverges
+  from what you expect.
+- **Stack overflow in a worker.** Raise `CUBECL_CPU_STACK_MB`. Shared memory is
+  reserved from the memory pool rather than the stack, so this points at a large
+  kernel stack frame.

@@ -1,6 +1,7 @@
+use cubecl_llvm::PlironOptions;
+
 use crate::{
     CpuCompiler,
-    compiler::PlironOptions,
     compute::{
         cpu_kernel::CpuKernel,
         schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},

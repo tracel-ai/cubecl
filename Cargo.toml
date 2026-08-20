@@ -168,7 +168,7 @@ pliron-llvm = { version = "0.17", default-features = false }
 # pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
 # pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
 
-# These features stop llvm-sys from resolving LLVM itself; cubecl-cpu's build.rs
+# These features stop llvm-sys from resolving LLVM itself; cubecl-llvm's build.rs
 # links the bundled toolchain instead.
 llvm-sys = { version = "221", features = [
     "no-llvm-linking",

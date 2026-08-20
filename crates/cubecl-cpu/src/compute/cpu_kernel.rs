@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use cubecl_core::prelude::CompiledKernel;
 
-use crate::compiler::PlironCompiler;
+use cubecl_llvm::PlironCompiler;
 
 /// A compiled cpu kernel.
 pub struct CpuKernel {

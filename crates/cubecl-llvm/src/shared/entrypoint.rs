@@ -13,8 +13,8 @@ use pliron::identifier::Identifier;
 use pliron::linked_list::ContainsLinkedList;
 use pliron_llvm::types::PointerType as LlvmPointerType;
 
-use crate::compiler::polyfill::synchronization::ATTR_SYNC_CUBE_STATE;
-use crate::compiler::shared_memory::declares_shared_memory;
+use crate::shared::polyfill::synchronization::ATTR_SYNC_CUBE_STATE;
+use crate::shared::shared_memory::declares_shared_memory;
 
 pub const CPU_RUNTIME_BUILTINS: [Builtin; 6] = [
     Builtin::CubeCountX,

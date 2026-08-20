@@ -20,8 +20,8 @@ use pliron::builtin::ops::{ConstantOp, FuncOp};
 use pliron::builtin::types::FunctionType;
 use std::rc::Rc;
 
-use crate::compiler::shared_memory::{SharedDeclarations, SharedMemories};
-use crate::compiler::to_llvm::ty::cube_type_to_llvm;
+use crate::shared::shared_memory::{SharedDeclarations, SharedMemories};
+use crate::shared::to_llvm::ty::cube_type_to_llvm;
 
 /// `(op, buffer_idx, result)` for each `cube.buffer_len`, gathered during the walk so the ops
 /// can be rewritten once the walker no longer holds them borrowed.

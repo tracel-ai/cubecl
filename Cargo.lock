@@ -908,28 +908,23 @@ dependencies = [
 name = "cubecl-cpu"
 version = "0.11.0-pre.2"
 dependencies = [
- "bytemuck",
  "crossbeam-utils",
  "cubecl-common",
  "cubecl-core",
  "cubecl-environment",
- "cubecl-opt",
+ "cubecl-llvm",
  "cubecl-runtime",
  "cubecl-std",
  "derive-new",
  "half",
  "libc",
- "llvm-sys",
  "log",
  "paste",
  "pliron",
- "pliron-llvm",
  "pretty_assertions",
- "serde",
  "spin",
  "sysinfo",
  "test-log",
- "tracel-llvm-bundler",
  "winapi",
 ]
 
@@ -1057,6 +1052,22 @@ dependencies = [
  "spin",
  "thiserror",
  "variadics_please",
+]
+
+[[package]]
+name = "cubecl-llvm"
+version = "0.11.0-pre.2"
+dependencies = [
+ "cubecl-core",
+ "cubecl-environment",
+ "cubecl-opt",
+ "cubecl-runtime",
+ "derive-new",
+ "half",
+ "llvm-sys",
+ "pliron",
+ "pliron-llvm",
+ "tracel-llvm-bundler",
 ]
 
 [[package]]
