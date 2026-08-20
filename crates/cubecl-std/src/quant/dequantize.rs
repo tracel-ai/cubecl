@@ -191,13 +191,11 @@ fn cast_masked_plain<F: Numeric, N: Size>(
         | QuantValue::Q2S => {
             let size_quant = scheme.size_bits_value() as u32;
             let sign_bit = 1u32 << (size_quant - 1);
-            let two_pow_n = 1 << size_quant;
 
-            // Branchless two's complement conversion
-            // If raw >= 2^(n-1), then result = raw - 2^n
-            let raw_i32 = value as i32;
-            let is_negative = (value >= sign_bit) as i32; // 1 if negative, 0 if positive
-            let signed_value = raw_i32 - (is_negative * two_pow_n);
+            // Branchless sign extension: `(raw ^ s) - s` with `s = 2^(n-1)` runs
+            // the identical xor/sub on every lane — two uniform vector ops on
+            // SIMD backends instead of a compare/select chain.
+            let signed_value = (value ^ sign_bit) as i32 - sign_bit as i32;
             Vector::<F, N>::cast_from(signed_value)
         }
     }

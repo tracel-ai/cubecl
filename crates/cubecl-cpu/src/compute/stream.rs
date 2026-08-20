@@ -23,10 +23,6 @@ use cubecl_runtime::{
 use std::sync::{Arc, atomic::AtomicU64};
 
 pub struct CpuStream {
-    // TEMP: only read by the disabled unit-limit check in `enqueue_task`. Kept so
-    // the plumbing stays in place; remove the attribute when the check is restored.
-    #[allow(dead_code)]
-    pub(crate) max_units_per_cube: u32,
     pub(crate) memory_management: MemoryManagement<BytesStorage>,
     /// Dedicated pool for per-launch shared memory.
     ///
@@ -50,7 +46,6 @@ impl core::fmt::Debug for CpuStream {
 
 impl CpuStream {
     pub fn new(
-        max_units_per_cube: u32,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
@@ -78,7 +73,6 @@ impl CpuStream {
         let next_counter_step = 0;
         let atomic_counter = Arc::new(CachePadded::new(AtomicU64::new(0)));
         Self {
-            max_units_per_cube,
             memory_management,
             shared_memory_management,
             timestamps: TimestampProfiler::default(),
@@ -90,9 +84,16 @@ impl CpuStream {
     }
 
     pub fn enqueue_task(&mut self, task: ScheduleTask) {
-        self.flush_uncheck();
+        // Launches pipeline: `ComputeTask::is_ready` orders tasks and the
+        // launch's resources ride in `SharedData::keepalive`, so the client
+        // only drains where that protocol does not cover:
+        // * a host `Write`, which copies on this thread and would race a
+        //   queued kernel reading the buffer;
+        // * a shared-memory kernel, whose pool reservations are released at
+        //   enqueue — sound only while one such launch has the pool to itself.
         match task {
             ScheduleTask::Write { data, mut buffer } => {
+                self.flush_uncheck();
                 buffer.resource_mut().write().copy_from_slice(&data);
             }
             ScheduleTask::Execute {
@@ -102,23 +103,12 @@ impl CpuStream {
                 cube_count,
                 ..
             } => {
-                let requested = cube_dim.num_elems();
-                // TEMP: the threadpool now grows to fit any cube_dim (it spawns one
-                // worker per unit for barrier kernels, see Threadpool::execute_data),
-                // so the per-launch unit-count limit is disabled. Uncomment to restore
-                // the hard cap (also re-add the LaunchError/ResourceLimitError imports).
-                // let max = self.max_units_per_cube;
-                // if requested > max {
-                //     let launch_error: LaunchError = ResourceLimitError::MaxUnitPerCube {
-                //         requested,
-                //         max,
-                //         backtrace: BackTrace::capture(),
-                //     }
-                //     .into();
-                //     self.error(launch_error.into());
-                //     return;
-                // }
-
+                if !pliron_engine.requirements().shared_memories.blocks.is_empty() {
+                    self.flush_uncheck();
+                }
+                // No unit cap: the threadpool grows to fit any cube_dim, one
+                // worker per unit for barrier kernels.
+                let units = cube_dim.num_elems();
                 self.threadpool.lock().execute_data(
                     pliron_engine,
                     bindings,
@@ -128,18 +118,28 @@ impl CpuStream {
                     self.next_counter_step,
                     &self.atomic_counter,
                 );
-                self.next_counter_step += requested as u64;
+                self.next_counter_step += units as u64;
             }
         }
     }
 
     fn flush_uncheck(&mut self) {
+        // Spin briefly, then yield between polls: the client is not pinned,
+        // and a pure spin parked on a worker's logical CPU keeps that worker
+        // off it until the next timer tick (~3 ms unit-start stalls).
+        const SPINS_BEFORE_YIELD: u32 = 1_000;
+        let mut spins = 0u32;
         while self
             .atomic_counter
             .load(std::sync::atomic::Ordering::Acquire)
             != self.next_counter_step
         {
-            std::hint::spin_loop();
+            spins += 1;
+            if spins < SPINS_BEFORE_YIELD {
+                std::hint::spin_loop();
+            } else {
+                std::thread::yield_now();
+            }
         }
     }
 
