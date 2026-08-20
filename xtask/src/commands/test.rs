@@ -33,7 +33,7 @@ pub(crate) fn handle_command(
         base_commands::test::handle_command(args.try_into().unwrap(), env, context)?;
         // Specific additional commands to test specific features
         // cubecl-wgpu with exclusive-memory-only
-        helpers::custom_crates_tests(
+        build_helpers::custom_crates_tests(
             vec!["cubecl-wgpu"],
             vec!["--features", "exclusive-memory-only", "--lib"],
             None,

@@ -8,7 +8,7 @@ edition.workspace = true
 log = { workspace = true }
 glob = "0.3.1"
 strum = { version = "0.28", features = ["derive"] }
-tracel-xtask = "=4.16.0"
+tracel-xtask = { version = "=5.0.0", features = ["bump", "compile", "coverage", "dependencies", "fix", "publish", "validate", "vulnerabilities", "build", "check", "doc", "test", "utils-helpers"] }
 # ### For local development. ###
 # tracel-xtask = { path = "../../xtask/crates/tracel-xtask", default-features = false }
 
