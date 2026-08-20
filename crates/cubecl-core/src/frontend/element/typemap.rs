@@ -143,6 +143,7 @@ impl<Marker: 'static> Neg for DynamicScalar<Marker> {
             ConstantValue::Float(val) => (-val).into(),
             ConstantValue::UInt(val) => (-(val as i64)).into(),
             ConstantValue::Bool(val) => (!val).into(),
+            ConstantValue::Complex(_, _) => panic!("Complex negation uses the typed complex path"),
         })
     }
 }
@@ -488,8 +489,12 @@ impl<Marker: 'static> ModFloorNativeExpand for DynamicScalar<Marker> {
     }
 }
 
-impl<Marker: 'static> Abs for DynamicScalar<Marker> {}
+impl<Marker: 'static> Abs for DynamicScalar<Marker> {
+    type AbsElem = Self;
+}
 impl<Marker: 'static> AbsNativeExpand for DynamicScalar<Marker> {
+    type AbsElem = Self;
+
     fn __expand_native_abs(scope: &Scope, input: ExpandValue) -> ExpandValue {
         unary_dispatch!(__expand_native_abs, scope, input)
     }
@@ -839,6 +844,9 @@ impl<Marker: 'static> Not for DynamicScalar<Marker> {
             ConstantValue::UInt(val) => (!val).into(),
             ConstantValue::Bool(val) => (!val).into(),
             ConstantValue::Float(val) => f64::from_bits(!val.to_bits()).into(),
+            ConstantValue::Complex(_, _) => {
+                panic!("Bitwise operations don't support complex values")
+            }
         })
     }
 }
@@ -907,6 +915,7 @@ impl<Marker: 'static> Shl for DynamicScalar<Marker> {
             ConstantValue::Float(val) => f64::from_bits(val.to_bits() << rhs.val.as_u64()).into(),
             ConstantValue::UInt(val) => (val << rhs.val.as_u64()).into(),
             ConstantValue::Bool(_) => panic!("Invalid value"),
+            ConstantValue::Complex(_, _) => panic!("Shifts don't support complex values"),
         })
     }
 }
@@ -925,6 +934,7 @@ impl<Marker: 'static> Shr for DynamicScalar<Marker> {
             ConstantValue::Float(val) => f64::from_bits(val.to_bits() >> rhs.val.as_u64()).into(),
             ConstantValue::UInt(val) => (val >> rhs.val.as_u64()).into(),
             ConstantValue::Bool(_) => panic!("Invalid value"),
+            ConstantValue::Complex(_, _) => panic!("Shifts don't support complex values"),
         })
     }
 }

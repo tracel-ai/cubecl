@@ -20,10 +20,13 @@ use core::marker::PhantomData;
 use cubecl_core::{
     ir::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
+        dialect::OperationPtrExt,
         features::{AtomicUsage, TypeUsage},
+        interfaces::TypedExt,
         metadata::Info,
         rewrite::SimplifyOpsPass,
         settings::Dim3,
+        types::scalar::{Complex32Type, Complex64Type},
     },
     post_processing::{
         bitwise::PromoteBitwisePass,
@@ -42,6 +45,7 @@ use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
     builtin::ops::{FuncOp, ModuleOp},
     context::Context,
+    graph::walkers::{IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op},
     irbuild::match_rewrite::MatchRewrite,
     op::Op,
     operation::verify_operation,
@@ -83,6 +87,7 @@ pub struct CompilationState {
     pub cube_dim: Dim3,
     pub cluster_dim: Dim3,
     pub info: Info,
+    pub has_complex: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -158,10 +163,43 @@ where
         let entry_func = kernel.body.state().entry_func;
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
+        let mut has_complex = false;
+        walk_op(
+            &ctx,
+            &mut has_complex,
+            &WALKCONFIG_PREORDER_FORWARD,
+            module_op,
+            |ctx, has_complex, node| {
+                if *has_complex {
+                    return;
+                }
+                let mut inspect = |value: pliron::value::Value| {
+                    let scalar = value.scalar_ty(ctx).deref(ctx);
+                    *has_complex = scalar.is::<Complex32Type>() || scalar.is::<Complex64Type>();
+                };
+                match node {
+                    IRNode::Operation(op) => {
+                        for value in op.deref(ctx).operands() {
+                            inspect(value);
+                        }
+                        if let Some(value) = op.opt_result(ctx) {
+                            inspect(value);
+                        }
+                    }
+                    IRNode::BasicBlock(block) => {
+                        for value in block.deref(ctx).arguments() {
+                            inspect(value);
+                        }
+                    }
+                    _ => {}
+                }
+            },
+        );
         let state = CompilationState {
             cube_dim: kernel.settings.cube_dim,
             cluster_dim: kernel.settings.cluster_dim.unwrap_or(Dim3::new_single()),
             info: kernel.info,
+            has_complex,
         };
 
         ctx.set_aux_ty(compilation_options);

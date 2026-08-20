@@ -868,6 +868,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "itertools 0.15.0",
  "log",
+ "num-complex",
  "num-integer",
  "num-traits",
  "paste",
@@ -1048,6 +1049,7 @@ dependencies = [
  "internment",
  "itertools 0.15.0",
  "num",
+ "num-complex",
  "num-traits",
  "pliron",
  "pliron-spirv",
@@ -2963,6 +2965,7 @@ version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495"
 dependencies = [
+ "bytemuck",
  "num-traits",
 ]
 

@@ -3,7 +3,7 @@ use core::hash::{BuildHasher, Hash, Hasher};
 
 use crate::{
     AddressType, ElemType, OpaqueType, SemanticType, Type, TypeHash, VectorSize,
-    features::{AtomicUsage, Features, TypeUsage},
+    features::{AtomicUsage, ComplexUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
 use enumset::{EnumSet, EnumSetType};
@@ -142,6 +142,16 @@ impl DeviceProperties {
         self.features.type_usage(ty)
     }
 
+    /// Get the complex capability families for a type.
+    pub fn complex_usage(&self, ty: ElemType) -> EnumSet<ComplexUsage> {
+        self.features.complex_usage(ty)
+    }
+
+    /// Whether a complex type supports the requested capability family.
+    pub fn supports_complex_usage(&self, ty: ElemType, usage: ComplexUsage) -> bool {
+        self.features.supports_complex_usage(ty, usage)
+    }
+
     /// Get the usages for an atomic type
     pub fn atomic_type_usage(&self, ty: Type) -> EnumSet<AtomicUsage> {
         self.features.atomic_type_usage(ty)
@@ -174,6 +184,15 @@ impl DeviceProperties {
         uses: impl Into<EnumSet<TypeUsage>>,
     ) {
         *self.features.types.elem.entry(ty.into()).or_default() |= uses.into();
+    }
+
+    /// Register complex capability families for an element type.
+    pub fn register_complex_usage(
+        &mut self,
+        ty: impl Into<ElemType>,
+        uses: impl Into<EnumSet<ComplexUsage>>,
+    ) {
+        *self.features.types.complex.entry(ty.into()).or_default() |= uses.into();
     }
 
     /// Register a semantic type to the features
