@@ -265,6 +265,94 @@ macro_rules! fp8_format_tests {
                 }
             }
 
+            /// Bool casts are the backends' own, so they must meet the polyfill half way: a
+            /// `true` encodes as the format's one, and only a zero decodes to `false`.
+            #[cube(launch_unchecked)]
+            pub fn kernel_bool(
+                flags: &[Vector<u32, Const<LANES_PER_WORD>>],
+                codes: &[u32],
+                encoded: &mut [u32],
+                decoded: &mut [Vector<u32, Const<LANES_PER_WORD>>],
+            ) {
+                if ABSOLUTE_POS < flags.len() {
+                    let flags =
+                        Vector::<bool, Const<LANES_PER_WORD>>::cast_from(flags[ABSOLUTE_POS]);
+                    encoded[ABSOLUTE_POS] =
+                        u32::reinterpret(Vector::<$fmt, Const<LANES_PER_WORD>>::cast_from(flags));
+                    let fp8 =
+                        Vector::<$fmt, Const<LANES_PER_WORD>>::reinterpret(codes[ABSOLUTE_POS]);
+                    decoded[ABSOLUTE_POS] =
+                        Vector::cast_from(Vector::<bool, Const<LANES_PER_WORD>>::cast_from(fp8));
+                }
+            }
+
+            pub fn bool_casts<R: Runtime>(client: ComputeClient<R>) {
+                if !fp8_supported(&client) {
+                    println!("Unsupported, skipping");
+                    return;
+                }
+
+                let codes: Vec<u8> = (0..=u8::MAX).collect();
+                // Only 0 and 1: the CPU truncates an integer to its low bit on the way to bool.
+                let flags: Vec<u32> = (0..codes.len() as u32).map(|i| i % 2).collect();
+                let words = codes.len() / LANES_PER_WORD;
+
+                let flags_buffer = client.create_from_slice(u32::as_bytes(&flags));
+                let codes_buffer = client.create_from_slice(&codes);
+                let encoded = client.empty(codes.len());
+                let decoded = client.empty(codes.len() * size_of::<u32>());
+
+                unsafe {
+                    kernel_bool::launch_unchecked::<R>(
+                        &client,
+                        CubeCount::Static(1, 1, 1),
+                        CubeDim::new_1d(words as u32),
+                        BufferArg::from_raw_parts(flags_buffer, codes.len()),
+                        BufferArg::from_raw_parts(codes_buffer, words),
+                        BufferArg::from_raw_parts(encoded.clone(), words),
+                        BufferArg::from_raw_parts(decoded.clone(), codes.len()),
+                    )
+                };
+
+                let one = $fmt::from_f32(1.0).to_bits();
+                let expected: Vec<u8> = flags
+                    .iter()
+                    .map(|&flag| if flag != 0 { one } else { 0 })
+                    .collect();
+                let actual = client.read_one_unchecked(encoded);
+                assert_eq!(
+                    actual.len(),
+                    expected.len(),
+                    "a failed launch reads back nothing"
+                );
+                assert_eq!(
+                    u8::from_bytes(&actual),
+                    &expected,
+                    "bool to {}",
+                    stringify!($fmt)
+                );
+
+                let actual = client.read_one_unchecked(decoded);
+                assert_eq!(
+                    actual.len() / size_of::<u32>(),
+                    codes.len(),
+                    "a failed launch reads back nothing"
+                );
+                for (code, actual) in codes.iter().zip(u32::from_bytes(&actual)) {
+                    let value = $fmt::from_bits(*code).to_f32();
+                    // NaN to bool is backend-defined: an ordered compare says false.
+                    if value.is_nan() {
+                        continue;
+                    }
+                    assert_eq!(
+                        *actual,
+                        (value != 0.0) as u32,
+                        "{} {code:#04x} to bool",
+                        stringify!($fmt)
+                    );
+                }
+            }
+
             pub fn decode_exhaustive<R: Runtime>(client: ComputeClient<R>, lanes: VectorSize) {
                 if !fp8_supported(&client) {
                     println!("Unsupported, skipping");
@@ -553,6 +641,12 @@ macro_rules! testgen_minifloat {
             }
 
             #[$crate::runtime_tests::test_log::test]
+            fn bool_casts() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::minifloat::fp8_e4m3::bool_casts::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
             #[ignore = "sweeps every f32; run with --ignored"]
             fn encode_sweep() {
                 let client = TestRuntime::client(&Default::default());
@@ -583,6 +677,12 @@ macro_rules! testgen_minifloat {
                         TestRuntime,
                     >(client.clone(), lanes);
                 }
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn bool_casts() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::minifloat::fp8_e5m2::bool_casts::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
