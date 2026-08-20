@@ -106,16 +106,20 @@ pub fn register_metal_features(
             return false;
         };
         let raw = adapter.raw_device();
-        eprintln!(
-            "Metal device={:?}, metal3={}, apple7={}, mac2={}",
-            raw.name(),
-            raw.supportsFamily(MTLGPUFamily::Metal3),
-            raw.supportsFamily(MTLGPUFamily::Apple7),
-            raw.supportsFamily(MTLGPUFamily::Mac2),
-        );
-        if !raw.supportsFamily(MTLGPUFamily::Metal3) {
+
+        // The features registered below require SIMD-scoped operations, exposed through
+        // overlapping families.
+        // - Metal3 is the cross-platform programming model
+        // - Apple7 is the A14/M1-or-newer hardware baseline
+        // - Mac2 is the equivalent Mac capability family (including virtualized Metal device)
+        // MSL 3.2 compiler support is checked separately by the canary below.
+        let supports_required_family = raw.supportsFamily(MTLGPUFamily::Metal3)
+            || raw.supportsFamily(MTLGPUFamily::Apple7)
+            || raw.supportsFamily(MTLGPUFamily::Mac2);
+
+        if !supports_required_family {
             return false;
-        };
+        }
         let canary_result = autoreleasepool(|_| {
             let canary = NSString::from_str(LAMBDA_CANARY);
             let options = MTLCompileOptions::new();
