@@ -231,7 +231,7 @@ impl SpirvCompiler {
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);
 
-        passes.run(module_op, ctx, &mut analyses).unwrap();
+        passes.run(module_op, ctx, &mut analyses)?;
 
         let bindings = (0..entry.deref(ctx).get_num_arguments()).map(|i| {
             let io = entry_func.get_arg_attr::<BufferIOAttr>(ctx, i, &ATTR_BUFFER_IO);
@@ -255,7 +255,7 @@ impl SpirvCompiler {
         func_passes.add_pass(DCEPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
-        passes.run(module_op, ctx, &mut analyses).unwrap();
+        passes.run(module_op, ctx, &mut analyses)?;
 
         verify_operation(module_op, ctx)?;
 

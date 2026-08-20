@@ -258,7 +258,7 @@ where
         passes.add_pass(DeclareVectorTypesPass);
         passes.add_pass(CollectIncludesPass::<T>::default());
 
-        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
+        passes.run(module_op, &mut ctx, &mut analyses)?;
 
         #[cfg(feature = "metal")]
         if T::target() == Target::Metal {
