@@ -14,7 +14,7 @@ on:
 
 jobs:
   publish-cubecl-zspace:
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-zspace
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -24,7 +24,7 @@ jobs:
   publish-cubecl-common:
     needs:
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-common
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -32,7 +32,7 @@ jobs:
       CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
 
   publish-cubecl-environment:
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-environment
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -40,7 +40,7 @@ jobs:
       CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
 
   publish-cubecl-macros-internal:
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-macros-internal
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -52,7 +52,7 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-environment
       - publish-cubecl-macros-internal
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-ir
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -64,7 +64,7 @@ jobs:
       - publish-cubecl-core
       - publish-cubecl-environment
       - publish-cubecl-runtime
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-std
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -76,7 +76,7 @@ jobs:
       - publish-cubecl-ir
       - publish-cubecl-common
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-runtime
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -86,7 +86,7 @@ jobs:
   publish-cubecl-macros:
     needs:
       - publish-cubecl-common
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-macros
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -99,7 +99,7 @@ jobs:
       - publish-cubecl-runtime
       - publish-cubecl-macros
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-core
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -112,7 +112,7 @@ jobs:
       - publish-cubecl-common
       - publish-cubecl-core
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-opt
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -126,7 +126,7 @@ jobs:
       - publish-cubecl-core
       - publish-cubecl-runtime
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-spirv
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -141,7 +141,7 @@ jobs:
       - publish-cubecl-runtime
       - publish-cubecl-core
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-wgpu
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -155,7 +155,7 @@ jobs:
       - publish-cubecl-core
       - publish-cubecl-opt
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-cpp
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -170,7 +170,7 @@ jobs:
       - publish-cubecl-runtime
       - publish-cubecl-core
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-cuda
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -185,7 +185,7 @@ jobs:
       - publish-cubecl-runtime
       - publish-cubecl-core
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-hip
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -200,7 +200,7 @@ jobs:
       - publish-cubecl-runtime
       - publish-cubecl-opt
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-cpu
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -216,7 +216,7 @@ jobs:
       - publish-cubecl-ir
       - publish-cubecl-runtime
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-metal
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
@@ -231,7 +231,7 @@ jobs:
       - publish-cubecl-cpu
       - publish-cubecl-metal
       - publish-cubecl-environment
-    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v8
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl
       dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
