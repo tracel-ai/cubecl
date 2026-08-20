@@ -65,7 +65,7 @@ shared_op_with_out!(AtomicLoadOp, |op, ctx| {
             return scoped_block! {
                 format!("{} tmp;", out_ty.to_cpp(ctx))
                 format!("__nv_atomic_load({ptr}, &tmp, __NV_ATOMIC_RELAXED);")
-                format!("return tmp;")
+                "return tmp;"
             };
         }
         _ => unreachable!(),
