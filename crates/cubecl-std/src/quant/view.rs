@@ -72,6 +72,9 @@ pub struct QuantizedView<
     values: View<'a, Vector<Q, NQ>, C>,
     scales: View<'a, S, C>,
     known_scale: KnownScale,
+    /// A lookup scheme's `2^bits`-entry table, present exactly under
+    /// [`QuantMode::Lookup`](cubecl_common::quant::scheme::QuantMode).
+    table: ComptimeOption<Box<[f32]>>,
     #[cube(comptime)]
     scheme: QuantScheme,
     #[cube(comptime)]
@@ -90,6 +93,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
     pub fn new(
         values: View<'a, Vector<Q, NQ>, C>,
         scales: View<'a, S, C>,
+        table: ComptimeOption<Box<[f32]>>,
         #[comptime] scheme: QuantScheme,
     ) -> Self {
         comptime!(crate::quant::check_scale_bindings(&scheme, 1));
@@ -97,6 +101,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
             values,
             scales,
             known_scale: KnownScale::new_None(),
+            table,
             scheme,
             _ty: PhantomData,
         }
@@ -110,12 +115,14 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         values: View<'a, Vector<Q, NQ>, C>,
         scales: View<'a, S, C>,
         known_scale: KnownScale,
+        table: ComptimeOption<Box<[f32]>>,
         #[comptime] scheme: QuantScheme,
     ) -> Self {
         QuantizedView::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
             known_scale,
+            table,
             scheme,
             _ty: PhantomData,
         }
@@ -144,12 +151,14 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         values: ViewExpand<'a, Vector<Q, NQ>, C>,
         scales: ViewExpand<'a, S, C>,
         known_scale: KnownScaleExpand,
+        table: ComptimeOptionExpand<Box<[f32]>>,
         scheme: QuantScheme,
     ) -> Self {
         QuantizedViewExpand::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
             known_scale,
+            table,
             scheme,
             _ty: PhantomData,
         }
@@ -166,6 +175,7 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
         // The reading variants are where the register can disagree with the scheme: the static
         // constructors take a scheme without inspecting it. A whole scale stands for whatever the
         // caller multiplied into it, so the scheme says nothing about it.
+        check_table_bindings(&self.scheme, self.table.is_some());
         match self.known_scale {
             KnownScaleExpand::None => {
                 assert!(
@@ -174,7 +184,13 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
                     self.scheme,
                 );
                 let scale = read_scale(scope);
-                dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.scheme)
+                dequantize_aligned::expand::<Q, S, F, NQ, NF>(
+                    scope,
+                    value,
+                    scale,
+                    self.table.clone(),
+                    self.scheme,
+                )
             }
             KnownScaleExpand::Global(global_scale) => {
                 assert!(
@@ -185,11 +201,21 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
                 check_global_levels(&self.scheme);
                 let scale = read_scale(scope);
                 let scale = multiply_global_scale::expand::<S>(scope, global_scale, scale);
-                dequantize_aligned_wide::expand::<Q, F, NQ, NF>(scope, value, scale, self.scheme)
+                dequantize_aligned_wide::expand::<Q, F, NQ, NF>(
+                    scope,
+                    value,
+                    scale,
+                    self.table.clone(),
+                    self.scheme,
+                )
             }
-            KnownScaleExpand::Whole(scale) => {
-                dequantize_aligned_wide::expand::<Q, F, NQ, NF>(scope, value, scale, self.scheme)
-            }
+            KnownScaleExpand::Whole(scale) => dequantize_aligned_wide::expand::<Q, F, NQ, NF>(
+                scope,
+                value,
+                scale,
+                self.table.clone(),
+                self.scheme,
+            ),
         }
     }
 
@@ -328,6 +354,47 @@ fn register_global_scale<R: Runtime>(
     global_scale.map(|global_scale| <[f32] as LaunchArg>::register(global_scale, launcher))
 }
 
+/// Register the lookup table's binding, checking it against the scheme so the two cannot
+/// register apart. Registered as f32 to match the element type [`expand_table`] reads it back
+/// with.
+fn register_table<R: Runtime>(
+    table: Option<BufferArg<R>>,
+    scheme: &QuantScheme,
+    launcher: &mut KernelLauncher<R>,
+) -> Option<BufferCompilationArg> {
+    check_table_bindings(scheme, table.is_some());
+    table.map(|table| {
+        // The mask bounds every index to `2^bits`, so a shorter table reads out of bounds and a
+        // longer one was built for another width; both decode as garbage, so both are refused
+        // here, the one place that holds the buffer and the scheme together on the host.
+        let entries = 1usize << scheme.size_bits_value();
+        assert_eq!(
+            table.len(),
+            entries,
+            "a {}-bit lookup scheme indexes a table of exactly {entries} entries",
+            scheme.size_bits_value()
+        );
+        <[f32] as LaunchArg>::register(table, launcher)
+    })
+}
+
+/// Expand the lookup table into the scope the view is built in, checking it against the scheme so
+/// the two cannot expand apart. Unlike the per-tensor scale this stays a buffer: the field read
+/// from each packed word picks the entry, so there is nothing to hoist.
+fn expand_table(
+    table: Option<&BufferCompilationArg>,
+    scheme: &QuantScheme,
+    builder: &mut KernelBuilder,
+) -> ComptimeOptionExpand<Box<[f32]>> {
+    check_table_bindings(scheme, table.is_some());
+    match table {
+        Some(table) => {
+            ComptimeOptionExpand::Some(<Box<[f32]> as LaunchArg>::expand(table, builder))
+        }
+        None => ComptimeOptionExpand::None,
+    }
+}
+
 /// The known scale a launch's bindings expand to.
 ///
 /// An global scale is read once for the whole kernel: it is a single value for the entire tensor,
@@ -373,7 +440,8 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
         let values = View::<Vector<Q, NQ>, C>::expand(self.values, self.builder);
         let scales = View::<S, C>::expand(&self.scales.inner, self.builder);
         let known_scale = expand_known_scale(self.scales.global_scale.as_ref(), self.builder);
-        let view = QuantizedViewExpand::new(values, scales, known_scale, self.scheme);
+        let table = expand_table(self.scales.table.as_ref(), &self.scheme, self.builder);
+        let view = QuantizedViewExpand::new(values, scales, known_scale, table, self.scheme);
         ViewExpand::new(&self.builder.scope, view)
     }
 }
@@ -405,11 +473,13 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
         let values = View::<Vector<Q, NQ>, C>::register(self.values, self.launcher);
         let inner = View::<S, C>::register(*self.scales.inner, self.launcher);
         let global_scale = register_global_scale(self.scales.global_scale, self.launcher);
+        let table = register_table(self.scales.table, &self.scheme, self.launcher);
         ViewCompilationArg::Quantized {
             values: Box::new(values),
             scales: ScaleBindingsCompilationArg {
                 inner: Box::new(inner),
                 global_scale,
+                table,
             },
             scheme: self.scheme,
         }

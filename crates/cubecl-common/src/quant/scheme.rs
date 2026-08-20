@@ -459,6 +459,12 @@ pub enum QuantStore {
 pub enum QuantMode {
     /// Symmetric or scale quantization.
     Symmetric,
+    /// The stored field is an index into a lookup table of `2^bits` floats, not a number: a read
+    /// reconstructs `table[field] * scale`. (Known as a codebook in the quantization literature —
+    /// NF4, K-quants, and vector quantizers all decode this way.) The table travels as its own
+    /// binding beside the values and scales; only the field's bit width is read from
+    /// [`QuantScheme::value`], since an index has no sign or float semantics of its own.
+    Lookup,
 }
 
 /// The data type a scale level stores its scales in.

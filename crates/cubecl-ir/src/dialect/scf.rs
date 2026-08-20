@@ -20,7 +20,7 @@ use pliron::{
 use crate::{
     attributes::{BoolAttr, ZeroAttr},
     dialect::branch::{self, ConditionOp, DeadRegionOp, YieldOp, block_side_effects},
-    interfaces::memory_slot::PromotableRegionOpInterface,
+    interfaces::{CanonicalizeInterface, memory_slot::PromotableRegionOpInterface},
     prelude::*,
     types::scalar::BoolType,
 };
@@ -252,6 +252,21 @@ impl PromotableRegionOpInterface for IfOp {
     }
 }
 
+#[op_interface_impl]
+impl CanonicalizeInterface for IfOp {
+    fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
+        let results = self.get_operation().results(ctx);
+        for (idx, res) in results.into_iter().enumerate().rev() {
+            if !res.is_used(ctx) {
+                remove_from_terminator::<YieldOp>(ctx, self.then_block(ctx), idx);
+                remove_from_terminator::<YieldOp>(ctx, self.else_block(ctx), idx);
+                Operation::remove_result(self.get_operation(), ctx, idx);
+            }
+        }
+        Ok(())
+    }
+}
+
 #[pliron_op(
     name = "scf.switch",
     format,
@@ -411,6 +426,23 @@ impl PromotableRegionOpInterface for SwitchOp {
     }
 }
 
+#[op_interface_impl]
+impl CanonicalizeInterface for SwitchOp {
+    fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
+        let results = self.get_operation().results(ctx);
+        for (idx, res) in results.into_iter().enumerate().rev() {
+            if !res.is_used(ctx) {
+                remove_from_terminator::<YieldOp>(ctx, self.default_block(ctx), idx);
+                for case_block in self.case_blocks(ctx) {
+                    remove_from_terminator::<YieldOp>(ctx, case_block, idx);
+                }
+                Operation::remove_result(self.get_operation(), ctx, idx);
+            }
+        }
+        Ok(())
+    }
+}
+
 #[pliron_op(name = "scf.range_loop", format, verifier = "succ")]
 #[op_interfaces(
     OneRegionInterface,
@@ -491,7 +523,7 @@ impl RangeLoopOp {
         BasicBlock::push_argument(self.loop_body(ctx), ctx, ty)
     }
 
-    pub fn remove_carried_value(&self, ctx: &mut Context, arg_idx: usize) {
+    pub fn remove_carried_value(&self, ctx: &Context, arg_idx: usize) {
         BasicBlock::remove_argument(self.loop_body(ctx), ctx, arg_idx + 1)
     }
 
@@ -587,6 +619,25 @@ impl PromotableRegionOpInterface for RangeLoopOp {
 
         let idx = Operation::push_result(self.get_operation(), ctx, alloc.ty);
         self.get_operation().deref(ctx).get_result(idx)
+    }
+}
+
+#[op_interface_impl]
+impl CanonicalizeInterface for RangeLoopOp {
+    fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
+        let results = self.get_operation().results(ctx);
+        let body_block = self.loop_body(ctx);
+        for (idx, res) in results.into_iter().enumerate().rev() {
+            let carried = self.get_carried_value(ctx, idx);
+            if !res.is_used(ctx) && only_used_for_forward::<YieldOp>(ctx, body_block, idx, carried)
+            {
+                remove_from_terminator::<YieldOp>(ctx, body_block, idx);
+                self.remove_initial_carried_value(ctx, idx);
+                self.remove_carried_value(ctx, idx);
+                Operation::remove_result(self.get_operation(), ctx, idx);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -772,6 +823,31 @@ impl PromotableRegionOpInterface for WhileOp {
     }
 }
 
+#[op_interface_impl]
+impl CanonicalizeInterface for WhileOp {
+    fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
+        let results = self.get_operation().results(ctx);
+        let before_block = self.before_block(ctx);
+        let after_block = self.after_block(ctx);
+        for (idx, res) in results.into_iter().enumerate().rev() {
+            let before_carried = self.get_before_carried_value(ctx, idx);
+            let after_carried = self.get_after_carried_value(ctx, idx);
+            if !res.is_used(ctx)
+                && only_used_for_forward::<ConditionOp>(ctx, before_block, idx + 1, before_carried)
+                && only_used_for_forward::<YieldOp>(ctx, after_block, idx, after_carried)
+            {
+                remove_from_terminator::<ConditionOp>(ctx, before_block, idx + 1);
+                remove_from_terminator::<YieldOp>(ctx, after_block, idx);
+                self.remove_initial_carried_value(ctx, idx);
+                self.remove_before_carried_value(ctx, idx);
+                self.remove_after_carried_value(ctx, idx);
+                Operation::remove_result(self.get_operation(), ctx, idx);
+            }
+        }
+        Ok(())
+    }
+}
+
 #[op_interface]
 trait BranchToSCFOp {
     verify_op_succ!();
@@ -821,4 +897,38 @@ fn update_terminator<T: Op>(
     let block_reaching_def = reaching_at_block_end.get(&block).copied();
     let block_reaching_def = block_reaching_def.unwrap_or(default_reaching_def);
     Operation::push_operand(term, ctx, block_reaching_def);
+}
+
+fn remove_from_terminator<T: Op>(ctx: &Context, block: Ptr<BasicBlock>, idx: usize) {
+    let Some(term) = block.deref(ctx).get_terminator(ctx) else {
+        return;
+    };
+    if !term.is_op::<T>(ctx) {
+        return;
+    }
+    Operation::remove_operand(term, ctx, idx);
+}
+
+/// Detects circularly used loop args, where the arg is used only to be forwarded to the after block
+/// or next iteration.
+fn only_used_for_forward<T: Op>(
+    ctx: &Context,
+    block: Ptr<BasicBlock>,
+    idx: usize,
+    val: Value,
+) -> bool {
+    if !val.is_used(ctx) {
+        return true;
+    }
+    let Some(term) = block.deref(ctx).get_terminator(ctx) else {
+        return false;
+    };
+    if !term.is_op::<T>(ctx) {
+        return false;
+    }
+    let uses = val.uses(ctx);
+    if uses.len() > 1 {
+        return false;
+    }
+    uses[0].user_op() == term && uses[0].find_index(ctx) == idx
 }

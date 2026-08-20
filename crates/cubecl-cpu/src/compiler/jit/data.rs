@@ -6,7 +6,8 @@ use crate::compiler::polyfill::synchronization::SYNC_CUBE_STATE_LEN;
 
 /// Data shared by every unit of a launch: the pointer table (the buffer data pointers indexed by
 /// binding position, then the shared memory blocks), the metadata array and the cube barrier
-/// counters. All but the counters point into server-owned storage that must outlive the launch.
+/// counters. The buffer pointers stay valid because `keepalive` pins their storage; the
+/// shared-memory blocks because the stream drains before a shared-memory launch.
 #[derive(Default)]
 pub struct SharedData {
     pub buffer_ptrs: Vec<*mut c_void>,
@@ -14,8 +15,15 @@ pub struct SharedData {
     /// Counters backing `sync_cube`, shared by the units taking part in the barrier. They start
     /// at zero and every barrier leaves them back at zero.
     pub sync_cube_state: [AtomicU32; SYNC_CUBE_STATE_LEN],
+    /// The launch's `ManagedResource`s, pinning their memory handles until the
+    /// last unit drops so the pool cannot recycle a buffer a pipelined kernel
+    /// still points into.
+    pub keepalive: Vec<Box<dyn std::any::Any + Send>>,
 }
 
+/// Safety: the storage behind the pointers outlives the launch (see the struct
+/// doc), `sync_cube_state` is atomic, and `keepalive` is only ever dropped —
+/// hence `Send` without `Sync` on its contents.
 unsafe impl Send for SharedData {}
 unsafe impl Sync for SharedData {}
 
@@ -28,12 +36,18 @@ pub struct PlironData {
 }
 
 impl PlironData {
-    pub fn new(buffer_ptrs: Vec<*mut c_void>, metadata: Vec<u64>, cube_count: [u32; 3]) -> Self {
+    pub fn new(
+        buffer_ptrs: Vec<*mut c_void>,
+        metadata: Vec<u64>,
+        cube_count: [u32; 3],
+        keepalive: Vec<Box<dyn std::any::Any + Send>>,
+    ) -> Self {
         Self {
             shared: Arc::new(SharedData {
                 buffer_ptrs,
                 metadata,
                 sync_cube_state: Default::default(),
+                keepalive,
             }),
             builtins: [cube_count[0], cube_count[1], cube_count[2], 0, 0, 0],
         }

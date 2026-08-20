@@ -935,14 +935,16 @@ pub mod load_tensor {
             ComptimeOptionExpand::None => None,
             ComptimeOptionExpand::Some(view) => Some(view.read_value(scope)),
         };
+        let out_ty = mat.elem.unwrap_ptr(scope.ctx());
 
-        scope.register(&LoadTensorOp::new(
+        let mat_out = scope.register_with_result(&LoadTensorOp::new(
             scope.ctx_mut(),
-            mat.elem,
+            out_ty,
             buffer,
             layout,
             view,
         ));
+        assign::expand_element(scope, mat_out.into(), mat.elem.into());
     }
 }
 

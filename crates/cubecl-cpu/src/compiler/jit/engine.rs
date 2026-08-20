@@ -5,7 +5,7 @@ use std::sync::{Arc, Once};
 
 use pliron::builtin::ops::ModuleOp;
 use pliron::context::Context;
-use pliron_llvm::llvm_sys::core::LLVMContext;
+use pliron_llvm::llvm_sys::core::{LLVMContext, LLVMMemoryBuffer, LLVMModule};
 use pliron_llvm::llvm_sys::lljit::LLVMLLJIT;
 use pliron_llvm::llvm_sys::target::initialize_native;
 use pliron_llvm::to_llvm_ir;
@@ -62,8 +62,14 @@ impl PlironEngine {
 
         let llvm_ctx = Rc::new(LLVMContext::default());
         let llvm_module = to_llvm_ir::convert_module(ctx, &llvm_ctx, module)?;
-        if std::env::var("CUBECL_DEBUG_LLVM_IR").is_ok() {
-            println!("{llvm_module}");
+        if let Some(dir) = ir_dump_path(kernel_name) {
+            let _ = std::fs::write(dir.join("llvm.ll"), llvm_module.to_string());
+        }
+
+        let llvm_module = optimize(llvm_module, &llvm_ctx, kernel_name)
+            .unwrap_or_else(|err| panic!("LLVM optimization failed for '{kernel_name}': {err}"));
+        if let Some(dir) = ir_dump_path(kernel_name) {
+            let _ = std::fs::write(dir.join("llvm.opt.ll"), llvm_module.to_string());
         }
 
         let lljit = LLVMLLJIT::new_with_default_builder().expect("failed to create LLJIT");
@@ -111,5 +117,90 @@ impl PlironEngine {
 impl Display for PlironEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Pliron JIT engine")
+    }
+}
+
+/// The kernel's dump directory when `CUBECL_DEBUG_PLIRON` is set: the LLVM IR
+/// stages land beside the pliron pass dumps.
+fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
+    let dir = std::env::var("CUBECL_DEBUG_PLIRON").ok()?;
+    let path = std::path::Path::new(&dir).join(kernel_name);
+    std::fs::create_dir_all(&path).ok()?;
+    Some(path)
+}
+
+/// The pipeline run before the JIT: LLJIT runs no IR-level passes of its own,
+/// and the dialect lowering emits O0-shaped IR that runs ~50× under the
+/// machine's streaming rate. Paid once per kernel and cached.
+const PASS_PIPELINE: &str = "default<O3>";
+
+/// Optimizes a module by round-tripping it through textual IR: [`LLVMModule`]
+/// seals its `LLVMModuleRef`, so the IR is re-parsed into a context this
+/// function owns, optimized there, and parsed back. Fold into a direct pass
+/// run when pliron-llvm exposes one.
+fn optimize(
+    module: LLVMModule,
+    llvm_ctx: &LLVMContext,
+    kernel_name: &str,
+) -> Result<LLVMModule, String> {
+    let optimized = run_pipeline(&module.to_string())?;
+    drop(module);
+    LLVMModule::from_ir_in_memory_buffer(
+        llvm_ctx,
+        LLVMMemoryBuffer::from_str(&optimized, kernel_name),
+    )
+}
+
+/// Parses `ir` into a private LLVM context, runs [`PASS_PIPELINE`] over it,
+/// and prints the optimized module back out.
+fn run_pipeline(ir: &str) -> Result<String, String> {
+    use llvm_sys::core::{
+        LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
+        LLVMDisposeMessage, LLVMDisposeModule, LLVMPrintModuleToString,
+    };
+    use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage};
+    use llvm_sys::ir_reader::LLVMParseIRInContext2;
+    use llvm_sys::transforms::pass_builder::{
+        LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
+    };
+
+    unsafe {
+        let ctx = LLVMContextCreate();
+        let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
+            ir.as_ptr() as *const _,
+            ir.len(),
+            c"kernel".as_ptr(),
+        );
+        let mut module = std::ptr::null_mut();
+        let mut parse_err = std::ptr::null_mut();
+        // `LLVMParseIRInContext2` consumes the buffer, on failure included.
+        if LLVMParseIRInContext2(ctx, buffer, &mut module, &mut parse_err) != 0 {
+            let msg = std::ffi::CStr::from_ptr(parse_err)
+                .to_string_lossy()
+                .into_owned();
+            LLVMDisposeMessage(parse_err);
+            LLVMContextDispose(ctx);
+            return Err(msg);
+        }
+
+        let passes = std::ffi::CString::new(PASS_PIPELINE).expect("static pass string");
+        let options = LLVMCreatePassBuilderOptions();
+        let err = LLVMRunPasses(module, passes.as_ptr(), std::ptr::null_mut(), options);
+        LLVMDisposePassBuilderOptions(options);
+
+        let result = if err.is_null() {
+            let c_ir = LLVMPrintModuleToString(module);
+            let optimized = std::ffi::CStr::from_ptr(c_ir).to_string_lossy().into_owned();
+            LLVMDisposeMessage(c_ir);
+            Ok(optimized)
+        } else {
+            let c_msg = LLVMGetErrorMessage(err);
+            let msg = std::ffi::CStr::from_ptr(c_msg).to_string_lossy().into_owned();
+            LLVMDisposeErrorMessage(c_msg);
+            Err(msg)
+        };
+        LLVMDisposeModule(module);
+        LLVMContextDispose(ctx);
+        result
     }
 }

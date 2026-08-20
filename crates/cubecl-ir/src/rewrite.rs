@@ -22,7 +22,11 @@ use pliron::{
     verify_err_noloc,
 };
 
-use crate::{dialect::BlockPtrExt, interfaces::SimplifyInterface, prelude::*};
+use crate::{
+    dialect::BlockPtrExt,
+    interfaces::{CanonicalizeInterface, SimplifyInterface},
+    prelude::*,
+};
 
 /// A preset config when order doesn't matter
 pub const WALKCONFIG_ANY: WalkConfig = WALKCONFIG_PREORDER_FORWARD;
@@ -123,6 +127,29 @@ fn const_operands(ctx: &Context, op: Ptr<Operation>) -> Vec<Option<AttrObj>> {
         .operands()
         .map(|opd| Some(opd.defining_op()?.as_op::<ConstantOp>(ctx)?.get_value(ctx)))
         .collect()
+}
+
+pub type CanonicalizePass = MatchRewritePass<Canonicalize>;
+
+#[derive(Default, Clone, Copy, NamedRewrite)]
+pub struct Canonicalize;
+
+impl MatchRewrite for Canonicalize {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        op.impls::<dyn CanonicalizeInterface>(ctx)
+    }
+
+    fn rewrite(
+        &mut self,
+        ctx: &mut Context,
+        rewriter: &mut MatchRewriter,
+        op: Ptr<Operation>,
+    ) -> Result<()> {
+        let dyn_op = op.dyn_op(ctx);
+        let canonicalize = op_cast::<dyn CanonicalizeInterface>(&*dyn_op).unwrap();
+        canonicalize.canonicalize(ctx, rewriter)?;
+        Ok(())
+    }
 }
 
 pub type VisitOpsCallback<T, State> = fn(&Context, &mut State, T);
