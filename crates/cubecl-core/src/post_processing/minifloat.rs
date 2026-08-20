@@ -175,7 +175,13 @@ impl MatchRewrite for LowerMinifloatCast {
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let input = op.operand(ctx, 0);
         let result_ty = op.result(ctx).get_type(ctx);
-        scope.register_size::<N>(input.vector_size(ctx));
+        let lanes = input.vector_size(ctx);
+        debug_assert_eq!(
+            lanes,
+            result_ty.vector_size(ctx),
+            "A cast keeps its vectorization, so one `N` describes both sides"
+        );
+        scope.register_size::<N>(lanes);
 
         // Bool sources and targets go through the `f32` cast the backends already lower.
         let mut value = input;
@@ -221,7 +227,7 @@ impl LowerMinifloatCast {
                 cast_value(scope, bits, Vector::<u8, N>::__expand_as_type(scope))
             }
             Fp8Container::Words => {
-                words_type(scope);
+                register_words_size(scope);
                 pack_words::expand::<N, W>(scope, bits.into()).read_value(scope)
             }
         };
@@ -233,8 +239,9 @@ define_size!(W);
 
 const LANES_PER_WORD: usize = (u32::BITS / u8::BITS) as usize;
 
-/// Registers `W`, the word count of an `N`-lane fp8 vector, and returns its type.
-fn words_type(scope: &Scope) -> TypeHandle {
+/// Registers `W`, the word count of an `N`-lane fp8 vector, so that `Vector<u32, W>` names the
+/// words those lanes are packed into.
+fn register_words_size(scope: &Scope) {
     let lanes = N::__expand_value(scope);
     assert!(
         lanes.is_multiple_of(LANES_PER_WORD),
@@ -242,6 +249,11 @@ fn words_type(scope: &Scope) -> TypeHandle {
          supported, use a vector size that is a multiple of {LANES_PER_WORD}"
     );
     scope.register_size::<W>(lanes / LANES_PER_WORD);
+}
+
+/// [`register_words_size`], then the word type itself.
+fn words_type(scope: &Scope) -> TypeHandle {
+    register_words_size(scope);
     Vector::<u32, W>::__expand_as_type(scope)
 }
 
