@@ -489,13 +489,86 @@ impl QueryProfiler {
         query_set_id.map(|v| (v, count))
     }
 
+    /// Recycle the query sets nothing starts in any more.
+    ///
+    /// The set [`current`](Self::current) names is held back even when its
+    /// start references are all gone, because it is still the *end* marker:
+    /// [`stop_profile_setup`](Self::stop_profile_setup) writes `end =
+    /// self.current` and then resolves it, so recycling it here leaves a
+    /// profile that started earlier unable to read its own end timestamp.
+    ///
+    /// A new set is only allocated when there are tokens waiting for one, so a
+    /// caller that stops more profiles than it starts — a nested autotune
+    /// inside a tunable being profiled, which is where this was found — reaches
+    /// this with `current` naming a set whose references have already drained.
+    /// Recycling it turned every such profile into `Can't resolve the query
+    /// sets`, which autotune counts as the tunable failing rather than as the
+    /// measurement being unavailable.
     fn cleanup_query_sets(&mut self) {
-        for key in self.cleanups.drain(..) {
+        let (recyclable, holding) = partition_recyclable(
+            core::mem::take(&mut self.cleanups),
+            self.current,
+        );
+        self.cleanups = holding;
+
+        for key in recyclable {
             let removed = self
                 .query_sets
                 .remove(&key)
                 .expect("Unknown query set cleaned up");
             self.query_set_pool.push(removed.query_set);
         }
+    }
+}
+
+/// Split the sets queued for cleanup into the ones that can be recycled now and
+/// the ones that have to wait.
+///
+/// Everything but `current` can go. That one is held back because it is still
+/// the *end* marker, and dropping it is the whole of the bug this exists to
+/// prevent — see [`QueryProfiler::cleanup_query_sets`].
+fn partition_recyclable(
+    cleanups: Vec<QuerySetId>,
+    current: Option<QuerySetId>,
+) -> (Vec<QuerySetId>, Vec<QuerySetId>) {
+    cleanups
+        .into_iter()
+        .partition(|key| Some(*key) != current)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::partition_recyclable;
+
+    /// The regression. A profile that started in an older set writes
+    /// `end = current` and then resolves it, so recycling the set `current`
+    /// names leaves it with an end it cannot look up — which surfaced as
+    /// `Can't resolve the query sets` and made autotune read a working tunable
+    /// as a failing one.
+    #[test]
+    fn the_set_current_names_is_held_back() {
+        let (recyclable, holding) = partition_recyclable(vec![2, 112], Some(112));
+
+        assert_eq!(recyclable, vec![2]);
+        assert_eq!(holding, vec![112], "the end marker was recycled");
+    }
+
+    /// Held back, not leaked: once a new set has been allocated and `current`
+    /// has moved on, the old one is recycled on the next pass.
+    #[test]
+    fn a_held_back_set_is_recycled_once_current_moves_on() {
+        let (recyclable, holding) = partition_recyclable(vec![112], Some(113));
+
+        assert_eq!(recyclable, vec![112]);
+        assert!(holding.is_empty());
+    }
+
+    /// Nothing to protect before the first set is allocated.
+    #[test]
+    fn nothing_is_held_back_without_a_current_set() {
+        let (recyclable, holding) = partition_recyclable(vec![2, 112], None);
+
+        assert_eq!(recyclable, vec![2, 112]);
+        assert!(holding.is_empty());
     }
 }
