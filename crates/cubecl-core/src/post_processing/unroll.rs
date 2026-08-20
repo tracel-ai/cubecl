@@ -264,12 +264,16 @@ impl CustomUnrollOp for ReinterpretCastOp {
         // into the `max`-lane pieces the rest of the pass indexes into. Equal lane counts are the
         // common case here and stay one reinterpret per piece.
         if in_vec > max && out_vec > max {
+            // A piece of the input covers `per_piece` lanes of the output, and both sides of the
+            // reinterpret below have to be a legal vector: one lane at least, and no wider than
+            // the maximum. Sub-dividing the input pieces would lift the upper bound, but nothing
+            // unrolls what this pass emits, so an over-wide piece would reach the backend as-is.
             let per_piece = max * out_vec / in_vec;
             assert!(
-                per_piece > 0,
-                "Cannot unroll a reinterpret between a {in_vec}-lane and a {out_vec}-lane vector: \
-                 a {max}-lane piece of the input does not cover a whole output lane. Reinterpret \
-                 through a vector of at most {max} lanes"
+                (1..=max).contains(&per_piece),
+                "Cannot unroll a reinterpret between a {in_vec}-lane and a {out_vec}-lane vector \
+                 when both exceed {max} lanes and the lane counts differ: reinterpret through a \
+                 vector of at most {max} lanes"
             );
             state.result.ir_changed |= IRStatus::Changed;
             let op = self.get_operation();
