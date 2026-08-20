@@ -62,12 +62,14 @@ impl PlironEngine {
 
         let llvm_ctx = Rc::new(LLVMContext::default());
         let llvm_module = to_llvm_ir::convert_module(ctx, &llvm_ctx, module)?;
+        #[cfg(feature = "pliron-dump")]
         if let Some(dir) = ir_dump_path(kernel_name) {
             let _ = std::fs::write(dir.join("llvm.ll"), llvm_module.to_string());
         }
 
         let llvm_module = optimize(llvm_module, &llvm_ctx, kernel_name)
             .unwrap_or_else(|err| panic!("LLVM optimization failed for '{kernel_name}': {err}"));
+        #[cfg(feature = "pliron-dump")]
         if let Some(dir) = ir_dump_path(kernel_name) {
             let _ = std::fs::write(dir.join("llvm.opt.ll"), llvm_module.to_string());
         }
@@ -120,6 +122,7 @@ impl Display for PlironEngine {
     }
 }
 
+#[cfg(feature = "pliron-dump")]
 /// The kernel's dump directory when `CUBECL_DEBUG_PLIRON` is set: the LLVM IR
 /// stages land beside the pliron pass dumps.
 fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
