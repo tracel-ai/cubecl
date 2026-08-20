@@ -263,25 +263,28 @@ where
         // `OpToCPP` impl fails the compilation instead of panicking on the compiler thread.
         ctx.set_aux_ty(EmissionErrors::default());
         let source = module.get_operation().to_cpp(&ctx);
-        let recorded = ctx.aux_ty::<EmissionErrors>().take();
-        let source = match (source, recorded.is_empty()) {
-            (Ok(source), true) => source,
-            (source, _) => {
-                let mut reason = "Can't emit cpp kernel\nCaused by:\n".to_string();
-                for error in source.err().into_iter().chain(recorded) {
-                    reason += "  ";
-                    reason += &error.to_string();
-                    reason += "\n";
-                }
-                return Err(CompilationError::Validation {
-                    reason,
-                    backtrace: BackTrace::capture(),
-                });
+        let mut errors = ctx.aux_ty::<EmissionErrors>().take();
+        let source = match source {
+            Ok(source) => source,
+            Err(error) => {
+                errors.push(error);
+                String::new()
             }
         };
+        if !errors.is_empty() {
+            let mut reason = "Can't emit cpp kernel\nCaused by:\n".to_string();
+            for error in errors {
+                reason += "  ";
+                reason += &error.to_string();
+                reason += "\n";
+            }
+            return Err(CompilationError::Validation {
+                reason,
+                backtrace: BackTrace::capture(),
+            });
+        }
 
         let compute_kernel = ComputeKernel {
-            ctx,
             shared_memory_size,
             buffers,
             source,

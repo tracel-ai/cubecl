@@ -7,7 +7,6 @@ use pliron::context::Context;
 use core::fmt::{Display, Write};
 
 pub struct ComputeKernel {
-    pub ctx: Context,
     pub shared_memory_size: usize,
     pub buffers: Vec<Visibility>,
     /// The emitted source, rendered once during `compile_ir` where emission errors can still
