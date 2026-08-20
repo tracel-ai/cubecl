@@ -1,6 +1,7 @@
 use cubecl_ir::{
-    interfaces::TypedExt,
+    interfaces::{HasElementType, TypedExt},
     prelude::*,
+    rewrite::visit_all_values,
     types::{
         ArrayType, AtomicType, Fp8Format, RuntimeArrayType, VectorType,
         scalar::{
@@ -9,7 +10,11 @@ use cubecl_ir::{
         },
     },
 };
-use pliron::{builtin::types::IntegerType, identifier::Identifier};
+use pliron::{
+    builtin::types::IntegerType, identifier::Identifier, input_err_noloc, operation::Operation,
+    result::Result, r#type::type_cast,
+};
+use thiserror::Error;
 
 use crate::compiler::wgsl::to_wgsl::{TypeExtWgsl, TypeToWgsl};
 
@@ -51,11 +56,56 @@ impl TypeToWgsl for IntegerType {
 /// byte, which is the byte order of the unpacked vector in memory.
 const FP8_LANES_PER_WORD: usize = 4;
 
+#[derive(Debug, Error)]
+#[error(
+    "fp8 on WGSL is packed {FP8_LANES_PER_WORD} lanes to a u32, a {0} has no representation: use \
+     vectors of {FP8_LANES_PER_WORD}, 8 or 16 lanes"
+)]
+pub struct Fp8Unsupported(String);
+
+/// Rejects every fp8 value WGSL cannot lay out, before any pass runs on it. Both the cast
+/// lowering and the type printer below would otherwise hit the same rule with a panic, which the
+/// device thread swallows into a warning and hands the caller a zeroed buffer.
+pub fn check_fp8_lanes(ctx: &Context, module: Ptr<Operation>) -> Result<()> {
+    let mut bad = None;
+    visit_all_values(ctx, &mut bad, module, |ctx, bad, value| {
+        if bad.is_none()
+            && let Some(lanes) = fp8_lanes(ctx, value.get_type(ctx))
+            && !lanes.is_multiple_of(FP8_LANES_PER_WORD)
+        {
+            *bad = Some(lanes);
+        }
+    });
+    match bad {
+        Some(lanes) => input_err_noloc!(Fp8Unsupported(describe(lanes))),
+        None => Ok(()),
+    }
+}
+
+/// The fp8 lane count `ty` holds, looking through pointers and arrays. `None` when no fp8 is
+/// involved, `Some(1)` for a bare scalar.
+fn fp8_lanes(ctx: &Context, ty: TypeHandle) -> Option<usize> {
+    let deref = ty.deref(ctx);
+    if let Some(vector) = deref.downcast_ref::<VectorType>() {
+        return Fp8Format::of_type(ctx, vector.inner).map(|_| vector.vectorization);
+    }
+    if Fp8Format::of_type(ctx, ty).is_some() {
+        return Some(1);
+    }
+    // Scalars are their own element type, so recursing on one would not terminate.
+    let elem = type_cast::<dyn HasElementType>(&*deref)?.element_type(ctx)?;
+    (elem != ty).then(|| fp8_lanes(ctx, elem)).flatten()
+}
+
+fn describe(lanes: usize) -> String {
+    match lanes {
+        1 => "scalar".to_string(),
+        lanes => format!("vector of {lanes} lanes"),
+    }
+}
+
 fn fp8_unsupported(what: &str) -> ! {
-    panic!(
-        "fp8 on WGSL is packed {FP8_LANES_PER_WORD} lanes to a u32, a {what} has no representation: \
-         convert vectors of {FP8_LANES_PER_WORD}, 8 or 16 lanes and keep them in u32 buffers"
-    )
+    panic!("{}", Fp8Unsupported(what.to_string()))
 }
 
 macro_rules! fp8_scalar_ty {
@@ -77,7 +127,7 @@ impl TypeToWgsl for VectorType {
     fn to_wgsl(&self, ctx: &Context) -> String {
         if Fp8Format::of_type(ctx, self.inner.scalar_ty(ctx)).is_some() {
             if !self.vectorization.is_multiple_of(FP8_LANES_PER_WORD) {
-                fp8_unsupported(&format!("vector of {} lanes", self.vectorization));
+                fp8_unsupported(&describe(self.vectorization));
             }
             let words = self.vectorization / FP8_LANES_PER_WORD;
             return match words {

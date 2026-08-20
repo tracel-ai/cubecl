@@ -1,7 +1,7 @@
 use super::shader::ComputeShader;
 use crate::compiler::wgsl::{
     self, EnableFeaturesPass, builtin::LowerBuiltinsPass, lower::LowerOpsWgslPass,
-    metadata::declare_info, rewrite_args, shared_memory_size,
+    metadata::declare_info, rewrite_args, shared_memory_size, types,
 };
 
 use cubecl_core::{
@@ -107,6 +107,7 @@ impl WgslCompiler {
         }
 
         verify_operation(module_op, &ctx)?;
+        types::check_fp8_lanes(&ctx, module_op)?;
 
         let config = PMConfig {
             #[cfg(feature = "pliron-dump")]
@@ -156,7 +157,7 @@ impl WgslCompiler {
         passes.add_pass(AnnotateGlobalVisibilityPass);
         passes.add_pass(EnableFeaturesPass);
 
-        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
+        passes.run(module_op, &mut ctx, &mut analyses)?;
 
         let buffers = rewrite_args(&mut ctx, entry_func);
         declare_info(&mut ctx, entry_func, buffers.len());
