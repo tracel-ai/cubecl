@@ -3,7 +3,11 @@
 
 use cubecl_ir::{
     NamedRewrite, Scope,
-    dialect::{base::OperationPtrExt, general::CastOp},
+    dialect::{
+        base::OperationPtrExt,
+        cmp::{FEqualOp, FNotEqualOp},
+        general::CastOp,
+    },
     interfaces::TypedExt,
     prelude::*,
     types::Fp8Format,
@@ -233,6 +237,89 @@ impl LowerMinifloatCast {
         };
         reinterpret_value(scope, container, result_ty)
     }
+}
+
+pub type LowerMinifloatComparePass = MatchRewritePass<LowerMinifloatCompare>;
+
+/// Lowers fp8 equality onto the lanes' bit patterns.
+///
+/// No backend compares fp8 as a float. `VK_EXT_shader_float8` allows conversion, cooperative
+/// matrix multiply, and the operations that only move bits around, so a float comparison is out
+/// even where fp8 is native; without it fp8 is an integer, which a float comparison cannot read
+/// either. Comparing the bits is what a CUDA kernel already gets, where fp8 is the raw
+/// `__nv_fp8_storage_t` byte and `__nv_fp8_e4m3` declares no comparison operators at all.
+///
+/// Bit equality parts from float equality in exactly two places: `0.0` and `-0.0` are equal as
+/// floats and different as bits, and a NaN equals itself here where a float NaN does not. Scale
+/// factors, where fp8 sees most of its use, are non-negative and never NaN, so neither case
+/// reaches them.
+#[derive(new, Clone, Copy, Debug, Default, NamedRewrite)]
+pub struct LowerMinifloatCompare {
+    container: Fp8Container,
+}
+
+impl MatchRewrite for LowerMinifloatCompare {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        if !op.is_op::<FEqualOp>(ctx) && !op.is_op::<FNotEqualOp>(ctx) {
+            return false;
+        }
+        Fp8Format::of_type(ctx, op.operand(ctx, 0).scalar_ty(ctx)).is_some()
+    }
+
+    fn rewrite(
+        &mut self,
+        ctx: &mut Context,
+        rewriter: &mut MatchRewriter,
+        op: Ptr<Operation>,
+    ) -> Result<()> {
+        let equal = op.is_op::<FEqualOp>(ctx);
+        let scope = Scope::from_context_and_inserter(ctx, rewriter);
+        let lhs = op.operand(scope.ctx(), 0);
+        let rhs = op.operand(scope.ctx(), 1);
+        scope.register_size::<N>(lhs.vector_size(scope.ctx()));
+
+        let lhs = self.lanes(&scope, lhs);
+        let rhs = self.lanes(&scope, rhs);
+        let value = match self.container {
+            Fp8Container::Bytes => compare_lanes::<u8>(&scope, equal, lhs, rhs),
+            Fp8Container::Words => compare_lanes::<u32>(&scope, equal, lhs, rhs),
+        };
+        rewriter.replace_operation_with_values(ctx, op, vec![value]);
+        Ok(())
+    }
+}
+
+impl LowerMinifloatCompare {
+    /// One lane per lane, in whichever integer the container leaves them addressable in. Packed
+    /// lanes have to come apart first: comparing the words would answer once for four lanes.
+    fn lanes(&self, scope: &Scope, value: Value) -> Value {
+        match self.container {
+            Fp8Container::Bytes => {
+                reinterpret_value(scope, value, Vector::<u8, N>::__expand_as_type(scope))
+            }
+            Fp8Container::Words => {
+                let words = reinterpret_value(scope, value, words_type(scope));
+                unpack_words::expand::<N, W>(scope, words.into()).read_value(scope)
+            }
+        }
+    }
+}
+
+fn compare_lanes<T: Int>(scope: &Scope, equal: bool, lhs: Value, rhs: Value) -> Value {
+    match equal {
+        true => bits_equal::expand::<T>(scope, lhs.into(), rhs.into()).read_value(scope),
+        false => bits_not_equal::expand::<T>(scope, lhs.into(), rhs.into()).read_value(scope),
+    }
+}
+
+#[cube]
+fn bits_equal<T: Int>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<bool, N> {
+    lhs.equal(&rhs)
+}
+
+#[cube]
+fn bits_not_equal<T: Int>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<bool, N> {
+    lhs.not_equal(&rhs)
 }
 
 define_size!(W);

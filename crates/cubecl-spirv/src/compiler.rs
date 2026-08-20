@@ -18,7 +18,10 @@ use cubecl_core::{
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
-        minifloat::{Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass},
+        minifloat::{
+            Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass, LowerMinifloatCompare,
+            LowerMinifloatComparePass,
+        },
         saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
@@ -203,6 +206,9 @@ impl SpirvCompiler {
         };
         func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
             native_fp8,
+            Fp8Container::Bytes,
+        )));
+        func_passes.add_pass(LowerMinifloatComparePass::new(LowerMinifloatCompare::new(
             Fp8Container::Bytes,
         )));
         func_passes.add_pass(BranchToSCFPass::default());

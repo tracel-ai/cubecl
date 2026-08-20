@@ -18,9 +18,12 @@ use cubecl_opt::passes::{simple_cse::SimpleCSEPass, sroa::SROAPass};
 use cubecl_runtime::compiler::CompilationError;
 
 use cubecl_core::{
-    Compiler, ir::dialect::scf::BranchToSCFPass, ir::rewrite::SimplifyOpsPass,
+    Compiler,
+    ir::dialect::scf::BranchToSCFPass,
+    ir::rewrite::SimplifyOpsPass,
     post_processing::bitwise::PromoteBitwisePass,
-    post_processing::minifloat::LowerMinifloatCastPass, prelude::*,
+    post_processing::minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
+    prelude::*,
 };
 use pliron::{
     builtin::ops::{FuncOp, ModuleOp},
@@ -116,6 +119,7 @@ impl PlironCompiler {
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(LowerMinifloatCastPass::default());
+        func_passes.add_pass(LowerMinifloatComparePass::default());
         func_passes.add_pass(LowerComplexOpPass::default());
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);

@@ -313,13 +313,8 @@ macro_rules! fp8_format_tests {
                 }
             }
 
-            /// Comparing fp8 needs its lanes addressable one byte at a time, so this asks for
-            /// 8-bit integers on top of the conversion the other tests need. A backend that
-            /// packs four lanes to a word, as WGSL does for want of an 8-bit type, would compare
-            /// whole words and answer once for four lanes.
             pub fn equality<R: Runtime>(client: ComputeClient<R>) {
-                let byte_math = u8::supported_uses(&client).contains(TypeUsage::Arithmetic);
-                if !fp8_supported(&client) || !byte_math {
+                if !fp8_supported(&client) {
                     println!("Unsupported, skipping");
                     return;
                 }

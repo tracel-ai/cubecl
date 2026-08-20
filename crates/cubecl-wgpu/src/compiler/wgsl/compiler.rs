@@ -8,7 +8,10 @@ use cubecl_core::{
     WgpuCompilationOptions,
     post_processing::{
         checked_io::{CheckedIo, CheckedIoPass},
-        minifloat::{Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass},
+        minifloat::{
+            Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass, LowerMinifloatCompare,
+            LowerMinifloatComparePass,
+        },
         saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
@@ -131,6 +134,9 @@ impl WgslCompiler {
         // After the unroll so that an fp8 vector is at most one word, see `types.rs`.
         func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
             EnumSet::empty(),
+            Fp8Container::Words,
+        )));
+        func_passes.add_pass(LowerMinifloatComparePass::new(LowerMinifloatCompare::new(
             Fp8Container::Words,
         )));
 
