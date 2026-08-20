@@ -11,7 +11,7 @@ use pliron_llvm::llvm_sys::target::initialize_native;
 use pliron_llvm::to_llvm_ir;
 
 use super::data::PlironData;
-use crate::compiler::shared_memory::SharedMemories;
+use crate::shared::shared_memory::SharedMemories;
 
 /// Host ABI of a JIT'd kernel: `(buffer_ptrs, cube_count_x/y/z, unit_pos_x/y/z, sync_cube_state,
 /// metadata)`. The variable-count pointers — the buffers and then the shared memories — are
@@ -91,11 +91,11 @@ impl PlironEngine {
     }
 
     /// What the host has to provide to launch this kernel, see [`KernelRequirements`].
-    pub(crate) fn requirements(&self) -> &KernelRequirements {
+    pub fn requirements(&self) -> &KernelRequirements {
         &self.0.requirements
     }
 
-    pub(crate) fn run_kernel(&self, data: &mut PlironData) {
+    pub fn run_kernel(&self, data: &mut PlironData) {
         let b = data.builtins;
         let buffer_ptrs = data.shared.buffer_ptrs.as_ptr() as *mut *mut c_void;
         let metadata = data.shared.metadata.as_ptr() as *mut u64;

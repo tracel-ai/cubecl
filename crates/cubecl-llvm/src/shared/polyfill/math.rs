@@ -14,7 +14,7 @@ use cubecl_core::prelude::polyfills::{
 };
 use cubecl_core::prelude::*;
 
-use crate::compiler::polyfill::LowerOp;
+use crate::shared::polyfill::LowerOp;
 use cubecl_core::ir::Scope;
 
 macro_rules! lower_unary_math_arith {

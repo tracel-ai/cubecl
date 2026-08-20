@@ -3,15 +3,13 @@ use cubecl_core::CubeDim;
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 use std::sync::{Arc, OnceLock, atomic::AtomicU64};
 
-use crate::{
-    compiler::jit::{data::PlironData, engine::PlironEngine},
-    compiler::shared_memory::SharedMemories,
-    compute::{
-        schedule::BindingsResource,
-        threadpool::{
-            compute_task::ComputeTask,
-            scheduler::{Scheduler, SchedulerVariant},
-        },
+use cubecl_llvm::{PlironData, PlironEngine, shared::shared_memory::SharedMemories};
+
+use crate::compute::{
+    schedule::BindingsResource,
+    threadpool::{
+        compute_task::ComputeTask,
+        scheduler::{Scheduler, SchedulerVariant},
     },
 };
 

@@ -1,6 +1,4 @@
-use crate::{
-    compiler::PlironCompiler, compute::affinity, compute::server::CpuServer, device::CpuDevice,
-};
+use crate::{compute::affinity, compute::server::CpuServer, device::CpuDevice};
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
@@ -14,6 +12,7 @@ use cubecl_core::{
     server::ServerUtilities,
     zspace::{Shape, Strides},
 };
+use cubecl_llvm::PlironCompiler;
 use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;

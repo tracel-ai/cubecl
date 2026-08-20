@@ -1,9 +1,6 @@
 # CPU Runtime
 
-MLIR-based JIT runtime for CubeCL. It lowers CubeCL IR to optimized IR, then to
-MLIR, then to LLVM, and executes the result in-process through the MLIR
-`ExecutionEngine`, using SIMD where the host CPU supports it. LLVM/MLIR is
-vendored through `tracel-llvm-bundler`, so there is no system LLVM to install.
+Pliron-based JIT runtime for CubeCL. It lowers CubeCL IR to LLVM, and executes the result in-process through `LLJIT`, using SIMD where the host CPU supports it. LLVM is vendored through `tracel-llvm-bundler`, so there is no system LLVM to install.
 
 ## Setup
 
@@ -14,19 +11,15 @@ Add `cubecl` with the `cpu` feature:
 cubecl = { version = "*", features = ["cpu"] }
 ```
 
-Nothing else is required. On macOS the Homebrew library path is configured
-automatically by the crate's `build.rs`.
+## Debugging the compiler
 
-## Debugging the compiler (MLIR dump)
+When a kernel miscompiles or you are modifying the lowering passes, you can dump every intermediate representation the compiler goes through.
 
-When a kernel miscompiles or you are modifying the lowering passes, you can dump
-every intermediate representation the compiler goes through.
-
-Setting `CUBECL_DEBUG_MLIR` auto-enables the `mlir-dump` feature at build time
+Setting `CUBECL_DEBUG_PLIRON` auto-enables the `pliron-dump` feature at build time
 (see `build.rs`), so a single command is enough — no extra `--features` flag:
 
 ```bash
-CUBECL_DEBUG_MLIR=./debug cargo test -p cubecl-cpu
+CUBECL_DEBUG_PLIRON=./debug cargo test -p cubecl-cpu
 ```
 
 Use any binary, test, or example that launches a CPU kernel. Each kernel writes
@@ -52,7 +45,4 @@ cargo run --features cpu,cubecl-cpu/mlir-dump
 
 - **Segfaults during execution.** Kernel invocation is `unsafe` and a bad pointer or shape will
   segfault rather than return an error. Dump the IR and inspect the per-pass
-  `.mlir` files to find where the generated code diverges from what you expect.
-- **Compilation / verifier errors.** The MLIR verifier runs after the pass
-  pipeline; a failure panics with the underlying MLIR diagnostic, which usually
-  names the offending operation and make CubeCL crash just after.
+  `.plir` files to find where the generated code diverges from what you expect.

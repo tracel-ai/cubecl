@@ -37,7 +37,7 @@ use pliron::{
     printable::Printable,
 };
 
-use crate::compiler::{
+use crate::shared::{
     branch::SCFToLlvmCf,
     entrypoint::InsertConstantEmulationPass,
     jit::engine::{KernelRequirements, PlironEngine},
