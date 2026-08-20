@@ -190,12 +190,16 @@ fn run_pipeline(ir: &str) -> Result<String, String> {
 
         let result = if err.is_null() {
             let c_ir = LLVMPrintModuleToString(module);
-            let optimized = std::ffi::CStr::from_ptr(c_ir).to_string_lossy().into_owned();
+            let optimized = std::ffi::CStr::from_ptr(c_ir)
+                .to_string_lossy()
+                .into_owned();
             LLVMDisposeMessage(c_ir);
             Ok(optimized)
         } else {
             let c_msg = LLVMGetErrorMessage(err);
-            let msg = std::ffi::CStr::from_ptr(c_msg).to_string_lossy().into_owned();
+            let msg = std::ffi::CStr::from_ptr(c_msg)
+                .to_string_lossy()
+                .into_owned();
             LLVMDisposeErrorMessage(c_msg);
             Err(msg)
         };

@@ -1,4 +1,6 @@
-use crate::{compiler::PlironCompiler, compute::affinity, compute::server::CpuServer, device::CpuDevice};
+use crate::{
+    compiler::PlironCompiler, compute::affinity, compute::server::CpuServer, device::CpuDevice,
+};
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
@@ -157,11 +159,7 @@ impl DeviceService for CpuServer {
             (),
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
-        CpuServer::new(
-            mem_properties,
-            options.memory_config,
-            Arc::new(utilities),
-        )
+        CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
