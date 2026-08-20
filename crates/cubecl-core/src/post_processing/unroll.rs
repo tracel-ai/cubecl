@@ -245,8 +245,10 @@ impl CustomUnrollOp for CompositeInsertOp {
 }
 
 /// A reinterpret changes the lane count with the lane width, so one side's pieces are not the
-/// other's: a `Vector<u32, 2>` is a `Vector<e4m3, 8>`. The wide side is split at the unroll factor
-/// and the narrow side is cut into matching sub-vectors with extracts and constructs.
+/// other's: a `Vector<u32, 2>` is a `Vector<e4m3, 8>`. When only one side exceeds the maximum, the
+/// wide side is split at the unroll factor and the narrow side is cut into matching sub-vectors
+/// with extracts and constructs. When both exceed it, the input's pieces are reinterpreted in
+/// place and their lanes regrouped.
 #[op_interface_impl]
 impl CustomUnrollOp for ReinterpretCastOp {
     fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
@@ -257,11 +259,54 @@ impl CustomUnrollOp for ReinterpretCastOp {
         if in_vec <= max && out_vec <= max {
             return;
         }
-        assert!(
-            in_vec <= max || out_vec <= max,
-            "Cannot unroll a reinterpret between a {in_vec}-lane and a {out_vec}-lane vector when \
-             both exceed {max} lanes: reinterpret through a vector of at most {max} lanes"
-        );
+        // When both sides unroll, neither is a whole piece of the other: each `max`-lane input
+        // piece reinterprets into the output lanes it shares bits with, and those lanes regroup
+        // into the `max`-lane pieces the rest of the pass indexes into. Equal lane counts are the
+        // common case here and stay one reinterpret per piece.
+        if in_vec > max && out_vec > max {
+            let per_piece = max * out_vec / in_vec;
+            assert!(
+                per_piece > 0,
+                "Cannot unroll a reinterpret between a {in_vec}-lane and a {out_vec}-lane vector: \
+                 a {max}-lane piece of the input does not cover a whole output lane. Reinterpret \
+                 through a vector of at most {max} lanes"
+            );
+            state.result.ir_changed |= IRStatus::Changed;
+            let op = self.get_operation();
+
+            let piece_ty = lanes_type(ctx, result, per_piece);
+            let pieces = state.mappings.get(&input).expect("Should exist").clone();
+            let converted = pieces
+                .into_iter()
+                .map(|piece| {
+                    let new_op = ReinterpretCastOp::new(ctx, piece_ty, piece);
+                    new_op.get_operation().insert_before(ctx, op);
+                    new_op.get_result(ctx)
+                })
+                .collect::<Vec<_>>();
+
+            let new_results = if per_piece == max {
+                converted
+            } else {
+                let lanes = converted
+                    .into_iter()
+                    .flat_map(|piece| split_lanes(ctx, piece, op))
+                    .collect::<Vec<_>>();
+                let result_ty = unroll_ty(ctx, result, max);
+                lanes
+                    .chunks(max)
+                    .map(|lanes| {
+                        let joined = CompositeConstructOp::new(ctx, result_ty, lanes.to_vec());
+                        joined.get_operation().insert_before(ctx, op);
+                        joined.get_result(ctx)
+                    })
+                    .collect()
+            };
+            state.mappings.insert(result, new_results);
+            state.to_erase.push(op);
+            return;
+        }
+
         // The wide side unrolls into `factor` pieces, so the narrow side has to have at least
         // that many lanes to hand one to each. A 64-bit scalar reinterpreted as eight fp8 lanes
         // is the case that gets here: one lane cannot be cut in two.
