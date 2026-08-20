@@ -340,7 +340,8 @@ macro_rules! fp8_format_tests {
                 );
                 for (code, actual) in codes.iter().zip(u32::from_bytes(&actual)) {
                     let value = $fmt::from_bits(*code).to_f32();
-                    // NaN to bool is backend-defined: an ordered compare says false.
+                    // NaN to bool is backend-defined: an unordered compare says true, an
+                    // ordered one false, and both spellings are in use.
                     if value.is_nan() {
                         continue;
                     }
