@@ -67,19 +67,20 @@ impl Fp8Format {
         }
     }
 
+    /// Both formats have several NaN encodings and the payload is not carried across: the codecs
+    /// truncate the source mantissa, the hardware paths do as they please. This is the code for a
+    /// canonical NaN, which is what the codec returns for `f32::NAN`. Reading `NAN` instead would
+    /// give e5m2 a payload no conversion produces.
     pub const fn nan_code(self) -> u32 {
         let nan = match self {
-            Fp8Format::E4M3 => e4m3::NAN.to_bits(),
-            Fp8Format::E5M2 => e5m2::NAN.to_bits(),
+            Fp8Format::E4M3 => e4m3::from_f32(f32::NAN).to_bits(),
+            Fp8Format::E5M2 => e5m2::from_f32(f32::NAN).to_bits(),
         };
         nan as u32 & FP8_MAGNITUDE_MASK
     }
 
     pub const fn has_infinity(self) -> bool {
-        match self {
-            Fp8Format::E4M3 => false,
-            Fp8Format::E5M2 => true,
-        }
+        self.decode(self.max_code() + 1).is_infinite()
     }
 
     pub const fn min_normal(self) -> f32 {

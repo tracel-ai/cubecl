@@ -301,14 +301,7 @@ macro_rules! fp8_format_tests {
                         return;
                     }
 
-                    let mut values: Vec<f32> = (0..=u16::MAX)
-                        .map(|bits| half::f16::from_bits(bits).to_f32())
-                        .collect();
-                    values.extend(fp8_encode_edges());
-                    while !values.len().is_multiple_of(vector_size) {
-                        values.push(0.0);
-                    }
-
+                    let values = fp8_encode_inputs(vector_size);
                     let input = client.create_from_slice(f32::as_bytes(&values));
                     let out = client.empty(values.len());
                     let vectors = values.len() / vector_size;
@@ -371,6 +364,24 @@ macro_rules! fp8_format_tests {
 fp8_format_tests!(e4m3);
 fp8_format_tests!(e5m2);
 
+/// Every `f16`, so each exponent and every mantissa tie an `f16` can name is covered, plus the
+/// boundaries only an `f32` can express. Padded to the vector size the kernel launches at.
+fn fp8_encode_inputs(vector_size: VectorSize) -> Vec<f32> {
+    let mut values: Vec<f32> = (0..=u16::MAX)
+        .map(|bits| half::f16::from_bits(bits).to_f32())
+        .collect();
+    values.extend(fp8_encode_edges());
+    while !values.len().is_multiple_of(vector_size) {
+        values.push(0.0);
+    }
+    values
+}
+
+/// Where rounding decisions actually happen, which is nowhere near uniformly spread. Per format:
+/// the largest finite value, the tie above it that decides saturation, and the step past it; the
+/// smallest normal and the subnormal step, walked at the exact, half, quarter and three-quarter
+/// points so round-to-nearest-even is forced both ways; the subnormal-to-normal boundary from
+/// either side; and mantissa ties at several exponents together with their neighbouring ULPs.
 fn fp8_encode_edges() -> Vec<f32> {
     let mut edges = vec![
         0.0,
