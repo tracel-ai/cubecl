@@ -8,6 +8,7 @@ use cubecl_core::{
     WgpuCompilationOptions,
     post_processing::{
         checked_io::{CheckedIo, CheckedIoPass},
+        minifloat::{Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass},
         saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
@@ -15,6 +16,7 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{
     ContextExt,
+    features::EnumSet,
     pliron::{
         builtin::ops::{FuncOp, ModuleOp},
         operation::verify_operation,
@@ -125,6 +127,11 @@ impl WgslCompiler {
             value.settings.kernel_name.clone(),
         )));
         func_passes.add_pass(UnrollPass::new(MAX_VECTOR_SIZE));
+        // After the unroll so that an fp8 vector is at most one word, see `types.rs`.
+        func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
+            EnumSet::empty(),
+            Fp8Container::Words,
+        )));
 
         func_passes.add_pass(LowerOpsWgslPass::default());
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
