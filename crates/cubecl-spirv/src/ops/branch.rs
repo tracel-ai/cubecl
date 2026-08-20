@@ -20,7 +20,7 @@ use pliron::{
 };
 use pliron_spirv::ops::{self, BranchOp, LoopOp, MergeOp, SelectionOp};
 
-use crate::ops::to_spirv_dialect::ToSpirvDialectOp;
+use crate::{ops::to_spirv_dialect::ToSpirvDialectOp, types::ty_to_spirv_dialect};
 
 // Custom branch because of `BoolType`
 #[pliron_op(
@@ -471,6 +471,40 @@ impl ToSpirvCFDialect for scf::WhileOp {
         rewriter.append_op(ctx, &r#loop);
         rewriter.replace_operation(ctx, self.get_operation(), r#loop.get_operation());
 
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToSpirvDialectOp for SelectionOp {
+    fn to_spirv_dialect(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let results = self.get_operation().results(ctx);
+        for res in results {
+            let ty = ty_to_spirv_dialect(ctx, res.get_type(ctx));
+            rewriter.set_value_type(ctx, res, ty);
+        }
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToSpirvDialectOp for LoopOp {
+    fn to_spirv_dialect(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let results = self.get_operation().results(ctx);
+        for res in results {
+            let ty = ty_to_spirv_dialect(ctx, res.get_type(ctx));
+            rewriter.set_value_type(ctx, res, ty);
+        }
         Ok(())
     }
 }

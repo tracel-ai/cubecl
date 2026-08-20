@@ -4,35 +4,33 @@ use crate::{
     CanMaterialize, Pure,
     attributes::IndexAttr,
     prelude::*,
-    types::{
-        PointerType,
-        spirv::{ClampMode, TensorLayoutType},
-    },
+    types::spirv::{ClampMode, TensorLayoutType},
 };
 
 #[pliron_op(
     name = "matrix_spirv.load_tensor",
-    operands = (out_mat: PointerType, buffer, layout: TensorLayoutType),
+    operands = (buffer, layout: TensorLayoutType),
     format,
     verifier = "succ"
 )]
+#[op_interfaces(OneResultInterface)]
 #[op_traits(CanMaterialize)]
 pub struct LoadTensorOp;
 
 impl LoadTensorOp {
     pub fn new(
         ctx: &mut Context,
-        out_mat: Value,
+        out_ty: TypeHandle,
         buffer: Value,
         layout: Value,
         view: Option<Value>,
     ) -> Self {
-        let mut operands = vec![out_mat, buffer, layout];
+        let mut operands = vec![buffer, layout];
         operands.extend(view);
         let op = Operation::new(
             ctx,
             Self::get_concrete_op_info(),
-            vec![],
+            vec![out_ty],
             operands,
             vec![],
             0,
@@ -40,22 +38,18 @@ impl LoadTensorOp {
         Self { op }
     }
 
-    pub fn out_mat(&self, ctx: &Context) -> Value {
+    pub fn buffer(&self, ctx: &Context) -> Value {
         self.get_operation().deref(ctx).get_operand(0)
     }
 
-    pub fn buffer(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(1)
-    }
-
     pub fn layout(&self, ctx: &Context) -> Value {
-        self.get_operation().deref(ctx).get_operand(2)
+        self.get_operation().deref(ctx).get_operand(1)
     }
 
     pub fn view(&self, ctx: &Context) -> Option<Value> {
         let op = self.get_operation().deref(ctx);
-        if op.get_num_operands() > 3 {
-            Some(op.get_operand(3))
+        if op.get_num_operands() > 2 {
+            Some(op.get_operand(2))
         } else {
             None
         }

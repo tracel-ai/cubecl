@@ -12,6 +12,7 @@ pub mod memory;
 pub mod plane;
 pub mod scf;
 pub mod spirv;
+pub mod ssa_matrix;
 pub mod synchronization;
 pub mod tma;
 pub mod vector;
