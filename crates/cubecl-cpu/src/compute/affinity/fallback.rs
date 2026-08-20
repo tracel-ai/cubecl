@@ -19,3 +19,15 @@ impl ThreadAffinity for Platform {
 
     fn pin_current(_cpu: CoreId) {}
 }
+
+/// What the tests in [`super`] need of this platform beyond the trait.
+#[cfg(test)]
+impl Platform {
+    /// No topology to read, so the tests require nothing of it.
+    pub(super) const READS_TOPOLOGY: bool = false;
+
+    /// Nothing is pinned, so there is nothing to observe.
+    pub(super) fn current_cpu() -> Option<CoreId> {
+        None
+    }
+}
