@@ -184,15 +184,22 @@ fn cast_half_to_minifloat(ctx: &Context, input: Value, out_ty: TypeHandle) -> St
     })
 }
 
+/// The packed `x2` converters only exist for the 16-bit pairs.
 fn fp8_source_prefix(ctx: &Context, input: Value) -> &'static str {
-    let scalar = input.get_type(ctx).scalar_ty(ctx);
-    match_ty!((scalar.deref(ctx)) {
+    let ty = input.get_type(ctx);
+    let unsupported = || {
+        panic!(
+            "fp8 converts from a float scalar or a packed 16-bit pair, got {}",
+            ty.deref(ctx).display(ctx)
+        )
+    };
+    match_ty!((ty.deref(ctx)) {
         Float16Type => "halfraw",
         Float16x2Type => "halfraw2",
         BFloat16Type => "bfloat16raw",
         BFloat16x2Type => "bfloat16raw2",
         Float32Type => "float",
         Float64Type => "double",;
-        _ => panic!("fp8 converts from a float source, got {}", scalar.deref(ctx).display(ctx))
+        _ => unsupported()
     })
 }
