@@ -91,8 +91,10 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
         props.register_type_usage(ty, TypeUsage::all())
     }
 
-    // Converted through the software polyfill, packed four to a u32. Byte-addressed buffers of
-    // fp8 would need word-addressed narrow loads, which the compiler does not emit yet.
+    // Converted through the software polyfill, packed four to a u32. Buffers of fp8 do work at
+    // any multiple of four lanes, but `TypeUsage` is per element type and cannot say "buffer,
+    // but never scalar", and a scalar fp8 has no WGSL type at all. Callers that want fp8 in
+    // memory bind it as `u32` words and reinterpret, which needs no buffer usage.
     for ty in [FloatKind::E4M3, FloatKind::E5M2] {
         props.register_type_usage(ElemType::Float(ty), TypeUsage::Conversion);
     }
