@@ -157,7 +157,7 @@ cuda_op!(InlinePtxOp, |op, ctx| {
         let block = scoped_block!(
             format!("{} result;", result.get_type(ctx).to_cpp(ctx))
             asm
-            format!("return result;")
+            "return result;"
         );
         format!("{} = {block};", result.fmt_left(ctx))
     } else {
