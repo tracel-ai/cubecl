@@ -1,5 +1,8 @@
 use super::prelude::*;
-use cubecl_core::ir::attributes::{BoolAttr, FloatAttr, IndexAttr, ZeroAttr};
+use cubecl_core::ir::{
+    attributes::{BoolAttr, FloatAttr, IndexAttr, ZeroAttr},
+    types::Fp8Format,
+};
 use half::f16;
 use pliron::{
     builtin::ops::ConstantOp,
@@ -67,6 +70,10 @@ pub fn convert_attr(ctx: &mut Context, value: AttrObj) -> AttrObj {
     } else if let Some(index_attr) = value.downcast_ref::<IndexAttr>() {
         int_attr(ctx, INDEX_WIDTH, index_attr.0 as i128).into()
     } else if let Some(float) = value.downcast_ref::<FloatAttr>() {
+        // fp8 is an 8-bit integer to LLVM, so its constants are their codes.
+        if Fp8Format::of_type(ctx, float.ty).is_some() {
+            return int_attr(ctx, 8, float.val.to_bits() as i128).into();
+        }
         let val = float.float_type(ctx).value_to_f64(float.val);
         float_attr(ctx, float.ty, val).unwrap()
     } else {
