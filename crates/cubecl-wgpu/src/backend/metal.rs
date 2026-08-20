@@ -106,6 +106,13 @@ pub fn register_metal_features(
             return false;
         };
         let raw = adapter.raw_device();
+        eprintln!(
+            "Metal device={:?}, metal3={}, apple7={}, mac2={}",
+            raw.name(),
+            raw.supportsFamily(MTLGPUFamily::Metal3),
+            raw.supportsFamily(MTLGPUFamily::Apple7),
+            raw.supportsFamily(MTLGPUFamily::Mac2),
+        );
         if !raw.supportsFamily(MTLGPUFamily::Metal3) {
             return false;
         };
