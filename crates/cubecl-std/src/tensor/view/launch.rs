@@ -14,7 +14,6 @@ mod layout {
         self as cubecl,
         format::DebugRaw,
         hash::{StableHash, StableHasher},
-        prelude::*,
         zspace::{Shape, Strides, metadata::Metadata},
     };
 
