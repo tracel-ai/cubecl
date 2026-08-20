@@ -262,11 +262,24 @@ impl CustomUnrollOp for ReinterpretCastOp {
             "Cannot unroll a reinterpret between a {in_vec}-lane and a {out_vec}-lane vector when \
              both exceed {max} lanes: reinterpret through a vector of at most {max} lanes"
         );
+        // The wide side unrolls into `factor` pieces, so the narrow side has to have at least
+        // that many lanes to hand one to each. A 64-bit scalar reinterpreted as eight fp8 lanes
+        // is the case that gets here: one lane cannot be cut in two.
+        let (wide, narrow) = match in_vec > max {
+            true => (in_vec, out_vec),
+            false => (out_vec, in_vec),
+        };
+        let factor = wide / max;
+        assert!(
+            narrow >= factor,
+            "Cannot unroll a reinterpret between a {in_vec}-lane and a {out_vec}-lane vector: the \
+             {wide}-lane side unrolls into {factor} pieces and the {narrow}-lane side has no lane \
+             to give each. Reinterpret through a vector of at least {factor} lanes"
+        );
         state.result.ir_changed |= IRStatus::Changed;
         let op = self.get_operation();
 
         if in_vec > max {
-            let factor = in_vec / max;
             let piece_ty = lanes_type(ctx, result, out_vec / factor);
             let pieces = state.mappings.get(&input).expect("Should exist").clone();
             let converted = pieces
@@ -286,7 +299,6 @@ impl CustomUnrollOp for ReinterpretCastOp {
             joined.get_operation().insert_before(ctx, op);
             result.replace_all_uses_with(ctx, &joined.get_result(ctx));
         } else {
-            let factor = out_vec / max;
             let piece_ty = unroll_ty(ctx, result, max);
             let lanes = split_lanes(ctx, input, op);
             let new_results = lanes
