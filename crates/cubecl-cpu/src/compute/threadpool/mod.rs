@@ -65,7 +65,13 @@ impl Threadpool {
             })
             .collect();
         reserve_shared_memories(memory, &requirements.shared_memories, &mut buffer_ptrs);
-        let base_data = PlironData::new(buffer_ptrs, info.data, cube_count);
+        // Pin the resources for the launch's lifetime (see
+        // `SharedData::keepalive`).
+        let keepalive: Vec<Box<dyn std::any::Any + Send>> = resources
+            .into_iter()
+            .map(|resource| Box::new(resource) as Box<dyn std::any::Any + Send>)
+            .collect();
+        let base_data = PlironData::new(buffer_ptrs, info.data, cube_count, keepalive);
 
         // A cube barrier only completes if every unit of the cube is running, so such a kernel
         // needs as many workers as the cube has units.
@@ -103,9 +109,8 @@ impl Threadpool {
 /// The pool guarantees an alignment of its own too small for a vector, so a block is
 /// over-reserved and its base rounded up.
 ///
-/// Launches of a stream never overlap (a stream flushes before enqueuing), so the reservations
-/// are released right away: the blocks are the pool's to hand out again once this launch is done
-/// with them.
+/// The reservations are released right away: shared-memory launches never overlap — the stream
+/// drains before enqueuing one (see `CpuStream::enqueue_task`).
 fn reserve_shared_memories(
     memory: &mut MemoryManagement<BytesStorage>,
     shared_memories: &SharedMemories,

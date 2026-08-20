@@ -6,45 +6,71 @@ use cubecl_core as cubecl;
 /// Dequantize a vector of values, where `vector_size * num_quants` is a power of two.
 /// Unaligned values can't be dequantized in place.
 ///
-/// `global` is the per-tensor scale of a two-level scheme, already read, and must be present
-/// exactly when `scheme.level` has one.
+/// `scale` is the effective scale for these values: how many scale levels the scheme has and how
+/// they combine is the caller's business, folded before the call. This is what keeps the
+/// primitive per-read arithmetic, serving equally a one-level read, a view multiplying the
+/// per-tensor scale in per read, or a tile handing every read one register.
+/// `table` is a lookup scheme's `2^bits`-entry table, and must be present exactly when
+/// `scheme.mode` is [`QuantMode::Lookup`].
 #[cube]
 pub fn dequantize_aligned<Q: Scalar, S: CubePrimitive, F: Numeric, NQ: Size, NF: Size>(
     value: Vector<Q, NQ>,
     scale: S,
-    global: ComptimeOption<f32>,
+    table: ComptimeOption<Box<[f32]>>,
     #[comptime] scheme: QuantScheme,
 ) -> Vector<F, NF> {
-    // Every read from a quantized view lands here, so this is where a binding that disagrees with
-    // the scheme has to be caught: the static constructors take a scheme without inspecting it.
-    comptime!(crate::quant::check_global_bindings(
-        scheme.level,
-        global.is_some()
-    ));
+    comptime!(crate::quant::check_table_bindings(&scheme, table.is_some()));
 
     let q_values = match scheme.store {
         QuantStore::Native | QuantStore::PackedNative(_) => Vector::<F, NF>::cast_from(value),
-        QuantStore::PackedU32(_) => unpack_cast_u32::<F, NQ, NF>(Vector::cast_from(value), scheme),
-    };
-
-    // The two levels multiply in f32: a block scale is normalized against the per-tensor scale, so
-    // on its own it overflows a narrow `F` by orders of magnitude before the per-tensor scale can
-    // bring the product back into a range `F` holds.
-    #[comptime]
-    let effective_scale = match global {
-        ComptimeOption::Some(global) => Vector::<F, NF>::cast_from(global * f32::cast_from(scale)),
-        ComptimeOption::None => Vector::<F, NF>::cast_from(scale),
+        QuantStore::PackedU32(_) => {
+            unpack_cast_u32::<F, NQ, NF>(Vector::cast_from(value), table.clone(), scheme)
+        }
     };
 
     match scheme.mode {
-        QuantMode::Symmetric => q_values * effective_scale,
+        // Lookup already resolved the field to its table entry in the unpack; both modes are one
+        // scale multiply from there.
+        QuantMode::Symmetric | QuantMode::Lookup => q_values * Vector::<F, NF>::cast_from(scale),
     }
 }
 
+/// [`dequantize_aligned`] for a scale a caller folded in f32, forming the product there too and
+/// narrowing only the result.
+///
+/// A folded scale reaches further down than what it produces: one below `F`'s smallest subnormal
+/// still scales quantized values into ordinary `F` ones. Narrowing it to `F` first rounds it to
+/// zero and takes the whole read with it, which is the failure two-level quantization exists to
+/// avoid in the first place.
+#[cube]
+pub fn dequantize_aligned_wide<Q: Scalar, F: Numeric, NQ: Size, NF: Size>(
+    value: Vector<Q, NQ>,
+    scale: f32,
+    table: ComptimeOption<Box<[f32]>>,
+    #[comptime] scheme: QuantScheme,
+) -> Vector<F, NF> {
+    Vector::<F, NF>::cast_from(dequantize_aligned::<Q, f32, f32, NQ, NF>(
+        value, scale, table, scheme,
+    ))
+}
+
+/// The effective scale of values whose per-tensor scale multiplies on top of their block scale.
+///
+/// The two multiply in f32: a block scale is normalized against the per-tensor one, so on its own
+/// it overflows a narrow compute type by orders of magnitude before the global scale can bring the
+/// product back into range.
+#[cube]
+pub fn multiply_global_scale<S: CubePrimitive>(global_scale: f32, scale: S) -> f32 {
+    global_scale * f32::cast_from(scale)
+}
+
 /// Unpack a set of values from u32, and convert to the specified floating point format.
+/// `table` decodes each field under [`QuantMode::Lookup`] and must be `None` otherwise
+/// ([`dequantize_aligned`] checks the pairing).
 #[cube]
 pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
     value: Vector<u32, NQ>,
+    table: ComptimeOption<Box<[f32]>>,
     #[comptime] scheme: QuantScheme,
 ) -> Vector<F, NF> {
     let num_quants = scheme.num_quants();
@@ -64,7 +90,7 @@ pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
             let shift = packed_idx * size_bits;
             let value = (packed_val >> shift as u32) & mask;
 
-            let float_value = cast_masked::<F, NP>(value, scheme);
+            let float_value = cast_masked::<F, NP>(value, table.clone(), scheme);
 
             #[unroll]
             for native_idx in 0..native_packing {
@@ -74,6 +100,41 @@ pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
         }
     }
 
+    out
+}
+
+/// Unpack `NF` consecutive fields of one `u32` word starting at field `first` (a runtime index),
+/// cast but **unscaled** — the caller multiplies by whatever scale its lines carry. The sub-word
+/// counterpart of [`unpack_cast_u32`], for reads whose served line is narrower than a word:
+/// `NF` may be any divisor of the packing factor, and `first` selects which slice of the word
+/// this line is. `e2m1` is refused — its native pairs cannot be split at a field boundary.
+///
+/// **The caller must keep `first + NF <= num_quants`.** `first` is runtime, so nothing here can
+/// check it, and a shift at or past 32 is not an error on most ISAs — the hardware masks the
+/// shift amount to 5 bits and the read silently lands on the wrong fields.
+#[cube]
+pub fn unpack_fields<F: Numeric, NF: Size>(
+    word: u32,
+    first: u32,
+    table: ComptimeOption<Box<[f32]>>,
+    #[comptime] scheme: QuantScheme,
+) -> Vector<F, NF> {
+    comptime!(assert!(
+        !matches!(scheme.value, QuantValue::E2M1),
+        "unpack_fields: e2m1 decodes in native pairs, which a sub-word line would split"
+    ));
+    let size_bits = scheme.size_bits_value();
+    let mask = comptime![packing_mask(scheme)];
+    let size!(N1) = 1usize;
+
+    let mut out = Vector::<F, NF>::empty();
+    #[unroll]
+    for j in 0..NF::value() {
+        let shift = (first + j as u32) * size_bits as u32;
+        let field = (word >> shift) & mask;
+        let value = cast_masked::<F, N1>(field, table.clone(), scheme);
+        out.insert(j, value.extract(0usize));
+    }
     out
 }
 
@@ -88,14 +149,35 @@ fn packing_mask(scheme: QuantScheme) -> u32 {
 }
 
 /// Cast a masked-out value in the low `n` bits of a `u32` to the specified float type.
-/// Applies sign conversion for integer quantization before casting to the float type,
+/// With a `table` the value is an index and the cast is its lookup; otherwise sign conversion
+/// is applied for integer quantization before casting to the float type,
 /// while minifloats are simply truncated to `u8`, reinterpreted and then cast.
 /// For `e2m1`, casting is done on the packed `e2m1x2` representation.
 ///
 /// # Returns
 /// Two floating point numbers for `e2m1`, one for all other formats.
 #[cube]
-fn cast_masked<F: Numeric, N: Size>(value: u32, #[comptime] scheme: QuantScheme) -> Vector<F, N> {
+fn cast_masked<F: Numeric, N: Size>(
+    value: u32,
+    table: ComptimeOption<Box<[f32]>>,
+    #[comptime] scheme: QuantScheme,
+) -> Vector<F, N> {
+    #[comptime]
+    match table {
+        // The field indexes the table; the mask already bounds it to `2^bits`, the table's
+        // required length.
+        ComptimeOption::Some(t) => Vector::<F, N>::cast_from(t[value as usize]),
+        ComptimeOption::None => cast_masked_plain::<F, N>(value, scheme),
+    }
+}
+
+/// The tableless arm of [`cast_masked`]: sign conversion for the integers, bit reinterpretation
+/// for the minifloats.
+#[cube]
+fn cast_masked_plain<F: Numeric, N: Size>(
+    value: u32,
+    #[comptime] scheme: QuantScheme,
+) -> Vector<F, N> {
     match scheme.value {
         // For minifloat we can assume if they're supported then u8 is supported
         QuantValue::E5M2 => Vector::<F, N>::cast_from(e5m2::from_bits(value as u8)),
@@ -109,13 +191,11 @@ fn cast_masked<F: Numeric, N: Size>(value: u32, #[comptime] scheme: QuantScheme)
         | QuantValue::Q2S => {
             let size_quant = scheme.size_bits_value() as u32;
             let sign_bit = 1u32 << (size_quant - 1);
-            let two_pow_n = 1 << size_quant;
 
-            // Branchless two's complement conversion
-            // If raw >= 2^(n-1), then result = raw - 2^n
-            let raw_i32 = value as i32;
-            let is_negative = (value >= sign_bit) as i32; // 1 if negative, 0 if positive
-            let signed_value = raw_i32 - (is_negative * two_pow_n);
+            // Branchless sign extension: `(raw ^ s) - s` with `s = 2^(n-1)` runs
+            // the identical xor/sub on every lane — two uniform vector ops on
+            // SIMD backends instead of a compare/select chain.
+            let signed_value = (value ^ sign_bit) as i32 - sign_bit as i32;
             Vector::<F, N>::cast_from(signed_value)
         }
     }
@@ -141,57 +221,28 @@ mod tests {
         scope
     }
 
-    fn two_level_scheme() -> QuantScheme {
-        QuantScheme::default().with_level(QuantLevel::block_tensor([32], QuantParam::F32))
-    }
-
-    /// Expanding is where a binding that disagrees with the scheme has to be caught: the static
-    /// constructors take a scheme without inspecting it, so a guard on the dynamic dispatcher alone
-    /// leaves them open.
+    /// The primitive is level-agnostic: it takes the effective scale for the values it unpacks,
+    /// and how many levels folded into that scale is the caller's business.
     #[test]
-    #[should_panic(expected = "takes a per-tensor scale, but no global was provided")]
-    fn expanding_a_two_level_scheme_without_a_global_panics() {
+    fn expanding_takes_one_scale_whatever_the_levels() {
         let scope = test_scope();
         let one = f32::__expand_new(&scope, 1.0);
         let value = Vector::<f32, N1>::__expand_new(&scope, one);
 
-        dequantize_aligned::expand::<f32, f32, f32, N1, N1>(
-            &scope,
-            value,
-            one,
-            ComptimeOptionExpand::None,
-            two_level_scheme(),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "does not take a per-tensor scale")]
-    fn expanding_a_one_level_scheme_with_a_global_panics() {
-        let scope = test_scope();
-        let one = f32::__expand_new(&scope, 1.0);
-        let value = Vector::<f32, N1>::__expand_new(&scope, one);
-
-        dequantize_aligned::expand::<f32, f32, f32, N1, N1>(
-            &scope,
-            value,
-            one,
-            ComptimeOptionExpand::Some(one),
+        for scheme in [
             QuantScheme::default(),
-        );
-    }
-
-    #[test]
-    fn expanding_a_two_level_scheme_with_a_global_works() {
-        let scope = test_scope();
-        let one = f32::__expand_new(&scope, 1.0);
-        let value = Vector::<f32, N1>::__expand_new(&scope, one);
-
-        dequantize_aligned::expand::<f32, f32, f32, N1, N1>(
-            &scope,
-            value,
-            one,
-            ComptimeOptionExpand::Some(one),
-            two_level_scheme(),
-        );
+            QuantScheme::default().per_block([32], ScaleDtype::F32),
+            QuantScheme::default()
+                .per_block([32], ScaleDtype::F32)
+                .per_tensor(ScaleDtype::F32),
+        ] {
+            dequantize_aligned::expand::<f32, f32, f32, N1, N1>(
+                &scope,
+                value,
+                one,
+                ComptimeOptionExpand::None,
+                scheme,
+            );
+        }
     }
 }

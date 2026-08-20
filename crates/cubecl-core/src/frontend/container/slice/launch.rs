@@ -64,6 +64,19 @@ impl<R: Runtime> BufferArg<R> {
         }
     }
 
+    /// The buffer's length in elements, as it was declared.
+    pub fn len(&self) -> usize {
+        match self {
+            BufferArg::Handle { handle } => handle.length[0],
+            BufferArg::Alias { length, .. } => length[0],
+        }
+    }
+
+    /// Whether the buffer was declared empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn alias(input_pos: usize, length: usize) -> Self {
         Self::Alias {
             input_pos,

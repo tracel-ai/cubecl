@@ -12,12 +12,9 @@ use pliron::{
 };
 use pliron_spirv::{
     attrs::CompositeAttr,
-    ops::{
-        StoreOp,
-        nv::{
-            CreateTensorLayoutOp, CreateTensorViewOp, TensorLayoutSetClampValueOp,
-            TensorLayoutSetDimensionOp, TensorLayoutSetStrideOp, TensorLayoutSliceOp,
-        },
+    ops::nv::{
+        CreateTensorLayoutOp, CreateTensorViewOp, TensorLayoutSetClampValueOp,
+        TensorLayoutSetDimensionOp, TensorLayoutSetStrideOp, TensorLayoutSliceOp,
     },
     tensor_addressing_nv::{CooperativeMatrixLoadTensorOp, CooperativeMatrixStoreTensorOp},
 };
@@ -25,11 +22,7 @@ use rspirv::spirv::{MemoryAccess, TensorAddressingOperands};
 
 use crate::{
     attributes::attr_to_spirv_dialect,
-    ops::{
-        builtin::const_op_int32,
-        matrix::{elem_ty_prev, unwrap_ptr},
-        to_spirv_dialect::ToSpirvDialectOp,
-    },
+    ops::{builtin::const_op_int32, matrix::elem_ty_prev, to_spirv_dialect::ToSpirvDialectOp},
     types::ty_to_spirv_dialect,
 };
 
@@ -107,15 +100,14 @@ impl ToSpirvDialectOp for spirv::LoadTensorOp {
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
-        operands_info: &OperandsInfo,
+        _: &OperandsInfo,
     ) -> Result<()> {
         let buffer = self.buffer(ctx);
         let layout = self.layout(ctx);
         let view = self.view(ctx);
-        let mat_out = self.out_mat(ctx);
 
-        let matrix_ty = ty_to_spirv_dialect(ctx, unwrap_ptr(mat_out, ctx));
-        let elem_ty = elem_ty_prev(ctx, mat_out, operands_info);
+        let matrix_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
+        let elem_ty = self.result_type(ctx).element_ty(ctx);
         let align = elem_ty.align(ctx) as u32;
         let zero = const_matrix(ctx, rewriter, elem_ty, matrix_ty, 0.into());
 
@@ -124,7 +116,7 @@ impl ToSpirvDialectOp for spirv::LoadTensorOp {
             None => TensorAddressingOperands::NONE,
         };
 
-        let value = CooperativeMatrixLoadTensorOp::new(
+        let load = CooperativeMatrixLoadTensorOp::new(
             ctx,
             matrix_ty,
             buffer,
@@ -136,10 +128,8 @@ impl ToSpirvDialectOp for spirv::LoadTensorOp {
             view,
             None,
         );
-        let value = rewriter.append_op_with_result(ctx, &value);
-        let store = StoreOp::new(ctx, mat_out, value, MemoryAccess::NONE, None);
-        rewriter.append_op(ctx, &store);
-        rewriter.erase_operation(ctx, self.get_operation());
+        rewriter.append_op(ctx, &load);
+        rewriter.replace_operation(ctx, self.get_operation(), load.get_operation());
         Ok(())
     }
 }
@@ -157,7 +147,7 @@ impl ToSpirvDialectOp for spirv::StoreTensorOp {
         let layout = self.layout(ctx);
         let view = self.view(ctx);
 
-        let elem_ty = elem_ty_prev(ctx, matrix, operands_info);
+        let elem_ty = elem_ty_prev(matrix, ctx, operands_info);
         let align = elem_ty.align(ctx) as u32;
 
         let operands = match view {

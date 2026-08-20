@@ -6,7 +6,7 @@ use crate::{
 use core::fmt::Display;
 use cubecl_common::{
     e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32,
-    quant::scheme::{QuantParam, QuantValue},
+    quant::scheme::{QuantValue, ScaleDtype},
     tf32, ue8m0,
 };
 use derive_more::{Display, From};
@@ -145,14 +145,14 @@ pub enum SemanticType {
 }
 
 impl ElemType {
-    /// Creates an elem type that correspond to the given [`QuantParam`].
-    pub fn from_quant_param(quant_param: QuantParam) -> Self {
-        match quant_param {
-            QuantParam::F32 => Self::Float(FloatKind::F32),
-            QuantParam::F16 => Self::Float(FloatKind::F16),
-            QuantParam::BF16 => Self::Float(FloatKind::BF16),
-            QuantParam::UE8M0 => Self::Float(FloatKind::UE8M0),
-            QuantParam::UE4M3 => Self::Float(FloatKind::E4M3),
+    /// Creates an elem type that correspond to the given [`ScaleDtype`].
+    pub fn from_scale_dtype(dtype: ScaleDtype) -> Self {
+        match dtype {
+            ScaleDtype::F32 => Self::Float(FloatKind::F32),
+            ScaleDtype::F16 => Self::Float(FloatKind::F16),
+            ScaleDtype::BF16 => Self::Float(FloatKind::BF16),
+            ScaleDtype::UE8M0 => Self::Float(FloatKind::UE8M0),
+            ScaleDtype::UE4M3 => Self::Float(FloatKind::E4M3),
         }
     }
 

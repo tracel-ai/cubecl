@@ -48,8 +48,9 @@ pub struct ComputeClient<R: Runtime> {
 }
 
 /// A captured graph produced by [`ComputeClient::stop_capture`]: a recorded
-/// launch sequence that [`replay`](Graph::replay) re-runs as a single dispatch
-/// against its original buffers. Cheap to clone (shares one backend graph).
+/// launch sequence that [`replay`](Graph::replay) re-runs against its original
+/// buffers, skipping the launch path it was recorded from. Cheap to clone
+/// (shares one backend graph).
 ///
 /// The graph itself lives in the backend server, referenced here only by
 /// [`GraphId`]; this handle holds a reference-counted owner that releases the
@@ -90,10 +91,16 @@ struct GraphHandle<R: Runtime> {
 }
 
 impl<R: Runtime> Graph<R> {
-    /// Replay the captured launch sequence — one dispatch re-running every
-    /// recorded kernel against the buffers it was captured with, on the stream
-    /// it was captured on. Self-contained (the handle owns its device handle);
-    /// no client needed.
+    /// Replay the captured launch sequence — every recorded kernel re-run
+    /// against the buffers it was captured with, on the stream it was captured
+    /// on. Self-contained (the handle owns its device handle); no client
+    /// needed.
+    ///
+    /// How much of the launch path this skips depends on the backend: a
+    /// hardware graph (CUDA, HIP) replays as one dispatch, while a software
+    /// graph (wgpu) re-encodes the recorded dispatches from prebuilt state.
+    /// Either way pipeline lookup, binding resolution and metadata upload
+    /// happened once, at capture.
     ///
     /// Non-blocking, like a kernel launch: this enqueues the dispatch and returns
     /// immediately. A replay failure is not reported here — it lands in the
@@ -965,9 +972,18 @@ impl<R: Runtime> ComputeClient<R> {
     /// Begin recording launches on this client's stream into a graph rather
     /// than executing them (see [`ComputeServer::begin_capture`]). Pin the
     /// client to a dedicated stream with [`set_stream`](Self::set_stream), then
-    /// [`graph_prepare`](Self::graph_prepare) and warm up first; between this
-    /// and [`stop_capture`](Self::stop_capture) no sync or fresh allocation may
-    /// happen. Returns an error on backends without graph support.
+    /// [`graph_prepare`](Self::graph_prepare) and warm up first.
+    ///
+    /// Between this and [`stop_capture`](Self::stop_capture) the window records
+    /// launches and nothing else: reading, syncing or profiling the stream is
+    /// refused, and so is writing to a handle — a recorded graph cannot carry a
+    /// host copy, so feed fresh inputs by writing *between* replays instead. A
+    /// refused write is reported late, by failing `stop_capture`, rather than
+    /// handing back a graph that silently skips it. Fresh allocation inside the
+    /// window is fatal on a hardware-graph backend and merely wasteful on a
+    /// software-graph one, which is what the warmup run exists to avoid.
+    ///
+    /// Returns an error on backends without graph support.
     pub fn start_capture(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
         self.device

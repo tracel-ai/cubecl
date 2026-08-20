@@ -25,11 +25,9 @@ impl VisitMut for StripDefault {
                 GenericParam::Lifetime(_) => {}
                 GenericParam::Type(ty) => {
                     ty.default.take();
-                    ty.eq_token.take();
                 }
                 GenericParam::Const(con) => {
                     con.default.take();
-                    con.eq_token.take();
                 }
             }
         }
@@ -58,7 +56,6 @@ impl VisitMut for StripBounds {
                         ident: con.ident.clone(),
                         colon_token: None,
                         bounds: Default::default(),
-                        eq_token: None,
                         default: None,
                     })
                 }

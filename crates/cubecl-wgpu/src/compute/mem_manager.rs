@@ -187,4 +187,30 @@ impl WgpuMemManager {
     pub(crate) fn release_uniforms(&mut self) {
         self.uniforms.clear();
     }
+
+    /// Begin a graph capture on the pools a recorded launch allocates from:
+    /// the main pool (kernel buffers, intermediates) and the uniforms pool
+    /// (info uniforms, Vulkan address buffers). The staging pool is left
+    /// alone — reads are rejected while recording, and warmup-phase staging is
+    /// transient. See [`MemoryManagement::capture_begin`].
+    pub(crate) fn capture_begin(&mut self) {
+        self.memory_pool.capture_begin();
+        self.memory_uniforms.capture_begin();
+    }
+
+    /// End the warmup priming phase on the captured pools; call immediately
+    /// before recording starts. See [`MemoryManagement::capture_priming_end`].
+    pub(crate) fn capture_priming_end(&mut self) {
+        self.memory_pool.capture_priming_end();
+        self.memory_uniforms.capture_priming_end();
+    }
+
+    /// End the capture on both pools, returning the retained handles that pin
+    /// every slice the window touched for the graph's lifetime. See
+    /// [`MemoryManagement::capture_end`].
+    pub(crate) fn capture_end(&mut self) -> Vec<ManagedMemoryHandle> {
+        let mut retained = self.memory_pool.capture_end();
+        retained.extend(self.memory_uniforms.capture_end());
+        retained
+    }
 }

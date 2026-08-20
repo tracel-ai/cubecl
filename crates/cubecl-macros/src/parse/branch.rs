@@ -223,7 +223,7 @@ pub fn numeric_match(mat: ExprMatch, context: &mut Context) -> Option<Expression
     let arms = mat
         .arms
         .into_iter()
-        .map(|arm| arm.guard.is_none().then_some(arm))
+        .map(|arm| (!matches!(arm.pat, Pat::Guard(..))).then_some(arm))
         .collect::<Option<Vec<_>>>()?;
 
     let mut switch_arms = Vec::new();

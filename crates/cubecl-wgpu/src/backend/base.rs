@@ -1,10 +1,7 @@
 use super::wgsl;
 use crate::WgpuServer;
 use crate::{AutoRepresentationRef, CompilerInfo, WgpuCompiler};
-use cubecl_core::{
-    CubeDim, ExecutionMode, WgpuCompilationOptions, prelude::KernelDefinition,
-    server::KernelArguments,
-};
+use cubecl_core::{CubeDim, ExecutionMode, WgpuCompilationOptions, server::KernelArguments};
 use cubecl_core::{MemoryConfiguration, prelude::Visibility};
 use cubecl_ir::DeviceProperties;
 use cubecl_runtime::{
@@ -36,7 +33,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     pub fn load_cached_pipeline(
         &mut self,
         kernel_id: &KernelId,
-        definition: &KernelDefinition,
         bindings: &KernelArguments,
         mode: ExecutionMode,
     ) -> Result<
@@ -49,7 +45,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         let res = if let Some(cache) = self.spirv_cache.as_mut() {
             let key = (
                 self.utilities.properties_hash,
-                KernelCacheKey::new(kernel_id, definition),
+                KernelCacheKey::new(kernel_id, self.build_id),
             );
             if let Some(entry) = cache.remove(&key) {
                 use crate::ParamsTransfer;
