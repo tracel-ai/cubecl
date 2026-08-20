@@ -30,7 +30,7 @@ use cubecl_core::{
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
-        minifloat::{LowerMinifloatCast, LowerMinifloatCastPass},
+        minifloat::{Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass},
         saturating::LowerSaturatingArithmeticPass,
     },
     prelude::KernelDefinition,
@@ -214,6 +214,7 @@ where
         };
         func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
             native_fp8,
+            Fp8Container::Bytes,
         )));
 
         // Shared lowerings can create ops that need target-specific lowerings, but target-specific

@@ -91,6 +91,8 @@ pub fn f32_to_fp8_bits<N: Size>(
     let magnitude = Vector::<f32, N>::reinterpret(magnitude_bits);
 
     // Rounding by hand: the usual magic-number trick does not survive fast-math reassociation.
+    // `steps` overflows for normal magnitudes, which only feeds the lane the select below
+    // discards; no backend traps on a float-to-int overflow.
     let steps = magnitude * Vector::new(subnormal_scale);
     let truncated = Vector::<u32, N>::cast_from(steps);
     let fraction = steps - Vector::<f32, N>::cast_from(truncated);
@@ -127,11 +129,25 @@ pub fn f32_to_fp8_bits<N: Size>(
     code | sign
 }
 
+/// How a backend without a native fp8 type holds the bytes of an fp8 vector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Fp8Container {
+    /// One 8-bit integer per lane.
+    #[default]
+    Bytes,
+    /// Four lanes per `u32`, lane 0 in the low byte, for backends with no 8-bit type at all.
+    /// fp8 vectors must then be a multiple of four lanes wide.
+    Words,
+}
+
 pub type LowerMinifloatCastPass = MatchRewritePass<LowerMinifloatCast>;
 
+/// Lowers every cast from or to an fp8 format the backend does not convert natively onto the
+/// software polyfill, through `f32`.
 #[derive(new, Clone, Copy, Debug, Default, NamedRewrite)]
 pub struct LowerMinifloatCast {
-    pub native: EnumSet<Fp8Format>,
+    native: EnumSet<Fp8Format>,
+    container: Fp8Container,
 }
 
 impl LowerMinifloatCast {
@@ -146,13 +162,8 @@ impl MatchRewrite for LowerMinifloatCast {
         if !op.is_op::<CastOp>(ctx) {
             return false;
         }
-        let input = op.operand(ctx, 0);
-        let result = op.result(ctx);
-        // Bool casts belong to the backends' own lowering.
-        if input.scalar_ty(ctx).is_bool(ctx) || result.scalar_ty(ctx).is_bool(ctx) {
-            return false;
-        }
-        self.emulated(ctx, input).is_some() || self.emulated(ctx, result).is_some()
+        self.emulated(ctx, op.operand(ctx, 0)).is_some()
+            || self.emulated(ctx, op.result(ctx)).is_some()
     }
 
     fn rewrite(
@@ -166,12 +177,13 @@ impl MatchRewrite for LowerMinifloatCast {
         let result_ty = op.result(ctx).get_type(ctx);
         scope.register_size::<N>(input.vector_size(ctx));
 
+        // Bool sources and targets go through the `f32` cast the backends already lower.
         let mut value = input;
         if let Some(format) = self.emulated(ctx, input) {
-            value = decode(&scope, value, format);
+            value = self.decode(&scope, value, format);
         }
         let value = match self.emulated(ctx, result_ty) {
-            Some(format) => encode(&scope, value, format, result_ty),
+            Some(format) => self.encode(&scope, value, format, result_ty),
             None => cast_value(&scope, value, result_ty),
         };
         rewriter.replace_operation_with_values(ctx, op, vec![value]);
@@ -179,15 +191,84 @@ impl MatchRewrite for LowerMinifloatCast {
     }
 }
 
-fn decode(scope: &Scope, value: Value, format: Fp8Format) -> Value {
-    let bytes = reinterpret_value(scope, value, Vector::<u8, N>::__expand_as_type(scope));
-    let bits = cast_value(scope, bytes, Vector::<u32, N>::__expand_as_type(scope));
-    fp8_bits_to_f32::expand::<N>(scope, bits.into(), format).read_value(scope)
+impl LowerMinifloatCast {
+    fn decode(&self, scope: &Scope, value: Value, format: Fp8Format) -> Value {
+        let bits = match self.container {
+            Fp8Container::Bytes => {
+                let bytes =
+                    reinterpret_value(scope, value, Vector::<u8, N>::__expand_as_type(scope));
+                cast_value(scope, bytes, Vector::<u32, N>::__expand_as_type(scope))
+            }
+            Fp8Container::Words => {
+                let words = reinterpret_value(scope, value, words_type(scope));
+                unpack_words::expand::<N, W>(scope, words.into()).read_value(scope)
+            }
+        };
+        fp8_bits_to_f32::expand::<N>(scope, bits.into(), format).read_value(scope)
+    }
+
+    fn encode(
+        &self,
+        scope: &Scope,
+        value: Value,
+        format: Fp8Format,
+        result_ty: TypeHandle,
+    ) -> Value {
+        let value = cast_value(scope, value, Vector::<f32, N>::__expand_as_type(scope));
+        let bits = f32_to_fp8_bits::expand::<N>(scope, value.into(), format).read_value(scope);
+        let container = match self.container {
+            Fp8Container::Bytes => {
+                cast_value(scope, bits, Vector::<u8, N>::__expand_as_type(scope))
+            }
+            Fp8Container::Words => {
+                words_type(scope);
+                pack_words::expand::<N, W>(scope, bits.into()).read_value(scope)
+            }
+        };
+        reinterpret_value(scope, container, result_ty)
+    }
 }
 
-fn encode(scope: &Scope, value: Value, format: Fp8Format, result_ty: TypeHandle) -> Value {
-    let value = cast_value(scope, value, Vector::<f32, N>::__expand_as_type(scope));
-    let bits = f32_to_fp8_bits::expand::<N>(scope, value.into(), format).read_value(scope);
-    let bytes = cast_value(scope, bits, Vector::<u8, N>::__expand_as_type(scope));
-    reinterpret_value(scope, bytes, result_ty)
+define_size!(W);
+
+const LANES_PER_WORD: usize = (u32::BITS / u8::BITS) as usize;
+
+/// Registers `W`, the word count of an `N`-lane fp8 vector, and returns its type.
+fn words_type(scope: &Scope) -> TypeHandle {
+    let lanes = N::__expand_value(scope);
+    assert!(
+        lanes.is_multiple_of(LANES_PER_WORD),
+        "fp8 is packed four lanes to a u32 on this backend: vectors of {lanes} lanes are not \
+         supported, use a vector size that is a multiple of {LANES_PER_WORD}"
+    );
+    scope.register_size::<W>(lanes / LANES_PER_WORD);
+    Vector::<u32, W>::__expand_as_type(scope)
+}
+
+#[cube]
+fn unpack_words<N: Size, W: Size>(words: Vector<u32, W>) -> Vector<u32, N> {
+    let mut lanes = Vector::<u32, N>::empty();
+    #[unroll]
+    for lane in 0..N::value() {
+        let word = words.extract(lane / LANES_PER_WORD);
+        let shift = comptime![(lane % LANES_PER_WORD) as u32 * u8::BITS];
+        lanes.insert(lane, (word >> shift) & 0xFF);
+    }
+    lanes
+}
+
+#[cube]
+fn pack_words<N: Size, W: Size>(lanes: Vector<u32, N>) -> Vector<u32, W> {
+    let mut words = Vector::<u32, W>::empty();
+    #[unroll]
+    for index in 0..W::value() {
+        let mut word = 0u32;
+        #[unroll]
+        for offset in 0..LANES_PER_WORD {
+            let shift = comptime![offset as u32 * u8::BITS];
+            word |= (lanes.extract(index * LANES_PER_WORD + offset) & 0xFF) << shift;
+        }
+        words.insert(index, word);
+    }
+    words
 }
