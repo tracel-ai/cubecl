@@ -107,12 +107,18 @@ pub fn register_metal_features(
         };
         let raw = adapter.raw_device();
 
-        // The features registered below require SIMD-scoped operations, exposed through
-        // overlapping families.
-        // - Metal3 is the cross-platform programming model
-        // - Apple7 is the A14/M1-or-newer hardware baseline
-        // - Mac2 is the equivalent Mac capability family (including virtualized Metal device)
-        // MSL 3.2 compiler support is checked separately by the canary below.
+        // The native feature profile includes plane and CMMA operations that rely on Metal's
+        // SIMD-scoped capabilities. Metal can report those capabilities through overlapping
+        // programming-model and hardware families:
+        // - `Metal3`: the cross-platform programming-model family
+        // - `Apple7`: the A14/M1-or-newer hardware family
+        // - `Mac2`: the equivalent Mac hardware family, including Apple's paravirtualized device
+        //
+        // This matches wgpu-hal's SIMD-scoped capability check:
+        // https://github.com/gfx-rs/wgpu/blob/v30.0.0/wgpu-hal/src/metal/adapter.rs#L1073-L1077
+        //
+        // GPU-family support is independent of the supported MSL language version; the canary
+        // below verifies MSL 3.2 compiler support separately.
         let supports_required_family = raw.supportsFamily(MTLGPUFamily::Metal3)
             || raw.supportsFamily(MTLGPUFamily::Apple7)
             || raw.supportsFamily(MTLGPUFamily::Mac2);
