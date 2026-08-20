@@ -194,6 +194,24 @@ impl From<bool> for BoolAttr {
     }
 }
 
+impl BoolAttr {
+    /// The answer for one lane of `result`, or [`None`] where `result` has more than one.
+    ///
+    /// A comparison answers once per lane, and [`BoolAttr`] carries no vectorization: it types
+    /// itself as a bare [`BoolType`]. Folding a vector comparison to a single `true` would put
+    /// one bool where a vector of them belongs, and the backends then emit a scalar into a slot
+    /// typed for a vector. Folds that answer per lane build their attribute here rather than with
+    /// [`BoolAttr::new`], and simply decline to fold a vector.
+    pub fn per_lane(
+        ctx: &Context,
+        result: impl pliron::r#type::Typed,
+        value: bool,
+    ) -> Option<Self> {
+        use crate::interfaces::TypedExt;
+        (result.vector_size(ctx) == 1).then(|| Self::new(value))
+    }
+}
+
 #[attr_interface_impl]
 impl TypedAttrInterface for BoolAttr {
     fn get_type(&self, ctx: &Context) -> TypeHandle {

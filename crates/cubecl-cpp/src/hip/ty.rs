@@ -4,7 +4,7 @@ use cubecl_core::{
         prelude::*,
         types::{
             PointerType,
-            scalar::{BFloat16Type, Float16Type},
+            scalar::{BFloat16Type, Float8E4M3Type, Float8E5M2Type, Float16Type},
         },
     },
 };
@@ -31,6 +31,8 @@ pub(super) use hip_ty;
 
 hip_ty!(Float16Type, |_, _| "__half".into());
 hip_ty!(BFloat16Type, |_, _| "__hip_bfloat16".into());
+hip_ty!(Float8E4M3Type, |_, _| "uint8_t".into());
+hip_ty!(Float8E5M2Type, |_, _| "uint8_t".into());
 
 hip_ty!(PointerType, |ty, ctx| format!(
     "{} {}*",

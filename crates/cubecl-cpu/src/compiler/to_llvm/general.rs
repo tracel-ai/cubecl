@@ -1,6 +1,7 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use super::prelude::*;
+use super::{constant::constant_op, prelude::*};
+use cubecl_core::ir::attributes::ZeroAttr;
 use cubecl_core::ir::dialect::{
     barrier::{
         ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, ExpectTxOp, InitOp,
@@ -51,8 +52,9 @@ fn cast_int_to_int(
 
     let out_ty = cube_type_to_llvm(ctx, out_ty);
 
-    if out_ty.deref(ctx).is::<BoolType>() && in_width > 1 {
-        let zero = insert_int_const(ctx, rewriter, in_width, 0);
+    // Bool is `i1` by now; any non-zero integer is true, not its low bit.
+    if out_width == 1 && in_width > 1 {
+        let zero = insert_zero(ctx, rewriter, input);
         let cmp = llvm::ICmpOp::new(ctx, ICmpPredicateAttr::NE, input, zero);
         rewriter.insert_op(ctx, &cmp);
         rewriter.replace_operation_with_values(ctx, old_op, vec![cmp.get_result(ctx)]);
@@ -75,6 +77,13 @@ fn cast_int_to_int(
     Ok(())
 }
 
+/// A zero of `value`'s own type, vector or scalar, to compare it against.
+fn insert_zero(ctx: &mut Context, rewriter: &mut DialectConversionRewriter, value: Value) -> Value {
+    let zero = constant_op(ctx, ZeroAttr::new(value.get_type(ctx)).into());
+    rewriter.insert_op(ctx, &*zero.dyn_op(ctx));
+    zero.deref(ctx).get_result(0)
+}
+
 fn cast_float_to_int(
     cast_op: &CastOp,
     is_signed: bool,
@@ -84,6 +93,16 @@ fn cast_float_to_int(
     let res_ty = cube_type_to_llvm(ctx, cast_op.result_type(ctx));
     let input = cast_op.input(ctx);
     let old_op = cast_op.get_operation();
+
+    // Bool is any non-zero value, NaN included, not the truncated integer.
+    if cast_op.result_type(ctx).scalar_ty(ctx).is_bool(ctx) {
+        let zero = insert_zero(ctx, rewriter, input);
+        let cmp = llvm::FCmpOp::new(ctx, FCmpPredicateAttr::UNE, input, zero);
+        cmp.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
+        rewriter.insert_op(ctx, &cmp);
+        rewriter.replace_operation_with_values(ctx, old_op, vec![cmp.get_result(ctx)]);
+        return;
+    }
 
     let op: &dyn OneResultInterface = if is_signed {
         &llvm::FPToSIOp::new(ctx, input, res_ty)

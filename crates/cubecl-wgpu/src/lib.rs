@@ -36,6 +36,82 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f32);
+
+    /// WGSL packs fp8 four lanes to a `u32` and has no type for anything narrower. Rejecting
+    /// that has to reach the caller: a panic on the device thread is caught there, logged as a
+    /// warning, and the caller reads back a zeroed buffer as if the launch had succeeded.
+    mod fp8_lanes {
+        use cubecl_common::e4m3;
+        use cubecl_core::prelude::*;
+        use cubecl_core::{self as cubecl};
+        use cubecl_runtime::server::Handle;
+
+        use super::TestRuntime;
+
+        /// A cast, which the minifloat lowering pass is what rejects.
+        #[cube(launch_unchecked)]
+        fn cast_fp8<N: Size>(input: &[Vector<f32, N>], out: &mut [Vector<f32, N>]) {
+            if ABSOLUTE_POS < input.len() {
+                let codes = Vector::<e4m3, N>::cast_from(input[ABSOLUTE_POS]);
+                out[ABSOLUTE_POS] = Vector::cast_from(codes);
+            }
+        }
+
+        /// No cast at all, so only the WGSL type printer ever sees the fp8.
+        #[cube(launch_unchecked)]
+        fn copy_fp8<N: Size>(input: &[Vector<e4m3, N>], out: &mut [Vector<e4m3, N>]) {
+            if ABSOLUTE_POS < input.len() {
+                out[ABSOLUTE_POS] = input[ABSOLUTE_POS];
+            }
+        }
+
+        fn assert_rejected(client: &ComputeClient<TestRuntime>, out: Handle) {
+            let err = client
+                .read_one(out)
+                .expect_err("two fp8 lanes have no WGSL representation, the launch must fail")
+                .to_string();
+            assert!(
+                err.contains("fp8 on WGSL is packed 4 lanes to a u32"),
+                "the packing rule has to be in the error the caller sees, got: {err}"
+            );
+        }
+
+        #[test]
+        fn cast_at_two_lanes_is_reported() {
+            let client = TestRuntime::client(&Default::default());
+            let input = client.create_from_slice(&[0u8; 64]);
+            let out = client.empty(64);
+            unsafe {
+                cast_fp8::launch_unchecked::<TestRuntime>(
+                    &client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(8),
+                    2,
+                    BufferArg::from_raw_parts(input, 16),
+                    BufferArg::from_raw_parts(out.clone(), 16),
+                )
+            };
+            assert_rejected(&client, out);
+        }
+
+        #[test]
+        fn copy_at_two_lanes_is_reported() {
+            let client = TestRuntime::client(&Default::default());
+            let input = client.create_from_slice(&[0u8; 32]);
+            let out = client.empty(32);
+            unsafe {
+                copy_fp8::launch_unchecked::<TestRuntime>(
+                    &client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(8),
+                    2,
+                    BufferArg::from_raw_parts(input, 32),
+                    BufferArg::from_raw_parts(out.clone(), 32),
+                )
+            };
+            assert_rejected(&client, out);
+        }
+    }
 }
 
 #[cfg(all(test, feature = "spirv"))]

@@ -1,7 +1,9 @@
 use super::prelude::*;
 use cubecl_core::ir::types::{
     ArrayType, AtomicType,
-    scalar::{Float16Type, Float32Type, Float64Type, FloatFlex32Type},
+    scalar::{
+        Float8E4M3Type, Float8E5M2Type, Float16Type, Float32Type, Float64Type, FloatFlex32Type,
+    },
 };
 use pliron::printable::Printable;
 
@@ -26,6 +28,8 @@ impl_cube_to_llvm_type!(Float64Type, self, ctx => FP64Type::get(ctx));
 impl_cube_to_llvm_type!(Float32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(FloatFlex32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(Float16Type, self, ctx => FP16Type::get(ctx));
+impl_cube_to_llvm_type!(Float8E4M3Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
+impl_cube_to_llvm_type!(Float8E5M2Type, self, ctx => IntegerType::get(ctx, 8, Signedness::Signless));
 impl_cube_to_llvm_type!(CubePointerType, self, ctx => LlvmPointerType::get(ctx, 0));
 impl_cube_to_llvm_type!(CubeVectorType, self, ctx => LlvmVectorType::get(ctx, cube_type_to_llvm(ctx, self.inner), self.vectorization as u32, VectorTypeKind::Fixed));
 impl_cube_to_llvm_type!(AtomicType, self, ctx => cube_type_to_llvm(ctx, self.inner));

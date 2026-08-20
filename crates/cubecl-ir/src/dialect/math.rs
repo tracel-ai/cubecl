@@ -393,10 +393,11 @@ const_eval!(SDivOp, {
             _ => None?
         })
     },
-    // x / x -> 1
+    // x / x -> 1. Only for one lane: `int_attr` carries no vectorization either.
     custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(false))
+        let result = self.get_result(ctx);
+        if self.lhs(ctx) == self.rhs(ctx) && result.vector_size(ctx) == 1 {
+            Some(int_attr(ctx, result.get_type(ctx), 1))
         } else {
             None
         }
@@ -426,10 +427,11 @@ const_eval!(UDivOp, {
             _ => None?
         })
     },
-    // x / x -> 1
+    // x / x -> 1. Only for one lane: `int_attr` carries no vectorization either.
     custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(false))
+        let result = self.get_result(ctx);
+        if self.lhs(ctx) == self.rhs(ctx) && result.vector_size(ctx) == 1 {
+            Some(int_attr(ctx, result.get_type(ctx), 1))
         } else {
             None
         }

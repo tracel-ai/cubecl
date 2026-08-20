@@ -274,7 +274,7 @@ const_eval!(SLessThanOp, {
     // (x < x) -> false;
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(false))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
         } else {
             None
         }
@@ -283,7 +283,7 @@ const_eval!(SLessThanOp, {
     custom: |_, rhs| {
         let ty = rhs?.get_type(ctx);
         match rhs?.as_const_val(ctx) {
-            ConstantValue::Int(val) if is_min_int(ctx, ty, val) => Some(BoolAttr::new(false)),
+            ConstantValue::Int(val) if is_min_int(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
             _ => None
         }
     },
@@ -291,7 +291,7 @@ const_eval!(SLessThanOp, {
     custom: |lhs, _| {
         let ty = lhs?.get_type(ctx);
         match lhs?.as_const_val(ctx) {
-            ConstantValue::Int(val) if is_max_int(ctx, ty, val) => Some(BoolAttr::new(false)),
+            ConstantValue::Int(val) if is_max_int(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
             _ => None
         }
     },
@@ -305,7 +305,7 @@ const_eval!(ULessThanOp, {
     // (x < x) -> false;
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(false))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
         } else {
             None
         }
@@ -313,7 +313,7 @@ const_eval!(ULessThanOp, {
     // int < min_int -> false
     custom: |_, rhs| {
         match rhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(BoolAttr::new(false)),
+            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
             _ => None
         }
     },
@@ -321,7 +321,7 @@ const_eval!(ULessThanOp, {
     custom: |lhs, _| {
         let ty = lhs?.get_type(ctx);
         match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(val) if is_max_uint(ctx, ty, val) => Some(BoolAttr::new(false)),
+            ConstantValue::UInt(val) if is_max_uint(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
             _ => None
         }
     },
@@ -342,7 +342,7 @@ const_eval!(SGreaterThanOp, {
     // (x > x) -> false;
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(false))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
         } else {
             None
         }
@@ -351,7 +351,7 @@ const_eval!(SGreaterThanOp, {
     custom: |lhs, _| {
         let ty = lhs?.get_type(ctx);
         match lhs?.as_const_val(ctx) {
-            ConstantValue::Int(val) if is_min_int(ctx, ty, val) => Some(BoolAttr::new(false)),
+            ConstantValue::Int(val) if is_min_int(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
             _ => None
         }
     },
@@ -359,7 +359,7 @@ const_eval!(SGreaterThanOp, {
     custom: |_, rhs| {
         let ty = rhs?.get_type(ctx);
         match rhs?.as_const_val(ctx) {
-            ConstantValue::Int(val) if is_max_int(ctx, ty, val) => Some(BoolAttr::new(false)),
+            ConstantValue::Int(val) if is_max_int(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
             _ => None
         }
     }
@@ -373,7 +373,7 @@ const_eval!(UGreaterThanOp, {
     // (x > x) -> false
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(false))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
         } else {
             None
         }
@@ -381,7 +381,7 @@ const_eval!(UGreaterThanOp, {
     // min_int > int -> false
     custom: |lhs, _| {
         match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(BoolAttr::new(false)),
+            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
             _ => None
         }
     },
@@ -389,7 +389,7 @@ const_eval!(UGreaterThanOp, {
     custom: |_, rhs| {
         let ty = rhs?.get_type(ctx);
         match rhs?.as_const_val(ctx) {
-            ConstantValue::UInt(val) if is_max_uint(ctx, ty, val) => Some(BoolAttr::new(false)),
+            ConstantValue::UInt(val) if is_max_uint(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
             _ => None
         }
     }
@@ -410,7 +410,7 @@ const_eval!(SLessThanOrEqualOp, {
     // (x <= x) -> true
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(true))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
         } else {
             None
         }
@@ -419,7 +419,7 @@ const_eval!(SLessThanOrEqualOp, {
     custom: |lhs, _| {
         let ty = lhs?.get_type(ctx);
         match lhs?.as_const_val(ctx) {
-            ConstantValue::Int(val) if is_min_int(ctx, ty, val) => Some(BoolAttr::new(true)),
+            ConstantValue::Int(val) if is_min_int(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
             _ => None
         }
     },
@@ -427,7 +427,7 @@ const_eval!(SLessThanOrEqualOp, {
     custom: |_, rhs| {
         let ty = rhs?.get_type(ctx);
         match rhs?.as_const_val(ctx) {
-            ConstantValue::Int(val) if is_max_int(ctx, ty, val) => Some(BoolAttr::new(true)),
+            ConstantValue::Int(val) if is_max_int(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
             _ => None
         }
     }
@@ -441,7 +441,7 @@ const_eval!(ULessThanOrEqualOp, {
     // (x <= x) -> true
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(true))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
         } else {
             None
         }
@@ -449,7 +449,7 @@ const_eval!(ULessThanOrEqualOp, {
     // min_int <= int -> true
     custom: |lhs, _| {
         match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(BoolAttr::new(true)),
+            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
             _ => None
         }
     },
@@ -457,7 +457,7 @@ const_eval!(ULessThanOrEqualOp, {
     custom: |_, rhs| {
         let ty = rhs?.get_type(ctx);
         match rhs?.as_const_val(ctx) {
-            ConstantValue::UInt(val) if is_max_uint(ctx, ty, val) => Some(BoolAttr::new(true)),
+            ConstantValue::UInt(val) if is_max_uint(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
             _ => None
         }
     }
@@ -478,7 +478,7 @@ const_eval!(SGreaterThanOrEqualOp, {
     // (x >= x) -> true
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(true))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
         } else {
             None
         }
@@ -487,7 +487,7 @@ const_eval!(SGreaterThanOrEqualOp, {
     custom: |_, rhs| {
         let ty = rhs?.get_type(ctx);
         match rhs?.as_const_val(ctx) {
-            ConstantValue::Int(val) if is_min_int(ctx, ty, val) => Some(BoolAttr::new(true)),
+            ConstantValue::Int(val) if is_min_int(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
             _ => None
         }
     },
@@ -495,7 +495,7 @@ const_eval!(SGreaterThanOrEqualOp, {
     custom: |lhs, _| {
         let ty = lhs?.get_type(ctx);
         match lhs?.as_const_val(ctx) {
-            ConstantValue::Int(val) if is_max_int(ctx, ty, val) => Some(BoolAttr::new(true)),
+            ConstantValue::Int(val) if is_max_int(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
             _ => None
         }
     }
@@ -509,7 +509,7 @@ const_eval!(UGreaterThanOrEqualOp, {
     // (x >= x) -> true
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(true))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
         } else {
             None
         }
@@ -517,7 +517,7 @@ const_eval!(UGreaterThanOrEqualOp, {
     // int >= min_int -> true
     custom: |_, rhs| {
         match rhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(BoolAttr::new(true)),
+            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
             _ => None
         }
     },
@@ -525,7 +525,7 @@ const_eval!(UGreaterThanOrEqualOp, {
     custom: |lhs, _| {
         let ty = lhs?.get_type(ctx);
         match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(val) if is_max_uint(ctx, ty, val) => Some(BoolAttr::new(true)),
+            ConstantValue::UInt(val) if is_max_uint(ctx, ty, val) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
             _ => None
         }
     }
@@ -546,7 +546,7 @@ const_eval!(IEqualOp, {
     // (x == x) -> true; exclude float
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(true))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
         } else {
             None
         }
@@ -566,7 +566,7 @@ const_eval!(BoolEqualOp, {
     // (x == x) -> true; exclude float
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(true))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
         } else {
             None
         }
@@ -581,7 +581,7 @@ const_eval!(INotEqualOp, {
     // (x != x) == false; exclude float
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(false))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
         } else {
             None
         }
@@ -601,7 +601,7 @@ const_eval!(BoolNotEqualOp, {
     // (x != x) == false; exclude float
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(BoolAttr::new(false))
+            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
         } else {
             None
         }

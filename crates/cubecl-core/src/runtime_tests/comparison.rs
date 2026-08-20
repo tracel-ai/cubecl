@@ -203,6 +203,45 @@ pub fn test_nan_ordering<R: Runtime>(client: ComputeClient<R>) {
     }
 }
 
+/// Comparing a vector with itself folds at compile time, and the answer is a vector of `true`,
+/// not the one `true` a bare [`BoolAttr`](cubecl_ir::attributes::BoolAttr) can hold. Each of these
+/// picks a different fold: two identical operands, and an operand against its type's extreme.
+#[cube(launch_unchecked)]
+fn kernel_folded(output: &mut [Vector<u32, Const<4>>]) {
+    if ABSOLUTE_POS < output.len() {
+        let value = output[ABSOLUTE_POS];
+
+        let same = value.equal(&value);
+        let below_min = value.less_than(&Vector::new(u32::MIN));
+
+        output[ABSOLUTE_POS] =
+            Vector::cast_from(same) + Vector::cast_from(below_min) * Vector::new(2u32);
+    }
+}
+
+/// A vector comparison that constant folds still answers per lane.
+pub fn test_folded_vector<R: Runtime>(client: ComputeClient<R>) {
+    let handle = client.create_from_slice(u32::as_bytes(&[7u32, 0, 3, 0]));
+
+    unsafe {
+        kernel_folded::launch_unchecked::<R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(handle.clone(), 4),
+        )
+    };
+
+    let actual = client.read_one_unchecked(handle);
+    assert_eq!(
+        actual.len() / size_of::<u32>(),
+        4,
+        "a failed launch reads back nothing"
+    );
+    // Equal to itself everywhere, below `u32::MIN` nowhere.
+    assert_eq!(u32::from_bytes(&actual), &[1, 1, 1, 1]);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_comparison {
@@ -227,6 +266,7 @@ macro_rules! testgen_comparison {
             add_test!(test_eq);
             add_test!(test_ne);
             add_test!(test_nan_ordering);
+            add_test!(test_folded_vector);
         }
     };
 }

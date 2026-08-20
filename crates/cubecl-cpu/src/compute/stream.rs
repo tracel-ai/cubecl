@@ -103,7 +103,12 @@ impl CpuStream {
                 cube_count,
                 ..
             } => {
-                if !pliron_engine.requirements().shared_memories.blocks.is_empty() {
+                if !pliron_engine
+                    .requirements()
+                    .shared_memories
+                    .blocks
+                    .is_empty()
+                {
                     self.flush_uncheck();
                 }
                 // No unit cap: the threadpool grows to fit any cube_dim, one
