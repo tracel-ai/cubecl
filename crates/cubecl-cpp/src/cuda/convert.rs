@@ -5,6 +5,7 @@ use core::{fmt, ops::Deref};
 
 use cubecl_core::{
     self as cubecl,
+    ir::types::Fp8Format,
     ir::{
         dialect::general::CastOp,
         interfaces::{ScalarType, TypedExt},
@@ -12,7 +13,6 @@ use cubecl_core::{
         prelude::*,
         types::{VectorType, scalar::*},
     },
-    post_processing::minifloat::Fp8Format,
     prelude::*,
 };
 use pliron::{printable::Printable, utils::apfloat::Float8E5M2};

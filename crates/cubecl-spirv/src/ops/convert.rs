@@ -1,7 +1,7 @@
 use cubecl_core::{
     self as cubecl, define_scalar, define_size,
+    ir::types::Fp8Format,
     num_traits::{One, Zero},
-    post_processing::minifloat::Fp8Format,
     prelude::*,
 };
 use cubecl_ir::{Scope, dialect::general::CastOp, interfaces::TypedExt, prelude::*};
