@@ -286,6 +286,95 @@ macro_rules! fp8_format_tests {
                 }
             }
 
+            /// fp8 has no comparison instruction on any backend, so equality reads the bits.
+            /// Comparing every code against `+0.0` is where that parts from a float compare:
+            /// `-0.0` is a different code, so it answers `false` where a float says `true`.
+            /// Comparing every code against itself covers the other side, NaN, which answers
+            /// `true` where a float says `false`.
+            ///
+            /// `mirror` carries the same bytes as `codes` so that comparing a code with itself
+            /// survives to the backend: reading one buffer twice folds away before then.
+            #[cube(launch_unchecked)]
+            pub fn kernel_equal(
+                codes: &[u32],
+                mirror: &[u32],
+                self_eq: &mut [Vector<u32, Const<LANES_PER_WORD>>],
+                zero_eq: &mut [Vector<u32, Const<LANES_PER_WORD>>],
+            ) {
+                if ABSOLUTE_POS < codes.len() {
+                    let lhs =
+                        Vector::<$fmt, Const<LANES_PER_WORD>>::reinterpret(codes[ABSOLUTE_POS]);
+                    let rhs =
+                        Vector::<$fmt, Const<LANES_PER_WORD>>::reinterpret(mirror[ABSOLUTE_POS]);
+                    let zero = Vector::<$fmt, Const<LANES_PER_WORD>>::reinterpret(0u32);
+
+                    self_eq[ABSOLUTE_POS] = Vector::cast_from(lhs.equal(&rhs));
+                    zero_eq[ABSOLUTE_POS] = Vector::cast_from(lhs.equal(&zero));
+                }
+            }
+
+            /// Comparing fp8 needs its lanes addressable one byte at a time, so this asks for
+            /// 8-bit integers on top of the conversion the other tests need. A backend that
+            /// packs four lanes to a word, as WGSL does for want of an 8-bit type, would compare
+            /// whole words and answer once for four lanes.
+            pub fn equality<R: Runtime>(client: ComputeClient<R>) {
+                let byte_math = u8::supported_uses(&client).contains(TypeUsage::Arithmetic);
+                if !fp8_supported(&client) || !byte_math {
+                    println!("Unsupported, skipping");
+                    return;
+                }
+
+                let codes: Vec<u8> = (0..=u8::MAX).collect();
+                let words = codes.len() / LANES_PER_WORD;
+
+                let codes_buffer = client.create_from_slice(&codes);
+                let mirror_buffer = client.create_from_slice(&codes);
+                let self_eq = client.empty(codes.len() * size_of::<u32>());
+                let zero_eq = client.empty(codes.len() * size_of::<u32>());
+
+                unsafe {
+                    kernel_equal::launch_unchecked::<R>(
+                        &client,
+                        CubeCount::Static(1, 1, 1),
+                        CubeDim::new_1d(words as u32),
+                        BufferArg::from_raw_parts(codes_buffer, words),
+                        BufferArg::from_raw_parts(mirror_buffer, words),
+                        BufferArg::from_raw_parts(self_eq.clone(), codes.len()),
+                        BufferArg::from_raw_parts(zero_eq.clone(), codes.len()),
+                    )
+                };
+
+                let actual = client.read_one_unchecked(self_eq);
+                assert_eq!(
+                    actual.len() / size_of::<u32>(),
+                    codes.len(),
+                    "a failed launch reads back nothing"
+                );
+                for (code, actual) in codes.iter().zip(u32::from_bytes(&actual)) {
+                    assert_eq!(
+                        *actual,
+                        1,
+                        "{} {code:#04x} equals itself on the bits, NaN included",
+                        stringify!($fmt)
+                    );
+                }
+
+                let actual = client.read_one_unchecked(zero_eq);
+                assert_eq!(
+                    actual.len() / size_of::<u32>(),
+                    codes.len(),
+                    "a failed launch reads back nothing"
+                );
+                for (code, actual) in codes.iter().zip(u32::from_bytes(&actual)) {
+                    assert_eq!(
+                        *actual,
+                        (*code == 0) as u32,
+                        "{} {code:#04x} against +0.0 on the bits",
+                        stringify!($fmt)
+                    );
+                }
+            }
+
             pub fn bool_casts<R: Runtime>(client: ComputeClient<R>) {
                 if !fp8_supported(&client) {
                     println!("Unsupported, skipping");
@@ -648,6 +737,12 @@ macro_rules! testgen_minifloat {
             }
 
             #[$crate::runtime_tests::test_log::test]
+            fn equality() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::minifloat::fp8_e4m3::equality::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
             #[ignore = "sweeps every f32; run with --ignored"]
             fn encode_sweep() {
                 let client = TestRuntime::client(&Default::default());
@@ -684,6 +779,12 @@ macro_rules! testgen_minifloat {
             fn bool_casts() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::minifloat::fp8_e5m2::bool_casts::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn equality() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::minifloat::fp8_e5m2::equality::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]

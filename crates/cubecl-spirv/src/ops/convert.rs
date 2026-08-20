@@ -106,6 +106,10 @@ impl LowerOp for CastOp {
         let value = if input.scalar_ty(scope.ctx()).is_bool(scope.ctx()) {
             scope.register_value_type::<T, N>(result_ty);
             bool_to_numeric::expand::<T>(scope, input.into()).read_value(scope)
+        } else if Fp8Format::of_type(scope.ctx(), input.scalar_ty(scope.ctx())).is_some() {
+            scope.register_size::<N>(input.vector_size(scope.ctx()));
+            let bytes = reinterpret_value(scope, input, Vector::<u8, N>::__expand_as_type(scope));
+            fp8_to_bool::expand(scope, bytes.into()).read_value(scope)
         } else {
             scope.register_value_type::<T, N>(input);
             numeric_to_bool::expand::<T>(scope, input.into()).read_value(scope)
@@ -122,4 +126,17 @@ fn bool_to_numeric<T: Numeric>(input: Vector<bool, N>) -> Vector<T, N> {
 #[cube]
 fn numeric_to_bool<T: Numeric>(input: Vector<T, N>) -> Vector<bool, N> {
     input.not_equal(&Vector::zero())
+}
+
+/// Everything above the sign of an fp8 value, so that masking with it leaves the magnitude.
+const FP8_MAGNITUDE_MASK: u8 = u8::MAX >> 1;
+
+/// fp8 takes no comparison, so its bool conversion reads the bits. Masking the sign is what keeps
+/// this a float test rather than a byte test: `-0.0` is `0x80`, whose magnitude is zero, so it
+/// converts to `false` the way `0.0` does, while every NaN encoding has a non-zero magnitude and so
+/// converts to `true`. Upstream CUDA documents the same rule for `__nv_fp8_e4m3::operator bool`:
+/// "+0 and -0 inputs convert to `false`. Non-zero inputs convert to `true`."
+#[cube]
+fn fp8_to_bool(input: Vector<u8, N>) -> Vector<bool, N> {
+    (input & Vector::new(FP8_MAGNITUDE_MASK)).not_equal(&Vector::zero())
 }

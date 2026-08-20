@@ -362,8 +362,14 @@ fn register_features(
         comp_options.vulkan.supports_fp_fast_math = true;
     }
 
+    // Native fp8 takes no comparison, so equality and the bool conversion read the value as an
+    // 8-bit integer instead. `shaderInt8` is what makes that integer legal, and every device that
+    // reports `shaderFloat8` reports it too, so requiring both costs nothing.
     if let Some(float8) = &extended_feat.float8
         && float8.shader_float8 == TRUE
+        && extended_feat
+            .float16_int8
+            .is_some_and(|it| it.shader_int8 == TRUE)
     {
         comp_options.vulkan.supports_float8 = true;
     }
@@ -519,12 +525,12 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         }
     }
 
-    // Emulated fp8 is an 8-bit int, so `shaderInt8` carries it; native fp8 needs neither.
-    let emulated_fp8 = ext_feat
+    // Emulated fp8 is an 8-bit int, and native fp8 falls back to one to compare, so `shaderInt8`
+    // carries fp8 either way.
+    let supports_fp8 = ext_feat
         .float16_int8
         .is_some_and(|it| it.shader_int8 == TRUE);
-    let native_fp8 = ext_feat.float8.is_some_and(|it| it.shader_float8 == TRUE);
-    if emulated_fp8 || native_fp8 {
+    if supports_fp8 {
         for kind in [FloatKind::E4M3, FloatKind::E5M2] {
             props.register_type_usage(ElemType::Float(kind), TypeUsage::Conversion);
             if storage8 {
