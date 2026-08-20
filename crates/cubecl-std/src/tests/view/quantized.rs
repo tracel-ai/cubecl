@@ -403,6 +403,7 @@ pub fn test_quantized_two_level_ue4m3<R: Runtime, F: Float + CubeElement>(
 ) {
     let usage = client.properties().type_usage(e4m3::elem_type_native());
     if !usage.is_superset(TypeUsage::Conversion | TypeUsage::Buffer) {
+        println!("Unsupported, skipping");
         return;
     }
     let vector_size_float = 8;

@@ -57,7 +57,8 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R>,
     vector_size: VectorSize,
 ) {
-    if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) {
+    let byte_buffers = u8::supported_uses(&client).contains(TypeUsage::Buffer);
+    if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) || !byte_buffers {
         println!("Unsupported, skipping");
         return;
     }
@@ -218,142 +219,161 @@ macro_rules! assert_encoded {
 /// Each fp8 test is the same test once per format, so both the kernels and the bodies are
 /// generated. The format stays a concrete type: `e4m3` and `e5m2` are `Scalar + CubePrimitive`,
 /// not `Float`, so there is no bound to be generic over.
+///
+/// The fp8 bytes travel in `u32` words so that the same kernels run on backends with no 8-bit
+/// buffers: `W` words hold `N = 4 W` lanes.
 macro_rules! fp8_format_tests {
-    ($fmt:ident) => {
-        ::paste::paste! {
-            pub mod [< fp8_ $fmt >] {
-                use super::*;
+    ($fmt:ident, $module:ident) => {
+        pub mod $module {
+            use super::*;
 
-                #[cube(launch_unchecked)]
-                pub fn kernel_decode<N: Size>(
-                    input: &[Vector<u8, N>],
-                    out: &mut [Vector<f32, N>],
-                ) {
-                    if ABSOLUTE_POS < input.len() {
-                        out[ABSOLUTE_POS] =
-                            Vector::cast_from(Vector::<$fmt, N>::reinterpret(input[ABSOLUTE_POS]));
+            #[cube(launch_unchecked)]
+            pub fn kernel_decode<W: Size, N: Size>(
+                input: &[Vector<u32, W>],
+                out: &mut [Vector<f32, N>],
+            ) {
+                if ABSOLUTE_POS < input.len() {
+                    out[ABSOLUTE_POS] =
+                        Vector::cast_from(Vector::<$fmt, N>::reinterpret(input[ABSOLUTE_POS]));
+                }
+            }
+
+            #[cube(launch_unchecked)]
+            pub fn kernel_encode<N: Size, W: Size>(
+                input: &[Vector<f32, N>],
+                out: &mut [Vector<u32, W>],
+            ) {
+                if ABSOLUTE_POS < input.len() {
+                    out[ABSOLUTE_POS] =
+                        Vector::reinterpret(Vector::<$fmt, N>::cast_from(input[ABSOLUTE_POS]));
+                }
+            }
+
+            /// The input is derived from the position rather than read, so sweeping every
+            /// `f32` uploads no operands at all.
+            #[cube(launch_unchecked)]
+            pub fn kernel_sweep(base: u32, out: &mut [u32]) {
+                if ABSOLUTE_POS < out.len() {
+                    let first = base + ABSOLUTE_POS as u32 * LANES_PER_WORD as u32;
+                    let mut values = Vector::<f32, Const<LANES_PER_WORD>>::empty();
+                    #[unroll]
+                    for lane in 0..LANES_PER_WORD {
+                        values.insert(lane, f32::reinterpret(first + comptime![lane as u32]));
                     }
+                    out[ABSOLUTE_POS] =
+                        u32::reinterpret(Vector::<$fmt, Const<LANES_PER_WORD>>::cast_from(values));
+                }
+            }
+
+            pub fn decode_exhaustive<R: Runtime>(client: ComputeClient<R>, lanes: VectorSize) {
+                if !fp8_supported(&client) {
+                    println!("Unsupported, skipping");
+                    return;
                 }
 
-                #[cube(launch_unchecked)]
-                pub fn kernel_encode<N: Size>(
-                    input: &[Vector<f32, N>],
-                    out: &mut [Vector<u8, N>],
-                ) {
-                    if ABSOLUTE_POS < input.len() {
-                        out[ABSOLUTE_POS] =
-                            Vector::reinterpret(Vector::<$fmt, N>::cast_from(input[ABSOLUTE_POS]));
-                    }
+                let bytes: Vec<u8> = (0..=u8::MAX).collect();
+                let words = bytes.len() / LANES_PER_WORD;
+                let input = client.create_from_slice(&bytes);
+                let out = client.empty(bytes.len() * size_of::<f32>());
+                let vectors = bytes.len() / lanes;
+
+                unsafe {
+                    kernel_decode::launch_unchecked::<R>(
+                        &client,
+                        CubeCount::Static(vectors.div_ceil(32) as u32, 1, 1),
+                        CubeDim::new_1d(32),
+                        lanes / LANES_PER_WORD,
+                        lanes,
+                        BufferArg::from_raw_parts(input, words),
+                        BufferArg::from_raw_parts(out.clone(), bytes.len()),
+                    )
+                };
+
+                let actual = client.read_one_unchecked(out);
+                let actual = f32::from_bytes(&actual);
+                assert_eq!(
+                    actual.len(),
+                    bytes.len(),
+                    "a failed launch reads back nothing"
+                );
+                for (bits, actual) in bytes.iter().zip(actual) {
+                    assert_same_float(
+                        *actual,
+                        $fmt::from_bits(*bits).to_f32(),
+                        stringify!($fmt),
+                        *bits as u32,
+                    );
+                }
+            }
+
+            pub fn encode_exhaustive<R: Runtime>(client: ComputeClient<R>, lanes: VectorSize) {
+                if !fp8_supported(&client) {
+                    println!("Unsupported, skipping");
+                    return;
                 }
 
-                /// The input is derived from the position rather than read, so sweeping every
-                /// `f32` uploads no operands at all.
-                #[cube(launch_unchecked)]
-                pub fn kernel_sweep(base: u32, out: &mut [u8]) {
-                    if ABSOLUTE_POS < out.len() {
-                        let value = f32::reinterpret(base + ABSOLUTE_POS as u32);
-                        out[ABSOLUTE_POS] = u8::reinterpret($fmt::cast_from(value));
-                    }
+                let values = fp8_encode_inputs(lanes);
+                let words = values.len() / LANES_PER_WORD;
+
+                let input = client.create_from_slice(f32::as_bytes(&values));
+                let out = client.empty(values.len());
+                let vectors = values.len() / lanes;
+
+                unsafe {
+                    kernel_encode::launch_unchecked::<R>(
+                        &client,
+                        CubeCount::Static(vectors.div_ceil(64) as u32, 1, 1),
+                        CubeDim::new_1d(64),
+                        lanes,
+                        lanes / LANES_PER_WORD,
+                        BufferArg::from_raw_parts(input, values.len()),
+                        BufferArg::from_raw_parts(out.clone(), words),
+                    )
+                };
+
+                let actual = client.read_one_unchecked(out);
+                assert_eq!(
+                    actual.len(),
+                    values.len(),
+                    "a failed launch reads back nothing"
+                );
+                for (value, actual) in values.iter().zip(u8::from_bytes(&actual)) {
+                    assert_encoded!($fmt, *actual, *value);
+                }
+            }
+
+            /// Every `f32` bit pattern, in chunks, against the host codec. Slow by
+            /// construction, so it is `#[ignore]`d rather than gated: an ignored test still
+            /// compiles, so it cannot rot unnoticed.
+            pub fn encode_sweep<R: Runtime>(client: ComputeClient<R>) {
+                if !fp8_supported(&client) {
+                    println!("Unsupported, skipping");
+                    return;
                 }
 
-                pub fn decode_exhaustive<R: Runtime>(
-                    client: ComputeClient<R>,
-                    vector_size: VectorSize,
-                ) {
-                    if !fp8_supported(&client) {
-                        println!("Unsupported, skipping");
-                        return;
-                    }
+                // Sized so the cube count stays under the 65535 per dimension every backend
+                // allows.
+                const CUBE_DIM: usize = 256;
+                const CHUNK: usize = 1 << 22;
+                const WORDS: usize = CHUNK / LANES_PER_WORD;
+                let out = client.empty(CHUNK);
 
-                    let bytes: Vec<u8> = (0..=u8::MAX).collect();
-                    let input = client.create_from_slice(u8::as_bytes(&bytes));
-                    let out = client.empty(bytes.len() * size_of::<f32>());
-                    let vectors = bytes.len() / vector_size;
-
+                for base in (0..=(u32::MAX as u64)).step_by(CHUNK) {
+                    let base = base as u32;
                     unsafe {
-                        kernel_decode::launch_unchecked::<R>(
+                        kernel_sweep::launch_unchecked::<R>(
                             &client,
-                            CubeCount::Static(vectors.div_ceil(32) as u32, 1, 1),
-                            CubeDim::new_1d(32),
-                            vector_size,
-                            BufferArg::from_raw_parts(input, bytes.len()),
-                            BufferArg::from_raw_parts(out.clone(), bytes.len()),
+                            CubeCount::Static((WORDS / CUBE_DIM) as u32, 1, 1),
+                            CubeDim::new_1d(CUBE_DIM as u32),
+                            base,
+                            BufferArg::from_raw_parts(out.clone(), WORDS),
                         )
                     };
 
-                    let actual = client.read_one_unchecked(out);
-                    for (bits, actual) in bytes.iter().zip(f32::from_bytes(&actual)) {
-                        assert_same_float(
-                            *actual,
-                            $fmt::from_bits(*bits).to_f32(),
-                            stringify!($fmt),
-                            *bits as u32,
-                        );
-                    }
-                }
-
-                pub fn encode_exhaustive<R: Runtime>(
-                    client: ComputeClient<R>,
-                    vector_size: VectorSize,
-                ) {
-                    if !fp8_supported(&client) {
-                        println!("Unsupported, skipping");
-                        return;
-                    }
-
-                    let values = fp8_encode_inputs(vector_size);
-                    let input = client.create_from_slice(f32::as_bytes(&values));
-                    let out = client.empty(values.len());
-                    let vectors = values.len() / vector_size;
-
-                    unsafe {
-                        kernel_encode::launch_unchecked::<R>(
-                            &client,
-                            CubeCount::Static(vectors.div_ceil(64) as u32, 1, 1),
-                            CubeDim::new_1d(64),
-                            vector_size,
-                            BufferArg::from_raw_parts(input, values.len()),
-                            BufferArg::from_raw_parts(out.clone(), values.len()),
-                        )
-                    };
-
-                    let actual = client.read_one_unchecked(out);
-                    for (value, actual) in values.iter().zip(u8::from_bytes(&actual)) {
-                        assert_encoded!($fmt, *actual, *value);
-                    }
-                }
-
-                /// Every `f32` bit pattern, in chunks, against the host codec. Slow by
-                /// construction, so it is `#[ignore]`d rather than gated: an ignored test still
-                /// compiles, so it cannot rot unnoticed.
-                pub fn encode_sweep<R: Runtime>(client: ComputeClient<R>) {
-                    if !fp8_supported(&client) {
-                        println!("Unsupported, skipping");
-                        return;
-                    }
-
-                    // Sized so the cube count stays under the 65535 per dimension every backend
-                    // allows.
-                    const CUBE_DIM: usize = 256;
-                    const CHUNK: usize = 1 << 22;
-                    let out = client.empty(CHUNK);
-
-                    for base in (0..=(u32::MAX as u64)).step_by(CHUNK) {
-                        let base = base as u32;
-                        unsafe {
-                            kernel_sweep::launch_unchecked::<R>(
-                                &client,
-                                CubeCount::Static((CHUNK / CUBE_DIM) as u32, 1, 1),
-                                CubeDim::new_1d(CUBE_DIM as u32),
-                                base,
-                                BufferArg::from_raw_parts(out.clone(), CHUNK),
-                            )
-                        };
-
-                        let actual = client.read_one_unchecked(out.clone());
-                        for (offset, actual) in u8::from_bytes(&actual).iter().enumerate() {
-                            assert_encoded!($fmt, *actual, f32::from_bits(base + offset as u32));
-                        }
+                    let actual = client.read_one_unchecked(out.clone());
+                    assert_eq!(actual.len(), CHUNK, "a failed launch reads back nothing");
+                    for (offset, actual) in u8::from_bytes(&actual).iter().enumerate() {
+                        assert_encoded!($fmt, *actual, f32::from_bits(base + offset as u32));
                     }
                 }
             }
@@ -361,8 +381,11 @@ macro_rules! fp8_format_tests {
     };
 }
 
-fp8_format_tests!(e4m3);
-fp8_format_tests!(e5m2);
+fp8_format_tests!(e4m3, fp8_e4m3);
+fp8_format_tests!(e5m2, fp8_e5m2);
+
+/// fp8 bytes travel in `u32` words so that backends without 8-bit buffers run the same tests.
+const LANES_PER_WORD: usize = (u32::BITS / u8::BITS) as usize;
 
 /// Every `f16`, so each exponent and every mantissa tie an `f16` can name is covered, plus the
 /// boundaries only an `f32` can express. Padded to the vector size the kernel launches at.
@@ -371,9 +394,7 @@ fn fp8_encode_inputs(vector_size: VectorSize) -> Vec<f32> {
         .map(|bits| half::f16::from_bits(bits).to_f32())
         .collect();
     values.extend(fp8_encode_edges());
-    while !values.len().is_multiple_of(vector_size) {
-        values.push(0.0);
-    }
+    values.resize(values.len().next_multiple_of(vector_size), 0.0);
     values
 }
 
@@ -514,20 +535,20 @@ macro_rules! testgen_minifloat {
             #[$crate::runtime_tests::test_log::test]
             fn decode_exhaustive() {
                 let client = TestRuntime::client(&Default::default());
-                for vector_size in [1, 4] {
+                for lanes in [4, 8] {
                     cubecl_core::runtime_tests::minifloat::fp8_e4m3::decode_exhaustive::<
                         TestRuntime,
-                    >(client.clone(), vector_size);
+                    >(client.clone(), lanes);
                 }
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn encode_exhaustive() {
                 let client = TestRuntime::client(&Default::default());
-                for vector_size in [1, 4] {
+                for lanes in [4, 8] {
                     cubecl_core::runtime_tests::minifloat::fp8_e4m3::encode_exhaustive::<
                         TestRuntime,
-                    >(client.clone(), vector_size);
+                    >(client.clone(), lanes);
                 }
             }
 
@@ -547,20 +568,20 @@ macro_rules! testgen_minifloat {
             #[$crate::runtime_tests::test_log::test]
             fn decode_exhaustive() {
                 let client = TestRuntime::client(&Default::default());
-                for vector_size in [1, 4] {
+                for lanes in [4, 8] {
                     cubecl_core::runtime_tests::minifloat::fp8_e5m2::decode_exhaustive::<
                         TestRuntime,
-                    >(client.clone(), vector_size);
+                    >(client.clone(), lanes);
                 }
             }
 
             #[$crate::runtime_tests::test_log::test]
             fn encode_exhaustive() {
                 let client = TestRuntime::client(&Default::default());
-                for vector_size in [1, 4] {
+                for lanes in [4, 8] {
                     cubecl_core::runtime_tests::minifloat::fp8_e5m2::encode_exhaustive::<
                         TestRuntime,
-                    >(client.clone(), vector_size);
+                    >(client.clone(), lanes);
                 }
             }
 
