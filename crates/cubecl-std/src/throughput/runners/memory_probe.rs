@@ -1,6 +1,9 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{DEFAULT_BUFFER_BYTES, MemoryAccess};
+use cubecl_core::{self as cubecl, ir::ElemType};
+use cubecl_runtime::{
+    server::Handle,
+    throughput::{DEFAULT_BUFFER_BYTES, MemoryAccess},
+};
 
 use crate::throughput::LaunchConfig;
 
@@ -91,6 +94,53 @@ impl MemoryProbe {
             window_lines,
             buffer_bytes: pool_lines * line_bytes,
             cube_count,
+        }
+    }
+}
+
+/// Writes every line of `handle`, once, before it is handed to a probe that
+/// only reads it.
+///
+/// A fresh allocation is backed by the same physical zero page until its
+/// first write, so every unwritten line a read-only probe visits is served
+/// from that one cached page rather than from DRAM, inflating its reported
+/// bandwidth well past the device's real ceiling. Writing real data in first
+/// gives each line its own page, the way a buffer a real kernel reads
+/// already got one from whoever produced it.
+pub fn prime<R: Runtime>(
+    client: &ComputeClient<R>,
+    handle: &Handle,
+    pool_lines: usize,
+    config: LaunchConfig,
+    dtype: ElemType,
+) {
+    unsafe {
+        prime_buffer::launch_unchecked(
+            client,
+            CubeCount::Static(config.cube_count as u32, 1, 1),
+            CubeDim::new(client, config.cube_dim),
+            config.vector_size,
+            BufferArg::from_raw_parts(handle.clone(), pool_lines),
+            pool_lines,
+            dtype,
+        );
+    }
+    let _ = cubecl_core::future::block_on(client.sync());
+}
+
+#[cube(launch_unchecked)]
+fn prime_buffer<I: Numeric, N: Size>(
+    output: &mut [Vector<I, N>],
+    len: usize,
+    #[define(I)] _dtype: ElemType,
+) {
+    let stride = CUBE_DIM as usize * CUBE_COUNT;
+    let steps = len.div_ceil(stride).max(1);
+
+    for step in 0..steps {
+        let idx = ABSOLUTE_POS + step * stride;
+        if idx < len {
+            output[idx] = Vector::<I, N>::empty();
         }
     }
 }

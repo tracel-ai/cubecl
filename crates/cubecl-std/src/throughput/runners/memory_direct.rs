@@ -2,7 +2,10 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{KernelConfig, MemoryAccess, ThroughputKey};
 
-use crate::throughput::{LaunchConfig, memory_probe::MemoryProbe};
+use crate::throughput::{
+    LaunchConfig,
+    memory_probe::{self, MemoryProbe},
+};
 
 /// Builds the copy kernel, moving `working_set` bytes per pass: half read out
 /// of the input buffer, half written into the output one.
@@ -19,6 +22,7 @@ pub fn build_kernel<R: Runtime>(
     let probe = MemoryProbe::new(&client, config, line_bytes, MemoryAccess::Copy, working_set);
 
     let in_handle = client.empty(probe.buffer_bytes);
+    memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);
     let out_handle = client.empty(probe.buffer_bytes);
 
     let sample = Box::new(move |iterations: usize| {
