@@ -135,7 +135,7 @@ fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
 /// The pipeline run before the JIT: LLJIT runs no IR-level passes of its own,
 /// and the dialect lowering emits O0-shaped IR that runs ~50× under the
 /// machine's streaming rate. Paid once per kernel and cached.
-const PASS_PIPELINE: &str = "default<O3>";
+const PASS_PIPELINE: &str = "default<O3>,function(replace-with-veclib)";
 
 /// Optimizes a module by round-tripping it through textual IR: [`LLVMModule`]
 /// seals its `LLVMModuleRef`, so the IR is re-parsed into a context this
