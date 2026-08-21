@@ -13,7 +13,7 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::SharedMemoryBindings,
-    stream::{StreamCaptureState, StreamFactory, scheduler::SchedulerStreamBackend},
+    stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
 /// Defines tasks that can be scheduled on a WGPU stream.
@@ -224,10 +224,13 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
 
     fn flush(stream: &mut Self::Stream) {
         let _ = stream
-            .flush(StreamErrorMode {
-                ignore: true,
-                flush: false,
-            })
+            .flush(
+                StreamErrorMode {
+                    ignore: true,
+                    flush: false,
+                },
+                None,
+            )
             .ok();
     }
 
@@ -240,6 +243,6 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
         // stream's own pools, and the recording must contain exactly this
         // stream's tasks — interleaved execution would do either on an
         // arbitrary stream.
-        stream.capturing != StreamCaptureState::NoCapture
+        stream.capturing.is_active()
     }
 }
