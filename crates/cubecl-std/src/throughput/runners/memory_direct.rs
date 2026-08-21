@@ -18,6 +18,10 @@ pub fn build_kernel<R: Runtime>(
     let client = client.clone();
     let dtype = key.dtype();
 
+    // No real planes to coalesce across: give each unit a contiguous run
+    // instead, which is what a blocked CPU kernel does.
+    let blocked = config.plane_size == 1;
+
     let line_bytes = config.vector_size * dtype.size();
     let probe = MemoryProbe::new(&client, config, line_bytes, MemoryAccess::Copy, working_set);
 
@@ -37,6 +41,7 @@ pub fn build_kernel<R: Runtime>(
                 BufferArg::from_raw_parts(out_handle.clone(), probe.pool_lines),
                 probe.window_lines,
                 iterations,
+                blocked,
                 dtype,
             )
         };
@@ -56,6 +61,7 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
     output: &mut [Vector<I, N>],
     window: usize,
     n_iter: usize,
+    #[comptime] blocked: bool,
     #[define(I)] _dtype: ElemType,
 ) {
     let len = output.len();
@@ -81,7 +87,15 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
 
     for _ in 0..n_iter {
         for step in 0..steps {
-            let base = ABSOLUTE_POS + (step * stride);
+            // Coalesced spreads one step's addresses across adjacent threads,
+            // which is only fast where those threads share a real plane. A
+            // CPU worker has no such neighbour, so it instead gets a run of
+            // `steps` lines entirely its own.
+            let base = if blocked {
+                ABSOLUTE_POS * steps + step
+            } else {
+                ABSOLUTE_POS + (step * stride)
+            };
 
             if base < window {
                 let mut idx = start + base;

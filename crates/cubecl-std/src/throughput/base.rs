@@ -169,6 +169,26 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
     let hardware = &client.properties().hardware;
 
     let plane_size = hardware.plane_size_max.max(1);
+    let vector_size = client
+        .io_optimized_vector_sizes(dtype.size())
+        .next()
+        .unwrap_or(1);
+
+    // A CPU has no SMs to oversubscribe with `sms * 32` cubes: on this backend
+    // a cube's units are its real dispatched workers, while extra cubes only
+    // add a sequential loop inside each of them, so a big cube count turns
+    // into thousands of tiny loop trips instead of parallelism. One cube of
+    // `num_cpu_cores` units, one per core, is how a real blocked CPU kernel
+    // launches.
+    if let Some(cores) = hardware.num_cpu_cores {
+        return LaunchConfig {
+            cube_dim: cores as usize,
+            cube_count: 1,
+            vector_size,
+            plane_size: plane_size as usize,
+        };
+    }
+
     let requested = (hardware.max_units_per_cube / plane_size * plane_size)
         .max(plane_size)
         .min(hardware.max_cube_dim.0);
@@ -177,11 +197,6 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
 
     let sms = hardware.num_streaming_multiprocessors.unwrap_or(64);
     let cube_count = (sms * 32).min(hardware.max_cube_count.0);
-
-    let vector_size = client
-        .io_optimized_vector_sizes(dtype.size())
-        .next()
-        .unwrap_or(1);
 
     LaunchConfig {
         cube_dim: cube_dim as usize,
