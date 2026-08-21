@@ -404,6 +404,10 @@ impl EventStreamBackend for MetalStreamBackend {
         !stream.errors.lock().any(Some(stream_id))
     }
 
+    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
+        stream.errors.lock().peek_owned(owner)
+    }
+
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
         event.wait_async(stream);
     }

@@ -189,6 +189,25 @@ impl WgpuStream {
         )))
     }
 
+    /// Queue an error raised inside a capture window, for the stream that owns
+    /// the capture to surface when it calls `end_capture`.
+    ///
+    /// Only the capture's own flush may take it: several logical streams share
+    /// this backend stream, and neither `flush` nor `sync` is refused while a
+    /// capture records, so a shared entry would be drained by whichever
+    /// neighbour flushes first — failing that neighbour on work it never
+    /// issued, and leaving `end_capture` to seal a graph with the failed
+    /// dispatch silently missing.
+    ///
+    /// Falls back to shared outside a window, which the callers make
+    /// unreachable: each raises its error only while recording.
+    fn capture_error(&mut self, error: ServerError) {
+        match self.capturing.owner() {
+            Some(owner) => self.errors.push(owner, error),
+            None => self.errors.push_shared(error),
+        }
+    }
+
     /// Enqueue a [`ScheduleTask`] on this stream.
     ///
     /// # Arguments
@@ -200,7 +219,7 @@ impl WgpuStream {
                 // Defensive: the server already rejects writes while recording,
                 // and `begin_capture` drains the queue, so none should reach here.
                 if let Err(err) = self.reject_while_recording("write") {
-                    self.errors.push_shared(err);
+                    self.capture_error(err);
                     return;
                 }
                 // It is important to flush before writing, as the write operation is inserted
@@ -823,10 +842,8 @@ impl WgpuStream {
                 Ok(resource) => ReplayDispatch::Dynamic(resource),
                 Err(err) => {
                     // The recording is now incomplete; `end_capture` sees the
-                    // queued error and rejects the capture. Shared: the capture
-                    // owns the stream for its window, so the error reaches it
-                    // without a stream id to hand.
-                    self.errors.push_shared(err.into());
+                    // queued error and rejects the capture.
+                    self.capture_error(err.into());
                     return;
                 }
             },

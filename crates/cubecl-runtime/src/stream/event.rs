@@ -38,6 +38,14 @@ pub trait EventStreamBackend: 'static {
     /// stream sharing it.
     fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool;
 
+    /// The errors `owner` alone caused on this stream, left queued for it to
+    /// surface — see [`StreamErrors::peek_owned`](super::StreamErrors::peek_owned).
+    ///
+    /// Answers what another stream needs to know about `owner`: did the work
+    /// that wrote the buffer it is about to consume actually run? See
+    /// [`MultiStream::producer_errors`].
+    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError>;
+
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event
     /// that can be used for synchronization.
     fn flush(stream: &mut Self::Stream) -> Self::Event;
@@ -215,6 +223,40 @@ impl<B: EventStreamBackend> MultiStream<B> {
     /// Enqueue a task to be cleaned.
     pub fn gc(&mut self, gc: GcTask<B>) {
         self.gc.sender.send(gc).unwrap();
+    }
+
+    /// The errors owned by the logical streams that wrote `handles`, other than
+    /// `reader`'s own, left queued for those streams to surface themselves.
+    ///
+    /// A read is only as good as the work that wrote the buffer: a launch that
+    /// failed never wrote it, so copying its bytes out hands back whatever was
+    /// in memory before. The reader's own errors are already surfaced by the
+    /// flush on its way in, but a producer's are queued on the producer — on
+    /// another pooled stream, or on the same one under another id — so a read
+    /// consults them here before copying anything out.
+    pub fn producer_errors<'a>(
+        &mut self,
+        reader: StreamId,
+        handles: impl Iterator<Item = &'a BufferBinding>,
+    ) -> Vec<ServerError> {
+        let mut producers = Vec::new();
+        let mut errors = Vec::new();
+
+        for handle in handles.filter(|handle| handle.stream != reader) {
+            if producers.contains(&handle.stream) {
+                continue;
+            }
+            producers.push(handle.stream);
+
+            let index = stream_index(&handle.stream, self.max_streams);
+            // # Safety
+            //
+            // * `stream_index` returns an index within the pool's capacity.
+            let stream = unsafe { self.streams.get_mut_index(index) };
+            errors.extend(B::errors_owned(&stream.stream, handle.stream));
+        }
+
+        errors
     }
 
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary
@@ -673,6 +715,10 @@ mod tests {
         fn is_healthy(_stream: &Self::Stream, _stream_id: StreamId) -> bool {
             true
         }
+
+        fn errors_owned(_stream: &Self::Stream, _owner: StreamId) -> Vec<ServerError> {
+            Vec::new()
+        }
     }
 
     impl EventStreamBackend for TestBackend {
@@ -699,6 +745,10 @@ mod tests {
 
         fn is_healthy(_stream: &Self::Stream, _stream_id: StreamId) -> bool {
             true
+        }
+
+        fn errors_owned(_stream: &Self::Stream, _owner: StreamId) -> Vec<ServerError> {
+            Vec::new()
         }
     }
 }

@@ -205,4 +205,8 @@ impl EventStreamBackend for CudaStreamBackend {
     fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool {
         !stream.errors.any(Some(stream_id))
     }
+
+    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
+        stream.errors.peek_owned(owner)
+    }
 }

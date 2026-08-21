@@ -355,6 +355,26 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             resources.push((resource, desc.shape, desc.elem_size));
         }
 
+        // A read is only as good as the work that wrote the buffers. A launch
+        // that failed on a producing stream never wrote them, so handing back
+        // their bytes would hand back stale memory — the reader's own flush
+        // below cannot see that, since the error is queued for the stream that
+        // caused it. Reading the producer's errors leaves them queued, so that
+        // stream still surfaces them on its own flush. `streams[0]` is the
+        // reader itself, whose errors the flush does surface.
+        let producer_errors: Vec<_> = streams[1..]
+            .iter()
+            .flat_map(|producer| self.scheduler.stream(producer).errors.peek_owned(*producer))
+            .collect();
+        if !producer_errors.is_empty() {
+            return Box::pin(async move {
+                Err(ServerError::ServerUnhealthy {
+                    errors: producer_errors,
+                    backtrace: BackTrace::capture(),
+                })
+            });
+        }
+
         self.scheduler.execute_streams(streams);
 
         let stream = self.scheduler.stream(&stream_id);
@@ -591,7 +611,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
 
-        stream.capturing.prepare()?;
+        stream.capturing.prepare(stream_id)?;
 
         // Route every allocation from here until `end_capture` into the
         // persistent pools and track the touched slices: warmup populates the

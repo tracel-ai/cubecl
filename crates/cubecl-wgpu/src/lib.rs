@@ -156,6 +156,50 @@ mod tests {
 
             launching.executes(|| assert_rejected(&client, out));
         }
+
+        /// A read is only as good as the work that wrote the buffer. The
+        /// rejection belongs to the stream that launched, so the reader's own
+        /// flush never sees it — and a read that does not consult the producer
+        /// hands back the zeroed buffer the failed launch never wrote.
+        #[test]
+        fn a_read_surfaces_the_rejection_of_the_stream_that_wrote_the_buffer() {
+            let client = TestRuntime::client(&Default::default());
+            let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
+            // Two logical streams, one pooled stream between them.
+            let producer = StreamId { value: 2 };
+            let reader = StreamId {
+                value: 2 + max_streams,
+            };
+
+            let out = producer.executes(|| {
+                let input = client.create_from_slice(&[0u8; 32]);
+                let out = client.empty(32);
+                // Three lanes, so this test compiles a kernel id of its own:
+                // any count that is not a multiple of four is rejected the same
+                // way, and two tests launching one shared kernel interfere when
+                // the module runs its tests in parallel.
+                unsafe {
+                    copy_fp8::launch_unchecked::<TestRuntime>(
+                        &client,
+                        CubeCount::new_single(),
+                        CubeDim::new_1d(8),
+                        3,
+                        BufferArg::from_raw_parts(input, 32),
+                        BufferArg::from_raw_parts(out.clone(), 32),
+                    )
+                };
+                out
+            });
+
+            reader.executes(|| assert_rejected(&client, out));
+            // Reading the producer's error does not take it: the stream that
+            // made the launch still reports it itself.
+            producer.executes(|| {
+                client
+                    .flush()
+                    .expect_err("the launching stream keeps its own rejection")
+            });
+        }
     }
 }
 

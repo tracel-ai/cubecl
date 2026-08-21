@@ -201,9 +201,13 @@ impl CpuStream {
         errors
     }
 
-    /// Returns whether the stream can accept new tasks.
-    pub fn is_healthy(&self) -> bool {
-        self.errors.is_empty()
+    /// Whether the stream can accept new tasks from `stream_id`.
+    ///
+    /// Errors are queued per logical stream (see [`StreamErrors`]), so the
+    /// backend stream is broken for the streams whose errors are still queued
+    /// on it, not for every stream sharing it.
+    pub fn is_healthy(&self, stream_id: StreamId) -> bool {
+        !self.errors.any(Some(stream_id))
     }
 
     /// Registers a new error into the error sink, for `stream_id` to surface.

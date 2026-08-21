@@ -233,7 +233,15 @@ impl ComputeServer for MetalServer {
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         use objc2_metal::MTLBuffer;
 
-        let errors = self.flush_errors(stream_id);
+        // The reader's own errors, plus the ones owned by the streams that
+        // wrote the buffers: those buffers are only as good as the work that
+        // wrote them, and a failed launch never wrote them at all (see
+        // `MultiStream::producer_errors`).
+        let mut errors = self.flush_errors(stream_id);
+        errors.extend(
+            self.streams
+                .producer_errors(stream_id, descriptors.iter().map(|d| &d.handle)),
+        );
         if !errors.is_empty() {
             return Box::pin(async move {
                 Err(ServerError::ServerUnhealthy {

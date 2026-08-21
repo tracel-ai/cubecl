@@ -3,6 +3,7 @@
 
 use crate::metadata_cache::CacheMode;
 use crate::server::ServerError;
+use cubecl_environment::stream::StreamId;
 
 /// Where a stream sits in the graph-capture lifecycle, and the only thing
 /// allowed to move it. Capture is a strict `NoCapture → Prepare → Capture →
@@ -15,6 +16,12 @@ use crate::server::ServerError;
 /// rule is the same on every one of them — a backend supplies only the work a
 /// transition brackets (arming its pools, opening the driver's capture), never
 /// the ordering rule itself.
+///
+/// Both active states carry the logical stream that opened the capture. Several
+/// logical streams share one backend stream, so "the capture owns this stream
+/// for its window" only holds if the window remembers whose it is: an error
+/// raised inside it belongs to the capture, not to whichever neighbour happens
+/// to flush next (see [`StreamErrors`](super::StreamErrors)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamCaptureState {
     /// No capture is prepared or recording.
@@ -24,7 +31,10 @@ pub enum StreamCaptureState {
     /// are retained by the memory manager's priming until `begin_capture` calls
     /// [`capture_priming_end`](crate::memory_management::MemoryManagement::capture_priming_end),
     /// so the pool ends up owning the capture run's full working set.
-    Prepare,
+    Prepare {
+        /// The logical stream that prepared the capture.
+        owner: StreamId,
+    },
     /// Launches are being recorded into a graph instead of executing. On a
     /// hardware-graph backend (CUDA, HIP) a host sync issued now aborts the
     /// driver capture, so the execution path defers fenced flushes until
@@ -33,7 +43,11 @@ pub enum StreamCaptureState {
     /// or profile fails on the spot, while a write is rejected lazily — queued
     /// as an error that fails `end_capture`, since a graph missing an operation
     /// is worse than a late diagnostic.
-    Capture,
+    Capture {
+        /// The logical stream recording the capture, which the errors raised
+        /// inside the window belong to.
+        owner: StreamId,
+    },
 }
 
 impl StreamCaptureState {
@@ -41,7 +55,23 @@ impl StreamCaptureState {
     /// now — the window during which a host sync would abort (or is rejected
     /// by) the capture.
     pub fn is_recording(&self) -> bool {
-        matches!(self, StreamCaptureState::Capture)
+        matches!(self, StreamCaptureState::Capture { .. })
+    }
+
+    /// Whether a capture is prepared or recording — the whole window during
+    /// which the stream is not free to serve other work.
+    pub fn is_active(&self) -> bool {
+        !matches!(self, StreamCaptureState::NoCapture)
+    }
+
+    /// The logical stream this capture belongs to, `None` outside a window.
+    pub fn owner(&self) -> Option<StreamId> {
+        match self {
+            StreamCaptureState::NoCapture => None,
+            StreamCaptureState::Prepare { owner } | StreamCaptureState::Capture { owner } => {
+                Some(*owner)
+            }
+        }
     }
 
     /// The [`CacheMode`] the metadata info cache should run in at this lifecycle
@@ -53,7 +83,9 @@ impl StreamCaptureState {
     pub fn cache_mode(&self) -> CacheMode {
         match self {
             StreamCaptureState::NoCapture => CacheMode::Normal,
-            StreamCaptureState::Prepare | StreamCaptureState::Capture => CacheMode::Capture,
+            StreamCaptureState::Prepare { .. } | StreamCaptureState::Capture { .. } => {
+                CacheMode::Capture
+            }
         }
     }
 
@@ -66,16 +98,16 @@ impl StreamCaptureState {
     /// Fails when a capture is already prepared or already recording on this
     /// stream, leaving the state untouched — two captures may never overlap on
     /// one stream. The caller can retry after `end_capture`.
-    pub fn prepare(&mut self) -> Result<(), ServerError> {
+    pub fn prepare(&mut self, owner: StreamId) -> Result<(), ServerError> {
         match self {
             StreamCaptureState::NoCapture => {
-                *self = StreamCaptureState::Prepare;
+                *self = StreamCaptureState::Prepare { owner };
                 Ok(())
             }
-            StreamCaptureState::Prepare => Err(ServerError::graph_state(
+            StreamCaptureState::Prepare { .. } => Err(ServerError::graph_state(
                 "graph_prepare: a graph capture is already prepared on this stream",
             )),
-            StreamCaptureState::Capture => Err(ServerError::graph_state(
+            StreamCaptureState::Capture { .. } => Err(ServerError::graph_state(
                 "graph_prepare: a graph capture is already recording on this stream",
             )),
         }
@@ -97,14 +129,14 @@ impl StreamCaptureState {
     /// recording. The state is left untouched.
     pub fn begin(&mut self) -> Result<(), ServerError> {
         match self {
-            StreamCaptureState::Prepare => {
-                *self = StreamCaptureState::Capture;
+            StreamCaptureState::Prepare { owner } => {
+                *self = StreamCaptureState::Capture { owner: *owner };
                 Ok(())
             }
             StreamCaptureState::NoCapture => Err(ServerError::graph_state(
                 "begin_capture: call graph_prepare before starting a capture",
             )),
-            StreamCaptureState::Capture => Err(ServerError::graph_state(
+            StreamCaptureState::Capture { .. } => Err(ServerError::graph_state(
                 "begin_capture: a graph capture is already recording on this stream",
             )),
         }
@@ -122,11 +154,11 @@ impl StreamCaptureState {
     /// `end_capture` must not close a window that was never opened.
     pub fn end(&mut self) -> Result<(), ServerError> {
         match self {
-            StreamCaptureState::Capture => {
+            StreamCaptureState::Capture { .. } => {
                 *self = StreamCaptureState::NoCapture;
                 Ok(())
             }
-            StreamCaptureState::NoCapture | StreamCaptureState::Prepare => {
+            StreamCaptureState::NoCapture | StreamCaptureState::Prepare { .. } => {
                 Err(ServerError::graph_state(
                     "end_capture: no graph capture is recording on this stream",
                 ))
@@ -149,6 +181,8 @@ impl StreamCaptureState {
 mod tests {
     use super::*;
 
+    const OWNER: StreamId = StreamId { value: 7 };
+
     /// The ordering rule the three backends rely on: a capture cannot start
     /// unprepared, and two cannot overlap on one stream. A backend that could
     /// reach `Capture` without `Prepare` would record against pools no warmup
@@ -162,18 +196,38 @@ mod tests {
         assert!(state.end().is_err(), "nothing is recording yet");
         assert_eq!(state, StreamCaptureState::NoCapture);
 
-        state.prepare().unwrap();
-        assert_eq!(state, StreamCaptureState::Prepare);
-        assert!(state.prepare().is_err(), "one prepare per capture");
+        state.prepare(OWNER).unwrap();
+        assert_eq!(state, StreamCaptureState::Prepare { owner: OWNER });
+        assert!(state.prepare(OWNER).is_err(), "one prepare per capture");
         assert!(state.end().is_err(), "the window never opened");
 
         state.begin().unwrap();
-        assert_eq!(state, StreamCaptureState::Capture);
+        assert_eq!(state, StreamCaptureState::Capture { owner: OWNER });
         assert!(state.begin().is_err(), "captures may not overlap");
-        assert!(state.prepare().is_err(), "captures may not overlap");
+        assert!(state.prepare(OWNER).is_err(), "captures may not overlap");
 
         state.end().unwrap();
         assert_eq!(state, StreamCaptureState::NoCapture);
+    }
+
+    /// The window remembers whose it is from end to end, so the errors raised
+    /// inside it can be queued for the stream that opened it rather than for
+    /// whichever neighbour flushes the shared backend stream next.
+    #[test]
+    fn the_window_carries_its_owner() {
+        let mut state = StreamCaptureState::NoCapture;
+        assert_eq!(state.owner(), None);
+
+        state.prepare(OWNER).unwrap();
+        assert_eq!(state.owner(), Some(OWNER));
+        assert!(state.is_active(), "the window is open from prepare on");
+
+        state.begin().unwrap();
+        assert_eq!(state.owner(), Some(OWNER));
+
+        state.end().unwrap();
+        assert_eq!(state.owner(), None);
+        assert!(!state.is_active());
     }
 
     /// A rejected transition leaves the stream exactly as it was, so a caller
@@ -181,9 +235,9 @@ mod tests {
     /// property `wgpu_graph_lifecycle_state_errors` defends end to end.
     #[test]
     fn a_rejected_transition_changes_nothing() {
-        let mut state = StreamCaptureState::Prepare;
-        assert!(state.prepare().is_err());
-        assert_eq!(state, StreamCaptureState::Prepare);
+        let mut state = StreamCaptureState::Prepare { owner: OWNER };
+        assert!(state.prepare(OWNER).is_err());
+        assert_eq!(state, StreamCaptureState::Prepare { owner: OWNER });
         state.begin().unwrap();
     }
 
@@ -191,11 +245,14 @@ mod tests {
     /// states a backend can be holding when that happens.
     #[test]
     fn abort_recovers_a_window_that_never_opened() {
-        for state in [StreamCaptureState::Prepare, StreamCaptureState::Capture] {
+        for state in [
+            StreamCaptureState::Prepare { owner: OWNER },
+            StreamCaptureState::Capture { owner: OWNER },
+        ] {
             let mut state = state;
             state.abort();
             assert_eq!(state, StreamCaptureState::NoCapture);
-            state.prepare().expect("the stream is re-capturable");
+            state.prepare(OWNER).expect("the stream is re-capturable");
         }
     }
 
@@ -209,7 +266,13 @@ mod tests {
             StreamCaptureState::NoCapture.cache_mode(),
             CacheMode::Normal
         );
-        assert_eq!(StreamCaptureState::Prepare.cache_mode(), CacheMode::Capture);
-        assert_eq!(StreamCaptureState::Capture.cache_mode(), CacheMode::Capture);
+        assert_eq!(
+            StreamCaptureState::Prepare { owner: OWNER }.cache_mode(),
+            CacheMode::Capture
+        );
+        assert_eq!(
+            StreamCaptureState::Capture { owner: OWNER }.cache_mode(),
+            CacheMode::Capture
+        );
     }
 }

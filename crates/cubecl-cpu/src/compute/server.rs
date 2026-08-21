@@ -251,6 +251,15 @@ impl ComputeServer for CpuServer {
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
+        // A caller that has already failed is owed no more work — its own flush
+        // surfaces the error. The gate is on the caller, not on the stream that
+        // owns the handle: another stream's failure there would drop this write
+        // silently, leaving the buffer unwritten for a caller whose flush says
+        // everything is fine.
+        if !self.scheduler.stream(&stream_id).is_healthy(stream_id) {
+            return;
+        }
+
         for (desc, data) in descriptors {
             // The failures below belong to the caller, so they are queued on
             // the caller's stream — the one that flushes them — even though the
@@ -266,10 +275,6 @@ impl ComputeServer for CpuServer {
             }
 
             let stream = self.scheduler.stream(&desc.handle.stream);
-            if !stream.is_healthy() {
-                return;
-            }
-
             let resource = match stream.get_resource(desc.handle.clone()) {
                 Ok(r) => r,
                 Err(err) => {
