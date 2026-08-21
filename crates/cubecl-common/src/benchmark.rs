@@ -7,6 +7,8 @@ use core::time::Duration;
 
 pub use crate::profile::{Instant, TimingMethod};
 
+use crate::work::Work;
+
 #[cfg(feature = "std")]
 pub use crate::profile::ProfileDuration;
 
@@ -204,6 +206,17 @@ pub trait Benchmark {
     /// Shapes dimensions
     fn shapes(&self) -> Vec<Vec<usize>> {
         vec![]
+    }
+
+    /// The work one execution performs, for scoring the run against measured
+    /// peak throughput. `None` when the benchmark has no such figure to report.
+    /// Coarse by necessity: this crate cannot name a throughput key, so
+    /// `calculate_bounds` (in `cubecl-runtime`) is what turns this single
+    /// figure into per-resource bounds, and a caller wanting the achieved
+    /// rate against each of those scores them at the client layer, which
+    /// does have keys.
+    fn work(&self) -> Option<Work> {
+        None
     }
 
     /// Wait for computation to complete.
