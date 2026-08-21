@@ -2,10 +2,9 @@ use std::sync::{Arc, atomic::AtomicU64};
 
 use crossbeam_utils::CachePadded;
 
-use crate::{
-    compiler::jit::{data::PlironData, engine::PlironEngine},
-    compute::threadpool::ThreadTask,
-};
+use cubecl_llvm::{PlironData, PlironEngine};
+
+use crate::compute::threadpool::ThreadTask;
 
 pub struct ComputeTask {
     pub pliron_engine: PlironEngine,
@@ -24,7 +23,6 @@ impl ThreadTask for ComputeTask {
 
 impl ComputeTask {
     pub fn compute(&mut self) {
-        // self.pliron_data.push_builtin();
         self.pliron_engine.run_kernel(&mut self.pliron_data);
         self.pliron_data.complete_unit();
         self.atomic_counter

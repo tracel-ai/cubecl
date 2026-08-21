@@ -489,13 +489,32 @@ impl QueryProfiler {
         query_set_id.map(|v| (v, count))
     }
 
+    /// Recycle the query sets nothing starts in any more.
+    ///
+    /// The set [`current`](Self::current) names is held back even when its start references are
+    /// all gone, because it is still the *end* marker:
+    /// [`stop_profile_setup`](Self::stop_profile_setup) writes `end = self.current` and then
+    /// resolves it, so recycling it here leaves a profile that started earlier unable to read its
+    /// own end timestamp. The end it reads can be stale, since a new set is only allocated when
+    /// tokens are waiting for one, but a short measurement beats none at all: autotune reads a
+    /// profiling error as the tunable failing.
     fn cleanup_query_sets(&mut self) {
-        for key in self.cleanups.drain(..) {
+        let mut cleanups = core::mem::take(&mut self.cleanups);
+
+        cleanups.retain(|key| {
+            if Some(*key) == self.current {
+                return true;
+            }
+
             let removed = self
                 .query_sets
-                .remove(&key)
+                .remove(key)
                 .expect("Unknown query set cleaned up");
             self.query_set_pool.push(removed.query_set);
-        }
+
+            false
+        });
+
+        self.cleanups = cleanups;
     }
 }

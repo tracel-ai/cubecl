@@ -15,7 +15,7 @@ use cubecl_core::ir::dialect::memory::DeclareVariableOp;
 use cubecl_core::ir::interfaces::SizedType;
 use cubecl_core::ir::prelude::*;
 
-use crate::compiler::metadata::load_table;
+use crate::shared::metadata::load_table;
 
 /// A block of shared memory the host must reserve to launch the kernel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

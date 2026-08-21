@@ -1,0 +1,47 @@
+[package]
+authors = ["marcantoinem <marc-antoine.m@outlook.com>"]
+categories = ["science"]
+description = "LLVM compiler for CubeCL"
+edition.workspace = true
+keywords = ["llvm"]
+license.workspace = true
+name = "cubecl-llvm"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-llvm"
+version.workspace = true
+
+
+[lints]
+workspace = true
+
+
+[features]
+default = ["std", "cubecl-core/default", "cubecl-runtime/default"]
+
+pliron-dump = []
+std = ["cubecl-core/std", "cubecl-runtime/std"]
+
+tracing = ["cubecl-core/tracing", "cubecl-runtime/tracing", "cubecl-opt/tracing"]
+
+
+[dependencies]
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.2", default-features = false, features = [
+    "std",
+] }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.2", default-features = false }
+cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.2", default-features = false, features = [
+    "std",
+] }
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.2", default-features = false, features = [
+    "std",
+] }
+
+derive-new = { workspace = true }
+half = { workspace = true }
+pliron = { workspace = true, features = ["std"] }
+pliron-llvm = { workspace = true, features = ["llvm-sys"] }
+# Not used directly, depended on to select its features.
+llvm-sys = { workspace = true }
+
+[build-dependencies]
+tracel-llvm-bundler = { workspace = true }

@@ -340,6 +340,12 @@ pub trait SimplifyInterface {
     fn check_fold(&self, ctx: &Context, operand_attrs: &[Option<AttrObj>]) -> Option<Value>;
 }
 
+#[op_interface]
+pub trait CanonicalizeInterface {
+    verify_op_succ!();
+    fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()>;
+}
+
 #[attr_interface]
 pub trait ConstantAttr: TypedAttrInterface {
     verify_attr_succ!();

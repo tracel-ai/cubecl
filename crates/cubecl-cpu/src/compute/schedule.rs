@@ -1,9 +1,10 @@
-use crate::{compiler::jit::engine::PlironEngine, compute::stream::CpuStream};
+use crate::compute::stream::CpuStream;
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{
     CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, server::MetadataBindingInfo,
 };
 use cubecl_environment::stream::StreamId;
+use cubecl_llvm::PlironEngine;
 use cubecl_runtime::{
     logging::ServerLogger,
     storage::{BytesResource, ManagedResource},
@@ -71,7 +72,6 @@ pub struct ScheduledCpuBackend {
 /// Factory for creating cpu streams with specific configurations.
 #[derive(Debug)]
 pub struct CpuStreamFactory {
-    max_units_per_cube: u32,
     memory_properties: MemoryDeviceProperties,
     memory_config: MemoryConfiguration,
     logger: Arc<ServerLogger>,
@@ -82,7 +82,6 @@ impl StreamFactory for CpuStreamFactory {
 
     fn create(&mut self) -> Self::Stream {
         CpuStream::new(
-            self.max_units_per_cube,
             self.memory_properties.clone(),
             self.memory_config.clone(),
             self.logger.clone(),
@@ -93,14 +92,12 @@ impl StreamFactory for CpuStreamFactory {
 impl ScheduledCpuBackend {
     /// Creates a new [`ScheduledCpuBackend`] with the given configurations.
     pub fn new(
-        max_units_per_cube: u32,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
     ) -> Self {
         Self {
             factory: CpuStreamFactory {
-                max_units_per_cube,
                 memory_properties,
                 memory_config,
                 logger,

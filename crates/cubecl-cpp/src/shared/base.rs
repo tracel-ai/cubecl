@@ -1,7 +1,9 @@
 use crate::{
     cuda::{mma::CudaCmmaCompiler, packed_ops::PackOpsPass},
+    error::EmissionErrors,
     hip::{arch::AmdWmma, mma::HipCmmaCompiler},
     shared::{
+        OpExtCPP,
         builtin::{LowerBuiltins, LowerBuiltinsPass},
         convert::PromoteUnsupportedTypesPass,
         lowering::{LowerOpsAfterUnrollCppPass, LowerOpsCppPass},
@@ -20,7 +22,7 @@ use core::marker::PhantomData;
 use cubecl_core::{
     ir::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
-        features::{AtomicUsage, TypeUsage},
+        features::{AtomicUsage, EnumSet, TypeUsage},
         metadata::Info,
         rewrite::SimplifyOpsPass,
         settings::Dim3,
@@ -28,6 +30,7 @@ use cubecl_core::{
     post_processing::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
+        minifloat::{Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass},
         saturating::LowerSaturatingArithmeticPass,
     },
     prelude::KernelDefinition,
@@ -204,6 +207,16 @@ where
         )));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
 
+        // CUDA converts fp8 with cuda_fp8.h, which carries its own software path below sm_89.
+        let native_fp8 = match T::target() {
+            Target::Cuda => EnumSet::all(),
+            Target::Hip | Target::Metal => EnumSet::empty(),
+        };
+        func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
+            native_fp8,
+            Fp8Container::Bytes,
+        )));
+
         // Shared lowerings can create ops that need target-specific lowerings, but target-specific
         // lowerings should take priority. So we just run the target-specific lowerings twice.
         func_passes.add_pass(LowerOpsCppPass::<T>::default());
@@ -245,7 +258,7 @@ where
         passes.add_pass(DeclareVectorTypesPass);
         passes.add_pass(CollectIncludesPass::<T>::default());
 
-        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
+        passes.run(module_op, &mut ctx, &mut analyses)?;
 
         #[cfg(feature = "metal")]
         if T::target() == Target::Metal {
@@ -257,10 +270,35 @@ where
         let shared_memory_size = shared_memory_size(&ctx, module_op);
         let buffers = buffers(&ctx, entry_func);
 
+        // Emit here rather than lazily from `Display`, so an op that survives lowering with no
+        // `OpToCPP` impl fails the compilation instead of panicking on the compiler thread.
+        ctx.set_aux_ty(EmissionErrors::default());
+        let source = module.get_operation().to_cpp(&ctx);
+        let mut errors = ctx.aux_ty::<EmissionErrors>().take();
+        let source = match source {
+            Ok(source) => source,
+            Err(error) => {
+                errors.push(error);
+                String::new()
+            }
+        };
+        if !errors.is_empty() {
+            let mut reason = "Can't emit cpp kernel\nCaused by:\n".to_string();
+            for error in errors {
+                reason += "  ";
+                reason += &error.to_string();
+                reason += "\n";
+            }
+            return Err(CompilationError::Validation {
+                reason,
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         let compute_kernel = ComputeKernel {
-            ctx,
             shared_memory_size,
             buffers,
+            source,
         };
 
         #[cfg(feature = "pliron-dump")]
@@ -313,6 +351,13 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
 
     for ty in supported_types {
         props.register_type_usage(ty, TypeUsage::all());
+    }
+
+    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
+        props.register_type_usage(
+            ElemType::Float(ty),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
     }
 
     for ty in supported_atomic_types {

@@ -6,12 +6,13 @@ use cubecl_ir::{
     dialect::{
         base::OperationPtrExt,
         cmp::IEqualOp,
-        general::{CopyOp, SelectOp},
+        general::{CopyOp, ReinterpretCastOp, SelectOp},
         math::{IAddOp, IMulOp, UDivOp, URemOp},
         matrix,
         memory::{DeclareVariableOp, IndexOp},
         vector::{
-            CompositeExtractOp, CompositeInsertOp, VectorExtractDynamicOp, VectorInsertDynamicOp,
+            CompositeConstructOp, CompositeExtractOp, CompositeInsertOp, VectorExtractDynamicOp,
+            VectorInsertDynamicOp,
         },
     },
     interfaces::{MaybeVectorizedType, TriviallyUnrollable, TypedExt},
@@ -350,6 +351,159 @@ fn select_part(
         .get_operation()
         .insert_before(ctx, anchor.get_operation());
     select.get_result(ctx)
+}
+
+/// A reinterpret changes the lane count with the lane width, so one side's pieces are not the
+/// other's: a `Vector<u32, 2>` is a `Vector<e4m3, 8>`. When only one side exceeds the maximum, the
+/// wide side is split at the unroll factor and the narrow side is cut into matching sub-vectors
+/// with extracts and constructs. When both exceed it, the input's pieces are reinterpreted in
+/// place and their lanes regrouped.
+#[op_interface_impl]
+impl CustomUnrollOp for ReinterpretCastOp {
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
+        let input = self.input(ctx);
+        let result = self.get_result(ctx);
+        let max = state.max_vector_size;
+        let (in_vec, out_vec) = (try_get_vec(ctx, input), try_get_vec(ctx, result));
+        if in_vec <= max && out_vec <= max {
+            return;
+        }
+        // When both sides unroll, neither is a whole piece of the other: each `max`-lane input
+        // piece reinterprets into the output lanes it shares bits with, and those lanes regroup
+        // into the `max`-lane pieces the rest of the pass indexes into. Equal lane counts are the
+        // common case here and stay one reinterpret per piece.
+        if in_vec > max && out_vec > max {
+            // A piece of the input covers `per_piece` lanes of the output, and both sides of the
+            // reinterpret below have to be a legal vector: one lane at least, and no wider than
+            // the maximum. Sub-dividing the input pieces would lift the upper bound, but nothing
+            // unrolls what this pass emits, so an over-wide piece would reach the backend as-is.
+            let per_piece = max * out_vec / in_vec;
+            assert!(
+                (1..=max).contains(&per_piece),
+                "Cannot unroll a reinterpret between a {in_vec}-lane and a {out_vec}-lane vector \
+                 when both exceed {max} lanes and the lane counts differ: reinterpret through a \
+                 vector of at most {max} lanes"
+            );
+            state.result.ir_changed |= IRStatus::Changed;
+            let op = self.get_operation();
+
+            let piece_ty = lanes_type(ctx, result, per_piece);
+            let pieces = state.mappings.get(&input).expect("Should exist").clone();
+            let converted = pieces
+                .into_iter()
+                .map(|piece| {
+                    let new_op = ReinterpretCastOp::new(ctx, piece_ty, piece);
+                    new_op.get_operation().insert_before(ctx, op);
+                    new_op.get_result(ctx)
+                })
+                .collect::<Vec<_>>();
+
+            let new_results = if per_piece == max {
+                converted
+            } else {
+                let lanes = converted
+                    .into_iter()
+                    .flat_map(|piece| split_lanes(ctx, piece, op))
+                    .collect::<Vec<_>>();
+                let result_ty = unroll_ty(ctx, result, max);
+                lanes
+                    .chunks(max)
+                    .map(|lanes| {
+                        let joined = CompositeConstructOp::new(ctx, result_ty, lanes.to_vec());
+                        joined.get_operation().insert_before(ctx, op);
+                        joined.get_result(ctx)
+                    })
+                    .collect()
+            };
+            state.mappings.insert(result, new_results);
+            state.to_erase.push(op);
+            return;
+        }
+
+        // The wide side unrolls into `factor` pieces, so the narrow side has to have at least
+        // that many lanes to hand one to each. A 64-bit scalar reinterpreted as eight fp8 lanes
+        // is the case that gets here: one lane cannot be cut in two.
+        let (wide, narrow) = match in_vec > max {
+            true => (in_vec, out_vec),
+            false => (out_vec, in_vec),
+        };
+        let factor = wide / max;
+        assert!(
+            narrow >= factor,
+            "Cannot unroll a reinterpret between a {in_vec}-lane and a {out_vec}-lane vector: the \
+             {wide}-lane side unrolls into {factor} pieces and the {narrow}-lane side has no lane \
+             to give each. Reinterpret through a vector of at least {factor} lanes"
+        );
+        state.result.ir_changed |= IRStatus::Changed;
+        let op = self.get_operation();
+
+        if in_vec > max {
+            let piece_ty = lanes_type(ctx, result, out_vec / factor);
+            let pieces = state.mappings.get(&input).expect("Should exist").clone();
+            let converted = pieces
+                .into_iter()
+                .map(|piece| {
+                    let new_op = ReinterpretCastOp::new(ctx, piece_ty, piece);
+                    new_op.get_operation().insert_before(ctx, op);
+                    new_op.get_result(ctx)
+                })
+                .collect::<Vec<_>>();
+            let lanes = converted
+                .iter()
+                .flat_map(|piece| split_lanes(ctx, *piece, op))
+                .collect();
+            let result_ty = result.get_type(ctx);
+            let joined = CompositeConstructOp::new(ctx, result_ty, lanes);
+            joined.get_operation().insert_before(ctx, op);
+            result.replace_all_uses_with(ctx, &joined.get_result(ctx));
+        } else {
+            let piece_ty = unroll_ty(ctx, result, max);
+            let lanes = split_lanes(ctx, input, op);
+            let new_results = lanes
+                .chunks(in_vec / factor)
+                .map(|chunk| {
+                    let piece = match chunk {
+                        [lane] => *lane,
+                        lanes => {
+                            let ty = lanes_type(ctx, input, lanes.len());
+                            let joined = CompositeConstructOp::new(ctx, ty, lanes.to_vec());
+                            joined.get_operation().insert_before(ctx, op);
+                            joined.get_result(ctx)
+                        }
+                    };
+                    let new_op = ReinterpretCastOp::new(ctx, piece_ty, piece);
+                    new_op.get_operation().insert_before(ctx, op);
+                    new_op.get_result(ctx)
+                })
+                .collect();
+            state.mappings.insert(result, new_results);
+        }
+        state.to_erase.push(op);
+    }
+}
+
+/// The type of `lanes` lanes of `value`'s element: the bare scalar for one lane.
+fn lanes_type(ctx: &mut Context, value: Value, lanes: usize) -> TypeHandle {
+    assert!(lanes > 0, "Reinterpret pieces must hold at least one lane");
+    let scalar = value.scalar_ty(ctx);
+    match lanes {
+        1 => scalar,
+        lanes => VectorType::get(ctx, scalar, lanes).into(),
+    }
+}
+
+/// Extracts every lane of `value` before `anchor`; a scalar is its own single lane.
+fn split_lanes(ctx: &mut Context, value: Value, anchor: Ptr<Operation>) -> Vec<Value> {
+    if !value.is_vector(ctx) {
+        return vec![value];
+    }
+    (0..value.vector_size(ctx))
+        .map(|lane| {
+            let extract = CompositeExtractOp::new(ctx, value, lane);
+            extract.get_operation().insert_before(ctx, anchor);
+            extract.get_result(ctx)
+        })
+        .collect()
 }
 
 #[op_interface_impl]

@@ -1,7 +1,7 @@
-use crate::compiler::polyfill::ordered_atomic::{
+use crate::shared::polyfill::ordered_atomic::{
     OrderedAtomicFetchAddOp, OrderedAtomicLoadOp, OrderedAtomicStoreOp,
 };
-use crate::compiler::to_llvm::ty::scalar_alignment;
+use crate::shared::to_llvm::ty::scalar_alignment;
 
 use super::prelude::*;
 use cubecl_core::ir::dialect::atomic::*;

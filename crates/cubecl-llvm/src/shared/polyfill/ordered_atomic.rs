@@ -15,7 +15,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use pliron_llvm::attributes::AtomicOrderingAttr;
 
-use crate::compiler::polyfill::LowerOp;
+use crate::shared::polyfill::LowerOp;
 
 /// Atomic load, i.e. `atomic.load` with an explicit ordering.
 #[cube_op(name = "cpu.ordered_atomic_load")]

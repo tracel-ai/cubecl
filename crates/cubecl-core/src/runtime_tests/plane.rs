@@ -484,6 +484,46 @@ pub fn test_plane_min<
     );
 }
 
+/// Plane reduction over a cube smaller than the plane, where the upper lanes are inactive.
+/// Inputs are strictly positive so a fold reaching an inactive lane shows up in the result.
+pub fn test_plane_min_partial<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: ComputeClient<TestRuntime>,
+) {
+    let vectorization = 1;
+    // Below the minimum plane width of any supported backend.
+    let cube_dim = 4usize;
+    let buffer_len = 32usize;
+
+    let input: Vec<f32> = (0..buffer_len).map(|x| (x + 1) as f32).collect();
+
+    let mut expected = input.clone();
+    expected[0] = input[..cube_dim]
+        .iter()
+        .copied()
+        .fold(f32::INFINITY, f32::min);
+
+    let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
+    let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
+
+    test_plane_operation::<TestRuntime, F, _>(
+        &input,
+        &expected,
+        client.clone(),
+        |cube_count, handle| {
+            kernel_min::launch::<F, TestRuntime>(
+                &client,
+                cube_count,
+                CubeDim::new_1d(cube_dim as u32),
+                vectorization,
+                handle,
+            )
+        },
+    );
+}
+
 pub fn test_plane_all<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
@@ -1003,6 +1043,14 @@ macro_rules! testgen_plane {
         #[$crate::runtime_tests::test_log::test]
         fn test_plane_min_vec4() {
             impl_test_plane_min(4);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_plane_min_partial() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_min_partial::<TestRuntime, FloatType>(
+                client.clone(),
+            );
         }
 
         #[$crate::runtime_tests::test_log::test]

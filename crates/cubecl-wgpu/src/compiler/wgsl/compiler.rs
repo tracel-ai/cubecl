@@ -1,13 +1,17 @@
 use super::shader::ComputeShader;
 use crate::compiler::wgsl::{
     self, EnableFeaturesPass, builtin::LowerBuiltinsPass, lower::LowerOpsWgslPass,
-    metadata::declare_info, rewrite_args, shared_memory_size,
+    metadata::declare_info, rewrite_args, shared_memory_size, types,
 };
 
 use cubecl_core::{
     WgpuCompilationOptions,
     post_processing::{
         checked_io::{CheckedIo, CheckedIoPass},
+        minifloat::{
+            Fp8Container, LowerMinifloatCast, LowerMinifloatCastPass, LowerMinifloatCompare,
+            LowerMinifloatComparePass,
+        },
         saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
@@ -15,6 +19,7 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{
     ContextExt,
+    features::EnumSet,
     pliron::{
         builtin::ops::{FuncOp, ModuleOp},
         operation::verify_operation,
@@ -105,6 +110,7 @@ impl WgslCompiler {
         }
 
         verify_operation(module_op, &ctx)?;
+        types::check_fp8_lanes(&ctx, module_op)?;
 
         let config = PMConfig {
             #[cfg(feature = "pliron-dump")]
@@ -125,6 +131,14 @@ impl WgslCompiler {
             value.settings.kernel_name.clone(),
         )));
         func_passes.add_pass(UnrollPass::new(MAX_VECTOR_SIZE));
+        // After the unroll so that an fp8 vector is at most one word, see `types.rs`.
+        func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
+            EnumSet::empty(),
+            Fp8Container::Words,
+        )));
+        func_passes.add_pass(LowerMinifloatComparePass::new(LowerMinifloatCompare::new(
+            Fp8Container::Words,
+        )));
 
         func_passes.add_pass(LowerOpsWgslPass::default());
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
@@ -149,7 +163,7 @@ impl WgslCompiler {
         passes.add_pass(AnnotateGlobalVisibilityPass);
         passes.add_pass(EnableFeaturesPass);
 
-        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
+        passes.run(module_op, &mut ctx, &mut analyses)?;
 
         let buffers = rewrite_args(&mut ctx, entry_func);
         declare_info(&mut ctx, entry_func, buffers.len());

@@ -18,10 +18,12 @@ use crate::{
 pub mod aggregate;
 pub mod barrier;
 pub mod cuda;
+pub mod fp8;
 pub mod matrix;
 pub mod scalar;
 pub mod spirv;
 
+pub use fp8::Fp8Format;
 pub use matrix::{MatrixIdent, MatrixLayout, MatrixScope, MatrixShape};
 
 #[pliron_type(

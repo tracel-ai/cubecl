@@ -1,21 +1,17 @@
 mod commands;
 
-#[macro_use]
-extern crate log;
-
 use tracel_xtask::prelude::*;
 
-#[macros::base_commands(
-    Bump,
-    Compile,
-    Coverage,
-    Dependencies,
-    Fix,
-    Publish,
-    Validate,
-    Vulnerabilities
-)]
+#[derive(clap::Subcommand, strum::Display)]
 pub enum Command {
+    Bump(BumpCmdArgs),
+    Compile(CompileCmdArgs),
+    Coverage(CoverageCmdArgs),
+    Dependencies(DependenciesCmdArgs),
+    Fix(FixCmdArgs),
+    Publish(PublishCmdArgs),
+    Validate(ValidateCmdArgs),
+    Vulnerabilities(VulnerabilitiesCmdArgs),
     /// Build cubecl in different modes.
     Build(commands::build::CubeCLBuildCmdArgs),
     /// Build cubecl in different modes.
@@ -28,6 +24,23 @@ pub enum Command {
     Book(commands::book::BookArgs),
     /// Profile kernels.
     Profile(commands::profile::ProfileArgs),
+}
+
+fn dispatch_base_commands(args: XtaskArgs<Command>, env: Environment) -> anyhow::Result<()> {
+    match args.command {
+        Command::Bump(cmd) => base_commands::bump::handle_command(cmd, env, args.context),
+        Command::Compile(cmd) => base_commands::compile::handle_command(cmd, env, args.context),
+        Command::Coverage(cmd) => base_commands::coverage::handle_command(cmd, env, args.context),
+        Command::Dependencies(cmd) => {
+            base_commands::dependencies::handle_command(cmd, env, args.context)
+        }
+        Command::Fix(cmd) => base_commands::fix::handle_command(cmd, env, args.context, None),
+        Command::Publish(cmd) => base_commands::publish::handle_command(cmd, env, args.context),
+        Command::Vulnerabilities(cmd) => {
+            base_commands::vulnerabilities::handle_command(cmd, env, args.context)
+        }
+        _ => Err(anyhow::anyhow!("Unknown command")),
+    }
 }
 
 fn main() -> anyhow::Result<()> {

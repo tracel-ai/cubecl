@@ -55,7 +55,7 @@ jobs:
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
       - name: Install Rust
-        uses: tracel-ai/github-actions/install-rust@v10
+        uses: tracel-ai/github-actions/install-rust@v11
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
@@ -75,7 +75,7 @@ jobs:
         run: xtask check --ci lint
       # --------------------------------------------------------------------------------
       - name: Typos
-        uses: tracel-ai/github-actions/check-typos@v10
+        uses: tracel-ai/github-actions/check-typos@v11
 
   documentation:
     runs-on: ubuntu-22.04
@@ -91,7 +91,7 @@ jobs:
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
       - name: Install Rust
-        uses: tracel-ai/github-actions/install-rust@v10
+        uses: tracel-ai/github-actions/install-rust@v11
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
@@ -127,17 +127,17 @@ jobs:
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
       - name: Install Rust
-        uses: tracel-ai/github-actions/install-rust@v10
+        uses: tracel-ai/github-actions/install-rust@v11
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
           apt-packages: build-essential
       # --------------------------------------------------------------------------------
       - name: Install Mesa
-        uses: tracel-ai/github-actions/install-mesa@v10
+        uses: tracel-ai/github-actions/install-mesa@v11
       # --------------------------------------------------------------------------------
       - name: Install Vulkan SDK
-        uses: tracel-ai/github-actions/install-vulkan-sdk@v10
+        uses: tracel-ai/github-actions/install-vulkan-sdk@v11
       # --------------------------------------------------------------------------------
       - name: Tests
         run: xtask test --ci
@@ -165,7 +165,7 @@ jobs:
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
       - name: Install Rust
-        uses: tracel-ai/github-actions/install-rust@v10
+        uses: tracel-ai/github-actions/install-rust@v11
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-miri-tests
@@ -173,10 +173,10 @@ jobs:
           apt-packages: build-essential
       # --------------------------------------------------------------------------------
       - name: Install Mesa
-        uses: tracel-ai/github-actions/install-mesa@v10
+        uses: tracel-ai/github-actions/install-mesa@v11
       # --------------------------------------------------------------------------------
       - name: Install Vulkan SDK
-        uses: tracel-ai/github-actions/install-vulkan-sdk@v10
+        uses: tracel-ai/github-actions/install-vulkan-sdk@v11
       # --------------------------------------------------------------------------------
       - name: Tests
         run: xtask +n test --miri ub-only --ci

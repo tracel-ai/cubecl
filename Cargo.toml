@@ -147,7 +147,12 @@ futures-util = { version = "0.3.32", default-features = false, features = [
 # CubeCL-CPU
 libc = "^0.2.186"
 sysinfo = "0.39"
-winapi = { version = "^0.3.9", features = ["processthreadsapi", "winbase"] }
+winapi = { version = "^0.3.9", features = [
+    "processthreadsapi",
+    "processtopologyapi",
+    "sysinfoapi",
+    "winbase",
+] }
 
 inflections = "1"
 
@@ -163,7 +168,7 @@ pliron-llvm = { version = "0.17", default-features = false }
 # pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
 # pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
 
-# These features stop llvm-sys from resolving LLVM itself; cubecl-cpu's build.rs
+# These features stop llvm-sys from resolving LLVM itself; cubecl-llvm's build.rs
 # links the bundled toolchain instead.
 llvm-sys = { version = "221", features = [
     "no-llvm-linking",

@@ -1,5 +1,5 @@
 use super::prelude::*;
-use crate::compiler::polyfill::synchronization::SpinLoopHintOp;
+use crate::shared::polyfill::synchronization::SpinLoopHintOp;
 use pliron_llvm::types::VoidType;
 
 /// The instruction hinting the core that it is in a spin loop, i.e. what `std::hint::spin_loop`

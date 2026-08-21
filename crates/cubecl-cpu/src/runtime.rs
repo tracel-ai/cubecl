@@ -1,4 +1,4 @@
-use crate::{compiler::PlironCompiler, compute::server::CpuServer, device::CpuDevice};
+use crate::{compute::affinity, compute::server::CpuServer, device::CpuDevice};
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
@@ -12,6 +12,7 @@ use cubecl_core::{
     server::ServerUtilities,
     zspace::{Shape, Strides},
 };
+use cubecl_llvm::PlironCompiler;
 use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
@@ -67,6 +68,13 @@ fn register_supported_types(props: &mut DeviceProperties) {
         props.register_type_usage(ty, TypeUsage::all());
     }
 
+    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
+        props.register_type_usage(
+            ElemType::Float(ty),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
+    }
+
     for ty in supported_atomic_types {
         props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
     }
@@ -77,7 +85,8 @@ impl DeviceService for CpuServer {
         let options = RuntimeOptions::default();
         let mut system = System::new();
         system.refresh_memory();
-        let max_shared_memory_size = system
+        // Bounds the allocator's page size, not a kernel's shared memory.
+        let total_memory = system
             .cgroup_limits()
             .map(|g| g.total_memory)
             .unwrap_or(system.total_memory()) as usize;
@@ -93,6 +102,13 @@ impl DeviceService for CpuServer {
             available_parallelism,
         );
         let max_cube_count = (u32::MAX, u32::MAX, u32::MAX);
+        // Kernels size their stages against shared memory ("as big as shared
+        // memory allows"), so reporting whole RAM lets one matmul launch
+        // reserve tens of GB and abort. GPU shared memory is carved from L1,
+        // so the L1d size is its honest CPU analogue — reporting the L2
+        // measured ~2.5x worse on decode gemv, stages outgrowing what stays
+        // resident. GPU-like floor when the topology cannot be read.
+        let max_shared_memory_size = affinity::l1d_cache_size().unwrap_or(64 * 1024);
         let topology = HardwareProperties {
             load_width: 512,
             plane_size_min: 1,
@@ -113,7 +129,7 @@ impl DeviceService for CpuServer {
         const ALIGNMENT: u64 = 8;
 
         let mem_properties = MemoryDeviceProperties {
-            max_page_size: max_shared_memory_size as u64,
+            max_page_size: total_memory as u64,
             alignment: ALIGNMENT,
         };
 
@@ -142,12 +158,7 @@ impl DeviceService for CpuServer {
             (),
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
-        CpuServer::new(
-            available_parallelism,
-            mem_properties,
-            options.memory_config,
-            Arc::new(utilities),
-        )
+        CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {

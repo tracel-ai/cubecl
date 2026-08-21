@@ -510,6 +510,35 @@ macro_rules! testgen_binary {
     };
 }
 
+/// Dividing a value by itself folds at compile time, and the answer is one of the divided type,
+/// not a bool.
+#[cube(launch)]
+fn kernel_self_div(output: &mut [u32]) {
+    if ABSOLUTE_POS < output.len() {
+        let value = output[ABSOLUTE_POS];
+        output[ABSOLUTE_POS] = value / value;
+    }
+}
+
+pub fn test_self_div<R: Runtime>(client: ComputeClient<R>) {
+    let handle = client.create_from_slice(u32::as_bytes(&[7u32, 1, 255, 42]));
+
+    kernel_self_div::launch::<R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(4),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 4) },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    assert_eq!(
+        actual.len() / size_of::<u32>(),
+        4,
+        "a failed launch reads back nothing"
+    );
+    assert_eq!(u32::from_bytes(&actual), &[1, 1, 1, 1]);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_binary_untyped {
@@ -535,6 +564,7 @@ macro_rules! testgen_binary_untyped {
             }
 
             add_test!(test_mulhi);
+            add_test!(test_self_div);
         }
     };
 }

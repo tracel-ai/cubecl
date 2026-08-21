@@ -1,4 +1,4 @@
-use cubecl_core::cmma::MatrixType;
+use cubecl_core::{WgpuCompilationOptions, cmma::MatrixType};
 use cubecl_ir::{
     AddressSpace, ContextExt,
     interfaces::TypedExt,
@@ -74,8 +74,28 @@ float_type!(Float32Type, 32, None);
 float_type!(FloatFlex32Type, 32, None);
 float_type!(Float16Type, 16, None);
 float_type!(BFloat16Type, 16, Some(FPEncoding::BFloat16KHR));
-float_type!(Float8E4M3Type, 8, Some(FPEncoding::Float8E4M3EXT));
-float_type!(Float8E5M2Type, 8, Some(FPEncoding::Float8E5M2EXT));
+
+macro_rules! fp8_type {
+    ($ty: ty, $encoding: expr) => {
+        #[type_interface_impl]
+        impl ToSpirvDialectType for $ty {
+            fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
+                if ctx
+                    .aux_ty::<WgpuCompilationOptions>()
+                    .vulkan
+                    .supports_float8
+                {
+                    FloatType::get(ctx, 8, Some($encoding)).to_handle()
+                } else {
+                    IntegerType::get(ctx, 8, Signedness::Signless).to_handle()
+                }
+            }
+        }
+    };
+}
+
+fp8_type!(Float8E4M3Type, FPEncoding::Float8E4M3EXT);
+fp8_type!(Float8E5M2Type, FPEncoding::Float8E5M2EXT);
 float_type!(Float8E8M0Type, 8, Some(FPEncoding::Float8UnsignedE8M0EXT));
 float_type!(Float6E3M2Type, 6, Some(FPEncoding::Float6E3M2EXT));
 float_type!(Float6E2M3Type, 6, Some(FPEncoding::Float6E2M3EXT));
