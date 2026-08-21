@@ -163,6 +163,85 @@ pub fn test_vector_conditional<R: Runtime, F: Float + CubeElement>(client: Compu
     assert_eq!(actual, vec![F::new(2.0); vector_size]);
 }
 
+/// A dynamic lane index on a vector wider than the target's vectors: the
+/// unroll pass has to search the parts it split the vector into, so every lane
+/// is asked for in turn.
+#[cube(launch_unchecked)]
+pub fn kernel_vector_extract_dynamic<F: Float, N: Size>(
+    input: &[Vector<F, N>],
+    index: &[u32],
+    output: &mut [F],
+) {
+    if UNIT_POS == 0 {
+        output[0] = input[0].extract_dynamic(usize::cast_from(index[0]));
+    }
+}
+
+pub fn test_vector_extract_dynamic<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let vector_size = 8usize;
+    let data = (0..vector_size as i64)
+        .map(|x| F::from_int(x + 1))
+        .collect::<Vec<_>>();
+    let input = client.create_from_slice(F::as_bytes(&data));
+
+    for lane in 0..vector_size {
+        let index = client.create_from_slice(u32::as_bytes(&[lane as u32]));
+        let output = client.create_from_slice(F::as_bytes(&[F::new(0.0)]));
+        unsafe {
+            kernel_vector_extract_dynamic::launch_unchecked::<F, R>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_single(),
+                vector_size,
+                BufferArg::from_raw_parts(input.clone(), 1),
+                BufferArg::from_raw_parts(index, 1),
+                BufferArg::from_raw_parts(output.clone(), 1),
+            )
+        }
+
+        let actual = client.read_one_unchecked(output);
+        let actual = F::from_bytes(&actual);
+
+        assert_eq!(actual[0], data[lane], "lane {lane}");
+    }
+}
+
+#[cube(launch_unchecked)]
+pub fn kernel_vector_insert_dynamic<F: Float, N: Size>(index: &[u32], output: &mut [Vector<F, N>]) {
+    if UNIT_POS == 0 {
+        let mut vector = output[0];
+        vector.insert_dynamic(usize::cast_from(index[0]), F::new(5f32));
+        output[0] = vector;
+    }
+}
+
+pub fn test_vector_insert_dynamic<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let vector_size = 8usize;
+
+    for lane in 0..vector_size {
+        let index = client.create_from_slice(u32::as_bytes(&[lane as u32]));
+        let output = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); vector_size]));
+        unsafe {
+            kernel_vector_insert_dynamic::launch_unchecked::<F, R>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_single(),
+                vector_size,
+                BufferArg::from_raw_parts(index, 1),
+                BufferArg::from_raw_parts(output.clone(), 1),
+            )
+        }
+
+        let actual = client.read_one_unchecked(output);
+        let actual = F::from_bytes(&actual);
+
+        let mut expected = vec![F::new(0.0); vector_size];
+        expected[lane] = F::new(5.0);
+
+        assert_eq!(&actual[..vector_size], expected, "lane {lane}");
+    }
+}
+
 #[cube(launch_unchecked)]
 pub fn kernel_shared_memory<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     let mut smem1 = Shared::new_slice(8usize);
@@ -271,6 +350,23 @@ macro_rules! testgen_vector {
         fn test_vector_conditional() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::vector::test_vector_conditional::<TestRuntime, FloatType>(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_vector_extract_dynamic() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::vector::test_vector_extract_dynamic::<
+                TestRuntime,
+                FloatType,
+            >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_vector_insert_dynamic() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::vector::test_vector_insert_dynamic::<TestRuntime, FloatType>(
                 client,
             );
         }

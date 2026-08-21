@@ -5,11 +5,15 @@ use cubecl_ir::{
     attributes::{IndexAttr, ZeroAttr},
     dialect::{
         base::OperationPtrExt,
-        general::{CopyOp, ReinterpretCastOp},
-        math::{IAddOp, IMulOp},
+        cmp::IEqualOp,
+        general::{CopyOp, ReinterpretCastOp, SelectOp},
+        math::{IAddOp, IMulOp, UDivOp, URemOp},
         matrix,
         memory::{DeclareVariableOp, IndexOp},
-        vector::{CompositeConstructOp, CompositeExtractOp, CompositeInsertOp},
+        vector::{
+            CompositeConstructOp, CompositeExtractOp, CompositeInsertOp, VectorExtractDynamicOp,
+            VectorInsertDynamicOp,
+        },
     },
     interfaces::{MaybeVectorizedType, TriviallyUnrollable, TypedExt},
     prelude::*,
@@ -242,6 +246,111 @@ impl CustomUnrollOp for CompositeInsertOp {
             state.to_erase.push(self.get_operation());
         }
     }
+}
+
+/// A dynamic index reaches a lane the pass cannot name at compile time, so the
+/// unrolled parts are all searched: the index splits into the part it lands in
+/// and the lane within that part, and a select chain picks the part's answer.
+/// The frontend documents both dynamic accessors as very slow already, and the
+/// chain is over the (comptime) number of parts, not the lanes.
+#[op_interface_impl]
+impl CustomUnrollOp for VectorExtractDynamicOp {
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
+        let vector = self.vector(ctx);
+        if try_get_vec(ctx, vector) <= state.max_vector_size {
+            return;
+        }
+
+        state.result.ir_changed |= IRStatus::Changed;
+        let (part, lane) = split_index(ctx, self, state.max_vector_size, self.index(ctx));
+        let parts = state.mappings.get(&vector).expect("Should exist").clone();
+
+        let mut extracted = None;
+        for (i, part_vector) in parts.into_iter().enumerate() {
+            let op = VectorExtractDynamicOp::new(ctx, part_vector, lane);
+            op.get_operation().insert_before(ctx, self.get_operation());
+            let value = op.get_result(ctx);
+            extracted = Some(match extracted {
+                Some(previous) => select_part(ctx, self, part, i, value, previous),
+                None => value,
+            });
+        }
+
+        let extracted = extracted.expect("Unrolled vector should have parts");
+        self.get_result(ctx).replace_all_uses_with(ctx, &extracted);
+        state.to_erase.push(self.get_operation());
+    }
+}
+
+#[op_interface_impl]
+impl CustomUnrollOp for VectorInsertDynamicOp {
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
+        let vector = self.vector(ctx);
+        if try_get_vec(ctx, vector) <= state.max_vector_size {
+            return;
+        }
+
+        state.result.ir_changed |= IRStatus::Changed;
+        let value = self.value(ctx);
+        let (part, lane) = split_index(ctx, self, state.max_vector_size, self.index(ctx));
+        let parts = state.mappings.get(&vector).expect("Should exist").clone();
+
+        let mut new_results = Vec::with_capacity(parts.len());
+        for (i, part_vector) in parts.into_iter().enumerate() {
+            // Selecting the *scalar* to write, rather than between the written
+            // and untouched parts, keeps the condition off the vector operands:
+            // a select over vectors with a scalar condition needs SPIR-V 1.4.
+            let old = VectorExtractDynamicOp::new(ctx, part_vector, lane);
+            old.get_operation().insert_before(ctx, self.get_operation());
+            let written = select_part(ctx, self, part, i, value, old.get_result(ctx));
+
+            let op = VectorInsertDynamicOp::new(ctx, part_vector, written, lane);
+            op.get_operation().insert_before(ctx, self.get_operation());
+            new_results.push(op.get_result(ctx));
+        }
+
+        state.mappings.insert(self.get_result(ctx), new_results);
+        state.to_erase.push(self.get_operation());
+    }
+}
+
+/// Split a dynamic vector index into the unrolled part it lands in and the lane
+/// within that part.
+fn split_index(
+    ctx: &mut Context,
+    anchor: &dyn Op,
+    max_vector_size: VectorSize,
+    index: Value,
+) -> (Value, Value) {
+    let size = const_usize(ctx, anchor, max_vector_size);
+    let part = UDivOp::new(ctx, index, size);
+    part.get_operation()
+        .insert_before(ctx, anchor.get_operation());
+    let lane = URemOp::new(ctx, index, size);
+    lane.get_operation()
+        .insert_before(ctx, anchor.get_operation());
+    (part.get_result(ctx), lane.get_result(ctx))
+}
+
+/// `if part == i { on_match } else { otherwise }`.
+fn select_part(
+    ctx: &mut Context,
+    anchor: &dyn Op,
+    part: Value,
+    i: usize,
+    on_match: Value,
+    otherwise: Value,
+) -> Value {
+    let i = const_usize(ctx, anchor, i);
+    let is_part = IEqualOp::new(ctx, part, i);
+    is_part
+        .get_operation()
+        .insert_before(ctx, anchor.get_operation());
+    let select = SelectOp::new(ctx, is_part.get_result(ctx), on_match, otherwise);
+    select
+        .get_operation()
+        .insert_before(ctx, anchor.get_operation());
+    select.get_result(ctx)
 }
 
 /// A reinterpret changes the lane count with the lane width, so one side's pieces are not the
