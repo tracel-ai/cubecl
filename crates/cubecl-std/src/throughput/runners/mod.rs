@@ -4,3 +4,4 @@ pub mod launch_overhead;
 pub mod memory_direct;
 pub mod memory_probe;
 pub mod memory_read;
+pub mod memory_write;

@@ -11,7 +11,7 @@ use cubecl_runtime::{
 };
 
 use crate::throughput::{
-    compute_cmma, compute_direct, launch_overhead, memory_direct, memory_read,
+    compute_cmma, compute_direct, launch_overhead, memory_direct, memory_read, memory_write,
 };
 
 /// Measure peak throughput on `device` for each of the given `keys`.
@@ -92,6 +92,7 @@ pub fn measure_peak_throughput<R: Runtime>(
         }
         ThroughputMode::Memory
         | ThroughputMode::MemoryRead
+        | ThroughputMode::MemoryWrite
         | ThroughputMode::MemoryWorkingSet { .. } => {
             // The memory modes differ only in access and working set, and
             // `memory_probe` is the one place that mapping lives.
@@ -107,6 +108,9 @@ pub fn measure_peak_throughput<R: Runtime>(
                 }
                 MemoryAccess::Read => {
                     memory_read::build_kernel(client, key, launch_config, working_set)
+                }
+                MemoryAccess::Write => {
+                    memory_write::build_kernel(client, key, launch_config, working_set)
                 }
             }
         }
