@@ -21,14 +21,14 @@ pub(crate) fn handle_command(
     }
     base_commands::build::handle_command(args.try_into().unwrap(), env, context)?;
     // Additional feature-specific builds
-    helpers::custom_crates_build(
+    build_helpers::custom_crates_build(
         vec!["cubecl-wgpu"],
         vec!["--features", "spirv"],
         None,
         None,
         "std with SPIR-V compiler",
     )?;
-    helpers::custom_crates_build(
+    build_helpers::custom_crates_build(
         vec!["cubecl-runtime"],
         vec!["--no-default-features"],
         None,
