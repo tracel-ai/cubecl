@@ -122,7 +122,9 @@ impl Worker for DispatcherWorker {
                             received = Some(task);
                             break;
                         }
-                        Err(_) => std::hint::spin_loop(),
+                        // The workers cover every logical CPU, so polling in earnest
+                        // starves the client and any still-running units.
+                        Err(_) => std::thread::yield_now(),
                     }
                 }
                 let task = match received {
