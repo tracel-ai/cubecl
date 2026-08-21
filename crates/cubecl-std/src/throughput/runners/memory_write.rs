@@ -36,6 +36,7 @@ pub fn build_kernel<R: Runtime>(
         line_bytes,
         MemoryAccess::Write,
         working_set,
+        blocked,
     );
 
     let out_handle = client.empty(probe.buffer_bytes);

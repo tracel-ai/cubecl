@@ -36,7 +36,14 @@ pub fn build_kernel<R: Runtime>(
     let blocked = config.plane_size == 1;
 
     let line_bytes = config.vector_size * dtype.size();
-    let probe = MemoryProbe::new(&client, config, line_bytes, MemoryAccess::Read, working_set);
+    let probe = MemoryProbe::new(
+        &client,
+        config,
+        line_bytes,
+        MemoryAccess::Read,
+        working_set,
+        blocked,
+    );
 
     let in_handle = client.empty(probe.buffer_bytes);
     memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);

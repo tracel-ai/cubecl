@@ -14,6 +14,14 @@ use crate::throughput::{
     compute_cmma, compute_direct, launch_overhead, memory_direct, memory_read, memory_write,
 };
 
+/// Cube count for a CPU launch: a small loop of cube positions per core
+/// rather than the trivial one, so compute-bound kernels keep the
+/// independent per-position iterations LLVM was pipelining across when the
+/// grid was SM-derived. Memory probes ignore this (see
+/// [`MemoryProbe::new`](crate::throughput::memory_probe::MemoryProbe::new)):
+/// the same loop breaks their window rotation once addressing is blocked.
+const CPU_CUBE_COUNT: usize = 64;
+
 /// Measure peak throughput on `device` for each of the given `keys`.
 pub fn device_throughput<R: Runtime>(
     device: &R::Device,
@@ -174,16 +182,14 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
         .next()
         .unwrap_or(1);
 
-    // A CPU has no SMs to oversubscribe with `sms * 32` cubes: on this backend
-    // a cube's units are its real dispatched workers, while extra cubes only
-    // add a sequential loop inside each of them, so a big cube count turns
-    // into thousands of tiny loop trips instead of parallelism. One cube of
-    // `num_cpu_cores` units, one per core, is how a real blocked CPU kernel
-    // launches.
+    // A CPU has no SMs, so `sms * 32` cubes is the wrong grid to size from:
+    // a cube's units are its real dispatched workers here, while its cube
+    // count is only a loop inside each of them. `num_cpu_cores` units, one
+    // per core, is the real worker count.
     if let Some(cores) = hardware.num_cpu_cores {
         return LaunchConfig {
             cube_dim: cores as usize,
-            cube_count: 1,
+            cube_count: CPU_CUBE_COUNT,
             vector_size,
             plane_size: plane_size as usize,
         };

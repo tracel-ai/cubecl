@@ -41,19 +41,29 @@ pub struct MemoryProbe {
 impl MemoryProbe {
     /// Sizes a probe moving `working_set` bytes per pass, split evenly across
     /// the buffers `access` touches.
+    ///
+    /// `blocked` pins the launch to one cube: on the backend that addressing
+    /// is for, a cube position is a loop wrapped around the whole kernel
+    /// body, `n_iter` included, so more than one turns the window rotation
+    /// between passes into a replay of the same narrow, blocked-addressed
+    /// slice instead of a walk across the buffer, and cache serves it. A
+    /// coalesced launch spreads one cube position's addresses across the
+    /// full window regardless of cube count, so it has no such limit.
     pub fn new<R: Runtime>(
         client: &ComputeClient<R>,
         config: LaunchConfig,
         line_bytes: usize,
         access: MemoryAccess,
         working_set: usize,
+        blocked: bool,
     ) -> Self {
         let max_alloc = client.properties().memory.max_page_size as usize;
+        let cube_count = if blocked { 1 } else { config.cube_count };
 
         Self::sized(
             max_alloc,
             config.cube_dim,
-            config.cube_count,
+            cube_count,
             line_bytes,
             access,
             working_set,
