@@ -100,24 +100,42 @@ pub fn register_metal_features(
     unsafe {
         use objc2::rc::autoreleasepool;
         use objc2_foundation::NSString;
-        use objc2_metal::{MTLDevice, MTLGPUFamily};
+        use objc2_metal::{MTLCompileOptions, MTLDevice, MTLGPUFamily, MTLLanguageVersion};
 
         let Some(adapter) = adapter.as_hal::<hal::api::Metal>() else {
             return false;
         };
         let raw = adapter.raw_device();
-        if !raw.supportsFamily(MTLGPUFamily::Apple7) {
+
+        // The native feature profile includes plane and CMMA operations that rely on Metal's
+        // SIMD-scoped capabilities. Metal can report those capabilities through overlapping
+        // programming-model and hardware families:
+        // - `Metal3`: the cross-platform programming-model family
+        // - `Apple7`: the A14/M1-or-newer hardware family
+        // - `Mac2`: the equivalent Mac hardware family, including Apple's paravirtualized device
+        //
+        // This matches wgpu-hal's SIMD-scoped capability check:
+        // https://github.com/gfx-rs/wgpu/blob/v30.0.0/wgpu-hal/src/metal/adapter.rs#L1073-L1077
+        //
+        // GPU-family support is independent of the supported MSL language version; the canary
+        // below verifies MSL 3.2 compiler support separately.
+        let supports_required_family = raw.supportsFamily(MTLGPUFamily::Metal3)
+            || raw.supportsFamily(MTLGPUFamily::Apple7)
+            || raw.supportsFamily(MTLGPUFamily::Mac2);
+
+        if !supports_required_family {
             return false;
-        };
-        let supports_lambdas = autoreleasepool(|_| {
+        }
+        let canary_result = autoreleasepool(|_| {
             let canary = NSString::from_str(LAMBDA_CANARY);
-            raw.newLibraryWithSource_options_error(&canary, None)
-                .is_ok()
+            let options = MTLCompileOptions::new();
+            options.setLanguageVersion(MTLLanguageVersion::Version3_2);
+            raw.newLibraryWithSource_options_error(&canary, Some(&options))
         });
-        if !supports_lambdas {
+        if let Err(err) = canary_result {
             // This is a fixable issue, so we should warn users.
             log::warn!(
-                "Device can support native MSL, but Metal compiler version is too old. Upgrading to 3.2 or higher is recommended."
+                "Device can support native MSL, but Metal compiler version is too old. Upgrading to 3.2 or higher is recommended. MSL 3.2 canary compilation failed: {err:?}"
             );
             return false;
         }
