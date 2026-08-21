@@ -31,19 +31,8 @@ pub fn build_kernel<R: Runtime>(
     let client = client.clone();
     let dtype = key.dtype();
 
-    // No real planes to coalesce across: give each unit a contiguous run
-    // instead, which is what a blocked CPU kernel does.
-    let blocked = config.plane_size == 1;
-
     let line_bytes = config.vector_size * dtype.size();
-    let probe = MemoryProbe::new(
-        &client,
-        config,
-        line_bytes,
-        MemoryAccess::Read,
-        working_set,
-        blocked,
-    );
+    let probe = MemoryProbe::new(&client, config, line_bytes, MemoryAccess::Read, working_set);
 
     let in_handle = client.empty(probe.buffer_bytes);
     memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);
@@ -62,7 +51,7 @@ pub fn build_kernel<R: Runtime>(
                 BufferArg::from_raw_parts(out_handle.clone(), 1),
                 probe.window_lines,
                 iterations,
-                blocked,
+                probe.blocked,
                 dtype,
             )
         };

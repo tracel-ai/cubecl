@@ -14,13 +14,14 @@ use crate::throughput::{
     compute_cmma, compute_direct, launch_overhead, memory_direct, memory_read, memory_write,
 };
 
-/// Cube count for a CPU launch: a small loop of cube positions per core
-/// rather than the trivial one, so compute-bound kernels keep the
-/// independent per-position iterations LLVM was pipelining across when the
-/// grid was SM-derived. Memory probes ignore this (see
-/// [`MemoryProbe::new`](crate::throughput::memory_probe::MemoryProbe::new)):
-/// the same loop breaks their window rotation once addressing is blocked.
-const CPU_CUBE_COUNT: usize = 64;
+/// Independent cube positions each CPU worker interleaves, so a compute
+/// pass pipelines past instruction latency instead of serializing on one
+/// dependency chain. A depth, not a machine guess: a handful hides any
+/// core's fma latency, excess is free because the iteration budget is
+/// time-calibrated, and nothing about the launch scales with it. Memory
+/// probes with blocked addressing pin their own count back to one (see
+/// [`MemoryProbe::new`](crate::throughput::memory_probe::MemoryProbe::new)).
+const CPU_CHAIN_DEPTH: usize = 64;
 
 /// Measure peak throughput on `device` for each of the given `keys`.
 pub fn device_throughput<R: Runtime>(
@@ -189,7 +190,7 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
     if let Some(cores) = hardware.num_cpu_cores {
         return LaunchConfig {
             cube_dim: cores as usize,
-            cube_count: CPU_CUBE_COUNT,
+            cube_count: CPU_CHAIN_DEPTH,
             vector_size,
             plane_size: plane_size as usize,
         };
