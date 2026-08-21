@@ -23,6 +23,7 @@ use cubecl_core::{
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::{self, DynFut};
+use cubecl_environment::stream::StreamId;
 #[cfg(renderdoc)]
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
@@ -30,7 +31,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::StreamCaptureState,
+    stream::{StreamCaptureState, StreamErrors},
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -55,7 +56,7 @@ enum Timings {
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
     pub device: wgpu::Device,
-    pub errors: Vec<ServerError>,
+    pub errors: StreamErrors,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -143,7 +144,7 @@ impl WgpuStream {
             mem_manage,
             compute_pass: None,
             timings,
-            errors: Vec::new(),
+            errors: StreamErrors::default(),
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -199,17 +200,20 @@ impl WgpuStream {
                 // Defensive: the server already rejects writes while recording,
                 // and `begin_capture` drains the queue, so none should reach here.
                 if let Err(err) = self.reject_while_recording("write") {
-                    self.errors.push(err);
+                    self.errors.push_shared(err);
                     return;
                 }
                 // It is important to flush before writing, as the write operation is inserted
                 // into the QUEUE not the encoder. We want to make sure all outstanding work
                 // happens _before_ the write operation.
                 let _ = self
-                    .flush(StreamErrorMode {
-                        ignore: true,
-                        flush: false,
-                    })
+                    .flush(
+                        StreamErrorMode {
+                            ignore: true,
+                            flush: false,
+                        },
+                        None,
+                    )
                     .ok();
                 self.write_to_buffer(&buffer, &data);
             }
@@ -262,6 +266,7 @@ impl WgpuStream {
     pub fn read_resources(
         &mut self,
         descriptors: Vec<(WgpuResource, Shape, usize)>,
+        stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         self.compute_pass = None;
         let mut staging_info = Vec::with_capacity(descriptors.len());
@@ -298,10 +303,13 @@ impl WgpuStream {
         // a kernel that failed at launch (e.g. a compilation error) never wrote
         // the buffers this read is about to return, so returning bytes instead of
         // the error would silently hand back stale memory.
-        if let Err(err) = self.flush(StreamErrorMode {
-            ignore: false,
-            flush: true,
-        }) {
+        if let Err(err) = self.flush(
+            StreamErrorMode {
+                ignore: false,
+                flush: true,
+            },
+            Some(stream_id),
+        ) {
             return Box::pin(async move { Err(err) });
         }
 
@@ -365,14 +373,17 @@ impl WgpuStream {
         timing
     }
 
-    pub fn start_profile(&mut self) -> Result<ProfilingToken, ServerError> {
+    pub fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         if matches!(self.timings, Timings::System(_)) {
-            cubecl_environment::future::block_on(self.sync())?;
+            cubecl_environment::future::block_on(self.sync(stream_id))?;
         } else {
-            self.flush(StreamErrorMode {
-                ignore: false,
-                flush: true,
-            })?;
+            self.flush(
+                StreamErrorMode {
+                    ignore: false,
+                    flush: true,
+                },
+                Some(stream_id),
+            )?;
         }
 
         match &mut self.timings {
@@ -399,11 +410,15 @@ impl WgpuStream {
         }
     }
 
-    pub fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
+    pub fn end_profile(
+        &mut self,
+        token: ProfilingToken,
+        stream_id: StreamId,
+    ) -> Result<ProfileDuration, ProfileError> {
         match &mut self.timings {
             Timings::System(..) => {
                 // Nb: WASM _has_ to use device timing and will panic here if query timestamps are not supported.
-                let result = future::block_on(self.sync());
+                let result = future::block_on(self.sync(stream_id));
                 let profiler = self.system_profiler();
 
                 if let Err(err) = result {
@@ -429,10 +444,13 @@ impl WgpuStream {
                 // This flushes the queue to execute the encoder write command to write the
                 // timings.
                 self.tasks_count += 1;
-                let result = self.flush(StreamErrorMode {
-                    ignore: false,
-                    flush: true,
-                });
+                let result = self.flush(
+                    StreamErrorMode {
+                        ignore: false,
+                        flush: true,
+                    },
+                    Some(stream_id),
+                );
 
                 let Timings::Device(timing) = &mut self.timings else {
                     return Err(ProfileError::Unknown {
@@ -455,14 +473,18 @@ impl WgpuStream {
 
     pub fn sync(
         &mut self,
+        stream_id: StreamId,
     ) -> Pin<Box<dyn Future<Output = Result<(), ServerError>> + Send + 'static>> {
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
         let flush_error = self
-            .flush(StreamErrorMode {
-                ignore: false,
-                flush: true,
-            })
+            .flush(
+                StreamErrorMode {
+                    ignore: false,
+                    flush: true,
+                },
+                Some(stream_id),
+            )
             .err();
 
         let queue = self.queue.clone();
@@ -497,9 +519,9 @@ impl WgpuStream {
         self.mem_manage.reserve(size)
     }
 
-    /// Registers a new error into the error sink.
-    pub fn error(&mut self, error: ServerError) {
-        self.errors.push(error);
+    /// Registers a new error into the error sink, for `stream_id` to surface.
+    pub fn error(&mut self, stream_id: StreamId, error: ServerError) {
+        self.errors.push(stream_id, error);
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
@@ -613,18 +635,28 @@ impl WgpuStream {
         // are being created but no work is submitted).
         if self.tasks_count >= self.tasks_max {
             let _ = self
-                .flush(StreamErrorMode {
-                    ignore: true,
-                    flush: false,
-                })
+                .flush(
+                    StreamErrorMode {
+                        ignore: true,
+                        flush: false,
+                    },
+                    None,
+                )
                 .ok();
         }
     }
 
-    pub fn flush(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
+    /// Submit the queued work, then surface the errors `stream_id` owns (see
+    /// [`StreamErrors`]). `None` is for the pooled paths that flush the stream
+    /// without any logical stream asking, which never surface errors anyway.
+    pub fn flush(
+        &mut self,
+        mode: StreamErrorMode,
+        stream_id: Option<StreamId>,
+    ) -> Result<(), ServerError> {
         if self.tasks_count == 0 {
             self.shared_bindings.clear();
-            return self.flush_errors(mode);
+            return self.flush_errors(mode, stream_id);
         }
 
         // End the current compute pass.
@@ -671,25 +703,32 @@ impl WgpuStream {
         self.tasks_count = 0;
         self.pending_write_count = 0;
 
-        self.flush_errors(mode)
+        self.flush_errors(mode, stream_id)
     }
 
-    fn flush_errors(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
+    fn flush_errors(
+        &mut self,
+        mode: StreamErrorMode,
+        stream_id: Option<StreamId>,
+    ) -> Result<(), ServerError> {
         #[cfg(feature = "deny-validation-errors")]
         {
             let validation_errors = wgpu_hal::VALIDATION_CANARY.get_and_reset();
-            self.errors.extend(
-                validation_errors
-                    .into_iter()
-                    .map(|err| ServerError::Validation {
-                        message: err,
-                        backtrace: BackTrace::capture(),
-                    }),
-            );
+            // The driver reports these against the device, not the launch that
+            // caused them, so they go to whichever stream flushes next.
+            self.errors
+                .extend_shared(
+                    validation_errors
+                        .into_iter()
+                        .map(|err| ServerError::Validation {
+                            message: err,
+                            backtrace: BackTrace::capture(),
+                        }),
+                );
         }
 
         if mode.flush {
-            let errors = self.flush_errors_queue();
+            let errors = self.flush_errors_queue(stream_id);
 
             if !mode.ignore && !errors.is_empty() {
                 let error = ServerError::ServerUnhealthy {
@@ -698,9 +737,9 @@ impl WgpuStream {
                 };
                 return Err(error);
             }
-        } else if !mode.ignore && !self.errors.is_empty() {
+        } else if !mode.ignore && self.errors.any(stream_id) {
             let error = ServerError::ServerUnhealthy {
-                errors: self.errors.clone(),
+                errors: self.errors.peek(stream_id),
                 backtrace: BackTrace::capture(),
             };
             return Err(error);
@@ -784,8 +823,10 @@ impl WgpuStream {
                 Ok(resource) => ReplayDispatch::Dynamic(resource),
                 Err(err) => {
                     // The recording is now incomplete; `end_capture` sees the
-                    // queued error and rejects the capture.
-                    self.errors.push(err.into());
+                    // queued error and rejects the capture. Shared: the capture
+                    // owns the stream for its window, so the error reaches it
+                    // without a stream id to hand.
+                    self.errors.push_shared(err.into());
                     return;
                 }
             },
@@ -930,8 +971,8 @@ impl WgpuStream {
         self.flush_if_needed();
     }
 
-    pub(crate) fn flush_errors_queue(&mut self) -> Vec<ServerError> {
-        let errors = core::mem::take(&mut self.errors);
+    pub(crate) fn flush_errors_queue(&mut self, stream_id: Option<StreamId>) -> Vec<ServerError> {
+        let errors = self.errors.take(stream_id);
 
         if !errors.is_empty() {
             self.profile_error(ProfileError::Unknown {

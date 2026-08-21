@@ -30,8 +30,13 @@ pub trait EventStreamBackend: 'static {
     fn create_stream(&self) -> Self::Stream;
     /// Returns the cursor of the given handle on the given stream.
     fn handle_cursor(stream: &Self::Stream, handle: &BufferBinding) -> u64;
-    /// Returns whether the stream can access new tasks.
-    fn is_healthy(stream: &Self::Stream) -> bool;
+    /// Returns whether the stream can accept new tasks from `stream_id`.
+    ///
+    /// Errors are queued per logical stream (see
+    /// [`StreamErrors`](super::StreamErrors)), so a backend stream is broken
+    /// for the streams whose errors are still queued on it, not for every
+    /// stream sharing it.
+    fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool;
 
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event
     /// that can be used for synchronization.
@@ -228,7 +233,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         let stream = self.streams.get_mut(&stream_id);
         stream.cursor += 1;
 
-        if enforce_healthy && !B::is_healthy(&stream.stream) {
+        if enforce_healthy && !B::is_healthy(&stream.stream, stream_id) {
             return Err(ServerError::Generic {
                 reason: "Can't resolve the stream since it is currently in an error state".into(),
                 backtrace: BackTrace::capture(),
@@ -665,7 +670,7 @@ mod tests {
             0
         }
 
-        fn is_healthy(_stream: &Self::Stream) -> bool {
+        fn is_healthy(_stream: &Self::Stream, _stream_id: StreamId) -> bool {
             true
         }
     }
@@ -692,7 +697,7 @@ mod tests {
             0
         }
 
-        fn is_healthy(_stream: &Self::Stream) -> bool {
+        fn is_healthy(_stream: &Self::Stream, _stream_id: StreamId) -> bool {
             true
         }
     }

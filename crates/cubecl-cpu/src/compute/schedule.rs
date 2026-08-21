@@ -117,10 +117,13 @@ impl SchedulerStreamBackend for ScheduledCpuBackend {
 
     fn flush(stream: &mut Self::Stream) {
         let _ = stream
-            .flush(cubecl_core::server::StreamErrorMode {
-                ignore: true,
-                flush: false,
-            })
+            .flush(
+                cubecl_core::server::StreamErrorMode {
+                    ignore: true,
+                    flush: false,
+                },
+                None,
+            )
             .ok();
     }
 

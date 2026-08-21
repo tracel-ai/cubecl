@@ -279,7 +279,7 @@ impl ComputeServer for CudaServer {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
             };
-            stream.current().errors.push(err);
+            stream.current().errors.push(stream_id, err);
         }
     }
 
@@ -500,7 +500,7 @@ impl ComputeServer for CudaServer {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
             };
-            stream.current().errors.push(err);
+            stream.current().errors.push(stream_id, err);
         }
     }
 
@@ -525,7 +525,7 @@ impl ComputeServer for CudaServer {
             // live graph still pins are dropped, freeing their buffers.
             stream.info_cache.graph_release(graph);
             if let Err(err) = synced {
-                stream.errors.push(err);
+                stream.errors.push(stream_id, err);
             }
         }
     }
@@ -1006,7 +1006,7 @@ impl CudaServer {
             Ok(stream) => stream,
             Err(_) => return Vec::new(),
         };
-        let errors = core::mem::take(&mut stream.current().errors);
+        let errors = stream.current().errors.take(Some(stream_id));
 
         // It is very important to tag current profiles as being wrong.
         if !errors.is_empty() {

@@ -224,10 +224,13 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
 
     fn flush(stream: &mut Self::Stream) {
         let _ = stream
-            .flush(StreamErrorMode {
-                ignore: true,
-                flush: false,
-            })
+            .flush(
+                StreamErrorMode {
+                    ignore: true,
+                    flush: false,
+                },
+                None,
+            )
             .ok();
     }
 

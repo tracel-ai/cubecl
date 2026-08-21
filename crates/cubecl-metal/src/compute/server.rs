@@ -154,7 +154,7 @@ impl MetalServer {
         let mut errors = Vec::new();
 
         if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
-            errors.append(&mut resolved.current().take_errors());
+            errors.append(&mut resolved.current().take_errors(stream_id));
         }
 
         if !errors.is_empty() {
@@ -174,7 +174,7 @@ impl MetalServer {
             Err(err) => unreachable!("{err}"),
         };
         let error = ServerError::Launch(err);
-        resolved.current().errors.lock().push(error);
+        resolved.current().errors.lock().push(stream_id, error);
     }
 }
 
@@ -261,7 +261,7 @@ impl ComputeServer for MetalServer {
         }
 
         // A faulted command buffer still signals completion, so surface any recorded fault.
-        if let Some(e) = resolved.current().take_errors().into_iter().next() {
+        if let Some(e) = resolved.current().take_errors(stream_id).into_iter().next() {
             return Box::pin(async move { Err(e) });
         }
 

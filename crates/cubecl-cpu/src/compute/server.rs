@@ -115,10 +115,13 @@ impl CpuServer {
                     .unwrap();
 
                 let _ = stream
-                    .flush(cubecl_core::server::StreamErrorMode {
-                        ignore: true,
-                        flush: false,
-                    })
+                    .flush(
+                        cubecl_core::server::StreamErrorMode {
+                            ignore: true,
+                            flush: false,
+                        },
+                        None,
+                    )
                     .ok();
 
                 let bytes = resource.read();
@@ -249,15 +252,20 @@ impl ComputeServer for CpuServer {
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
         for (desc, data) in descriptors {
-            let stream = self.scheduler.stream(&desc.handle.stream);
-
+            // The failures below belong to the caller, so they are queued on
+            // the caller's stream — the one that flushes them — even though the
+            // resource is resolved on the stream that owns the handle.
             if contiguous_strides(&desc.shape) != desc.strides {
-                stream.error(ServerError::Io(IoError::UnsupportedStrides {
-                    backtrace: BackTrace::capture(),
-                }));
+                self.scheduler.stream(&stream_id).error(
+                    stream_id,
+                    ServerError::Io(IoError::UnsupportedStrides {
+                        backtrace: BackTrace::capture(),
+                    }),
+                );
                 return;
             }
 
+            let stream = self.scheduler.stream(&desc.handle.stream);
             if !stream.is_healthy() {
                 return;
             }
@@ -265,7 +273,9 @@ impl ComputeServer for CpuServer {
             let resource = match stream.get_resource(desc.handle.clone()) {
                 Ok(r) => r,
                 Err(err) => {
-                    stream.error(ServerError::Io(err));
+                    self.scheduler
+                        .stream(&stream_id)
+                        .error(stream_id, ServerError::Io(err));
                     return;
                 }
             };
@@ -318,7 +328,10 @@ impl ComputeServer for CpuServer {
         if launch_mode.is_skipped() {
             if let Err(err) = self.compile_only(kernel) {
                 let stream = self.scheduler.stream(&stream_id);
-                stream.error(ServerError::Launch(LaunchError::CompilationError(err)));
+                stream.error(
+                    stream_id,
+                    ServerError::Launch(LaunchError::CompilationError(err)),
+                );
             }
             return;
         }
@@ -340,7 +353,10 @@ impl ComputeServer for CpuServer {
             Err(err) => {
                 // We make the stream that would execute the kernel in error.
                 let stream = self.scheduler.stream(&stream_id);
-                stream.error(ServerError::Launch(LaunchError::CompilationError(err)));
+                stream.error(
+                    stream_id,
+                    ServerError::Launch(LaunchError::CompilationError(err)),
+                );
                 return;
             }
         };
@@ -351,16 +367,19 @@ impl ComputeServer for CpuServer {
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.flush(cubecl_core::server::StreamErrorMode {
-            ignore: false,
-            flush: true,
-        })
+        stream.flush(
+            cubecl_core::server::StreamErrorMode {
+                ignore: false,
+                flush: true,
+            },
+            Some(stream_id),
+        )
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        let result = stream.sync();
+        let result = stream.sync(stream_id);
 
         Box::pin(async move { result })
     }
@@ -368,7 +387,7 @@ impl ComputeServer for CpuServer {
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.start_profile()
+        stream.start_profile(stream_id)
     }
 
     fn end_profile(
@@ -378,7 +397,7 @@ impl ComputeServer for CpuServer {
     ) -> Result<ProfileDuration, ProfileError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.end_profile(token)
+        stream.end_profile(token, stream_id)
     }
 
     fn get_resource(

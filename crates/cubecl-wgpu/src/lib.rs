@@ -44,7 +44,11 @@ mod tests {
         use cubecl_common::e4m3;
         use cubecl_core::prelude::*;
         use cubecl_core::{self as cubecl};
-        use cubecl_runtime::server::Handle;
+        use cubecl_environment::stream::StreamId;
+        use cubecl_runtime::{
+            config::{CubeClRuntimeConfig, RuntimeConfig},
+            server::Handle,
+        };
 
         use super::TestRuntime;
 
@@ -110,6 +114,47 @@ mod tests {
                 )
             };
             assert_rejected(&client, out);
+        }
+
+        /// A rejected launch belongs to the stream that made it. Logical streams
+        /// are folded onto the pooled ones with `id % max_streams`, so two of
+        /// them share a backend stream — and used to share its error queue: the
+        /// neighbour drained the rejection, failing on a kernel it never
+        /// launched, while the stream that did launch it read back a zeroed
+        /// buffer as if all was well.
+        #[test]
+        fn a_rejected_launch_stays_on_its_own_stream() {
+            let client = TestRuntime::client(&Default::default());
+            let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
+            // Two logical streams, one pooled stream between them.
+            let launching = StreamId { value: 1 };
+            let neighbour = StreamId {
+                value: 1 + max_streams,
+            };
+
+            let out = launching.executes(|| {
+                let input = client.create_from_slice(&[0u8; 32]);
+                let out = client.empty(32);
+                unsafe {
+                    copy_fp8::launch_unchecked::<TestRuntime>(
+                        &client,
+                        CubeCount::new_single(),
+                        CubeDim::new_1d(8),
+                        2,
+                        BufferArg::from_raw_parts(input, 32),
+                        BufferArg::from_raw_parts(out.clone(), 32),
+                    )
+                };
+                out
+            });
+
+            neighbour.executes(|| {
+                client
+                    .flush()
+                    .expect("the neighbouring stream launched nothing, so it has nothing to report")
+            });
+
+            launching.executes(|| assert_rejected(&client, out));
         }
     }
 }
