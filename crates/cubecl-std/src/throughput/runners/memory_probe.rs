@@ -1,6 +1,9 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{DEFAULT_BUFFER_BYTES, MemoryAccess};
+use cubecl_core::{self as cubecl, ir::ElemType};
+use cubecl_runtime::{
+    server::Handle,
+    throughput::{DEFAULT_BUFFER_BYTES, MemoryAccess},
+};
 
 use crate::throughput::LaunchConfig;
 
@@ -33,11 +36,24 @@ pub struct MemoryProbe {
     /// Cubes to dispatch, which is [`LaunchConfig::cube_count`] unless the
     /// window is too small to give every thread a line.
     pub cube_count: usize,
+    /// Whether the probe kernels address lines as per-thread contiguous runs
+    /// rather than coalesced across threads. Set on plane-1 runtimes, where a
+    /// worker has no plane neighbour to coalesce with.
+    pub blocked: bool,
 }
 
 impl MemoryProbe {
     /// Sizes a probe moving `working_set` bytes per pass, split evenly across
     /// the buffers `access` touches.
+    ///
+    /// A blocked probe pins the launch to one cube: on the backend that
+    /// addressing is for, a cube position is a loop wrapped around the whole
+    /// kernel body, `n_iter` included, so more than one turns the window
+    /// rotation between passes into a replay of the same narrow,
+    /// blocked-addressed slice instead of a walk across the buffer, and cache
+    /// serves it. A coalesced launch spreads one cube position's addresses
+    /// across the full window regardless of cube count, so it has no such
+    /// limit.
     pub fn new<R: Runtime>(
         client: &ComputeClient<R>,
         config: LaunchConfig,
@@ -46,14 +62,17 @@ impl MemoryProbe {
         working_set: usize,
     ) -> Self {
         let max_alloc = client.properties().memory.max_page_size as usize;
+        let blocked = config.plane_size == 1;
+        let cube_count = if blocked { 1 } else { config.cube_count };
 
         Self::sized(
             max_alloc,
             config.cube_dim,
-            config.cube_count,
+            cube_count,
             line_bytes,
             access,
             working_set,
+            blocked,
         )
     }
 
@@ -73,6 +92,7 @@ impl MemoryProbe {
         line_bytes: usize,
         access: MemoryAccess,
         working_set: usize,
+        blocked: bool,
     ) -> Self {
         let buffers = access.buffers() as usize;
 
@@ -91,6 +111,54 @@ impl MemoryProbe {
             window_lines,
             buffer_bytes: pool_lines * line_bytes,
             cube_count,
+            blocked,
+        }
+    }
+}
+
+/// Writes every line of `handle`, once, before it is handed to a probe that
+/// only reads it.
+///
+/// A fresh allocation is backed by the same physical zero page until its
+/// first write, so every unwritten line a read-only probe visits is served
+/// from that one cached page rather than from DRAM, inflating its reported
+/// bandwidth well past the device's real ceiling. Writing real data in first
+/// gives each line its own page, the way a buffer a real kernel reads
+/// already got one from whoever produced it.
+pub fn prime<R: Runtime>(
+    client: &ComputeClient<R>,
+    handle: &Handle,
+    pool_lines: usize,
+    config: LaunchConfig,
+    dtype: ElemType,
+) {
+    unsafe {
+        prime_buffer::launch_unchecked(
+            client,
+            CubeCount::Static(config.cube_count as u32, 1, 1),
+            CubeDim::new(client, config.cube_dim),
+            config.vector_size,
+            BufferArg::from_raw_parts(handle.clone(), pool_lines),
+            pool_lines,
+            dtype,
+        );
+    }
+    let _ = cubecl_core::future::block_on(client.sync());
+}
+
+#[cube(launch_unchecked)]
+fn prime_buffer<I: Numeric, N: Size>(
+    output: &mut [Vector<I, N>],
+    len: usize,
+    #[define(I)] _dtype: ElemType,
+) {
+    let stride = CUBE_DIM as usize * CUBE_COUNT;
+    let steps = len.div_ceil(stride).max(1);
+
+    for step in 0..steps {
+        let idx = ABSOLUTE_POS + step * stride;
+        if idx < len {
+            output[idx] = Vector::<I, N>::empty();
         }
     }
 }
@@ -105,7 +173,7 @@ mod tests {
     fn probe(working_set: usize, access: MemoryAccess) -> MemoryProbe {
         // 16-byte lines and 256-thread cubes, as a device with `vec4` f32 and a
         // full dispatch of 2048 cubes reports.
-        MemoryProbe::sized(512 * MB, 256, 2048, 16, access, working_set)
+        MemoryProbe::sized(512 * MB, 256, 2048, 16, access, working_set, false)
     }
 
     #[test]
@@ -152,7 +220,7 @@ mod tests {
     fn a_device_that_allocates_little_shrinks_the_pool_with_it() {
         // The pool is the allocation limit, and the window follows it down
         // rather than asking for memory the device does not have.
-        let probe = MemoryProbe::sized(4 * MB, 256, 2048, 16, MemoryAccess::Read, 512 * MB);
+        let probe = MemoryProbe::sized(4 * MB, 256, 2048, 16, MemoryAccess::Read, 512 * MB, false);
 
         assert_eq!(probe.buffer_bytes, 4 * MB);
         assert_eq!(probe.window_lines, probe.pool_lines);

@@ -54,7 +54,7 @@ pub fn compute_cmma<R: Runtime>(device: &R::Device) {
     run::<R>(device, &[compute_cmma_key()]);
 }
 
-/// Peak memory (copy) throughput — reads and writes, both counted.
+/// Peak memory (copy) throughput, reads and writes both counted.
 pub fn memory<R: Runtime>(device: &R::Device) {
     run::<R>(device, &[memory_key()]);
 }
@@ -63,6 +63,12 @@ pub fn memory<R: Runtime>(device: &R::Device) {
 /// [`memory`], which pays for a store the read-only case never issues.
 pub fn memory_read<R: Runtime>(device: &R::Device) {
     run::<R>(device, &[memory_read_key()]);
+}
+
+/// Peak write-only streaming throughput. Expect this to exceed
+/// [`memory`], which pays for a read the write-only case never issues.
+pub fn memory_write<R: Runtime>(device: &R::Device) {
+    run::<R>(device, &[memory_write_key()]);
 }
 
 /// Peak memory throughput as a function of working set size, for both access
@@ -75,7 +81,7 @@ pub fn memory_curve<R: Runtime>(device: &R::Device) {
 
     println!("Memory curve — {}", R::name(&client));
 
-    for access in [MemoryAccess::Read, MemoryAccess::Copy] {
+    for access in [MemoryAccess::Read, MemoryAccess::Write, MemoryAccess::Copy] {
         let curve = measure_memory_curve::<R>(&client, access);
         print_curve(access, &curve);
     }
@@ -123,6 +129,7 @@ pub fn all<R: Runtime>(device: &R::Device) {
             compute_cmma_key(),
             memory_key(),
             memory_read_key(),
+            memory_write_key(),
             launch_overhead_key(),
         ],
     );
@@ -156,9 +163,10 @@ fn describe(key: &ThroughputKey) -> String {
         ),
         ThroughputMode::ComputeDirect { .. } => key.dtype().to_string(),
         ThroughputMode::MemoryWorkingSet { bytes, .. } => bytes_label(bytes),
-        ThroughputMode::Memory | ThroughputMode::MemoryRead | ThroughputMode::Launch => {
-            String::new()
-        }
+        ThroughputMode::Memory
+        | ThroughputMode::MemoryRead
+        | ThroughputMode::MemoryWrite
+        | ThroughputMode::Launch => String::new(),
     }
 }
 
@@ -176,6 +184,11 @@ fn mode_label(mode: &ThroughputMode) -> &'static str {
             access: MemoryAccess::Read,
             ..
         } => "memory-read",
+        ThroughputMode::MemoryWrite
+        | ThroughputMode::MemoryWorkingSet {
+            access: MemoryAccess::Write,
+            ..
+        } => "memory-write",
         ThroughputMode::Launch => "launch",
     }
 }
@@ -213,6 +226,12 @@ fn memory_key() -> ThroughputKey {
 fn memory_read_key() -> ThroughputKey {
     ThroughputKey {
         mode: ThroughputMode::MemoryRead,
+    }
+}
+
+fn memory_write_key() -> ThroughputKey {
+    ThroughputKey {
+        mode: ThroughputMode::MemoryWrite,
     }
 }
 

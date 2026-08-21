@@ -11,8 +11,17 @@ use cubecl_runtime::{
 };
 
 use crate::throughput::{
-    compute_cmma, compute_direct, launch_overhead, memory_direct, memory_read,
+    compute_cmma, compute_direct, launch_overhead, memory_direct, memory_read, memory_write,
 };
+
+/// Independent cube positions each CPU worker interleaves, so a compute
+/// pass pipelines past instruction latency instead of serializing on one
+/// dependency chain. A depth, not a machine guess: a handful hides any
+/// core's fma latency, excess is free because the iteration budget is
+/// time-calibrated, and nothing about the launch scales with it. Memory
+/// probes with blocked addressing pin their own count back to one (see
+/// [`MemoryProbe::new`](crate::throughput::memory_probe::MemoryProbe::new)).
+const CPU_CHAIN_DEPTH: usize = 64;
 
 /// Measure peak throughput on `device` for each of the given `keys`.
 pub fn device_throughput<R: Runtime>(
@@ -92,6 +101,7 @@ pub fn measure_peak_throughput<R: Runtime>(
         }
         ThroughputMode::Memory
         | ThroughputMode::MemoryRead
+        | ThroughputMode::MemoryWrite
         | ThroughputMode::MemoryWorkingSet { .. } => {
             // The memory modes differ only in access and working set, and
             // `memory_probe` is the one place that mapping lives.
@@ -107,6 +117,9 @@ pub fn measure_peak_throughput<R: Runtime>(
                 }
                 MemoryAccess::Read => {
                     memory_read::build_kernel(client, key, launch_config, working_set)
+                }
+                MemoryAccess::Write => {
+                    memory_write::build_kernel(client, key, launch_config, working_set)
                 }
             }
         }
@@ -165,6 +178,24 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
     let hardware = &client.properties().hardware;
 
     let plane_size = hardware.plane_size_max.max(1);
+    let vector_size = client
+        .io_optimized_vector_sizes(dtype.size())
+        .next()
+        .unwrap_or(1);
+
+    // A CPU has no SMs, so `sms * 32` cubes is the wrong grid to size from:
+    // a cube's units are its real dispatched workers here, while its cube
+    // count is only a loop inside each of them. `num_cpu_cores` units, one
+    // per core, is the real worker count.
+    if let Some(cores) = hardware.num_cpu_cores {
+        return LaunchConfig {
+            cube_dim: cores as usize,
+            cube_count: CPU_CHAIN_DEPTH,
+            vector_size,
+            plane_size: plane_size as usize,
+        };
+    }
+
     let requested = (hardware.max_units_per_cube / plane_size * plane_size)
         .max(plane_size)
         .min(hardware.max_cube_dim.0);
@@ -173,11 +204,6 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
 
     let sms = hardware.num_streaming_multiprocessors.unwrap_or(64);
     let cube_count = (sms * 32).min(hardware.max_cube_count.0);
-
-    let vector_size = client
-        .io_optimized_vector_sizes(dtype.size())
-        .next()
-        .unwrap_or(1);
 
     LaunchConfig {
         cube_dim: cube_dim as usize,

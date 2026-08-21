@@ -3,9 +3,9 @@ use alloc::{format, string::String};
 use core::time::Duration;
 use cubecl_ir::{ElemType, FloatKind};
 
-/// Bytes per buffer of the single-size memory probes, [`ThroughputMode::Memory`]
-/// and [`ThroughputMode::MemoryRead`]. Clamped to the device's maximum
-/// allocation when the probe runs.
+/// Bytes per buffer of the single-size memory probes, [`ThroughputMode::Memory`],
+/// [`ThroughputMode::MemoryRead`], and [`ThroughputMode::MemoryWrite`]. Clamped
+/// to the device's maximum allocation when the probe runs.
 pub const DEFAULT_BUFFER_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Which directions of traffic a memory probe issues.
@@ -20,15 +20,22 @@ pub enum MemoryAccess {
     /// kernel legitimately exceeds [`Copy`](Self::Copy), because half of the
     /// copy's traffic is a direction it never uses.
     Read,
+    /// Writes only, reading nothing at the software level. The ceiling for a
+    /// kernel that streams stores it never reads back: an RNG fill, a memset,
+    /// a broadcast. Ordinary stores still carry read-for-ownership traffic on
+    /// cache-coherent hardware, and this probe's stores do too, which is what
+    /// makes it the honest ceiling for a kernel that uses ordinary stores
+    /// rather than a non-temporal one.
+    Write,
 }
 
 impl MemoryAccess {
     /// How many buffers of equal size one pass touches: two for a copy (one in,
-    /// one out), one for a read.
+    /// one out), one for a read or a write.
     pub const fn buffers(&self) -> u64 {
         match self {
             Self::Copy => 2,
-            Self::Read => 1,
+            Self::Read | Self::Write => 1,
         }
     }
 
@@ -65,6 +72,12 @@ pub enum ThroughputMode {
     /// [`Memory`](Self::Memory), which is why it needs its own probe rather than
     /// a correction factor.
     MemoryRead,
+    /// Memory output writes only, no read, at the default working set. The
+    /// ceiling for a kernel that streams stores it never reads back: an RNG
+    /// fill, a memset, a broadcast. Such a kernel can legitimately exceed
+    /// [`Memory`](Self::Memory), which is why it needs its own probe rather
+    /// than a correction factor.
+    MemoryWrite,
     /// One point of a memory curve: `access` over a working set of exactly
     /// `bytes`.
     ///
@@ -106,6 +119,10 @@ impl ThroughputMode {
             Self::MemoryRead => {
                 Some((MemoryAccess::Read, MemoryAccess::Read.default_working_set()))
             }
+            Self::MemoryWrite => Some((
+                MemoryAccess::Write,
+                MemoryAccess::Write.default_working_set(),
+            )),
             Self::MemoryWorkingSet { access, bytes } => Some((*access, *bytes)),
             Self::ComputeDirect { .. } | Self::ComputeCmma { .. } | Self::Launch => None,
         }
@@ -131,6 +148,7 @@ impl ThroughputKey {
             // For memory and launch throughput, we use a default element type (F32).
             ThroughputMode::Memory
             | ThroughputMode::MemoryRead
+            | ThroughputMode::MemoryWrite
             | ThroughputMode::MemoryWorkingSet { .. }
             | ThroughputMode::Launch => ElemType::Float(FloatKind::F32),
         }
@@ -187,6 +205,7 @@ impl ThroughputValue {
             }
             ThroughputMode::Memory
             | ThroughputMode::MemoryRead
+            | ThroughputMode::MemoryWrite
             | ThroughputMode::MemoryWorkingSet { .. } => (self.bytes_per_s(key), "bytes"),
             ThroughputMode::Launch => {
                 let dur = self.duration_per_op();
@@ -257,6 +276,10 @@ mod tests {
         assert_eq!(
             encode(ThroughputMode::MemoryRead),
             r#"{"mode":"MemoryRead"}"#
+        );
+        assert_eq!(
+            encode(ThroughputMode::MemoryWrite),
+            r#"{"mode":"MemoryWrite"}"#
         );
 
         // And an entry written before the variant existed still reads back.

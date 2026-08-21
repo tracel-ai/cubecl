@@ -8,7 +8,7 @@ use std::{
 
 use cubecl_runtime::{
     server::Handle,
-    tune::{AutotuneBound, Bounds, CloneInputGenerator, Tunable, TunableSet},
+    tune::{AutotuneBound, Bounds, CloneInputGenerator, ResourceBound, Tunable, TunableSet},
 };
 
 use crate::dummy::{
@@ -88,9 +88,11 @@ pub fn bounded_addition_set_slow_first(
     .with_bounds(Arc::new(move |_key: &String, _inputs: &Vec<Handle>| {
         Bounds {
             bounds: vec![AutotuneBound {
-                throughput,
+                resource: ResourceBound {
+                    amount: 1,
+                    peak_per_s: throughput,
+                },
                 threshold,
-                ops_count: 1,
             }],
             launch_overhead: Duration::ZERO,
         }
@@ -135,9 +137,11 @@ pub fn bounded_addition_set_no_short_circuit(
     .with_bounds(Arc::new(move |_key: &String, _inputs: &Vec<Handle>| {
         Bounds {
             bounds: vec![AutotuneBound {
-                throughput: 1.0,
+                resource: ResourceBound {
+                    amount: 1,
+                    peak_per_s: 1.0,
+                },
                 threshold: 1.0,
-                ops_count: 1,
             }],
             launch_overhead: Duration::ZERO,
         }

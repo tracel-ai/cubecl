@@ -37,6 +37,9 @@ pub use cubecl_environment::bytes;
 /// Module for benchmark timings
 pub mod benchmark;
 
+/// The work a benchmark or a kernel performs, for scoring against measured peaks.
+pub mod work;
+
 /// Module for profiling any executable part
 pub mod profile;
 

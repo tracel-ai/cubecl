@@ -2,7 +2,10 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{KernelConfig, MemoryAccess, ThroughputKey};
 
-use crate::throughput::{LaunchConfig, memory_probe::MemoryProbe};
+use crate::throughput::{
+    LaunchConfig,
+    memory_probe::{self, MemoryProbe},
+};
 
 /// Builds the read-only streaming kernel, moving `working_set` bytes per pass,
 /// all of them read.
@@ -32,6 +35,7 @@ pub fn build_kernel<R: Runtime>(
     let probe = MemoryProbe::new(&client, config, line_bytes, MemoryAccess::Read, working_set);
 
     let in_handle = client.empty(probe.buffer_bytes);
+    memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);
     // One line: the kernel writes from a single thread, only to anchor the reads.
     let out_handle = client.empty(line_bytes);
 
@@ -47,6 +51,7 @@ pub fn build_kernel<R: Runtime>(
                 BufferArg::from_raw_parts(out_handle.clone(), 1),
                 probe.window_lines,
                 iterations,
+                probe.blocked,
                 dtype,
             )
         };
@@ -66,6 +71,7 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
     output: &mut [Vector<I, N>],
     window: usize,
     n_iter: usize,
+    #[comptime] blocked: bool,
     #[define(I)] _dtype: ElemType,
 ) {
     let len = input.len();
@@ -107,7 +113,15 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
 
     for _ in 0..n_iter {
         for step in 0..steps {
-            let base = ABSOLUTE_POS + (step * stride);
+            // Coalesced spreads one step's addresses across adjacent threads,
+            // which is only fast where those threads share a real plane. A
+            // CPU worker has no such neighbour, so it instead gets a run of
+            // `steps` lines entirely its own.
+            let base = if blocked {
+                ABSOLUTE_POS * steps + step
+            } else {
+                ABSOLUTE_POS + (step * stride)
+            };
 
             if base < window {
                 let mut idx = start + base;

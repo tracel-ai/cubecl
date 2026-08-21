@@ -5,6 +5,11 @@ use alloc::vec::Vec;
 use crate::throughput::{ThroughputKey, ThroughputValue};
 use crate::tune::TuneInputs;
 
+// A bound-builder constructs `AutotuneBound { resource: ResourceBound { .. }, .. }`
+// alongside this module's own types, so the neutral record is re-exported
+// here too, the same way `Work` is below.
+pub use crate::throughput::ResourceBound;
+
 /// A set of [`AutotuneBound`]s for a given key and reference inputs, with a launch overhead.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
@@ -48,39 +53,32 @@ pub trait TimeBound {
     fn time_limit(&self) -> Option<Duration>;
 }
 
-/// A bound for autotuning a throughput kernel, specifying the key, threshold, and number of operations.
+/// A bound for autotuning a throughput kernel: a [`ResourceBound`] plus the
+/// threshold over which the kernel is considered accurate.
 #[derive(Debug, Clone)]
 #[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
 pub struct AutotuneBound {
-    /// Peak throughput of the reference kernel, in ops (or bytes) per second.
-    pub throughput: f64,
+    /// How much work, against what peak throughput.
+    pub resource: ResourceBound,
     /// The threshold for this bound, over which the kernel will be considered accurate.
     pub threshold: f32,
-    /// The number of operations the kernel will run.
-    pub ops_count: usize,
 }
 
 /// Bitwise comparison of the measured throughputs, so that equality is reflexive even if a
 /// degenerate measurement ever produces a `NaN`, which is what makes the [`Eq`] below sound.
 impl PartialEq for AutotuneBound {
     fn eq(&self, other: &Self) -> bool {
-        self.throughput.to_bits() == other.throughput.to_bits()
+        self.resource.peak_per_s.to_bits() == other.resource.peak_per_s.to_bits()
             && self.threshold.to_bits() == other.threshold.to_bits()
-            && self.ops_count == other.ops_count
+            && self.resource.amount == other.resource.amount
     }
 }
 
 impl Eq for AutotuneBound {}
 
-/// Work required by a problem, specified in minimum compute operations and byte transfers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-pub struct Work {
-    /// Compute operations required.
-    pub compute_ops: usize,
-    /// Memory bytes transferred (reads and writes).
-    pub bytes: usize,
-}
+// `cubecl-common` cannot depend on `cubecl-runtime`, so `Work` lives there and
+// autotune bounds and benchmark reporting share one definition.
+pub use cubecl_common::work::Work;
 
 /// Target fractions of modeled peak compute and memory roofline throughput.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -120,13 +118,17 @@ pub fn calculate_bounds(
 ) -> Vec<AutotuneBound> {
     alloc::vec![
         AutotuneBound {
-            ops_count: work.compute_ops,
-            throughput: compute_throughput.ops_per_s(),
+            resource: ResourceBound {
+                amount: work.compute_ops,
+                peak_per_s: compute_throughput.ops_per_s(),
+            },
             threshold: thresholds.compute,
         },
         AutotuneBound {
-            ops_count: work.bytes,
-            throughput: memory_throughput.bytes_per_s(memory_key),
+            resource: ResourceBound {
+                amount: work.bytes,
+                peak_per_s: memory_throughput.bytes_per_s(memory_key),
+            },
             threshold: thresholds.memory,
         },
     ]
@@ -134,13 +136,12 @@ pub fn calculate_bounds(
 
 impl TimeBound for AutotuneBound {
     fn time_limit(&self) -> Option<Duration> {
-        if self.throughput.is_normal() && self.threshold.is_normal() {
-            Some(Duration::from_secs_f64(
-                (self.ops_count as f64 / self.throughput) / self.threshold as f64,
-            ))
-        } else {
-            None
+        if !self.threshold.is_normal() {
+            return None;
         }
+        self.resource
+            .time_at_peak()
+            .map(|limit| limit.div_f64(self.threshold as f64))
     }
 }
 
@@ -167,9 +168,11 @@ mod tests {
 
     fn bound(ops_count: usize, throughput: f64, threshold: f32) -> AutotuneBound {
         AutotuneBound {
-            throughput,
+            resource: ResourceBound {
+                amount: ops_count,
+                peak_per_s: throughput,
+            },
             threshold,
-            ops_count,
         }
     }
 
@@ -241,9 +244,9 @@ mod tests {
             &key,
         );
 
-        assert_eq!(bounds[0].ops_count, 8);
+        assert_eq!(bounds[0].resource.amount, 8);
         assert_eq!(bounds[0].threshold, 0.5);
-        assert_eq!(bounds[1].ops_count, 16);
+        assert_eq!(bounds[1].resource.amount, 16);
         assert_eq!(bounds[1].threshold, 1.0);
     }
 
