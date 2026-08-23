@@ -185,7 +185,7 @@ unrolling!(FindFirstSetOp);
 
 shared_op_with_out!(CastOp, |op, ctx| {
     let input = op.input(ctx);
-    let ty = input.get_type(ctx);
+    let ty = op.get_result(ctx).get_type(ctx);
     format!("{}({})", ty.to_cpp(ctx), input.name(ctx))
 });
 unrolling!(CastOp);

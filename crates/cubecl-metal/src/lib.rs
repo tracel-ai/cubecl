@@ -14,6 +14,8 @@ pub use runtime::MetalRuntime;
 pub(crate) type MetalCompiler = cubecl_cpp::shared::CppCompiler<cubecl_cpp::target::Metal>;
 
 #[cfg(test)]
+mod tests_bf16_cast;
+#[cfg(test)]
 mod tests_expm1;
 #[cfg(test)]
 mod tests_launch_errors;
