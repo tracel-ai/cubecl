@@ -13,7 +13,7 @@ use winapi::um::processtopologyapi::{GetThreadGroupAffinity, SetThreadGroupAffin
 use winapi::um::sysinfoapi::GetLogicalProcessorInformationEx;
 use winapi::um::winbase::GetProcessAffinityMask;
 use winapi::um::winnt::{
-    CacheData, GROUP_AFFINITY, LOGICAL_PROCESSOR_RELATIONSHIP, RelationCache,
+    CacheData, CacheUnified, GROUP_AFFINITY, LOGICAL_PROCESSOR_RELATIONSHIP, RelationCache,
     RelationProcessorCore, SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX,
 };
 
@@ -62,6 +62,19 @@ impl ThreadAffinity for Platform {
             .filter(|cache| cache.Level == 1 && cache.Type == CacheData && cache.CacheSize > 0)
             .map(|cache| cache.CacheSize as usize)
             .min()
+    }
+
+    fn llc_cache_size() -> Option<usize> {
+        // The largest cache of the deepest level, so a last level shared by
+        // several cores is taken whole rather than as one core's record.
+        records(RelationCache)
+            .iter()
+            .map(|record| unsafe { record.u.Cache() })
+            .filter(|cache| {
+                (cache.Type == CacheData || cache.Type == CacheUnified) && cache.CacheSize > 0
+            })
+            .max_by_key(|cache| (cache.Level, cache.CacheSize))
+            .map(|cache| cache.CacheSize as usize)
     }
 
     fn pin_current(cpu: CoreId) {

@@ -41,6 +41,21 @@ impl ThreadAffinity for Platform {
         })
     }
 
+    fn llc_cache_size() -> Option<usize> {
+        // The deepest level sysfs reports, which is the cache a working set has
+        // to outgrow before it is streaming from memory rather than from chip.
+        (0..=5)
+            .filter_map(|index| {
+                let cache = format!("/sys/devices/system/cpu/cpu0/cache/index{index}");
+                let read = |file: &str| std::fs::read_to_string(format!("{cache}/{file}")).ok();
+                let level: u32 = read("level")?.trim().parse().ok()?;
+                (read("type")?.trim() != "Instruction").then_some(())?;
+                Some((level, parse_cache_size(read("size")?.trim())?))
+            })
+            .max_by_key(|(level, _)| *level)
+            .map(|(_, size)| size)
+    }
+
     fn pin_current(cpu: CoreId) {
         let mut set = new_cpu_set();
         let tid = unsafe { syscall(SYS_gettid) } as libc::id_t;

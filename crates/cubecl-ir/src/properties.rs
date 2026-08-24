@@ -44,6 +44,12 @@ pub struct HardwareProperties {
     pub num_streaming_multiprocessors: Option<u32>,
     /// Number of available parallel cpu units, if the runtime is CPU.
     pub num_cpu_cores: Option<u32>,
+    /// Bytes of the device's last level cache, and `None`, never `Some(0)`,
+    /// where the runtime cannot read one.
+    ///
+    /// The size a working set has to outgrow before what it reaches is set by
+    /// memory rather than by the chip.
+    pub last_level_cache_size: Option<usize>,
     /// Number of tensor cores per SM, if any
     pub num_tensor_cores: Option<u32>,
     /// The minimum tiling dimension for a single axis in tensor cores.

@@ -17,6 +17,10 @@ impl ThreadAffinity for Platform {
         None
     }
 
+    fn llc_cache_size() -> Option<usize> {
+        None
+    }
+
     fn pin_current(_cpu: CoreId) {}
 }
 
