@@ -12,6 +12,14 @@ const PI_2_C: f32 = trailing_part(PI_2 - PI_2_A as f64);
 
 const FRAC_2_PI: f32 = core::f32::consts::FRAC_2_PI;
 
+/// How large an angle the reduction still means something for.
+///
+/// Measured, not derived: the worst absolute error holds near `7e-8` out to `1e5`, reaches
+/// `2.8e-7` at `1e6`, and then leaves the contract quickly, `1.5e-4` at `1e7` and nothing
+/// at all past `1e8`. A million radians is a wider promise than most vector libraries make
+/// and covers a rotary embedding at a million positions.
+const REDUCTION_LIMIT: f32 = (1u32 << 20) as f32;
+
 // Least worst-case relative error fit of `sin(x)/x` in `x^2` on `[0, (pi/4)^2]`, an
 // eighth of a turn, by Remez exchange at degree three. Rounded to `f32` they hold `sin`
 // to 27 bits, where an `f32` carries 24; the test at the foot of this file is the
@@ -60,7 +68,23 @@ fn cos_sin_radians<N: Size>(x: Vector<f32, N>) -> (Vector<f32, N>, Vector<f32, N
     let offset = fma(-quadrant, Vector::new(PI_2_B), offset);
     let offset = fma(-quadrant, Vector::new(PI_2_C), offset);
 
-    cos_sin_quadrant(offset, Vector::<i32, N>::cast_from(quadrant))
+    let (cosine, sine) = cos_sin_quadrant(offset, Vector::<i32, N>::cast_from(quadrant));
+
+    // `sin(-0)` is `-0`, and the reduction cannot keep it: the quadrant of a negative zero
+    // is a negative zero, so the offset is a positive zero added to a negative one, which
+    // rounds to positive. Every other backend here returns the sign.
+    let sine = select_many(x.equal(&Vector::new(0.0f32)), x, sine);
+
+    // Past the limit the answer is not merely inaccurate, it is arbitrary, and the
+    // arithmetic that produces it runs off to an infinity that would poison whatever sums
+    // it. Saying so is better than returning a number of the right magnitude.
+    let beyond = x.abs().greater_than(&Vector::new(REDUCTION_LIMIT));
+    let unknown = Vector::<f32, N>::new(f32::NAN);
+
+    (
+        select_many(beyond, unknown, cosine),
+        select_many(beyond, unknown, sine),
+    )
 }
 
 /// Cosine and sine of `quadrant` quarter turns plus `offset` radians, for an `offset` no

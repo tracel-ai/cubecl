@@ -7,6 +7,10 @@ const LN2_HI: f32 = leading_part(core::f64::consts::LN_2);
 const LN2_LO: f32 = trailing_part(core::f64::consts::LN_2);
 const SQRT_2: f32 = core::f32::consts::SQRT_2;
 
+/// What a subnormal is multiplied by to reach the normals, and the exponent that buys.
+const SUBNORMAL_SCALE: f32 = (1u32 << 24) as f32;
+const SUBNORMAL_SHIFT: i32 = 24;
+
 // Least worst-case relative error fit of `(ln(1+f) - f + f^2/2) / f^3` on
 // `[sqrt(1/2) - 1, sqrt(2) - 1]`, the mantissa window the fold leaves, by Remez exchange
 // at degree seven. Rounded to `f32` they hold `ln(1+f)` to 25 bits, where an `f32`
@@ -28,18 +32,22 @@ const LOG_7: f32 = -0.079742186;
 /// multiply-adds for the divide the `atanh` form needs, and folds as a tree rather than a
 /// chain, which costs one multiply and halves the depth.
 ///
-/// Evaluated in single precision whatever the argument's own format. A subnormal argument
-/// holds no exponent to extract and comes back as nonsense rather than as a large
-/// negative number.
+/// Evaluated in single precision whatever the argument's own format.
 #[cube]
 pub fn ln<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let x = Vector::<f32, N>::cast_from(x);
 
-    let bits = Vector::<u32, N>::reinterpret(x);
+    // A subnormal holds no exponent to extract, so it is scaled into the normals first and
+    // the scaling taken back off the exponent afterwards.
+    let subnormal = x.less_than(&Vector::new(f32::MIN_POSITIVE));
+    let scaled = select_many(subnormal, x * Vector::new(SUBNORMAL_SCALE), x);
+    let bits = Vector::<u32, N>::reinterpret(scaled);
     let exponent = Vector::<i32, N>::cast_from(bits >> Vector::new(23u32)) - Vector::new(127i32);
     let mantissa = Vector::<f32, N>::reinterpret(
         (bits & Vector::new(0x007f_ffffu32)) | Vector::new(0x3f80_0000u32),
     );
+
+    let exponent = select_many(subnormal, exponent - Vector::new(SUBNORMAL_SHIFT), exponent);
 
     let halved = mantissa.greater_than(&Vector::new(SQRT_2));
     let mantissa = select_many(halved, mantissa * Vector::new(0.5f32), mantissa);
@@ -63,11 +71,26 @@ pub fn ln<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let mantissa_log = fma(square * f, tail, fma(square, Vector::new(-0.5f32), f));
     let exponent = Vector::<f32, N>::cast_from(exponent);
 
-    Vector::<F, N>::cast_from(fma(
+    let series = fma(
         exponent,
         Vector::new(LN2_HI),
         fma(exponent, Vector::new(LN2_LO), mantissa_log),
-    ))
+    );
+
+    // Nothing above reads the sign bit or asks the exponent field what it means, so every
+    // argument that is not a positive finite number arrives here as an ordinary small
+    // number rather than as the infinity or the NaN it should be. A zero would otherwise
+    // come back near -88, which is a wrong answer that looks like a right one.
+    let zero = Vector::<f32, N>::new(0.0);
+    let series = select_many(x.greater_than(&zero), series, Vector::new(f32::NAN));
+    let series = select_many(x.equal(&zero), Vector::new(f32::NEG_INFINITY), series);
+    let series = select_many(
+        x.equal(&Vector::new(f32::INFINITY)),
+        Vector::new(f32::INFINITY),
+        series,
+    );
+
+    Vector::<F, N>::cast_from(series)
 }
 
 #[cfg(test)]
