@@ -22,6 +22,191 @@ mod tests {
     cubecl_std::testgen_tensor_into_contiguous!();
     cubecl_std::testgen_quantized_view!(f32);
 
+    #[cube(launch_unchecked)]
+    fn transcendentals<N: Size>(
+        input: &[Vector<f32, N>],
+        exp: &mut [Vector<f32, N>],
+        ln: &mut [Vector<f32, N>],
+        sin: &mut [Vector<f32, N>],
+        cos: &mut [Vector<f32, N>],
+        tanh: &mut [Vector<f32, N>],
+    ) {
+        if ABSOLUTE_POS < input.len() {
+            let x = input[ABSOLUTE_POS];
+            exp[ABSOLUTE_POS] = x.exp();
+            ln[ABSOLUTE_POS] = x.ln();
+            sin[ABSOLUTE_POS] = x.sin();
+            cos[ABSOLUTE_POS] = x.cos();
+            tanh[ABSOLUTE_POS] = x.tanh();
+        }
+    }
+
+    /// `[exp, ln, sin, cos, tanh]` of `input`, evaluated at `width` lanes to a vector.
+    ///
+    /// A width above one is what selects the polynomial polyfill over the target's own
+    /// intrinsic, so the two widths answer different questions of the same kernel.
+    fn transcendentals_of(input: &[f32], width: usize) -> [Vec<f32>; 5] {
+        assert_eq!(
+            input.len() % width,
+            0,
+            "a {width}-wide launch would leave the last {} of {} inputs unwritten",
+            input.len() % width,
+            input.len()
+        );
+
+        let client = TestRuntime::client(&Default::default());
+        let n = input.len();
+        let handle = client.create_from_slice(f32::as_bytes(input));
+        let out: Vec<_> = (0..5)
+            .map(|_| client.empty(n * core::mem::size_of::<f32>()))
+            .collect();
+
+        unsafe {
+            transcendentals::launch_unchecked::<TestRuntime>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_1d((n / width) as u32),
+                width,
+                BufferArg::from_raw_parts(handle, n),
+                BufferArg::from_raw_parts(out[0].clone(), n),
+                BufferArg::from_raw_parts(out[1].clone(), n),
+                BufferArg::from_raw_parts(out[2].clone(), n),
+                BufferArg::from_raw_parts(out[3].clone(), n),
+                BufferArg::from_raw_parts(out[4].clone(), n),
+            )
+        }
+
+        let read = |handle: &cubecl_runtime::server::Handle| {
+            f32::from_bytes(&client.read_one_unchecked(handle.clone())).to_vec()
+        };
+        [
+            read(&out[0]),
+            read(&out[1]),
+            read(&out[2]),
+            read(&out[3]),
+            read(&out[4]),
+        ]
+    }
+
+    /// A NaN must arrive as a NaN, an infinity with its sign, and a zero with its sign.
+    /// A tolerance on the difference sees none of the three: it cannot tell a NaN from a
+    /// large wrong number, and `+0.0` and `-0.0` differ by nothing at all.
+    #[track_caller]
+    fn assert_matches_library(op: &str, x: f32, actual: f32, expected: f32) {
+        let agrees = if expected.is_nan() {
+            actual.is_nan()
+        } else if expected.is_infinite() || expected == 0.0 {
+            actual.to_bits() == expected.to_bits()
+        } else {
+            (actual - expected).abs() <= 1e-6 * expected.abs().max(1e-6)
+        };
+        assert!(
+            agrees,
+            "{op}({x:e}) gave {actual:e}, the library gives {expected:e}"
+        );
+    }
+
+    /// Zero, the infinities, a NaN and the subnormals, which an accuracy sweep never lands
+    /// on and where the polynomials read an exponent field that means none of the things it
+    /// usually means.
+    #[test]
+    fn transcendentals_match_the_library_at_the_edges() {
+        // Lengths a multiple of the widest line under test, or its tail goes unwritten.
+        let finite_angles = [
+            0.0,
+            -0.0,
+            1.0,
+            -1.0,
+            3.5,
+            -3.5,
+            100.0,
+            -100.0,
+            1e-40,
+            f32::MIN_POSITIVE,
+            REDUCTION_LIMIT,
+            -REDUCTION_LIMIT,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+            6.5,
+        ];
+        let magnitudes = [
+            0.0,
+            -0.0,
+            1.0,
+            -1.0,
+            0.5,
+            -0.5,
+            2.0,
+            -2.0,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+            1e-40,
+            f32::MIN_POSITIVE,
+            1000.0,
+            -1000.0,
+            1e30,
+            -1e30,
+            88.0,
+            -88.0,
+            1e-8,
+            10.0,
+            -10.0,
+            1e-30,
+            0.25,
+        ];
+
+        for width in [1, 2, 4, 8] {
+            let [exp, ln, _, _, tanh] = transcendentals_of(&magnitudes, width);
+            for (i, &x) in magnitudes.iter().enumerate() {
+                assert_matches_library("exp", x, exp[i], x.exp());
+                assert_matches_library("ln", x, ln[i], x.ln());
+                assert_matches_library("tanh", x, tanh[i], x.tanh());
+            }
+
+            let [_, _, sin, cos, _] = transcendentals_of(&finite_angles, width);
+            for (i, &x) in finite_angles.iter().enumerate() {
+                assert_matches_library("sin", x, sin[i], x.sin());
+                assert_matches_library("cos", x, cos[i], x.cos());
+            }
+        }
+    }
+
+    /// The largest angle the three-part range reduction still means something for. Past it
+    /// the polyfill says NaN rather than returning a number of the right magnitude and the
+    /// wrong sign.
+    const REDUCTION_LIMIT: f32 = (1u32 << 20) as f32;
+
+    /// Past the limit the answer is unknown, and only the lined path is asked to say so:
+    /// a scalar keeps the target's own routine, which the gate leaves untouched.
+    #[test]
+    fn a_lined_sin_beyond_the_reduction_limit_is_not_a_number() {
+        let beyond = [2.0 * REDUCTION_LIMIT, -2.0 * REDUCTION_LIMIT, 1e7, 1e30];
+
+        for width in [2, 4] {
+            let [_, _, sin, cos, _] = transcendentals_of(&beyond, width);
+            for (i, &x) in beyond.iter().enumerate() {
+                assert!(
+                    sin[i].is_nan(),
+                    "sin({x:e}) at width {width} gave {:e}",
+                    sin[i]
+                );
+                assert!(
+                    cos[i].is_nan(),
+                    "cos({x:e}) at width {width} gave {:e}",
+                    cos[i]
+                );
+            }
+        }
+
+        let [_, _, sin, cos, _] = transcendentals_of(&beyond, 1);
+        for (i, &x) in beyond.iter().enumerate() {
+            assert!(sin[i].is_finite(), "scalar sin({x:e}) gave {:e}", sin[i]);
+            assert!(cos[i].is_finite(), "scalar cos({x:e}) gave {:e}", cos[i]);
+        }
+    }
+
     #[cube(launch)]
     fn barrier_smoke(out: &mut [f32]) {
         let barrier = barrier::Barrier::local();

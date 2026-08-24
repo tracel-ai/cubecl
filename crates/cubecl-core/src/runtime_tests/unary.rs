@@ -286,6 +286,24 @@ test_unary_impl!(test_sin, F, Vector::sin, [
         out_vectorization: 4,
         input: as_type![F: 0., 1.570_796_4, 3.141_592_7, -1.570_796_4],
         expected: as_type![F: 0., 1., 0., -1.]
+    },
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 4.5, 6., -7.5, 8., -12.5, 12., 20., -25.],
+        expected: as_type![F: -0.977_530_1, -0.279_415_5, -0.937_999_96, 0.989_358_25, 0.066_321_895, -0.536_572_93, 0.912_945_3, 0.132_351_76]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 4.5, 6., -7.5, 8., -12.5, 12., 20., -25.],
+        expected: as_type![F: -0.977_530_1, -0.279_415_5, -0.937_999_96, 0.989_358_25, 0.066_321_895, -0.536_572_93, 0.912_945_3, 0.132_351_76]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 4.5, 6., -7.5, 8., -12.5, 12., 20., -25.],
+        expected: as_type![F: -0.977_530_1, -0.279_415_5, -0.937_999_96, 0.989_358_25, 0.066_321_895, -0.536_572_93, 0.912_945_3, 0.132_351_76]
     }
 ]);
 
@@ -328,6 +346,24 @@ test_unary_impl!(test_cos, F, Vector::cos, [
         out_vectorization: 4,
         input: as_type![F: 0., 1.570_796_4, 3.141_592_7, -1.570_796_4],
         expected: as_type![F: 1., 0., -1., 0.]
+    },
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 4.5, 6., -7.5, 8., -12.5, 12., 20., -25.],
+        expected: as_type![F: -0.210_795_8, 0.960_170_27, 0.346_635_3, -0.145_500_03, 0.997_798_26, 0.843_853_95, 0.408_082_07, 0.991_202_83]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 4.5, 6., -7.5, 8., -12.5, 12., 20., -25.],
+        expected: as_type![F: -0.210_795_8, 0.960_170_27, 0.346_635_3, -0.145_500_03, 0.997_798_26, 0.843_853_95, 0.408_082_07, 0.991_202_83]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 4.5, 6., -7.5, 8., -12.5, 12., 20., -25.],
+        expected: as_type![F: -0.210_795_8, 0.960_170_27, 0.346_635_3, -0.145_500_03, 0.997_798_26, 0.843_853_95, 0.408_082_07, 0.991_202_83]
     }
 ]);
 
@@ -475,6 +511,66 @@ test_unary_impl!(test_tanh, F, Vector::tanh, [
         out_vectorization: 4,
         input: as_type![F: 0., 1., -1., 2.],
         expected: as_type![F: 0., 0.761_594_2, -0.761_594_2, 0.964_027_6]
+    },
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0.25, 0.5, 0.75, -0.25, 3., -4., 0.125, -0.75],
+        expected: as_type![F: 0.244_918_66, 0.462_117_17, 0.635_148_94, -0.244_918_66, 0.995_054_8, -0.999_329_3, 0.124_353, -0.635_148_94]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0.25, 0.5, 0.75, -0.25, 3., -4., 0.125, -0.75],
+        expected: as_type![F: 0.244_918_66, 0.462_117_17, 0.635_148_94, -0.244_918_66, 0.995_054_8, -0.999_329_3, 0.124_353, -0.635_148_94]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0.25, 0.5, 0.75, -0.25, 3., -4., 0.125, -0.75],
+        expected: as_type![F: 0.244_918_66, 0.462_117_17, 0.635_148_94, -0.244_918_66, 0.995_054_8, -0.999_329_3, 0.124_353, -0.635_148_94]
+    }
+]);
+
+test_unary_impl!(test_exp, F, Vector::exp, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 1., -1., 2., 0.5, -0.5, -2., 1.5],
+        expected: as_type![F: 1., 2.718_281_7, 0.367_879_45, 7.389_056, 1.648_721_2, 0.606_530_67, 0.135_335_28, 4.481_689]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 1., -1., 2., 0.5, -0.5, -2., 1.5],
+        expected: as_type![F: 1., 2.718_281_7, 0.367_879_45, 7.389_056, 1.648_721_2, 0.606_530_67, 0.135_335_28, 4.481_689]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 1., -1., 2., 0.5, -0.5, -2., 1.5],
+        expected: as_type![F: 1., 2.718_281_7, 0.367_879_45, 7.389_056, 1.648_721_2, 0.606_530_67, 0.135_335_28, 4.481_689]
+    }
+]);
+
+test_unary_impl!(test_ln, F, Vector::ln, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 1., 2., 0.5, 10., 0.25, 4., 100., 0.125],
+        expected: as_type![F: 0., 0.693_147_2, -0.693_147_2, 2.302_585_1, -1.386_294_4, 1.386_294_4, 4.605_170_2, -2.079_441_5]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 1., 2., 0.5, 10., 0.25, 4., 100., 0.125],
+        expected: as_type![F: 0., 0.693_147_2, -0.693_147_2, 2.302_585_1, -1.386_294_4, 1.386_294_4, 4.605_170_2, -2.079_441_5]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 1., 2., 0.5, 10., 0.25, 4., 100., 0.125],
+        expected: as_type![F: 0., 0.693_147_2, -0.693_147_2, 2.302_585_1, -1.386_294_4, 1.386_294_4, 4.605_170_2, -2.079_441_5]
     }
 ]);
 
@@ -1000,6 +1096,8 @@ macro_rules! testgen_unary {
             add_test!(test_sinh);
             add_test!(test_cosh);
             add_test!(test_tanh);
+            add_test!(test_exp);
+            add_test!(test_ln);
             add_test!(test_asin);
             add_test!(test_acos);
             add_test!(test_atan);
