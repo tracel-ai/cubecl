@@ -2,8 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::ir::dialect::bitwise::{BitwiseNotOp, FindFirstSetOp};
 use cubecl_core::ir::dialect::cmp::{FClampOp, SClampOp, UClampOp};
 use cubecl_core::ir::dialect::math::{
-    ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, FModFloorOp, HypotOp, Log1pOp,
-    PowiOp, RadiansOp, RecipOp, RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp, UMulHiOp,
+    ArcCoshOp, ArcSinhOp, ArcTanhOp, CosOp, DegreesOp, ErfOp, ExpOp, Expm1Op, FModFloorOp, HypotOp,
+    Log1pOp, LogOp, PowiOp, RadiansOp, RecipOp, RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp,
+    SinOp, TanhOp, UMulHiOp,
 };
 use cubecl_core::ir::dialect::vector::{FDotOp, MagnitudeOp, NormalizeOp, SDotOp, UDotOp};
 use cubecl_core::ir::interfaces::TypedExt;
@@ -15,6 +16,7 @@ use cubecl_core::prelude::polyfills::{
 use cubecl_core::prelude::*;
 
 use crate::shared::polyfill::LowerOp;
+use crate::shared::polyfill::transcendental::{cos, exp, ln, sin, tanh};
 use cubecl_core::ir::Scope;
 
 macro_rules! lower_unary_math_arith {
@@ -31,6 +33,39 @@ macro_rules! lower_unary_math_arith {
         }
     };
 }
+
+/// The same, for an operation the polynomials only beat a scalar library call on a line.
+///
+/// Two rejections. Double precision keeps the target's own routine, since fitting a second
+/// set of coefficients would double the surface to verify for a format no kernel here
+/// reaches for. A scalar keeps it too: the library's own routines are table-driven and a
+/// polynomial does not beat them one lane at a time, which measured as a quarter lost on a
+/// scalar `cos` kernel and half on an FFT. What the polynomial wins is the lanes.
+macro_rules! lower_narrow_float_math_arith {
+    ($cube_op:ty => $polyfill:ident) => {
+        #[op_interface_impl]
+        impl LowerOp for $cube_op {
+            fn should_lower(&self, ctx: &Context) -> bool {
+                let input = self.input(ctx);
+                input.vector_size(ctx) > 1 && !input.scalar_ty(ctx).is_float64(ctx)
+            }
+
+            fn lower(&self, scope: &Scope) -> Vec<Value> {
+                define_scalar!(T);
+                define_size!(S);
+                let value = self.input(scope.ctx());
+                scope.register_value_type::<T, S>(value);
+                vec![$polyfill::expand::<T, S>(scope, value.into()).read_value(scope)]
+            }
+        }
+    };
+}
+
+lower_narrow_float_math_arith!(ExpOp => exp);
+lower_narrow_float_math_arith!(LogOp => ln);
+lower_narrow_float_math_arith!(SinOp => sin);
+lower_narrow_float_math_arith!(CosOp => cos);
+lower_narrow_float_math_arith!(TanhOp => tanh);
 
 macro_rules! lower_binary_math_arith {
     ($cube_op:ty => $polyfill:ident) => {
