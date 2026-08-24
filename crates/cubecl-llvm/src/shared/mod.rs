@@ -14,7 +14,9 @@ use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 #[cfg(feature = "pliron-dump")]
 use std::{path::PathBuf, str::FromStr};
 
-use cubecl_opt::passes::{inst_combine::InstCombinePass, simple_cse::SimpleCSEPass, sroa::SROAPass};
+use cubecl_opt::passes::{
+    inst_combine::InstCombinePass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+};
 use cubecl_runtime::compiler::CompilationError;
 
 use cubecl_core::{

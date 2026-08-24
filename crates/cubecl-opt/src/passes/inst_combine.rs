@@ -1,8 +1,8 @@
 use cubecl_ir::{
+    NamedRewrite,
     dialect::math::{FAddOp, FMulOp, FmaOp},
     prelude::{Inserter as _, Rewriter as _, *},
-    rewrite::{MatchRewritePass},
-    NamedRewrite,
+    rewrite::MatchRewritePass,
 };
 
 /// Combine `a * b + c` or `c + a * b` into a single FMA operation.
@@ -16,8 +16,7 @@ fn as_fma(ctx: &Context, add: FAddOp) -> Option<(FMulOp, Value, Value, Value)> {
     let fuse = |mul: Value, addend: Value| {
         let mul = mul.defining_op()?.as_op::<FMulOp>(ctx)?;
         // Only fuse when the product is dead afterwards, otherwise we'd compute it twice.
-        (mul.get_result(ctx).num_uses(ctx) == 1)
-            .then(|| (mul, mul.lhs(ctx), mul.rhs(ctx), addend))
+        (mul.get_result(ctx).num_uses(ctx) == 1).then(|| (mul, mul.lhs(ctx), mul.rhs(ctx), addend))
     };
     let (lhs, rhs) = (add.lhs(ctx), add.rhs(ctx));
     fuse(lhs, rhs).or_else(|| fuse(rhs, lhs))
