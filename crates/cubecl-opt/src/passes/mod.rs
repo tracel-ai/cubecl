@@ -4,3 +4,4 @@ pub mod inst_combine;
 pub mod mem2reg;
 pub mod simple_cse;
 pub mod sroa;
+pub mod sccp;

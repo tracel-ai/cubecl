@@ -1,6 +1,6 @@
 use core::fmt;
 
-use alloc::{string::ToString, vec::Vec};
+use alloc::{format, string::ToString, vec::Vec};
 
 use cubecl_macros_internal::cube_op;
 use derive_more::{Deref, From};
@@ -9,7 +9,8 @@ use itertools::Itertools;
 use pliron::{
     builtin::{
         attributes::IdentifierAttr,
-        types::{IntegerType, Signedness},
+        ops::FuncOp,
+        types::{FunctionType, IntegerType, Signedness},
     },
     combine::{Parser, parser::char::char},
     derive::pliron_attr,
@@ -20,14 +21,16 @@ use pliron::{
     op::OpObj,
     parsable::{self, IntoParseResult, Parsable, ParseResult},
     printable::{self, Printable},
+    symbol_table::SymbolTableCollection,
     r#type::TypedHandle,
+    verify_err,
 };
 
 use crate::{
     CanMaterialize, Pure,
     attributes::{BoolAttr, IndexAttr},
-    dialect::synchronization::SyncScope,
-    interfaces::{MemoryEffect, MemoryEffects, synchronizes},
+    dialect::{general::SymbolUserOpVerifyErr, synchronization::SyncScope},
+    interfaces::{MemoryEffect, MemoryEffects, TypedExt, synchronizes},
     prelude::*,
     types::{
         ArrayType, MatrixShape, PointerType, VectorType,
@@ -242,6 +245,21 @@ impl ElementwiseOp {
     }
 }
 
+impl ElementwiseOp {
+    /// Callee type, including implicit args
+    fn callee_type(&self, ctx: &Context) -> TypeHandle {
+        let u32 = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle();
+        let elem_ty = self
+            .matrix_in(ctx)
+            .unwrap_ptr(ctx)
+            .element_ty(ctx)
+            .scalar_ty(ctx);
+        let mut args = vec![u32, u32, elem_ty];
+        args.extend(self.closure_captures(ctx).iter().map(|it| it.get_type(ctx)));
+        FunctionType::get(ctx, args, vec![elem_ty]).to_handle()
+    }
+}
+
 impl Printable for ElementwiseOp {
     fn fmt(
         &self,
@@ -288,6 +306,48 @@ impl MemoryEffects for ElementwiseOp {
             MemoryEffect::Read(self.matrix_in(ctx)),
             MemoryEffect::Write(self.matrix_out(ctx)),
         ]
+    }
+}
+
+#[op_interface_impl]
+impl SymbolUserOpInterface for ElementwiseOp {
+    fn verify_symbol_uses(
+        &self,
+        ctx: &Context,
+        symbol_tables: &mut SymbolTableCollection,
+    ) -> Result<()> {
+        let callee_sym = self.closure(ctx);
+        let Some(callee) =
+            symbol_tables.lookup_symbol_in_nearest_table(ctx, self.get_operation(), &callee_sym)
+        else {
+            return verify_err!(
+                self.loc(ctx),
+                SymbolUserOpVerifyErr::SymbolNotFound(callee_sym.to_string())
+            );
+        };
+        let Some(func_op) = (&*callee as &dyn Op).downcast_ref::<FuncOp>() else {
+            return verify_err!(
+                self.loc(ctx),
+                SymbolUserOpVerifyErr::NotFunc(callee_sym.to_string())
+            );
+        };
+        let func_op_ty = func_op.get_type(ctx);
+
+        if func_op_ty != self.callee_type(ctx) {
+            return verify_err!(
+                self.loc(ctx),
+                SymbolUserOpVerifyErr::FuncTypeErr(format!(
+                    "expected {}, got {}",
+                    func_op_ty.disp(ctx),
+                    self.callee_type(ctx).disp(ctx)
+                ))
+            );
+        }
+        Ok(())
+    }
+
+    fn used_symbols(&self, ctx: &Context) -> Vec<Identifier> {
+        vec![self.closure(ctx)]
     }
 }
 

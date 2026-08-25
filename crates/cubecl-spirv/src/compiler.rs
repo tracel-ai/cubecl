@@ -37,7 +37,7 @@ use cubecl_ir::{
 };
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
-    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, mem2reg::Mem2RegPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, mem2reg::Mem2RegPass, sccp::SCCPPass,
     simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::CompilationError;
@@ -56,7 +56,7 @@ use pliron::{
     },
     op::Op,
     operation::verify_operation,
-    opts::{constants::sccp::SCCPPass, dce::DCEPass, simplify_cfg::SimplifyCFGPass},
+    opts::{dce::DCEPass, simplify_cfg::SimplifyCFGPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
 };
 use pliron_spirv::{

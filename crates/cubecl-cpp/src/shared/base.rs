@@ -40,7 +40,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    simple_cse::SimpleCSEPass, sroa::SROAPass,
+    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -49,7 +49,7 @@ use pliron::{
     irbuild::match_rewrite::MatchRewrite,
     op::Op,
     operation::verify_operation,
-    opts::{constants::sccp::SCCPPass, dce::DCEPass, mem2reg::Mem2RegPass},
+    opts::{dce::DCEPass, mem2reg::Mem2RegPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
 };
 use std::fmt::Debug;

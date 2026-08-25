@@ -57,7 +57,7 @@ mod tests {
         let n = input.len();
         let handle = client.create_from_slice(f32::as_bytes(input));
         let out: Vec<_> = (0..5)
-            .map(|_| client.empty(n * core::mem::size_of::<f32>()))
+            .map(|_| client.empty(core::mem::size_of_val(input)))
             .collect();
 
         unsafe {

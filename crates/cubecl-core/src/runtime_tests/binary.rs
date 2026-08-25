@@ -545,6 +545,7 @@ macro_rules! testgen_binary {
 
 /// Dividing a value by itself folds at compile time, and the answer is one of the divided type,
 /// not a bool.
+#[allow(clippy::eq_op)]
 #[cube(launch)]
 fn kernel_self_div(output: &mut [u32]) {
     if ABSOLUTE_POS < output.len() {

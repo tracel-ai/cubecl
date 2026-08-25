@@ -24,15 +24,15 @@ use cubecl_ir::{
     pliron::{
         builtin::ops::{FuncOp, ModuleOp},
         operation::verify_operation,
-        opts::{constants::sccp::SCCPPass, dce::DCEPass, mem2reg::Mem2RegPass},
+        opts::{dce::DCEPass, mem2reg::Mem2RegPass},
     },
     prelude::{AnalysisManager, NestedOpsPass, Op, OpPass, PMConfig, Pass, Passes},
     rewrite::SimplifyOpsPass,
     settings::Dim3,
 };
 use cubecl_opt::passes::{
-    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, simple_cse::SimpleCSEPass,
-    sroa::SROAPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, sccp::SCCPPass,
+    simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;

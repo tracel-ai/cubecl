@@ -4,7 +4,7 @@ use pliron::{
     builtin::attributes::{IntegerAttr, VecAttr},
     irbuild::inserter::OpInsertionPoint,
     linked_list::ContainsLinkedList,
-    opts::{constants::ConstFoldInterface, dce::SideEffects},
+    opts::dce::SideEffects,
     region::Region,
     utils::const_bound_n::I,
     verify_err,
@@ -12,8 +12,15 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    CanMaterialize, NoMemoryEffect, Pure,
+    CanMaterialize, NoMemoryEffect, ReturnLike,
     attributes::{BoolAttr, ZeroAttr},
+    interfaces::{
+        CanonicalizeInterface,
+        control_flow::{
+            InvocationBounds, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
+            RegionPredecessor, RegionSuccessor,
+        },
+    },
     prelude::*,
     types::scalar::BoolType,
 };
@@ -38,8 +45,8 @@ pub enum YieldOpVerifyErr {
 }
 
 #[pliron_op(name = "branch.yield", format = "`(` operands(CharSpace(`,`)) `)`")]
-#[op_interfaces(IsTerminatorInterface)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_interfaces(IsTerminatorInterface, NResultsInterface<0>)]
+#[op_traits(NoMemoryEffect, ReturnLike, CanMaterialize)]
 pub struct YieldOp;
 
 impl YieldOp {
@@ -80,7 +87,7 @@ impl Verify for YieldOp {
 }
 
 #[pliron_op(name = "branch.condition", format = "`(` operands(CharSpace(`,`)) `)`")]
-#[op_interfaces(IsTerminatorInterface, OperandNOfType<0, BoolType>)]
+#[op_interfaces(IsTerminatorInterface, NResultsInterface<0>, OperandNOfType<0, BoolType>)]
 #[op_traits(CanMaterialize, NoMemoryEffect)]
 pub struct ConditionOp;
 
@@ -131,13 +138,41 @@ impl Verify for ConditionOp {
     }
 }
 
+#[op_interface_impl]
+impl RegionBranchTerminatorOpInterface for ConditionOp {
+    fn successor_operands(&self, ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
+        self.forward_values(ctx)
+    }
+
+    fn successor_regions(
+        &self,
+        ctx: &Context,
+        operands: &[Option<AttrObj>],
+    ) -> Vec<RegionSuccessor> {
+        let while_op = self.get_operation().deref(ctx).get_parent_op(ctx).unwrap();
+        let after_region = while_op.deref(ctx).get_region(1).into();
+        let Some(attr) = operands[0].as_ref() else {
+            return vec![after_region, RegionSuccessor::AfterOp];
+        };
+        let zero = attr.downcast_ref::<ZeroAttr>().map(|_| false);
+        let bool = attr.downcast_ref::<BoolAttr>().map(|it| it.0);
+        let Some(const_cond) = zero.or(bool) else {
+            return vec![after_region, RegionSuccessor::AfterOp];
+        };
+        match const_cond {
+            true => vec![after_region],
+            false => vec![RegionSuccessor::AfterOp],
+        }
+    }
+}
+
 #[pliron_op(
     name = "branch.return",
     format = "operands(CharSpace(`,`))",
     verifier = "succ"
 )]
-#[op_interfaces(IsTerminatorInterface, IsExitTerminator)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_interfaces(IsTerminatorInterface, NResultsInterface<0>, IsExitTerminator)]
+#[op_traits(ReturnLike, CanMaterialize, NoMemoryEffect)]
 pub struct ReturnOp;
 
 impl ReturnOp {
@@ -172,30 +207,6 @@ impl UnreachableOp {
     pub fn new(ctx: &mut Context) -> Self {
         let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 0);
         Self { op }
-    }
-}
-
-/// Dead region for constant folding, returns a dummy result so it gets eliminated from dead code
-/// elimination. We can't erase the block straight away because it might contain SCCP candidates
-/// that are already tracked and will cause a dangling ptr deref.
-#[pliron_op(name = "branch.dead_region", format = "region($0)", verifier = "succ")]
-#[op_interfaces(NOpdsInterface<0>, OneResultInterface, OneRegionInterface, SingleBlockRegionInterface)]
-#[op_traits(Pure)]
-pub struct DeadRegionOp;
-
-impl DeadRegionOp {
-    pub fn new(ctx: &mut Context) -> Self {
-        let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 1);
-
-        let region = op.deref_mut(ctx).get_region(0);
-        let body = BasicBlock::new(ctx, None, vec![]);
-        body.insert_at_front(region, ctx);
-
-        Self { op }
-    }
-
-    pub fn region(&self, ctx: &Context) -> Ptr<Region> {
-        self.get_operation().deref(ctx).get_region(0)
     }
 }
 
@@ -264,52 +275,6 @@ impl IfOp {
     }
 }
 
-#[op_interface_impl]
-impl ConstFoldInterface for IfOp {
-    fn check_fold(
-        &self,
-        _ctx: &Context,
-        operand_attrs: &[Option<AttrObj>],
-    ) -> Vec<Option<AttrObj>> {
-        operand_attrs.to_vec()
-    }
-
-    fn fold_in_place(
-        &self,
-        ctx: &mut Context,
-        operand_attrs: &[Option<AttrObj>],
-        rewriter: &mut dyn Rewriter,
-    ) -> IRStatus {
-        let op = self.get_operation();
-        let Some(attr) = operand_attrs[0].as_ref() else {
-            return IRStatus::Unchanged;
-        };
-        let zero = attr.downcast_ref::<ZeroAttr>().map(|_| false);
-        let bool = attr.downcast_ref::<BoolAttr>().map(|it| it.0);
-        let Some(const_cond) = zero.or(bool) else {
-            return IRStatus::Unchanged;
-        };
-        let (taken, not_taken) = match const_cond {
-            true => (self.then_block(ctx), self.else_block(ctx)),
-            false => (self.else_block(ctx), self.then_block(ctx)),
-        };
-
-        let not_taken_op = DeadRegionOp::new(ctx);
-        let dead_block = not_taken_op.get_body(ctx, 0);
-        rewriter.append_op(ctx, &not_taken_op);
-
-        inline_block(ctx, rewriter, taken, OpInsertionPoint::BeforeOperation(op));
-        inline_block(
-            ctx,
-            rewriter,
-            not_taken,
-            OpInsertionPoint::AtBlockStart(dead_block),
-        );
-
-        IRStatus::Changed
-    }
-}
-
 fn inline_block(
     ctx: &Context,
     rewriter: &mut dyn Rewriter,
@@ -331,6 +296,86 @@ impl SideEffects for IfOp {
     fn has_side_effects(&self, ctx: &Context) -> bool {
         block_side_effects(ctx, self.then_block(ctx))
             || block_side_effects(ctx, self.else_block(ctx))
+    }
+}
+
+#[op_interface_impl]
+impl RegionBranchOpInterface for IfOp {
+    fn entry_successor_regions(
+        &self,
+        ctx: &Context,
+        operands: &[Option<AttrObj>],
+    ) -> Vec<RegionSuccessor> {
+        let Some(attr) = operands[0].as_ref() else {
+            return self.successor_regions(ctx, RegionPredecessor::Parent);
+        };
+        let zero = attr.downcast_ref::<ZeroAttr>().map(|_| false);
+        let bool = attr.downcast_ref::<BoolAttr>().map(|it| it.0);
+        let Some(const_cond) = zero.or(bool) else {
+            return self.successor_regions(ctx, RegionPredecessor::Parent);
+        };
+        match const_cond {
+            true => vec![self.then_region(ctx).into()],
+            false => vec![self.else_region(ctx).into()],
+        }
+    }
+
+    fn successor_regions(&self, ctx: &Context, pred: RegionPredecessor) -> Vec<RegionSuccessor> {
+        match pred {
+            RegionPredecessor::Parent => {
+                vec![self.then_region(ctx).into(), self.else_region(ctx).into()]
+            }
+            RegionPredecessor::Terminator(_) => {
+                vec![RegionSuccessor::AfterOp]
+            }
+        }
+    }
+
+    fn successor_inputs(&self, _ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
+        vec![]
+    }
+
+    fn region_invocation_bounds(
+        &self,
+        _ctx: &Context,
+        operands: &[Option<AttrObj>],
+    ) -> Vec<InvocationBounds> {
+        if let Some(cond) = operands[0]
+            .as_ref()
+            .and_then(|it| it.downcast_ref::<BoolAttr>())
+        {
+            match cond.0 {
+                true => vec![InvocationBounds::once(), InvocationBounds::never()],
+                false => vec![InvocationBounds::never(), InvocationBounds::once()],
+            }
+        } else {
+            vec![InvocationBounds::zero_or_one(); 2]
+        }
+    }
+}
+
+impl IfOp {
+    fn fold(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()> {
+        let op = self.get_operation();
+        let operands = const_operands(ctx, op);
+        let valid_branches = self.entry_successor_regions(ctx, &operands);
+        let &[RegionSuccessor::Region(taken)] = valid_branches.as_slice() else {
+            return Ok(());
+        };
+        let taken = taken.deref(ctx).get_entry_block().unwrap();
+
+        inline_block(ctx, rewriter, taken, OpInsertionPoint::BeforeOperation(op));
+        rewriter.erase_operation(ctx, op);
+
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl CanonicalizeInterface for IfOp {
+    fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()> {
+        self.fold(ctx, rewriter)?;
+        Ok(())
     }
 }
 
@@ -390,6 +435,25 @@ impl SwitchOp {
         out.collect()
     }
 
+    pub fn cases_regions(&self, ctx: &Context) -> Vec<(IntegerAttr, Ptr<Region>)> {
+        let cases = self.get_attr_branch_switch_cases(ctx).unwrap().clone().0;
+        let out = (0..cases.len()).map(|i| {
+            let value = cases[i].downcast_ref::<IntegerAttr>().unwrap().clone();
+            let block = self.get_operation().deref(ctx).get_region(i + 1);
+            (value, block)
+        });
+        out.collect()
+    }
+
+    pub fn cases_values(&self, ctx: &Context) -> Vec<IntegerAttr> {
+        self.get_attr_branch_switch_cases(ctx)
+            .unwrap()
+            .0
+            .iter()
+            .map(|it| it.downcast_ref::<IntegerAttr>().unwrap().clone())
+            .collect()
+    }
+
     pub fn get_case_destinations(&self, ctx: &Context) -> Vec<Ptr<BasicBlock>> {
         let op = self.get_operation().deref(ctx);
         (1..op.regions().count())
@@ -399,6 +463,88 @@ impl SwitchOp {
 
     pub fn set_attr_cases(&self, ctx: &Context, cases: impl IntoIterator<Item = AttrObj>) {
         self.set_attr_branch_switch_cases(ctx, VecAttr(cases.into_iter().collect()));
+    }
+}
+
+#[op_interface_impl]
+impl RegionBranchOpInterface for SwitchOp {
+    fn entry_successor_regions(
+        &self,
+        ctx: &Context,
+        operands: &[Option<AttrObj>],
+    ) -> Vec<RegionSuccessor> {
+        let Some(attr) = &operands[0] else {
+            return self.successor_regions(ctx, RegionPredecessor::Parent);
+        };
+        let Some(attr) = attr.downcast_ref::<IntegerAttr>() else {
+            return self.successor_regions(ctx, RegionPredecessor::Parent);
+        };
+        if let Some(&(_, case)) = self.cases_regions(ctx).iter().find(|(val, _)| val == attr) {
+            vec![case.into()]
+        } else {
+            vec![self.default_region(ctx).into()]
+        }
+    }
+
+    fn successor_regions(&self, ctx: &Context, pred: RegionPredecessor) -> Vec<RegionSuccessor> {
+        match pred {
+            RegionPredecessor::Parent => {
+                let op = self.get_operation().deref(ctx);
+                op.regions().map(Into::into).collect()
+            }
+            RegionPredecessor::Terminator(_) => {
+                vec![RegionSuccessor::AfterOp]
+            }
+        }
+    }
+
+    fn successor_inputs(&self, _ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
+        vec![]
+    }
+
+    fn region_invocation_bounds(
+        &self,
+        ctx: &Context,
+        operands: &[Option<AttrObj>],
+    ) -> Vec<InvocationBounds> {
+        let num_regions = self.get_operation().deref(ctx).num_regions();
+        let Some(attr) = operands[0].as_ref() else {
+            return vec![InvocationBounds::zero_or_one(); num_regions];
+        };
+        let Some(attr) = attr.downcast_ref::<IntegerAttr>() else {
+            return vec![InvocationBounds::zero_or_one(); num_regions];
+        };
+
+        let case_idx = self.cases_values(ctx).iter().position(|it| it == attr);
+        let executed_idx = case_idx.map(|i| i + 1).unwrap_or(0);
+        let mut bounds = vec![InvocationBounds::never(); num_regions];
+        bounds[executed_idx] = InvocationBounds::once();
+        bounds
+    }
+}
+
+impl SwitchOp {
+    fn fold(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()> {
+        let op = self.get_operation();
+        let operands = const_operands(ctx, op);
+        let valid_branches = self.entry_successor_regions(ctx, &operands);
+        let &[RegionSuccessor::Region(taken)] = valid_branches.as_slice() else {
+            return Ok(());
+        };
+        let taken = taken.deref(ctx).get_entry_block().unwrap();
+
+        inline_block(ctx, rewriter, taken, OpInsertionPoint::BeforeOperation(op));
+        rewriter.erase_operation(ctx, op);
+
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl CanonicalizeInterface for SwitchOp {
+    fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()> {
+        self.fold(ctx, rewriter)?;
+        Ok(())
     }
 }
 
@@ -450,6 +596,22 @@ impl RangeLoopOp {
     }
 }
 
+#[op_interface_impl]
+impl RegionBranchOpInterface for RangeLoopOp {
+    fn entry_successor_operands(&self, _ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
+        vec![]
+    }
+
+    fn successor_regions(&self, ctx: &Context, _pred: RegionPredecessor) -> Vec<RegionSuccessor> {
+        // TODO: Loop interface for constant trip count
+        vec![self.loop_region(ctx).into(), RegionSuccessor::AfterOp]
+    }
+
+    fn successor_inputs(&self, _ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
+        vec![]
+    }
+}
+
 #[pliron_op(
     name = "branch.while",
     format = "`while ` region($0) ` do ` region($1)",
@@ -491,5 +653,31 @@ impl WhileOp {
 
     pub fn after_block(&self, ctx: &Context) -> Ptr<BasicBlock> {
         self.get_body(ctx, 1)
+    }
+}
+
+#[op_interface_impl]
+impl RegionBranchOpInterface for WhileOp {
+    fn entry_successor_operands(&self, _ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
+        vec![]
+    }
+
+    fn successor_regions(&self, ctx: &Context, pred: RegionPredecessor) -> Vec<RegionSuccessor> {
+        match pred {
+            RegionPredecessor::Parent => vec![self.before_region(ctx).into()],
+            RegionPredecessor::Terminator(term) => {
+                let op = term.deref(ctx).get_operation();
+                let parent = op.deref(ctx).get_parent_region(ctx).unwrap();
+                if parent == self.after_region(ctx) {
+                    vec![self.before_region(ctx).into()]
+                } else {
+                    vec![RegionSuccessor::AfterOp, self.after_region(ctx).into()]
+                }
+            }
+        }
+    }
+
+    fn successor_inputs(&self, _ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
+        vec![]
     }
 }
