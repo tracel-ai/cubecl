@@ -82,8 +82,14 @@ pub fn e2m1_packed_bits_to_float<F: Numeric, N: Size>(byte: u32) -> Vector<F, N>
 #[cube]
 pub fn float_to_e2m1_bits<F: Numeric, N: Size>(value: Vector<F, N>) -> Vector<u32, N> {
     let value = Vector::<f32, N>::cast_from(value);
-    let zero = Vector::new(0.0f32);
-    let magnitude = select_many(value.less_than(&zero), -value, value);
+
+    // The sign comes off the bit pattern rather than a comparison against zero. `-0.0` is not
+    // less than zero, so a comparison calls it positive and drops it on code `0x0`, where
+    // [`e2m1_bits_to_float`] and the host codec both name it `0x8`. The negative zero a decode
+    // produces has to encode back to the code it came from.
+    let sign_bit = Vector::new(0x8000_0000u32);
+    let negative = (Vector::<u32, N>::reinterpret(value) & sign_bit).equal(&sign_bit);
+    let magnitude = select_many(negative, -value, value);
 
     // The midpoints of {0, 0.5, 1, 1.5, 2, 3, 4, 6}, in order.
     let mut code = cleared::<N>(magnitude.greater_than(&Vector::new(0.25f32)));
@@ -96,7 +102,7 @@ pub fn float_to_e2m1_bits<F: Numeric, N: Size>(value: Vector<F, N>) -> Vector<u3
 
     // A NaN clears no threshold and encodes as zero. `e2m1` has no NaN code to carry it to, so
     // every codec has to pick something; zero is what the saturating comparisons already give.
-    code | (cleared::<N>(value.less_than(&zero)) * Vector::new(SIGN))
+    code | (cleared::<N>(negative) * Vector::new(SIGN))
 }
 
 /// One per lane where the lane cleared its threshold, zero elsewhere — the term

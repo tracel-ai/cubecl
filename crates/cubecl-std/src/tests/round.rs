@@ -18,14 +18,21 @@ fn kernel_round_up<F: Float>(input: &[F], out: &mut [F], #[comptime] dtype: Scal
 /// No capability gate: the kernel is instantiated at `f32` and `dtype` only selects comptime
 /// constants, so the storage type is never named on device.
 pub fn test_round_up_matches_host<R: Runtime>(client: ComputeClient<R>, dtype: ScaleDtype) {
-    // Reaches below every dtype's minimum normal, where the spacing stops halving.
-    let mut scales: Vec<f32> = (-26..8)
+    // Reaches below every dtype's minimum normal, where the spacing stops halving. The low end
+    // runs well past what the narrow dtypes need so that `ue8m0`, whose range reaches 2^-127,
+    // is swept over more than its top few exponents.
+    let mut scales: Vec<f32> = (-40..8)
         .flat_map(|exp| (1..17).map(move |step| (step as f32 / 16.0) * 2f32.powi(exp)))
         .collect();
     // Reaches the saturation branch and the last steps before it, where stepping up runs
     // against the dtype's NaN or infinity encodings.
     let max = dtype.max_representable();
     scales.extend([max * 0.75, max * 0.999, max, max * 2.0, f32::MAX]);
+    // Not swept: the bottom of `ue8m0`, whose clamp both sides answer with 2^-127. That value is
+    // subnormal in f32, and a device that flushes subnormals cannot carry it through a buffer, so
+    // a disagreement here would be the hardware's rather than the rule's. The
+    // `ue8m0_saturates_at_both_ends` test in `cubecl_common::quant::scheme` pins that end
+    // host-side instead.
 
     let actual = launch::<R>(&client, &scales, dtype);
 
@@ -79,6 +86,7 @@ macro_rules! testgen_round {
             round_up_matches_host_f16 => F16,
             round_up_matches_host_bf16 => BF16,
             round_up_matches_host_ue4m3 => UE4M3,
+            round_up_matches_host_ue8m0 => UE8M0,
             round_up_matches_host_f32 => F32
         );
     };
