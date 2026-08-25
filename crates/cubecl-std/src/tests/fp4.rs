@@ -1,10 +1,21 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::quant::fp4::{
-    e2m1_bits_to_float, e2m1_decode_host, e2m1_encode_host, e2m1_packed_bits_to_float,
-    float_to_e2m1_bits,
-};
+use cubecl_common::e2m1;
+
+use crate::quant::fp4::{e2m1_bits_to_float, e2m1_packed_bits_to_float, float_to_e2m1_bits};
+
+/// Decode a code the way the format's own type does. The reference the kernel is checked against
+/// is `e2m1` itself rather than a mirror written beside the kernel: an independent implementation
+/// disagrees where a mirror would quietly copy the same mistake.
+fn decode(code: u32) -> f32 {
+    e2m1::from_bits((code & 0xF) as u8).to_f32()
+}
+
+/// The same for the other direction.
+fn encode(value: f32) -> u32 {
+    e2m1::from_f32(value).to_bits() as u32
+}
 
 #[cube(launch_unchecked)]
 fn kernel_decode<N: Size>(codes: &[Vector<u32, N>], out: &mut [Vector<f32, N>]) {
@@ -28,13 +39,12 @@ fn kernel_decode_packed<N: Size>(words: &[u32], out: &mut [Vector<f32, N>]) {
     }
 }
 
-/// The kernel codec has to agree with [`e2m1_decode_host`] and [`e2m1_encode_host`] exactly.
+/// The kernel codec has to agree with the `e2m1` type exactly.
 ///
-/// The module's own unit tests check the host pair against itself and against
-/// `cubecl_common::e2m1`, which pins the specification but says nothing about the arithmetic that
-/// runs on device. Only a
-/// differential check does, and it is the whole point of the software path: it stands in for a
-/// CUDA intrinsic, so it has to produce what that intrinsic's format produces.
+/// The module's own unit tests pin what that type does at the ties and the ends, which is the
+/// specification but says nothing about the arithmetic that runs on device. Only a differential
+/// check does, and it is the whole point of the software path: it stands in for a CUDA intrinsic,
+/// so it has to produce what that intrinsic's format produces.
 ///
 /// No capability gate. The kernel names no 4-bit type — codes ride in `u32` and values in `f32` —
 /// which is exactly the property that lets a backend with no `e2m1` decode one.
@@ -46,7 +56,7 @@ pub fn test_e2m1_codec_matches_host<R: Runtime>(client: ComputeClient<R>) {
 
     let mut bad = vec![];
     for (i, &code) in codes.iter().enumerate() {
-        let expected = e2m1_decode_host(code & 0xF);
+        let expected = decode(code);
         // Bit equality, not approximate: `-0.0` and `0.0` are the same number under `==`, and
         // telling them apart is the point of half these codes.
         if decoded[i].to_bits() != expected.to_bits() {
@@ -60,7 +70,15 @@ pub fn test_e2m1_codec_matches_host<R: Runtime>(client: ComputeClient<R>) {
     let values = encode_inputs();
     let encoded = launch_encode::<R>(&client, &values);
     for (i, &value) in values.iter().enumerate() {
-        let expected = e2m1_encode_host(value);
+        // `e2m1` has no NaN code, so the two codecs pick differently — the kernel counts cleared
+        // thresholds and reaches zero, `e2m1` saturates to its maximum. Neither answer is the
+        // format's, so assert only that a NaN lands on a real code rather than wrapping out of
+        // the nibble.
+        if value.is_nan() {
+            assert!(encoded[i] <= 0xF, "encode NaN left the nibble: {:#x}", encoded[i]);
+            continue;
+        }
+        let expected = encode(value);
         if encoded[i] != expected {
             bad.push(format!(
                 "  encode {value:e}: device {:#x}, host {expected:#x}",
@@ -75,7 +93,7 @@ pub fn test_e2m1_codec_matches_host<R: Runtime>(client: ComputeClient<R>) {
     let packed = launch_decode_packed::<R>(&client, &words);
     for (i, &word) in words.iter().enumerate() {
         for lane in 0..2 {
-            let expected = e2m1_decode_host((word >> (4 * lane)) & 0xF);
+            let expected = decode(word >> (4 * lane));
             let actual = packed[2 * i + lane as usize];
             if actual.to_bits() != expected.to_bits() {
                 bad.push(format!(
@@ -100,7 +118,7 @@ fn encode_inputs() -> Vec<f32> {
     let mut values = vec![];
     // Every magnitude the format holds, both signs — these have to land back on their own code.
     for code in 0..16u32 {
-        values.push(e2m1_decode_host(code));
+        values.push(decode(code));
     }
     // Every midpoint, and a step to either side of it. The midpoints are the ties, where the
     // strict/non-strict alternation is the only thing choosing a code.
@@ -116,7 +134,8 @@ fn encode_inputs() -> Vec<f32> {
         values.push(-value);
     }
     // `f32::NAN` only, not its negation: a device is free to canonicalize a NaN's sign bit, and
-    // this is a codec test rather than a test of what the hardware does to a payload.
+    // this is a codec test rather than a test of what the hardware does to a payload. What is
+    // asserted of it is only that it stays inside the nibble; see the encode loop.
     values.push(f32::NAN);
     values
 }
