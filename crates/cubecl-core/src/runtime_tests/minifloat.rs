@@ -648,7 +648,7 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vector_size: VectorSize)
     // buffer of the fp8 type itself, at vector sizes below a word. A backend that converts fp8 but
     // packs it four lanes to a `u32` — WGSL — can do the conversion and has no such binding, so
     // conversion support alone does not mean this launch compiles. The word-packed codec tests in
-    // [`ue8m0_codec`] cover those backends instead.
+    // [`fp8_ue8m0`] cover those backends instead.
     let byte_buffers = u8::supported_uses(&client).contains(TypeUsage::Buffer);
     if !ue8m0::supported_uses(&client).contains(TypeUsage::Conversion) || !byte_buffers {
         println!("Unsupported, skipping");
@@ -687,13 +687,13 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vector_size: VectorSize)
 
 /// The `ue8m0` codec over its whole domain, against the host type.
 ///
-/// Not folded into [`fp8_format_tests`]: that macro's bool and equality kernels ask questions
-/// `ue8m0` has no answer for — it carries no zero to compare against and no sign to lose — but the
-/// two conversion directions are the same test, and this is the format whose codec is software on
-/// every backend but CUDA. [`test_scale`] pins four values through a `ue8m0` buffer; these run the
+/// Not folded into the macro that generates the `e4m3` and `e5m2` modules: its bool and equality
+/// kernels ask questions `ue8m0` has no answer for — it carries no zero to compare against and no
+/// sign to lose — but the two conversion directions are the same test, and this is the format
+/// whose codec is software on every backend but CUDA. [`test_scale`] pins four values through a `ue8m0` buffer; these run the
 /// domain, and they travel in `u32` words like the other fp8 tests so a backend with no 8-bit
 /// buffer still reaches them.
-pub mod ue8m0_codec {
+pub mod fp8_ue8m0 {
     use super::*;
 
     #[cube(launch_unchecked)]
@@ -987,7 +987,7 @@ macro_rules! testgen_minifloat {
             fn decode_exhaustive() {
                 let client = TestRuntime::client(&Default::default());
                 for lanes in [4, 8] {
-                    cubecl_core::runtime_tests::minifloat::ue8m0_codec::decode_exhaustive::<
+                    cubecl_core::runtime_tests::minifloat::fp8_ue8m0::decode_exhaustive::<
                         TestRuntime,
                     >(client.clone(), lanes);
                 }
@@ -997,7 +997,7 @@ macro_rules! testgen_minifloat {
             fn encode_exhaustive() {
                 let client = TestRuntime::client(&Default::default());
                 for lanes in [4, 8] {
-                    cubecl_core::runtime_tests::minifloat::ue8m0_codec::encode_exhaustive::<
+                    cubecl_core::runtime_tests::minifloat::fp8_ue8m0::encode_exhaustive::<
                         TestRuntime,
                     >(client.clone(), lanes);
                 }
