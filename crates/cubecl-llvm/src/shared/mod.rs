@@ -45,7 +45,7 @@ use crate::shared::{
     branch::SCFToLlvmCf,
     entrypoint::InsertConstantEmulationPass,
     jit::engine::{KernelRequirements, PlironEngine},
-    metadata::LowerEntryAbiPass,
+    metadata::{LowerEntryAbiPass, TableArgs},
     polyfill::{LowerComplexOpPass, synchronization::uses_cube_barrier},
     shared_memory::SharedMemories,
     shared_memory::declares_shared_memory,
@@ -217,7 +217,7 @@ impl PlironCompiler {
         lowering_passes.add_pass(SCFToLlvmCf::default());
         lowering_passes.add_pass(LowerEntryAbiPass::new(
             kernel.info.clone(),
-            shared_memories.clone(),
+            Box::new(TableArgs::new(shared_memories.clone())),
         ));
         lowering_passes.add_pass(CubeToLLVMPass::default());
         lowering_passes.add_pass(SimplifyCFGPass);

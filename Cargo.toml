@@ -174,7 +174,8 @@ llvm-sys = { version = "221", features = [
     "no-llvm-linking",
     "disable-alltargets-init",
 ] }
-tracel-llvm-bundler = { version = "22.1.4-6" }
+# tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "0853480b12e88872d9e3aea23246cfcd8c6205a5" }
+tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler/", version = "22.1.4-7" }
 
 cudarc = { version = "0.19.6", features = [
     "std",
@@ -213,3 +214,14 @@ cfg_aliases = "0.2.2"
 
 [profile.dev.build-override]
 opt-level = 3
+
+
+# The published pliron 0.17.0 is behind the upstream tree, which carries fixes and
+# interfaces this workspace wants. Redirect through `[patch.crates-io]` rather than
+# swapping the `[workspace.dependencies]` entries above: `pliron-spirv` pulls `pliron`
+# from crates.io itself, and a plain path override would leave two distinct
+# `pliron 0.17.0` packages whose types do not interoperate in `cubecl-spirv`.
+# pliron is used as-is and is never modified here.
+[patch.crates-io]
+pliron = { path = "../pliron" }
+pliron-llvm = { path = "../pliron/pliron-llvm" }

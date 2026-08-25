@@ -1,6 +1,7 @@
 //! The AMDGPU (`amdgcn-amd-amdhsa`) target. See
 //! `docs/superpowers/specs/2026-08-24-cubecl-llvm-amdgpu-design.md`.
 
+pub mod abi;
 pub mod builtins;
 
 /// Wavefront width of `arch`: 32 on RDNA (gfx10 and later), 64 on GCN and CDNA.
