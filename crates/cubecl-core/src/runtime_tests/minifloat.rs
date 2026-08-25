@@ -644,7 +644,13 @@ fn assert_same_float(actual: f32, expected: f32, format: &str, bits: u32) {
 }
 
 pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vector_size: VectorSize) {
-    if !ue8m0::supported_uses(&client).contains(TypeUsage::Conversion) {
+    // The same pair of questions [`test_fp8`] asks, and for the same reason: this kernel writes a
+    // buffer of the fp8 type itself, at vector sizes below a word. A backend that converts fp8 but
+    // packs it four lanes to a `u32` — WGSL — can do the conversion and has no such binding, so
+    // conversion support alone does not mean this launch compiles. The word-packed codec tests in
+    // [`ue8m0_codec`] cover those backends instead.
+    let byte_buffers = u8::supported_uses(&client).contains(TypeUsage::Buffer);
+    if !ue8m0::supported_uses(&client).contains(TypeUsage::Conversion) || !byte_buffers {
         println!("Unsupported, skipping");
         return;
     }
@@ -677,6 +683,150 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vector_size: VectorSize)
 
     assert_eq!(actual, &expect[..num_out]);
     //assert_eq!(&actual_2[..num_out], &data[..num_out]);
+}
+
+/// The `ue8m0` codec over its whole domain, against the host type.
+///
+/// Not folded into [`fp8_format_tests`]: that macro's bool and equality kernels ask questions
+/// `ue8m0` has no answer for — it carries no zero to compare against and no sign to lose — but the
+/// two conversion directions are the same test, and this is the format whose codec is software on
+/// every backend but CUDA. [`test_scale`] pins four values through a `ue8m0` buffer; these run the
+/// domain, and they travel in `u32` words like the other fp8 tests so a backend with no 8-bit
+/// buffer still reaches them.
+pub mod ue8m0_codec {
+    use super::*;
+
+    #[cube(launch_unchecked)]
+    pub fn kernel_decode<W: Size, N: Size>(input: &[Vector<u32, W>], out: &mut [Vector<f32, N>]) {
+        if ABSOLUTE_POS < input.len() {
+            out[ABSOLUTE_POS] =
+                Vector::cast_from(Vector::<ue8m0, N>::reinterpret(input[ABSOLUTE_POS]));
+        }
+    }
+
+    #[cube(launch_unchecked)]
+    pub fn kernel_encode<N: Size, W: Size>(input: &[Vector<f32, N>], out: &mut [Vector<u32, W>]) {
+        if ABSOLUTE_POS < input.len() {
+            out[ABSOLUTE_POS] =
+                Vector::reinterpret(Vector::<ue8m0, N>::cast_from(input[ABSOLUTE_POS]));
+        }
+    }
+
+    fn supported<R: Runtime>(client: &ComputeClient<R>) -> bool {
+        ue8m0::supported_uses(client).contains(TypeUsage::Conversion)
+    }
+
+    /// Every one of the 256 codes.
+    ///
+    /// Codes 1..=254 are the powers of two from 2^-126 to 2^127, all normal in `f32` and in the
+    /// `bf16` a backend may convert through, so they are pinned exactly. So is 255, the format's
+    /// NaN. Code 0 is 2^-127, which is subnormal in both, so it is only asked not to land on a
+    /// *different* exponent — the failure a wrong shift or a missing special case produces.
+    pub fn decode_exhaustive<R: Runtime>(client: ComputeClient<R>, lanes: VectorSize) {
+        if !supported(&client) {
+            println!("Unsupported, skipping");
+            return;
+        }
+
+        let bytes: Vec<u8> = (0..=u8::MAX).collect();
+        let words = bytes.len() / LANES_PER_WORD;
+        let input = client.create_from_slice(&bytes);
+        let out = client.empty(bytes.len() * size_of::<f32>());
+        let vectors = bytes.len() / lanes;
+
+        unsafe {
+            kernel_decode::launch_unchecked::<R>(
+                &client,
+                CubeCount::Static(vectors.div_ceil(32) as u32, 1, 1),
+                CubeDim::new_1d(32),
+                lanes / LANES_PER_WORD,
+                lanes,
+                BufferArg::from_raw_parts(input, words),
+                BufferArg::from_raw_parts(out.clone(), bytes.len()),
+            )
+        };
+
+        let actual = client.read_one_unchecked(out);
+        let actual = f32::from_bytes(&actual);
+        assert_eq!(
+            actual.len(),
+            bytes.len(),
+            "a failed launch reads back nothing"
+        );
+        for (bits, actual) in bytes.iter().zip(actual) {
+            let expected = ue8m0::from_bits(*bits).to_f32();
+            if *bits == 0 {
+                assert!(
+                    *actual == expected || *actual == 0.0,
+                    "ue8m0 {bits:#04x}: expected {expected:e} (or a flushed zero), got {actual:e}"
+                );
+                continue;
+            }
+            assert_same_float(*actual, expected, "ue8m0", *bits as u32);
+        }
+    }
+
+    /// Every value the format holds, and the two rounding decisions between each neighbouring
+    /// pair.
+    ///
+    /// `ue8m0` rounds **up**, so `1.25` and `1.5` times a power of two both belong to the power
+    /// above rather than splitting at the midpoint. Both factors are exact in `bf16` as well as
+    /// `f32`, so a backend converting through it decides the same way and there is no intermediate
+    /// rounding for a disagreement to hide behind.
+    ///
+    /// Not swept here: infinity and NaN. `__NV_NOSAT` and the software path disagree on what
+    /// infinity encodes to, and pinning either answer would assert a divergence rather than a
+    /// rule. The saturating end is reached through 2^127 itself.
+    pub fn encode_exhaustive<R: Runtime>(client: ComputeClient<R>, lanes: VectorSize) {
+        if !supported(&client) {
+            println!("Unsupported, skipping");
+            return;
+        }
+
+        let mut values: Vec<f32> = vec![];
+        for exp in -126..=127i32 {
+            let power = 2f32.powi(exp);
+            values.push(power);
+            // Above a power of two and below the next: both round up to the next.
+            if exp < 127 {
+                values.extend([power * 1.25, power * 1.5]);
+            }
+        }
+        // A padding value that is already representable, so it asserts like any other.
+        values.resize(values.len().next_multiple_of(lanes), 1.0);
+
+        let words = values.len() / LANES_PER_WORD;
+        let input = client.create_from_slice(f32::as_bytes(&values));
+        let out = client.empty(values.len());
+        let vectors = values.len() / lanes;
+
+        unsafe {
+            kernel_encode::launch_unchecked::<R>(
+                &client,
+                CubeCount::Static(vectors.div_ceil(64) as u32, 1, 1),
+                CubeDim::new_1d(64),
+                lanes,
+                lanes / LANES_PER_WORD,
+                BufferArg::from_raw_parts(input, values.len()),
+                BufferArg::from_raw_parts(out.clone(), words),
+            )
+        };
+
+        let actual = client.read_one_unchecked(out);
+        assert_eq!(
+            actual.len(),
+            values.len(),
+            "a failed launch reads back nothing"
+        );
+        for (value, actual) in values.iter().zip(u8::from_bytes(&actual)) {
+            assert_eq!(
+                *actual,
+                ue8m0::from_f32(*value).to_bits(),
+                "ue8m0 of {value:e} ({:#010x})",
+                value.to_bits()
+            );
+        }
+    }
 }
 
 #[allow(missing_docs)]
@@ -828,6 +978,30 @@ macro_rules! testgen_minifloat {
             cubecl_core::runtime_tests::minifloat::test_scale::<TestRuntime>(client.clone(), 1);
             cubecl_core::runtime_tests::minifloat::test_scale::<TestRuntime>(client.clone(), 2);
             cubecl_core::runtime_tests::minifloat::test_scale::<TestRuntime>(client.clone(), 4);
+        }
+
+        mod ue8m0 {
+            use super::*;
+
+            #[$crate::runtime_tests::test_log::test]
+            fn decode_exhaustive() {
+                let client = TestRuntime::client(&Default::default());
+                for lanes in [4, 8] {
+                    cubecl_core::runtime_tests::minifloat::ue8m0_codec::decode_exhaustive::<
+                        TestRuntime,
+                    >(client.clone(), lanes);
+                }
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn encode_exhaustive() {
+                let client = TestRuntime::client(&Default::default());
+                for lanes in [4, 8] {
+                    cubecl_core::runtime_tests::minifloat::ue8m0_codec::encode_exhaustive::<
+                        TestRuntime,
+                    >(client.clone(), lanes);
+                }
+            }
         }
     };
 }
