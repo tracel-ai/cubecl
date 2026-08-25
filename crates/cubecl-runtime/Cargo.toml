@@ -47,15 +47,15 @@ cfg-if = { workspace = true }
 # `serde` and `hash` are needed unconditionally (StableHash in id/kernel/
 # compiler, PartialEq on BenchmarkComputations) — not just by the persistent
 # cache, so they can't live only in the desktop target section below.
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.2", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.3", default-features = false, features = [
     "serde",
     "hash",
 ] }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.2", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.2", default-features = false, features = [
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.3", default-features = false, features = [
     "serde",
 ] }
-cubecl-zspace = { path = "../cubecl-zspace", version = "=0.11.0-pre.2", default-features = false }
+cubecl-zspace = { path = "../cubecl-zspace", version = "=0.11.0-pre.3", default-features = false }
 
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["eq"] }
@@ -75,11 +75,11 @@ futures-util = { workspace = true, default-features = false }
 
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.2", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.3", default-features = false, features = [
     "serde",
     "hash",
 ] }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.2", default-features = false, features = [
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false, features = [
     "cache",
 ] }
 serde_json = { workspace = true, features = ["std"] }

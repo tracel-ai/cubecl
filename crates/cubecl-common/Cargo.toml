@@ -30,7 +30,7 @@ tracing = ["cubecl-environment/tracing"]
 
 
 [dependencies]
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.2", default-features = false }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
 
 # Runtime Deps
 log = { workspace = true }
