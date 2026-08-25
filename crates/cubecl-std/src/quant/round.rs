@@ -22,8 +22,27 @@ pub fn round_up_to_dtype<F: Float>(scale: F, #[comptime] dtype: ScaleDtype) -> F
         ScaleDtype::F16 | ScaleDtype::BF16 | ScaleDtype::UE4M3 => {
             F::cast_from(step_up(f32::cast_from(scale), dtype))
         }
-        // Returning `scale` would diverge from the host rule, which has no answer here either.
-        ScaleDtype::UE8M0 => comptime!(unimplemented!("UE8M0 scales are not yet supported")),
+        ScaleDtype::UE8M0 => F::cast_from(step_up_to_power_of_two(f32::cast_from(scale))),
+    }
+}
+
+/// The `ue8m0` arm of [`round_up_to_dtype`]: the smallest power of two not below `scale`.
+///
+/// Kept apart from [`step_up`] because both of `ue8m0`'s ends need clamping before the shared
+/// stepping means anything — its bottom, 2^-127, is subnormal in f32, and it has no zero for a
+/// fully-zero block to calibrate to. Mirrors the host's `round_up_to_power_of_two`, and the two
+/// have to keep agreeing or a tensor quantized on one backend reconstructs differently on another.
+#[cube]
+fn step_up_to_power_of_two(scale: f32) -> f32 {
+    let min = comptime!(ScaleDtype::UE8M0_MIN);
+    let max = comptime!(ScaleDtype::UE8M0_MAX);
+
+    if scale <= min {
+        min
+    } else if scale >= max {
+        max
+    } else {
+        round_up_on_grid(scale, comptime!(ScaleDtype::UE8M0.f32_grid()))
     }
 }
 

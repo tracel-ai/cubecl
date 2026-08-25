@@ -133,6 +133,68 @@ pub fn f32_to_fp8_bits<N: Size>(
     code | sign
 }
 
+/// Decode `ue8m0` codes: a bare exponent, so the code *is* the f32 exponent field.
+///
+/// Kept apart from [`fp8_bits_to_f32`] rather than folded into it. That one splits a byte into
+/// sign, exponent and mantissa; `ue8m0` has only the exponent, spends the top bit on it, and puts
+/// its bottom code where the other formats put zero. Threading those three differences through the
+/// generic body would put a branch on every line of a function two working formats depend on.
+///
+/// Bits above the low byte are ignored.
+#[cube]
+pub fn ue8m0_bits_to_f32<N: Size>(bits: Vector<u32, N>) -> Vector<f32, N> {
+    let code = bits & Vector::new(0xFFu32);
+
+    // Codes 1..=254 are exactly f32's own exponent field, so shifting into place is the decode.
+    let shifted = Vector::<f32, N>::reinterpret(code << Vector::new(F32_MANTISSA_BITS));
+
+    // Code 0 is 2^-127, which is subnormal in f32 — the shift would land on zero instead.
+    let min = comptime![Fp8Format::UE8M0.min_value()];
+    let value = select_many(code.equal(&Vector::new(0u32)), Vector::new(min), shifted);
+
+    // The all-ones code is the format's NaN; shifting it lands on f32's infinity.
+    select_many(
+        code.equal(&Vector::new(comptime![Fp8Format::UE8M0.nan_code()])),
+        Vector::new(f32::NAN),
+        value,
+    )
+}
+
+/// Encode to `ue8m0`, rounding **up** to the next power of two and saturating at both ends.
+///
+/// Up, not to nearest, and that is the host codec's rule rather than a choice made here: a value
+/// between two powers of two takes the one above. It suits what the format is for — a `ue8m0` is a
+/// quantization scale, and a scale rounded down puts every value at the block maximum outside the
+/// quantization range — but the reason to match it is that a tensor quantized on one backend has
+/// to reconstruct the same on another.
+#[cube]
+pub fn f32_to_ue8m0_bits<N: Size>(value: Vector<f32, N>) -> Vector<u32, N> {
+    let min = comptime![Fp8Format::UE8M0.min_value()];
+    let max = comptime![Fp8Format::UE8M0.max_value()];
+    let max_code = comptime![Fp8Format::UE8M0.max_code()];
+
+    // Rounding up on the bit pattern: biasing by one ulp-below then clearing the mantissa carries
+    // into the exponent exactly when the mantissa was non-zero.
+    let bits = Vector::<u32, N>::reinterpret(value);
+    let carried = (bits + Vector::new(F32_MANTISSA_MASK)) & Vector::new(!F32_MANTISSA_MASK);
+    let code = carried >> Vector::new(F32_MANTISSA_BITS);
+
+    // Both ends saturate. The bottom catches zero too, which has no `ue8m0` code and which a
+    // fully-zero block calibrates to; the reconstruction is zero at any scale, so the clamp costs
+    // nothing. A NaN clears neither comparison and falls through to the NaN code.
+    let code = select_many(value.less_equal(&Vector::new(min)), Vector::new(0u32), code);
+    let code = select_many(
+        value.greater_equal(&Vector::new(max)),
+        Vector::new(max_code),
+        code,
+    );
+    select_many(
+        value.not_equal(&value),
+        Vector::new(comptime![Fp8Format::UE8M0.nan_code()]),
+        code,
+    )
+}
+
 /// How a backend without a native fp8 type holds the bytes of an fp8 vector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Fp8Container {
@@ -214,7 +276,11 @@ impl LowerMinifloatCast {
                 unpack_words::expand::<N, W>(scope, words.into()).read_value(scope)
             }
         };
-        fp8_bits_to_f32::expand::<N>(scope, bits.into(), format).read_value(scope)
+        match format {
+            Fp8Format::UE8M0 => ue8m0_bits_to_f32::expand::<N>(scope, bits.into()),
+            _ => fp8_bits_to_f32::expand::<N>(scope, bits.into(), format),
+        }
+        .read_value(scope)
     }
 
     fn encode(
@@ -225,7 +291,11 @@ impl LowerMinifloatCast {
         result_ty: TypeHandle,
     ) -> Value {
         let value = cast_value(scope, value, Vector::<f32, N>::__expand_as_type(scope));
-        let bits = f32_to_fp8_bits::expand::<N>(scope, value.into(), format).read_value(scope);
+        let bits = match format {
+            Fp8Format::UE8M0 => f32_to_ue8m0_bits::expand::<N>(scope, value.into()),
+            _ => f32_to_fp8_bits::expand::<N>(scope, value.into(), format),
+        }
+        .read_value(scope);
         let container = match self.container {
             Fp8Container::Bytes => {
                 cast_value(scope, bits, Vector::<u8, N>::__expand_as_type(scope))

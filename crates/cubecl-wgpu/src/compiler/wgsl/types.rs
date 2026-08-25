@@ -5,8 +5,8 @@ use cubecl_ir::{
     types::{
         ArrayType, AtomicType, Fp8Format, RuntimeArrayType, VectorType,
         scalar::{
-            BoolType, Float8E4M3Type, Float8E5M2Type, Float16Type, Float32Type, Float64Type,
-            FloatFlex32Type, IndexType,
+            BoolType, Float8E4M3Type, Float8E5M2Type, Float8E8M0Type, Float16Type, Float32Type,
+            Float64Type, FloatFlex32Type, IndexType,
         },
     },
 };
@@ -121,6 +121,7 @@ macro_rules! fp8_scalar_ty {
 
 fp8_scalar_ty!(Float8E4M3Type);
 fp8_scalar_ty!(Float8E5M2Type);
+fp8_scalar_ty!(Float8E8M0Type);
 
 #[type_interface_impl]
 impl TypeToWgsl for VectorType {

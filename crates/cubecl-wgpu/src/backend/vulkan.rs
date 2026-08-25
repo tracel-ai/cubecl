@@ -531,7 +531,7 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         .float16_int8
         .is_some_and(|it| it.shader_int8 == TRUE);
     if supports_fp8 {
-        for kind in [FloatKind::E4M3, FloatKind::E5M2] {
+        for kind in [FloatKind::E4M3, FloatKind::E5M2, FloatKind::UE8M0] {
             props.register_type_usage(ElemType::Float(kind), TypeUsage::Conversion);
             if storage8 {
                 props.register_type_usage(ElemType::Float(kind), TypeUsage::Buffer);
