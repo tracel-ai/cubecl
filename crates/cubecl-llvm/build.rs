@@ -6,6 +6,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rustc-cfg=feature=\"pliron-dump\"");
     }
 
+    // lld is not in `llvm-config --libs`, and its archives depend on the LLVM
+    // ones, so they have to be emitted before the bundler's list.
+    println!("cargo:rustc-link-lib=static=lldELF");
+    println!("cargo:rustc-link-lib=static=lldCommon");
+
     tracel_llvm_bundler::llvm_sys::link()?;
 
     Ok(())

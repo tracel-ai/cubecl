@@ -41,6 +41,9 @@ use pliron::{
     printable::Printable,
 };
 
+use crate::amdgpu::abi::KernargArgs;
+use crate::amdgpu::builtins::InsertAmdgpuBuiltinsPass;
+use crate::amdgpu::plane_dim_for;
 use crate::shared::{
     branch::SCFToLlvmCf,
     entrypoint::InsertConstantEmulationPass,
@@ -167,8 +170,7 @@ impl PlironCompiler {
         match self.target {
             LlvmTarget::Cpu => PlironArtifact::Jit(self.compile_cpu(kernel)),
             LlvmTarget::AmdGpu => {
-                let _ = &options.arch;
-                unimplemented!("the AMDGPU target lands in plan Task 6")
+                PlironArtifact::AmdGpuCode(self.compile_amdgpu(kernel, &options.arch))
             }
         }
     }
@@ -255,6 +257,89 @@ impl PlironCompiler {
 
         PlironEngine::compile(&ctx, module, &kernel.settings.kernel_name, requirements, io)
             .expect("Failed to convert to LLVM IR")
+    }
+
+    /// Lowers `kernel` for `arch` and compiles it into a linked AMD code object.
+    ///
+    /// Mirrors [`Self::compile_cpu`] with three substitutions: the builtins come
+    /// from the hardware rather than an emulated loop nest, the entry ABI is
+    /// kernargs rather than an indirection table, and the backend is a
+    /// `TargetMachine` rather than the JIT.
+    fn compile_amdgpu(self, kernel: KernelDefinition, arch: &str) -> AmdGpuModule {
+        let module = kernel.body.state().module;
+        let module_op = module.get_operation();
+        let mut ctx = kernel.body.into_context().expect("Should be owned scope");
+
+        // Checked before any pass runs: both of these would otherwise be lowered
+        // by passes that assume the CPU host, and miscompile silently.
+        if uses_cube_barrier(&ctx, module_op) {
+            unimplemented!("cube barriers are not supported on the AMDGPU target yet");
+        }
+        if declares_shared_memory(&ctx, module_op) {
+            unimplemented!("shared memory is not supported on the AMDGPU target yet");
+        }
+
+        #[cfg(not(feature = "pliron-dump"))]
+        let ir_printing_dir = None;
+        #[cfg(feature = "pliron-dump")]
+        let ir_printing_dir = pliron_path(&kernel.settings.kernel_name);
+        let config = PMConfig {
+            print_after_all: true,
+            ir_printing_dir,
+            ..Default::default()
+        };
+
+        let mut analyses = AnalysisManager::default();
+        analyses.set_config(config);
+
+        let mut passes = OpPass::<ModuleOp, Passes>::default();
+        let mut func_passes = OpPass::<FuncOp, Passes>::default();
+        func_passes.add_pass(InsertAmdgpuBuiltinsPass {
+            plane_dim: plane_dim_for(arch),
+        });
+        func_passes.add_pass(SROAPass);
+        func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(PromoteBitwisePass);
+        func_passes.add_pass(LowerMinifloatCastPass::default());
+        func_passes.add_pass(LowerMinifloatComparePass::default());
+        func_passes.add_pass(LowerComplexOpPass::default());
+        func_passes.add_pass(DCEPass);
+        func_passes.add_pass(SROAPass);
+        func_passes.add_pass(BranchToSCFPass::default());
+        func_passes.add_pass(SCFToLlvmCf::default());
+        func_passes.add_pass(LowerEntryAbiPass::new(
+            kernel.info.clone(),
+            Box::new(KernargArgs),
+        ));
+        func_passes.add_pass(CubeToLLVMPass::default());
+        func_passes.add_pass(SimplifyCFGPass);
+        func_passes.add_pass(DCEPass);
+        func_passes.add_pass(Mem2RegPass);
+
+        passes.add_pass(NestedOpsPass::new(func_passes));
+        passes.add_pass(builtin_to_llvm_pass());
+
+        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
+
+        if let Err(e) = verify_operation(module_op, &ctx) {
+            panic!("{}", e.disp(&ctx));
+        }
+
+        crate::amdgpu::codegen::emit_code_object(
+            &ctx,
+            module,
+            &kernel.settings.kernel_name,
+            arch,
+            kernel.settings.cube_dim.num_elems(),
+        )
+        .unwrap_or_else(|err| {
+            panic!(
+                "Failed to compile '{}' for {arch}: {err}",
+                kernel.settings.kernel_name
+            )
+        })
     }
 }
 

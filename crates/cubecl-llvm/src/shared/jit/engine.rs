@@ -139,7 +139,7 @@ impl Display for PlironEngine {
 #[cfg(feature = "pliron-dump")]
 /// The kernel's dump directory when `CUBECL_DEBUG_PLIRON` is set: the LLVM IR
 /// stages land beside the pliron pass dumps.
-fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
+pub(crate) fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
     let dir = std::env::var("CUBECL_DEBUG_PLIRON").ok()?;
     let path = std::path::Path::new(&dir).join(kernel_name);
     std::fs::create_dir_all(&path).ok()?;

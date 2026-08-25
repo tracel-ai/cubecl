@@ -33,6 +33,20 @@ impl EntryArgLayout for KernargArgs {
             unimplemented!("shared memory is not supported on the AMDGPU target yet");
         }
 
+        // `HipServer` pushes resources in `buffer_pos` order, so kernarg slot N must be
+        // buffer N. That holds because `KernelBuilder` assigns `buffer_pos` from a
+        // monotonic counter and pushes the argument in the same call
+        // (`cubecl-core/src/compute/builder.rs:54-70`). If that ever stops being true,
+        // fail here rather than passing buffers to the wrong kernargs.
+        debug_assert!(
+            buffers
+                .iter()
+                .enumerate()
+                .all(|(n, (_, buffer_pos, _))| n == *buffer_pos),
+            "buffer arguments are not in binding order: {:?}",
+            buffers.iter().map(|(i, p, _)| (*i, *p)).collect::<Vec<_>>()
+        );
+
         // Buffers are already arguments in binding order, so all that is left
         // is to retype them into the global address space. The `%info` pointer
         // was appended by the shared half of the pass and gets the same
