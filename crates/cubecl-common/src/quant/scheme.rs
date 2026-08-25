@@ -338,6 +338,9 @@ impl ScaleDtype {
 ///
 /// Lives here rather than on the `ue8m0` type so it is available without the `float4` feature:
 /// serialization needs it, and `ue8m0` is a bare exponent, so the byte is the whole of it.
+/// (`ue8m0` itself is behind `fp8`, but its *conversions* come from `float4`, which is the gate
+/// that would otherwise reach serialization.) It has to keep answering what those conversions
+/// answer, which `the_ue8m0_codec_matches_the_storage_type` checks wherever they are compiled in.
 pub fn f32_to_ue8m0(scale: f32) -> u8 {
     let rounded = round_up_to_power_of_two(scale);
     if rounded.is_nan() {
@@ -995,6 +998,42 @@ mod tests {
                 ScaleDtype::UE8M0.max_representable(),
                 crate::ue8m0::MAX.to_f32()
             );
+        }
+
+        /// [`f32_to_ue8m0`] and [`ue8m0_to_f32`] restate what the `ue8m0` type already does, so
+        /// that this module stays usable without the `fp8` feature. Restating it is only safe
+        /// while the two agree: a scale written through one and read through the other has to be
+        /// the same scale, and the two ends of that trip are on opposite sides of the gate.
+        ///
+        /// Includes the rounding, which is the part that could plausibly drift — `ue8m0` rounds
+        /// up, where a conversion would normally round to nearest.
+        ///
+        /// Gated on `float4` rather than on this module's `fp8`, because that is where `ue8m0`'s
+        /// conversions live — and it is exactly that split which is the reason the pair above
+        /// exists at all.
+        #[test]
+        #[cfg(feature = "fp4")]
+        fn the_ue8m0_codec_matches_the_storage_type() {
+            for code in 0..=0xFFu8 {
+                let ours = ue8m0_to_f32(code);
+                let theirs = crate::ue8m0::from_bits(code).to_f32();
+                if theirs.is_nan() {
+                    assert!(ours.is_nan(), "code {code}: {ours:e} is not a NaN");
+                } else {
+                    assert_eq!(ours.to_bits(), theirs.to_bits(), "code {code}");
+                }
+            }
+
+            for exp in -130..130 {
+                for factor in [1.0, 1.25, 1.5, 1.9] {
+                    let scale = factor * 2f32.powi(exp);
+                    assert_eq!(
+                        f32_to_ue8m0(scale),
+                        crate::ue8m0::from_f32(scale).to_bits(),
+                        "{scale:e}"
+                    );
+                }
+            }
         }
 
         /// `offset` representable steps from `value` in `dtype`, for positive values. Counted on

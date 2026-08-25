@@ -220,4 +220,21 @@ mod tests {
             );
         }
     }
+
+    /// The same agreement in the other direction, which is where the two could actually part.
+    /// Decoding a code has one answer; *choosing* a code does not, and the rounding this module
+    /// spells out as an alternation of strict and non-strict comparisons is the same rule
+    /// `e2m1::from_f32` reaches by a different route. A tensor quantized through one and read
+    /// through the other only agrees while that holds.
+    #[test]
+    fn the_rounding_matches_the_host_type() {
+        for step in -1400..=1400i32 {
+            let value = step as f32 / 100.0;
+            assert_eq!(
+                e2m1_encode_host(value),
+                cubecl_common::e2m1::from_f32(value).to_bits() as u32,
+                "{value}"
+            );
+        }
+    }
 }
