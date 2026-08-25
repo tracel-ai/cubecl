@@ -6,4 +6,3 @@ pub mod view;
 
 pub use base::*;
 pub use dequantize::*;
-pub use fp4::*;
