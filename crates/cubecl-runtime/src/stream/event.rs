@@ -225,38 +225,17 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.gc.sender.send(gc).unwrap();
     }
 
-    /// The errors owned by the logical streams that wrote `handles`, other than
-    /// `reader`'s own, left queued for those streams to surface themselves.
-    ///
-    /// A read is only as good as the work that wrote the buffer: a launch that
-    /// failed never wrote it, so copying its bytes out hands back whatever was
-    /// in memory before. The reader's own errors are already surfaced by the
-    /// flush on its way in, but a producer's are queued on the producer — on
-    /// another pooled stream, or on the same one under another id — so a read
-    /// consults them here before copying anything out.
+    /// The errors owned by the streams that wrote `handles` — see
+    /// [`StreamPool::producer_errors`].
     pub fn producer_errors<'a>(
         &mut self,
         reader: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Vec<ServerError> {
-        let mut producers = Vec::new();
-        let mut errors = Vec::new();
-
-        for handle in handles.filter(|handle| handle.stream != reader) {
-            if producers.contains(&handle.stream) {
-                continue;
-            }
-            producers.push(handle.stream);
-
-            let index = stream_index(&handle.stream, self.max_streams);
-            // # Safety
-            //
-            // * `stream_index` returns an index within the pool's capacity.
-            let stream = unsafe { self.streams.get_mut_index(index) };
-            errors.extend(B::errors_owned(&stream.stream, handle.stream));
-        }
-
-        errors
+        self.streams
+            .producer_errors(reader, handles, |stream, owner| {
+                B::errors_owned(&stream.stream, owner)
+            })
     }
 
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary

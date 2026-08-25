@@ -18,7 +18,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    server::{IoError, ProfileError, ProfilingToken, ServerError, StreamErrorMode},
+    server::{IoError, ProfileError, ProfilingToken, ServerError},
     zspace::Shape,
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -225,15 +225,7 @@ impl WgpuStream {
                 // It is important to flush before writing, as the write operation is inserted
                 // into the QUEUE not the encoder. We want to make sure all outstanding work
                 // happens _before_ the write operation.
-                let _ = self
-                    .flush(
-                        StreamErrorMode {
-                            ignore: true,
-                            flush: false,
-                        },
-                        None,
-                    )
-                    .ok();
+                self.submit();
                 self.write_to_buffer(&buffer, &data);
             }
             ScheduleTask::Execute {
@@ -322,13 +314,7 @@ impl WgpuStream {
         // a kernel that failed at launch (e.g. a compilation error) never wrote
         // the buffers this read is about to return, so returning bytes instead of
         // the error would silently hand back stale memory.
-        if let Err(err) = self.flush(
-            StreamErrorMode {
-                ignore: false,
-                flush: true,
-            },
-            Some(stream_id),
-        ) {
+        if let Err(err) = self.flush(stream_id) {
             return Box::pin(async move { Err(err) });
         }
 
@@ -396,13 +382,7 @@ impl WgpuStream {
         if matches!(self.timings, Timings::System(_)) {
             cubecl_environment::future::block_on(self.sync(stream_id))?;
         } else {
-            self.flush(
-                StreamErrorMode {
-                    ignore: false,
-                    flush: true,
-                },
-                Some(stream_id),
-            )?;
+            self.flush(stream_id)?;
         }
 
         match &mut self.timings {
@@ -463,13 +443,7 @@ impl WgpuStream {
                 // This flushes the queue to execute the encoder write command to write the
                 // timings.
                 self.tasks_count += 1;
-                let result = self.flush(
-                    StreamErrorMode {
-                        ignore: false,
-                        flush: true,
-                    },
-                    Some(stream_id),
-                );
+                let result = self.flush(stream_id);
 
                 let Timings::Device(timing) = &mut self.timings else {
                     return Err(ProfileError::Unknown {
@@ -496,15 +470,7 @@ impl WgpuStream {
     ) -> Pin<Box<dyn Future<Output = Result<(), ServerError>> + Send + 'static>> {
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
-        let flush_error = self
-            .flush(
-                StreamErrorMode {
-                    ignore: false,
-                    flush: true,
-                },
-                Some(stream_id),
-            )
-            .err();
+        let flush_error = self.flush(stream_id).err();
 
         let queue = self.queue.clone();
         let error_future = error_scope.pop();
@@ -541,6 +507,12 @@ impl WgpuStream {
     /// Registers a new error into the error sink, for `stream_id` to surface.
     pub fn error(&mut self, stream_id: StreamId, error: ServerError) {
         self.errors.push(stream_id, error);
+    }
+
+    /// The errors `owner` alone caused, left queued for it to surface — see
+    /// [`StreamErrors::peek_owned`].
+    pub fn errors_owned(&self, owner: StreamId) -> Vec<ServerError> {
+        self.errors.peek_owned(owner)
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
@@ -653,29 +625,46 @@ impl WgpuStream {
         // Locked handles should only accumulate in rare circumstances (where uniforms
         // are being created but no work is submitted).
         if self.tasks_count >= self.tasks_max {
-            let _ = self
-                .flush(
-                    StreamErrorMode {
-                        ignore: true,
-                        flush: false,
-                    },
-                    None,
-                )
-                .ok();
+            self.submit();
         }
     }
 
-    /// Submit the queued work, then surface the errors `stream_id` owns (see
-    /// [`StreamErrors`]). `None` is for the pooled paths that flush the stream
-    /// without any logical stream asking, which never surface errors anyway.
-    pub fn flush(
-        &mut self,
-        mode: StreamErrorMode,
-        stream_id: Option<StreamId>,
-    ) -> Result<(), ServerError> {
+    /// Submit the queued work and surface nothing.
+    ///
+    /// For the pooled paths that flush the stream without any logical stream
+    /// asking — a full task queue, the ordering barrier before a write, the
+    /// scheduler aligning streams. Whatever is queued stays queued, for the
+    /// flush of the stream that owns it (see [`StreamErrors`]).
+    pub fn submit(&mut self) {
+        self.submit_tasks();
+        self.collect_validation_errors();
+    }
+
+    /// Submit the queued work, then surface the errors `owner` owns.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::ServerUnhealthy`] carrying everything `owner` had queued,
+    /// which this call takes: the stream is usable again afterwards, and the
+    /// other streams sharing it keep their own errors.
+    pub fn flush(&mut self, owner: StreamId) -> Result<(), ServerError> {
+        self.submit();
+
+        let errors = self.flush_errors_queue(owner);
+        if errors.is_empty() {
+            return Ok(());
+        }
+
+        Err(ServerError::ServerUnhealthy {
+            errors,
+            backtrace: BackTrace::capture(),
+        })
+    }
+
+    fn submit_tasks(&mut self) {
         if self.tasks_count == 0 {
             self.shared_bindings.clear();
-            return self.flush_errors(mode, stream_id);
+            return;
         }
 
         // End the current compute pass.
@@ -721,20 +710,16 @@ impl WgpuStream {
 
         self.tasks_count = 0;
         self.pending_write_count = 0;
-
-        self.flush_errors(mode, stream_id)
     }
 
-    fn flush_errors(
-        &mut self,
-        mode: StreamErrorMode,
-        stream_id: Option<StreamId>,
-    ) -> Result<(), ServerError> {
+    /// Drain the driver's validation canary into the queue.
+    ///
+    /// The driver reports these against the device, not the launch that caused
+    /// them, so they go in shared — whichever stream flushes next surfaces them.
+    fn collect_validation_errors(&mut self) {
         #[cfg(feature = "deny-validation-errors")]
         {
             let validation_errors = wgpu_hal::VALIDATION_CANARY.get_and_reset();
-            // The driver reports these against the device, not the launch that
-            // caused them, so they go to whichever stream flushes next.
             self.errors
                 .extend_shared(
                     validation_errors
@@ -745,26 +730,6 @@ impl WgpuStream {
                         }),
                 );
         }
-
-        if mode.flush {
-            let errors = self.flush_errors_queue(stream_id);
-
-            if !mode.ignore && !errors.is_empty() {
-                let error = ServerError::ServerUnhealthy {
-                    errors,
-                    backtrace: BackTrace::capture(),
-                };
-                return Err(error);
-            }
-        } else if !mode.ignore && self.errors.any(stream_id) {
-            let error = ServerError::ServerUnhealthy {
-                errors: self.errors.peek(stream_id),
-                backtrace: BackTrace::capture(),
-            };
-            return Err(error);
-        }
-
-        Ok(())
     }
 
     /// Start a new compute pass if needed. The `forget_lifetime` allows
@@ -988,8 +953,8 @@ impl WgpuStream {
         self.flush_if_needed();
     }
 
-    pub(crate) fn flush_errors_queue(&mut self, stream_id: Option<StreamId>) -> Vec<ServerError> {
-        let errors = self.errors.take(stream_id);
+    pub(crate) fn flush_errors_queue(&mut self, owner: StreamId) -> Vec<ServerError> {
+        let errors = self.errors.take(owner);
 
         if !errors.is_empty() {
             self.profile_error(ProfileError::Unknown {

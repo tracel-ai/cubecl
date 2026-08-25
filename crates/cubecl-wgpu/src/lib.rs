@@ -69,6 +69,22 @@ mod tests {
             }
         }
 
+        /// Two logical streams landing on one pooled stream.
+        ///
+        /// `seed` is far above the ids [`StreamId::current`] hands out per
+        /// thread, which are small and sequential: a test that pins a low id
+        /// shares it outright with whichever sibling test's thread was assigned
+        /// the same number, and then legitimately drains that sibling's errors.
+        fn sharing_one_pooled_stream(seed: u64) -> (StreamId, StreamId) {
+            let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
+            (
+                StreamId { value: seed },
+                StreamId {
+                    value: seed + max_streams,
+                },
+            )
+        }
+
         fn assert_rejected(client: &ComputeClient<TestRuntime>, out: Handle) {
             let err = client
                 .read_one(out)
@@ -116,31 +132,31 @@ mod tests {
             assert_rejected(&client, out);
         }
 
-        /// A rejected launch belongs to the stream that made it. Logical streams
-        /// are folded onto the pooled ones with `id % max_streams`, so two of
-        /// them share a backend stream — and used to share its error queue: the
-        /// neighbour drained the rejection, failing on a kernel it never
+        /// A rejected launch belongs to the stream that made it.
+        ///
+        /// Logical streams are folded onto the pooled ones with
+        /// `id % max_streams`, so two of them share a backend stream. A
+        /// neighbour that drained the rejection would fail on a kernel it never
         /// launched, while the stream that did launch it read back a zeroed
         /// buffer as if all was well.
         #[test]
         fn a_rejected_launch_stays_on_its_own_stream() {
             let client = TestRuntime::client(&Default::default());
-            let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
-            // Two logical streams, one pooled stream between them.
-            let launching = StreamId { value: 1 };
-            let neighbour = StreamId {
-                value: 1 + max_streams,
-            };
+            let (launching, neighbour) = sharing_one_pooled_stream(1_000_001);
 
             let out = launching.executes(|| {
                 let input = client.create_from_slice(&[0u8; 32]);
                 let out = client.empty(32);
+                // Five lanes, so this test compiles a kernel id of its own:
+                // any count that is not a multiple of four is rejected the same
+                // way, and two tests launching one shared kernel interfere when
+                // the module runs its tests in parallel.
                 unsafe {
                     copy_fp8::launch_unchecked::<TestRuntime>(
                         &client,
                         CubeCount::new_single(),
                         CubeDim::new_1d(8),
-                        2,
+                        5,
                         BufferArg::from_raw_parts(input, 32),
                         BufferArg::from_raw_parts(out.clone(), 32),
                     )
@@ -164,12 +180,7 @@ mod tests {
         #[test]
         fn a_read_surfaces_the_rejection_of_the_stream_that_wrote_the_buffer() {
             let client = TestRuntime::client(&Default::default());
-            let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
-            // Two logical streams, one pooled stream between them.
-            let producer = StreamId { value: 2 };
-            let reader = StreamId {
-                value: 2 + max_streams,
-            };
+            let (producer, reader) = sharing_one_pooled_stream(1_000_002);
 
             let out = producer.executes(|| {
                 let input = client.create_from_slice(&[0u8; 32]);

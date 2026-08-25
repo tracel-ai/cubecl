@@ -146,7 +146,7 @@ impl MetalStream {
     /// recorded asynchronously by completion handlers, plus the launch failures
     /// queued for that stream (see [`StreamErrors`]).
     pub fn take_errors(&self, stream_id: StreamId) -> Vec<ServerError> {
-        self.errors.lock().take(Some(stream_id))
+        self.errors.lock().take(stream_id)
     }
 
     /// Waits on a previously submitted command buffer if total queued ops
@@ -401,7 +401,7 @@ impl EventStreamBackend for MetalStreamBackend {
     }
 
     fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool {
-        !stream.errors.lock().any(Some(stream_id))
+        !stream.errors.lock().any(stream_id)
     }
 
     fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {

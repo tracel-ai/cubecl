@@ -175,7 +175,7 @@ impl EventStreamBackend for HipStreamBackend {
     }
 
     fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool {
-        !stream.errors.any(Some(stream_id))
+        !stream.errors.any(stream_id)
     }
 
     fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {

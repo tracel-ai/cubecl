@@ -285,6 +285,113 @@ mod tests {
         let actual = u32::from_bytes(&bytes);
         assert_eq!(actual, &[7]);
     }
+
+    /// The stream error queue is per logical stream on the CPU as on every
+    /// device backend.
+    ///
+    /// Logical streams are folded onto the pooled ones with `id % max_streams`,
+    /// so two of them share a backend stream. A neighbour that drained the
+    /// rejection would fail on a kernel it never launched, while the stream
+    /// that did launch it read back an untouched buffer as if all was well.
+    mod stream_errors {
+        use cubecl_core::prelude::*;
+        use cubecl_core::{self as cubecl};
+        use cubecl_environment::stream::StreamId;
+        use cubecl_runtime::{
+            config::{CubeClRuntimeConfig, RuntimeConfig},
+            server::Handle,
+        };
+
+        use super::TestRuntime;
+
+        /// A launch the compiler is guaranteed to refuse, whatever the target.
+        #[cube(launch_unchecked)]
+        fn rejected(out: &mut [u32], #[comptime] reason: String) {
+            push_validation_error(reason);
+            out[0] = 1u32;
+        }
+
+        /// Two logical streams landing on one pooled stream.
+        ///
+        /// `seed` is far above the ids [`StreamId::current`] hands out per
+        /// thread, which are small and sequential: a test that pins a low id
+        /// shares it outright with whichever sibling test's thread was assigned
+        /// the same number, and then legitimately drains that sibling's errors.
+        fn sharing_one_pooled_stream(seed: u64) -> (StreamId, StreamId) {
+            let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
+            (
+                StreamId { value: seed },
+                StreamId {
+                    value: seed + max_streams,
+                },
+            )
+        }
+
+        fn launch_rejected(client: &ComputeClient<TestRuntime>, reason: &str) -> Handle {
+            let out = client.empty(core::mem::size_of::<u32>());
+            unsafe {
+                rejected::launch_unchecked::<TestRuntime>(
+                    &client.clone(),
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(1),
+                    BufferArg::from_raw_parts(out.clone(), 1),
+                    reason.to_string(),
+                )
+            };
+            out
+        }
+
+        fn assert_rejected(client: &ComputeClient<TestRuntime>, out: Handle, reason: &str) {
+            let err = client
+                .read_one(out)
+                .expect_err("the kernel pushed a validation error, the launch must fail")
+                .to_string();
+            assert!(
+                err.contains(reason),
+                "the read must report the launch that never wrote the buffer, got: {err}"
+            );
+        }
+
+        /// A rejected launch belongs to the stream that made it, and to no
+        /// neighbour sharing its pooled stream.
+        #[test]
+        fn a_rejected_launch_stays_on_its_own_stream() {
+            let client = TestRuntime::client(&Default::default());
+            let (launching, neighbour) = sharing_one_pooled_stream(1_000_001);
+
+            let out = launching.executes(|| launch_rejected(&client, "cpu-attribution"));
+
+            neighbour.executes(|| {
+                client
+                    .flush()
+                    .expect("the neighbouring stream launched nothing, so it has nothing to report")
+            });
+
+            launching.executes(|| assert_rejected(&client, out, "cpu-attribution"));
+        }
+
+        /// A read is only as good as the work that wrote the buffer.
+        ///
+        /// The rejection belongs to the stream that launched, so the reader's
+        /// own flush never sees it — and a read that does not consult the
+        /// producer hands back the buffer the failed launch never wrote.
+        #[test]
+        fn a_read_surfaces_the_rejection_of_the_stream_that_wrote_the_buffer() {
+            let client = TestRuntime::client(&Default::default());
+            let (producer, reader) = sharing_one_pooled_stream(1_000_002);
+
+            let out = producer.executes(|| launch_rejected(&client, "cpu-producer"));
+
+            reader.executes(|| assert_rejected(&client, out, "cpu-producer"));
+            // Reading the producer's error does not take it: the stream that
+            // made the launch still reports it itself.
+            producer.executes(|| {
+                client
+                    .flush()
+                    .expect_err("the launching stream keeps its own rejection")
+            });
+        }
+    }
 }
 
 pub mod compute;

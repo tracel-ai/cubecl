@@ -6,10 +6,7 @@ use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{
-        BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError,
-        StreamErrorMode,
-    },
+    server::{BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
@@ -95,7 +92,7 @@ impl CpuStream {
         //   enqueue — sound only while one such launch has the pool to itself.
         match task {
             ScheduleTask::Write { data, mut buffer } => {
-                self.flush_uncheck();
+                self.submit();
                 buffer.resource_mut().write().copy_from_slice(&data);
             }
             ScheduleTask::Execute {
@@ -111,7 +108,7 @@ impl CpuStream {
                     .blocks
                     .is_empty()
                 {
-                    self.flush_uncheck();
+                    self.submit();
                 }
                 // No unit cap: the threadpool grows to fit any cube_dim, one
                 // worker per unit for barrier kernels.
@@ -130,7 +127,13 @@ impl CpuStream {
         }
     }
 
-    fn flush_uncheck(&mut self) {
+    /// Wait for the queued work and surface nothing.
+    ///
+    /// For the pooled paths that flush the stream without any logical stream
+    /// asking — a full task queue, the ordering barrier before a write, the
+    /// scheduler aligning streams. Whatever is queued stays queued, for the
+    /// flush of the stream that owns it (see [`StreamErrors`]).
+    pub fn submit(&mut self) {
         // Spin briefly, then yield between polls: the client is not pinned,
         // and a pure spin parked on a worker's logical CPU keeps that worker
         // off it until the next timer tick (~3 ms unit-start stalls).
@@ -150,46 +153,29 @@ impl CpuStream {
         }
     }
 
-    /// Wait for the queued work, then surface the errors `stream_id` owns (see
-    /// [`StreamErrors`]). `None` is for the pooled paths that flush the stream
-    /// without any logical stream asking, which never surface errors anyway.
-    pub fn flush(
-        &mut self,
-        mode: StreamErrorMode,
-        stream_id: Option<StreamId>,
-    ) -> Result<(), ServerError> {
-        self.flush_uncheck();
-        self.flush_errors(mode, stream_id)
-    }
+    /// Wait for the queued work, then surface the errors `owner` owns.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::ServerUnhealthy`] carrying everything `owner` had queued,
+    /// which this call takes: the stream is usable again afterwards, and the
+    /// other streams sharing it keep their own errors.
+    pub fn flush(&mut self, owner: StreamId) -> Result<(), ServerError> {
+        self.submit();
 
-    fn flush_errors(
-        &mut self,
-        mode: StreamErrorMode,
-        stream_id: Option<StreamId>,
-    ) -> Result<(), ServerError> {
-        if mode.flush {
-            let errors = self.flush_errors_queue(stream_id);
-
-            if !mode.ignore && !errors.is_empty() {
-                let error = ServerError::ServerUnhealthy {
-                    errors,
-                    backtrace: BackTrace::capture(),
-                };
-                return Err(error);
-            }
-        } else if !mode.ignore && self.errors.any(stream_id) {
-            let error = ServerError::ServerUnhealthy {
-                errors: self.errors.peek(stream_id),
-                backtrace: BackTrace::capture(),
-            };
-            return Err(error);
+        let errors = self.flush_errors_queue(owner);
+        if errors.is_empty() {
+            return Ok(());
         }
 
-        Ok(())
+        Err(ServerError::ServerUnhealthy {
+            errors,
+            backtrace: BackTrace::capture(),
+        })
     }
 
-    pub(crate) fn flush_errors_queue(&mut self, stream_id: Option<StreamId>) -> Vec<ServerError> {
-        let errors = self.errors.take(stream_id);
+    pub(crate) fn flush_errors_queue(&mut self, owner: StreamId) -> Vec<ServerError> {
+        let errors = self.errors.take(owner);
 
         if !errors.is_empty() {
             self.timestamps.error(ProfileError::Unknown {
@@ -201,18 +187,15 @@ impl CpuStream {
         errors
     }
 
-    /// Whether the stream can accept new tasks from `stream_id`.
-    ///
-    /// Errors are queued per logical stream (see [`StreamErrors`]), so the
-    /// backend stream is broken for the streams whose errors are still queued
-    /// on it, not for every stream sharing it.
-    pub fn is_healthy(&self, stream_id: StreamId) -> bool {
-        !self.errors.any(Some(stream_id))
-    }
-
     /// Registers a new error into the error sink, for `stream_id` to surface.
     pub fn error(&mut self, stream_id: StreamId, error: ServerError) {
         self.errors.push(stream_id, error);
+    }
+
+    /// The errors `owner` alone caused, left queued for it to surface — see
+    /// [`StreamErrors::peek_owned`].
+    pub fn errors_owned(&self, owner: StreamId) -> Vec<ServerError> {
+        self.errors.peek_owned(owner)
     }
 
     /// Allocates a new empty buffer using the main memory pool.
@@ -245,18 +228,8 @@ impl CpuStream {
         async move { res }
     }
 
-    pub fn sync(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        self.flush(
-            StreamErrorMode {
-                ignore: false,
-                flush: true,
-            },
-            Some(stream_id),
-        )
-    }
-
     pub fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        self.sync(stream_id)?;
+        self.flush(stream_id)?;
 
         Ok(self.timestamps.start())
     }
@@ -266,7 +239,7 @@ impl CpuStream {
         token: ProfilingToken,
         stream_id: StreamId,
     ) -> Result<ProfileDuration, ProfileError> {
-        if let Err(err) = self.sync(stream_id) {
+        if let Err(err) = self.flush(stream_id) {
             self.timestamps.error(ProfileError::Server(Box::new(err)));
         }
 

@@ -11,7 +11,7 @@ use cubecl_common::{
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
 };
-use cubecl_core::server::{BufferBinding, KernelResource, StreamErrorMode};
+use cubecl_core::server::{BufferBinding, KernelResource};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
@@ -333,6 +333,22 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         {
             return Box::pin(async move { Err(err) });
         }
+
+        // Buffers another stream wrote are only as good as the work that wrote
+        // them; see `StreamPool::producer_errors`. The reader's own errors are
+        // surfaced by `read_resources`' flush further down.
+        let producer_errors = self
+            .scheduler
+            .producer_errors(stream_id, descriptors.iter().map(|d| &d.handle));
+        if !producer_errors.is_empty() {
+            return Box::pin(async move {
+                Err(ServerError::ServerUnhealthy {
+                    errors: producer_errors,
+                    backtrace: BackTrace::capture(),
+                })
+            });
+        }
+
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
@@ -353,26 +369,6 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 Err(err) => return Box::pin(async move { Err(err.into()) }),
             };
             resources.push((resource, desc.shape, desc.elem_size));
-        }
-
-        // A read is only as good as the work that wrote the buffers. A launch
-        // that failed on a producing stream never wrote them, so handing back
-        // their bytes would hand back stale memory — the reader's own flush
-        // below cannot see that, since the error is queued for the stream that
-        // caused it. Reading the producer's errors leaves them queued, so that
-        // stream still surfaces them on its own flush. `streams[0]` is the
-        // reader itself, whose errors the flush does surface.
-        let producer_errors: Vec<_> = streams[1..]
-            .iter()
-            .flat_map(|producer| self.scheduler.stream(producer).errors.peek_owned(*producer))
-            .collect();
-        if !producer_errors.is_empty() {
-            return Box::pin(async move {
-                Err(ServerError::ServerUnhealthy {
-                    errors: producer_errors,
-                    backtrace: BackTrace::capture(),
-                })
-            });
         }
 
         self.scheduler.execute_streams(streams);
@@ -506,13 +502,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         let stream = self.scheduler.stream(&stream_id);
 
-        stream.flush(
-            StreamErrorMode {
-                ignore: false,
-                flush: true,
-            },
-            Some(stream_id),
-        )
+        stream.flush(stream_id)
     }
 
     /// Returns the total time of GPU work this sync completes.
@@ -634,13 +624,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // Submit the warmup work and surface its queued errors now, so a
         // warmup failure is reported here — where the diagnostic points at the
         // cause — instead of failing `end_capture` later.
-        if let Err(err) = stream.flush(
-            StreamErrorMode {
-                ignore: false,
-                flush: true,
-            },
-            Some(stream_id),
-        ) {
+        if let Err(err) = stream.flush(stream_id) {
             // The capture never opened: disarm retention and return to
             // `NoCapture`, so a failed `start_capture` leaves the stream fully
             // usable and re-capturable.
@@ -672,7 +656,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // capture rather than hand back a graph that silently skips work.
         // `begin_capture` drained pre-window errors, so anything here arose
         // inside the window.
-        let errors = stream.flush_errors_queue(Some(stream_id));
+        let errors = stream.flush_errors_queue(stream_id);
         if !errors.is_empty() {
             stream.info_cache.capture_discard();
             return Err(ServerError::ServerUnhealthy {
@@ -735,15 +719,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // not — the uniform uploads in `create_uniform`/`info_uniform`. Once the
         // replay is submitted, queue ordering makes releasing the slices safe
         // with no host sync, unlike CUDA.
-        let _ = stream
-            .flush(
-                StreamErrorMode {
-                    ignore: true,
-                    flush: false,
-                },
-                Some(stream_id),
-            )
-            .ok();
+        stream.submit();
         // Release the info-cache entries this graph pinned; entries no other
         // live graph still pins are dropped, freeing their buffers.
         stream.info_cache.graph_release(graph);

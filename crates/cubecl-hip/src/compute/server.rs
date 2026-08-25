@@ -219,7 +219,7 @@ impl ComputeServer for HipServer {
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         // Buffers another stream wrote are only as good as the work that wrote
-        // them; see `MultiStream::producer_errors`.
+        // them; see `StreamPool::producer_errors`.
         let producer_errors = self
             .streams
             .producer_errors(stream_id, descriptors.iter().map(|d| &d.handle));
@@ -737,7 +737,7 @@ impl HipServer {
             Ok(stream) => stream,
             Err(_) => return Vec::new(),
         };
-        let errors = stream.current().errors.take(Some(stream_id));
+        let errors = stream.current().errors.take(stream_id);
 
         // It is very important to tag current profiles as being wrong.
         if !errors.is_empty() {

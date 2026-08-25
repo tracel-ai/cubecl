@@ -1,7 +1,9 @@
 use crate::compute::stream::CpuStream;
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{
-    CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, server::MetadataBindingInfo,
+    CubeDim, MemoryConfiguration,
+    ir::MemoryDeviceProperties,
+    server::{MetadataBindingInfo, ServerError},
 };
 use cubecl_environment::stream::StreamId;
 use cubecl_llvm::PlironEngine;
@@ -116,15 +118,11 @@ impl SchedulerStreamBackend for ScheduledCpuBackend {
     }
 
     fn flush(stream: &mut Self::Stream) {
-        let _ = stream
-            .flush(
-                cubecl_core::server::StreamErrorMode {
-                    ignore: true,
-                    flush: false,
-                },
-                None,
-            )
-            .ok();
+        stream.submit();
+    }
+
+    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
+        stream.errors_owned(owner)
     }
 
     fn factory(&mut self) -> &mut Self::Factory {

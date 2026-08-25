@@ -6,9 +6,10 @@ use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, pool::LeaseHandle, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    server::{MetadataBindingInfo, StreamErrorMode},
+    server::{MetadataBindingInfo, ServerError},
     zspace::SmallVec,
 };
+use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
@@ -223,15 +224,11 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
     }
 
     fn flush(stream: &mut Self::Stream) {
-        let _ = stream
-            .flush(
-                StreamErrorMode {
-                    ignore: true,
-                    flush: false,
-                },
-                None,
-            )
-            .ok();
+        stream.submit();
+    }
+
+    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
+        stream.errors_owned(owner)
     }
 
     fn factory(&mut self) -> &mut Self::Factory {
