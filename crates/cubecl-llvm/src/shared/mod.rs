@@ -52,25 +52,90 @@ use crate::shared::{
     to_llvm::CubeToLLVMPass,
 };
 
-#[derive(Clone, Debug, Default)]
-pub struct PlironCompiler {}
+/// Which machine the pliron pipeline is lowering for.
+///
+/// The target is chosen once, from the environment, before any device is known.
+/// The specific gfx architecture is *not* part of it: that is a property of the
+/// device being compiled for and arrives later, on [`PlironOptions`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LlvmTarget {
+    #[default]
+    Cpu,
+    AmdGpu,
+}
 
 #[derive(Clone, Debug, Default)]
-pub struct PlironOptions;
+pub struct PlironCompiler {
+    pub target: LlvmTarget,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PlironOptions {
+    /// gfx name of the target device, e.g. `"gfx1201"`. Ignored by [`LlvmTarget::Cpu`].
+    pub arch: String,
+}
+
+/// A finished AMD code object, compiled and linked by this crate.
+#[derive(Clone, Debug)]
+pub struct AmdGpuModule {
+    /// A linked `ET_DYN` code object, ready for `hipModuleLoadData`.
+    pub code_object: Vec<u8>,
+    /// Symbol name of the `amdgpu_kernel` entry point.
+    pub entrypoint: String,
+    /// Textual IR, kept for logging and for hashing into the compilation cache.
+    pub ir: String,
+    /// AMDGPU assembly, populated only when `CUBECL_DEBUG_PLIRON` is set.
+    pub asm: Option<String>,
+}
+
+/// What [`PlironCompiler`] produces. Both targets yield something directly
+/// runnable: the CPU a JIT'd function, the GPU a linked code object.
+#[derive(Clone)]
+pub enum PlironArtifact {
+    Jit(PlironEngine),
+    AmdGpuCode(AmdGpuModule),
+}
+
+impl PlironArtifact {
+    /// The JIT engine, for hosts that only ever compile for the CPU.
+    pub fn expect_jit(self) -> PlironEngine {
+        match self {
+            PlironArtifact::Jit(engine) => engine,
+            PlironArtifact::AmdGpuCode(_) => {
+                panic!("expected a JIT engine, got an AMDGPU code object")
+            }
+        }
+    }
+}
+
+impl core::fmt::Display for PlironArtifact {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            PlironArtifact::Jit(engine) => write!(f, "{engine}"),
+            PlironArtifact::AmdGpuCode(module) => write!(f, "{}", module.ir),
+        }
+    }
+}
 
 impl Compiler for PlironCompiler {
-    type Representation = PlironEngine;
+    type Representation = PlironArtifact;
 
     type CompilationOptions = PlironOptions;
 
     fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
-        Some(repr.buffer_io().to_vec())
+        match repr {
+            PlironArtifact::Jit(engine) => Some(engine.buffer_io().to_vec()),
+            // The AMDGPU pipeline does not run `AnnotateGlobalVisibilityPass`, so
+            // there is no stamped answer to report; `None` is the conservative
+            // reading of every buffer as both read and written.
+            PlironArtifact::AmdGpuCode(_) => None,
+        }
     }
 
     fn compile(
         &mut self,
         kernel: KernelDefinition,
-        _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
+        compilation_options: &Self::CompilationOptions,
     ) -> Result<Self::Representation, CompilationError> {
         let errors = kernel.body.pop_errors();
         if !errors.is_empty() {
@@ -86,16 +151,29 @@ impl Compiler for PlironCompiler {
             });
         }
 
-        Ok(self.clone().compile_ir(kernel))
+        Ok(self.clone().compile_ir(kernel, compilation_options))
     }
 
     fn extension(&self) -> &'static str {
-        "plir"
+        match self.target {
+            LlvmTarget::Cpu => "plir",
+            LlvmTarget::AmdGpu => "ll",
+        }
     }
 }
 
 impl PlironCompiler {
-    fn compile_ir(self, kernel: KernelDefinition) -> PlironEngine {
+    fn compile_ir(self, kernel: KernelDefinition, options: &PlironOptions) -> PlironArtifact {
+        match self.target {
+            LlvmTarget::Cpu => PlironArtifact::Jit(self.compile_cpu(kernel)),
+            LlvmTarget::AmdGpu => {
+                let _ = &options.arch;
+                unimplemented!("the AMDGPU target lands in plan Task 6")
+            }
+        }
+    }
+
+    fn compile_cpu(self, kernel: KernelDefinition) -> PlironEngine {
         let module = kernel.body.state().module;
         let entry_func = kernel.body.state().entry_func;
         let module_op = module.get_operation();
@@ -189,5 +267,26 @@ fn pliron_path(name: &str) -> Option<PathBuf> {
         Some(path)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_target_is_cpu() {
+        assert!(matches!(PlironCompiler::default().target, LlvmTarget::Cpu));
+    }
+
+    #[test]
+    fn amdgpu_artifact_displays_its_ir() {
+        let artifact = PlironArtifact::AmdGpuCode(AmdGpuModule {
+            code_object: vec![0x7f, 0x45, 0x4c, 0x46],
+            entrypoint: "k".to_string(),
+            ir: "define void @k() { ret void }".to_string(),
+            asm: None,
+        });
+        assert!(artifact.to_string().contains("@k"));
     }
 }
