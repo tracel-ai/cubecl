@@ -38,9 +38,7 @@ pub fn test_round_up_matches_host<R: Runtime>(client: ComputeClient<R>, dtype: S
 
     let mut bad = vec![];
     for (i, &scale) in scales.iter().enumerate() {
-        let expected = dtype
-            .round_up(scale)
-            .expect("the device rule has no answer for this dtype either");
+        let expected = dtype.round_up(scale);
         if actual[i] != expected {
             bad.push(format!(
                 "  {scale:e}: device {:e}, host {expected:e}",

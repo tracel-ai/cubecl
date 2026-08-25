@@ -230,22 +230,22 @@ impl ScaleDtype {
     /// `scale` must not be negative. Symmetric quantization only produces non-negative scales,
     /// and the stepping below walks away from zero for a negative input.
     ///
-    /// Every dtype answers. [`ScaleDtype::UE8M0`] takes its own path rather than the shared grid
-    /// below: its range runs to 2^-127, which is subnormal in f32, so the two ends need clamping
-    /// before the bit stepping is meaningful. Between them the rule is the same one — a ue8m0
-    /// value is a bare exponent, so rounding up to it is rounding up to a power of two.
-    pub fn round_up(&self, scale: f32) -> Option<f32> {
+    /// [`ScaleDtype::UE8M0`] takes its own path rather than the shared grid below: its range runs
+    /// to 2^-127, which is subnormal in f32, so the two ends need clamping before the bit stepping
+    /// is meaningful. Between them the rule is the same one — a ue8m0 value is a bare exponent, so
+    /// rounding up to it is rounding up to a power of two.
+    pub fn round_up(&self, scale: f32) -> f32 {
         match self {
             ScaleDtype::F32 => {
-                return Some(scale);
+                return scale;
             }
             ScaleDtype::UE8M0 => {
-                return Some(round_up_to_power_of_two(scale));
+                return round_up_to_power_of_two(scale);
             }
             _ => {}
         }
         if scale.is_nan() {
-            return Some(scale);
+            return scale;
         }
         debug_assert!(scale >= 0.0, "a quantization scale is never negative");
 
@@ -253,7 +253,7 @@ impl ScaleDtype {
         // for the params that have one, which would make every reconstructed value NaN.
         let max = self.max_representable();
         if scale >= max {
-            return Some(max);
+            return max;
         }
 
         let grid = self.f32_grid();
@@ -263,12 +263,10 @@ impl ScaleDtype {
         {
             // Below the minimum normal the spacing stops halving, so the answer is a count of steps.
             // Qualified call: the inherent `f32::ceil` lives in std, and this crate builds no_std.
-            return Some(num_traits::Float::ceil(scale / subnormals.spacing) * subnormals.spacing);
+            return num_traits::Float::ceil(scale / subnormals.spacing) * subnormals.spacing;
         }
 
-        Some(f32::from_bits(
-            (scale.to_bits() + grid.round_up_bias()) & grid.truncate_mask(),
-        ))
+        f32::from_bits((scale.to_bits() + grid.round_up_bias()) & grid.truncate_mask())
     }
 
     /// The dtype's grid, expressed on the f32 bit pattern. See [`F32Grid`].
@@ -793,7 +791,7 @@ mod tests {
             for exp in -12..8 {
                 for step in 1..17 {
                     let scale = (step as f32 / 16.0) * 2f32.powi(exp);
-                    let up = dtype.round_up(scale).unwrap();
+                    let up = dtype.round_up(scale);
                     assert!(
                         up >= scale,
                         "{dtype:?}: {up} is below {scale}, which clips the block maximum"
@@ -807,12 +805,13 @@ mod tests {
     fn round_up_saturates_rather_than_stepping_off_the_top() {
         for dtype in [ScaleDtype::F16, ScaleDtype::BF16, ScaleDtype::UE4M3] {
             let max = dtype.max_representable();
-            assert_eq!(dtype.round_up(max).unwrap(), max);
-            assert!(dtype.round_up(max * 2.0).unwrap().is_finite());
+            assert_eq!(dtype.round_up(max), max);
+            assert!(dtype.round_up(max * 2.0).is_finite());
         }
     }
 
-    /// Every variant is dispatched somewhere, so none of them may panic here.
+    /// Every variant is dispatched somewhere, so none of them may panic here, and every answer is
+    /// a scale something can be divided by.
     #[test]
     fn round_up_answers_for_every_param() {
         for dtype in [
@@ -822,7 +821,8 @@ mod tests {
             ScaleDtype::UE8M0,
             ScaleDtype::UE4M3,
         ] {
-            assert!(dtype.round_up(0.3).is_some(), "{dtype:?}");
+            let up = dtype.round_up(0.3);
+            assert!(up.is_finite() && up > 0.0, "{dtype:?} answered {up:e}");
         }
     }
 
@@ -832,11 +832,11 @@ mod tests {
         for exp in -120..120 {
             let power = 2f32.powi(exp);
             // Already a power of two: nothing to round.
-            assert_eq!(ScaleDtype::UE8M0.round_up(power).unwrap(), power, "2^{exp}");
+            assert_eq!(ScaleDtype::UE8M0.round_up(power), power, "2^{exp}");
             // Anything above it goes to the next one up, however little above.
             for scale in [power * 1.0001, power * 1.5, power * 1.9999] {
                 assert_eq!(
-                    ScaleDtype::UE8M0.round_up(scale).unwrap(),
+                    ScaleDtype::UE8M0.round_up(scale),
                     power * 2.0,
                     "{scale} (2^{exp} scaled)"
                 );
@@ -853,10 +853,10 @@ mod tests {
         let max = ScaleDtype::UE8M0_MAX;
 
         for scale in [0.0, f32::MIN_POSITIVE * 0.5, min * 0.5, min] {
-            assert_eq!(ScaleDtype::UE8M0.round_up(scale).unwrap(), min, "{scale:e}");
+            assert_eq!(ScaleDtype::UE8M0.round_up(scale), min, "{scale:e}");
         }
         for scale in [max, max * 2.0, f32::MAX, f32::INFINITY] {
-            assert_eq!(ScaleDtype::UE8M0.round_up(scale).unwrap(), max, "{scale:e}");
+            assert_eq!(ScaleDtype::UE8M0.round_up(scale), max, "{scale:e}");
         }
     }
 
@@ -883,7 +883,7 @@ mod tests {
                 let scale = factor * 2f32.powi(exp);
                 assert_eq!(
                     ue8m0_to_f32(f32_to_ue8m0(scale)),
-                    ScaleDtype::UE8M0.round_up(scale).unwrap(),
+                    ScaleDtype::UE8M0.round_up(scale),
                     "{scale:e}"
                 );
             }
@@ -896,9 +896,9 @@ mod tests {
         for exp in -130..130 {
             for factor in [1.0, 1.3, 1.7] {
                 let scale = factor * 2f32.powi(exp);
-                let up = ScaleDtype::UE8M0.round_up(scale).unwrap();
+                let up = ScaleDtype::UE8M0.round_up(scale);
                 assert_eq!(
-                    ScaleDtype::UE8M0.round_up(up).unwrap(),
+                    ScaleDtype::UE8M0.round_up(up),
                     up,
                     "not idempotent at {scale:e}"
                 );
@@ -910,7 +910,7 @@ mod tests {
     #[test]
     fn round_up_is_the_identity_for_f32() {
         for scale in [1.0e-30, 0.1, 1.0, 12345.678, f32::MAX] {
-            assert_eq!(ScaleDtype::F32.round_up(scale).unwrap(), scale);
+            assert_eq!(ScaleDtype::F32.round_up(scale), scale);
         }
     }
 
@@ -925,10 +925,10 @@ mod tests {
             for dtype in [ScaleDtype::F16, ScaleDtype::BF16, ScaleDtype::UE4M3] {
                 for exp in -8..6 {
                     let scale = 1.7 * 2f32.powi(exp);
-                    let up = dtype.round_up(scale).unwrap();
+                    let up = dtype.round_up(scale);
                     assert_eq!(
                         up,
-                        dtype.round_up(up).unwrap(),
+                        dtype.round_up(up),
                         "{dtype:?}: not idempotent at {scale}"
                     );
                     assert!(
