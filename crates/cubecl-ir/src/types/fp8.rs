@@ -38,12 +38,6 @@ impl Fp8Format {
         }
     }
 
-    /// Whether the format carries a sign bit. `ue8m0` does not: it is unsigned, and its top bit is
-    /// the exponent's.
-    pub const fn is_signed(self) -> bool {
-        !matches!(self, Fp8Format::UE8M0)
-    }
-
     pub const fn bias(self) -> u32 {
         let min_exp = match self {
             Fp8Format::E4M3 => e4m3::MIN_EXP,
@@ -61,16 +55,6 @@ impl Fp8Format {
             Fp8Format::E5M2 => e5m2::MAX.to_f32(),
             // 2^127. Written as a bit pattern because `to_f32` on `ue8m0` is not `const`.
             Fp8Format::UE8M0 => f32::from_bits(0x7F00_0000),
-        }
-    }
-
-    /// The smallest value the format represents. Only `ue8m0` has a meaningful one here: its
-    /// bottom code is 2^-127, where the others reach zero.
-    pub const fn min_value(self) -> f32 {
-        match self {
-            // 2^-127, subnormal in f32.
-            Fp8Format::UE8M0 => f32::from_bits(0x0040_0000),
-            _ => 0.0,
         }
     }
 
@@ -108,8 +92,9 @@ impl Fp8Format {
         match self {
             Fp8Format::E4M3 => e4m3::MIN_POSITIVE.to_f32(),
             Fp8Format::E5M2 => e5m2::MIN_POSITIVE.to_f32(),
-            // Every `ue8m0` code is normal in its own terms; the smallest is the bottom of range.
-            Fp8Format::UE8M0 => self.min_value(),
+            // Every `ue8m0` code is normal in its own terms, so its smallest normal is the bottom
+            // of its range: 2^-127, written as a bit pattern because it is subnormal in f32.
+            Fp8Format::UE8M0 => f32::from_bits(0x0040_0000),
         }
     }
 

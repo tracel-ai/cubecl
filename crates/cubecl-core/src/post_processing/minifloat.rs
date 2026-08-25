@@ -135,7 +135,7 @@ pub fn f32_to_fp8_bits<N: Size>(
 
 /// Decode `ue8m0` codes: a bare exponent, so the code *is* the f32 exponent field.
 ///
-/// Kept apart from [`fp8_bits_to_f32`] rather than folded into it. That one splits a byte into
+/// Kept apart from [`fp8_bits_to_f32()`] rather than folded into it. That one splits a byte into
 /// sign, exponent and mantissa; `ue8m0` has only the exponent, spends the top bit on it, and puts
 /// its bottom code where the other formats put zero. Threading those three differences through the
 /// generic body would put a branch on every line of a function two working formats depend on.
@@ -157,7 +157,7 @@ pub fn ue8m0_bits_to_f32<N: Size>(bits: Vector<u32, N>) -> Vector<f32, N> {
     let word = select_many(is_nan, shifted | quiet_bit, shifted);
 
     // Code 0 is 2^-127, which is subnormal in f32 — the shift would land on zero instead.
-    let min = comptime![Fp8Format::UE8M0.min_value()];
+    let min = comptime![Fp8Format::UE8M0.min_normal()];
     select_many(
         code.equal(&Vector::new(0u32)),
         Vector::new(min),
@@ -174,7 +174,7 @@ pub fn ue8m0_bits_to_f32<N: Size>(bits: Vector<u32, N>) -> Vector<f32, N> {
 /// to reconstruct the same on another.
 #[cube]
 pub fn f32_to_ue8m0_bits<N: Size>(value: Vector<f32, N>) -> Vector<u32, N> {
-    let min = comptime![Fp8Format::UE8M0.min_value()];
+    let min = comptime![Fp8Format::UE8M0.min_normal()];
     let max = comptime![Fp8Format::UE8M0.max_value()];
     let max_code = comptime![Fp8Format::UE8M0.max_code()];
 
