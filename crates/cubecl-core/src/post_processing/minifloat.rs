@@ -146,17 +146,22 @@ pub fn ue8m0_bits_to_f32<N: Size>(bits: Vector<u32, N>) -> Vector<f32, N> {
     let code = bits & Vector::new(0xFFu32);
 
     // Codes 1..=254 are exactly f32's own exponent field, so shifting into place is the decode.
-    let shifted = Vector::<f32, N>::reinterpret(code << Vector::new(F32_MANTISSA_BITS));
+    let shifted = code << Vector::new(F32_MANTISSA_BITS);
+
+    // The all-ones code is the format's NaN, and shifting it lands one mantissa bit short, on
+    // f32's infinity. Corrected here on the bit pattern rather than by selecting an `f32::NAN`
+    // afterwards: WGSL has no NaN literal to lower that constant to, so a float-domain select
+    // produces a shader that does not compile. `fp8_bits_to_f32` reaches its NaN the same way.
+    let quiet_bit = Vector::new(1u32 << (F32_MANTISSA_BITS - 1));
+    let is_nan = code.equal(&Vector::new(comptime![Fp8Format::UE8M0.nan_code()]));
+    let word = select_many(is_nan, shifted | quiet_bit, shifted);
 
     // Code 0 is 2^-127, which is subnormal in f32 — the shift would land on zero instead.
     let min = comptime![Fp8Format::UE8M0.min_value()];
-    let value = select_many(code.equal(&Vector::new(0u32)), Vector::new(min), shifted);
-
-    // The all-ones code is the format's NaN; shifting it lands on f32's infinity.
     select_many(
-        code.equal(&Vector::new(comptime![Fp8Format::UE8M0.nan_code()])),
-        Vector::new(f32::NAN),
-        value,
+        code.equal(&Vector::new(0u32)),
+        Vector::new(min),
+        Vector::<f32, N>::reinterpret(word),
     )
 }
 
