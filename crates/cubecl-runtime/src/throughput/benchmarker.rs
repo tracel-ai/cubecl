@@ -75,7 +75,12 @@ impl ThroughputBenchmarker {
     /// measuring what it claims rather than merely to be timed accurately.
     fn warmup(&self, min_iterations: usize, sample: impl Fn(usize) -> Duration) -> usize {
         const MAX_WARMUP: usize = 50;
-        const MAX_ITERATIONS: usize = 1_000;
+        // A guard on the branch below that doubles blind when the timer reads
+        // zero, not a budget: what a launch costs is the duration target, and
+        // capping the count instead leaves a cheap pass measuring the fixed
+        // cost of the launch around it. A probe holding its working set still
+        // has no walk to make it expensive, so it needs the whole range.
+        const MAX_ITERATIONS: usize = 1 << 24;
         const PLATEAU_TOL: f64 = 0.03;
         const PATIENCE: usize = 3;
         const TARGET_DURATION_MS: f64 = 20.0;
@@ -135,12 +140,22 @@ impl ThroughputBenchmarker {
         const MAX_SAMPLES: usize = 200;
         const REL_TOL: f64 = 0.01;
         const PATIENCE: usize = 12;
+        // Counting samples prices them all the same, and they are not: a probe
+        // whose launch fills the duration target costs forty times one whose
+        // pass is a few microseconds. Spending a fixed time instead leaves the
+        // cheap probes their long survey and stops the dear ones once the
+        // minimum has had a fair number of chances to fall.
+        const SAMPLE_BUDGET: Duration = Duration::from_millis(200);
 
         let mut best = f64::INFINITY;
         let mut stale = 0;
+        let mut spent = Duration::ZERO;
 
         for i in 0..MAX_SAMPLES {
-            let s = sample_once(iterations).as_secs_f64();
+            let sample = sample_once(iterations);
+            spent += sample;
+
+            let s = sample.as_secs_f64();
             if s < best * (1.0 - REL_TOL) {
                 best = s;
                 stale = 0;
@@ -148,7 +163,7 @@ impl ThroughputBenchmarker {
                 best = best.min(s);
                 stale += 1;
             }
-            if i > MIN_SAMPLES && stale >= PATIENCE {
+            if (i > MIN_SAMPLES && stale >= PATIENCE) || spent >= SAMPLE_BUDGET {
                 break;
             }
         }
