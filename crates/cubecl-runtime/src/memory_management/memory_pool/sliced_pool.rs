@@ -1,7 +1,7 @@
 use crate::{
     memory_management::{
-        BytesFormat, ManagedMemoryHandle, MemoryLocation, MemoryPoolKind, MemoryPoolReport,
-        MemoryUsage,
+        BytesFormat, ErrorGraph, ManagedMemoryHandle, MemoryLocation, MemoryPoolKind,
+        MemoryPoolReport, MemoryUsage,
         memory_pool::{MemoryPage, MemoryPool, PageMapping, Slice},
     },
     server::IoError,
@@ -138,9 +138,25 @@ impl MemoryPool for SlicedPool {
         page.find(binding)
     }
 
-    fn try_reserve(&mut self, size: u64) -> Option<super::ManagedMemoryHandle> {
+    fn find_mut(&mut self, binding: &super::ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
+        let page_index = binding.descriptor().page();
+        let (page, _) = self
+            .pages
+            .get_mut(page_index)
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: alloc::format!("Memory page {page_index} doesn't exist").into(),
+            })?;
+        page.find_mut(binding)
+    }
+
+    fn try_reserve(
+        &mut self,
+        size: u64,
+        failures: &mut ErrorGraph,
+    ) -> Option<super::ManagedMemoryHandle> {
         for (page, _) in self.pages.iter_mut() {
-            page.coalesce();
+            page.coalesce(failures);
             if let Some(handle) = page.try_reserve(size) {
                 self.largest_alloc = self.largest_alloc.max(size);
                 return Some(handle);
@@ -159,6 +175,7 @@ impl MemoryPool for SlicedPool {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
+        _failures: &mut ErrorGraph,
     ) -> Result<super::ManagedMemoryHandle, crate::server::IoError> {
         // `alloc` is only called after `try_reserve` coalesced every page and
         // found no fit, so hitting the cap here means the working set truly
@@ -247,18 +264,23 @@ impl MemoryPool for SlicedPool {
         storage: &mut Storage,
         _alloc_nr: u64,
         explicit: bool,
+        failures: &mut ErrorGraph,
     ) {
         if !explicit {
             return;
         }
 
         for (mut page, id) in self.pages.drain(..) {
-            page.coalesce();
+            page.coalesce(failures);
             let summary = page.summary(false);
 
             if summary.amount_free == summary.amount_total {
-                // An unmapped page has nothing behind its minted id; handing
-                // it to the driver's deferred-free queue would be garbage.
+                // A dropped page takes its slices with it, and any failure a
+                // free slice still carried is released here rather than
+                // leaked. An unmapped page has nothing behind its minted id;
+                // handing it to the driver's deferred-free queue would be
+                // garbage.
+                page.shed(failures);
                 if page.is_mapped() {
                     storage.dealloc(id);
                 }
@@ -278,10 +300,11 @@ impl MemoryPool for SlicedPool {
         reserved: ManagedMemoryHandle,
         assigned: ManagedMemoryHandle,
         cursor: u64,
+        failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         let (page, _) = &mut self.pages[reserved.descriptor().page()];
 
-        page.bind(reserved, assigned, cursor)?;
+        page.bind(reserved, assigned, cursor, failures)?;
 
         Ok(())
     }

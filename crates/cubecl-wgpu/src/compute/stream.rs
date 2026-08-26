@@ -29,9 +29,11 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, ManagedMemoryId, SharedMemoryBindings},
+    memory_management::{
+        ErrorGraph, FailureId, ManagedMemoryBinding, ManagedMemoryHandle, SharedMemoryBindings,
+    },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{StreamCapture, StreamErrorSink, StreamErrors},
+    stream::{StreamCapture, StreamErrorSink, StreamErrors, StreamMemory},
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -94,6 +96,25 @@ pub struct WgpuStream {
 impl StreamErrorSink for WgpuStream {
     fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
         &self.errors
+    }
+}
+
+impl StreamMemory for WgpuStream {
+    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
+        self.mem_manage.failure(binding)
+    }
+
+    fn taint(
+        &mut self,
+        binding: &ManagedMemoryBinding,
+        failure: FailureId,
+        failures: &mut ErrorGraph,
+    ) {
+        self.mem_manage.taint(binding, failure, failures)
+    }
+
+    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
+        self.mem_manage.written(binding, failures)
     }
 }
 
@@ -208,16 +229,11 @@ impl WgpuStream {
     /// Falls back to shared outside a window, which the callers make
     /// unreachable: each raises its error only while recording.
     ///
-    /// `unwritten` names what the rejected work was going to write, so a read
-    /// of one of those buffers fails whichever stream asks — the same thing the
-    /// server's own rejection does before the task ever gets here.
-    fn capture_error(
-        &mut self,
-        error: ServerError,
-        unwritten: impl IntoIterator<Item = ManagedMemoryId>,
-    ) {
+    /// Only the report lives here. What the rejected work was going to write
+    /// is tainted at the raise site, on the allocations themselves.
+    fn capture_error(&mut self, error: ServerError) {
         match self.capturing.owner() {
-            Some(owner) => self.errors.push_unwritten(owner, error, unwritten),
+            Some(owner) => self.errors.push(owner, error),
             None => self.errors.push_shared(error),
         }
     }
@@ -227,23 +243,29 @@ impl WgpuStream {
     /// # Arguments
     ///
     /// * `task` - The task to execute.
-    pub fn enqueue_task(&mut self, task: ScheduleTask) {
+    pub fn enqueue_task(&mut self, task: ScheduleTask, failures: &mut ErrorGraph) {
         match task {
             ScheduleTask::Write {
                 data,
                 buffer,
-                memory,
+                handle,
             } => {
                 // Defensive: the server already rejects writes while recording,
                 // and `begin_capture` drains the queue, so none should reach here.
                 if let Err(err) = self.reject_while_recording("write") {
-                    self.capture_error(err, [memory]);
+                    // Taint what this stream's own manager holds; a destination
+                    // owned by another stream is the server-side rejection's to
+                    // taint, and that rejection comes first.
+                    let failure = failures.insert(err.clone());
+                    self.mem_manage.taint(&handle.memory, failure, failures);
+                    failures.prune(failure);
+                    self.capture_error(err);
                     return;
                 }
                 // It is important to flush before writing, as the write operation is inserted
                 // into the QUEUE not the encoder. We want to make sure all outstanding work
                 // happens _before_ the write operation.
-                self.submit();
+                self.submit(failures);
                 self.write_to_buffer(&buffer, &data);
             }
             ScheduleTask::Execute {
@@ -277,7 +299,14 @@ impl WgpuStream {
                     .bindings
                     .append(&mut shared_inputs.bindings);
                 let (resources, custom_handles, addresses) = resources.into_resources(self);
-                self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
+                self.register_pipeline(
+                    pipeline,
+                    &resources,
+                    &custom_handles,
+                    addresses,
+                    &count,
+                    failures,
+                );
             }
         }
     }
@@ -296,6 +325,7 @@ impl WgpuStream {
         &mut self,
         descriptors: Vec<(WgpuResource, Shape, usize)>,
         stream_id: StreamId,
+        failures: &mut ErrorGraph,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         self.compute_pass = None;
         let mut staging_info = Vec::with_capacity(descriptors.len());
@@ -332,7 +362,7 @@ impl WgpuStream {
         // a kernel that failed at launch (e.g. a compilation error) never wrote
         // the buffers this read is about to return, so returning bytes instead of
         // the error would silently hand back stale memory.
-        if let Err(err) = self.flush(stream_id) {
+        if let Err(err) = self.flush(stream_id, failures) {
             return Box::pin(async move { Err(err) });
         }
 
@@ -396,11 +426,15 @@ impl WgpuStream {
         timing
     }
 
-    pub fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+    pub fn start_profile(
+        &mut self,
+        stream_id: StreamId,
+        failures: &mut ErrorGraph,
+    ) -> Result<ProfilingToken, ServerError> {
         if matches!(self.timings, Timings::System(_)) {
-            cubecl_environment::future::block_on(self.sync(stream_id))?;
+            cubecl_environment::future::block_on(self.sync(stream_id, failures))?;
         } else {
-            self.flush(stream_id)?;
+            self.flush(stream_id, failures)?;
         }
 
         match &mut self.timings {
@@ -431,11 +465,12 @@ impl WgpuStream {
         &mut self,
         token: ProfilingToken,
         stream_id: StreamId,
+        failures: &mut ErrorGraph,
     ) -> Result<ProfileDuration, ProfileError> {
         match &mut self.timings {
             Timings::System(..) => {
                 // Nb: WASM _has_ to use device timing and will panic here if query timestamps are not supported.
-                let result = future::block_on(self.sync(stream_id));
+                let result = future::block_on(self.sync(stream_id, failures));
                 let profiler = self.system_profiler();
 
                 if let Err(err) = result {
@@ -461,7 +496,7 @@ impl WgpuStream {
                 // This flushes the queue to execute the encoder write command to write the
                 // timings.
                 self.tasks_count += 1;
-                let result = self.flush(stream_id);
+                let result = self.flush(stream_id, failures);
 
                 let Timings::Device(timing) = &mut self.timings else {
                     return Err(ProfileError::Unknown {
@@ -485,10 +520,11 @@ impl WgpuStream {
     pub fn sync(
         &mut self,
         stream_id: StreamId,
+        failures: &mut ErrorGraph,
     ) -> Pin<Box<dyn Future<Output = Result<(), ServerError>> + Send + 'static>> {
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Internal);
 
-        let flush_error = self.flush(stream_id).err();
+        let flush_error = self.flush(stream_id, failures).err();
 
         let queue = self.queue.clone();
         let error_future = error_scope.pop();
@@ -518,8 +554,12 @@ impl WgpuStream {
     }
 
     /// Allocates a new empty buffer using the main memory pool.
-    pub fn empty(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
-        self.mem_manage.reserve(size)
+    pub fn empty(
+        &mut self,
+        size: u64,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        self.mem_manage.reserve(size, failures)
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
@@ -627,12 +667,12 @@ impl WgpuStream {
         }
     }
 
-    fn flush_if_needed(&mut self) {
+    fn flush_if_needed(&mut self, failures: &mut ErrorGraph) {
         // Flush when there are too many tasks, or when too many handles are locked.
         // Locked handles should only accumulate in rare circumstances (where uniforms
         // are being created but no work is submitted).
         if self.tasks_count >= self.tasks_max {
-            self.submit();
+            self.submit(failures);
         }
     }
 
@@ -642,8 +682,8 @@ impl WgpuStream {
     /// asking — a full task queue, the ordering barrier before a write, the
     /// scheduler aligning streams. Whatever is queued stays queued, for the
     /// flush of the stream that owns it (see [`StreamErrors`]).
-    pub fn submit(&mut self) {
-        self.submit_tasks();
+    pub fn submit(&mut self, failures: &mut ErrorGraph) {
+        self.submit_tasks(failures);
         self.collect_validation_errors();
     }
 
@@ -654,8 +694,8 @@ impl WgpuStream {
     /// [`ServerError::ServerUnhealthy`] carrying everything `owner` had queued,
     /// which this call takes: the stream is usable again afterwards, and the
     /// other streams sharing it keep their own errors.
-    pub fn flush(&mut self, owner: StreamId) -> Result<(), ServerError> {
-        self.submit();
+    pub fn flush(&mut self, owner: StreamId, failures: &mut ErrorGraph) -> Result<(), ServerError> {
+        self.submit(failures);
 
         let errors = self.flush_errors_queue(owner);
         if errors.is_empty() {
@@ -668,7 +708,7 @@ impl WgpuStream {
         })
     }
 
-    fn submit_tasks(&mut self) {
+    fn submit_tasks(&mut self, failures: &mut ErrorGraph) {
         if self.tasks_count == 0 {
             self.shared_bindings.clear();
             return;
@@ -703,7 +743,7 @@ impl WgpuStream {
             .regulate(&self.device, self.tasks_count, index);
 
         // Cleanup allocations and deallocations.
-        self.mem_manage.memory_cleanup(false);
+        self.mem_manage.memory_cleanup(false, failures);
         self.mem_manage.release_uniforms();
 
         #[cfg(renderdoc)]
@@ -814,11 +854,11 @@ impl WgpuStream {
                 Ok(resource) => ReplayDispatch::Dynamic(resource),
                 Err(err) => {
                     // The recording is now incomplete; `end_capture` sees the
-                    // queued error and rejects the capture. It names nothing
-                    // itself: rejecting the capture is what names the buffers,
-                    // and it names every one the recording was given, this
+                    // queued error and rejects the capture. It taints nothing
+                    // itself: rejecting the capture is what taints the buffers,
+                    // and it taints every one the recording was given, this
                     // launch's included.
-                    self.capture_error(err.into(), []);
+                    self.capture_error(err.into());
                     return;
                 }
             },
@@ -843,7 +883,7 @@ impl WgpuStream {
     /// prebuilt state only — and let the normal `tasks_max`/submission-load
     /// batching decide when to submit. Fire-and-forget like a launch: the
     /// work lands on this stream's encoder in recorded order.
-    pub(crate) fn replay_graph(&mut self, graph: &WgpuGraph) {
+    pub(crate) fn replay_graph(&mut self, graph: &WgpuGraph, failures: &mut ErrorGraph) {
         // Consecutive tasks often share a pipeline (decode loops); skip the
         // redundant `set_pipeline`. Pass state does not survive a flush, so
         // the tracking resets whenever the pass was closed.
@@ -888,7 +928,7 @@ impl WgpuStream {
             }
 
             self.tasks_count += 1;
-            self.flush_if_needed();
+            self.flush_if_needed(failures);
         }
     }
 
@@ -899,6 +939,7 @@ impl WgpuStream {
         custom_resources: &[WgpuResource],
         addresses: Option<Addresses>,
         dispatch: &CubeCount,
+        failures: &mut ErrorGraph,
     ) {
         if dispatch.is_empty() {
             return;
@@ -960,7 +1001,7 @@ impl WgpuStream {
             }
         }
 
-        self.flush_if_needed();
+        self.flush_if_needed(failures);
     }
 
     pub(crate) fn flush_errors_queue(&mut self, owner: StreamId) -> Vec<ServerError> {

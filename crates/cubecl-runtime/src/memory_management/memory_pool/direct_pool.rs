@@ -1,5 +1,7 @@
 use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding};
-use crate::memory_management::{BytesFormat, MemoryLocation, MemoryPoolKind, MemoryPoolReport};
+use crate::memory_management::{
+    BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport,
+};
 use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec::Vec;
@@ -99,6 +101,7 @@ impl DirectPool {
         &mut self,
         storage: &mut Storage,
         headroom: u64,
+        failures: &mut ErrorGraph,
     ) {
         let Some(ceiling) = self.reclaim_at else {
             return;
@@ -119,6 +122,7 @@ impl DirectPool {
             if slice.mapped {
                 storage.dealloc(slice.storage.id);
             }
+            failures.untag(slice.failure);
             reserved -= slice.effective_size();
             *entry = None;
             self.vacant.push(index);
@@ -143,10 +147,26 @@ impl MemoryPool for DirectPool {
             })
     }
 
+    fn find_mut(&mut self, binding: &super::ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
+        let index = binding.descriptor().slice();
+
+        self.slices
+            .get_mut(index)
+            .and_then(|slice| slice.as_mut())
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: alloc::format!("Memory slice {index} doesn't exist").into(),
+            })
+    }
+
     /// Reuse a freed slice of exactly this size. Exact-fit only: a slice
     /// handed out for a smaller request would reintroduce the padding the pool
     /// exists to remove.
-    fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
+    fn try_reserve(
+        &mut self,
+        size: u64,
+        _failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
         let slice = self
@@ -170,6 +190,7 @@ impl MemoryPool for DirectPool {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
+        failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
@@ -177,7 +198,7 @@ impl MemoryPool for DirectPool {
         // Reclaim only if this allocation would not otherwise fit under the
         // ceiling. `try_reserve` already failed, so nothing free is the right
         // size; whatever is free here is dead weight against the ceiling.
-        self.release_free(storage, effective_size);
+        self.release_free(storage, effective_size, failures);
 
         let storage_handle = mapping.storage_handle(storage, effective_size)?;
 
@@ -247,6 +268,7 @@ impl MemoryPool for DirectPool {
         storage: &mut Storage,
         _alloc_nr: u64,
         explicit: bool,
+        failures: &mut ErrorGraph,
     ) {
         if !explicit {
             return;
@@ -260,6 +282,7 @@ impl MemoryPool for DirectPool {
             if slice.mapped {
                 storage.dealloc(slice.storage.id);
             }
+            failures.untag(slice.failure);
             *entry = None;
             self.vacant.push(index);
         }
@@ -270,6 +293,7 @@ impl MemoryPool for DirectPool {
         reserved: ManagedMemoryHandle,
         assigned: ManagedMemoryHandle,
         _cursor: u64,
+        failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         let index = reserved.descriptor().slice();
         let slice = self
@@ -284,7 +308,7 @@ impl MemoryPool for DirectPool {
         assigned
             .descriptor()
             .update_location(reserved.descriptor().location());
-        slice.handle = assigned;
+        slice.bind(assigned, failures);
 
         Ok(())
     }

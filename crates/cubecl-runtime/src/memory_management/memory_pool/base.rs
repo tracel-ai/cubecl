@@ -1,6 +1,6 @@
 use super::{ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle};
 use crate::{
-    memory_management::MemoryUsage,
+    memory_management::{ErrorGraph, FailureId, MemoryUsage},
     server::IoError,
     storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
@@ -89,12 +89,21 @@ pub trait MemoryPool {
         reserved: ManagedMemoryHandle,
         assigned: ManagedMemoryHandle,
         cursor: u64,
+        failures: &mut ErrorGraph,
     ) -> Result<(), IoError>;
 
     /// Retrieves the slice for the binding.
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError>;
 
+    /// Retrieves the slice for the binding, mutably — the path the taint
+    /// bookkeeping takes to reach [`Slice::failure`].
+    fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError>;
+
     /// Try to reserve a memory slice of the given size.
+    ///
+    /// `failures` is threaded through because reserving is one of the paths
+    /// where a pool sheds slices (a sliced pool coalesces on every attempt),
+    /// and a shed slice must release the failure it carried on the spot.
     ///
     /// # Notes
     ///
@@ -106,7 +115,7 @@ pub trait MemoryPool {
     /// A [slice handle](StorageHandle) if the current memory pool has enough memory, otherwise it
     /// will returns [None]. You can then call [`MemoryPool::alloc()`] to increase the amount of
     /// memory the pool has.
-    fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle>;
+    fn try_reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle>;
 
     /// Increases the amount of memory the pool has and returns a [slice handle](StorageHandle)
     /// corresponding to the requested size.
@@ -126,6 +135,7 @@ pub trait MemoryPool {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
+        failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError>;
 
     /// Ensure the allocation behind `binding` has real device backing,
@@ -151,6 +161,7 @@ pub trait MemoryPool {
         storage: &mut Storage,
         alloc_nr: u64,
         explicit: bool,
+        failures: &mut ErrorGraph,
     );
 }
 
@@ -166,6 +177,15 @@ pub(crate) struct Slice {
     /// laziness here; sliced pools track it on the page, whose id every slice
     /// shares.
     pub mapped: bool,
+    /// The failure that tainted this allocation, if any.
+    ///
+    /// Whether these bytes can be trusted is a property of the memory, so it
+    /// lives here rather than in any stream's bookkeeping. What the id means
+    /// is the [`ErrorGraph`]'s to say; the slice only carries it, and sheds it
+    /// the moment the allocation it describes ends — see
+    /// [`bind`](Self::bind) and the untag calls on every path that drops a
+    /// slice.
+    pub failure: Option<FailureId>,
 }
 
 impl Slice {
@@ -176,8 +196,18 @@ impl Slice {
             padding,
             cursor: 0,
             mapped: true,
+            failure: None,
         }
     }
+
+    /// Take on a new allocation. Whatever tainted the last one says nothing
+    /// about the next, so the failure is released before the handle changes
+    /// hands.
+    pub(crate) fn bind(&mut self, handle: ManagedMemoryHandle, failures: &mut ErrorGraph) {
+        failures.untag(self.failure.take());
+        self.handle = handle;
+    }
+
     /// If the slice is free to be reused.
     pub(crate) fn is_free(&self) -> bool {
         self.handle.is_free()

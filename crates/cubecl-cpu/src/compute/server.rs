@@ -28,7 +28,7 @@ use cubecl_runtime::{
     dry_run::LaunchMode,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode},
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
     storage::{BytesStorage, ComputeStorage, ManagedResource},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
 };
@@ -41,10 +41,10 @@ pub struct CpuServer {
     compilation_cache: HashMap<KernelId, CpuKernel>,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
-    /// The memory the launch in flight was given, held across the call that
-    /// consumes its arguments so a failure can still name what it left
-    /// unwritten. Reused, so a launch allocates nothing for it.
-    unwritten: Vec<ManagedMemoryId>,
+    /// The buffers the launch in flight writes, held across the call that
+    /// consumes its arguments so a failure can still taint what it left
+    /// unwritten. Reused, so a launch allocates little for it.
+    written: Vec<BufferBinding>,
 }
 
 impl CpuServer {
@@ -73,7 +73,7 @@ impl CpuServer {
             utilities,
             compilation_cache: HashMap::new(),
             streams_pool: Vec::new(),
-            unwritten: Vec::new(),
+            written: Vec::new(),
         }
     }
 
@@ -209,9 +209,9 @@ impl ComputeServer for CpuServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        let stream = self.scheduler.stream(&stream_id);
-        let reserved = stream.empty(size).unwrap();
-        stream.bind(reserved, memory);
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        let reserved = stream.empty(size, failures).unwrap();
+        stream.bind(reserved, memory, failures);
     }
 
     fn read(
@@ -223,7 +223,7 @@ impl ComputeServer for CpuServer {
         // them; see `StreamPool::ensure_written`.
         if let Err(err) = self
             .scheduler
-            .ensure_written(stream_id, descriptors.iter().map(|d| &d.handle))
+            .ensure_written(descriptors.iter().map(|d| &d.handle))
         {
             return Box::pin(async move { Err(err) });
         }
@@ -273,18 +273,17 @@ impl ComputeServer for CpuServer {
             // The failures below belong to the caller, so they are queued on
             // the caller's stream — the one that flushes them — even though the
             // resource is resolved on the stream that owns the handle. Each
-            // leaves the destination unwritten, which is what a later read of it
-            // has to fail on; the write that lands fills it, which is what ends
-            // an earlier failure's claim on it.
-            let unwritten = [desc.handle.memory.id()];
+            // taints the destination, which is what a later read of it has to
+            // fail on; the write that lands fills it, which is what releases
+            // an earlier failure's hold on it.
+            let destination = desc.handle.clone();
             if contiguous_strides(&desc.shape) != desc.strides {
-                self.scheduler.stream(&stream_id).error(
-                    stream_id,
-                    ServerError::Io(IoError::UnsupportedStrides {
-                        backtrace: BackTrace::capture(),
-                    }),
-                    unwritten,
-                );
+                let error = ServerError::Io(IoError::UnsupportedStrides {
+                    backtrace: BackTrace::capture(),
+                });
+                self.scheduler
+                    .taint(error.clone(), core::iter::once(&destination));
+                self.scheduler.stream(&stream_id).error(stream_id, error);
                 return;
             }
 
@@ -296,11 +295,10 @@ impl ComputeServer for CpuServer {
             let resource = match stream.get_resource(desc.handle.clone()) {
                 Ok(r) => r,
                 Err(err) => {
-                    self.scheduler.stream(&stream_id).error(
-                        stream_id,
-                        ServerError::Io(err),
-                        unwritten,
-                    );
+                    let error = ServerError::Io(err);
+                    self.scheduler
+                        .taint(error.clone(), core::iter::once(&destination));
+                    self.scheduler.stream(&stream_id).error(stream_id, error);
                     return;
                 }
             };
@@ -314,7 +312,7 @@ impl ComputeServer for CpuServer {
             // The write is on its way, so an earlier failure that left this
             // buffer stale has nothing left to say about it: a caller recovers
             // by writing from the host as much as by relaunching.
-            self.scheduler.stream(&stream_id).written(unwritten);
+            self.scheduler.written(core::iter::once(&destination));
         }
     }
 
@@ -336,8 +334,8 @@ impl ComputeServer for CpuServer {
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
-        let stream = self.scheduler.stream(&stream_id);
-        stream.memory_management.cleanup(true)
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        stream.memory_management.cleanup(true, failures)
     }
 
     unsafe fn launch(
@@ -357,18 +355,17 @@ impl ComputeServer for CpuServer {
         if launch_mode.is_skipped() {
             if let Err(err) = self.compile_only(kernel) {
                 // A dry run was never going to write, so it leaves no buffer
-                // stale and names none: an ordinary queued error.
+                // stale and taints none: an ordinary queued error.
                 self.scheduler.stream(&stream_id).error(
                     stream_id,
                     ServerError::Launch(LaunchError::CompilationError(err)),
-                    [],
                 );
             }
             return;
         }
 
         self.streams_pool.clear();
-        self.unwritten.clear();
+        self.written.clear();
         bindings
             .resources
             .iter()
@@ -385,7 +382,7 @@ impl ComputeServer for CpuServer {
                 // is left exactly as it was, so a failure has nothing to say
                 // about it.
                 if bindings.writes(index) {
-                    self.unwritten.push(b.memory.id());
+                    self.written.push(b.clone());
                 }
             });
         let bindings = self.prepare_bindings(bindings);
@@ -395,11 +392,9 @@ impl ComputeServer for CpuServer {
                 // We make the stream that would execute the kernel in error.
                 // Nothing was scheduled, so every buffer the launch was given is
                 // left as it was; a read of one has to fail on this.
-                self.scheduler.stream(&stream_id).error(
-                    stream_id,
-                    ServerError::Launch(LaunchError::CompilationError(err)),
-                    self.unwritten.iter().copied(),
-                );
+                let error = ServerError::Launch(LaunchError::CompilationError(err));
+                self.scheduler.taint(error.clone(), self.written.iter());
+                self.scheduler.stream(&stream_id).error(stream_id, error);
                 return;
             }
         };
@@ -407,9 +402,7 @@ impl ComputeServer for CpuServer {
         self.scheduler.register(stream_id, task, &self.streams_pool);
         // This launch is on its way, so an earlier failure that left these
         // buffers stale has nothing left to say about them.
-        self.scheduler
-            .stream(&stream_id)
-            .written(self.unwritten.iter().copied());
+        self.scheduler.written(self.written.iter());
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

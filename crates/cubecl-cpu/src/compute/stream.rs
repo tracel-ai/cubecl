@@ -13,11 +13,11 @@ use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, MemoryManagement,
-        MemoryManagementOptions,
+        ErrorGraph, FailureId, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode,
+        MemoryManagement, MemoryManagementOptions,
     },
     storage::{BytesResource, BytesStorage},
-    stream::{StreamErrorSink, StreamErrors},
+    stream::{StreamErrorSink, StreamErrors, StreamMemory},
     timestamp_profiler::TimestampProfiler,
 };
 use std::sync::{Arc, atomic::AtomicU64};
@@ -41,6 +41,25 @@ pub struct CpuStream {
 impl StreamErrorSink for CpuStream {
     fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
         &self.errors
+    }
+}
+
+impl StreamMemory for CpuStream {
+    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
+        self.memory_management.failure(binding)
+    }
+
+    fn taint(
+        &mut self,
+        binding: &ManagedMemoryBinding,
+        failure: FailureId,
+        failures: &mut ErrorGraph,
+    ) {
+        self.memory_management.taint(binding, failure, failures)
+    }
+
+    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
+        self.memory_management.written(binding, failures)
     }
 }
 
@@ -89,7 +108,7 @@ impl CpuStream {
         }
     }
 
-    pub fn enqueue_task(&mut self, task: ScheduleTask) {
+    pub fn enqueue_task(&mut self, task: ScheduleTask, failures: &mut ErrorGraph) {
         // Launches pipeline: `ComputeTask::is_ready` orders tasks and the
         // launch's resources ride in `SharedData::keepalive`, so the client
         // only drains where that protocol does not cover:
@@ -126,6 +145,7 @@ impl CpuStream {
                     cube_dim,
                     cube_count,
                     &mut self.shared_memory_management,
+                    failures,
                     self.next_counter_step,
                     &self.atomic_counter,
                 );
@@ -196,36 +216,31 @@ impl CpuStream {
 
     /// Registers a new error into the error sink, for `stream_id` to surface.
     ///
-    /// `unwritten` names the buffers the failed work left as they were, so a
-    /// later read of one fails on this rather than copying out bytes nothing
-    /// wrote — empty for a failure that skipped no write. See
-    /// [`StreamErrors::push_unwritten`].
-    pub fn error(
-        &mut self,
-        stream_id: StreamId,
-        error: ServerError,
-        unwritten: impl IntoIterator<Item = ManagedMemoryId>,
-    ) {
-        self.errors.push_unwritten(stream_id, error, unwritten);
-    }
-
-    /// Ends a reported failure's claim on `buffers`: work that writes them is
-    /// on its way, so a read of one is no longer reading bytes nothing wrote.
-    ///
-    /// The counterpart of [`error`](Self::error), for the paths that succeed.
-    /// See [`StreamErrors::written`].
-    pub fn written(&mut self, buffers: impl IntoIterator<Item = ManagedMemoryId>) {
-        self.errors.written(buffers);
+    /// Only the report: whether the buffers the failure left behind can be
+    /// trusted lives on their allocations, tainted through the scheduler.
+    pub fn error(&mut self, stream_id: StreamId, error: ServerError) {
+        self.errors.push(stream_id, error);
     }
 
     /// Allocates a new empty buffer using the main memory pool.
-    pub fn empty(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
-        self.memory_management.reserve(size)
+    pub fn empty(
+        &mut self,
+        size: u64,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        self.memory_management.reserve(size, failures)
     }
 
     /// Maps handles to their corresponding buffers.
-    pub fn bind(&mut self, reserved: ManagedMemoryHandle, new: ManagedMemoryHandle) {
-        self.memory_management.bind(reserved, new, 0).unwrap();
+    pub fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        new: ManagedMemoryHandle,
+        failures: &mut ErrorGraph,
+    ) {
+        self.memory_management
+            .bind(reserved, new, 0, failures)
+            .unwrap();
     }
 
     pub fn read_async(

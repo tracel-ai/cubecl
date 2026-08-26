@@ -1,6 +1,6 @@
 use crate::{
     memory_management::{
-        BytesFormat, MemoryLocation, MemoryPoolKind, MemoryPoolReport, MemoryUsage,
+        BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, MemoryUsage,
     },
     server::IoError,
     storage::{ComputeStorage, StorageUtilization},
@@ -158,7 +158,11 @@ impl MemoryPool for ExclusiveMemoryPool {
     /// a handle to the reserved memory.
     ///
     /// Also clean ups, merging free slices together if permitted by the merging strategy
-    fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
+    fn try_reserve(
+        &mut self,
+        size: u64,
+        _failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
         self.cur_avg_size =
             self.cur_avg_size * (1.0 - SIZE_AVG_DECAY) + size as f64 * SIZE_AVG_DECAY;
 
@@ -193,6 +197,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         // after reservation — laziness would only move the same allocation
         // one call later.
         _mapping: PageMapping,
+        _failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         if size > self.max_alloc_size {
             return Err(IoError::BufferTooBig {
@@ -234,6 +239,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         storage: &mut Storage,
         alloc_nr: u64,
         explicit: bool,
+        failures: &mut ErrorGraph,
     ) {
         // Check such that an alloc is free after at most dealloc_period.
         let check_period = self.dealloc_period / (ALLOC_AFTER_FREE as u64);
@@ -248,6 +254,7 @@ impl MemoryPool for ExclusiveMemoryPool {
                     // If free found is sufficiently high (ie. we've seen this alloc as free multiple times,
                     // without it being used in the meantime), deallocate it.
                     if page.free_count >= ALLOC_AFTER_FREE || explicit {
+                        failures.untag(page.slice.failure);
                         storage.dealloc(page.slice.storage.id);
                         continue;
                     }
@@ -270,12 +277,13 @@ impl MemoryPool for ExclusiveMemoryPool {
         old: ManagedMemoryHandle,
         new: ManagedMemoryHandle,
         cursor: u64,
+        failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         let id_old = old.descriptor();
         let page = &mut self.pages[id_old.page()];
         new.descriptor().update_location(id_old.location());
 
-        page.slice.handle = new;
+        page.slice.bind(new, failures);
         page.slice.cursor = cursor;
 
         Ok(())
@@ -294,5 +302,20 @@ impl MemoryPool for ExclusiveMemoryPool {
             })?;
 
         Ok(&page.slice)
+    }
+
+    fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
+        let binding_descriptor = binding.descriptor();
+        let page_index = binding_descriptor.page();
+
+        let page = self
+            .pages
+            .get_mut(page_index)
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: alloc::format!("Memory page {} doesn't exist", page_index).into(),
+            })?;
+
+        Ok(&mut page.slice)
     }
 }

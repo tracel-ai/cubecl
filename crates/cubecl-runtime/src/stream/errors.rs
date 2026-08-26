@@ -1,14 +1,19 @@
 //! The per-stream error queue every backend records failures in, and the
 //! attribution rule that decides which logical stream surfaces each one.
+//!
+//! This queue answers *who reports* a failure, and nothing else. Whether the
+//! bytes a failure left behind can be trusted is a property of the memory,
+//! carried on the allocation itself — see
+//! [`Slice::failure`](crate::memory_management::ErrorGraph) and the error
+//! graph.
 
 use alloc::vec::Vec;
 use cubecl_environment::stream::StreamId;
 
-use crate::memory_management::ManagedMemoryId;
 use crate::server::ServerError;
 
 /// The errors queued on one pooled backend stream, each remembering the logical
-/// stream it belongs to and the buffers it left unwritten.
+/// stream it belongs to.
 ///
 /// Several logical streams share a pooled stream: [`stream_index`] folds the id
 /// space onto `max_streams` slots, so thread A and thread B can land on the same
@@ -23,76 +28,26 @@ use crate::server::ServerError;
 /// from the driver — go in with [`push_shared`](Self::push_shared) and surface
 /// on whichever stream flushes next.
 ///
-/// # What a read asks
-///
-/// Attribution answers *who* surfaces an error. It does not answer the question
-/// a read has to ask before copying bytes out: *were these bytes ever written?*
-/// A stream id cannot answer it. [`Handle::stream`](crate::server::Handle) names
-/// where a buffer was **created**, not who last wrote it, and nothing re-tags it
-/// — so a buffer allocated on A, written by a launch that failed on B, and read
-/// back on A names only A, and A has nothing queued.
-///
-/// So the failures that leave a buffer unwritten name the buffers themselves,
-/// with [`push_unwritten`](Self::push_unwritten), and a read asks every slot
-/// [`peek_unwritten`](Self::peek_unwritten) for the buffers it is about to copy.
-/// That holds whichever stream allocated, wrote or read them.
-///
-/// The two jobs also end at different times. A report is owed once, so
-/// [`take`](Self::take) hands it over and is done; the bytes stay stale until
-/// something writes them, so the entry stays behind — reported, unreportable
-/// again — to keep answering reads until [`written`](Self::written) says those
-/// buffers have a writer once more. A failure its caller already holds
-/// ([`push_returned`](Self::push_returned)) starts life in that same state,
-/// answering reads without any flush ever reporting it.
-///
 /// # What is bounded, and what is not
 ///
 /// Attribution is best-effort in one direction only. Owned entries are capped
 /// at [`MAX_OWNED`]: past that the oldest fall back to shared, so a stream that
 /// queues an error and never comes back cannot pin memory for the life of the
 /// process. Shared entries are not capped here — the next flush of any stream
-/// drains them, which is the bound in practice. Entries kept on past their
-/// report are capped at [`MAX_REPORTED`], since no flush is coming for those.
+/// drains them, which is the bound in practice.
 ///
-/// The fallback costs exactly one thing, which is safe. A reclaimed entry is
-/// surfaced by whichever stream flushes next rather than by the one that caused
-/// it, so the report no longer names the producer. It keeps its unwritten
-/// buffers, so a read that would have failed on it still fails; and it makes
+/// The fallback costs two things, both safe. A reclaimed entry is surfaced by
+/// whichever stream flushes next rather than by the one that caused it, so the
+/// report no longer names the producer. And a reclaimed entry makes
 /// [`any`](Self::any) true for every stream on the slot until someone flushes,
-/// so a neighbour is briefly reported unhealthy.
+/// so a neighbour is briefly reported unhealthy. What a reclaimed entry never
+/// costs is a read: the buffers its failure left unwritten carry the failure
+/// themselves, on their slices, however the report is routed.
 ///
 /// [`stream_index`]: super::stream_index
 #[derive(Debug, Default)]
 pub struct StreamErrors {
-    entries: Vec<Entry>,
-}
-
-/// One queued failure: whose flush surfaces it, and what it left unwritten.
-#[derive(Debug)]
-struct Entry {
-    surfaced: Surfaced,
-    error: ServerError,
-    /// The buffers the failed work never wrote, empty when the failure left
-    /// none behind.
-    unwritten: Vec<ManagedMemoryId>,
-}
-
-/// Which flush reports a queued error.
-///
-/// Reporting and answering a read are separate jobs, and the third variant is
-/// the one that only does the second: an error somebody already holds must not
-/// be handed out a second time, but the buffers it left unwritten still concern
-/// every stream that has not heard about it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Surfaced {
-    /// This logical stream's next flush, and no other's.
-    Owner(StreamId),
-    /// Whichever stream flushes next — the slot could not attribute it.
-    AnyStream,
-    /// None of them, because somebody already holds this error: it was returned
-    /// to its caller as it happened, or a flush has since taken it. The entry
-    /// stays only so that a read of what it left unwritten fails.
-    Reported,
+    entries: Vec<(Option<StreamId>, ServerError)>,
 }
 
 /// How many entries one queue keeps waiting on the streams that own them.
@@ -106,145 +61,11 @@ enum Surfaced {
 /// owned half of the queue stops growing.
 pub const MAX_OWNED: usize = 32;
 
-/// How many entries one queue keeps purely to answer reads, once nobody is
-/// owed a report for them any more.
-///
-/// No flush drains a reported entry — that is the point of it — so this cap and
-/// [`written`](StreamErrors::written) are its only bounds. Past the cap the
-/// oldest are dropped, and a read of what they named stops failing: the last
-/// resort, for a caller that never writes those buffers again and never reuses
-/// them either. The newest are kept because they are the ones a caller is most
-/// likely to still be holding.
-pub const MAX_REPORTED: usize = 32;
-
 impl StreamErrors {
     /// Queue an error caused by `owner`, for `owner` alone to surface.
     pub fn push(&mut self, owner: StreamId, error: ServerError) {
-        self.entries.push(Entry {
-            surfaced: Surfaced::Owner(owner),
-            error,
-            unwritten: Vec::new(),
-        });
+        self.entries.push((Some(owner), error));
         self.reclaim_orphans();
-    }
-
-    /// Queue an error caused by `owner` that left `unwritten` never written.
-    ///
-    /// For the failures that skip work a buffer was waiting on: a launch that
-    /// never reached the device, a host copy that never started. A read of any
-    /// of those buffers would hand back whatever was in memory before, so it
-    /// fails on this error instead — see [`peek_unwritten`](Self::peek_unwritten).
-    ///
-    /// `unwritten` is what the failed work was going to write and nothing has —
-    /// a launch's outputs, a copy's destination. Not what it was going to read:
-    /// an input is left exactly as its own writer left it, so failing a read of
-    /// one would report a kernel the reader never launched, about memory that is
-    /// perfectly good. `KernelArguments::memory_ids_written` draws that line,
-    /// from the `&mut` a `#[cube]` signature uses to say it produces a value.
-    ///
-    /// Where the line is drawn wide, it is drawn wide deliberately: an output
-    /// that aliases an input writes that input in place, and a `&mut` argument
-    /// covering several resources names all of them. Naming a buffer the kernel
-    /// only read fails a read that would have been fine, loudly, until the
-    /// launching stream flushes. Missing one it writes hands back the bytes that
-    /// were there before, silently, and nothing ever says so.
-    pub fn push_unwritten(
-        &mut self,
-        owner: StreamId,
-        error: ServerError,
-        unwritten: impl IntoIterator<Item = ManagedMemoryId>,
-    ) {
-        self.entries.push(Entry {
-            surfaced: Surfaced::Owner(owner),
-            error,
-            unwritten: unwritten.into_iter().collect(),
-        });
-        self.reclaim_orphans();
-    }
-
-    /// Queue an error that has already been returned to its caller, so that a
-    /// read of `unwritten` still fails on it and no flush reports it twice.
-    ///
-    /// For the failures a caller learns about synchronously and other streams
-    /// do not: a graph capture that never sealed returns its error to whoever
-    /// called `end_capture`, but the launches it recorded never ran, and the
-    /// buffers they were given are read by streams that heard nothing. Queuing
-    /// it the ordinary way would report it a second time on the caller's next
-    /// flush — and on an abandoned window, to a stream that never asked.
-    ///
-    /// Bounded by [`MAX_REPORTED`] rather than by a flush, since no flush takes
-    /// these, and ended by [`written`](Self::written) when the buffers it names
-    /// are given to work that runs.
-    pub fn push_returned(
-        &mut self,
-        error: ServerError,
-        unwritten: impl IntoIterator<Item = ManagedMemoryId>,
-    ) {
-        let unwritten: Vec<_> = unwritten.into_iter().collect();
-        if unwritten.is_empty() {
-            // Nobody would report it and it answers for nothing: the caller
-            // already holds the only copy that matters.
-            return;
-        }
-
-        self.entries.push(Entry {
-            surfaced: Surfaced::Reported,
-            error,
-            unwritten,
-        });
-        self.reclaim_reported();
-    }
-
-    /// Drop every entry's claim on `buffers`: work that writes them has been
-    /// enqueued, so a read of one is no longer reading bytes nothing wrote.
-    ///
-    /// This is how a stale buffer becomes sound again, and the callers are
-    /// everything that fills one: a launch offers what it writes, a host copy
-    /// its destination. Both matter — a caller handed a buffer back by a failed
-    /// launch recovers by relaunching into it *or* by writing it from the host,
-    /// and only the caller knows which.
-    ///
-    /// Every entry gives up its claim, whatever its tag and whoever queued it,
-    /// because the question a claim answers is about the buffer and not about
-    /// the entry: these bytes have a writer now. An entry that still owes
-    /// somebody a report keeps it — losing its claim costs it nothing it was
-    /// going to say. Ordering is why this cannot wait for the report: a caller
-    /// that writes a stale buffer and only then flushes would otherwise offer
-    /// its buffers to an entry not yet listening, and find the buffer still
-    /// refused afterwards, for good.
-    ///
-    /// Offer only what the work actually writes, the set
-    /// [`push_unwritten`](Self::push_unwritten) would have named had it failed.
-    /// A buffer a launch merely reads is one nothing has written, so an entry
-    /// naming it still has something true to say.
-    ///
-    /// Claims are per allocation, as [`ManagedMemoryId`] is: a write covering
-    /// part of a buffer ends the claim on all of it. The same coarseness
-    /// [`push_unwritten`](Self::push_unwritten) names with, read the other way
-    /// round.
-    pub fn written(&mut self, buffers: impl IntoIterator<Item = ManagedMemoryId>) {
-        if self.entries.is_empty() {
-            // The common case, and worth the check: it costs the caller nothing
-            // to offer the buffers of every launch when there is no failure
-            // outstanding to clear.
-            return;
-        }
-
-        let mut freed = false;
-        for id in buffers {
-            for entry in self.entries.iter_mut() {
-                let claimed = entry.unwritten.len();
-                entry.unwritten.retain(|unwritten| *unwritten != id);
-                freed |= entry.unwritten.len() != claimed;
-            }
-        }
-
-        if freed {
-            // An entry nobody is owed, answering for nothing, has nothing left.
-            self.entries.retain(|entry| {
-                entry.surfaced != Surfaced::Reported || !entry.unwritten.is_empty()
-            });
-        }
     }
 
     /// Queue an error raised by synchronizing the backend stream on `caller`'s
@@ -256,10 +77,6 @@ impl StreamErrors {
     /// every logical stream sharing this backend stream keeps hitting — so it
     /// goes in unattributed rather than pinned on the stream that happened to
     /// ask.
-    ///
-    /// Only the errors travel. The buffers the original entries named stayed in
-    /// the queue when that flush took them ([`take`](Self::take)), so a
-    /// re-queued error naming none of them costs a read nothing.
     pub fn push_sync_failure(&mut self, caller: StreamId, error: ServerError) {
         match error {
             ServerError::ServerUnhealthy { .. } => self.push(caller, error),
@@ -270,20 +87,13 @@ impl StreamErrors {
     /// Queue an error the pooled stream cannot attribute to one of the logical
     /// streams sharing it, so the next flush of any of them surfaces it.
     pub fn push_shared(&mut self, error: ServerError) {
-        self.entries.push(Entry {
-            surfaced: Surfaced::AnyStream,
-            error,
-            unwritten: Vec::new(),
-        });
+        self.entries.push((None, error));
     }
 
     /// [`push_shared`](Self::push_shared) for a batch of errors.
     pub fn extend_shared(&mut self, errors: impl IntoIterator<Item = ServerError>) {
-        self.entries.extend(errors.into_iter().map(|error| Entry {
-            surfaced: Surfaced::AnyStream,
-            error,
-            unwritten: Vec::new(),
-        }));
+        self.entries
+            .extend(errors.into_iter().map(|error| (None, error)));
     }
 
     /// Whether `owner` has anything to surface: its own errors plus the shared
@@ -291,94 +101,31 @@ impl StreamErrors {
     pub fn any(&self, owner: StreamId) -> bool {
         self.entries
             .iter()
-            .any(|entry| surfaced_by(entry.surfaced, owner))
-    }
-
-    /// The queued errors that left one of `buffers` unwritten, left in the
-    /// queue.
-    ///
-    /// This is the question a read asks every pooled stream before it copies
-    /// anything: did the work that was supposed to write these bytes fail? An
-    /// entry answers it by naming the buffer, not the stream, so the answer
-    /// holds however the buffer travelled between streams.
-    ///
-    /// `reader_flushes` says whether the read's own flush drains *this* queue,
-    /// which is true of one queue only — the slot `reader` folds onto. There,
-    /// everything that flush is about to report is left out, so the read
-    /// reports it once rather than twice; that is `reader`'s own entries and
-    /// the shared ones alike, since a flush takes both. Every other queue is
-    /// one no flush of `reader` is coming to, so nothing is held back: an
-    /// entry there is reported by this read or by nobody in time.
-    ///
-    /// The entries this returns stay put either way, so the stream that caused
-    /// each one still surfaces it itself.
-    pub fn peek_unwritten(
-        &self,
-        buffers: &[ManagedMemoryId],
-        reader: StreamId,
-        reader_flushes: bool,
-    ) -> Vec<ServerError> {
-        self.entries
-            .iter()
-            .filter(|entry| !(reader_flushes && surfaced_by(entry.surfaced, reader)))
-            .filter(|entry| entry.unwritten.iter().any(|id| buffers.contains(id)))
-            .map(|entry| entry.error.clone())
-            .collect()
+            .any(|(entry, _)| surfaced_by(*entry, owner))
     }
 
     /// Take the errors `owner` surfaces, leaving the other streams' behind.
-    ///
-    /// An entry that named buffers is not dropped once its error is taken: it
-    /// stays behind as a [`Surfaced::Reported`] entry, so a read of those
-    /// buffers still fails. The two jobs end at different times — a report is
-    /// owed once, and the bytes stay stale until something writes them — and
-    /// the flush that ends the first is usually the producer's own, which comes
-    /// long before anyone reads. Dropping the entry here would make a launch
-    /// failure readable as success from the producer's next flush onward, on
-    /// exactly the buffers the launch was supposed to fill.
-    ///
-    /// What ends the second job is [`written`](Self::written), or the
-    /// [`MAX_REPORTED`] cap.
     pub fn take(&mut self, owner: StreamId) -> Vec<ServerError> {
-        let mut taken = Vec::new();
-        let mut kept = Vec::with_capacity(self.entries.len());
-
-        for mut entry in core::mem::take(&mut self.entries) {
-            if !surfaced_by(entry.surfaced, owner) {
-                kept.push(entry);
-                continue;
-            }
-            if entry.unwritten.is_empty() {
-                // Nothing to answer for once it is reported.
-                taken.push(entry.error);
-                continue;
-            }
-            taken.push(entry.error.clone());
-            entry.surfaced = Surfaced::Reported;
-            kept.push(entry);
-        }
+        let (taken, kept) = core::mem::take(&mut self.entries)
+            .into_iter()
+            .partition(|(entry, _)| surfaced_by(*entry, owner));
 
         self.entries = kept;
-        self.reclaim_reported();
-
-        taken
+        taken.into_iter().map(|(_, error)| error).collect()
     }
 
     /// Re-tag the oldest owned entries as shared once more than [`MAX_OWNED`]
     /// are waiting, so entries whose owner is gone stop accumulating.
-    ///
-    /// Only the attribution is dropped. The buffers the entry left unwritten
-    /// stay on it, so a read that those bytes concern still fails on it.
     fn reclaim_orphans(&mut self) {
-        let owned = self.owned();
+        let owned = self.entries.iter().filter(|(o, _)| o.is_some()).count();
         if owned <= MAX_OWNED {
             return;
         }
         let mut excess = owned - MAX_OWNED;
 
-        for entry in self.entries.iter_mut() {
-            if matches!(entry.surfaced, Surfaced::Owner(_)) {
-                entry.surfaced = Surfaced::AnyStream;
+        for (owner, _) in self.entries.iter_mut() {
+            if owner.is_some() {
+                *owner = None;
                 excess -= 1;
                 if excess == 0 {
                     return;
@@ -386,49 +133,14 @@ impl StreamErrors {
             }
         }
     }
-
-    /// Drop the oldest reported entries once more than [`MAX_REPORTED`] are
-    /// held, since no flush drains them.
-    fn reclaim_reported(&mut self) {
-        let reported = self.reported();
-        if reported <= MAX_REPORTED {
-            return;
-        }
-        let mut excess = reported - MAX_REPORTED;
-
-        self.entries.retain(|entry| {
-            if excess > 0 && entry.surfaced == Surfaced::Reported {
-                excess -= 1;
-                return false;
-            }
-            true
-        });
-    }
-
-    /// How many entries are waiting on the streams that own them.
-    fn owned(&self) -> usize {
-        self.entries
-            .iter()
-            .filter(|entry| matches!(entry.surfaced, Surfaced::Owner(_)))
-            .count()
-    }
-
-    /// How many entries are held only to answer reads, their report already
-    /// made or never owed.
-    fn reported(&self) -> usize {
-        self.entries
-            .iter()
-            .filter(|entry| entry.surfaced == Surfaced::Reported)
-            .count()
-    }
 }
 
 /// A backend stream that queues its failures in a [`StreamErrors`].
 ///
 /// Every backend keeps one queue per pooled stream, some of them behind a lock,
-/// and the multi-stream drivers ask it the same two questions on every read and
-/// every resolve. Answering them here means a backend supplies only where its
-/// queue lives, never what the drivers do with it.
+/// and the multi-stream drivers ask it the same question on every resolve.
+/// Answering it here means a backend supplies only where its queue lives,
+/// never what the drivers do with it.
 pub trait StreamErrorSink {
     /// The queue this stream records its failures in.
     fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_;
@@ -441,33 +153,14 @@ pub trait StreamErrorSink {
     fn healthy(&self, owner: StreamId) -> bool {
         !self.errors().any(owner)
     }
-
-    /// The queued errors that left one of `buffers` unwritten — see
-    /// [`StreamErrors::peek_unwritten`].
-    ///
-    /// Answers what a read needs to know before it copies anything: did the
-    /// work that was supposed to write these bytes actually run?
-    ///
-    /// `reader_flushes` is for the one queue the read's own flush drains, where
-    /// what that flush will report is left out rather than reported twice.
-    fn unwritten(
-        &self,
-        buffers: &[ManagedMemoryId],
-        reader: StreamId,
-        reader_flushes: bool,
-    ) -> Vec<ServerError> {
-        self.errors()
-            .peek_unwritten(buffers, reader, reader_flushes)
-    }
 }
 
-/// Whether `owner`'s flush reports an entry: its own, plus the shared entries
-/// no stream owns. Never an entry its caller already has.
-fn surfaced_by(surfaced: Surfaced, owner: StreamId) -> bool {
-    match surfaced {
-        Surfaced::Owner(entry) => entry == owner,
-        Surfaced::AnyStream => true,
-        Surfaced::Reported => false,
+/// Whether `owner` surfaces an entry queued for `entry`: its own, plus the
+/// shared entries no stream owns.
+fn surfaced_by(entry: Option<StreamId>, owner: StreamId) -> bool {
+    match entry {
+        Some(entry) => entry == owner,
+        None => true,
     }
 }
 
@@ -515,314 +208,6 @@ mod tests {
         );
         assert_eq!(reasons(errors.take(stream)), ["submission"]);
         assert!(!errors.any(stream), "a shared error is taken once");
-    }
-
-    /// What lets a read consult the work that wrote its buffers without
-    /// stealing that work's errors.
-    ///
-    /// A reader must see that a producer's launch failed — the bytes it is
-    /// about to copy were never written — but taking the error would leave the
-    /// stream that actually failed reporting success on its own flush.
-    #[test]
-    fn an_unwritten_buffer_is_read_without_taking_its_error() {
-        let producer = StreamId { value: 1 };
-        let reader = StreamId { value: 2 };
-        let buffer = ManagedMemoryId { value: 10 };
-
-        let mut errors = StreamErrors::default();
-        errors.push_unwritten(producer, error("launch"), [buffer]);
-        errors.push_shared(error("submission"));
-
-        // The reader sees what the failed launch left unwritten, but not the
-        // shared entry, which speaks for no particular buffer.
-        assert_eq!(
-            reasons(errors.peek_unwritten(&[buffer], reader, true)),
-            ["launch"]
-        );
-        assert_eq!(reasons(errors.take(reader)), ["submission"]);
-        assert_eq!(
-            reasons(errors.take(producer)),
-            ["launch"],
-            "the producer still surfaces its own error"
-        );
-    }
-
-    /// The case a stream id cannot answer: the buffer was allocated on the
-    /// stream now reading it, and written by a launch that failed elsewhere.
-    ///
-    /// `Handle::stream` names where a buffer was created, and nothing re-tags
-    /// it, so both the allocation and the read name the reader — which has
-    /// nothing queued. Only the buffer itself connects the read to the launch
-    /// that never ran.
-    #[test]
-    fn a_buffer_the_reader_allocated_still_answers_for_another_streams_launch() {
-        let reader = StreamId { value: 1 };
-        let producer = StreamId { value: 2 };
-        let buffer = ManagedMemoryId { value: 10 };
-
-        let mut errors = StreamErrors::default();
-        errors.push_unwritten(producer, error("launch"), [buffer]);
-
-        assert_eq!(
-            reasons(errors.peek_unwritten(&[buffer], reader, true)),
-            ["launch"]
-        );
-    }
-
-    /// A read only fails on the buffers the failure actually concerns.
-    ///
-    /// A pending error on some stream is not a reason to refuse every read: the
-    /// stream that queued it may never flush again, which would leave every
-    /// later read of an unrelated buffer failing on it forever.
-    #[test]
-    fn buffers_a_failure_never_touched_are_read_normally() {
-        let producer = StreamId { value: 1 };
-        let reader = StreamId { value: 2 };
-        let unwritten = ManagedMemoryId { value: 10 };
-        let untouched = ManagedMemoryId { value: 11 };
-
-        let mut errors = StreamErrors::default();
-        errors.push_unwritten(producer, error("launch"), [unwritten]);
-        // A failure that left no buffer behind concerns no read at all.
-        errors.push(producer, error("profile"));
-
-        assert!(errors.peek_unwritten(&[untouched], reader, true).is_empty());
-        assert_eq!(
-            reasons(errors.peek_unwritten(&[unwritten], reader, true)),
-            ["launch"]
-        );
-    }
-
-    /// The reader's own failures are left to the flush the read already does,
-    /// so they are reported once rather than twice.
-    #[test]
-    fn the_readers_own_errors_are_left_to_its_flush() {
-        let reader = StreamId { value: 1 };
-        let buffer = ManagedMemoryId { value: 10 };
-
-        let mut errors = StreamErrors::default();
-        errors.push_unwritten(reader, error("launch"), [buffer]);
-
-        assert!(errors.peek_unwritten(&[buffer], reader, true).is_empty());
-        assert_eq!(reasons(errors.take(reader)), ["launch"]);
-    }
-
-    /// A report is owed once; the bytes stay stale until something writes them.
-    ///
-    /// The flush that takes a launch failure is usually the producer's own, and
-    /// it comes long before anyone reads. Dropping the entry there would make
-    /// the failure readable as success from that moment on, on exactly the
-    /// buffers the launch existed to fill — so the entry stays, reported and
-    /// unreportable again, until [`StreamErrors::written`] ends it.
-    #[test]
-    fn a_reported_error_still_fails_a_read_of_what_it_left_unwritten() {
-        let producer = StreamId { value: 1 };
-        let reader = StreamId { value: 2 };
-        let buffer = ManagedMemoryId { value: 10 };
-
-        let mut errors = StreamErrors::default();
-        errors.push_unwritten(producer, error("launch"), [buffer]);
-
-        assert_eq!(reasons(errors.take(producer)), ["launch"]);
-        assert!(
-            !errors.any(producer),
-            "the producer was told, and is free to queue work again"
-        );
-        assert!(
-            errors.take(producer).is_empty() && errors.take(reader).is_empty(),
-            "no flush reports it a second time"
-        );
-        assert_eq!(
-            reasons(errors.peek_unwritten(&[buffer], reader, true)),
-            ["launch"],
-            "the buffer is no less stale for the failure having been reported"
-        );
-
-        errors.written([buffer]);
-        assert!(
-            errors.peek_unwritten(&[buffer], reader, true).is_empty(),
-            "something wrote it, so a read of it is sound again"
-        );
-    }
-
-    /// A failure that left no buffer behind is done once it is reported.
-    ///
-    /// Nothing would ever end it — [`StreamErrors::written`] is offered buffers
-    /// and this entry names none — so keeping it would be a leak with nothing
-    /// to say.
-    #[test]
-    fn an_error_that_left_nothing_behind_is_gone_once_reported() {
-        let stream = StreamId { value: 1 };
-
-        let mut errors = StreamErrors::default();
-        errors.push(stream, error("profile"));
-        errors.push_shared(error("submission"));
-
-        assert_eq!(reasons(errors.take(stream)), ["profile", "submission"]);
-        assert!(errors.entries.is_empty(), "nothing is kept to answer reads");
-    }
-
-    /// A failure its caller already has must not be reported to anyone a second
-    /// time, and must still stop a read of what it left unwritten.
-    ///
-    /// A capture that never seals returns its error from `end_capture`; the
-    /// launches it recorded never ran. Queuing that the ordinary way makes the
-    /// caller's next flush fail on an error it was handed a moment earlier —
-    /// which reads as a stream stuck in a bad state — while dropping it lets a
-    /// neighbour read the buffers those launches never wrote.
-    #[test]
-    fn an_error_its_caller_already_has_is_not_surfaced_again() {
-        let caller = StreamId { value: 1 };
-        let neighbour = StreamId { value: 2 };
-        let buffer = ManagedMemoryId { value: 10 };
-
-        let mut errors = StreamErrors::default();
-        errors.push_returned(error("capture"), [buffer]);
-
-        assert!(
-            !errors.any(caller) && !errors.any(neighbour),
-            "nobody has to report an error that was already returned"
-        );
-        assert_eq!(
-            reasons(errors.peek_unwritten(&[buffer], neighbour, true)),
-            ["capture"],
-            "the buffers it left behind still concern a stream that never heard about it"
-        );
-        assert_eq!(
-            reasons(errors.peek_unwritten(&[buffer], caller, true)),
-            ["capture"],
-            "including the caller: it holds the error, not the knowledge that this buffer is stale"
-        );
-        assert!(
-            errors.take(caller).is_empty() && errors.take(neighbour).is_empty(),
-            "a flush leaves it in place rather than reporting it"
-        );
-    }
-
-    /// A returned entry lasts until something writes the buffer, and no longer.
-    ///
-    /// Nothing drains it — that is what makes it useful to a stream that never
-    /// heard about the failure, and what would make it a permanent poison. The
-    /// stream that owns a capture recovers by relaunching into the same
-    /// buffers, and every read after that is reading what the relaunch wrote.
-    #[test]
-    fn a_returned_entry_ends_when_the_buffer_is_written_again() {
-        let reader = StreamId { value: 1 };
-        let recorded = ManagedMemoryId { value: 10 };
-        let untouched = ManagedMemoryId { value: 11 };
-
-        let mut errors = StreamErrors::default();
-        errors.push_returned(error("capture"), [recorded, untouched]);
-
-        errors.written([recorded]);
-        assert!(
-            errors.peek_unwritten(&[recorded], reader, true).is_empty(),
-            "the relaunch wrote it, so a read of it is sound again"
-        );
-        assert_eq!(
-            reasons(errors.peek_unwritten(&[untouched], reader, true)),
-            ["capture"],
-            "the buffers the relaunch did not write are still stale"
-        );
-
-        errors.written([untouched]);
-        assert!(
-            errors.peek_unwritten(&[untouched], reader, true).is_empty(),
-            "with nothing left to answer for, the entry is gone"
-        );
-    }
-
-    /// Writing a buffer ends every claim on it and no report owed for it.
-    ///
-    /// The two jobs part company here. The bytes have a writer now, so no read
-    /// of them should fail, whichever entry named them and whoever is still
-    /// owed the error — and the stream that failed is owed that error all the
-    /// same, so the entry stays until its flush takes it.
-    ///
-    /// Waiting for that flush instead would lose the write that came before it,
-    /// which is the ordinary way a caller recovers: fill the buffer, then go
-    /// look at what went wrong.
-    #[test]
-    fn writing_a_buffer_ends_the_claim_but_not_the_report() {
-        let producer = StreamId { value: 1 };
-        let reader = StreamId { value: 2 };
-        let buffer = ManagedMemoryId { value: 10 };
-        let untouched = ManagedMemoryId { value: 11 };
-
-        let mut errors = StreamErrors::default();
-        errors.push_unwritten(producer, error("launch"), [buffer, untouched]);
-
-        errors.written([buffer]);
-
-        assert!(
-            errors.peek_unwritten(&[buffer], reader, true).is_empty(),
-            "something wrote it, so a read of it is sound again"
-        );
-        assert_eq!(
-            reasons(errors.peek_unwritten(&[untouched], reader, true)),
-            ["launch"],
-            "the buffers the write did not cover are still stale"
-        );
-        assert_eq!(
-            reasons(errors.take(producer)),
-            ["launch"],
-            "the stream that failed is owed its error either way"
-        );
-    }
-
-    /// A write that lands before the flush is not lost by it.
-    ///
-    /// The buffer is filled, then the caller goes looking for what went wrong.
-    /// An entry that only started listening for writes once its report was made
-    /// would refuse that buffer from then on, with nothing left able to clear
-    /// it.
-    #[test]
-    fn a_write_before_the_flush_still_ends_the_claim() {
-        let producer = StreamId { value: 1 };
-        let reader = StreamId { value: 2 };
-        let buffer = ManagedMemoryId { value: 10 };
-
-        let mut errors = StreamErrors::default();
-        errors.push_unwritten(producer, error("launch"), [buffer]);
-
-        errors.written([buffer]);
-        assert_eq!(reasons(errors.take(producer)), ["launch"]);
-
-        assert!(
-            errors.peek_unwritten(&[buffer], reader, true).is_empty(),
-            "the write covered it before the report, which changes nothing"
-        );
-        assert!(errors.entries.is_empty(), "and the entry is spent");
-    }
-
-    /// Nothing drains a reported entry, so the cap is what keeps the queue from
-    /// growing for the life of the process.
-    ///
-    /// Losing the oldest costs the last thing an entry has to give — the
-    /// buffers it named stop failing reads — so the newest are the ones kept.
-    #[test]
-    fn reported_entries_are_bounded_by_their_cap() {
-        let reader = StreamId { value: 1 };
-        let oldest = ManagedMemoryId { value: 0 };
-        let newest = ManagedMemoryId {
-            value: MAX_REPORTED,
-        };
-
-        let mut errors = StreamErrors::default();
-        for value in 0..=MAX_REPORTED {
-            errors.push_returned(error("capture"), [ManagedMemoryId { value }]);
-        }
-
-        assert_eq!(errors.reported(), MAX_REPORTED);
-        assert!(
-            errors.peek_unwritten(&[oldest], reader, true).is_empty(),
-            "the oldest returned entry was dropped to stay under the cap"
-        );
-        assert_eq!(
-            reasons(errors.peek_unwritten(&[newest], reader, true)),
-            ["capture"],
-            "the newest is the one worth keeping"
-        );
     }
 
     /// A faulted device context is everyone's problem; a queue handed back to
@@ -873,7 +258,7 @@ mod tests {
         }
 
         assert_eq!(
-            errors.owned(),
+            errors.entries.iter().filter(|(o, _)| o.is_some()).count(),
             MAX_OWNED,
             "the queue stops holding entries for streams that are long gone"
         );
@@ -881,44 +266,6 @@ mod tests {
         // the next flush of any stream still surfaces them.
         let bystander = StreamId { value: u64::MAX };
         assert_eq!(errors.take(bystander).len(), MAX_OWNED * 3);
-    }
-
-    /// Losing the attribution must not lose the buffers: a read of what a
-    /// reclaimed entry left unwritten still fails, whichever stream asks.
-    ///
-    /// A reclaimed entry lives on the stream that caused it, and the reader may
-    /// be on any other pooled slot — so leaving the read to the flush that
-    /// eventually drains it would hand back bytes nothing wrote in the meantime.
-    ///
-    /// Which is why `reader_flushes` is per queue and not a property of the
-    /// entry: a shared entry is held back from the one read whose flush takes
-    /// it next, and from no other.
-    #[test]
-    fn a_reclaimed_entry_keeps_the_buffers_it_left_unwritten() {
-        let reader = StreamId { value: u64::MAX };
-        let buffer = ManagedMemoryId { value: 10 };
-
-        let mut errors = StreamErrors::default();
-        errors.push_unwritten(StreamId { value: 0 }, error("launch"), [buffer]);
-        // Push past the cap so the entry above is re-tagged as shared.
-        for value in 1..(MAX_OWNED as u64 * 2) {
-            errors.push(StreamId { value }, error("other"));
-        }
-
-        assert_eq!(
-            errors.entries[0].surfaced,
-            Surfaced::AnyStream,
-            "the oldest entry was reclaimed"
-        );
-        assert_eq!(
-            reasons(errors.peek_unwritten(&[buffer], reader, false)),
-            ["launch"],
-            "a read from another slot has no flush coming for this queue"
-        );
-        assert!(
-            errors.peek_unwritten(&[buffer], reader, true).is_empty(),
-            "a read of the slot it sits on reports it through its own flush instead"
-        );
     }
 
     /// One flush drains both halves of what a stream is owed, and nothing else.

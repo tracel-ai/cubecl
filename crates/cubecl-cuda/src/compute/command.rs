@@ -24,8 +24,8 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::{
-        InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode,
-        MemoryHandle, MemoryReport,
+        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle,
+        MemoryReport,
     },
     stream::ResolvedStreams,
 };
@@ -105,8 +105,9 @@ impl<'a> Command<'a> {
             // miss — allocations are still legal until recording begins.
             stream.info_cache.clear_unpinned();
         }
-        stream.memory_management_gpu.cleanup(true);
-        stream.memory_management_cpu.cleanup(true);
+        let (stream, failures) = self.streams.current_and_failures();
+        stream.memory_management_gpu.cleanup(true, failures);
+        stream.memory_management_cpu.cleanup(true, failures);
     }
 
     /// Set the [`MemoryAllocationMode`] for the current stream.
@@ -129,10 +130,10 @@ impl<'a> Command<'a> {
         config: MemoryConfiguration,
         props: &MemoryDeviceProperties,
     ) -> Result<(), InstallMemoryPoolsError> {
-        self.streams
-            .current()
+        let (stream, failures) = self.streams.current_and_failures();
+        stream
             .memory_management_gpu
-            .install_pools(config, props)
+            .install_pools(config, props, failures)
     }
 
     /// Allocates a new GPU memory buffer of the specified size.
@@ -147,7 +148,8 @@ impl<'a> Command<'a> {
     /// * `Err(IoError)` - If the allocation fails.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
-        match self.streams.current().memory_management_gpu.reserve(size) {
+        let (stream, failures) = self.streams.current_and_failures();
+        match stream.memory_management_gpu.reserve(size, failures) {
             Ok(handle) => Ok(handle),
             // The allocation can never fit; reclaiming would not change that.
             Err(err @ IoError::BufferTooBig { .. }) => Err(err),
@@ -162,7 +164,8 @@ impl<'a> Command<'a> {
             Err(err) => {
                 log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
                 self.memory_cleanup();
-                self.streams.current().memory_management_gpu.reserve(size)
+                let (stream, failures) = self.streams.current_and_failures();
+                stream.memory_management_gpu.reserve(size, failures)
             }
         }
     }
@@ -179,10 +182,10 @@ impl<'a> Command<'a> {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn bind(&mut self, reserved: ManagedMemoryHandle, new: ManagedMemoryHandle) {
         let cursor = self.cursor();
-        self.streams
-            .current()
+        let (stream, failures) = self.streams.current_and_failures();
+        stream
             .memory_management_gpu
-            .bind(reserved, new, cursor)
+            .bind(reserved, new, cursor, failures)
             .unwrap();
     }
 
@@ -217,11 +220,14 @@ impl<'a> Command<'a> {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn reserve_pinned(&mut self, size: usize, origin: Option<StreamId>) -> Option<Bytes> {
-        let stream = match origin {
-            Some(id) => self.streams.get(&id),
-            None => self.streams.current(),
+        let (stream, failures) = match origin {
+            Some(id) => self.streams.get_and_failures(&id),
+            None => self.streams.current_and_failures(),
         };
-        let handle = stream.memory_management_cpu.reserve(size as u64).ok()?;
+        let handle = stream
+            .memory_management_cpu
+            .reserve(size as u64, failures)
+            .ok()?;
 
         let binding = MemoryHandle::binding(handle);
         let resource = stream
@@ -386,29 +392,27 @@ impl<'a> Command<'a> {
     }
 
     /// Registers an error on the stream, for the logical stream this command
-    /// runs on to surface.
-    ///
-    /// `unwritten` names the buffers the failed work left as they were, so a
-    /// later read of one fails on this rather than copying out bytes nothing
-    /// wrote — empty for a failure that skipped no write. See
-    /// [`StreamErrors::push_unwritten`].
-    pub fn error(
+    /// runs on to surface, and taints the buffers the failed work left as
+    /// they were — so a later read of one fails on this rather than copying
+    /// out bytes nothing wrote. `written` is empty for a failure that skipped
+    /// no write.
+    pub fn error<'b>(
         &mut self,
         error: ServerError,
-        unwritten: impl IntoIterator<Item = ManagedMemoryId>,
+        written: impl Iterator<Item = &'b BufferBinding>,
     ) {
         let stream_id = self.streams.current;
+        self.streams.taint(error.clone(), written);
         let stream = self.streams.current();
-        stream.errors.push_unwritten(stream_id, error, unwritten);
+        stream.errors.push(stream_id, error);
     }
 
-    /// Ends a reported failure's claim on `buffers`: work that writes them is
+    /// Releases the failure on `written`: work that writes those buffers is
     /// on its way, so a read of one is no longer reading bytes nothing wrote.
     ///
     /// The counterpart of [`error`](Self::error), for the paths that succeed.
-    /// See [`StreamErrors::written`].
-    pub fn written(&mut self, buffers: impl IntoIterator<Item = ManagedMemoryId>) {
-        self.streams.current().errors.written(buffers);
+    pub fn written<'b>(&mut self, written: impl Iterator<Item = &'b BufferBinding>) {
+        self.streams.written(written);
     }
 
     /// Writes data from the host to GPU memory as specified by the copy descriptor.

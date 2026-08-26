@@ -17,7 +17,9 @@ use cubecl_runtime::{
     id::KernelId,
     kernel::{CompiledKernel, KernelMetadata},
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage},
+    memory_management::{
+        ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage,
+    },
     server::{
         BufferBinding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, Handle, KernelArguments,
         KernelResource, ProfileError, ProfilingToken, ServerCommunication, ServerError,
@@ -41,6 +43,8 @@ pub struct DummyServer {
     /// drains the whole queue. Recording happens once, here; tagging the in-flight
     /// profile is the drain's job.
     errors: Vec<ServerError>,
+    /// The failures the server's tainted allocations still point at.
+    failures: ErrorGraph,
 }
 
 #[derive(Debug, Clone)]
@@ -132,9 +136,12 @@ impl ComputeServer for DummyServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, _stream_id: StreamId) {
-        let reserved = self.memory_management.reserve(size).unwrap();
+        let reserved = self
+            .memory_management
+            .reserve(size, &mut self.failures)
+            .unwrap();
         self.memory_management
-            .bind(reserved, memory.clone(), 0)
+            .bind(reserved, memory.clone(), 0, &mut self.failures)
             .unwrap();
     }
 
@@ -276,7 +283,7 @@ impl ComputeServer for DummyServer {
     }
 
     fn memory_cleanup(&mut self, _stream_id: StreamId) {
-        self.memory_management.cleanup(true);
+        self.memory_management.cleanup(true, &mut self.failures);
     }
 
     fn start_profile(&mut self, _stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
@@ -351,6 +358,7 @@ impl DummyServer {
             utilities,
             timestamps: TimestampProfiler::default(),
             errors: Vec::new(),
+            failures: ErrorGraph::default(),
         }
     }
 

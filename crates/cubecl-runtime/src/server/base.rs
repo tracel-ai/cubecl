@@ -646,24 +646,17 @@ pub enum ReduceOperation {
 /// Defines functions for optimized data transfer between servers, supporting custom communication
 /// mechanisms such as peer-to-peer communication or specialized implementations.
 ///
-/// # Outside the unwritten-buffer rules
+/// # Inside the tainted-buffer rules
 ///
-/// A collective reads a source buffer and produces a destination one, and does
-/// neither of the things the rest of the server does about that: it does not
-/// ask whether the source was ever written (as
-/// [`read`](ComputeServer::read) does through
+/// A collective reads a source buffer and produces a destination one, and owes
+/// the same two answers the rest of the server gives: ask whether the source
+/// carries a failure on the way in (as [`read`](ComputeServer::read) does
+/// through
 /// [`StreamPool::ensure_written`](crate::stream::StreamPool::ensure_written)),
-/// and a failure does not name the destination it left as it was (as a failed
-/// [`launch`](ComputeServer::launch) does). So a collective over a buffer a
-/// failed launch never filled reduces stale bytes across every device in the
-/// group, and a collective that fails itself leaves a destination that reads
-/// back clean.
-///
-/// Closing that needs the same two calls the launch path makes —
-/// `ensure_written` over the sources on the way in,
-/// [`push_unwritten`](crate::stream::StreamErrors::push_unwritten) naming the
-/// destinations on the way out — on each of the operations below, in the one
-/// backend that implements them.
+/// and taint the destination on the way out when the operation fails (as a
+/// failed [`launch`](ComputeServer::launch) does). Skipping either lets a
+/// collective reduce stale bytes across every device in the group, or leave a
+/// destination that reads back clean when nothing wrote it.
 pub trait ServerCommunication {
     /// Indicates whether server-to-server communication is enabled for this implementation.
     const SERVER_COMM_ENABLED: bool;
@@ -1069,7 +1062,7 @@ pub struct KernelArguments {
     pub info: MetadataBindingInfo,
     /// Which of `resources` the kernel writes — `&mut` in the `#[cube]`
     /// signature, plus any input an aliased output writes in place. See
-    /// [`memory_ids_written`](Self::memory_ids_written).
+    /// [`buffers_written`](Self::buffers_written).
     pub writes: WriteMask,
 }
 
@@ -1198,21 +1191,20 @@ impl KernelArguments {
         self.buffers().map(|binding| binding.memory.id())
     }
 
-    /// The memory this launch was given that the kernel writes — the buffers a
-    /// launch that fails leaves unwritten, and nothing else. See
-    /// [`StreamErrors::push_unwritten`](crate::stream::StreamErrors::push_unwritten).
+    /// The buffers this launch was given that the kernel writes — the ones a
+    /// launch that fails taints, and nothing else.
     ///
     /// Naming an input here would fail a read of memory the launch never
-    /// touched, on any stream, until the launching one flushes. Leaving out
+    /// touched, on any stream, until something writes it again. Leaving out
     /// something the kernel does write is the worse mistake by far — a read of
     /// it hands back the bytes that were there before, silently — so
     /// [`writes`](Self::writes) is built to over-name rather than under-name,
     /// and an empty one means every resource.
-    pub fn memory_ids_written(&self) -> impl Iterator<Item = ManagedMemoryId> + '_ {
+    pub fn buffers_written(&self) -> impl Iterator<Item = &BufferBinding> {
         self.buffers()
             .enumerate()
             .filter(move |(index, _)| self.writes(*index))
-            .map(|(_, binding)| binding.memory.id())
+            .map(|(_, binding)| binding)
     }
 
     /// Whether the kernel writes the resource at `index` — see

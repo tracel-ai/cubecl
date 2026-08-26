@@ -8,8 +8,8 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle,
-        MemoryManagement, MemoryManagementOptions,
+        ErrorGraph, FailureId, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode,
+        MemoryHandle, MemoryManagement, MemoryManagementOptions,
     },
     storage::ComputeStorage,
 };
@@ -21,6 +21,14 @@ pub(crate) struct WgpuMemManager {
     memory_uniforms: MemoryManagement<WgpuStorage>,
     memory_pool_staging: MemoryManagement<WgpuStorage>,
     uniforms: Vec<ManagedMemoryHandle>,
+    /// The failure store the staging and uniforms pools shed into.
+    ///
+    /// Only the main pool's allocations back [`BufferBinding`]s, so only they
+    /// can ever carry a failure — the device-wide store is threaded into the
+    /// main pool's operations for that reason. The auxiliary pools still need
+    /// a store to shed into (their signatures are the same), and every
+    /// decrement they make is of `None`, so this one stays empty forever.
+    aux: ErrorGraph,
 }
 
 impl WgpuMemManager {
@@ -89,25 +97,59 @@ impl WgpuMemManager {
             memory_pool_staging: memory_staging,
             memory_uniforms,
             uniforms: vec![],
+            aux: ErrorGraph::default(),
         }
     }
 
-    pub(crate) fn bind(&mut self, old: ManagedMemoryHandle, new: ManagedMemoryHandle) {
-        self.memory_pool.bind(old, new, 0).unwrap();
+    pub(crate) fn bind(
+        &mut self,
+        old: ManagedMemoryHandle,
+        new: ManagedMemoryHandle,
+        failures: &mut ErrorGraph,
+    ) {
+        self.memory_pool.bind(old, new, 0, failures).unwrap();
     }
 
-    pub(crate) fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
-        match self.memory_pool.reserve(size) {
+    pub(crate) fn reserve(
+        &mut self,
+        size: u64,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        match self.memory_pool.reserve(size, failures) {
             Ok(handle) => Ok(handle),
             Err(err) => Err(err),
         }
+    }
+
+    /// The failure carried by the allocation behind `binding`, if any — see
+    /// [`MemoryManagement::failure`]. Main pool only: the auxiliary pools'
+    /// allocations never back a [`BufferBinding`].
+    pub(crate) fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
+        self.memory_pool.failure(binding)
+    }
+
+    /// Point the allocation behind `binding` at `failure` — see
+    /// [`MemoryManagement::taint`].
+    pub(crate) fn taint(
+        &mut self,
+        binding: &ManagedMemoryBinding,
+        failure: FailureId,
+        failures: &mut ErrorGraph,
+    ) {
+        self.memory_pool.taint(binding, failure, failures)
+    }
+
+    /// The allocation behind `binding` has a writer again — see
+    /// [`MemoryManagement::written`].
+    pub(crate) fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
+        self.memory_pool.written(binding, failures)
     }
 
     pub(crate) fn reserve_staging(
         &mut self,
         size: u64,
     ) -> Result<(WgpuResource, ManagedMemoryBinding), IoError> {
-        let handle = self.memory_pool_staging.reserve(size)?;
+        let handle = self.memory_pool_staging.reserve(size, &mut self.aux)?;
         let binding = MemoryHandle::binding(handle);
         let resource = self
             .memory_pool_staging
@@ -129,7 +171,7 @@ impl WgpuMemManager {
     pub(crate) fn reserve_uniform(&mut self, size: u64) -> (ManagedMemoryHandle, WgpuResource) {
         let slice = self
             .memory_uniforms
-            .reserve(size)
+            .reserve(size, &mut self.aux)
             .expect("Must have enough memory for a uniform");
         // Keep track of this uniform until it is released.
         self.uniforms.push(slice.clone());
@@ -154,14 +196,14 @@ impl WgpuMemManager {
         self.memory_pool.memory_report()
     }
 
-    pub(crate) fn memory_cleanup(&mut self, explicit: bool) {
-        self.memory_pool.cleanup(explicit);
+    pub(crate) fn memory_cleanup(&mut self, explicit: bool, failures: &mut ErrorGraph) {
+        self.memory_pool.cleanup(explicit, failures);
         // An explicit cleanup also reclaims the uniforms pool: the info cache
         // holds uniform slices across flushes, so this is where the pages of
         // just-released entries (see `MetadataInfoCache::clear_unpinned`) are
         // actually returned to the driver.
         if explicit {
-            self.memory_uniforms.cleanup(explicit);
+            self.memory_uniforms.cleanup(explicit, &mut self.aux);
         }
     }
 
@@ -180,8 +222,9 @@ impl WgpuMemManager {
         &mut self,
         config: MemoryConfiguration,
         props: &MemoryDeviceProperties,
+        failures: &mut ErrorGraph,
     ) -> Result<(), cubecl_runtime::memory_management::InstallMemoryPoolsError> {
-        self.memory_pool.install_pools(config, props)
+        self.memory_pool.install_pools(config, props, failures)
     }
 
     pub(crate) fn release_uniforms(&mut self) {

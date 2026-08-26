@@ -1,9 +1,8 @@
 //! The stream-side graph-capture lifecycle, shared by every backend with
 //! graph support (see [`ComputeServer::graph_prepare`](crate::server::ComputeServer::graph_prepare)).
 
-use crate::memory_management::ManagedMemoryId;
 use crate::metadata_cache::CacheMode;
-use crate::server::ServerError;
+use crate::server::{BufferBinding, ServerError};
 use alloc::format;
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
@@ -168,31 +167,31 @@ impl CaptureEnd {
 /// none, so a replay that fails to enqueue leaves all of them exactly as they
 /// were, and so does a capture that never seals. Either way a later read of one
 /// has to fail rather than copy out bytes nothing wrote — which needs the list
-/// the launches themselves no longer hold.
-/// See [`StreamErrors::push_unwritten`](super::StreamErrors::push_unwritten).
+/// the launches themselves no longer hold, as bindings, so the failure can be
+/// tainted onto the allocations they resolve to.
 #[derive(Debug, Default)]
 pub struct StreamCapture {
     state: StreamCaptureState,
-    recorded: Vec<ManagedMemoryId>,
+    recorded: Vec<BufferBinding>,
 }
 
 impl StreamCapture {
     /// Remember the memory a launch was given, when the stream is recording.
     ///
-    /// A no-op outside a window, where a launch that fails names its own
+    /// A no-op outside a window, where a launch that fails taints its own
     /// buffers on the spot and there is no graph to answer for them later.
-    pub fn record(&mut self, buffers: impl IntoIterator<Item = ManagedMemoryId>) {
+    pub fn record(&mut self, buffers: impl IntoIterator<Item = BufferBinding>) {
         if self.state.is_recording() {
             self.recorded.extend(buffers);
         }
     }
 
-    /// The memory of the capture that just closed, each id named once — the
-    /// same buffer comes back once per recorded launch that was given it.
-    pub fn take_recorded(&mut self) -> Vec<ManagedMemoryId> {
+    /// The memory of the capture that just closed, each buffer named once —
+    /// the same buffer comes back once per recorded launch that was given it.
+    pub fn take_recorded(&mut self) -> Vec<BufferBinding> {
         let mut recorded = core::mem::take(&mut self.recorded);
-        recorded.sort_unstable();
-        recorded.dedup();
+        recorded.sort_unstable_by_key(|binding| binding.memory.id());
+        recorded.dedup_by_key(|binding| binding.memory.id());
         recorded
     }
 
@@ -397,11 +396,18 @@ impl StreamCaptureState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory_management::ManagedMemoryId;
+    use crate::server::Handle;
 
     const OWNER: StreamId = StreamId { value: 7 };
 
-    fn id(value: usize) -> ManagedMemoryId {
-        ManagedMemoryId { value }
+    /// A distinct buffer per call, on the owner's stream.
+    fn buffer() -> BufferBinding {
+        Handle::new(OWNER, 8).binding()
+    }
+
+    fn ids(bindings: &[BufferBinding]) -> Vec<ManagedMemoryId> {
+        bindings.iter().map(|binding| binding.memory.id()).collect()
     }
 
     /// The ordering rule the three backends rely on: a capture cannot start
@@ -516,20 +522,20 @@ mod tests {
     /// weights.
     #[test]
     fn a_capture_names_each_buffer_its_launches_were_given_once() {
-        let (a, b, c) = (id(1), id(2), id(3));
+        let (a, b, c) = (buffer(), buffer(), buffer());
 
         let mut capture = StreamCapture::default();
         capture.prepare(OWNER).unwrap();
         capture.begin().unwrap();
-        capture.record([a, b]);
-        capture.record([b, c]);
-        capture.record([a]);
+        capture.record([a.clone(), b.clone()]);
+        capture.record([b.clone(), c.clone()]);
+        capture.record([a.clone()]);
 
         assert_eq!(
             capture.end(OWNER).unwrap(),
             CaptureEnd::Owned { owner: OWNER }
         );
-        assert_eq!(capture.take_recorded(), [a, b, c]);
+        assert_eq!(ids(&capture.take_recorded()), ids(&[a, b, c]));
         assert!(
             capture.take_recorded().is_empty(),
             "the recording moves onto the graph, it is not left on the stream"
@@ -544,18 +550,19 @@ mod tests {
     /// of buffers it never touched.
     #[test]
     fn a_launch_outside_a_window_is_not_recorded() {
+        let (before, warmup, recorded) = (buffer(), buffer(), buffer());
         let mut capture = StreamCapture::default();
 
-        capture.record([id(1)]);
+        capture.record([before]);
         capture.prepare(OWNER).unwrap();
         // Prepared is the warmup run: it executes rather than records.
-        capture.record([id(2)]);
+        capture.record([warmup]);
 
         capture.begin().unwrap();
-        capture.record([id(3)]);
+        capture.record([recorded.clone()]);
         capture.end(OWNER).unwrap();
 
-        assert_eq!(capture.take_recorded(), [id(3)]);
+        assert_eq!(ids(&capture.take_recorded()), ids(&[recorded]));
     }
 
     /// A window that never sealed leaves nothing behind for the next one.
@@ -568,17 +575,18 @@ mod tests {
     fn a_new_capture_starts_from_an_empty_recording() {
         let neighbour = StreamId { value: 8 };
 
+        let (aborted, abandoned) = (buffer(), buffer());
         let mut capture = StreamCapture::default();
         capture.prepare(OWNER).unwrap();
         capture.begin().unwrap();
-        capture.record([id(1)]);
+        capture.record([aborted]);
         capture.abort();
 
         capture.prepare(OWNER).unwrap();
         capture.begin().unwrap();
-        capture.record([id(2)]);
+        capture.record([abandoned.clone()]);
         assert!(capture.end(neighbour).unwrap().is_abandoned());
-        assert_eq!(capture.take_recorded(), [id(2)]);
+        assert_eq!(ids(&capture.take_recorded()), ids(&[abandoned]));
 
         capture.prepare(neighbour).unwrap();
         capture.begin().unwrap();

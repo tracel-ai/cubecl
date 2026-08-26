@@ -1,6 +1,5 @@
-use crate::memory_management::ManagedMemoryId;
+use crate::memory_management::{ErrorGraph, FailureId, ManagedMemoryBinding};
 use crate::server::{BufferBinding, ServerError};
-use crate::stream::StreamErrorSink;
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
@@ -11,6 +10,30 @@ pub trait StreamFactory {
     type Stream;
     /// Creates a new stream instance.
     fn create(&mut self) -> Self::Stream;
+}
+
+/// The memory a stream's kernels see, for the taint bookkeeping.
+///
+/// Whether a buffer can be trusted lives on its allocation, inside one of the
+/// stream's memory managers. A backend supplies only which manager that is —
+/// the one whose allocations back [`BufferBinding`]s, never the auxiliary
+/// staging or uniform managers — and everything the drivers do with the
+/// answer lives on the shared wrappers.
+pub trait StreamMemory {
+    /// The failure carried by the allocation behind `binding`, if any.
+    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId>;
+
+    /// Point the allocation behind `binding` at `failure`.
+    fn taint(
+        &mut self,
+        binding: &ManagedMemoryBinding,
+        failure: FailureId,
+        failures: &mut ErrorGraph,
+    );
+
+    /// The allocation behind `binding` has a writer again: release the
+    /// failure it carried.
+    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph);
 }
 
 /// Represents a pool of streams, managing a collection of streams created by a factory.
@@ -118,58 +141,65 @@ impl<F: StreamFactory> StreamPool<F> {
         stream_index(id, self.max_streams)
     }
 
-    /// Fails when the buffers `handles` name were never written, with the
-    /// errors of the work that was supposed to write them.
+    /// The stream on `id`'s slot, when that slot was ever initialized.
+    ///
+    /// Never creates one: resolving a buffer's owning slot must not bring a
+    /// backend stream into existence, which on CUDA and HIP would bind it to
+    /// whichever context happens to be current. A buffer's slot was
+    /// initialized by the allocation itself, so `None` here means the binding
+    /// is not this pool's to answer for.
+    pub fn try_get(&self, id: &StreamId) -> Option<&F::Stream> {
+        self.streams[stream_index(id, self.max_streams)].as_ref()
+    }
+
+    /// [`try_get`](Self::try_get), mutably.
+    pub fn try_get_mut(&mut self, id: &StreamId) -> Option<&mut F::Stream> {
+        self.streams[stream_index(id, self.max_streams)].as_mut()
+    }
+
+    /// Fails when the buffers `handles` name carry a failure, with the errors
+    /// of the work that was supposed to write them.
     ///
     /// A read is only as good as the work that wrote the buffer: a launch that
     /// failed never wrote it, so copying its bytes out hands back whatever was
-    /// in memory before. `reader`'s own errors are left out — the read flushes
-    /// them on its way through, which reports them once.
-    ///
-    /// The question is asked of the buffers, not of a stream, and of every
-    /// initialized slot rather than the handles' own. A handle names the stream
-    /// it was **created** on and nothing re-tags it, so a buffer allocated here,
-    /// written by a failed launch there, and read back here names no stream that
-    /// has anything queued — while the pool is small enough to ask all of it.
-    /// Slots are read as they are, never created: a read must not bring a
-    /// backend stream into existence, which on CUDA and HIP would bind it to
-    /// whichever context happens to be current.
+    /// in memory before. Whether that happened is a field on the allocation,
+    /// so the question is answered by the slice each binding resolves to — a
+    /// lookup the read was going to do anyway — and by nobody's queue.
     ///
     /// The errors are read, never taken: the stream that caused each one still
     /// surfaces it on its own flush.
     ///
-    /// One slot is asked a narrower question than the rest — the one `reader`
-    /// folds onto, whose queue the read's own flush drains a moment later.
-    /// What that flush is about to report is left out here, so the read reports
-    /// it once; no other slot has a flush of `reader` coming, so nothing is
-    /// held back there.
-    ///
     /// # Errors
     ///
-    /// [`ServerError::ServerUnhealthy`] naming every failure that left one of
-    /// these buffers unwritten. The caller has nothing to retry — the bytes are
-    /// gone — so the error is the answer to the read, not a hint to try again.
+    /// [`ServerError::ServerUnhealthy`] naming every failure one of these
+    /// buffers carries, each failure once however many buffers carry it. The
+    /// caller has nothing to retry — the bytes are gone — so the error is the
+    /// answer to the read, not a hint to try again.
     pub fn ensure_written<'a>(
         &self,
-        reader: StreamId,
+        failures: &ErrorGraph,
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Result<(), ServerError>
     where
-        F::Stream: StreamErrorSink,
+        F::Stream: StreamMemory,
     {
-        let buffers: Vec<ManagedMemoryId> = handles.map(|handle| handle.memory.id()).collect();
-
-        if buffers.is_empty() {
-            return Ok(());
-        }
-
-        let own = stream_index(&reader, self.max_streams);
+        let mut seen: Vec<FailureId> = Vec::new();
         let mut errors = Vec::new();
-        for (index, stream) in self.streams.iter().enumerate() {
-            let Some(stream) = stream else {
+
+        for handle in handles {
+            let Some(stream) = self.try_get(&handle.stream) else {
                 continue;
             };
-            errors.extend(stream.unwritten(&buffers, reader, index == own));
+            let Some(failure) = stream.failure(&handle.memory) else {
+                continue;
+            };
+            if seen.contains(&failure) {
+                continue;
+            }
+            seen.push(failure);
+            if let Some(error) = failures.error(failure) {
+                errors.push(error.clone());
+            }
         }
 
         match errors.is_empty() {
@@ -178,6 +208,53 @@ impl<F: StreamFactory> StreamPool<F> {
                 errors,
                 backtrace: BackTrace::capture(),
             }),
+        }
+    }
+
+    /// Taint every allocation in `written` with `error`: the work that was
+    /// going to write those buffers did not run, so a read of any of them
+    /// fails on this failure until something writes them again.
+    ///
+    /// Each binding is resolved to the manager of the stream it was created
+    /// on, which may not be the stream that failed — that is the point: the
+    /// fact lands on the memory, wherever it lives.
+    pub fn taint<'a>(
+        &mut self,
+        error: ServerError,
+        written: impl Iterator<Item = &'a BufferBinding>,
+        failures: &mut ErrorGraph,
+    ) where
+        F::Stream: StreamMemory,
+    {
+        let failure = failures.insert(error);
+        for handle in written {
+            let index = stream_index(&handle.stream, self.max_streams);
+            let Some(stream) = self.streams[index].as_mut() else {
+                continue;
+            };
+            stream.taint(&handle.memory, failure, failures);
+        }
+        // A failure that named no buffer anything still holds has nothing to
+        // wait for.
+        failures.prune(failure);
+    }
+
+    /// Release the failure on every allocation in `written`: work that writes
+    /// them has been enqueued, so a read of one is no longer reading bytes
+    /// nothing wrote.
+    pub fn written<'a>(
+        &mut self,
+        written: impl Iterator<Item = &'a BufferBinding>,
+        failures: &mut ErrorGraph,
+    ) where
+        F::Stream: StreamMemory,
+    {
+        for handle in written {
+            let index = stream_index(&handle.stream, self.max_streams);
+            let Some(stream) = self.streams[index].as_mut() else {
+                continue;
+            };
+            stream.written(&handle.memory, failures);
         }
     }
 

@@ -1,6 +1,7 @@
 use crate::{
     memory_management::{
-        BytesFormat, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation, MemoryUsage,
+        BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
+        MemoryUsage,
         memory_pool::{PageMapping, Slice, calculate_padding},
     },
     server::IoError,
@@ -92,12 +93,13 @@ impl MemoryPage {
         reserved: ManagedMemoryHandle,
         new: ManagedMemoryHandle,
         cursor: u64,
+        failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         let slice = &mut self.slices[reserved.descriptor().slice()];
         new.descriptor()
             .update_location(reserved.descriptor().location());
         slice.cursor = cursor;
-        slice.handle = new;
+        slice.bind(new, failures);
 
         Ok(())
     }
@@ -207,6 +209,27 @@ impl MemoryPage {
             })
     }
 
+    /// [`find`](Self::find), mutably.
+    pub fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
+        let slice_index = binding.descriptor().slice();
+
+        self.slices
+            .get_mut(slice_index)
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: alloc::format!("Memory slice {} doesn't exist", slice_index).into(),
+            })
+    }
+
+    /// Release every failure the page's slices still carry, for a page about
+    /// to be dropped whole: the slices go with it, and a tag on one must not
+    /// outlive its carrier.
+    pub fn shed(&mut self, failures: &mut ErrorGraph) {
+        for slice in self.slices.iter_mut() {
+            failures.untag(slice.failure.take());
+        }
+    }
+
     pub fn update_page(&mut self, page: u16) {
         self.location_base.page = page;
 
@@ -219,8 +242,13 @@ impl MemoryPage {
     /// single slice.
     ///
     /// This is necessary to allow bigger slices to be reserved on the current page.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn coalesce(&mut self) {
+    ///
+    /// A merged slice is dropped here, so the failure it carried is released
+    /// on the spot. Free slices are the only ones merged, and nobody holds a
+    /// handle to a free slice, so losing the tag costs nothing but the
+    /// decrement.
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
+    pub fn coalesce(&mut self, failures: &mut ErrorGraph) {
         self.slices_tmp.clear();
         let mut job = self.memory_job();
         let mut tasks = job.tasks.drain(..);
@@ -243,9 +271,11 @@ impl MemoryPage {
                 MemoryTaskStatus::StartMerging => {
                     offset = slice.storage.utilization.offset;
                     size = slice.effective_size();
+                    failures.untag(slice.failure);
                 }
                 MemoryTaskStatus::Merging => {
                     size += slice.effective_size();
+                    failures.untag(slice.failure);
                 }
                 MemoryTaskStatus::Ignoring => {
                     let slice_pos_updated = self.slices_tmp.len();
@@ -258,6 +288,7 @@ impl MemoryPage {
                 MemoryTaskStatus::Completed => {
                     let slice_pos_updated = self.slices_tmp.len();
                     size += slice.effective_size();
+                    failures.untag(slice.failure);
 
                     let mut storage = self.storage.clone();
                     storage.utilization = StorageUtilization { offset, size };
@@ -542,7 +573,7 @@ mod tests {
             },
             "Summary is correct before coalesce",
         );
-        page.coalesce();
+        page.coalesce(&mut ErrorGraph::default());
         let summary = page.summary(true);
 
         assert_eq!(
@@ -651,7 +682,7 @@ mod tests {
         let slice_6 = page.try_reserve(9 * MB);
         assert!(slice_6.is_none(), "No more place");
 
-        page.coalesce();
+        page.coalesce(&mut ErrorGraph::default());
 
         assert_eq!(
             page.summary(true),
@@ -704,7 +735,7 @@ mod tests {
         core::mem::drop(slice_1);
         core::mem::drop(slice_4);
 
-        page.coalesce();
+        page.coalesce(&mut ErrorGraph::default());
 
         assert_eq!(
             page.find(&slice_6.clone().unwrap().binding())

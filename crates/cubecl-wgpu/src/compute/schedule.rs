@@ -4,11 +4,12 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, pool::LeaseHandle, profile::TimingMethod};
+use cubecl_core::server::BufferBinding;
 use cubecl_core::{CubeCount, MemoryConfiguration, server::MetadataBindingInfo, zspace::SmallVec};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{ManagedMemoryId, SharedMemoryBindings},
+    memory_management::{ErrorGraph, SharedMemoryBindings},
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
@@ -20,10 +21,10 @@ pub enum ScheduleTask {
         data: Bytes,
         /// The target buffer resource.
         buffer: WgpuResource,
-        /// The memory the write fills, which a rejection has to name: a
+        /// The buffer the write fills, which a rejection has to taint: a
         /// destination nothing copied into is one a later read must fail on
         /// rather than copy stale bytes out of.
-        memory: ManagedMemoryId,
+        handle: BufferBinding,
     },
     /// Represents a task to execute a compute pipeline.
     Execute {
@@ -218,12 +219,12 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
     type Stream = WgpuStream;
     type Factory = WgpuStreamFactory;
 
-    fn enqueue(task: Self::Task, stream: &mut Self::Stream) {
-        stream.enqueue_task(task);
+    fn enqueue(task: Self::Task, stream: &mut Self::Stream, failures: &mut ErrorGraph) {
+        stream.enqueue_task(task, failures);
     }
 
-    fn flush(stream: &mut Self::Stream) {
-        stream.submit();
+    fn flush(stream: &mut Self::Stream, failures: &mut ErrorGraph) {
+        stream.submit(failures);
     }
 
     fn factory(&mut self) -> &mut Self::Factory {

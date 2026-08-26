@@ -5,9 +5,11 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{MemoryManagement, MemoryManagementOptions},
+    memory_management::{
+        ErrorGraph, FailureId, ManagedMemoryBinding, MemoryManagement, MemoryManagementOptions,
+    },
     server::BufferBinding,
-    stream::{EventStreamBackend, StreamErrorSink, StreamErrors},
+    stream::{EventStreamBackend, StreamErrorSink, StreamErrors, StreamMemory},
 };
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -129,6 +131,25 @@ impl StreamErrorSink for MetalStream {
     }
 }
 
+impl StreamMemory for MetalStream {
+    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
+        self.memory_management.failure(binding)
+    }
+
+    fn taint(
+        &mut self,
+        binding: &ManagedMemoryBinding,
+        failure: FailureId,
+        failures: &mut ErrorGraph,
+    ) {
+        self.memory_management.taint(binding, failure, failures)
+    }
+
+    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
+        self.memory_management.written(binding, failures)
+    }
+}
+
 impl MetalStream {
     /// Returns the active batch encoder, creating one if none is open.
     pub fn get_or_create_encoder(&mut self) -> &mut ActiveEncoder {
@@ -160,7 +181,7 @@ impl MetalStream {
 
     /// Waits on a previously submitted command buffer if total queued ops
     /// exceed `max_submitted_ops`, then resets the counter and runs memory cleanup.
-    pub fn regulate(&mut self, ops_in_batch: usize) {
+    pub fn regulate(&mut self, ops_in_batch: usize, failures: &mut ErrorGraph) {
         self.submitted_ops += ops_in_batch;
 
         if self.submitted_ops >= self.max_submitted_ops {
@@ -169,7 +190,7 @@ impl MetalStream {
                 std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
             }
             self.submitted_ops = 0;
-            self.memory_management.cleanup(false);
+            self.memory_management.cleanup(false, failures);
         }
     }
 }
@@ -343,7 +364,7 @@ impl EventStreamBackend for MetalStreamBackend {
         }
     }
 
-    fn flush(stream: &mut Self::Stream) -> Self::Event {
+    fn flush(stream: &mut Self::Stream, failures: &mut ErrorGraph) -> Self::Event {
         use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder, MTLEvent};
 
         stream.event_counter += 1;
@@ -394,7 +415,7 @@ impl EventStreamBackend for MetalStreamBackend {
         stream.batch_ops = 0;
         stream.batch_bytes = 0;
 
-        stream.regulate(ops_in_batch);
+        stream.regulate(ops_in_batch, failures);
 
         MetalEvent::new(stream.shared_event.clone(), signal_value)
     }

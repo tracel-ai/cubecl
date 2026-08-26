@@ -1,5 +1,6 @@
+use cubecl_core::server::BufferBinding;
 use cubecl_hip_sys::hipGraphExec_t;
-use cubecl_runtime::memory_management::{ManagedMemoryHandle, ManagedMemoryId};
+use cubecl_runtime::memory_management::ManagedMemoryHandle;
 
 /// An instantiated HIP executable graph (`hipGraphExec_t`), destroyed on drop.
 ///
@@ -18,12 +19,11 @@ pub struct HipGraph {
     /// reusing those slices (a reuse would let a later allocation share memory
     /// the replay overwrites). Dropped with the graph, releasing the memory.
     pub(crate) _retained: Vec<ManagedMemoryHandle>,
-    /// The buffers the recorded launches were given, deduplicated. A replay
-    /// that fails to enqueue runs none of those launches, so it leaves every
-    /// one of these as it was — which is what a later read of one has to fail
-    /// on, whichever stream asks (see
-    /// [`StreamErrors::push_unwritten`](cubecl_runtime::stream::StreamErrors::push_unwritten)).
-    pub(crate) unwritten: Vec<ManagedMemoryId>,
+    /// The buffers the recorded launches write, deduplicated. A replay that
+    /// fails to enqueue runs none of those launches, so it leaves every one of
+    /// these as it was — tainting them is what makes a later read of one fail,
+    /// whichever stream asks.
+    pub(crate) written: Vec<BufferBinding>,
 }
 
 impl Drop for HipGraph {

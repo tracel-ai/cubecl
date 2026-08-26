@@ -1,7 +1,9 @@
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{MemoryConfiguration, MemoryManagement, MemoryManagementOptions},
+    memory_management::{
+        ErrorGraph, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
+    },
     storage::BytesStorage,
 };
 use std::{collections::LinkedList, sync::Arc};
@@ -29,7 +31,7 @@ fn main() {
         if handles.len() >= 4000 {
             handles.pop_front();
         }
-        let handle = mm.reserve(MB);
+        let handle = mm.reserve(MB, &mut ErrorGraph::default());
         handles.push_back(handle);
     }
     println!("{:?}", start.elapsed());

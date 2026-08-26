@@ -167,15 +167,16 @@ impl MetalServer {
         errors
     }
 
-    /// Records a launch failure on the issuing stream's error sink.
+    /// Records a launch failure on the issuing stream's error sink, tainting
+    /// the buffers the launch was going to write.
     ///
     /// The launch never reached the device, so every buffer it was given is
-    /// left as it was: naming them makes a later read of one fail on this error
+    /// left as it was: the taint makes a later read of one fail on this error
     /// rather than copy out bytes nothing wrote.
     ///
-    /// A dry run names none. It was never going to write, so a failure in it
-    /// leaves nothing stale, and naming its buffers would fail unrelated reads
-    /// of memory the run deliberately left alone.
+    /// A dry run taints none. It was never going to write, so a failure in it
+    /// leaves nothing stale, and tainting its buffers would fail unrelated
+    /// reads of memory the run deliberately left alone.
     fn push_launch_error(
         &mut self,
         stream_id: StreamId,
@@ -183,20 +184,15 @@ impl MetalServer {
         args: &KernelArguments,
         launch_mode: LaunchMode,
     ) {
-        let unwritten: Vec<_> = match launch_mode.is_skipped() {
-            true => Vec::new(),
-            false => args.memory_ids_written().collect(),
-        };
         let mut resolved = match self.streams.resolve(stream_id, std::iter::empty(), false) {
             Ok(resolved) => resolved,
             Err(err) => unreachable!("{err}"),
         };
         let error = ServerError::Launch(err);
-        resolved
-            .current()
-            .errors
-            .lock()
-            .push_unwritten(stream_id, error, unwritten);
+        if !launch_mode.is_skipped() {
+            resolved.taint(error.clone(), args.buffers_written());
+        }
+        resolved.current().errors.lock().push(stream_id, error);
     }
 }
 
@@ -238,13 +234,14 @@ impl ComputeServer for MetalServer {
         let cursor = resolved.cursor;
         let stream = resolved.current();
 
+        let (stream, failures) = resolved.current_and_failures();
         let reserved = stream
             .memory_management
-            .reserve(size)
+            .reserve(size, failures)
             .expect("Failed to reserve memory");
         stream
             .memory_management
-            .bind(reserved, memory, cursor)
+            .bind(reserved, memory, cursor, failures)
             .expect("Failed to bind memory");
     }
 
@@ -259,7 +256,7 @@ impl ComputeServer for MetalServer {
         // them; see `StreamPool::ensure_written`.
         if let Err(err) = self
             .streams
-            .ensure_written(stream_id, descriptors.iter().map(|d| &d.handle))
+            .ensure_written(descriptors.iter().map(|d| &d.handle))
         {
             return Box::pin(async move { Err(err) });
         }
@@ -348,16 +345,14 @@ impl ComputeServer for MetalServer {
             // what a later read of it has to fail on — so it is queued for the
             // caller to surface rather than logged and forgotten, as on every
             // other backend.
-            let unwritten = [descriptor.handle.memory.id()];
+            let destination = descriptor.handle.clone();
             let (resource, offset) =
                 match resolve_origin_resource(&mut resolved, &descriptor.handle) {
                     Ok(r) => r,
                     Err(e) => {
-                        resolved.current().errors.lock().push_unwritten(
-                            stream_id,
-                            ServerError::Io(e),
-                            unwritten,
-                        );
+                        let error = ServerError::Io(e);
+                        resolved.taint(error.clone(), [&destination].into_iter());
+                        resolved.current().errors.lock().push(stream_id, error);
                         continue;
                     }
                 };
@@ -378,7 +373,7 @@ impl ComputeServer for MetalServer {
             // The buffer is filled, so an earlier failure that left it stale has
             // nothing left to say about it: a caller recovers by writing from
             // the host as much as by relaunching.
-            resolved.current().errors.lock().written(unwritten);
+            resolved.written([&destination].into_iter());
         }
     }
 
@@ -568,7 +563,7 @@ impl ComputeServer for MetalServer {
 
         // This launch is on its way, so an earlier failure that left these
         // buffers stale has nothing left to say about them.
-        stream.errors.lock().written(bindings.memory_ids_written());
+        resolved.written(bindings.buffers_written());
 
         let needs_flush = stream.batch_ops > stream.max_ops_per_batch
             || (stream.batch_bytes >> 20) > stream.max_mb_per_batch;
@@ -724,8 +719,8 @@ impl ComputeServer for MetalServer {
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
-            let stream = resolved.current();
-            stream.memory_management.cleanup(true);
+            let (stream, failures) = resolved.current_and_failures();
+            stream.memory_management.cleanup(true, failures);
         }
     }
 
@@ -754,8 +749,10 @@ impl ComputeServer for MetalServer {
         // layout when something is still live in them.
         match self.streams.resolve(stream_id, std::iter::empty(), false) {
             Ok(mut resolved) => {
-                let stream = resolved.current();
-                stream.memory_management.install_pools(config, &props)
+                let (stream, failures) = resolved.current_and_failures();
+                stream
+                    .memory_management
+                    .install_pools(config, &props, failures)
             }
             // Server is in error; the failure itself surfaces at the next sync.
             Err(_) => Err(InstallMemoryPoolsError::StreamUnavailable),

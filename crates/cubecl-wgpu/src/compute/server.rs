@@ -32,8 +32,7 @@ use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(feature = "spirv")]
 use cubecl_runtime::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_runtime::memory_management::{
-    InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryReport, MemoryUsage,
-    SharedMemoryBindings,
+    InstallMemoryPoolsError, ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
 };
 use cubecl_runtime::{
     compiler::{CompilationCache, CubeTask},
@@ -75,8 +74,8 @@ pub struct WgpuServer<C: WgpuCompiler> {
     streams_pool: Vec<StreamId>,
     /// The memory the launch in flight was given, held across the calls that
     /// consume its arguments so a failure can still name what it left
-    /// unwritten. Reused, so a launch allocates nothing for it.
-    unwritten: Vec<ManagedMemoryId>,
+    /// unwritten. Reused, so a launch allocates little for it.
+    written: Vec<BufferBinding>,
     /// The pipelines built so far, in front of the SPIR-V store when there is
     /// one.
     pipelines: CompilationCache<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
@@ -148,7 +147,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         Self {
             compilation_options,
             streams_pool: Vec::new(),
-            unwritten: Vec::new(),
+            written: Vec::new(),
             device,
             pipelines,
             scheduler: SchedulerMultiStream::new(
@@ -318,11 +317,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        let stream = self.scheduler.stream(&stream_id);
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         let reserved = stream
-            .empty(size)
+            .empty(size, failures)
             .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of device memory: {err}"));
-        stream.mem_manage.bind(reserved, memory);
+        stream.mem_manage.bind(reserved, memory, failures);
     }
 
     fn read(
@@ -345,7 +344,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // surfaced by `read_resources`' flush further down.
         if let Err(err) = self
             .scheduler
-            .ensure_written(stream_id, descriptors.iter().map(|d| &d.handle))
+            .ensure_written(descriptors.iter().map(|d| &d.handle))
         {
             return Box::pin(async move { Err(err) });
         }
@@ -374,8 +373,8 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         self.scheduler.execute_streams(streams);
 
-        let stream = self.scheduler.stream(&stream_id);
-        stream.read_resources(resources, stream_id)
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        stream.read_resources(resources, stream_id, failures)
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
@@ -389,15 +388,23 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // anyone's graph and the refusal is the neighbour's own to surface —
         // failing a capture on it would report one stream's window to another.
         {
-            let stream = self.scheduler.stream(&stream_id);
-            if let Err(err) = stream.reject_while_recording("write") {
+            let recording = self
+                .scheduler
+                .stream(&stream_id)
+                .reject_while_recording("write");
+            if let Err(err) = recording {
                 // Nothing is copied, so every destination this call was given is
-                // left as it was — name them, or a read of one on another
-                // logical stream finds no error to fail on and copies stale
-                // bytes. Gathered here rather than above: a write outside a
-                // capture window is every ordinary write, and pays nothing.
-                let unwritten = descriptors.iter().map(|(desc, _)| desc.handle.memory.id());
-                stream.errors.push_unwritten(stream_id, err, unwritten);
+                // left as it was — taint them, or a read of one on another
+                // logical stream finds no failure to fail on and copies stale
+                // bytes.
+                self.scheduler.taint(
+                    err.clone(),
+                    descriptors.iter().map(|(desc, _)| &desc.handle),
+                );
+                self.scheduler
+                    .stream(&stream_id)
+                    .errors
+                    .push(stream_id, err);
                 return;
             }
         }
@@ -405,18 +412,20 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             // The failures below belong to the caller, so they are queued on
             // the caller's stream — the one that flushes them — even though the
             // resource is resolved on the stream that owns the handle. Each
-            // leaves the destination unwritten, which is what a later read of it
-            // has to fail on; the write that lands fills it, which is what ends
-            // an earlier failure's claim on it.
-            let unwritten = [desc.handle.memory.id()];
+            // taints the destination, which is what a later read of it has to
+            // fail on; the write that lands fills it, which is what releases
+            // an earlier failure's hold on it.
+            let destination = desc.handle.clone();
             if contiguous_strides(&desc.shape) != desc.strides {
-                self.scheduler.stream(&stream_id).errors.push_unwritten(
-                    stream_id,
-                    ServerError::Io(IoError::UnsupportedStrides {
-                        backtrace: BackTrace::capture(),
-                    }),
-                    unwritten,
-                );
+                let error = ServerError::Io(IoError::UnsupportedStrides {
+                    backtrace: BackTrace::capture(),
+                });
+                self.scheduler
+                    .taint(error.clone(), core::iter::once(&destination));
+                self.scheduler
+                    .stream(&stream_id)
+                    .errors
+                    .push(stream_id, error);
                 return;
             }
 
@@ -428,25 +437,27 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             let resource = match stream.mem_manage.get_resource(desc.handle) {
                 Ok(r) => r,
                 Err(err) => {
-                    self.scheduler.stream(&stream_id).errors.push_unwritten(
-                        stream_id,
-                        ServerError::Io(err),
-                        unwritten,
-                    );
+                    let error = ServerError::Io(err);
+                    self.scheduler
+                        .taint(error.clone(), core::iter::once(&destination));
+                    self.scheduler
+                        .stream(&stream_id)
+                        .errors
+                        .push(stream_id, error);
                     return;
                 }
             };
             let task = ScheduleTask::Write {
                 data,
                 buffer: resource,
-                memory: unwritten[0],
+                handle: destination.clone(),
             };
 
             self.scheduler.register(stream_id, task, &[owner]);
             // The write is on its way, so an earlier failure that left this
             // buffer stale has nothing left to say about it: a caller recovers
             // by writing from the host as much as by relaunching.
-            self.scheduler.stream(&stream_id).errors.written(unwritten);
+            self.scheduler.written(core::iter::once(&destination));
         }
     }
 
@@ -482,18 +493,18 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 // The launch never ran, so every buffer it was given is left as
                 // it was; a read of one has to fail on this rather than copy it.
                 //
-                // A dry run names none. It was never going to write, so a
-                // failure in it leaves nothing stale, and naming its buffers
+                // A dry run taints none. It was never going to write, so a
+                // failure in it leaves nothing stale, and tainting its buffers
                 // would fail unrelated reads of memory the run deliberately
                 // left alone.
-                let unwritten: Vec<_> = match launch_mode.is_skipped() {
-                    true => Vec::new(),
-                    false => args.memory_ids_written().collect(),
-                };
-                let stream = self.scheduler.stream(&stream_id);
-                stream
+                let error = ServerError::Launch(err);
+                if !launch_mode.is_skipped() {
+                    self.scheduler.taint(error.clone(), args.buffers_written());
+                }
+                self.scheduler
+                    .stream(&stream_id)
                     .errors
-                    .push_unwritten(stream_id, ServerError::Launch(err), unwritten);
+                    .push(stream_id, error);
                 return;
             }
         };
@@ -503,7 +514,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         }
 
         self.streams_pool.clear();
-        self.unwritten.clear();
+        self.written.clear();
         // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
         // automatically when the guard drops.
         let mut shared_inputs = self.shared_bindings_pool.acquire();
@@ -518,7 +529,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                     // reads is left exactly as it was, so a failure has nothing
                     // to say about it.
                     if args.writes(index) {
-                        self.unwritten.push(b.memory.id());
+                        self.written.push(b.clone());
                     }
                     if b.stream != stream_id {
                         shared_inputs.push(b.memory.clone());
@@ -535,21 +546,22 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 // We make the stream that would execute the kernel in error.
                 // Nothing was dispatched, so the buffers gathered above are
                 // still unwritten.
-                self.scheduler.stream(&stream_id).errors.push_unwritten(
-                    stream_id,
-                    ServerError::Io(err),
-                    self.unwritten.iter().copied(),
-                );
+                let error = ServerError::Io(err);
+                self.scheduler.taint(error.clone(), self.written.iter());
+                self.scheduler
+                    .stream(&stream_id)
+                    .errors
+                    .push(stream_id, error);
                 return;
             }
         };
         // A launch recorded into a graph hands its buffers to the graph, which
         // answers for them if a replay never runs. A no-op outside a window.
         let stream = self.scheduler.stream(&stream_id);
-        stream.capturing.record(self.unwritten.iter().copied());
+        stream.capturing.record(self.written.iter().cloned());
         // This launch is on its way, so a capture that failed to seal has
         // nothing left to say about the buffers it is about to write.
-        stream.errors.written(self.unwritten.iter().copied());
+        self.scheduler.written(self.written.iter());
 
         let task = ScheduleTask::Execute {
             pipeline,
@@ -564,9 +576,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
 
-        let stream = self.scheduler.stream(&stream_id);
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
 
-        stream.flush(stream_id)
+        stream.flush(stream_id, failures)
     }
 
     /// Returns the total time of GPU work this sync completes.
@@ -579,9 +591,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             return Box::pin(async move { Err(err) });
         }
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.stream(&stream_id);
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
 
-        stream.sync(stream_id)
+        stream.sync(stream_id, failures)
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
@@ -591,8 +603,8 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             .stream(&stream_id)
             .reject_while_recording("start_profile")?;
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.stream(&stream_id);
-        stream.start_profile(stream_id)
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        stream.start_profile(stream_id, failures)
     }
 
     fn end_profile(
@@ -601,9 +613,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.stream(&stream_id);
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
 
-        stream.end_profile(token, stream_id)
+        stream.end_profile(token, stream_id, failures)
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
@@ -630,7 +642,8 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // pinned by a live graph goes too (entries are recreated on their next
         // miss).
         stream.info_cache.clear_unpinned();
-        stream.mem_manage.memory_cleanup(true);
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        stream.mem_manage.memory_cleanup(true, failures);
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
@@ -655,8 +668,10 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // The calling stream's pools are rebuilt in place, keeping the old
         // layout when something is still live in them.
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.stream(&stream_id);
-        stream.mem_manage.install_memory_pools(config, &props)
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        stream
+            .mem_manage
+            .install_memory_pools(config, &props, failures)
     }
 
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -688,7 +703,8 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // Submit the warmup work and surface its queued errors now, so a
         // warmup failure is reported here — where the diagnostic points at the
         // cause — instead of failing `end_capture` later.
-        if let Err(err) = stream.flush(stream_id) {
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        if let Err(err) = stream.flush(stream_id, failures) {
             // The capture never opened: disarm retention and return to
             // `NoCapture`, so a failed `start_capture` leaves the stream fully
             // usable and re-capturable.
@@ -717,10 +733,10 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // than to whoever happens to be flushing.
         let outcome = stream.capturing.end(stream_id)?;
         let recording = stream.take_recording();
-        // The memory the recorded launches were given. A graph that seals
-        // answers for it on a failed replay; one that does not is answered for
-        // here, since those launches never ran and now never will.
-        let unwritten = stream.capturing.take_recorded();
+        // The memory the recorded launches write. A graph that seals answers
+        // for it on a failed replay; one that does not is answered for here,
+        // since those launches never ran and now never will.
+        let written = stream.capturing.take_recorded();
         let mut retained = stream.mem_manage.capture_end();
 
         // An error queued during the window (a rejected write, a failed
@@ -742,9 +758,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             stream.info_cache.capture_discard();
             // The recording is thrown away, so the launches in it never run:
             // every buffer they were given is left as it was. The caller gets
-            // the error below; this copy is what makes a read of one of those
+            // the error below; the taint is what makes a read of one of those
             // buffers fail on some other stream, which heard nothing.
-            stream.errors.push_returned(err.clone(), unwritten);
+            self.scheduler.taint(err.clone(), written.iter());
             return Err(err);
         }
 
@@ -759,7 +775,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 tasks: recording.tasks,
                 _retained: retained,
                 _shared: recording.shared,
-                unwritten,
+                written,
             },
         );
         Ok(id)
@@ -782,16 +798,22 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             );
             return;
         };
-        let stream = self.scheduler.stream(&stream_id);
-        if let Err(err) = stream.reject_while_recording("replay") {
-            // None of the recorded launches run, so every buffer the graph was
-            // captured against is left as it was.
-            stream
+        let recording = self
+            .scheduler
+            .stream(&stream_id)
+            .reject_while_recording("replay");
+        if let Err(err) = recording {
+            // None of the recorded launches run, so every buffer the graph
+            // writes is left as it was.
+            self.scheduler.taint(err.clone(), wgpu_graph.written.iter());
+            self.scheduler
+                .stream(&stream_id)
                 .errors
-                .push_unwritten(stream_id, err, wgpu_graph.unwritten.iter().copied());
+                .push(stream_id, err);
             return;
         }
-        stream.replay_graph(wgpu_graph);
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        stream.replay_graph(wgpu_graph, failures);
     }
 
     fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {
@@ -800,7 +822,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         let Some(wgpu_graph) = self.graphs.remove(&graph) else {
             return;
         };
-        let stream = self.scheduler.stream(&stream_id);
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         // Submit any replay still sitting in the encoder before the pins drop:
         // a `queue.write_buffer` onto a reclaimed slice runs at the *next*
         // submit, ahead of everything already in the encoder, so it would reach
@@ -809,7 +831,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // not — the uniform uploads in `create_uniform`/`info_uniform`. Once the
         // replay is submitted, queue ordering makes releasing the slices safe
         // with no host sync, unlike CUDA.
-        stream.submit();
+        stream.submit(failures);
         // Release the info-cache entries this graph pinned; entries no other
         // live graph still pins are dropped, freeing their buffers.
         stream.info_cache.graph_release(graph);

@@ -34,8 +34,8 @@ use cubecl_runtime::{
     id::GraphId,
     logging::ServerLogger,
     memory_management::{
-        InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode,
-        MemoryReport, MemoryUsage,
+        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
+        MemoryUsage,
     },
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
@@ -175,8 +175,8 @@ pub struct CudaServer {
     graphs: HashMap<GraphId, CudaGraph>,
     /// The memory the launch in flight was given, held across the call that
     /// consumes its arguments so a failure can still name what it left
-    /// unwritten. Reused, so a launch allocates nothing for it.
-    unwritten: Vec<ManagedMemoryId>,
+    /// unwritten. Reused, so a launch allocates little for it.
+    written: Vec<BufferBinding>,
 }
 
 // SAFETY: `CudaServer` is only accessed from one thread at a time via the `DeviceHandle`,
@@ -222,7 +222,7 @@ impl ComputeServer for CudaServer {
         // them; see `StreamPool::ensure_written`.
         if let Err(err) = self
             .streams
-            .ensure_written(stream_id, descriptors.iter().map(|d| &d.handle))
+            .ensure_written(descriptors.iter().map(|d| &d.handle))
         {
             return Box::pin(async move { Err(err) });
         }
@@ -274,14 +274,14 @@ impl ComputeServer for CudaServer {
         for (descriptor, data) in descriptors {
             // The copy leaves the destination as it was on failure, which is
             // what a later read of it has to fail on — and fills it on success,
-            // which is what ends an earlier failure's claim on it. A buffer a
-            // launch left stale is recovered by writing it from the host just
+            // which is what releases an earlier failure's hold on it. A buffer
+            // a launch left stale is recovered by writing it from the host just
             // as much as by relaunching into it.
-            let written = [descriptor.handle.memory.id()];
+            let destination = descriptor.handle.clone();
             match command.write_to_gpu(descriptor, data) {
-                Ok(()) => command.written(written),
+                Ok(()) => command.written([&destination].into_iter()),
                 Err(err) => {
-                    command.error(err.into(), written);
+                    command.error(err.into(), [&destination].into_iter());
                     return;
                 }
             }
@@ -296,16 +296,16 @@ impl ComputeServer for CudaServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        // Named before the launch consumes them: a failure below never reached
+        // Staged before the launch consumes them: a failure below never reached
         // the device, so every buffer it was given is left as it was, and a read
         // of one has to fail on the error rather than copy it.
         //
         // A dry run stages none. It was never going to write, so a failure in it
-        // leaves nothing stale, and naming its buffers would fail unrelated
+        // leaves nothing stale, and tainting its buffers would fail unrelated
         // reads of memory the run deliberately left alone.
-        self.unwritten.clear();
+        self.written.clear();
         if !launch_mode.is_skipped() {
-            self.unwritten.extend(bindings.memory_ids_written());
+            self.written.extend(bindings.buffers_written().cloned());
         }
 
         if let Err(err) = self.launch_checked(kernel, count, bindings, stream_id, launch_mode) {
@@ -313,10 +313,8 @@ impl ComputeServer for CudaServer {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
             };
-            stream
-                .current()
-                .errors
-                .push_unwritten(stream_id, err, self.unwritten.iter().copied());
+            stream.taint(err.clone(), self.written.iter());
+            stream.current().errors.push(stream_id, err);
         }
     }
 
@@ -493,10 +491,10 @@ impl ComputeServer for CudaServer {
             let sys = stream.sys;
             stream.drop_queue.flush(|| Fence::new(sys));
             stream.drop_queue.flush(|| Fence::new(sys));
-            // The memory the recorded launches were given. A graph that seals
+            // The memory the recorded launches write. A graph that seals
             // answers for it on a failed replay; one that does not is answered
             // for below, since those launches never ran and now never will.
-            let unwritten = stream.capturing.take_recorded();
+            let written = stream.capturing.take_recorded();
             // An abandoned window has no graph to hand back: destroy whatever
             // was instantiated and report instead, taking the owner's queued
             // errors along so nothing is left waiting on a logical stream that
@@ -537,7 +535,7 @@ impl ComputeServer for CudaServer {
                     CudaGraph {
                         exec,
                         _retained: retained,
-                        unwritten,
+                        written,
                     }
                 }
                 Err(err) => {
@@ -546,10 +544,10 @@ impl ComputeServer for CudaServer {
                     stream.info_cache.capture_discard();
                     // No graph is handed back, so the recorded launches never
                     // run: every buffer they were given is left as it was. The
-                    // caller gets the error below; this copy is what makes a
+                    // caller gets the error below; the taint is what makes a
                     // read of one of those buffers fail on some other stream,
                     // which heard nothing.
-                    stream.errors.push_returned(err.clone(), unwritten);
+                    command.streams.taint(err.clone(), written.iter());
                     return Err(err);
                 }
             }
@@ -563,22 +561,20 @@ impl ComputeServer for CudaServer {
         // failure, push the error onto the stream's queue so it surfaces on the
         // next flush/sync rather than blocking the caller here.
         if let Err(err) = self.replay_checked(graph, stream_id) {
-            // None of the recorded launches ran, so every buffer the graph was
-            // captured against is left as it was. An unknown graph names none:
-            // the record of which buffers went with it is gone too.
-            let unwritten = self
+            // None of the recorded launches ran, so every buffer the graph
+            // writes is left as it was. An unknown graph taints none: the
+            // record of which buffers went with it is gone too.
+            let written = self
                 .graphs
                 .get(&graph)
-                .map(|cuda| cuda.unwritten.clone())
+                .map(|cuda| cuda.written.clone())
                 .unwrap_or_default();
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
             };
-            stream
-                .current()
-                .errors
-                .push_unwritten(stream_id, err, unwritten);
+            stream.taint(err.clone(), written.iter());
+            stream.current().errors.push(stream_id, err);
         }
     }
 
@@ -792,10 +788,10 @@ impl ServerCommunication for CudaServer {
         // The reduction reads the source, so it is worth no more than the work
         // that wrote it; see `StreamPool::ensure_written`. The destination is
         // overwritten whole and answers for nothing on the way in.
-        self.streams.ensure_written(stream_id, [&src].into_iter())?;
+        self.streams.ensure_written([&src].into_iter())?;
 
-        // Named before the bindings are consumed below.
-        let dst_unwritten = [dst.memory.id()];
+        // Staged before the bindings are consumed below.
+        let destination = dst.clone();
 
         // We create a command on the server to retrieve the correct resource of the source and the destination
         // from the memory pools.
@@ -816,7 +812,7 @@ impl ServerCommunication for CudaServer {
                         reason: "Source and destination should be on the same stream.".into(),
                         backtrace: BackTrace::capture(),
                     },
-                    dst_unwritten,
+                    [&destination].into_iter(),
                 );
             }
         }
@@ -869,15 +865,15 @@ impl ServerCommunication for CudaServer {
             .inspect_err(|err| {
                 // The caller is told here and now. Other streams are not, and
                 // the destination holds whatever it held before the collective
-                // that never ran — so a read of it fails on this copy rather
+                // that never ran — so a read of it fails on the taint rather
                 // than taking those bytes for a result.
-                self.queue_returned(stream_id, err.clone(), dst_unwritten);
+                self.taint_returned(stream_id, err.clone(), &destination);
             })?;
         }
 
         // The result is on its way, so an earlier failure that left the
         // destination stale has nothing left to say about it.
-        self.mark_written(stream_id, dst_unwritten);
+        self.mark_written(stream_id, &destination);
 
         Ok(())
     }
@@ -1064,7 +1060,7 @@ impl CudaServer {
             comm_stream,
             communicators: HashMap::default(),
             graphs: HashMap::new(),
-            unwritten: Vec::new(),
+            written: Vec::new(),
         }
     }
 
@@ -1105,30 +1101,19 @@ impl CudaServer {
         Ok(Command::new(&mut self.ctx, streams))
     }
 
-    /// Queue an error the caller is already being handed, so a read of what it
-    /// left unwritten still fails on some other stream — see
-    /// [`StreamErrors::push_returned`](cubecl_runtime::stream::StreamErrors::push_returned).
-    fn queue_returned(
-        &mut self,
-        stream_id: StreamId,
-        error: ServerError,
-        unwritten: impl IntoIterator<Item = ManagedMemoryId>,
-    ) {
+    /// Taint what a failure the caller is already being handed left as it was,
+    /// so a read of it still fails on some other stream. Nothing is queued:
+    /// the caller holds the only report owed.
+    fn taint_returned(&mut self, stream_id: StreamId, error: ServerError, written: &BufferBinding) {
         if let Ok(mut streams) = self.streams.resolve(stream_id, [].into_iter(), false) {
-            streams.current().errors.push_returned(error, unwritten);
+            streams.taint(error, [written].into_iter());
         }
     }
 
-    /// End a reported failure's claim on `buffers`: work that writes them is on
-    /// its way — see
-    /// [`StreamErrors::written`](cubecl_runtime::stream::StreamErrors::written).
-    fn mark_written(
-        &mut self,
-        stream_id: StreamId,
-        buffers: impl IntoIterator<Item = ManagedMemoryId>,
-    ) {
+    /// Release the failure on `written`: work that writes it is on its way.
+    fn mark_written(&mut self, stream_id: StreamId, written: &BufferBinding) {
         if let Ok(mut streams) = self.streams.resolve(stream_id, [].into_iter(), false) {
-            streams.current().errors.written(buffers);
+            streams.written([written].into_iter());
         }
     }
 
@@ -1145,7 +1130,8 @@ impl CudaServer {
                 reason: alloc::format!("{errors:?}"),
                 backtrace: BackTrace::capture(),
             });
-            stream.current().memory_management_gpu.cleanup(false);
+            let (current, failures) = stream.current_and_failures();
+            current.memory_management_gpu.cleanup(false, failures);
         }
 
         core::mem::drop(stream);
@@ -1192,10 +1178,10 @@ impl CudaServer {
         // all of them as they were. A no-op outside a capture window, and never
         // reached by a dry run, which records nothing to answer for.
         let stream = command.streams.current();
-        stream.capturing.record(bindings.memory_ids_written());
+        stream.capturing.record(bindings.buffers_written().cloned());
         // This launch is on its way, so a capture that failed to seal has
         // nothing left to say about the buffers it is about to write.
-        stream.errors.written(bindings.memory_ids_written());
+        command.streams.written(bindings.buffers_written());
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),

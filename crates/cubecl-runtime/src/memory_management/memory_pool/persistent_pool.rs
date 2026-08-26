@@ -1,7 +1,9 @@
 use super::{
     ManagedMemoryHandle, ManagedMemoryId, MemoryPool, PageMapping, Slice, calculate_padding,
 };
-use crate::memory_management::{BytesFormat, MemoryLocation, MemoryPoolKind, MemoryPoolReport};
+use crate::memory_management::{
+    BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport,
+};
 use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
@@ -117,7 +119,22 @@ impl MemoryPool for PersistentPool {
             })
     }
 
-    fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
+    fn find_mut(&mut self, binding: &super::ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
+        let slice_index = binding.descriptor().slice();
+
+        self.slices
+            .get_mut(slice_index)
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: alloc::format!("Memory slice {} doesn't exist", slice_index).into(),
+            })
+    }
+
+    fn try_reserve(
+        &mut self,
+        size: u64,
+        _failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
@@ -142,6 +159,7 @@ impl MemoryPool for PersistentPool {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
+        _failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
@@ -197,6 +215,7 @@ impl MemoryPool for PersistentPool {
         storage: &mut Storage,
         _alloc_nr: u64,
         explicit: bool,
+        failures: &mut ErrorGraph,
     ) {
         if explicit {
             // We have to recompute all locations, so it's just safer to rebuild everything.
@@ -205,8 +224,10 @@ impl MemoryPool for PersistentPool {
 
             for slice in self.slices.drain(..) {
                 if slice.is_free() {
-                    // A minted-but-never-materialized id has nothing behind
+                    // A dropped slice releases the failure it carried. A
+                    // minted-but-never-materialized id has nothing behind
                     // it for the driver to free.
+                    failures.untag(slice.failure);
                     if slice.mapped {
                         storage.dealloc(slice.storage.id);
                     }
@@ -238,12 +259,13 @@ impl MemoryPool for PersistentPool {
         old: ManagedMemoryHandle,
         new: ManagedMemoryHandle,
         cursor: u64,
+        failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         let slice = &mut self.slices[old.descriptor().slice()];
         new.descriptor()
             .update_location(old.descriptor().location());
         slice.cursor = cursor;
-        slice.handle = new;
+        slice.bind(new, failures);
 
         Ok(())
     }
@@ -291,17 +313,22 @@ mod tests {
         );
 
         let handle = pool
-            .alloc(&mut storage, size, PageMapping::Eager)
+            .alloc(
+                &mut storage,
+                size,
+                PageMapping::Eager,
+                &mut ErrorGraph::default(),
+            )
             .expect("alloc");
         assert!(
-            pool.try_reserve(size).is_none(),
+            pool.try_reserve(size, &mut ErrorGraph::default()).is_none(),
             "slice must stay reserved while the handle is alive"
         );
 
         core::mem::drop(handle);
 
         assert!(
-            pool.try_reserve(size).is_some(),
+            pool.try_reserve(size, &mut ErrorGraph::default()).is_some(),
             "freed slice should be reusable"
         );
     }
@@ -311,27 +338,37 @@ mod tests {
         let mut storage = BytesStorage::default();
         let mut pool = PersistentPool::new(1024 * 1024, 4, 0);
 
-        let result = pool.try_reserve(1024);
+        let result = pool.try_reserve(1024, &mut ErrorGraph::default());
         assert!(result.is_none(), "No alloc yet");
 
-        let alloc1 = pool.alloc(&mut storage, 1024, PageMapping::Eager);
-        let result = pool.try_reserve(1024);
+        let alloc1 = pool.alloc(
+            &mut storage,
+            1024,
+            PageMapping::Eager,
+            &mut ErrorGraph::default(),
+        );
+        let result = pool.try_reserve(1024, &mut ErrorGraph::default());
         assert!(result.is_none(), "No free slice yet, handle1 is alive");
 
         core::mem::drop(alloc1);
-        let result = pool.try_reserve(1024);
+        let result = pool.try_reserve(1024, &mut ErrorGraph::default());
         assert!(result.is_some(), "Handle1 is free to be reused.");
         core::mem::drop(result);
 
-        let result = pool.try_reserve(1025);
+        let result = pool.try_reserve(1025, &mut ErrorGraph::default());
         assert!(result.is_none(), "Not the same size.");
 
-        let alloc2 = pool.alloc(&mut storage, 1024, PageMapping::Eager);
+        let alloc2 = pool.alloc(
+            &mut storage,
+            1024,
+            PageMapping::Eager,
+            &mut ErrorGraph::default(),
+        );
         let usage = pool.get_memory_usage();
         assert_eq!(usage.bytes_in_use, 1024);
         assert_eq!(usage.bytes_reserved, 2048);
 
-        let result = pool.try_reserve(1024);
+        let result = pool.try_reserve(1024, &mut ErrorGraph::default());
         let usage = pool.get_memory_usage();
         assert!(result.is_some(), "Handle1 is free to be reused.");
         assert_eq!(usage.bytes_in_use, 2048);

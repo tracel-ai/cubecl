@@ -14,10 +14,11 @@ use cubecl_runtime::{
     config::streaming::StreamPriority,
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, drop_queue,
+        ErrorGraph, FailureId, ManagedMemoryBinding, MemoryAllocationMode, MemoryManagement,
+        MemoryManagementOptions, drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{EventStreamBackend, StreamCapture, StreamErrorSink, StreamErrors},
+    stream::{EventStreamBackend, StreamCapture, StreamErrorSink, StreamErrors, StreamMemory},
 };
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -46,6 +47,25 @@ pub struct Stream {
 impl StreamErrorSink for Stream {
     fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
         &self.errors
+    }
+}
+
+impl StreamMemory for Stream {
+    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
+        self.memory_management_gpu.failure(binding)
+    }
+
+    fn taint(
+        &mut self,
+        binding: &ManagedMemoryBinding,
+        failure: FailureId,
+        failures: &mut ErrorGraph,
+    ) {
+        self.memory_management_gpu.taint(binding, failure, failures)
+    }
+
+    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
+        self.memory_management_gpu.written(binding, failures)
     }
 }
 
@@ -186,7 +206,7 @@ impl EventStreamBackend for CudaStreamBackend {
         }
     }
 
-    fn flush(stream: &mut Self::Stream) -> Self::Event {
+    fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
         Fence::new(stream.sys)
     }
 
