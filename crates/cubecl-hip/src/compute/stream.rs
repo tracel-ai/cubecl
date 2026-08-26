@@ -179,5 +179,4 @@ impl EventStreamBackend for HipStreamBackend {
             .get_cursor(binding.memory.clone())
             .unwrap_or(u64::MAX)
     }
-
 }

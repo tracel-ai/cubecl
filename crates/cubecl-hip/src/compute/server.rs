@@ -883,7 +883,9 @@ impl HipServer {
             return Ok(());
         }
 
-        let KernelArguments { resources, info, .. } = bindings;
+        let KernelArguments {
+            resources, info, ..
+        } = bindings;
 
         let info_handle = info_buffer(&mut command, info.data)?;
 

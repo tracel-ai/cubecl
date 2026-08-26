@@ -14,8 +14,7 @@ use cubecl_runtime::{
     config::streaming::StreamPriority,
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
-        drop_queue,
+        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     stream::{EventStreamBackend, StreamCapture, StreamErrorSink, StreamErrors},
@@ -208,5 +207,4 @@ impl EventStreamBackend for CudaStreamBackend {
             .get_cursor(binding.memory.clone())
             .unwrap_or(u64::MAX)
     }
-
 }

@@ -111,7 +111,6 @@ mod tests {
             };
             assert_rejected(&client, out);
         }
-
     }
 }
 
