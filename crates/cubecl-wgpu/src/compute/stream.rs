@@ -828,6 +828,16 @@ impl WgpuStream {
         core::mem::take(&mut self.recording)
     }
 
+    /// Remember the buffers a launch was given, if it is being recorded into a
+    /// graph: a replay of that graph that fails leaves every one of them as it
+    /// was, and the read that follows has to fail on it. A no-op outside a
+    /// capture window, where a launch names its own buffers as it fails.
+    pub(crate) fn record_buffers(&mut self, buffers: &[ManagedMemoryId]) {
+        if self.capturing.is_recording() {
+            self.recording.buffers.extend(buffers.iter().copied());
+        }
+    }
+
     /// Re-encode a captured graph's tasks — one dispatch per recorded launch,
     /// prebuilt state only — and let the normal `tasks_max`/submission-load
     /// batching decide when to submit. Fire-and-forget like a launch: the

@@ -100,9 +100,17 @@ impl StreamErrors {
     /// fails on this error instead — see [`peek_unwritten`](Self::peek_unwritten).
     ///
     /// A launch names every buffer it was given, inputs included: a server sees
-    /// resources, not which of them the kernel would have written. Erring wide
-    /// costs a read of an untouched input the error its own launch already
-    /// queued; erring narrow would hand back an output nothing wrote.
+    /// resources, not which of them the kernel would have written. Erring narrow
+    /// would hand back an output nothing wrote, silently; erring wide fails a
+    /// read that would have been fine, loudly — so it errs wide.
+    ///
+    /// That cost is not confined to the stream that failed. An input another
+    /// logical stream filled and reads back fails on this error too, from the
+    /// moment it is queued until the stream that owns it flushes — under
+    /// [`StreamPolicy::PerTask`](cubecl_environment::stream::StreamPolicy)
+    /// possibly never, leaving [`MAX_OWNED`] reclaim plus somebody else's flush
+    /// to clear it. Narrowing to the buffers a kernel actually writes needs
+    /// per-binding visibility, which the launch path does not carry today.
     pub fn push_unwritten(
         &mut self,
         owner: StreamId,

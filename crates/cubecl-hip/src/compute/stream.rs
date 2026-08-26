@@ -41,6 +41,32 @@ pub struct Stream {
     /// capture every buffer is cached and none is evicted mid-capture. See
     /// [`StreamCaptureState::cache_mode`].
     pub info_cache: MetadataInfoCache<Handle>,
+    /// The buffers the launches recorded into the capture in progress were
+    /// given, accumulated by [`record_buffers`](Self::record_buffers) and moved
+    /// onto the graph at `end_capture`. Empty outside a capture window.
+    pub capture_buffers: Vec<ManagedMemoryId>,
+}
+
+impl Stream {
+    /// Remember the buffers a launch was given, if it is being recorded into a
+    /// graph: a replay of that graph that fails runs none of the recorded
+    /// launches, so it leaves every one of them as it was, and the read that
+    /// follows has to fail on it. A no-op outside a capture window, where a
+    /// launch names its own buffers as it fails.
+    pub fn record_buffers(&mut self, buffers: &[ManagedMemoryId]) {
+        if self.capturing.is_recording() {
+            self.capture_buffers.extend(buffers.iter().copied());
+        }
+    }
+
+    /// The buffers of the capture that just closed, deduplicated — the same one
+    /// comes back once per recorded launch that was given it.
+    pub fn take_capture_buffers(&mut self) -> Vec<ManagedMemoryId> {
+        let mut buffers = core::mem::take(&mut self.capture_buffers);
+        buffers.sort_unstable();
+        buffers.dedup();
+        buffers
+    }
 }
 
 impl drop_queue::Fence for Fence {
@@ -149,6 +175,7 @@ impl EventStreamBackend for HipStreamBackend {
                 },
                 ..Default::default()
             }),
+            capture_buffers: Vec::new(),
         }
     }
 

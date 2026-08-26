@@ -388,9 +388,16 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // Reject them lazily so `end_capture` fails the capture instead of
         // handing back a graph missing an operation.
         {
+            // Nothing is copied, so every destination this call was given is
+            // left as it was — name them, or a read of one on another logical
+            // stream finds no error to fail on and copies stale bytes.
+            let unwritten: Vec<_> = descriptors
+                .iter()
+                .map(|(desc, _)| desc.handle.memory.id())
+                .collect();
             let stream = self.scheduler.stream(&stream_id);
             if let Err(err) = stream.reject_while_recording("write") {
-                stream.errors.push(stream_id, err);
+                stream.errors.push_unwritten(stream_id, err, unwritten);
                 return;
             }
         }
@@ -517,6 +524,12 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 return;
             }
         };
+        // Taken out and put back so the stream can borrow `self` alongside it;
+        // the allocation is kept across launches either way.
+        let unwritten = core::mem::take(&mut self.unwritten_pool);
+        self.scheduler.stream(&stream_id).record_buffers(&unwritten);
+        self.unwritten_pool = unwritten;
+
         let task = ScheduleTask::Execute {
             pipeline,
             count,
@@ -676,14 +689,12 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         let stream = self.scheduler.stream(&stream_id);
 
         // The capture is over even on the failure path below, so an error here
-        // doesn't leave the stream stuck in capture/persistent state. The window
-        // is closed by the stream that opened it, and `end` checks that — but
-        // it also resets the state, so the owner has to be read first: the
-        // errors raised inside the window are queued for it, not for whoever
-        // happens to be flushing.
-        let owner = stream.capturing.owner();
-        stream.capturing.end(stream_id)?;
-        let owner = owner.unwrap_or(stream_id);
+        // doesn't leave the stream stuck in capture/persistent state — and it
+        // is over for a caller that does not own the window too, since that is
+        // a window nobody is coming back to close. Only its owner gets a graph
+        // out of it, and the errors raised inside belong to that owner rather
+        // than to whoever happens to be flushing.
+        let outcome = stream.capturing.end(stream_id)?;
         let recording = stream.take_recording();
         let mut retained = stream.mem_manage.capture_end();
 
@@ -691,8 +702,21 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // binding) means the recording is missing an operation: reject the
         // capture rather than hand back a graph that silently skips work.
         // `begin_capture` drained pre-window errors, so anything here arose
-        // inside the window.
-        let errors = stream.flush_errors_queue(owner);
+        // inside the window. Draining them here is also what keeps an
+        // abandoned window from leaving its errors queued for a stream that
+        // may never flush again.
+        let mut errors = stream.flush_errors_queue(outcome.owner());
+        if outcome.is_abandoned() {
+            errors.insert(
+                0,
+                ServerError::graph_state(alloc::format!(
+                    "end_capture: the capture belongs to logical stream {:?}, not to \
+                     {stream_id:?}; it is discarded rather than left recording on a stream \
+                     both share",
+                    outcome.owner(),
+                )),
+            );
+        }
         if !errors.is_empty() {
             stream.info_cache.capture_discard();
             return Err(ServerError::ServerUnhealthy {
@@ -706,12 +730,18 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // id, so `graph_destroy` can release them later.
         stream.info_cache.capture_commit(id);
         retained.extend(recording.uniform_pins);
+        // The same buffer comes back once per recorded launch that was given
+        // it; a failed replay names each one once.
+        let mut unwritten = recording.buffers;
+        unwritten.sort_unstable();
+        unwritten.dedup();
         self.graphs.insert(
             id,
             WgpuGraph {
                 tasks: recording.tasks,
                 _retained: retained,
                 _shared: recording.shared,
+                unwritten,
             },
         );
         Ok(id)
@@ -724,6 +754,8 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // Fire-and-forget like `launch`: on failure, push the error onto the
         // stream's queue so it surfaces on the next flush/sync rather than
         // blocking the caller here.
+        // Nothing to name here: the graph is gone, and with it the record of
+        // which buffers its launches would have written.
         let Some(wgpu_graph) = self.graphs.get(&graph) else {
             let stream = self.scheduler.stream(&stream_id);
             stream.errors.push(
@@ -734,7 +766,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         };
         let stream = self.scheduler.stream(&stream_id);
         if let Err(err) = stream.reject_while_recording("replay") {
-            stream.errors.push(stream_id, err);
+            // None of the recorded launches run, so every buffer the graph was
+            // captured against is left as it was.
+            stream
+                .errors
+                .push_unwritten(stream_id, err, wgpu_graph.unwritten.iter().copied());
             return;
         }
         stream.replay_graph(wgpu_graph);

@@ -12,6 +12,17 @@ use cubecl_environment::stream::StreamId;
 /// call, so a capture can never start unprepared and two captures can never
 /// overlap on one stream.
 ///
+/// # One capture, one logical stream
+///
+/// The three calls have to come from the same logical stream. The window is
+/// opened on the pooled stream that logical stream folds onto, and the launches
+/// in between are recorded there — so a caller whose [`StreamId`] changes
+/// half-way (an `.await` resuming on another thread under the default
+/// `PerThread` policy, without `set_stream` pinning) has already split its
+/// recording across two backend streams before it ever reaches `end`. Pin the
+/// stream around a capture; [`end`](Self::end) treats a caller that is not the
+/// owner as a window nobody is coming back for, and abandons it.
+///
 /// The transitions live here rather than in each backend server because the
 /// rule is the same on every one of them — a backend supplies only the work a
 /// transition brackets (arming its pools, opening the driver's capture), never
@@ -48,6 +59,57 @@ pub enum StreamCaptureState {
         /// inside the window belong to.
         owner: StreamId,
     },
+}
+
+/// What [`end`](StreamCaptureState::end) found when it closed the window: the
+/// caller's own capture, or one belonging to a logical stream that never came
+/// back to close it.
+///
+/// Both close the window. Only the owner gets a graph out of it — the errors
+/// raised inside the window are queued for the owner, so sealing a recording
+/// for a caller that cannot see them would hand back a graph silently missing
+/// whatever they rejected.
+///
+/// Refusing a foreign caller outright is the worse trade. Several logical
+/// streams share one pooled stream, and a window nobody closes rejects every
+/// read, write and sync that lands on the slot while recording launches into a
+/// graph no one can seal: the slot is lost for the life of the process. A
+/// foreign `end_capture` is a caller whose [`StreamId`] moved out from under it
+/// (see the type docs), which is exactly the case where the owner is gone — so
+/// the window is torn down and the failure reported, rather than kept for an
+/// owner that will never ask.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureEnd {
+    /// The caller opened this window: its recording may be sealed into a graph.
+    Owned {
+        /// The logical stream that opened the window, which is the caller.
+        owner: StreamId,
+    },
+    /// The window belonged to `owner`, not to the caller. It is closed, but
+    /// there is no graph to hand back: the backend tears the recording down and
+    /// reports, and a later `end_capture` from `owner` finds nothing recording.
+    Abandoned {
+        /// The logical stream that opened the window, whose queued errors the
+        /// backend drains along with it — nothing is left waiting on a stream
+        /// that may never flush again.
+        owner: StreamId,
+    },
+}
+
+impl CaptureEnd {
+    /// The logical stream the window belonged to, and so the one whose errors
+    /// the backend surfaces for it.
+    pub fn owner(&self) -> StreamId {
+        match self {
+            CaptureEnd::Owned { owner } | CaptureEnd::Abandoned { owner } => *owner,
+        }
+    }
+
+    /// Whether the window was closed for a caller that did not own it, so its
+    /// recording is torn down instead of sealed.
+    pub fn is_abandoned(&self) -> bool {
+        matches!(self, CaptureEnd::Abandoned { .. })
+    }
 }
 
 impl StreamCaptureState {
@@ -147,23 +209,27 @@ impl StreamCaptureState {
     /// then fails — a backend that returned an error with the state still set
     /// would wedge the stream in capture mode forever.
     ///
+    /// A caller that does not own the window closes it all the same, as
+    /// [`CaptureEnd::Abandoned`]: only the owner may *seal* a capture, but
+    /// leaving the window open until an owner that may never come back closes
+    /// it would wedge the pooled stream for every logical stream sharing it —
+    /// see [`CaptureEnd`] for why that is the lesser of the two.
+    ///
     /// # Errors
     ///
     /// Fails when no capture is recording (nothing prepared or started, or the
     /// capture already ended), leaving the state untouched — a stray
-    /// `end_capture` must not close a window that was never opened, and only
-    /// the logical stream that opened it may close it: the errors raised inside
-    /// belong to that stream, and a neighbour closing the window would seal a
-    /// graph while they stay queued for an owner that is no longer named.
-    pub fn end(&mut self, caller: StreamId) -> Result<(), ServerError> {
+    /// `end_capture` must not close a window that was never opened.
+    pub fn end(&mut self, caller: StreamId) -> Result<CaptureEnd, ServerError> {
         match self {
-            StreamCaptureState::Capture { owner } if *owner == caller => {
+            StreamCaptureState::Capture { owner } => {
+                let owner = *owner;
                 *self = StreamCaptureState::NoCapture;
-                Ok(())
+                Ok(match owner == caller {
+                    true => CaptureEnd::Owned { owner },
+                    false => CaptureEnd::Abandoned { owner },
+                })
             }
-            StreamCaptureState::Capture { .. } => Err(ServerError::graph_state(
-                "end_capture: the capture belongs to another logical stream",
-            )),
             StreamCaptureState::NoCapture | StreamCaptureState::Prepare { .. } => {
                 Err(ServerError::graph_state(
                     "end_capture: no graph capture is recording on this stream",
@@ -212,7 +278,10 @@ mod tests {
         assert!(state.begin().is_err(), "captures may not overlap");
         assert!(state.prepare(OWNER).is_err(), "captures may not overlap");
 
-        state.end(OWNER).unwrap();
+        assert_eq!(
+            state.end(OWNER).unwrap(),
+            CaptureEnd::Owned { owner: OWNER }
+        );
         assert_eq!(state, StreamCaptureState::NoCapture);
     }
 
@@ -231,31 +300,61 @@ mod tests {
         state.begin().unwrap();
         assert_eq!(state.owner(), Some(OWNER));
 
-        state.end(OWNER).unwrap();
+        assert_eq!(state.end(OWNER).unwrap().owner(), OWNER);
         assert_eq!(state.owner(), None);
         assert!(!state.is_active());
     }
 
-    /// Only the stream that opened the window may close it.
+    /// Only the stream that opened the window may seal it into a graph.
     ///
-    /// A neighbour closing it would seal a graph while the errors raised inside
-    /// stay queued for an owner `end_capture` no longer has a way to name — the
-    /// recording silently missing whatever those errors rejected.
+    /// A neighbour sealing it would hand back a recording while the errors
+    /// raised inside stay queued for an owner the neighbour cannot name — the
+    /// graph silently missing whatever those errors rejected.
     #[test]
-    fn a_capture_is_closed_by_the_stream_that_opened_it() {
+    fn only_the_stream_that_opened_a_capture_may_seal_it() {
         let neighbour = StreamId { value: 8 };
 
         let mut state = StreamCaptureState::NoCapture;
         state.prepare(OWNER).unwrap();
         state.begin().unwrap();
 
-        assert!(state.end(neighbour).is_err(), "the window is not theirs");
         assert_eq!(
-            state,
-            StreamCaptureState::Capture { owner: OWNER },
-            "a rejected end leaves the capture recording"
+            state.end(neighbour).unwrap(),
+            CaptureEnd::Abandoned { owner: OWNER },
+            "the window is not theirs to seal"
         );
-        state.end(OWNER).unwrap();
+    }
+
+    /// A window its owner never closes must not hold the pooled stream, which
+    /// every logical stream folded onto the slot shares.
+    ///
+    /// The owner's id can stop coming back — the thread that started the
+    /// capture exits, or an `.await` resumes it elsewhere under `PerThread`. A
+    /// window kept until that id returns rejects every read, write and sync on
+    /// the slot forever, so a foreign `end` closes it and leaves the stream
+    /// usable, reporting rather than sealing.
+    #[test]
+    fn a_capture_no_one_can_close_does_not_wedge_the_stream() {
+        let neighbour = StreamId { value: 8 };
+
+        let mut state = StreamCaptureState::NoCapture;
+        state.prepare(OWNER).unwrap();
+        state.begin().unwrap();
+
+        assert!(state.end(neighbour).unwrap().is_abandoned());
+        assert_eq!(state, StreamCaptureState::NoCapture);
+        assert!(!state.is_active(), "the slot serves other work again");
+        state
+            .prepare(neighbour)
+            .expect("the stream is re-capturable");
+
+        // The owner coming back late finds nothing recording, rather than a
+        // window it can still seal a graph out of.
+        state.begin().unwrap();
+        assert!(
+            state.end(OWNER).unwrap().is_abandoned(),
+            "the window it opened is long gone"
+        );
     }
 
     /// A rejected transition leaves the stream exactly as it was, so a caller

@@ -9,6 +9,8 @@ use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
+use cubecl_environment::stream::StreamId;
+use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
 use cubecl_wgpu::WgpuRuntime;
 use std::sync::Mutex;
 
@@ -17,6 +19,20 @@ use std::sync::Mutex;
 /// concurrent captures would reject each other. One capture at a time, as in
 /// real use.
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
+
+/// Two logical streams that fold onto one pooled stream, since indexing is
+/// `id % max_streams`. The seed is far above the ids [`StreamId::current`]
+/// hands out per thread, which are small and sequential, so neither collides
+/// with a sibling test's thread.
+fn sharing_one_pooled_stream(seed: u64) -> (StreamId, StreamId) {
+    let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
+    (
+        StreamId { value: seed },
+        StreamId {
+            value: seed + max_streams,
+        },
+    )
+}
 
 #[cube(launch)]
 fn add_one(input: &[f32], output: &mut [f32]) {
@@ -500,6 +516,78 @@ fn wgpu_graph_write_rejected_while_recording() {
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
 
+/// A write rejected inside a recording window leaves its destination as it
+/// was, so a read of that destination from another stream fails on the
+/// rejection instead of copying out the stale bytes.
+///
+/// The rejection is queued for the capturing stream and surfaces there at
+/// `stop_capture` — but the buffer it was meant to fill lives on, and any
+/// stream may read it in the meantime. Only naming the destination connects
+/// that read to the write that never happened: the handle names the stream the
+/// buffer was *created* on, which here is the reader itself, and the reader has
+/// nothing queued.
+#[test]
+fn wgpu_graph_write_rejected_while_recording_is_not_read_as_written() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+    // Two logical streams one apart, so they land on different pooled streams:
+    // the reader must be free to read while the other is recording.
+    let capturing = StreamId { value: 3_000_001 };
+    let reader = StreamId { value: 3_000_002 };
+
+    let n = 4usize;
+    // Created on the reader, which is what makes the handle name a stream with
+    // nothing to answer for.
+    let target = reader.executes(|| client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])));
+    let (input, output) = capturing.executes(|| {
+        (
+            client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
+            client.empty(n * core::mem::size_of::<f32>()),
+        )
+    });
+    let launch = |client: &ComputeClient<WgpuRuntime>| {
+        add_one::launch::<WgpuRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    capturing.executes(|| {
+        client.graph_prepare().expect("graph_prepare");
+        launch(&client);
+        let _ = client.read_one(output.clone()).unwrap();
+        client.start_capture().expect("start_capture");
+        launch(&client);
+        // Unsupported inside the window: queued as an error, and `target` is
+        // never written.
+        client.write(
+            &target,
+            Bytes::from_bytes_vec(f32::as_bytes(&[9.0, 9.0, 9.0, 9.0]).to_vec()),
+        );
+    });
+
+    assert!(
+        reader.executes(|| client.read_one(target.clone())).is_err(),
+        "reading a buffer whose write was rejected must fail, not hand back \
+         the bytes that were there before it"
+    );
+
+    // The capture still reports the rejection to the stream that caused it,
+    // and the streams are left usable.
+    assert!(
+        capturing.executes(|| client.stop_capture()).is_err(),
+        "a capture window containing a write must be rejected"
+    );
+    let out = capturing.executes(|| {
+        launch(&client);
+        client.read_one(output.clone()).unwrap()
+    });
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+}
+
 /// Destroying a graph with a replay still in flight does not corrupt that
 /// replay, even though the destroy hands the graph's memory straight back to
 /// the pool for the next allocation to take.
@@ -576,20 +664,33 @@ fn wgpu_graph_destroy_leaves_an_enqueued_replay_intact() {
     );
 }
 
-/// A capture window is closed by the stream that opened it, and by no other.
+/// A capture window is sealed into a graph by the stream that opened it and by
+/// no other — and a window some other stream ends is discarded, not left
+/// recording.
 ///
 /// The errors raised inside the window — a rejected write, a failed binding —
 /// are queued for the stream that opened it, and `end_capture` drains them to
-/// decide whether the recording is complete. A neighbour closing the window
-/// would seal the graph while those errors stay queued for an owner the ended
-/// window no longer names: a graph silently missing whatever they rejected.
+/// decide whether the recording is complete. A neighbour sealing the window
+/// would hand back a graph while those errors stay queued for an owner it
+/// cannot name: a graph silently missing whatever they rejected.
+///
+/// Refusing the neighbour and leaving the window open is worse than discarding
+/// it. The pooled stream is shared, so a window whose owner never comes back —
+/// a thread that exited, a task resumed elsewhere — would reject every read,
+/// write and sync landing on that slot for the life of the process.
 #[test]
-fn wgpu_graph_capture_is_ended_by_the_stream_that_opened_it() {
+fn wgpu_graph_capture_is_sealed_by_the_stream_that_opened_it() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let client = WgpuRuntime::client(&Default::default());
+    let (owner, neighbour) = sharing_one_pooled_stream(2_000_001);
     let n = 4usize;
-    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
-    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    let (input, output) = owner.executes(|| {
+        (
+            client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
+            client.empty(n * core::mem::size_of::<f32>()),
+        )
+    });
 
     let launch = |client: &ComputeClient<WgpuRuntime>| {
         add_one::launch::<WgpuRuntime>(
@@ -601,26 +702,38 @@ fn wgpu_graph_capture_is_ended_by_the_stream_that_opened_it() {
         );
     };
 
-    client.graph_prepare().expect("graph_prepare");
-    launch(&client);
-    let _ = client.read_one(output.clone()).unwrap();
-    client.start_capture().expect("start_capture");
-    launch(&client);
+    owner.executes(|| {
+        client.graph_prepare().expect("graph_prepare");
+        launch(&client);
+        let _ = client.read_one(output.clone()).unwrap();
+        client.start_capture().expect("start_capture");
+        launch(&client);
+    });
 
-    // A neighbour may share the pooled stream, but not the window on it.
-    let neighbour = {
-        let client = client.clone();
-        std::thread::spawn(move || client.stop_capture().is_err())
-    };
+    // The neighbour shares the pooled stream, but not the window on it.
+    let refused = neighbour
+        .executes(|| client.stop_capture())
+        .expect_err("a stream that did not open the window must not seal it into a graph")
+        .to_string();
     assert!(
-        neighbour.join().unwrap(),
-        "a stream that did not open the window must not close it"
+        refused.contains("the capture belongs to logical stream"),
+        "the neighbour has to reach the owner's window to be refused it, got: {refused}"
     );
 
-    // The window is untouched, so the stream that opened it still closes it.
-    let graph = client.stop_capture().expect("stop_capture");
-    unsafe { graph.replay() };
-    let out = client.read_one(output).unwrap();
+    // The window went with it, rather than staying open for an owner the
+    // neighbour's call is evidence may never come back.
+    assert!(
+        owner.executes(|| client.stop_capture()).is_err(),
+        "the discarded window must not still be recording"
+    );
+
+    // And the pooled stream serves ordinary work again instead of rejecting
+    // it: the launch below runs rather than being recorded into a graph nobody
+    // holds.
+    let out = owner.executes(|| {
+        launch(&client);
+        client.read_one(output.clone()).unwrap()
+    });
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
 

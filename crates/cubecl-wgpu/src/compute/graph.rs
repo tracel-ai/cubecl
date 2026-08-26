@@ -18,7 +18,9 @@
 
 use crate::WgpuResource;
 use crate::schedule::Addresses;
-use cubecl_runtime::memory_management::{ManagedMemoryHandle, SharedMemoryBindings};
+use cubecl_runtime::memory_management::{
+    ManagedMemoryHandle, ManagedMemoryId, SharedMemoryBindings,
+};
 use std::sync::Arc;
 use wgpu::ComputePipeline;
 
@@ -42,6 +44,12 @@ pub struct WgpuGraph {
     /// where [`WgpuStream::flush`](super::stream::WgpuStream::flush) releases
     /// them on the normal path.
     pub(crate) _shared: SharedMemoryBindings,
+    /// The buffers the recorded launches were given, deduplicated. A replay
+    /// that fails runs none of those launches, so it leaves every one of these
+    /// as it was — which is what a later read of one has to fail on, whichever
+    /// stream asks (see
+    /// [`StreamErrors::push_unwritten`](cubecl_runtime::stream::StreamErrors::push_unwritten)).
+    pub(crate) unwritten: Vec<ManagedMemoryId>,
 }
 
 /// One recorded dispatch, resolved down to what `wgpu` needs at encode time.
@@ -91,4 +99,7 @@ pub(crate) struct GraphRecording {
     /// `end_capture` so the memory manager's `capture_end` retains them on
     /// the graph — retention only covers slices still live at that point.
     pub(crate) uniform_pins: Vec<ManagedMemoryHandle>,
+    /// The buffers the recorded launches were given, in launch order and with
+    /// repeats (see [`WgpuGraph::unwritten`], which is this deduplicated).
+    pub(crate) buffers: Vec<ManagedMemoryId>,
 }
