@@ -16,6 +16,13 @@ pub struct KernelConfig {
     pub sample: Box<dyn Fn(usize) -> Duration>,
     /// The number of operations processed in one iteration.
     pub ops_count: usize,
+    /// Iterations a launch must carry however quickly they turn out to run.
+    ///
+    /// A duration target cannot express this. What makes a memory probe cold is
+    /// that its window walks a whole pool before returning to bytes it already
+    /// read, and the shorter the window the more iterations that same walk
+    /// takes.
+    pub min_iterations: usize,
 }
 
 /// A marker for measuring throughput of compute kernels.
@@ -46,7 +53,7 @@ impl ThroughputBenchmarker {
 
         let sample = kernel_config.sample;
 
-        let iterations = self.warmup(&sample);
+        let iterations = self.warmup(kernel_config.min_iterations, &sample);
         let duration = self.sample_peak_duration(iterations, &sample);
 
         let value = ThroughputValue {
@@ -63,7 +70,10 @@ impl ThroughputBenchmarker {
 
     /// Warms up the device by running the kernel multiple times
     /// and estimating the number of iterations needed to reach a stable duration.
-    fn warmup(&self, sample: impl Fn(usize) -> Duration) -> usize {
+    ///
+    /// Never returns fewer than `min_iterations`, which the kernel needs to be
+    /// measuring what it claims rather than merely to be timed accurately.
+    fn warmup(&self, min_iterations: usize, sample: impl Fn(usize) -> Duration) -> usize {
         const MAX_WARMUP: usize = 50;
         const MAX_ITERATIONS: usize = 1_000;
         const PLATEAU_TOL: f64 = 0.03;
@@ -72,7 +82,8 @@ impl ThroughputBenchmarker {
 
         let mut best = f64::INFINITY;
         let mut stable = 0;
-        let mut iterations = 1;
+        let mut iterations = min_iterations.max(1);
+        let ceiling = MAX_ITERATIONS.max(iterations);
 
         for _ in 0..MAX_WARMUP {
             let duration = sample(iterations).as_secs_f64() * 1000.0;
@@ -83,7 +94,10 @@ impl ThroughputBenchmarker {
                 } else {
                     iterations
                 };
-                iterations = (iterations + extra_iters.max(1)).min(MAX_ITERATIONS);
+                if iterations == ceiling {
+                    break;
+                }
+                iterations = (iterations + extra_iters.max(1)).min(ceiling);
                 best = f64::INFINITY;
                 stable = 0;
                 continue;

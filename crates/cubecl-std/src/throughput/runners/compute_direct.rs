@@ -39,7 +39,11 @@ pub fn build_kernel<R: Runtime>(
     let ops_count =
         ops_per_chain * CHAINS * config.cube_count * config.cube_dim * config.vector_size;
 
-    KernelConfig { sample, ops_count }
+    KernelConfig {
+        sample,
+        ops_count,
+        min_iterations: 1,
+    }
 }
 
 /// Independent accumulator chains per lane to hide arithmetic latency.
