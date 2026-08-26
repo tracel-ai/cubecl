@@ -19,8 +19,12 @@ macro_rules! lower_unary_intrinsic_arith {
                 let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
                 let intrinsic_type = FuncType::get(ctx, res_ty, vec![elem_ty], false);
 
+                let mut llvm_op = $llvm_op.to_string();
+                llvm_op.push('.');
+                llvm_op.push_str(llvm_mangled_ty(ctx, elem_ty).as_str());
+
                 let op =
-                    llvm::CallIntrinsicOp::new(ctx, $llvm_op.into(), intrinsic_type, vec![input]);
+                    llvm::CallIntrinsicOp::new(ctx, llvm_op.into(), intrinsic_type, vec![input]);
 
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(
@@ -465,8 +469,11 @@ impl ToLLVMDialect for FmaOp {
         let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
         let intrinsic_type = FuncType::get(ctx, res_ty, vec![a_ty, b_ty, c_ty], false);
 
-        let op =
-            llvm::CallIntrinsicOp::new(ctx, "llvm.fmuladd".into(), intrinsic_type, vec![a, b, c]);
+        let mut llvm_op = "llvm.fmuladd".to_string();
+        llvm_op.push('.');
+        llvm_op.push_str(llvm_mangled_ty(ctx, a_ty).as_str());
+
+        let op = llvm::CallIntrinsicOp::new(ctx, llvm_op.into(), intrinsic_type, vec![a, b, c]);
 
         rewriter.insert_op(ctx, &op);
         rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
