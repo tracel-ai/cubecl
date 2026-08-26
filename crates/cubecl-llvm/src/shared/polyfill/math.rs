@@ -19,10 +19,17 @@ use crate::shared::polyfill::LowerOp;
 use crate::shared::polyfill::transcendental::{cos, exp, ln, sin, tanh};
 use cubecl_core::ir::Scope;
 
+/// Lower a unary op to `$polyfill`, unconditionally or only where `$gate` accepts the input.
 macro_rules! lower_unary_math_arith {
-    ($cube_op:ty => $polyfill:ident) => {
+    ($cube_op:ty => $polyfill:ident $(, $gate:path)?) => {
         #[op_interface_impl]
         impl LowerOp for $cube_op {
+            $(
+                fn should_lower(&self, ctx: &Context) -> bool {
+                    $gate(self.input(ctx), ctx)
+                }
+            )?
+
             fn lower(&self, scope: &Scope) -> Vec<Value> {
                 define_scalar!(T);
                 define_size!(S);
@@ -34,38 +41,22 @@ macro_rules! lower_unary_math_arith {
     };
 }
 
-/// The same, for an operation the polynomials only beat a scalar library call on a line.
+/// Where the polynomials beat the library call they replace, which is not everywhere.
 ///
 /// Two rejections. Double precision keeps the target's own routine, since fitting a second
 /// set of coefficients would double the surface to verify for a format no kernel here
 /// reaches for. A scalar keeps it too: the library's own routines are table-driven and a
 /// polynomial does not beat them one lane at a time, which measured as a quarter lost on a
 /// scalar `cos` kernel and half on an FFT. What the polynomial wins is the lanes.
-macro_rules! lower_narrow_float_math_arith {
-    ($cube_op:ty => $polyfill:ident) => {
-        #[op_interface_impl]
-        impl LowerOp for $cube_op {
-            fn should_lower(&self, ctx: &Context) -> bool {
-                let input = self.input(ctx);
-                input.vector_size(ctx) > 1 && !input.scalar_ty(ctx).is_float64(ctx)
-            }
-
-            fn lower(&self, scope: &Scope) -> Vec<Value> {
-                define_scalar!(T);
-                define_size!(S);
-                let value = self.input(scope.ctx());
-                scope.register_value_type::<T, S>(value);
-                vec![$polyfill::expand::<T, S>(scope, value.into()).read_value(scope)]
-            }
-        }
-    };
+fn is_narrow_float_line(input: Value, ctx: &Context) -> bool {
+    input.vector_size(ctx) > 1 && !input.scalar_ty(ctx).is_float64(ctx)
 }
 
-lower_narrow_float_math_arith!(ExpOp => exp);
-lower_narrow_float_math_arith!(LogOp => ln);
-lower_narrow_float_math_arith!(SinOp => sin);
-lower_narrow_float_math_arith!(CosOp => cos);
-lower_narrow_float_math_arith!(TanhOp => tanh);
+lower_unary_math_arith!(ExpOp => exp, is_narrow_float_line);
+lower_unary_math_arith!(LogOp => ln, is_narrow_float_line);
+lower_unary_math_arith!(SinOp => sin, is_narrow_float_line);
+lower_unary_math_arith!(CosOp => cos, is_narrow_float_line);
+lower_unary_math_arith!(TanhOp => tanh, is_narrow_float_line);
 
 macro_rules! lower_binary_math_arith {
     ($cube_op:ty => $polyfill:ident) => {
