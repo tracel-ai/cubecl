@@ -521,9 +521,12 @@ impl<'a> Command<'a> {
         Ok(())
     }
 
+    /// Registers an error on the stream, for the logical stream this command
+    /// runs on to surface.
     pub fn error(&mut self, error: ServerError) {
+        let stream_id = self.streams.current;
         let stream = self.streams.current();
-        stream.errors.push(error);
+        stream.errors.push(stream_id, error);
     }
 }
 

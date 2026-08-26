@@ -6,14 +6,15 @@ use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, pool::LeaseHandle, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    server::{MetadataBindingInfo, StreamErrorMode},
+    server::{MetadataBindingInfo, ServerError},
     zspace::SmallVec,
 };
+use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::SharedMemoryBindings,
-    stream::{StreamCaptureState, StreamFactory, scheduler::SchedulerStreamBackend},
+    stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
 /// Defines tasks that can be scheduled on a WGPU stream.
@@ -223,12 +224,11 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
     }
 
     fn flush(stream: &mut Self::Stream) {
-        let _ = stream
-            .flush(StreamErrorMode {
-                ignore: true,
-                flush: false,
-            })
-            .ok();
+        stream.submit();
+    }
+
+    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
+        stream.errors_owned(owner)
     }
 
     fn factory(&mut self) -> &mut Self::Factory {
@@ -240,6 +240,6 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
         // stream's own pools, and the recording must contain exactly this
         // stream's tasks — interleaved execution would do either on an
         // arbitrary stream.
-        stream.capturing != StreamCaptureState::NoCapture
+        stream.capturing.is_active()
     }
 }

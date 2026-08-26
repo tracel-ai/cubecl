@@ -39,13 +39,13 @@ tracing = [
 
 [dependencies]
 bitflags = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.2", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.2" }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.2", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.2", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.3", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3" }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.3", default-features = false, features = [
     "spirv",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.2", default-features = false, features = [
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.3", default-features = false, features = [
     "channel-mutex",
 ] }
 half = { workspace = true }
@@ -61,7 +61,7 @@ pliron-spirv = { workspace = true }
 rspirv = { workspace = true, features = ["serialize", "deserialize"] }
 
 # Optimizer
-cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.2" }
+cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.3" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 pliron = { workspace = true, features = ["std"] }

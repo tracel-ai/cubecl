@@ -1,12 +1,13 @@
 use crate::memory::MetalStorage;
 use cubecl_core::{MemoryConfiguration, server::ServerError};
+use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{MemoryManagement, MemoryManagementOptions},
     server::BufferBinding,
-    stream::EventStreamBackend,
+    stream::{EventStreamBackend, StreamErrors},
 };
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -31,7 +32,7 @@ pub struct ActiveEncoder {
 fn install_completion_handler(
     command_buffer: &ProtocolObject<dyn MTLCommandBuffer>,
     temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
-    errors: Arc<Mutex<Vec<ServerError>>>,
+    errors: Arc<Mutex<StreamErrors>>,
     signal_event: Option<(Retained<ProtocolObject<dyn MTLSharedEvent>>, u64)>,
 ) {
     if temporaries.is_empty() && signal_event.is_none() {
@@ -52,7 +53,9 @@ fn install_completion_handler(
                     ),
                     None => "Metal command buffer failed with an unknown error".to_string(),
                 };
-                errors.lock().push(ServerError::Generic {
+                // A completed command buffer carries no logical stream, so the
+                // fault goes to whichever stream flushes the sink next.
+                errors.lock().push_shared(ServerError::Generic {
                     reason,
                     backtrace: cubecl_environment::backtrace::BackTrace::capture(),
                 });
@@ -99,7 +102,7 @@ pub struct MetalStream {
     pub last_command_buffer: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
     /// GPU command-buffer faults recorded asynchronously by completion handlers; a
     /// non-empty sink poisons the stream (see [`MetalStreamBackend::is_healthy`]).
-    pub errors: Arc<Mutex<Vec<ServerError>>>,
+    pub errors: Arc<Mutex<StreamErrors>>,
     /// When `Some`, device profiling is active on this stream: each work-bearing command
     /// buffer committed during the window is collected here so its GPU timestamps
     /// (`GPUStartTime`/`GPUEndTime`) can be read after completion.
@@ -139,9 +142,11 @@ impl MetalStream {
         self.active_encoder.as_mut().unwrap()
     }
 
-    /// Drains GPU command-buffer faults recorded asynchronously by completion handlers.
-    pub fn take_errors(&self) -> Vec<ServerError> {
-        core::mem::take(&mut self.errors.lock())
+    /// Drains the errors `stream_id` surfaces: the GPU command-buffer faults
+    /// recorded asynchronously by completion handlers, plus the launch failures
+    /// queued for that stream (see [`StreamErrors`]).
+    pub fn take_errors(&self, stream_id: StreamId) -> Vec<ServerError> {
+        self.errors.lock().take(stream_id)
     }
 
     /// Waits on a previously submitted command buffer if total queued ops
@@ -324,7 +329,7 @@ impl EventStreamBackend for MetalStreamBackend {
             submitted_ops: 0,
             max_submitted_ops,
             last_command_buffer: None,
-            errors: Arc::new(Mutex::new(Vec::new())),
+            errors: Arc::new(Mutex::new(StreamErrors::default())),
             profiling: None,
         }
     }
@@ -395,8 +400,12 @@ impl EventStreamBackend for MetalStreamBackend {
             .unwrap_or(u64::MAX)
     }
 
-    fn is_healthy(stream: &Self::Stream) -> bool {
-        stream.errors.lock().is_empty()
+    fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool {
+        !stream.errors.lock().any(stream_id)
+    }
+
+    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
+        stream.errors.lock().peek_owned(owner)
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
@@ -431,16 +440,17 @@ mod tests {
     #[test]
     fn error_sink_poisons_is_healthy() {
         let stream = test_stream();
-        assert!(MetalStreamBackend::is_healthy(&stream));
+        let stream_id = StreamId { value: 0 };
+        assert!(MetalStreamBackend::is_healthy(&stream, stream_id));
 
-        stream.errors.lock().push(ServerError::Generic {
+        stream.errors.lock().push_shared(ServerError::Generic {
             reason: "injected fault".to_string(),
             backtrace: cubecl_environment::backtrace::BackTrace::capture(),
         });
-        assert!(!MetalStreamBackend::is_healthy(&stream));
+        assert!(!MetalStreamBackend::is_healthy(&stream, stream_id));
 
-        let drained = stream.take_errors();
+        let drained = stream.take_errors(stream_id);
         assert_eq!(drained.len(), 1);
-        assert!(MetalStreamBackend::is_healthy(&stream));
+        assert!(MetalStreamBackend::is_healthy(&stream, stream_id));
     }
 }

@@ -6,18 +6,17 @@ use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{
-        BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError,
-        StreamErrorMode,
-    },
+    server::{BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
 };
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
         ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
     },
     storage::{BytesResource, BytesStorage},
+    stream::StreamErrors,
     timestamp_profiler::TimestampProfiler,
 };
 use std::sync::{Arc, atomic::AtomicU64};
@@ -32,7 +31,7 @@ pub struct CpuStream {
     /// slice to shared memory, aliasing an input and corrupting it in place.
     pub(crate) shared_memory_management: MemoryManagement<BytesStorage>,
     pub(crate) timestamps: TimestampProfiler,
-    errors: Vec<ServerError>,
+    errors: StreamErrors,
     threadpool: &'static spin::Mutex<Threadpool>,
     next_counter_step: u64,
     atomic_counter: Arc<CachePadded<AtomicU64>>,
@@ -76,7 +75,7 @@ impl CpuStream {
             memory_management,
             shared_memory_management,
             timestamps: TimestampProfiler::default(),
-            errors: Vec::new(),
+            errors: StreamErrors::default(),
             threadpool,
             next_counter_step,
             atomic_counter,
@@ -93,7 +92,7 @@ impl CpuStream {
         //   enqueue — sound only while one such launch has the pool to itself.
         match task {
             ScheduleTask::Write { data, mut buffer } => {
-                self.flush_uncheck();
+                self.submit();
                 buffer.resource_mut().write().copy_from_slice(&data);
             }
             ScheduleTask::Execute {
@@ -109,7 +108,7 @@ impl CpuStream {
                     .blocks
                     .is_empty()
                 {
-                    self.flush_uncheck();
+                    self.submit();
                 }
                 // No unit cap: the threadpool grows to fit any cube_dim, one
                 // worker per unit for barrier kernels.
@@ -128,7 +127,13 @@ impl CpuStream {
         }
     }
 
-    fn flush_uncheck(&mut self) {
+    /// Wait for the queued work and surface nothing.
+    ///
+    /// For the pooled paths that flush the stream without any logical stream
+    /// asking — a full task queue, the ordering barrier before a write, the
+    /// scheduler aligning streams. Whatever is queued stays queued, for the
+    /// flush of the stream that owns it (see [`StreamErrors`]).
+    pub fn submit(&mut self) {
         // Spin briefly, then yield between polls: the client is not pinned,
         // and a pure spin parked on a worker's logical CPU keeps that worker
         // off it until the next timer tick (~3 ms unit-start stalls).
@@ -148,35 +153,29 @@ impl CpuStream {
         }
     }
 
-    pub fn flush(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
-        self.flush_uncheck();
-        self.flush_errors(mode)
-    }
+    /// Wait for the queued work, then surface the errors `owner` owns.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::ServerUnhealthy`] carrying everything `owner` had queued,
+    /// which this call takes: the stream is usable again afterwards, and the
+    /// other streams sharing it keep their own errors.
+    pub fn flush(&mut self, owner: StreamId) -> Result<(), ServerError> {
+        self.submit();
 
-    fn flush_errors(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
-        if mode.flush {
-            let errors = self.flush_errors_queue();
-
-            if !mode.ignore && !errors.is_empty() {
-                let error = ServerError::ServerUnhealthy {
-                    errors,
-                    backtrace: BackTrace::capture(),
-                };
-                return Err(error);
-            }
-        } else if !mode.ignore && !self.errors.is_empty() {
-            let error = ServerError::ServerUnhealthy {
-                errors: self.errors.clone(),
-                backtrace: BackTrace::capture(),
-            };
-            return Err(error);
+        let errors = self.flush_errors_queue(owner);
+        if errors.is_empty() {
+            return Ok(());
         }
 
-        Ok(())
+        Err(ServerError::ServerUnhealthy {
+            errors,
+            backtrace: BackTrace::capture(),
+        })
     }
 
-    pub(crate) fn flush_errors_queue(&mut self) -> Vec<ServerError> {
-        let errors = core::mem::take(&mut self.errors);
+    pub(crate) fn flush_errors_queue(&mut self, owner: StreamId) -> Vec<ServerError> {
+        let errors = self.errors.take(owner);
 
         if !errors.is_empty() {
             self.timestamps.error(ProfileError::Unknown {
@@ -188,14 +187,15 @@ impl CpuStream {
         errors
     }
 
-    /// Returns whether the stream can accept new tasks.
-    pub fn is_healthy(&self) -> bool {
-        self.errors.is_empty()
+    /// Registers a new error into the error sink, for `stream_id` to surface.
+    pub fn error(&mut self, stream_id: StreamId, error: ServerError) {
+        self.errors.push(stream_id, error);
     }
 
-    /// Registers a new error into the error sink.
-    pub fn error(&mut self, error: ServerError) {
-        self.errors.push(error);
+    /// The errors `owner` alone caused, left queued for it to surface — see
+    /// [`StreamErrors::peek_owned`].
+    pub fn errors_owned(&self, owner: StreamId) -> Vec<ServerError> {
+        self.errors.peek_owned(owner)
     }
 
     /// Allocates a new empty buffer using the main memory pool.
@@ -228,21 +228,18 @@ impl CpuStream {
         async move { res }
     }
 
-    pub fn sync(&mut self) -> Result<(), ServerError> {
-        self.flush(StreamErrorMode {
-            ignore: false,
-            flush: true,
-        })
-    }
-
-    pub fn start_profile(&mut self) -> Result<ProfilingToken, ServerError> {
-        self.sync()?;
+    pub fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        self.flush(stream_id)?;
 
         Ok(self.timestamps.start())
     }
 
-    pub fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
-        if let Err(err) = self.sync() {
+    pub fn end_profile(
+        &mut self,
+        token: ProfilingToken,
+        stream_id: StreamId,
+    ) -> Result<ProfileDuration, ProfileError> {
+        if let Err(err) = self.flush(stream_id) {
             self.timestamps.error(ProfileError::Server(Box::new(err)));
         }
 

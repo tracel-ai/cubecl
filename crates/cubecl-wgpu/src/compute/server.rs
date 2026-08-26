@@ -11,7 +11,7 @@ use cubecl_common::{
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
 };
-use cubecl_core::server::{BufferBinding, KernelResource, StreamErrorMode};
+use cubecl_core::server::{BufferBinding, KernelResource};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
@@ -333,6 +333,22 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         {
             return Box::pin(async move { Err(err) });
         }
+
+        // Buffers another stream wrote are only as good as the work that wrote
+        // them; see `StreamPool::producer_errors`. The reader's own errors are
+        // surfaced by `read_resources`' flush further down.
+        let producer_errors = self
+            .scheduler
+            .producer_errors(stream_id, descriptors.iter().map(|d| &d.handle));
+        if !producer_errors.is_empty() {
+            return Box::pin(async move {
+                Err(ServerError::ServerUnhealthy {
+                    errors: producer_errors,
+                    backtrace: BackTrace::capture(),
+                })
+            });
+        }
+
         let mut streams = vec![stream_id];
         let mut resources = Vec::with_capacity(descriptors.len());
         for desc in descriptors {
@@ -358,7 +374,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.scheduler.execute_streams(streams);
 
         let stream = self.scheduler.stream(&stream_id);
-        stream.read_resources(resources)
+        stream.read_resources(resources, stream_id)
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
@@ -369,24 +385,31 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         {
             let stream = self.scheduler.stream(&stream_id);
             if let Err(err) = stream.reject_while_recording("write") {
-                stream.errors.push(err);
+                stream.errors.push(stream_id, err);
                 return;
             }
         }
         for (desc, data) in descriptors {
-            let stream = self.scheduler.stream(&desc.handle.stream);
-
+            // The failures below belong to the caller, so they are queued on
+            // the caller's stream — the one that flushes them — even though the
+            // resource is resolved on the stream that owns the handle.
             if contiguous_strides(&desc.shape) != desc.strides {
-                stream.error(ServerError::Io(IoError::UnsupportedStrides {
-                    backtrace: BackTrace::capture(),
-                }));
+                self.scheduler.stream(&stream_id).error(
+                    stream_id,
+                    ServerError::Io(IoError::UnsupportedStrides {
+                        backtrace: BackTrace::capture(),
+                    }),
+                );
                 return;
             }
 
+            let stream = self.scheduler.stream(&desc.handle.stream);
             let resource = match stream.mem_manage.get_resource(desc.handle) {
                 Ok(r) => r,
                 Err(err) => {
-                    stream.error(ServerError::Io(err));
+                    self.scheduler
+                        .stream(&stream_id)
+                        .error(stream_id, ServerError::Io(err));
                     return;
                 }
             };
@@ -429,7 +452,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             Err(err) => {
                 // We make the stream that would execute the kernel in error.
                 let stream = self.scheduler.stream(&stream_id);
-                stream.errors.push(ServerError::Launch(err));
+                stream.errors.push(stream_id, ServerError::Launch(err));
                 return;
             }
         };
@@ -460,7 +483,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             Err(err) => {
                 // We make the stream that would execute the kernel in error.
                 let stream = self.scheduler.stream(&stream_id);
-                stream.errors.push(ServerError::Io(err));
+                stream.errors.push(stream_id, ServerError::Io(err));
                 return;
             }
         };
@@ -479,10 +502,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         let stream = self.scheduler.stream(&stream_id);
 
-        stream.flush(StreamErrorMode {
-            ignore: false,
-            flush: true,
-        })
+        stream.flush(stream_id)
     }
 
     /// Returns the total time of GPU work this sync completes.
@@ -497,7 +517,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
 
-        stream.sync()
+        stream.sync(stream_id)
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
@@ -508,7 +528,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             .reject_while_recording("start_profile")?;
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.start_profile()
+        stream.start_profile(stream_id)
     }
 
     fn end_profile(
@@ -519,7 +539,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
 
-        stream.end_profile(token)
+        stream.end_profile(token, stream_id)
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
@@ -581,7 +601,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
 
-        stream.capturing.prepare()?;
+        stream.capturing.prepare(stream_id)?;
 
         // Route every allocation from here until `end_capture` into the
         // persistent pools and track the touched slices: warmup populates the
@@ -604,10 +624,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // Submit the warmup work and surface its queued errors now, so a
         // warmup failure is reported here — where the diagnostic points at the
         // cause — instead of failing `end_capture` later.
-        if let Err(err) = stream.flush(StreamErrorMode {
-            ignore: false,
-            flush: true,
-        }) {
+        if let Err(err) = stream.flush(stream_id) {
             // The capture never opened: disarm retention and return to
             // `NoCapture`, so a failed `start_capture` leaves the stream fully
             // usable and re-capturable.
@@ -639,7 +656,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // capture rather than hand back a graph that silently skips work.
         // `begin_capture` drained pre-window errors, so anything here arose
         // inside the window.
-        let errors = stream.flush_errors_queue();
+        let errors = stream.flush_errors_queue(stream_id);
         if !errors.is_empty() {
             stream.info_cache.capture_discard();
             return Err(ServerError::ServerUnhealthy {
@@ -673,14 +690,15 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // blocking the caller here.
         let Some(wgpu_graph) = self.graphs.get(&graph) else {
             let stream = self.scheduler.stream(&stream_id);
-            stream.errors.push(ServerError::graph_state(
-                "replay was given an unknown or already-destroyed graph",
-            ));
+            stream.errors.push(
+                stream_id,
+                ServerError::graph_state("replay was given an unknown or already-destroyed graph"),
+            );
             return;
         };
         let stream = self.scheduler.stream(&stream_id);
         if let Err(err) = stream.reject_while_recording("replay") {
-            stream.errors.push(err);
+            stream.errors.push(stream_id, err);
             return;
         }
         stream.replay_graph(wgpu_graph);
@@ -701,12 +719,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // not — the uniform uploads in `create_uniform`/`info_uniform`. Once the
         // replay is submitted, queue ordering makes releasing the slices safe
         // with no host sync, unlike CUDA.
-        let _ = stream
-            .flush(StreamErrorMode {
-                ignore: true,
-                flush: false,
-            })
-            .ok();
+        stream.submit();
         // Release the info-cache entries this graph pinned; entries no other
         // live graph still pins are dropped, freeing their buffers.
         stream.info_cache.graph_release(graph);

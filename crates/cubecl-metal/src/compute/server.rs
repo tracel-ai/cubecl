@@ -154,7 +154,7 @@ impl MetalServer {
         let mut errors = Vec::new();
 
         if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
-            errors.append(&mut resolved.current().take_errors());
+            errors.append(&mut resolved.current().take_errors(stream_id));
         }
 
         if !errors.is_empty() {
@@ -174,7 +174,7 @@ impl MetalServer {
             Err(err) => unreachable!("{err}"),
         };
         let error = ServerError::Launch(err);
-        resolved.current().errors.lock().push(error);
+        resolved.current().errors.lock().push(stream_id, error);
     }
 }
 
@@ -233,6 +233,21 @@ impl ComputeServer for MetalServer {
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         use objc2_metal::MTLBuffer;
 
+        // Buffers another stream wrote are only as good as the work that wrote
+        // them; see `StreamPool::producer_errors`.
+        let producer_errors = self
+            .streams
+            .producer_errors(stream_id, descriptors.iter().map(|d| &d.handle));
+        if !producer_errors.is_empty() {
+            return Box::pin(async move {
+                Err(ServerError::ServerUnhealthy {
+                    errors: producer_errors,
+                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+                })
+            });
+        }
+
+        // The reader's own, which this call takes.
         let errors = self.flush_errors(stream_id);
         if !errors.is_empty() {
             return Box::pin(async move {
@@ -261,7 +276,7 @@ impl ComputeServer for MetalServer {
         }
 
         // A faulted command buffer still signals completion, so surface any recorded fault.
-        if let Some(e) = resolved.current().take_errors().into_iter().next() {
+        if let Some(e) = resolved.current().take_errors(stream_id).into_iter().next() {
             return Box::pin(async move { Err(e) });
         }
 

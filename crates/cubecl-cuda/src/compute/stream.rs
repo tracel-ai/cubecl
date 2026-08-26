@@ -10,6 +10,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{BufferBinding, Handle, ServerError},
 };
+use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     config::streaming::StreamPriority,
     logging::ServerLogger,
@@ -17,7 +18,7 @@ use cubecl_runtime::{
         MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{EventStreamBackend, StreamCaptureState},
+    stream::{EventStreamBackend, StreamCaptureState, StreamErrors},
 };
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -26,7 +27,7 @@ pub struct Stream {
     pub sys: cudarc::driver::sys::CUstream,
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
-    pub errors: Vec<ServerError>,
+    pub errors: StreamErrors,
     pub drop_queue: drop_queue::PendingDropQueue<Fence>,
     /// This stream's position in the graph-capture lifecycle (see
     /// [`StreamCaptureState`]). Enforces the ordered `graph_prepare` →
@@ -172,7 +173,7 @@ impl EventStreamBackend for CudaStreamBackend {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
-            errors: Vec::new(),
+            errors: StreamErrors::default(),
             drop_queue: Default::default(),
             capturing: StreamCaptureState::NoCapture,
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
@@ -201,7 +202,11 @@ impl EventStreamBackend for CudaStreamBackend {
             .unwrap_or(u64::MAX)
     }
 
-    fn is_healthy(stream: &Self::Stream) -> bool {
-        stream.errors.is_empty()
+    fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool {
+        !stream.errors.any(stream_id)
+    }
+
+    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
+        stream.errors.peek_owned(owner)
     }
 }

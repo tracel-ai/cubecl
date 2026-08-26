@@ -1,3 +1,4 @@
+use crate::server::{BufferBinding, ServerError};
 use alloc::vec::Vec;
 use cubecl_environment::stream::StreamId;
 
@@ -112,6 +113,38 @@ impl<F: StreamFactory> StreamPool<F> {
     /// Calculates the index for a given stream ID, mapping it to the pool's capacity.
     pub fn stream_index(&mut self, id: &StreamId) -> usize {
         stream_index(id, self.max_streams)
+    }
+
+    /// The errors owned by the distinct logical streams that wrote `handles`,
+    /// other than `reader`'s own, as reported by `errors_owned`.
+    ///
+    /// A read is only as good as the work that wrote the buffer: a launch that
+    /// failed never wrote it, so copying its bytes out hands back whatever was
+    /// in memory before. The reader's own errors are surfaced by the flush on
+    /// its way in, but a producer's are queued on the producer — on another
+    /// pooled stream, or on the same one under another id — so a read asks
+    /// each of them here, before it submits or copies anything.
+    ///
+    /// The errors are read, never taken: the stream that caused each one still
+    /// surfaces it on its own flush.
+    pub fn producer_errors<'a>(
+        &mut self,
+        reader: StreamId,
+        handles: impl Iterator<Item = &'a BufferBinding>,
+        errors_owned: impl Fn(&F::Stream, StreamId) -> Vec<ServerError>,
+    ) -> Vec<ServerError> {
+        let mut producers = Vec::new();
+        let mut errors = Vec::new();
+
+        for handle in handles.filter(|handle| handle.stream != reader) {
+            if producers.contains(&handle.stream) {
+                continue;
+            }
+            producers.push(handle.stream);
+            errors.extend(errors_owned(self.get_mut(&handle.stream), handle.stream));
+        }
+
+        errors
     }
 
     /// Mutable access to the factory, e.g. to change the configuration new
