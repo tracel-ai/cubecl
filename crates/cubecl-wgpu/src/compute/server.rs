@@ -481,7 +481,15 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 // We make the stream that would execute the kernel in error.
                 // The launch never ran, so every buffer it was given is left as
                 // it was; a read of one has to fail on this rather than copy it.
-                let unwritten: Vec<_> = args.memory_ids_written().collect();
+                //
+                // A dry run names none. It was never going to write, so a
+                // failure in it leaves nothing stale, and naming its buffers
+                // would fail unrelated reads of memory the run deliberately
+                // left alone.
+                let unwritten: Vec<_> = match launch_mode.is_skipped() {
+                    true => Vec::new(),
+                    false => args.memory_ids_written().collect(),
+                };
                 let stream = self.scheduler.stream(&stream_id);
                 stream
                     .errors

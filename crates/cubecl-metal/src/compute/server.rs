@@ -172,8 +172,21 @@ impl MetalServer {
     /// The launch never reached the device, so every buffer it was given is
     /// left as it was: naming them makes a later read of one fail on this error
     /// rather than copy out bytes nothing wrote.
-    fn push_launch_error(&mut self, stream_id: StreamId, err: LaunchError, args: &KernelArguments) {
-        let unwritten: Vec<_> = args.memory_ids_written().collect();
+    ///
+    /// A dry run names none. It was never going to write, so a failure in it
+    /// leaves nothing stale, and naming its buffers would fail unrelated reads
+    /// of memory the run deliberately left alone.
+    fn push_launch_error(
+        &mut self,
+        stream_id: StreamId,
+        err: LaunchError,
+        args: &KernelArguments,
+        launch_mode: LaunchMode,
+    ) {
+        let unwritten: Vec<_> = match launch_mode.is_skipped() {
+            true => Vec::new(),
+            false => args.memory_ids_written().collect(),
+        };
         let mut resolved = match self.streams.resolve(stream_id, std::iter::empty(), false) {
             Ok(resolved) => resolved,
             Err(err) => unreachable!("{err}"),
@@ -384,13 +397,13 @@ impl ComputeServer for MetalServer {
         if let Err(err) =
             cubecl_runtime::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)
         {
-            self.push_launch_error(stream_id, err, &bindings);
+            self.push_launch_error(stream_id, err, &bindings, launch_mode);
             return;
         }
         if let Err(err) =
             cubecl_runtime::validation::validate_units(&self.utilities.properties, &kernel_id)
         {
-            self.push_launch_error(stream_id, err, &bindings);
+            self.push_launch_error(stream_id, err, &bindings, launch_mode);
             return;
         }
 
@@ -402,7 +415,7 @@ impl ComputeServer for MetalServer {
         ) {
             Ok(c) => c,
             Err(err) => {
-                self.push_launch_error(stream_id, err, &bindings);
+                self.push_launch_error(stream_id, err, &bindings, launch_mode);
                 return;
             }
         };
