@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, ir::ElemType};
 use cubecl_runtime::{
     server::Handle,
-    throughput::{DEFAULT_BUFFER_BYTES, MemoryAccess},
+    throughput::{DEFAULT_BUFFER_BYTES, MemorySpec},
 };
 
 use crate::throughput::LaunchConfig;
@@ -93,8 +93,7 @@ impl MemoryProbe {
         client: &ComputeClient<R>,
         config: LaunchConfig,
         line_bytes: usize,
-        access: MemoryAccess,
-        working_set: usize,
+        spec: MemorySpec,
     ) -> Self {
         let blocked = config.plane_size == 1;
         let shape = DeviceShape {
@@ -104,7 +103,7 @@ impl MemoryProbe {
             cube_count: if blocked { 1 } else { config.cube_count },
         };
 
-        Self::sized(shape, line_bytes, access, working_set, blocked)
+        Self::sized(shape, line_bytes, spec, blocked)
     }
 
     /// The geometry itself, with the device reduced to its allocation limit and
@@ -120,15 +119,9 @@ impl MemoryProbe {
     /// neither is the small-kernel behaviour the curve exists to describe: a
     /// kernel that moves little has little in flight, and that is precisely
     /// what limits it.
-    fn sized(
-        shape: DeviceShape,
-        line_bytes: usize,
-        access: MemoryAccess,
-        working_set: usize,
-        blocked: bool,
-    ) -> Self {
-        let buffers = access.buffers() as usize;
-        let window_bytes = working_set / buffers;
+    fn sized(shape: DeviceShape, line_bytes: usize, spec: MemorySpec, blocked: bool) -> Self {
+        let buffers = spec.access.buffers() as usize;
+        let window_bytes = (spec.bytes.min(usize::MAX as u64) as usize) / buffers;
 
         let cold_lines = (shape.max_alloc.min(DEFAULT_BUFFER_BYTES as usize) / line_bytes).max(1);
         let window_lines = (window_bytes / line_bytes).max(1).min(cold_lines);
@@ -139,10 +132,13 @@ impl MemoryProbe {
         // zero is such a device rather than a cacheless one, which
         // `hipDeviceProp_t::l2CacheSize` documents itself as returning, and
         // taken at face value it would pin every window.
-        let pins = shape
-            .cache_bytes
-            .filter(|cache| *cache > 0)
-            .is_some_and(|cache| window_bytes >= cache.saturating_mul(MIN_WINDOW_CACHE_MULTIPLE));
+        let pins = spec.resident
+            || shape
+                .cache_bytes
+                .filter(|cache| *cache > 0)
+                .is_some_and(|cache| {
+                    window_bytes >= cache.saturating_mul(MIN_WINDOW_CACHE_MULTIPLE)
+                });
         let pool_lines = if pins { window_lines } else { cold_lines };
 
         let cube_count = (window_lines / shape.cube_dim).clamp(1, shape.cube_count);
@@ -207,6 +203,7 @@ fn prime_buffer<I: Numeric, N: Size>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cubecl_runtime::throughput::MemoryAccess;
 
     const KB: usize = 1024;
     const MB: usize = 1024 * 1024;
@@ -222,7 +219,8 @@ mod tests {
 
     /// A probe of that device, in the 16-byte lines a `vec4` of f32 comes in.
     fn probe(working_set: usize, access: MemoryAccess) -> MemoryProbe {
-        MemoryProbe::sized(DEVICE, 16, access, working_set, false)
+        let spec = MemorySpec::cold(access, working_set as u64);
+        MemoryProbe::sized(DEVICE, 16, spec, false)
     }
 
     /// The same device, saying nothing about its cache.
@@ -231,7 +229,40 @@ mod tests {
             cache_bytes: None,
             ..DEVICE
         };
-        MemoryProbe::sized(shape, 16, access, working_set, false)
+        let spec = MemorySpec::cold(access, working_set as u64);
+        MemoryProbe::sized(shape, 16, spec, false)
+    }
+
+    /// The same device, asked where a working set already sits.
+    fn resident(working_set: usize, access: MemoryAccess) -> MemoryProbe {
+        let spec = MemorySpec::resident(access, working_set as u64);
+        MemoryProbe::sized(DEVICE, 16, spec, false)
+    }
+
+    #[test]
+    fn a_resident_window_never_walks() {
+        // Far below the cache, where a cold probe would walk furthest.
+        let small = resident(8 * KB, MemoryAccess::Read);
+        assert_eq!(small.pool_lines, small.window_lines);
+        assert_eq!(small.buffer_bytes, 8 * KB);
+        assert_eq!(small.min_iterations(), 1);
+
+        // The cold probe of the same size is the comparison being drawn.
+        assert_eq!(probe(8 * KB, MemoryAccess::Read).pool_lines, 512 * MB / 16);
+    }
+
+    #[test]
+    fn residency_is_asked_for_rather_than_deduced() {
+        // A device that reports no cache cannot tell a resident window from a
+        // cold one, so the request is the only thing that can say so.
+        let shape = DeviceShape {
+            cache_bytes: None,
+            ..DEVICE
+        };
+        let spec = MemorySpec::resident(MemoryAccess::Read, 8 * KB as u64);
+        let probe = MemoryProbe::sized(shape, 16, spec, false);
+
+        assert_eq!(probe.pool_lines, probe.window_lines);
     }
 
     #[test]
@@ -308,7 +339,8 @@ mod tests {
             cache_bytes: Some(0),
             ..DEVICE
         };
-        let probe = MemoryProbe::sized(shape, 16, MemoryAccess::Read, 256 * KB, false);
+        let spec = MemorySpec::cold(MemoryAccess::Read, 256 * KB as u64);
+        let probe = MemoryProbe::sized(shape, 16, spec, false);
 
         assert_eq!(probe.pool_lines, 512 * MB / 16);
     }
@@ -347,7 +379,8 @@ mod tests {
             max_alloc: 4 * MB,
             ..DEVICE
         };
-        let probe = MemoryProbe::sized(shape, 16, MemoryAccess::Read, 512 * MB, false);
+        let spec = MemorySpec::cold(MemoryAccess::Read, 512 * MB as u64);
+        let probe = MemoryProbe::sized(shape, 16, spec, false);
 
         assert_eq!(probe.buffer_bytes, 4 * MB);
         assert_eq!(probe.window_lines, probe.pool_lines);

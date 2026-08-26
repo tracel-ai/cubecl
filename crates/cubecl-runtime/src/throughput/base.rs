@@ -103,8 +103,62 @@ pub enum ThroughputMode {
         /// The bytes moved in one pass.
         bytes: u64,
     },
+    /// One point of a *resident* memory curve: `access` over a working set of
+    /// exactly `bytes`, measured where it already sits.
+    ///
+    /// [`MemoryWorkingSet`](Self::MemoryWorkingSet) walks its window across a
+    /// far larger pool so every pass finds the bytes evicted, which answers
+    /// what a kernel reaching into memory can do. A kernel that comes back to
+    /// the same tile, a fused chain or a blocked matmul, is asking something
+    /// else, and against the cold figure it can legitimately report several
+    /// hundred percent.
+    ///
+    /// So this probe does not walk. Whether the working set is genuinely
+    /// resident is then a question of its size against the cache rather than
+    /// anything the probe arranges: past the cache the two curves are the same
+    /// measurement and should meet.
+    MemoryResident {
+        /// Which directions of traffic the probe issues.
+        access: MemoryAccess,
+        /// The bytes moved in one pass.
+        bytes: u64,
+    },
     /// Launch overhead measurement.
     Launch,
+}
+
+/// What a memory mode asks of a probe.
+#[derive(Eq, PartialEq, Clone, Copy, Debug)]
+pub struct MemorySpec {
+    /// Which directions of traffic to issue.
+    pub access: MemoryAccess,
+    /// The bytes one pass moves across the interface.
+    pub bytes: u64,
+    /// Whether to measure the working set where it sits rather than walk it
+    /// across a pool until every pass finds it evicted.
+    pub resident: bool,
+}
+
+impl MemorySpec {
+    /// A probe that walks, which every mode but
+    /// [`MemoryResident`](ThroughputMode::MemoryResident) asks for.
+    pub const fn cold(access: MemoryAccess, bytes: u64) -> Self {
+        Self {
+            access,
+            bytes,
+            resident: false,
+        }
+    }
+
+    /// A probe that stays put, so what it measures is whatever holds the
+    /// working set at that size.
+    pub const fn resident(access: MemoryAccess, bytes: u64) -> Self {
+        Self {
+            access,
+            bytes,
+            resident: true,
+        }
+    }
 }
 
 impl ThroughputMode {
@@ -113,17 +167,26 @@ impl ThroughputMode {
     ///
     /// The one place the single-size variants are mapped onto their access and
     /// size, so nothing downstream has to repeat the equivalence.
-    pub const fn memory_probe(&self) -> Option<(MemoryAccess, u64)> {
+    pub const fn memory_probe(&self) -> Option<MemorySpec> {
         match self {
-            Self::Memory => Some((MemoryAccess::Copy, MemoryAccess::Copy.default_working_set())),
-            Self::MemoryRead => {
-                Some((MemoryAccess::Read, MemoryAccess::Read.default_working_set()))
-            }
-            Self::MemoryWrite => Some((
+            Self::Memory => Some(MemorySpec::cold(
+                MemoryAccess::Copy,
+                MemoryAccess::Copy.default_working_set(),
+            )),
+            Self::MemoryRead => Some(MemorySpec::cold(
+                MemoryAccess::Read,
+                MemoryAccess::Read.default_working_set(),
+            )),
+            Self::MemoryWrite => Some(MemorySpec::cold(
                 MemoryAccess::Write,
                 MemoryAccess::Write.default_working_set(),
             )),
-            Self::MemoryWorkingSet { access, bytes } => Some((*access, *bytes)),
+            Self::MemoryWorkingSet { access, bytes } => Some(MemorySpec::cold(*access, *bytes)),
+            Self::MemoryResident { access, bytes } => Some(MemorySpec {
+                access: *access,
+                bytes: *bytes,
+                resident: true,
+            }),
             Self::ComputeDirect { .. } | Self::ComputeCmma { .. } | Self::Launch => None,
         }
     }
@@ -150,6 +213,7 @@ impl ThroughputKey {
             | ThroughputMode::MemoryRead
             | ThroughputMode::MemoryWrite
             | ThroughputMode::MemoryWorkingSet { .. }
+            | ThroughputMode::MemoryResident { .. }
             | ThroughputMode::Launch => ElemType::Float(FloatKind::F32),
         }
     }
@@ -206,7 +270,8 @@ impl ThroughputValue {
             ThroughputMode::Memory
             | ThroughputMode::MemoryRead
             | ThroughputMode::MemoryWrite
-            | ThroughputMode::MemoryWorkingSet { .. } => (self.bytes_per_s(key), "bytes"),
+            | ThroughputMode::MemoryWorkingSet { .. }
+            | ThroughputMode::MemoryResident { .. } => (self.bytes_per_s(key), "bytes"),
             ThroughputMode::Launch => {
                 let dur = self.duration_per_op();
                 if dur.is_zero() {
@@ -280,6 +345,22 @@ mod tests {
         assert_eq!(
             encode(ThroughputMode::MemoryWrite),
             r#"{"mode":"MemoryWrite"}"#
+        );
+
+        // The curve variants, whose points are the bulk of any cache.
+        assert_eq!(
+            encode(ThroughputMode::MemoryWorkingSet {
+                access: MemoryAccess::Read,
+                bytes: 8192,
+            }),
+            r#"{"mode":{"MemoryWorkingSet":{"access":"Read","bytes":8192}}}"#
+        );
+        assert_eq!(
+            encode(ThroughputMode::MemoryResident {
+                access: MemoryAccess::Read,
+                bytes: 8192,
+            }),
+            r#"{"mode":{"MemoryResident":{"access":"Read","bytes":8192}}}"#
         );
 
         // And an entry written before the variant existed still reads back.

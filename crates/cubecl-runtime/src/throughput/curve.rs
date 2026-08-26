@@ -68,6 +68,9 @@ pub struct MemoryPoint {
 #[derive(PartialEq, Clone, Debug)]
 pub struct MemoryCurve {
     access: MemoryAccess,
+    /// Which of the two curves this is, since a point means a different thing
+    /// on each and the rate is read back through its own key.
+    resident: bool,
     /// Ascending by `bytes`, deduplicated, and every rate finite and positive.
     points: Vec<MemoryPoint>,
 }
@@ -79,8 +82,23 @@ impl MemoryCurve {
     /// positive (an unsupported or failed probe), describes nothing and is
     /// dropped; duplicated working sets keep the first point.
     pub fn new(access: MemoryAccess, points: impl IntoIterator<Item = MemoryPoint>) -> Self {
+        Self::build(access, false, points)
+    }
+
+    /// Assembles a curve of working sets measured where they sit, dropping
+    /// points on the same terms as [`new`](Self::new).
+    pub fn resident(access: MemoryAccess, points: impl IntoIterator<Item = MemoryPoint>) -> Self {
+        Self::build(access, true, points)
+    }
+
+    fn build(
+        access: MemoryAccess,
+        resident: bool,
+        points: impl IntoIterator<Item = MemoryPoint>,
+    ) -> Self {
         let mut curve = Self {
             access,
+            resident,
             points: Vec::new(),
         };
 
@@ -137,12 +155,14 @@ impl MemoryCurve {
 
     /// What a point measured, in bytes moved per second.
     fn rate(&self, point: &MemoryPoint) -> f64 {
-        point.value.bytes_per_s(&ThroughputKey {
-            mode: ThroughputMode::MemoryWorkingSet {
-                access: self.access,
-                bytes: point.bytes,
-            },
-        })
+        let (access, bytes) = (self.access, point.bytes);
+        let mode = if self.resident {
+            ThroughputMode::MemoryResident { access, bytes }
+        } else {
+            ThroughputMode::MemoryWorkingSet { access, bytes }
+        };
+
+        point.value.bytes_per_s(&ThroughputKey { mode })
     }
 }
 

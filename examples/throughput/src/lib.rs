@@ -1,7 +1,7 @@
 use cubecl::{
     ir::{ElemType, FloatKind},
     prelude::*,
-    std::throughput::{measure_memory_curve, measure_peak_throughput},
+    std::throughput::{measure_memory_curve, measure_peak_throughput, measure_resident_curve},
     throughput::{
         CmmaDims, ComputeCmmaConfig, MemoryAccess, MemoryCurve, ThroughputKey, ThroughputMode,
     },
@@ -82,21 +82,26 @@ pub fn memory_curve<R: Runtime>(device: &R::Device) {
     println!("Memory curve — {}", R::name(&client));
 
     for access in [MemoryAccess::Read, MemoryAccess::Write, MemoryAccess::Copy] {
-        let curve = measure_memory_curve::<R>(&client, access);
-        print_curve(access, &curve);
+        let cold = measure_memory_curve::<R>(&client, access);
+        let resident = measure_resident_curve::<R>(&client, access);
+        print_curve(access, &cold, &resident);
     }
 }
 
-fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
-    println!("\n  {access:?}");
+fn print_curve(access: MemoryAccess, cold: &MemoryCurve, resident: &MemoryCurve) {
+    println!("\n  {access:?}{:>16}{:>14}", "cold", "resident");
 
-    for point in curve.points() {
-        let bytes_per_s = curve.ceiling_at(point.bytes).unwrap_or(f64::NAN);
+    for point in cold.points() {
+        let rate = |curve: &MemoryCurve| match curve.ceiling_at(point.bytes) {
+            Some(bytes_per_s) => format!("{:.1} GB/s", bytes_per_s / 1e9),
+            None => String::from("N/A"),
+        };
 
         println!(
-            "    {:>10}{:>14}",
+            "    {:>10}{:>14}{:>14}",
             bytes_label(point.bytes),
-            format!("{:.1} GB/s", bytes_per_s / 1e9),
+            rate(cold),
+            rate(resident),
         );
     }
 }
@@ -162,7 +167,8 @@ fn describe(key: &ThroughputKey) -> String {
             input_dtype, cfg.accumulator_type, cfg.cmma_dims.m, cfg.cmma_dims.n, cfg.cmma_dims.k,
         ),
         ThroughputMode::ComputeDirect { .. } => key.dtype().to_string(),
-        ThroughputMode::MemoryWorkingSet { bytes, .. } => bytes_label(bytes),
+        ThroughputMode::MemoryWorkingSet { bytes, .. }
+        | ThroughputMode::MemoryResident { bytes, .. } => bytes_label(bytes),
         ThroughputMode::Memory
         | ThroughputMode::MemoryRead
         | ThroughputMode::MemoryWrite
@@ -178,14 +184,26 @@ fn mode_label(mode: &ThroughputMode) -> &'static str {
         | ThroughputMode::MemoryWorkingSet {
             access: MemoryAccess::Copy,
             ..
+        }
+        | ThroughputMode::MemoryResident {
+            access: MemoryAccess::Copy,
+            ..
         } => "memory",
         ThroughputMode::MemoryRead
         | ThroughputMode::MemoryWorkingSet {
             access: MemoryAccess::Read,
             ..
+        }
+        | ThroughputMode::MemoryResident {
+            access: MemoryAccess::Read,
+            ..
         } => "memory-read",
         ThroughputMode::MemoryWrite
         | ThroughputMode::MemoryWorkingSet {
+            access: MemoryAccess::Write,
+            ..
+        }
+        | ThroughputMode::MemoryResident {
             access: MemoryAccess::Write,
             ..
         } => "memory-write",

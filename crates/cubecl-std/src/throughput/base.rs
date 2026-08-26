@@ -47,20 +47,50 @@ pub fn measure_memory_curve<R: Runtime>(
     client: &ComputeClient<R>,
     access: MemoryAccess,
 ) -> MemoryCurve {
-    let points = working_set_sweep(working_set_cap(client, access))
-        .into_iter()
-        .map(|bytes| {
-            let key = ThroughputKey {
-                mode: ThroughputMode::MemoryWorkingSet { access, bytes },
-            };
-
-            MemoryPoint {
-                bytes,
-                value: measure_peak_throughput::<R>(client, key),
-            }
-        });
+    let points = sweep::<R>(client, access, |bytes| ThroughputMode::MemoryWorkingSet {
+        access,
+        bytes,
+    });
 
     MemoryCurve::new(access, points)
+}
+
+/// Measure the same range of working sets where each one already sits, rather
+/// than walking it until every pass finds it evicted.
+///
+/// The ceiling for a kernel that comes back to a tile it has already touched,
+/// which against [`measure_memory_curve`] can report several hundred percent
+/// and be right to. Past the cache the two answer the same question and the
+/// curves should meet.
+///
+/// Native only, panics on WASM
+pub fn measure_resident_curve<R: Runtime>(
+    client: &ComputeClient<R>,
+    access: MemoryAccess,
+) -> MemoryCurve {
+    let points = sweep::<R>(client, access, |bytes| ThroughputMode::MemoryResident {
+        access,
+        bytes,
+    });
+
+    MemoryCurve::resident(access, points)
+}
+
+/// One measured point per size in [`working_set_sweep`], each cached exactly
+/// like the single-size probe, so a curve costs one probe per size on the
+/// first run and nothing afterwards.
+fn sweep<R: Runtime>(
+    client: &ComputeClient<R>,
+    access: MemoryAccess,
+    mode: impl Fn(u64) -> ThroughputMode,
+) -> alloc::vec::Vec<MemoryPoint> {
+    working_set_sweep(working_set_cap(client, access))
+        .into_iter()
+        .map(|bytes| MemoryPoint {
+            bytes,
+            value: measure_peak_throughput::<R>(client, ThroughputKey { mode: mode(bytes) }),
+        })
+        .collect()
 }
 
 /// The largest working set `access` can be probed at: as much as one buffer can
@@ -102,25 +132,19 @@ pub fn measure_peak_throughput<R: Runtime>(
         ThroughputMode::Memory
         | ThroughputMode::MemoryRead
         | ThroughputMode::MemoryWrite
-        | ThroughputMode::MemoryWorkingSet { .. } => {
-            // The memory modes differ only in access and working set, and
+        | ThroughputMode::MemoryWorkingSet { .. }
+        | ThroughputMode::MemoryResident { .. } => {
+            // The memory modes differ only in what they ask of the probe, and
             // `memory_probe` is the one place that mapping lives.
-            let (access, working_set) = key
+            let spec = key
                 .mode
                 .memory_probe()
                 .expect("A memory mode describes a probe");
-            let working_set = working_set.min(usize::MAX as u64) as usize;
 
-            match access {
-                MemoryAccess::Copy => {
-                    memory_direct::build_kernel(client, key, launch_config, working_set)
-                }
-                MemoryAccess::Read => {
-                    memory_read::build_kernel(client, key, launch_config, working_set)
-                }
-                MemoryAccess::Write => {
-                    memory_write::build_kernel(client, key, launch_config, working_set)
-                }
+            match spec.access {
+                MemoryAccess::Copy => memory_direct::build_kernel(client, key, launch_config, spec),
+                MemoryAccess::Read => memory_read::build_kernel(client, key, launch_config, spec),
+                MemoryAccess::Write => memory_write::build_kernel(client, key, launch_config, spec),
             }
         }
         ThroughputMode::Launch => launch_overhead::build_kernel(client, key, launch_config),
