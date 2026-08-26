@@ -183,7 +183,65 @@ impl<E: Numeric, N: Size> ErasedSinkOperationsExpand<E> for TensorExpand<Vector<
     }
 }
 
+/// Any mutable view, at a width named once here and forgotten after.
+///
+/// The general way in, and the reason the other two are conveniences rather than
+/// the interface: a destination that can already take a line at `Coords1d` is a
+/// sink, whatever it does with it. What this adds is only the erasure — `N` is
+/// captured at construction and reappears when the write is made.
+pub struct SinkOfView<V, N: Size> {
+    view: V,
+    _n: PhantomData<N>,
+}
+
+impl<E: Numeric, N: Size, V> ErasedSinkOperationsExpand<E> for SinkOfView<V, N>
+where
+    V: ViewOperationsMutExpand<Vector<E, N>, Coords1d>,
+{
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        <N as Size>::__expand_value(scope)
+    }
+
+    fn __expand_write_line_method(
+        &mut self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+        value: ExpandValue,
+    ) {
+        self.view.__expand_write_method(scope, index, value.into())
+    }
+
+    fn __expand_lines_method(&self, scope: &Scope) -> NativeExpand<usize> {
+        <V as ViewOperationsExpand<Vector<E, N>, Coords1d>>::__expand_shape_method(
+            &self.view, scope,
+        )
+    }
+}
+
 impl<E: Numeric> ErasedSink<E> {
+    /// The sink that writes into `view`, whose lines are `N` wide.
+    ///
+    /// The width is named at this call and nowhere after it, which is the whole
+    /// point of the type: a caller that knows `N` hands it over here so the
+    /// engine holding the sink never has to.
+    pub fn of_view<V: CubeType, N: Size>(_view: V) -> Self {
+        unexpanded!()
+    }
+
+    /// Expand function for [`of_view`](Self::of_view).
+    pub fn __expand_of_view<V: CubeType, N: Size>(
+        _scope: &Scope,
+        view: V::ExpandType,
+    ) -> ErasedSinkExpand<E>
+    where
+        V::ExpandType: ViewOperationsMutExpand<Vector<E, N>, Coords1d> + 'static,
+    {
+        ErasedSinkExpand::new(SinkOfView::<V::ExpandType, N> {
+            view,
+            _n: PhantomData,
+        })
+    }
+
     /// The sink that writes into `tensor` — memory, through the indirection.
     pub fn of_tensor<N: Size>(_tensor: &Tensor<Vector<E, N>>) -> Self {
         unexpanded!()
