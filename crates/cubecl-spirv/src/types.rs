@@ -96,7 +96,19 @@ macro_rules! fp8_type {
 
 fp8_type!(Float8E4M3Type, FPEncoding::Float8E4M3EXT);
 fp8_type!(Float8E5M2Type, FPEncoding::Float8E5M2EXT);
-float_type!(Float8E8M0Type, 8, Some(FPEncoding::Float8UnsignedE8M0EXT));
+
+/// `ue8m0` is always a byte here, where the other two follow the device.
+///
+/// `VK_EXT_shader_float8` provides `Float8E4M3EXT` and `Float8E5M2EXT` and not this encoding, so
+/// `supports_float8` is not the question to ask about it — emitting the float type on its word
+/// produced a module the driver rejected. Every `ue8m0` conversion goes through the software
+/// polyfill instead (see `LowerMinifloatCast`), and the polyfill wants the byte.
+#[type_interface_impl]
+impl ToSpirvDialectType for Float8E8M0Type {
+    fn to_spirv_ty(&self, _ctx: &Context) -> TypeHandle {
+        IntegerType::get(_ctx, 8, Signedness::Signless).to_handle()
+    }
+}
 float_type!(Float6E3M2Type, 6, Some(FPEncoding::Float6E3M2EXT));
 float_type!(Float6E2M3Type, 6, Some(FPEncoding::Float6E2M3EXT));
 float_type!(Float4E2M1Type, 4, Some(FPEncoding::Float4E2M1EXT));

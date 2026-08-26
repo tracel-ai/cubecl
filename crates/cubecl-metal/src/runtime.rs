@@ -84,6 +84,7 @@ impl DeviceService for MetalServer {
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
             num_cpu_cores: None,
+            last_level_cache_size: None,
             max_vector_size: 4,
             cube_mma_reserved_shared_memory: 0,
         };

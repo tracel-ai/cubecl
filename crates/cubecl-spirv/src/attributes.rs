@@ -6,7 +6,7 @@ use cubecl_ir::{
 
 use pliron::{
     attribute::{AttrObj, attr_cast},
-    builtin::{attr_interfaces::TypedAttrInterface, attributes::IntegerAttr},
+    builtin::{attr_interfaces::TypedAttrInterface, attributes::IntegerAttr, types::IntegerType},
     utils::apint::{APInt, bw},
 };
 use pliron_spirv::attrs::{FloatAttr, NullAttr};
@@ -50,6 +50,19 @@ impl ToSpirvDialectAttr for IntegerAttr {
 impl ToSpirvDialectAttr for cubecl_ir::attributes::FloatAttr {
     fn to_spirv_dialect(&self, ctx: &Context) -> AttrObj {
         let ty = ty_to_spirv_dialect(ctx, self.get_type(ctx));
+
+        // A minifloat the device cannot convert lowers to the integer holding its bits (see
+        // `types.rs`), and a constant of that type has to follow it there. Folding reaches one
+        // whenever a cast's operand is known — the saturating arm of a scale's round-up returns a
+        // literal, and the cast to the storage type folds with it — and the polyfill rewrites
+        // casts, so a folded constant never passes through it. The value *is* the bit pattern, so
+        // the integer attribute carries it unchanged.
+        if let Ok(int_ty) = TypedHandle::<IntegerType>::from_handle(ty, ctx) {
+            let width = int_ty.deref(ctx).width();
+            let bits = self.val.to_bits() as u64;
+            return IntegerAttr::new(int_ty, APInt::from_u64(bits, bw(width as usize))).into();
+        }
+
         let ty = TypedHandle::from_handle(ty, ctx).expect("Should be float");
         FloatAttr::new(self.val.to_bits() as u64, ty).into()
     }

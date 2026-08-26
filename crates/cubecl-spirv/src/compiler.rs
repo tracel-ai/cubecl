@@ -200,8 +200,13 @@ impl SpirvCompiler {
         func_passes.add_pass(UnrollPass::new(comp_opts.vulkan.max_vector_size));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
+        // The two the extension actually provides, named rather than `EnumSet::all()`: `ue8m0`
+        // is also an `Fp8Format`, and `VK_EXT_shader_float8` does not cover it. Claiming it here
+        // would emit a conversion the driver has no encoding for.
         let native_fp8 = match comp_opts.vulkan.supports_float8 {
-            true => EnumSet::all(),
+            true => {
+                cubecl_core::ir::types::Fp8Format::E4M3 | cubecl_core::ir::types::Fp8Format::E5M2
+            }
             false => EnumSet::empty(),
         };
         func_passes.add_pass(LowerMinifloatCastPass::new(LowerMinifloatCast::new(
