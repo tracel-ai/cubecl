@@ -13,7 +13,8 @@ use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, MemoryManagement,
+        MemoryManagementOptions,
     },
     storage::{BytesResource, BytesStorage},
     stream::StreamErrors,
@@ -192,10 +193,25 @@ impl CpuStream {
         self.errors.push(stream_id, error);
     }
 
-    /// The errors `owner` alone caused, left queued for it to surface — see
-    /// [`StreamErrors::peek_owned`].
-    pub fn errors_owned(&self, owner: StreamId) -> Vec<ServerError> {
-        self.errors.peek_owned(owner)
+    /// Registers an error that left `unwritten` never written, for `stream_id`
+    /// to surface — see [`StreamErrors::push_unwritten`].
+    pub fn error_unwritten(
+        &mut self,
+        stream_id: StreamId,
+        error: ServerError,
+        unwritten: impl IntoIterator<Item = ManagedMemoryId>,
+    ) {
+        self.errors.push_unwritten(stream_id, error, unwritten);
+    }
+
+    /// The queued errors that left one of `buffers` unwritten — see
+    /// [`StreamErrors::peek_unwritten`].
+    pub fn errors_unwritten(
+        &self,
+        buffers: &[ManagedMemoryId],
+        reader: StreamId,
+    ) -> Vec<ServerError> {
+        self.errors.peek_unwritten(buffers, reader)
     }
 
     /// Allocates a new empty buffer using the main memory pool.

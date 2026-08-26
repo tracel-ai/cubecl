@@ -7,6 +7,7 @@ use cubecl_core::{
 };
 use cubecl_environment::stream::StreamId;
 use cubecl_llvm::PlironEngine;
+use cubecl_runtime::memory_management::ManagedMemoryId;
 use cubecl_runtime::{
     logging::ServerLogger,
     storage::{BytesResource, ManagedResource},
@@ -121,8 +122,12 @@ impl SchedulerStreamBackend for ScheduledCpuBackend {
         stream.submit();
     }
 
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
-        stream.errors_owned(owner)
+    fn errors_unwritten(
+        stream: &Self::Stream,
+        buffers: &[ManagedMemoryId],
+        reader: StreamId,
+    ) -> Vec<ServerError> {
+        stream.errors_unwritten(buffers, reader)
     }
 
     fn factory(&mut self) -> &mut Self::Factory {

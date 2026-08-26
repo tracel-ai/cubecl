@@ -211,6 +211,41 @@ mod tests {
                     .expect_err("the launching stream keeps its own rejection")
             });
         }
+
+        /// The case no stream id can answer: the buffer is allocated on the
+        /// stream that reads it back, and written by a launch that failed on
+        /// another.
+        ///
+        /// `Handle::stream` names where a buffer was created and nothing
+        /// re-tags it, so the allocation and the read both name the reader —
+        /// which launched nothing and has nothing queued. Only the buffer
+        /// itself connects the read to the launch that never ran.
+        #[test]
+        fn a_read_surfaces_a_rejection_on_a_buffer_it_allocated_itself() {
+            let client = TestRuntime::client(&Default::default());
+            let (producer, reader) = sharing_one_pooled_stream(1_000_003);
+
+            let out = reader.executes(|| client.empty(32));
+            producer.executes(|| {
+                let input = client.create_from_slice(&[0u8; 32]);
+                // Six lanes, so this test compiles a kernel id of its own: any
+                // count that is not a multiple of four is rejected the same
+                // way, and two tests launching one shared kernel interfere when
+                // the module runs its tests in parallel.
+                unsafe {
+                    copy_fp8::launch_unchecked::<TestRuntime>(
+                        &client,
+                        CubeCount::new_single(),
+                        CubeDim::new_1d(8),
+                        6,
+                        BufferArg::from_raw_parts(input, 32),
+                        BufferArg::from_raw_parts(out.clone(), 32),
+                    )
+                };
+            });
+
+            reader.executes(|| assert_rejected(&client, out));
+        }
     }
 }
 

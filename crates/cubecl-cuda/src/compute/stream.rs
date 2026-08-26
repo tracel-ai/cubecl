@@ -15,7 +15,8 @@ use cubecl_runtime::{
     config::streaming::StreamPriority,
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, drop_queue,
+        ManagedMemoryId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     stream::{EventStreamBackend, StreamCaptureState, StreamErrors},
@@ -206,7 +207,11 @@ impl EventStreamBackend for CudaStreamBackend {
         !stream.errors.any(stream_id)
     }
 
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
-        stream.errors.peek_owned(owner)
+    fn errors_unwritten(
+        stream: &Self::Stream,
+        buffers: &[ManagedMemoryId],
+        reader: StreamId,
+    ) -> Vec<ServerError> {
+        stream.errors.peek_unwritten(buffers, reader)
     }
 }

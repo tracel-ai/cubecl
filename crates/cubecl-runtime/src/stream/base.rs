@@ -1,3 +1,4 @@
+use crate::memory_management::ManagedMemoryId;
 use crate::server::{BufferBinding, ServerError};
 use alloc::vec::Vec;
 use cubecl_environment::stream::StreamId;
@@ -115,33 +116,39 @@ impl<F: StreamFactory> StreamPool<F> {
         stream_index(id, self.max_streams)
     }
 
-    /// The errors owned by the distinct logical streams that wrote `handles`,
-    /// other than `reader`'s own, as reported by `errors_owned`.
+    /// The errors saying the buffers `handles` name were never written, other
+    /// than `reader`'s own, as reported by `errors_unwritten`.
     ///
     /// A read is only as good as the work that wrote the buffer: a launch that
     /// failed never wrote it, so copying its bytes out hands back whatever was
-    /// in memory before. The reader's own errors are surfaced by the flush on
-    /// its way in, but a producer's are queued on the producer — on another
-    /// pooled stream, or on the same one under another id — so a read asks
-    /// each of them here, before it submits or copies anything.
+    /// in memory before.
+    ///
+    /// The question is asked of the buffers, not of a stream, and of every
+    /// initialized slot rather than the handles' own. A handle names the stream
+    /// it was **created** on and nothing re-tags it, so a buffer allocated here,
+    /// written by a failed launch there, and read back here names no stream that
+    /// has anything queued — while the pool is small enough to ask all of it.
+    /// Slots are read as they are, never created: a read must not bring a
+    /// backend stream into existence, which on CUDA and HIP would bind it to
+    /// whichever context happens to be current.
     ///
     /// The errors are read, never taken: the stream that caused each one still
     /// surfaces it on its own flush.
     pub fn producer_errors<'a>(
-        &mut self,
+        &self,
         reader: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
-        errors_owned: impl Fn(&F::Stream, StreamId) -> Vec<ServerError>,
+        errors_unwritten: impl Fn(&F::Stream, &[ManagedMemoryId], StreamId) -> Vec<ServerError>,
     ) -> Vec<ServerError> {
-        let mut producers = Vec::new();
-        let mut errors = Vec::new();
+        let buffers: Vec<ManagedMemoryId> = handles.map(|handle| handle.memory.id()).collect();
 
-        for handle in handles.filter(|handle| handle.stream != reader) {
-            if producers.contains(&handle.stream) {
-                continue;
-            }
-            producers.push(handle.stream);
-            errors.extend(errors_owned(self.get_mut(&handle.stream), handle.stream));
+        if buffers.is_empty() {
+            return Vec::new();
+        }
+
+        let mut errors = Vec::new();
+        for stream in self.streams() {
+            errors.extend(errors_unwritten(stream, &buffers, reader));
         }
 
         errors

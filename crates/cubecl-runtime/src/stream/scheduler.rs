@@ -1,6 +1,7 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
+    memory_management::ManagedMemoryId,
     server::{BufferBinding, ServerError},
     stream::{StreamFactory, StreamPool},
 };
@@ -20,13 +21,18 @@ pub trait SchedulerStreamBackend {
     fn enqueue(task: Self::Task, stream: &mut Self::Stream);
     /// Flush the inner stream queue to ensure ordering between different streams.
     fn flush(stream: &mut Self::Stream);
-    /// The errors `owner` alone caused on this stream, left queued for it to
-    /// surface — see [`StreamErrors::peek_owned`](crate::stream::StreamErrors::peek_owned).
+    /// The errors queued on this stream that left one of `buffers` unwritten,
+    /// other than `reader`'s own — see
+    /// [`StreamErrors::peek_unwritten`](crate::stream::StreamErrors::peek_unwritten).
     ///
-    /// Answers what another stream needs to know about `owner`: did the work
-    /// that wrote the buffer it is about to consume actually run? See
+    /// Answers what a read needs to know before it copies anything: did the
+    /// work that was supposed to write these bytes actually run? See
     /// [`SchedulerMultiStream::producer_errors`].
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError>;
+    fn errors_unwritten(
+        stream: &Self::Stream,
+        buffers: &[ManagedMemoryId],
+        reader: StreamId,
+    ) -> Vec<ServerError>;
     /// Returns a mutable reference to the stream factory.
     fn factory(&mut self) -> &mut Self::Factory;
     /// Whether this stream currently requires its own tasks to execute on
@@ -138,16 +144,17 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         &mut self.pool.factory_mut().backend
     }
 
-    /// The errors owned by the streams that wrote `handles` — see
+    /// The errors saying the buffers `handles` name were never written — see
     /// [`StreamPool::producer_errors`].
     pub fn producer_errors<'a>(
-        &mut self,
+        &self,
         reader: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Vec<ServerError> {
-        self.pool.producer_errors(reader, handles, |stream, owner| {
-            B::errors_owned(&stream.stream, owner)
-        })
+        self.pool
+            .producer_errors(reader, handles, |stream, buffers, reader| {
+                B::errors_unwritten(&stream.stream, buffers, reader)
+            })
     }
 
     /// Read-only iterator over initialized backend streams.

@@ -38,13 +38,18 @@ pub trait EventStreamBackend: 'static {
     /// stream sharing it.
     fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool;
 
-    /// The errors `owner` alone caused on this stream, left queued for it to
-    /// surface — see [`StreamErrors::peek_owned`](super::StreamErrors::peek_owned).
+    /// The errors queued on this stream that left one of `buffers` unwritten,
+    /// other than `reader`'s own — see
+    /// [`StreamErrors::peek_unwritten`](super::StreamErrors::peek_unwritten).
     ///
-    /// Answers what another stream needs to know about `owner`: did the work
-    /// that wrote the buffer it is about to consume actually run? See
+    /// Answers what a read needs to know before it copies anything: did the
+    /// work that was supposed to write these bytes actually run? See
     /// [`MultiStream::producer_errors`].
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError>;
+    fn errors_unwritten(
+        stream: &Self::Stream,
+        buffers: &[ManagedMemoryId],
+        reader: StreamId,
+    ) -> Vec<ServerError>;
 
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event
     /// that can be used for synchronization.
@@ -225,16 +230,16 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.gc.sender.send(gc).unwrap();
     }
 
-    /// The errors owned by the streams that wrote `handles` — see
+    /// The errors saying the buffers `handles` name were never written — see
     /// [`StreamPool::producer_errors`].
     pub fn producer_errors<'a>(
-        &mut self,
+        &self,
         reader: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Vec<ServerError> {
         self.streams
-            .producer_errors(reader, handles, |stream, owner| {
-                B::errors_owned(&stream.stream, owner)
+            .producer_errors(reader, handles, |stream, buffers, reader| {
+                B::errors_unwritten(&stream.stream, buffers, reader)
             })
     }
 
@@ -695,7 +700,11 @@ mod tests {
             true
         }
 
-        fn errors_owned(_stream: &Self::Stream, _owner: StreamId) -> Vec<ServerError> {
+        fn errors_unwritten(
+            _stream: &Self::Stream,
+            _buffers: &[ManagedMemoryId],
+            _reader: StreamId,
+        ) -> Vec<ServerError> {
             Vec::new()
         }
     }
@@ -726,7 +735,11 @@ mod tests {
             true
         }
 
-        fn errors_owned(_stream: &Self::Stream, _owner: StreamId) -> Vec<ServerError> {
+        fn errors_unwritten(
+            _stream: &Self::Stream,
+            _buffers: &[ManagedMemoryId],
+            _reader: StreamId,
+        ) -> Vec<ServerError> {
             Vec::new()
         }
     }

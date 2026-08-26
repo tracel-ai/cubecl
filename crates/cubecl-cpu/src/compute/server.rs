@@ -28,7 +28,7 @@ use cubecl_runtime::{
     dry_run::LaunchMode,
     id::KernelId,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
+    memory_management::{ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode},
     storage::{BytesStorage, ComputeStorage, ManagedResource},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
 };
@@ -41,6 +41,9 @@ pub struct CpuServer {
     compilation_cache: HashMap<KernelId, CpuKernel>,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
+    /// Reused scratch for the memory a launch was given, so a launch that fails
+    /// can name the buffers it leaves unwritten without allocating per launch.
+    unwritten_pool: Vec<ManagedMemoryId>,
 }
 
 impl CpuServer {
@@ -69,6 +72,7 @@ impl CpuServer {
             utilities,
             compilation_cache: HashMap::new(),
             streams_pool: Vec::new(),
+            unwritten_pool: Vec::new(),
         }
     }
 
@@ -272,24 +276,34 @@ impl ComputeServer for CpuServer {
         for (desc, data) in descriptors {
             // The failures below belong to the caller, so they are queued on
             // the caller's stream — the one that flushes them — even though the
-            // resource is resolved on the stream that owns the handle.
+            // resource is resolved on the stream that owns the handle. Each
+            // leaves the destination unwritten, which is what a later read of it
+            // has to fail on.
+            let unwritten = [desc.handle.memory.id()];
             if contiguous_strides(&desc.shape) != desc.strides {
-                self.scheduler.stream(&stream_id).error(
+                self.scheduler.stream(&stream_id).error_unwritten(
                     stream_id,
                     ServerError::Io(IoError::UnsupportedStrides {
                         backtrace: BackTrace::capture(),
                     }),
+                    unwritten,
                 );
                 return;
             }
 
-            let stream = self.scheduler.stream(&desc.handle.stream);
+            // The write is registered on the caller, so name the stream that
+            // owns the handle as an argument: its queued work has to land
+            // before this write overwrites the same memory.
+            let owner = desc.handle.stream;
+            let stream = self.scheduler.stream(&owner);
             let resource = match stream.get_resource(desc.handle.clone()) {
                 Ok(r) => r,
                 Err(err) => {
-                    self.scheduler
-                        .stream(&stream_id)
-                        .error(stream_id, ServerError::Io(err));
+                    self.scheduler.stream(&stream_id).error_unwritten(
+                        stream_id,
+                        ServerError::Io(err),
+                        unwritten,
+                    );
                     return;
                 }
             };
@@ -299,7 +313,7 @@ impl ComputeServer for CpuServer {
                 buffer: ManagedResource::new(memory, resource),
             };
 
-            self.scheduler.register(stream_id, task, &[]);
+            self.scheduler.register(stream_id, task, &[owner]);
         }
     }
 
@@ -351,6 +365,7 @@ impl ComputeServer for CpuServer {
         }
 
         self.streams_pool.clear();
+        self.unwritten_pool.clear();
         bindings
             .resources
             .iter()
@@ -360,17 +375,24 @@ impl ComputeServer for CpuServer {
                 };
                 Some(b)
             })
-            .for_each(|b| self.streams_pool.push(b.stream));
+            .for_each(|b| {
+                self.streams_pool.push(b.stream);
+                self.unwritten_pool.push(b.memory.id());
+            });
         let bindings = self.prepare_bindings(bindings);
         let task = match self.prepare_task(kernel, count, bindings, stream_id) {
             Ok(task) => task,
             Err(err) => {
                 // We make the stream that would execute the kernel in error.
-                let stream = self.scheduler.stream(&stream_id);
-                stream.error(
+                // Nothing was scheduled, so every buffer the launch was given is
+                // left as it was; a read of one has to fail on this.
+                let unwritten = core::mem::take(&mut self.unwritten_pool);
+                self.scheduler.stream(&stream_id).error_unwritten(
                     stream_id,
                     ServerError::Launch(LaunchError::CompilationError(err)),
+                    unwritten.iter().copied(),
                 );
+                self.unwritten_pool = unwritten;
                 return;
             }
         };

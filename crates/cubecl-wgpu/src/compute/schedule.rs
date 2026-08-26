@@ -13,7 +13,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::SharedMemoryBindings,
+    memory_management::{ManagedMemoryId, SharedMemoryBindings},
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
@@ -227,8 +227,12 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
         stream.submit();
     }
 
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
-        stream.errors_owned(owner)
+    fn errors_unwritten(
+        stream: &Self::Stream,
+        buffers: &[ManagedMemoryId],
+        reader: StreamId,
+    ) -> Vec<ServerError> {
+        stream.errors_unwritten(buffers, reader)
     }
 
     fn factory(&mut self) -> &mut Self::Factory {

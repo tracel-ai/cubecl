@@ -8,8 +8,8 @@ use crate::{
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
-        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
-        MemoryReport, MemoryUsage,
+        InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode,
+        MemoryConfiguration, MemoryReport, MemoryUsage,
     },
     runtime::Runtime,
     server::{BufferBinding, KernelResource},
@@ -1075,6 +1075,21 @@ impl KernelArguments {
         let bindings = bindings.into_iter().map(KernelResource::TensorMap);
         self.resources.extend(bindings);
         self
+    }
+
+    /// The buffers this launch was given.
+    pub fn buffers(&self) -> impl Iterator<Item = &BufferBinding> {
+        self.resources.iter().map(|resource| match resource {
+            KernelResource::Buffer(binding) => binding,
+            KernelResource::TensorMap(tensor_map) => &tensor_map.binding,
+        })
+    }
+
+    /// The memory this launch was given, to name the buffers a launch that
+    /// fails leaves unwritten — see
+    /// [`StreamErrors::push_unwritten`](crate::stream::StreamErrors::push_unwritten).
+    pub fn memory_ids(&self) -> impl Iterator<Item = ManagedMemoryId> + '_ {
+        self.buffers().map(|binding| binding.memory.id())
     }
 }
 

@@ -168,13 +168,22 @@ impl MetalServer {
     }
 
     /// Records a launch failure on the issuing stream's error sink.
-    fn push_launch_error(&mut self, stream_id: StreamId, err: LaunchError) {
+    ///
+    /// The launch never reached the device, so every buffer it was given is
+    /// left as it was: naming them makes a later read of one fail on this error
+    /// rather than copy out bytes nothing wrote.
+    fn push_launch_error(&mut self, stream_id: StreamId, err: LaunchError, args: &KernelArguments) {
+        let unwritten: Vec<_> = args.memory_ids().collect();
         let mut resolved = match self.streams.resolve(stream_id, std::iter::empty(), false) {
             Ok(resolved) => resolved,
             Err(err) => unreachable!("{err}"),
         };
         let error = ServerError::Launch(err);
-        resolved.current().errors.lock().push(stream_id, error);
+        resolved
+            .current()
+            .errors
+            .lock()
+            .push_unwritten(stream_id, error, unwritten);
     }
 }
 
@@ -366,13 +375,13 @@ impl ComputeServer for MetalServer {
         if let Err(err) =
             cubecl_runtime::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)
         {
-            self.push_launch_error(stream_id, err);
+            self.push_launch_error(stream_id, err, &bindings);
             return;
         }
         if let Err(err) =
             cubecl_runtime::validation::validate_units(&self.utilities.properties, &kernel_id)
         {
-            self.push_launch_error(stream_id, err);
+            self.push_launch_error(stream_id, err, &bindings);
             return;
         }
 
@@ -384,7 +393,7 @@ impl ComputeServer for MetalServer {
         ) {
             Ok(c) => c,
             Err(err) => {
-                self.push_launch_error(stream_id, err);
+                self.push_launch_error(stream_id, err, &bindings);
                 return;
             }
         };

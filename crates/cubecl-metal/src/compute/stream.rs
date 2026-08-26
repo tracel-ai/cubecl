@@ -5,7 +5,7 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{MemoryManagement, MemoryManagementOptions},
+    memory_management::{ManagedMemoryId, MemoryManagement, MemoryManagementOptions},
     server::BufferBinding,
     stream::{EventStreamBackend, StreamErrors},
 };
@@ -404,8 +404,12 @@ impl EventStreamBackend for MetalStreamBackend {
         !stream.errors.lock().any(stream_id)
     }
 
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
-        stream.errors.lock().peek_owned(owner)
+    fn errors_unwritten(
+        stream: &Self::Stream,
+        buffers: &[ManagedMemoryId],
+        reader: StreamId,
+    ) -> Vec<ServerError> {
+        stream.errors.lock().peek_unwritten(buffers, reader)
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {

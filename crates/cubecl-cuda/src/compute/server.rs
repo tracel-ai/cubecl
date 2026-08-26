@@ -34,8 +34,8 @@ use cubecl_runtime::{
     id::GraphId,
     logging::ServerLogger,
     memory_management::{
-        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
-        MemoryUsage,
+        InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode,
+        MemoryReport, MemoryUsage,
     },
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
@@ -173,6 +173,9 @@ pub struct CudaServer {
     /// buffers it retained). Referencing graphs by id keeps the raw
     /// `CUgraphExec` inside the server, never boxed across the actor boundary.
     graphs: HashMap<GraphId, CudaGraph>,
+    /// Reused scratch for the memory a launch was given, so a launch that fails
+    /// can name the buffers it leaves unwritten without allocating per launch.
+    unwritten_pool: Vec<ManagedMemoryId>,
 }
 
 // SAFETY: `CudaServer` is only accessed from one thread at a time via the `DeviceHandle`,
@@ -273,8 +276,11 @@ impl ComputeServer for CudaServer {
         };
 
         for (descriptor, data) in descriptors {
+            // The copy leaves the destination as it was on failure, which is
+            // what a later read of it has to fail on.
+            let unwritten = [descriptor.handle.memory.id()];
             if let Err(err) = command.write_to_gpu(descriptor, data) {
-                command.error(err.into());
+                command.error_unwritten(err.into(), unwritten);
                 return;
             }
         }
@@ -288,12 +294,25 @@ impl ComputeServer for CudaServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
+        // Named before the launch consumes them: a failure below never reached
+        // the device, so every buffer it was given is left as it was, and a read
+        // of one has to fail on the error rather than copy it.
+        self.unwritten_pool.clear();
+        self.unwritten_pool.extend(bindings.memory_ids());
+
         if let Err(err) = self.launch_checked(kernel, count, bindings, stream_id, launch_mode) {
-            let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
-                Ok(stream) => stream,
-                Err(err) => unreachable!("{err}"),
-            };
-            stream.current().errors.push(stream_id, err);
+            let unwritten = core::mem::take(&mut self.unwritten_pool);
+            {
+                let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+                    Ok(stream) => stream,
+                    Err(err) => unreachable!("{err}"),
+                };
+                stream
+                    .current()
+                    .errors
+                    .push_unwritten(stream_id, err, unwritten.iter().copied());
+            }
+            self.unwritten_pool = unwritten;
         }
     }
 
@@ -420,7 +439,7 @@ impl ComputeServer for CudaServer {
             // failure paths below cannot wedge the stream in it — they
             // re-enable the deferred fenced flushes and restore the allocation
             // mode on the way out.
-            stream.capturing.end()?;
+            stream.capturing.end(stream_id)?;
             // SAFETY: ends the capture begun on this stream and instantiates the
             // recorded graph into an executable; the intermediate `graph` is freed
             // whether or not instantiation succeeds, leaving only the `exec` the
@@ -975,6 +994,7 @@ impl CudaServer {
             comm_stream,
             communicators: HashMap::default(),
             graphs: HashMap::new(),
+            unwritten_pool: Vec::new(),
         }
     }
 

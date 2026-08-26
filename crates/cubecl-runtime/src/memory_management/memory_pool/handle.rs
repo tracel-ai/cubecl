@@ -200,6 +200,12 @@ impl ManagedMemoryBinding {
     pub(crate) fn descriptor(&self) -> &ManagedMemoryDescriptor {
         &self.descriptor
     }
+
+    /// The id of the memory this binding is bound to, stable for as long as the
+    /// allocation lives and never reused by a later one.
+    pub fn id(&self) -> ManagedMemoryId {
+        self.descriptor.id
+    }
 }
 
 impl Default for ManagedMemoryHandle {

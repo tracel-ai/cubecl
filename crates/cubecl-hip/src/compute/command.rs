@@ -27,8 +27,8 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::{
-        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle,
-        MemoryReport,
+        InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode,
+        MemoryHandle, MemoryReport,
     },
     stream::ResolvedStreams,
 };
@@ -521,12 +521,17 @@ impl<'a> Command<'a> {
         Ok(())
     }
 
-    /// Registers an error on the stream, for the logical stream this command
-    /// runs on to surface.
-    pub fn error(&mut self, error: ServerError) {
+    /// Registers an error that left `unwritten` never written, so a later read
+    /// of one of those buffers fails on it instead of copying out bytes nothing
+    /// wrote — see [`StreamErrors::push_unwritten`].
+    pub fn error_unwritten(
+        &mut self,
+        error: ServerError,
+        unwritten: impl IntoIterator<Item = ManagedMemoryId>,
+    ) {
         let stream_id = self.streams.current;
         let stream = self.streams.current();
-        stream.errors.push(stream_id, error);
+        stream.errors.push_unwritten(stream_id, error, unwritten);
     }
 }
 

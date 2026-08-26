@@ -151,13 +151,19 @@ impl StreamCaptureState {
     ///
     /// Fails when no capture is recording (nothing prepared or started, or the
     /// capture already ended), leaving the state untouched — a stray
-    /// `end_capture` must not close a window that was never opened.
-    pub fn end(&mut self) -> Result<(), ServerError> {
+    /// `end_capture` must not close a window that was never opened, and only
+    /// the logical stream that opened it may close it: the errors raised inside
+    /// belong to that stream, and a neighbour closing the window would seal a
+    /// graph while they stay queued for an owner that is no longer named.
+    pub fn end(&mut self, caller: StreamId) -> Result<(), ServerError> {
         match self {
-            StreamCaptureState::Capture { .. } => {
+            StreamCaptureState::Capture { owner } if *owner == caller => {
                 *self = StreamCaptureState::NoCapture;
                 Ok(())
             }
+            StreamCaptureState::Capture { .. } => Err(ServerError::graph_state(
+                "end_capture: the capture belongs to another logical stream",
+            )),
             StreamCaptureState::NoCapture | StreamCaptureState::Prepare { .. } => {
                 Err(ServerError::graph_state(
                     "end_capture: no graph capture is recording on this stream",
@@ -193,20 +199,20 @@ mod tests {
         let mut state = StreamCaptureState::NoCapture;
 
         assert!(state.begin().is_err(), "a capture must be prepared first");
-        assert!(state.end().is_err(), "nothing is recording yet");
+        assert!(state.end(OWNER).is_err(), "nothing is recording yet");
         assert_eq!(state, StreamCaptureState::NoCapture);
 
         state.prepare(OWNER).unwrap();
         assert_eq!(state, StreamCaptureState::Prepare { owner: OWNER });
         assert!(state.prepare(OWNER).is_err(), "one prepare per capture");
-        assert!(state.end().is_err(), "the window never opened");
+        assert!(state.end(OWNER).is_err(), "the window never opened");
 
         state.begin().unwrap();
         assert_eq!(state, StreamCaptureState::Capture { owner: OWNER });
         assert!(state.begin().is_err(), "captures may not overlap");
         assert!(state.prepare(OWNER).is_err(), "captures may not overlap");
 
-        state.end().unwrap();
+        state.end(OWNER).unwrap();
         assert_eq!(state, StreamCaptureState::NoCapture);
     }
 
@@ -225,9 +231,31 @@ mod tests {
         state.begin().unwrap();
         assert_eq!(state.owner(), Some(OWNER));
 
-        state.end().unwrap();
+        state.end(OWNER).unwrap();
         assert_eq!(state.owner(), None);
         assert!(!state.is_active());
+    }
+
+    /// Only the stream that opened the window may close it.
+    ///
+    /// A neighbour closing it would seal a graph while the errors raised inside
+    /// stay queued for an owner `end_capture` no longer has a way to name — the
+    /// recording silently missing whatever those errors rejected.
+    #[test]
+    fn a_capture_is_closed_by_the_stream_that_opened_it() {
+        let neighbour = StreamId { value: 8 };
+
+        let mut state = StreamCaptureState::NoCapture;
+        state.prepare(OWNER).unwrap();
+        state.begin().unwrap();
+
+        assert!(state.end(neighbour).is_err(), "the window is not theirs");
+        assert_eq!(
+            state,
+            StreamCaptureState::Capture { owner: OWNER },
+            "a rejected end leaves the capture recording"
+        );
+        state.end(OWNER).unwrap();
     }
 
     /// A rejected transition leaves the stream exactly as it was, so a caller

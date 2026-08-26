@@ -327,17 +327,21 @@ mod tests {
             )
         }
 
-        fn launch_rejected(client: &ComputeClient<TestRuntime>, reason: &str) -> Handle {
-            let out = client.empty(core::mem::size_of::<u32>());
+        fn launch_rejected_into(client: &ComputeClient<TestRuntime>, out: Handle, reason: &str) {
             unsafe {
                 rejected::launch_unchecked::<TestRuntime>(
                     &client.clone(),
                     CubeCount::new_single(),
                     CubeDim::new_1d(1),
-                    BufferArg::from_raw_parts(out.clone(), 1),
+                    BufferArg::from_raw_parts(out, 1),
                     reason.to_string(),
                 )
             };
+        }
+
+        fn launch_rejected(client: &ComputeClient<TestRuntime>, reason: &str) -> Handle {
+            let out = client.empty(core::mem::size_of::<u32>());
+            launch_rejected_into(client, out.clone(), reason);
             out
         }
 
@@ -390,6 +394,25 @@ mod tests {
                     .flush()
                     .expect_err("the launching stream keeps its own rejection")
             });
+        }
+
+        /// The case no stream id can answer: the buffer is allocated on the
+        /// stream that reads it back, and written by a launch that failed on
+        /// another.
+        ///
+        /// `Handle::stream` names where a buffer was created and nothing
+        /// re-tags it, so the allocation and the read both name the reader —
+        /// which launched nothing and has nothing queued. Only the buffer
+        /// itself connects the read to the launch that never ran.
+        #[test]
+        fn a_read_surfaces_a_rejection_on_a_buffer_it_allocated_itself() {
+            let client = TestRuntime::client(&Default::default());
+            let (producer, reader) = sharing_one_pooled_stream(1_000_003);
+
+            let out = reader.executes(|| client.empty(core::mem::size_of::<u32>()));
+            producer.executes(|| launch_rejected_into(&client, out.clone(), "cpu-foreign-write"));
+
+            reader.executes(|| assert_rejected(&client, out, "cpu-foreign-write"));
         }
     }
 }

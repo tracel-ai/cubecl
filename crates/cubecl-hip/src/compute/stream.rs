@@ -8,7 +8,7 @@ use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        ManagedMemoryId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
         drop_queue::{self, FlushingPolicy, PendingDropQueue},
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
@@ -178,7 +178,11 @@ impl EventStreamBackend for HipStreamBackend {
         !stream.errors.any(stream_id)
     }
 
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
-        stream.errors.peek_owned(owner)
+    fn errors_unwritten(
+        stream: &Self::Stream,
+        buffers: &[ManagedMemoryId],
+        reader: StreamId,
+    ) -> Vec<ServerError> {
+        stream.errors.peek_unwritten(buffers, reader)
     }
 }

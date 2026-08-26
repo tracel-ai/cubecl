@@ -576,6 +576,54 @@ fn wgpu_graph_destroy_leaves_an_enqueued_replay_intact() {
     );
 }
 
+/// A capture window is closed by the stream that opened it, and by no other.
+///
+/// The errors raised inside the window — a rejected write, a failed binding —
+/// are queued for the stream that opened it, and `end_capture` drains them to
+/// decide whether the recording is complete. A neighbour closing the window
+/// would seal the graph while those errors stay queued for an owner the ended
+/// window no longer names: a graph silently missing whatever they rejected.
+#[test]
+fn wgpu_graph_capture_is_ended_by_the_stream_that_opened_it() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+    let n = 4usize;
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    let launch = |client: &ComputeClient<WgpuRuntime>| {
+        add_one::launch::<WgpuRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    client.graph_prepare().expect("graph_prepare");
+    launch(&client);
+    let _ = client.read_one(output.clone()).unwrap();
+    client.start_capture().expect("start_capture");
+    launch(&client);
+
+    // A neighbour may share the pooled stream, but not the window on it.
+    let neighbour = {
+        let client = client.clone();
+        std::thread::spawn(move || client.stop_capture().is_err())
+    };
+    assert!(
+        neighbour.join().unwrap(),
+        "a stream that did not open the window must not close it"
+    );
+
+    // The window is untouched, so the stream that opened it still closes it.
+    let graph = client.stop_capture().expect("stop_capture");
+    unsafe { graph.replay() };
+    let out = client.read_one(output).unwrap();
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+}
+
 /// A graph captured on one stream keeps replaying correctly while a second
 /// stream is busy — the property `requires_isolation` defends.
 ///

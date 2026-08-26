@@ -29,7 +29,7 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, SharedMemoryBindings},
+    memory_management::{ManagedMemoryHandle, ManagedMemoryId, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     stream::{StreamCaptureState, StreamErrors},
     timestamp_profiler::TimestampProfiler,
@@ -504,15 +504,14 @@ impl WgpuStream {
         self.mem_manage.reserve(size)
     }
 
-    /// Registers a new error into the error sink, for `stream_id` to surface.
-    pub fn error(&mut self, stream_id: StreamId, error: ServerError) {
-        self.errors.push(stream_id, error);
-    }
-
-    /// The errors `owner` alone caused, left queued for it to surface — see
-    /// [`StreamErrors::peek_owned`].
-    pub fn errors_owned(&self, owner: StreamId) -> Vec<ServerError> {
-        self.errors.peek_owned(owner)
+    /// The queued errors that left one of `buffers` unwritten — see
+    /// [`StreamErrors::peek_unwritten`].
+    pub fn errors_unwritten(
+        &self,
+        buffers: &[ManagedMemoryId],
+        reader: StreamId,
+    ) -> Vec<ServerError> {
+        self.errors.peek_unwritten(buffers, reader)
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
