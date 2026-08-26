@@ -72,7 +72,6 @@ paste = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
-cubecl-hip-sys = { version = "7.1.5280200" }
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.2", features = [
     "export_tests",
 ] }

@@ -15,11 +15,10 @@ use crate::amdgpu::lld::link_relocatable;
 use crate::amdgpu::plane_dim_for;
 use crate::shared::AmdGpuModule;
 
-/// The HSA target triple. Every AMD code object is built for it; the specific
-/// device is the `-mcpu`, not the triple.
+/// The HSA target triple; the specific device is the `-mcpu`, not the triple.
 const TRIPLE: &CStr = c"amdgcn-amd-amdhsa";
 
-/// Code object version. Pinned by Task 1, which loaded a v500 object on gfx1201.
+/// Code object version. v5 is what gfx1201's HSA loader accepts.
 const CODE_OBJECT_VERSION: u32 = 500;
 
 /// LLVM's calling convention number for `amdgpu_kernel`
@@ -57,8 +56,7 @@ fn features_for(arch: &str) -> &'static str {
     }
 }
 
-/// Lowers `module` to LLVM IR, compiles it to AMDGPU machine code and links the
-/// result into a loadable code object.
+/// Lowers `module` to LLVM IR, compiles it to AMDGPU machine code, and links it.
 pub fn emit_code_object(
     ctx: &Context,
     module: ModuleOp,
@@ -92,13 +90,12 @@ pub fn emit_code_object(
     })
 }
 
-/// Re-parses `ir` and stamps it with everything the AMDGPU backend keys off:
-/// the HSA triple, the `amdgpu_kernel` calling convention on `entrypoint`, the
-/// subtarget attributes, and the code object version.
+/// Stamps `ir` with what the AMDGPU backend keys off: the HSA triple, the
+/// `amdgpu_kernel` calling convention on `entrypoint`, the subtarget attributes,
+/// and the code object version.
 ///
 /// The round-trip through text is forced: [`pliron_llvm::llvm_sys::core::LLVMModule`]
-/// seals its `LLVMModuleRef` behind `pub(in crate::llvm_sys)`, so the raw handle
-/// is unreachable from here. `jit::engine::run_pipeline` solves it the same way.
+/// seals its `LLVMModuleRef`, so the raw handle is unreachable from here.
 fn finalize_ir(ir: &str, entrypoint: &str, arch: &str, cube_dim: u32) -> Result<String, String> {
     use llvm_sys::LLVMModuleFlagBehavior::LLVMModuleFlagBehaviorError;
     use llvm_sys::core::{
@@ -195,9 +192,8 @@ fn compile_to_object(
             return Err(message);
         }
 
-        // `LLVMRelocPIC` is not a preference: an AMD code object is a shared
-        // object, and the default reloc model emits relocations LLD cannot
-        // resolve into an `ET_DYN`.
+        // `LLVMRelocPIC` is required: an AMD code object is a shared object, and the
+        // default reloc model emits relocations LLD cannot resolve into an `ET_DYN`.
         let tm = LLVMCreateTargetMachine(
             target,
             TRIPLE.as_ptr(),
@@ -219,8 +215,7 @@ fn compile_to_object(
             }
         };
 
-        // Taking the layout from the target machine is what keeps it from ever
-        // drifting from the target it is compiled for.
+        // Layout from the target machine, so the two can never drift apart.
         let layout = LLVMCreateTargetDataLayout(tm);
         LLVMSetModuleDataLayout(module, layout);
         LLVMDisposeTargetData(layout);
@@ -234,9 +229,8 @@ fn compile_to_object(
     }
 }
 
-/// Runs the optimization pipeline over `module` for `tm`, then emits the object
-/// (and optionally the assembly). Split out so its caller can dispose the
-/// module, context and target machine on every path this takes.
+/// Optimizes `module` for `tm` and emits the object (and optionally assembly).
+/// Split out so the caller can dispose its handles on every path.
 ///
 /// # Safety
 /// `module` and `tm` must be live LLVM handles.
@@ -273,8 +267,7 @@ unsafe fn run_pipeline_and_emit(
     }
 }
 
-/// One `LLVMTargetMachineEmitToMemoryBuffer` call, copied out of the buffer
-/// LLVM hands back and disposed.
+/// One `LLVMTargetMachineEmitToMemoryBuffer` call, copied out and disposed.
 ///
 /// # Safety
 /// `module` and `tm` must be live LLVM handles.
@@ -394,10 +387,9 @@ entry:
             1,
             "codegen gives ET_REL"
         );
-        // An ELF header alone proves nothing, so pin what makes this *AMDGPU*
-        // code: `e_ident[EI_OSABI]` = ELFOSABI_AMDGPU_HSA, `e_ident[EI_ABIVERSION]`
-        // = 3, which is how code object v5 is spelled in the header, `e_machine`
-        // = EM_AMDGPU and `e_flags` = EF_AMDGPU_MACH_AMDGCN_GFX1201.
+        // An ELF header alone proves nothing, so pin what makes this AMDGPU code:
+        // OSABI = ELFOSABI_AMDGPU_HSA, ABIVERSION = 3 (code object v5),
+        // e_machine = EM_AMDGPU, e_flags = EF_AMDGPU_MACH_AMDGCN_GFX1201.
         assert_eq!(object[7], 64, "EI_OSABI is ELFOSABI_AMDGPU_HSA");
         assert_eq!(object[8], 3, "EI_ABIVERSION is code object v5");
         assert_eq!(

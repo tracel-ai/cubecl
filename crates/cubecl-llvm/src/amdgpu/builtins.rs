@@ -74,14 +74,15 @@ impl Pass for InsertAmdgpuBuiltinsPass {
         let cluster_dim = abi.cluster_dim.unwrap_or(Dim3::new_single());
 
         let entry_block = func.get_entry_block(ctx);
-        let terminator = entry_block
-            .deref(ctx)
-            .get_terminator(ctx)
-            .expect("Entry block should be terminated with a return");
 
+        // Block start, not before the terminator: a branchless kernel's entry block
+        // ends in `return`, so "before the terminator" puts these *after* the very
+        // `cube.read_builtin` uses being substituted, leaving a use that references a
+        // later definition and failing dominance. Everything computed here is
+        // self-contained, so nothing is lost by computing it first.
         let mut builtins = BuiltinValues::default();
         {
-            let mut inserter = OpInserter::new_before_operation(terminator);
+            let mut inserter = OpInserter::new_at_block_start(entry_block);
             let scope = Scope::from_context_and_inserter(ctx, &mut inserter);
 
             for (intrinsic, builtin) in WORKITEM_ID.into_iter().chain(WORKGROUP_ID) {
@@ -130,11 +131,9 @@ impl InsertAmdgpuBuiltinsPass {
     }
 }
 
-/// `CubeCount*` has no dedicated intrinsic: it's derived from the HSA kernel dispatch packet
-/// the runtime hands every kernel through `llvm.amdgcn.dispatch.ptr`. The packet's
-/// `grid_size_{x,y,z}` fields count work-items, not workgroups, so `cube_count` is
-/// `grid_size / cube_dim` per axis. `cube_dim` is a compile-time constant here, so that
-/// division constant-folds downstream (to a shift for the power-of-two dims that matter).
+/// `CubeCount*` has no intrinsic; it comes from the dispatch packet via
+/// `llvm.amdgcn.dispatch.ptr`. `grid_size_*` counts work-items, not workgroups, so
+/// `cube_count = grid_size / cube_dim` per axis.
 fn set_cube_count(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3) {
     let dispatch_ptr = dispatch_ptr(scope);
     let grid_size_x = load_u32_at(scope, dispatch_ptr, GRID_SIZE_X_OFFSET);
@@ -167,8 +166,8 @@ fn cube_count_component(grid_size: u32, #[comptime] cube_dim: u32) -> u32 {
     grid_size / cube_dim
 }
 
-/// The builtins derived arithmetically from the hardware ones, reusing the same
-/// `#[cube]` helpers the CPU target uses.
+/// Derived arithmetically from the hardware builtins, reusing the CPU target's
+/// `#[cube]` helpers.
 fn derive_positions(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3) {
     let unit_pos_x = builtins.expect(Builtin::UnitPosX);
     let unit_pos_y = builtins.expect(Builtin::UnitPosY);
@@ -225,21 +224,28 @@ fn derive_positions(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3)
     builtins.set(Builtin::CubePos, cube_pos);
 }
 
-/// Declares `name` as an LLVM intrinsic returning `ret_ty` (if not already declared) and emits
-/// a call to it at the scope's current insertion point.
+/// Emits a call to LLVM intrinsic `name` returning `ret_ty`.
 ///
-/// `llvm.call_intrinsic` carries the intrinsic's name and type as attributes rather than
-/// referencing a separately declared function; the actual LLVM function declaration is added
-/// lazily to the module during the `to_llvm_ir` conversion, the same way
-/// `shared::to_llvm::math` emits calls to intrinsics such as `llvm.sqrt`.
+/// `llvm.call_intrinsic` carries the name and type as attributes; the function
+/// declaration is added lazily during `to_llvm_ir`, as `shared::to_llvm::math` does.
 fn call_intrinsic(scope: &Scope, name: &str, ret_ty: TypeHandle) -> Value {
     let fn_ty = FuncType::get(scope.ctx_mut(), ret_ty, vec![], false);
     let op = CallIntrinsicOp::new(scope.ctx_mut(), name.into(), fn_ty, vec![]);
     scope.register_with_result(&op)
 }
 
+/// Signless `i32`, the type every cube integer converges to in the LLVM dialect.
+///
+/// Ops built here are already LLVM-dialect, so `CubeToLLVMPass` never revisits them.
+/// Tagging them with cube's `u32` (`Signedness::Unsigned`) would leave them unsigned
+/// forever while the constants they get paired with are forced signless — tripping
+/// `SameOperandsType` verification despite representing the same value.
+fn llvm_i32(scope: &Scope) -> TypeHandle {
+    IntegerType::get(scope.ctx_mut(), 32, Signedness::Signless).into()
+}
+
 fn call_i32_intrinsic(scope: &Scope, name: &str) -> Value {
-    call_intrinsic(scope, name, u32::__expand_as_type(scope))
+    call_intrinsic(scope, name, llvm_i32(scope))
 }
 
 /// `llvm.amdgcn.dispatch.ptr` returns a `ptr addrspace(4)` to the HSA kernel dispatch packet
@@ -249,10 +255,10 @@ fn dispatch_ptr(scope: &Scope) -> Value {
     call_intrinsic(scope, "llvm.amdgcn.dispatch.ptr", ptr_ty)
 }
 
-/// Loads a `u32` from `byte_offset` bytes past `ptr`, addressed byte-wise via a single-index
-/// GEP over `i8` (LLVM has no notion of "add N bytes" other than indexing an `i8`/byte array).
+/// Loads a `u32` at `byte_offset` past `ptr`, via a single-index GEP over `i8` —
+/// LLVM's only way to express "add N bytes".
 fn load_u32_at(scope: &Scope, ptr: Value, byte_offset: u32) -> Value {
-    let i8_ty = IntegerType::get(scope.ctx_mut(), 8, Signedness::Unsigned).into();
+    let i8_ty = IntegerType::get(scope.ctx_mut(), 8, Signedness::Signless).into();
     let gep = GetElementPtrOp::new(
         scope.ctx_mut(),
         ptr,
@@ -261,7 +267,7 @@ fn load_u32_at(scope: &Scope, ptr: Value, byte_offset: u32) -> Value {
     );
     let byte_ptr = scope.register_with_result(&gep);
 
-    let u32_ty = u32::__expand_as_type(scope);
+    let u32_ty = llvm_i32(scope);
     let load = LoadOp::new(scope.ctx_mut(), byte_ptr, u32_ty);
     scope.register_with_result(&load)
 }

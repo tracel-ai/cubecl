@@ -1,12 +1,10 @@
 //! The AMDGPU kernarg layout.
 //!
-//! Buffers stay as individual `ptr addrspace(1)` kernel arguments in binding
-//! order, with the metadata pointer appended last. That is not a free choice:
-//! `HipServer::execute` pushes resources in exactly that order
-//! (`crates/cubecl-hip/src/compute/server.rs:801-816`) and
-//! `HipContext::execute_task` hands them to `hipModuleLaunchKernel` as
-//! `kernelParams`, so this layout is what makes the existing launch path work
-//! untouched.
+//! Buffers stay as individual `ptr addrspace(1)` arguments in binding order, with
+//! the metadata pointer last. Not a free choice: `HipServer::execute` pushes
+//! resources in exactly that order and `HipContext::execute_task` hands them to
+//! `hipModuleLaunchKernel` as `kernelParams`, so this is what lets the existing
+//! launch path work untouched.
 
 use cubecl_core::ir::prelude::*;
 use pliron::builtin::ops::FuncOp;
@@ -33,11 +31,10 @@ impl EntryArgLayout for KernargArgs {
             unimplemented!("shared memory is not supported on the AMDGPU target yet");
         }
 
-        // `HipServer` pushes resources in `buffer_pos` order, so kernarg slot N must be
-        // buffer N. That holds because `KernelBuilder` assigns `buffer_pos` from a
-        // monotonic counter and pushes the argument in the same call
-        // (`cubecl-core/src/compute/builder.rs:54-70`). If that ever stops being true,
-        // fail here rather than passing buffers to the wrong kernargs.
+        // Kernarg slot N must be buffer N. Holds because `KernelBuilder` assigns
+        // `buffer_pos` from a monotonic counter and pushes the argument in the same
+        // call. If that stops being true, fail here rather than passing buffers to
+        // the wrong kernargs.
         debug_assert!(
             buffers
                 .iter()
@@ -47,23 +44,22 @@ impl EntryArgLayout for KernargArgs {
             buffers.iter().map(|(i, p, _)| (*i, *p)).collect::<Vec<_>>()
         );
 
-        // Buffers are already arguments in binding order, so all that is left
-        // is to retype them into the global address space. The `%info` pointer
-        // was appended by the shared half of the pass and gets the same
-        // treatment.
+        // Retype the buffers, and the `%info` pointer the shared half appended, into
+        // the global address space.
+        //
+        // Bind each argument before calling `set_type`: `get_argument` holds a `Ref`
+        // on the entry block and `set_type` re-borrows it mutably, so chaining the
+        // two keeps the guard alive across the statement and panics with
+        // "RefCell already borrowed".
         let global_ptr = LlvmPointerType::get(ctx, GLOBAL_ADDRESS_SPACE).into();
         let entry = func.get_entry_block(ctx);
         for (arg_idx, _, _) in buffers {
-            entry
-                .deref(ctx)
-                .get_argument(*arg_idx)
-                .set_type(ctx, global_ptr);
+            let arg = entry.deref(ctx).get_argument(*arg_idx);
+            arg.set_type(ctx, global_ptr);
         }
         let info_idx = entry.deref(ctx).get_num_arguments() - 1;
-        entry
-            .deref(ctx)
-            .get_argument(info_idx)
-            .set_type(ctx, global_ptr);
+        let info_arg = entry.deref(ctx).get_argument(info_idx);
+        info_arg.set_type(ctx, global_ptr);
 
         rebuild_func_type(ctx, func);
     }
@@ -73,9 +69,8 @@ impl EntryArgLayout for KernargArgs {
 mod tests {
     use super::*;
 
-    /// `KernargArgs` must be usable as a boxed layout, which is how
-    /// `LowerEntryAbiPass` stores it. This fails to compile if the trait's
-    /// object safety is broken by a later signature change.
+    /// `LowerEntryAbiPass` stores the layout boxed, so this fails to compile if a
+    /// later signature change breaks the trait's object safety.
     #[test]
     fn kernarg_args_is_a_boxed_layout() {
         let layout: Box<dyn EntryArgLayout> = Box::new(KernargArgs);

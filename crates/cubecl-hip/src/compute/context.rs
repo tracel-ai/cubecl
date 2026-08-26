@@ -82,17 +82,32 @@ pub struct CompilationCacheEntry {
     io: Option<Vec<BufferIOAttr>>,
 }
 
+/// The namespace a backend's compiled artifacts live under.
+///
+/// Both backends emit AMD code objects, so without the backend in the key a stale
+/// artifact from one would load and run happily under the other — tests passing
+/// while measuring nothing.
+fn cache_namespace(fingerprint: &str, backend: &str) -> String {
+    format!("{fingerprint}-{backend}")
+}
+
 impl HipContext {
     /// `fingerprint` is the one the runtime already published on
     /// [`DeviceProperties::identity`], rather than one rebuilt here: the
     /// namespace a kernel is cached under and the identity a bundle is stamped
     /// with have to be the same string, and the only way to guarantee that is
     /// for there to be one string.
+    ///
+    /// `backend` is `"cpp"` or `"ll"`, from
+    /// [`HipCompiler::extension`](crate::compiler::HipCompiler::extension); see
+    /// [`cache_namespace`].
     pub fn new(
         compilation_options: HipCompilationOptions,
         properties: DeviceProperties,
         fingerprint: String,
+        backend: &str,
     ) -> Self {
+        let fingerprint = cache_namespace(&fingerprint, backend);
         let compilation_cache = compilation_store("hip", &fingerprint);
         let second_line_compilation_cache = compilation_store("hip-second-line", fingerprint);
 
@@ -173,6 +188,48 @@ impl HipContext {
         )?;
 
         self.validate_shared(&jitc_kernel.repr)?;
+
+        // Already a linked ET_DYN code object, so no `hiprtc*` call belongs here.
+        // The bytes go straight to `load_compiled_binary`, as a cache hit would.
+        #[cfg(feature = "llvm")]
+        if let Some(HipRepresentation::Llvm(module)) = &jitc_kernel.repr {
+            if logger.compilation_source_activated() {
+                jitc_kernel.debug_info = Some(DebugInformation::new("ll", kernel_id.clone()));
+            }
+            logger.log_compilation(&jitc_kernel);
+
+            let code = module
+                .code_object
+                .iter()
+                .map(|b| *b as i8)
+                .collect::<Vec<i8>>();
+            let shared_mem_bytes = jitc_kernel.repr.as_ref().unwrap().shared_memory_size();
+            let io = jitc_kernel.io.take();
+
+            if let Some(cache) = self.compilation_cache.as_mut() {
+                let key = key.unwrap();
+                store_compiled(
+                    cache,
+                    key,
+                    CompilationCacheEntry {
+                        entrypoint_name: jitc_kernel.entrypoint_name.clone(),
+                        shared_mem_bytes,
+                        binary: code.clone(),
+                        io: io.clone(),
+                    },
+                );
+            }
+
+            self.load_compiled_binary(
+                code,
+                kernel_id.clone(),
+                jitc_kernel.entrypoint_name,
+                jitc_kernel.cube_dim,
+                shared_mem_bytes,
+                io.map(Arc::from),
+            )?;
+            return Ok(());
+        }
 
         if logger.compilation_source_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -490,4 +547,16 @@ fn compilation_log(program: &RtcProgram) -> String {
         message += format!("\n    {line}").as_str();
     }
     message
+}
+
+#[cfg(test)]
+mod tests {
+    /// See [`super::cache_namespace`] for why this must hold.
+    #[test]
+    fn cache_namespace_separates_backends() {
+        assert_ne!(
+            super::cache_namespace("gfx1201-abc", "cpp"),
+            super::cache_namespace("gfx1201-abc", "ll"),
+        );
+    }
 }

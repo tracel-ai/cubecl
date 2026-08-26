@@ -44,4 +44,5 @@ pliron-llvm = { workspace = true, features = ["llvm-sys"] }
 llvm-sys = { workspace = true }
 
 [build-dependencies]
+cc = { workspace = true }
 tracel-llvm-bundler = { workspace = true }

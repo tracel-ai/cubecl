@@ -41,9 +41,8 @@ impl Default for HipCompiler {
     }
 }
 
-/// Compilation options for whichever backend is selected. One struct rather than
-/// an enum: `arch` is a property of the device and is filled in by the runtime
-/// regardless of which backend consumes it.
+/// Options for whichever backend is selected. One struct rather than an enum:
+/// `arch` is a device property, filled in regardless of which backend reads it.
 #[derive(Debug, Default, Clone)]
 pub struct HipCompilationOptions {
     pub cpp: CompilationOptions,
@@ -64,9 +63,10 @@ impl core::fmt::Debug for HipRepresentation {
         match self {
             HipRepresentation::Cpp(_) => f.write_str("HipRepresentation::Cpp"),
             #[cfg(feature = "llvm")]
-            HipRepresentation::Llvm(module) => {
-                f.debug_tuple("HipRepresentation::Llvm").field(module).finish()
-            }
+            HipRepresentation::Llvm(module) => f
+                .debug_tuple("HipRepresentation::Llvm")
+                .field(module)
+                .finish(),
         }
     }
 }

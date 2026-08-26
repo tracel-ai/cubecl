@@ -38,8 +38,8 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, driver::checked,
-    logging::ServerLogger,
+    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, compiler::Compiler,
+    driver::checked, logging::ServerLogger,
 };
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
@@ -192,7 +192,12 @@ impl DeviceService for HipServer {
             },
             arch: bare_arch.to_string(),
         };
-        let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint);
+        let hip_ctx = HipContext::new(
+            comp_opts,
+            device_props.clone(),
+            fingerprint,
+            HipCompiler::default().extension(),
+        );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let utilities = ServerUtilities::new(device_props, logger, (), policy);
