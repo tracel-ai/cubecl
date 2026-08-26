@@ -29,7 +29,7 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, SharedMemoryBindings},
+    memory_management::{ManagedMemoryHandle, ManagedMemoryId, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     stream::{StreamCapture, StreamErrorSink, StreamErrors},
     timestamp_profiler::TimestampProfiler,
@@ -207,9 +207,17 @@ impl WgpuStream {
     ///
     /// Falls back to shared outside a window, which the callers make
     /// unreachable: each raises its error only while recording.
-    fn capture_error(&mut self, error: ServerError) {
+    ///
+    /// `unwritten` names what the rejected work was going to write, so a read
+    /// of one of those buffers fails whichever stream asks — the same thing the
+    /// server's own rejection does before the task ever gets here.
+    fn capture_error(
+        &mut self,
+        error: ServerError,
+        unwritten: impl IntoIterator<Item = ManagedMemoryId>,
+    ) {
         match self.capturing.owner() {
-            Some(owner) => self.errors.push(owner, error),
+            Some(owner) => self.errors.push_unwritten(owner, error, unwritten),
             None => self.errors.push_shared(error),
         }
     }
@@ -221,11 +229,15 @@ impl WgpuStream {
     /// * `task` - The task to execute.
     pub fn enqueue_task(&mut self, task: ScheduleTask) {
         match task {
-            ScheduleTask::Write { data, buffer } => {
+            ScheduleTask::Write {
+                data,
+                buffer,
+                memory,
+            } => {
                 // Defensive: the server already rejects writes while recording,
                 // and `begin_capture` drains the queue, so none should reach here.
                 if let Err(err) = self.reject_while_recording("write") {
-                    self.capture_error(err);
+                    self.capture_error(err, [memory]);
                     return;
                 }
                 // It is important to flush before writing, as the write operation is inserted
@@ -802,8 +814,11 @@ impl WgpuStream {
                 Ok(resource) => ReplayDispatch::Dynamic(resource),
                 Err(err) => {
                     // The recording is now incomplete; `end_capture` sees the
-                    // queued error and rejects the capture.
-                    self.capture_error(err.into());
+                    // queued error and rejects the capture. It names nothing
+                    // itself: rejecting the capture is what names the buffers,
+                    // and it names every one the recording was given, this
+                    // launch's included.
+                    self.capture_error(err.into(), []);
                     return;
                 }
             },

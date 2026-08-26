@@ -381,8 +381,13 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
         // Writes go on the queue, not the encoder — they cannot be recorded
         // into a software graph (v1; CUDA records them as memcpy nodes).
-        // Reject them lazily so `end_capture` fails the capture instead of
-        // handing back a graph missing an operation.
+        //
+        // Rejected lazily, and queued on the caller. When the caller is the
+        // stream recording the capture, that is what fails its `end_capture`
+        // rather than handing back a graph missing an operation. When it is a
+        // neighbour sharing the pooled stream, the write was never going into
+        // anyone's graph and the refusal is the neighbour's own to surface —
+        // failing a capture on it would report one stream's window to another.
         {
             let stream = self.scheduler.stream(&stream_id);
             if let Err(err) = stream.reject_while_recording("write") {
@@ -433,6 +438,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             let task = ScheduleTask::Write {
                 data,
                 buffer: resource,
+                memory: unwritten[0],
             };
 
             self.scheduler.register(stream_id, task, &[owner]);
