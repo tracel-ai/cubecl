@@ -293,8 +293,14 @@ impl ComputeServer for CudaServer {
         // Named before the launch consumes them: a failure below never reached
         // the device, so every buffer it was given is left as it was, and a read
         // of one has to fail on the error rather than copy it.
+        //
+        // A dry run stages none. It was never going to write, so a failure in it
+        // leaves nothing stale, and naming its buffers would fail unrelated
+        // reads of memory the run deliberately left alone.
         self.unwritten.clear();
-        self.unwritten.extend(bindings.memory_ids());
+        if !launch_mode.is_skipped() {
+            self.unwritten.extend(bindings.memory_ids());
+        }
 
         if let Err(err) = self.launch_checked(kernel, count, bindings, stream_id, launch_mode) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
@@ -481,8 +487,9 @@ impl ComputeServer for CudaServer {
             let sys = stream.sys;
             stream.drop_queue.flush(|| Fence::new(sys));
             stream.drop_queue.flush(|| Fence::new(sys));
-            // The buffers the recorded launches ran against, which a failed
-            // replay of the graph leaves unwritten.
+            // The memory the recorded launches were given. A graph that seals
+            // answers for it on a failed replay; one that does not is answered
+            // for below, since those launches never ran and now never will.
             let unwritten = stream.capturing.take_recorded();
             // An abandoned window has no graph to hand back: destroy whatever
             // was instantiated and report instead, taking the owner's queued
@@ -531,6 +538,12 @@ impl ComputeServer for CudaServer {
                     // Instantiation failed: unpin the entries this capture pinned
                     // (they stay as ordinary cached values) and drop `retained`.
                     stream.info_cache.capture_discard();
+                    // No graph is handed back, so the recorded launches never
+                    // run: every buffer they were given is left as it was. The
+                    // caller gets the error below; this copy is what makes a
+                    // read of one of those buffers fail on some other stream,
+                    // which heard nothing.
+                    stream.errors.push_returned(err.clone(), unwritten);
                     return Err(err);
                 }
             }
@@ -781,12 +794,15 @@ impl ServerCommunication for CudaServer {
                         flush: false,
                     },
                 )?;
+                // The reduction is refused, so its destination keeps whatever
+                // it held: a read of it has to fail on this rather than take
+                // the bytes for a result.
                 command.error(
                     ServerError::Generic {
                         reason: "Source and destination should be on the same stream.".into(),
                         backtrace: BackTrace::capture(),
                     },
-                    [],
+                    [dst.memory.id()],
                 );
             }
         }
@@ -1109,11 +1125,6 @@ impl CudaServer {
             },
         )?;
 
-        // A launch being recorded into a graph hands its buffers to the graph:
-        // a replay that fails runs none of the recorded launches, so it leaves
-        // all of them as they were. A no-op outside a capture window.
-        command.streams.current().capturing.record(bindings.memory_ids());
-
         // A skipped launch stops here, after compilation and before anything
         // that touches a buffer: resolving resources, building tensor maps,
         // uploading metadata or reading a dynamic cube count would
@@ -1123,6 +1134,16 @@ impl CudaServer {
             command.compile_only(&kernel_id, kernel, logger)?;
             return Ok(());
         }
+
+        // A launch being recorded into a graph hands its buffers to the graph:
+        // a replay that fails runs none of the recorded launches, so it leaves
+        // all of them as they were. A no-op outside a capture window, and never
+        // reached by a dry run, which records nothing to answer for.
+        let stream = command.streams.current();
+        stream.capturing.record(bindings.memory_ids());
+        // This launch is on its way, so a capture that failed to seal has
+        // nothing left to say about the buffers it is about to write.
+        stream.errors.written(bindings.memory_ids());
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),

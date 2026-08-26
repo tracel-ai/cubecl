@@ -664,6 +664,80 @@ fn wgpu_graph_destroy_leaves_an_enqueued_replay_intact() {
     );
 }
 
+/// A capture that never seals leaves its recorded launches unrun, so a read of
+/// what they were given fails rather than handing back the bytes from before.
+///
+/// A recorded launch does not execute — it goes into the graph — so when the
+/// graph is thrown away the launch is thrown away with it. The stream that
+/// called `stop_capture` is told; every other stream is told nothing, and the
+/// buffers look exactly as they did before the window opened. Only naming them
+/// connects a neighbour's read to the launches that never ran.
+///
+/// The record lasts precisely until something writes those buffers again: the
+/// owner recovers by relaunching, and the reads after that are sound.
+#[test]
+fn wgpu_graph_a_capture_that_never_sealed_is_not_read_as_run() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+    // Two pooled streams: the reader must be a stream the failure was never
+    // reported to, which is every stream but the one that ended the capture.
+    let capturing = StreamId { value: 4_000_001 };
+    let reader = StreamId { value: 4_000_002 };
+
+    let n = 4usize;
+    let (input, output, target) = capturing.executes(|| {
+        (
+            client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
+            client.empty(n * core::mem::size_of::<f32>()),
+            client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
+        )
+    });
+    let launch = |client: &ComputeClient<WgpuRuntime>| {
+        add_one::launch::<WgpuRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    capturing.executes(|| {
+        client.graph_prepare().expect("graph_prepare");
+        launch(&client);
+        let _ = client.read_one(output.clone()).unwrap();
+        client.start_capture().expect("start_capture");
+        launch(&client);
+        // Unsupported inside the window, so the capture cannot seal: the launch
+        // above stays recorded in a graph nobody will ever hold.
+        client.write(
+            &target,
+            Bytes::from_bytes_vec(f32::as_bytes(&[9.0, 9.0, 9.0, 9.0]).to_vec()),
+        );
+    });
+
+    assert!(
+        capturing.executes(|| client.stop_capture()).is_err(),
+        "a capture window containing a write must be rejected"
+    );
+
+    assert!(
+        reader.executes(|| client.read_one(output.clone())).is_err(),
+        "the recorded launch never ran, so reading its output must fail rather \
+         than hand back what the warmup left there"
+    );
+
+    // The owner recovers the ordinary way, and the record ends with the write
+    // that supersedes it — for the reader too, which never heard about either.
+    let out = capturing.executes(|| {
+        launch(&client);
+        client.read_one(output.clone()).unwrap()
+    });
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+    let out = reader.executes(|| client.read_one(output.clone()).unwrap());
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+}
+
 /// A capture window is sealed into a graph by the stream that opened it and by
 /// no other — and a window some other stream ends is discarded, not left
 /// recording.

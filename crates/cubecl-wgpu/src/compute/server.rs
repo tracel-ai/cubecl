@@ -384,15 +384,14 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // Reject them lazily so `end_capture` fails the capture instead of
         // handing back a graph missing an operation.
         {
-            // Nothing is copied, so every destination this call was given is
-            // left as it was — name them, or a read of one on another logical
-            // stream finds no error to fail on and copies stale bytes.
-            let unwritten: Vec<_> = descriptors
-                .iter()
-                .map(|(desc, _)| desc.handle.memory.id())
-                .collect();
             let stream = self.scheduler.stream(&stream_id);
             if let Err(err) = stream.reject_while_recording("write") {
+                // Nothing is copied, so every destination this call was given is
+                // left as it was — name them, or a read of one on another
+                // logical stream finds no error to fail on and copies stale
+                // bytes. Gathered here rather than above: a write outside a
+                // capture window is every ordinary write, and pays nothing.
+                let unwritten = descriptors.iter().map(|(desc, _)| desc.handle.memory.id());
                 stream.errors.push_unwritten(stream_id, err, unwritten);
                 return;
             }
@@ -519,10 +518,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         };
         // A launch recorded into a graph hands its buffers to the graph, which
         // answers for them if a replay never runs. A no-op outside a window.
-        self.scheduler
-            .stream(&stream_id)
-            .capturing
-            .record(self.unwritten.iter().copied());
+        let stream = self.scheduler.stream(&stream_id);
+        stream.capturing.record(self.unwritten.iter().copied());
+        // This launch is on its way, so a capture that failed to seal has
+        // nothing left to say about the buffers it is about to write.
+        stream.errors.written(self.unwritten.iter().copied());
 
         let task = ScheduleTask::Execute {
             pipeline,
@@ -690,8 +690,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // than to whoever happens to be flushing.
         let outcome = stream.capturing.end(stream_id)?;
         let recording = stream.take_recording();
-        // The buffers the recorded launches ran against, which a failed replay
-        // of the graph leaves unwritten.
+        // The memory the recorded launches were given. A graph that seals
+        // answers for it on a failed replay; one that does not is answered for
+        // here, since those launches never ran and now never will.
         let unwritten = stream.capturing.take_recorded();
         let mut retained = stream.mem_manage.capture_end();
 
@@ -712,6 +713,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         };
         if let Some(err) = discarded {
             stream.info_cache.capture_discard();
+            // The recording is thrown away, so the launches in it never run:
+            // every buffer they were given is left as it was. The caller gets
+            // the error below; this copy is what makes a read of one of those
+            // buffers fail on some other stream, which heard nothing.
+            stream.errors.push_returned(err.clone(), unwritten);
             return Err(err);
         }
 
