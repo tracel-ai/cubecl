@@ -29,6 +29,7 @@ pub mod sequence;
 pub mod short_circuit;
 pub mod slice;
 pub mod stream;
+pub mod stream_errors;
 pub mod synchronization;
 pub mod tensor;
 pub mod tensormap;
@@ -161,6 +162,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_all_reduce!();
 
         cubecl_core::testgen_short_circuit!();
+        cubecl_core::testgen_stream_errors!();
     };
 }
 
