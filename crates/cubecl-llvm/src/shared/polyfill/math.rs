@@ -43,11 +43,9 @@ macro_rules! lower_unary_math_arith {
 
 /// Where the polynomials beat the library call they replace, which is not everywhere.
 ///
-/// Two rejections. Double precision keeps the target's own routine, since fitting a second
-/// set of coefficients would double the surface to verify for a format no kernel here
-/// reaches for. A scalar keeps it too: the library's own routines are table-driven and a
-/// polynomial does not beat them one lane at a time, which measured as a quarter lost on a
-/// scalar `cos` kernel and half on an FFT. What the polynomial wins is the lanes.
+/// A scalar keeps the target's own routine, since a table-driven libm wins one lane at a
+/// time: ungated it cost a quarter of a scalar `cos` kernel and half of an FFT. Double
+/// precision keeps it too, for want of a second set of coefficients.
 fn is_narrow_float_line(input: Value, ctx: &Context) -> bool {
     input.vector_size(ctx) > 1 && !input.scalar_ty(ctx).is_float64(ctx)
 }

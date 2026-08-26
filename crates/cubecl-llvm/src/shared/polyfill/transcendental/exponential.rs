@@ -5,18 +5,13 @@ use super::base::{leading_part, trailing_part};
 
 const LOG2_E: f32 = core::f32::consts::LOG2_E;
 
-// `ln 2` in two parts, so that subtracting `k ln 2` from `x` keeps the digits of the
-// difference rather than rounding them away.
+// `ln 2` in two parts, so subtracting `k ln 2` from `x` keeps the digits of the difference.
 const LN2_HI: f32 = leading_part(core::f64::consts::LN_2);
 const LN2_LO: f32 = trailing_part(core::f64::consts::LN_2);
 
-// Least worst-case relative error fit of `e^r` on `[-ln 2 / 2, ln 2 / 2]`, the interval
-// a round-to-nearest split leaves, by Remez exchange at degree six.
-//
-// Rounded to `f32` they hold the result to 26 bits, where an `f32` carries 24, and the
-// test at the foot of this file is the cross-check. A further term buys nothing: the fit
-// itself is good to 29 bits, so what is left is the rounding of these constants and of
-// the evaluation, neither of which another degree touches.
+// Least worst-case relative error fit of `e^r` over the interval a round-to-nearest split
+// leaves, by Remez exchange at degree six. A further term buys nothing: the fit is good to
+// 29 bits and what remains is the rounding of the constants.
 const EXP_0: f32 = 1.0;
 const EXP_1: f32 = 1.0;
 const EXP_2: f32 = 0.4999999;
@@ -26,41 +21,28 @@ const EXP_5: f32 = 0.008374816;
 const EXP_6: f32 = 0.0013836846;
 
 // Where the result leaves the format, and where the exponent arithmetic below would wrap
-// rather than saturate if it were let past.
-//
-// The high bound is `ln(f32::MAX)` rounded up, so clamping to it gives an infinity, which
-// is what every larger argument wants. The low bound is a whole binade under the smallest
-// subnormal rather than at it: at the boundary itself the series' own relative error is
-// enough to tip the rounding, and the result came back as the smallest subnormal where
-// the library returns zero.
+// rather than saturate. The low bound is a binade under the smallest subnormal rather than
+// at it, where the series' own error tips the rounding to a subnormal.
 const EXP_MAX: f32 = 88.72284;
 const EXP_MIN: f32 = -104.66522;
 
-/// `e^x` as `2^k` times a polynomial in what is left over.
+/// `e^x` as `2^k` times a polynomial in what is left over, evaluated in single precision
+/// whatever the argument's own format.
 ///
-/// The leftover is formed by subtracting `k ln 2` in two pieces rather than by scaling
-/// `x`, because a single-precision `ln 2` would spend the accuracy the polynomial is
-/// about to earn.
-///
-/// Evaluated in single precision whatever the argument's own format. A narrower float
-/// carries fewer digits than this delivers, and a wider one is left to the target's own
-/// routine rather than fitted a second time.
+/// The leftover comes of subtracting `k ln 2` in two pieces rather than of scaling `x`,
+/// since a single-precision `ln 2` would spend the accuracy the polynomial is about to earn.
 #[cube]
 pub fn exp<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let x = Vector::<f32, N>::cast_from(x).clamp(Vector::new(EXP_MIN), Vector::new(EXP_MAX));
 
     let k = (x * Vector::new(LOG2_E)).round();
 
-    // The clamp keeps an infinity but not a NaN, and rounding a NaN to an integer below is
-    // a poison value rather than a wrong number. Zeroing it here costs the NaN nothing: it
-    // still reaches the result through `r`.
-    let k = select_many(k.equal(&k), k, Vector::new(0.0f32));
+    let finite = k.equal(&k);
+    let k = select_many(finite, k, Vector::new(0.0f32));
 
     let r = fma(-k, Vector::new(LN2_HI), x);
     let r = fma(-k, Vector::new(LN2_LO), r);
 
-    // A tree rather than a chain: two extra multiplies for half the depth, which is worth
-    // 17% where one evaluation waits on the last, and 4% where it does not.
     let square = r * r;
     let quartic = square * square;
 
@@ -71,8 +53,6 @@ pub fn exp<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let high = fma(Vector::new(EXP_6), square, terms_45);
     let series = fma(high, quartic, low);
 
-    // Splitting the exponent in two keeps each factor a normal number, so an underflowing
-    // result rounds into a subnormal instead of flushing to zero.
     let exponent = Vector::<i32, N>::cast_from(k);
     let half = exponent >> Vector::new(1i32);
 
@@ -93,11 +73,8 @@ mod tests {
     use super::super::base::{evaluate, worst_relative_error};
     use super::*;
 
-    /// The coefficients fit `e^r` over the interval the reduction leaves, to the accuracy
-    /// their comment claims.
-    ///
-    /// This stands in for checking a digit against a formula, which a minimax fit does
-    /// not have: what is checked instead is the property the digits were chosen for.
+    /// The coefficients fit `e^r` over the interval the reduction leaves, which is all a
+    /// minimax fit can be checked against.
     #[test]
     fn the_series_fits_the_exponential_over_the_reduced_interval() {
         let half = core::f64::consts::LN_2 / 2.0;

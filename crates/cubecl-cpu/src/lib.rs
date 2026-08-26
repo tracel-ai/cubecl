@@ -41,10 +41,9 @@ mod tests {
         }
     }
 
-    /// `[exp, ln, sin, cos, tanh]` of `input`, evaluated at `width` lanes to a vector.
+    /// `[exp, ln, sin, cos, tanh]` of `input`, at `width` lanes to a vector.
     ///
-    /// A width above one is what selects the polynomial polyfill over the target's own
-    /// intrinsic, so the two widths answer different questions of the same kernel.
+    /// A width above one is what selects the polyfill over the target's own intrinsic.
     fn transcendentals_of(input: &[f32], width: usize) -> [Vec<f32>; 5] {
         assert_eq!(
             input.len() % width,
@@ -88,9 +87,8 @@ mod tests {
         ]
     }
 
-    /// A NaN must arrive as a NaN, an infinity with its sign, and a zero with its sign.
-    /// A tolerance on the difference sees none of the three: it cannot tell a NaN from a
-    /// large wrong number, and `+0.0` and `-0.0` differ by nothing at all.
+    /// A NaN must arrive as a NaN, an infinity and a zero with their sign. A tolerance sees
+    /// none of the three: `+0.0` and `-0.0` differ by nothing at all.
     #[track_caller]
     fn assert_matches_library(op: &str, x: f32, actual: f32, expected: f32) {
         let agrees = if expected.is_nan() {
@@ -107,11 +105,10 @@ mod tests {
     }
 
     /// Zero, the infinities, a NaN and the subnormals, which an accuracy sweep never lands
-    /// on and where the polynomials read an exponent field that means none of the things it
-    /// usually means.
+    /// on and where the exponent field the polynomials read means none of what it usually
+    /// means.
     #[test]
     fn transcendentals_match_the_library_at_the_edges() {
-        // Lengths a multiple of the widest line under test, or its tail goes unwritten.
         let finite_angles = [
             0.0,
             -0.0,
@@ -173,13 +170,10 @@ mod tests {
         }
     }
 
-    /// The largest angle the three-part range reduction still means something for. Past it
-    /// the polyfill says NaN rather than returning a number of the right magnitude and the
-    /// wrong sign.
+    /// The largest angle the three-part range reduction still means something for.
     const REDUCTION_LIMIT: f32 = (1u32 << 20) as f32;
 
-    /// Past the limit the answer is unknown, and only the lined path is asked to say so:
-    /// a scalar keeps the target's own routine, which the gate leaves untouched.
+    /// Past the limit the answer is unknown, and only the lined path is asked to say so.
     #[test]
     fn a_lined_sin_beyond_the_reduction_limit_is_not_a_number() {
         let beyond = [2.0 * REDUCTION_LIMIT, -2.0 * REDUCTION_LIMIT, 1e7, 1e30];

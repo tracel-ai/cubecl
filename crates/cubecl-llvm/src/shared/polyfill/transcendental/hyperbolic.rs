@@ -6,8 +6,6 @@ use super::exponential::exp;
 
 // Least worst-case relative error fit of `tanh(x)/x` in `x^2` on `[0, 1/4]`, the window
 // below where the exponential form stops cancelling, by Remez exchange at degree four.
-// Rounded to `f32` they hold `tanh` to 25 bits, where an `f32` carries 24; the test at the
-// foot of this file is the cross-check.
 const TANH_0: f32 = 1.0;
 const TANH_1: f32 = -0.3333307;
 const TANH_2: f32 = 0.1332478;
@@ -46,8 +44,7 @@ mod tests {
     use super::super::base::{evaluate, worst_relative_error};
     use super::*;
 
-    /// The series fits `tanh` over the window it is used on, which is where the
-    /// exponential form loses digits to cancellation.
+    /// The series fits `tanh` over the window the exponential form loses digits on.
     #[test]
     fn the_series_fits_the_tangent_around_zero() {
         let limit = SERIES_LIMIT as f64;
