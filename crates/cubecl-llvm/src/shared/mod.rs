@@ -260,11 +260,6 @@ impl PlironCompiler {
     }
 
     /// Lowers `kernel` for `arch` and compiles it into a linked AMD code object.
-    ///
-    /// Mirrors [`Self::compile_cpu`] with three substitutions: the builtins come
-    /// from the hardware rather than an emulated loop nest, the entry ABI is
-    /// kernargs rather than an indirection table, and the backend is a
-    /// `TargetMachine` rather than the JIT.
     fn compile_amdgpu(self, kernel: KernelDefinition, arch: &str) -> AmdGpuModule {
         let module = kernel.body.state().module;
         let module_op = module.get_operation();

@@ -1,8 +1,4 @@
 //! Compiling the LLVM dialect to an AMD code object.
-//!
-//! Every step is ours: the target machine, the optimization pipeline, the
-//! machine-code emission and the link. Nothing is handed to comgr or hiprtc to
-//! compile — `cubecl-hip` receives a finished code object and only loads it.
 
 use pliron::builtin::ops::ModuleOp;
 use pliron::context::Context;
@@ -35,9 +31,6 @@ const PASS_PIPELINE: &CStr = c"default<O3>";
 
 static INIT_AMDGPU: Once = Once::new();
 
-/// Registers the AMDGPU target. `llvm-sys` is built with
-/// `disable-alltargets-init`, which removes only the *all-targets* helpers —
-/// these four per-target entry points are still exported by the bundle.
 fn init_amdgpu() {
     INIT_AMDGPU.call_once(|| unsafe {
         llvm_sys::target::LLVMInitializeAMDGPUTargetInfo();
@@ -93,9 +86,6 @@ pub fn emit_code_object(
 /// Stamps `ir` with what the AMDGPU backend keys off: the HSA triple, the
 /// `amdgpu_kernel` calling convention on `entrypoint`, the subtarget attributes,
 /// and the code object version.
-///
-/// The round-trip through text is forced: [`pliron_llvm::llvm_sys::core::LLVMModule`]
-/// seals its `LLVMModuleRef`, so the raw handle is unreachable from here.
 fn finalize_ir(ir: &str, entrypoint: &str, arch: &str, cube_dim: u32) -> Result<String, String> {
     use llvm_sys::LLVMModuleFlagBehavior::LLVMModuleFlagBehaviorError;
     use llvm_sys::core::{
@@ -387,9 +377,6 @@ entry:
             1,
             "codegen gives ET_REL"
         );
-        // An ELF header alone proves nothing, so pin what makes this AMDGPU code:
-        // OSABI = ELFOSABI_AMDGPU_HSA, ABIVERSION = 3 (code object v5),
-        // e_machine = EM_AMDGPU, e_flags = EF_AMDGPU_MACH_AMDGCN_GFX1201.
         assert_eq!(object[7], 64, "EI_OSABI is ELFOSABI_AMDGPU_HSA");
         assert_eq!(object[8], 3, "EI_ABIVERSION is code object v5");
         assert_eq!(
