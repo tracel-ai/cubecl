@@ -48,6 +48,9 @@ trait ThreadAffinity {
     /// Bytes of a core's L1 data cache, or `None` when it cannot be read.
     fn l1d_cache_size() -> Option<usize>;
 
+    /// Bytes of the last level cache, or `None` when it cannot be read.
+    fn llc_cache_size() -> Option<usize>;
+
     /// Pins the calling thread to `cpu`.
     fn pin_current(cpu: CoreId);
 }
@@ -87,6 +90,14 @@ pub fn l1d_cache_size() -> Option<usize> {
     Platform::l1d_cache_size()
 }
 
+/// Bytes of the last level cache, or `None` when it cannot be read.
+///
+/// The size a working set has to outgrow before what it reaches is set by
+/// memory rather than by the chip.
+pub fn llc_cache_size() -> Option<usize> {
+    Platform::llc_cache_size()
+}
+
 /// Runs on every platform: the policy on a made-up topology, and the
 /// platform's own answers checked for the invariants the policy relies on.
 #[cfg(test)]
@@ -118,6 +129,10 @@ mod tests {
             }
 
             fn l1d_cache_size() -> Option<usize> {
+                None
+            }
+
+            fn llc_cache_size() -> Option<usize> {
                 None
             }
 
@@ -163,6 +178,22 @@ mod tests {
         if let Some(size) = size {
             assert!((4 * 1024..=1024 * 1024).contains(&size), "{size}");
             assert_eq!(size % 1024, 0, "{size}");
+        }
+    }
+
+    /// A platform that cannot read the last level says so rather than offering
+    /// the deepest cache it does know, which on Apple Silicon would be an
+    /// efficiency cluster's L2 six times under the real one. What is reported
+    /// has to be a plausible last level, so no smaller than the L1d.
+    #[test]
+    fn a_reported_last_level_cache_is_a_plausible_one() {
+        let Some(llc) = Platform::llc_cache_size() else {
+            return;
+        };
+
+        assert!(llc <= 4 * 1024 * 1024 * 1024, "{llc}");
+        if let Some(l1d) = Platform::l1d_cache_size() {
+            assert!(llc >= l1d, "last level {llc} under L1d {l1d}");
         }
     }
 

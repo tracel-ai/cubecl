@@ -37,6 +37,16 @@ impl ThreadAffinity for Platform {
         sysctl(c"hw.l1dcachesize").map(|bytes| bytes as usize)
     }
 
+    fn llc_cache_size() -> Option<usize> {
+        // Only Intel Macs answer, and there the L3 is the last level. Apple
+        // Silicon's is a system level cache no sysctl reports, 24 MB on an M2
+        // Pro, and the `hw.l2cachesize` below it is the efficiency cluster's
+        // 4 MB, six times too small to stand in for it.
+        sysctl(c"hw.l3cachesize")
+            .filter(|size| *size > 0)
+            .map(|bytes| bytes as usize)
+    }
+
     fn pin_current(cpu: CoreId) {
         // Darwin has no hard pinning; the affinity tag only hints that
         // threads with different tags prefer different L2 caches, and Apple
