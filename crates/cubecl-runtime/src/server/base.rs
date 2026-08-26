@@ -1032,6 +1032,15 @@ pub struct KernelArguments {
     /// Packed scalars and metadata. First scalars sorted by type, then static metadata,
     /// then dynamic metadata.
     pub info: MetadataBindingInfo,
+    /// Which of `resources` the kernel writes, one flag per resource in the same
+    /// order — `&mut` in the `#[cube]` signature, plus any input an aliased
+    /// output writes in place.
+    ///
+    /// Empty when nothing declared it, which reads as "every resource might be
+    /// written": a caller that builds arguments by hand gets the conservative
+    /// answer rather than a silently empty one. See
+    /// [`memory_ids_written`](Self::memory_ids_written).
+    pub writes: Vec<bool>,
 }
 
 impl core::fmt::Display for KernelArguments {
@@ -1064,6 +1073,12 @@ impl KernelArguments {
         self
     }
 
+    /// Set which resources the kernel writes, one flag per resource.
+    pub fn with_writes(mut self, writes: Vec<bool>) -> Self {
+        self.writes = writes;
+        self
+    }
+
     /// Set the info to `info`
     pub fn with_info(mut self, info: MetadataBindingInfo) -> Self {
         self.info = info;
@@ -1085,11 +1100,38 @@ impl KernelArguments {
         })
     }
 
-    /// The memory this launch was given, to name the buffers a launch that
-    /// fails leaves unwritten — see
-    /// [`StreamErrors::push_unwritten`](crate::stream::StreamErrors::push_unwritten).
+    /// The memory this launch was given.
     pub fn memory_ids(&self) -> impl Iterator<Item = ManagedMemoryId> + '_ {
         self.buffers().map(|binding| binding.memory.id())
+    }
+
+    /// The memory this launch was given that the kernel writes — the buffers a
+    /// launch that fails leaves unwritten, and nothing else. See
+    /// [`StreamErrors::push_unwritten`](crate::stream::StreamErrors::push_unwritten).
+    ///
+    /// Naming an input here would fail a read of memory the launch never
+    /// touched, on any stream, until the launching one flushes. Leaving out
+    /// something the kernel does write is the worse mistake by far — a read of
+    /// it hands back the bytes that were there before, silently — so
+    /// [`writes`](Self::writes) is built to over-name rather than under-name,
+    /// and an empty one means every resource.
+    pub fn memory_ids_written(&self) -> impl Iterator<Item = ManagedMemoryId> + '_ {
+        self.buffers()
+            .enumerate()
+            .filter(move |(index, _)| self.writes(*index))
+            .map(|(_, binding)| binding.memory.id())
+    }
+
+    /// Whether the kernel writes the resource at `index`.
+    ///
+    /// True for every resource when nothing declared a mask, so arguments built
+    /// by hand answer conservatively rather than claiming the kernel writes
+    /// nothing.
+    pub fn writes(&self, index: usize) -> bool {
+        match self.writes.is_empty() {
+            true => true,
+            false => self.writes.get(index).copied().unwrap_or(true),
+        }
     }
 }
 

@@ -128,26 +128,19 @@ impl StreamErrors {
     /// of those buffers would hand back whatever was in memory before, so it
     /// fails on this error instead — see [`peek_unwritten`](Self::peek_unwritten).
     ///
-    /// A launch names every buffer it was given, inputs included: a server sees
-    /// resources, not which of them the kernel would have written. Erring narrow
-    /// would hand back an output nothing wrote, silently; erring wide fails a
-    /// read that would have been fine, loudly — so it errs wide.
+    /// `unwritten` is what the failed work was going to write and nothing has —
+    /// a launch's outputs, a copy's destination. Not what it was going to read:
+    /// an input is left exactly as its own writer left it, so failing a read of
+    /// one would report a kernel the reader never launched, about memory that is
+    /// perfectly good. `KernelArguments::memory_ids_written` draws that line,
+    /// from the `&mut` a `#[cube]` signature uses to say it produces a value.
     ///
-    /// That cost is not confined to the stream that failed. An input another
-    /// logical stream filled and reads back fails on this error too, from the
-    /// moment it is queued until the stream that owns it flushes — under
-    /// [`StreamPolicy::PerTask`](cubecl_environment::stream::StreamPolicy)
-    /// possibly never, leaving [`MAX_OWNED`] reclaim plus somebody else's flush
-    /// to clear it.
-    ///
-    /// What it would take to narrow: whether a kernel writes a buffer is not
-    /// carried anywhere a launch can read it. `&mut [T]` and `&[T]` share one
-    /// `LaunchArg` impl, so the distinction is gone by the time `KernelLauncher`
-    /// builds the arguments, and the compiler recovers it afterwards by
-    /// analysing the body. Reading it back off the compiled kernel would still leave the
-    /// commonest failure wide, since a launch that fails to compile has no
-    /// analysis to consult. Narrow this when the launch arguments carry a write
-    /// mask of their own.
+    /// Where the line is drawn wide, it is drawn wide deliberately: an output
+    /// that aliases an input writes that input in place, and a `&mut` argument
+    /// covering several resources names all of them. Naming a buffer the kernel
+    /// only read fails a read that would have been fine, loudly, until the
+    /// launching stream flushes. Missing one it writes hands back the bytes that
+    /// were there before, silently, and nothing ever says so.
     pub fn push_unwritten(
         &mut self,
         owner: StreamId,

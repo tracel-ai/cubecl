@@ -367,15 +367,21 @@ impl ComputeServer for CpuServer {
         bindings
             .resources
             .iter()
-            .filter_map(|b| {
+            .enumerate()
+            .filter_map(|(index, b)| {
                 let KernelResource::Buffer(b) = b else {
                     return None;
                 };
-                Some(b)
+                Some((index, b))
             })
-            .for_each(|b| {
+            .for_each(|(index, b)| {
                 self.streams_pool.push(b.stream);
-                self.unwritten.push(b.memory.id());
+                // Only what the kernel writes: an input this launch merely reads
+                // is left exactly as it was, so a failure has nothing to say
+                // about it.
+                if bindings.writes(index) {
+                    self.unwritten.push(b.memory.id());
+                }
             });
         let bindings = self.prepare_bindings(bindings);
         let task = match self.prepare_task(kernel, count, bindings, stream_id) {

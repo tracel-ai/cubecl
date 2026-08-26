@@ -39,6 +39,14 @@ pub fn rejected(out: &mut [u32], #[comptime] reason: String) {
     out[0] = 1u32;
 }
 
+/// The same refusal, with an input the kernel only reads alongside the output
+/// it writes.
+#[cube(launch_unchecked)]
+pub fn rejected_with_input(input: &[u32], out: &mut [u32], #[comptime] reason: String) {
+    push_validation_error(reason);
+    out[0] = input[0];
+}
+
 /// Two logical streams landing on one pooled stream.
 ///
 /// `seed` is far above the ids [`StreamId::current`] hands out per thread,
@@ -201,6 +209,79 @@ pub fn test_a_write_lands_after_the_work_queued_on_its_buffers_stream<R: Runtime
     );
 }
 
+/// A failed launch says nothing about the buffers it only reads.
+///
+/// A launch names its outputs when it fails, because those are the buffers
+/// something was going to write and now nothing has. Its inputs it leaves
+/// exactly as it found them — they hold whatever the stream that filled them
+/// put there — so failing a read of one reports a kernel the reader never
+/// launched, about memory that is perfectly good. `&mut` in the signature is
+/// what separates the two.
+pub fn test_a_failed_launch_leaves_the_buffers_it_only_reads_readable<R: Runtime>(
+    client: ComputeClient<R>,
+) {
+    let (producer, reader) = sharing_one_pooled_stream(1_000_005);
+
+    let (input, out) = producer.executes(|| {
+        let input = client.create_from_slice(u32::as_bytes(&[7u32]));
+        let out = client.empty(core::mem::size_of::<u32>());
+        unsafe {
+            rejected_with_input::launch_unchecked::<R>(
+                &client.clone(),
+                CubeCount::new_single(),
+                CubeDim::new_1d(1),
+                BufferArg::from_raw_parts(input.clone(), 1),
+                BufferArg::from_raw_parts(out.clone(), 1),
+                "read-only-input".to_string(),
+            )
+        };
+        (input, out)
+    });
+
+    // The output is what the launch was going to write, so it is unreadable.
+    reader.executes(|| assert_rejected(&client, out, "read-only-input"));
+    // The input is untouched, and still says what its writer wrote.
+    let read = reader.executes(|| {
+        client
+            .read_one(input)
+            .expect("the failed launch never wrote this one, it only read it")
+    });
+    assert_eq!(u32::from_bytes(&read), &[7]);
+}
+
+/// An output that aliases an input writes that input in place, so a failure
+/// leaves the aliased buffer unwritten however its own argument was declared.
+///
+/// This is the case that makes narrowing dangerous rather than merely wrong:
+/// the aliased buffer arrives through a `&[T]` parameter, so a mask built from
+/// the signature alone calls it read-only and leaves it unnamed — and a read of
+/// the one buffer an in-place kernel exists to produce hands back the bytes
+/// that were there before, with no error anywhere.
+pub fn test_a_failed_in_place_launch_names_the_buffer_it_aliased<R: Runtime>(
+    client: ComputeClient<R>,
+) {
+    let (producer, reader) = sharing_one_pooled_stream(1_000_006);
+
+    let inout = producer.executes(|| {
+        let inout = client.create_from_slice(u32::as_bytes(&[7u32]));
+        unsafe {
+            rejected_with_input::launch_unchecked::<R>(
+                &client.clone(),
+                CubeCount::new_single(),
+                CubeDim::new_1d(1),
+                BufferArg::from_raw_parts(inout.clone(), 1),
+                // The output is the input: nothing new is registered, and the
+                // kernel writes the buffer that came in through `&[u32]`.
+                BufferArg::alias(0, 1),
+                "aliased-output".to_string(),
+            )
+        };
+        inout
+    });
+
+    reader.executes(|| assert_rejected(&client, inout, "aliased-output"));
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_stream_errors {
@@ -228,6 +309,22 @@ macro_rules! testgen_stream_errors {
             fn test_a_read_surfaces_a_rejection_on_a_buffer_it_allocated_itself() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::stream_errors::test_a_read_surfaces_a_rejection_on_a_buffer_it_allocated_itself::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_failed_launch_leaves_the_buffers_it_only_reads_readable() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::test_a_failed_launch_leaves_the_buffers_it_only_reads_readable::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_failed_in_place_launch_names_the_buffer_it_aliased() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::test_a_failed_in_place_launch_names_the_buffer_it_aliased::<
                     TestRuntime,
                 >(client);
             }

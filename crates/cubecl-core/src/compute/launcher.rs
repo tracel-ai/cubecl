@@ -24,6 +24,14 @@ std::thread_local! {
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
     resources: Vec<KernelResource>,
+    /// Which of `resources` the kernel writes, one flag per resource.
+    writes: Vec<bool>,
+    /// Whether the argument being registered right now is one the kernel
+    /// writes. Set by [`arg_writes`](Self::arg_writes) before each argument, so
+    /// everything that argument registers inherits it — a `&mut` struct of
+    /// tensors registers several resources and the kernel may write any of
+    /// them.
+    arg_writes: bool,
     address_type: AddressType,
     pub settings: KernelSettings,
     #[cfg(not(feature = "std"))]
@@ -93,6 +101,7 @@ impl<R: Runtime> KernelLauncher<R> {
         let info = self.with_info(|info| info.finish(address_type));
 
         bindings.resources = self.resources;
+        bindings.writes = self.writes;
         bindings.info = info;
 
         bindings
@@ -101,17 +110,50 @@ impl<R: Runtime> KernelLauncher<R> {
 
 // Tensors/arrays
 impl<R: Runtime> KernelLauncher<R> {
+    /// Declare whether the argument registered next is one the kernel writes.
+    ///
+    /// `&mut` in the `#[cube]` signature is how a kernel says it produces a
+    /// value — the macro has no other way to tell, since `&[T]` and `&mut [T]`
+    /// share one [`LaunchArg`](crate::prelude::LaunchArg) impl and the
+    /// distinction is gone by the time this runs.
+    ///
+    /// It stays set for everything that argument registers, which is the safe
+    /// direction: a `&mut` struct of tensors names all of them, and the kernel
+    /// may write any.
+    pub fn arg_writes(&mut self, writes: bool) {
+        self.arg_writes = writes;
+    }
+
+    /// Record a resource and whether the kernel writes it, so the two can never
+    /// fall out of step.
+    fn push_resource(&mut self, resource: KernelResource) {
+        self.resources.push(resource);
+        self.writes.push(self.arg_writes);
+    }
+
+    /// An output that aliases an input writes that input's buffer in place, so
+    /// the input is written however its own argument was declared. Missing this
+    /// would leave an in-place kernel's only buffer unnamed when it fails.
+    fn alias_writes(&mut self, input_pos: usize) {
+        if self.arg_writes && let Some(writes) = self.writes.get_mut(input_pos) {
+            *writes = true;
+        }
+    }
+
     /// Push a new input tensor to the state.
     pub fn register_tensor(&mut self, tensor: TensorArg<R>, elem_size: usize) {
         if let Some(tensor) = self.process_tensor(tensor, elem_size) {
-            self.resources.push(KernelResource::Buffer(tensor));
+            self.push_resource(KernelResource::Buffer(tensor));
         }
     }
 
     fn process_tensor(&mut self, tensor: TensorArg<R>, elem_size: usize) -> Option<BufferBinding> {
         let tensor = match tensor {
             TensorArg::Handle { handle, .. } => handle,
-            TensorArg::Alias { .. } => return None,
+            TensorArg::Alias { input_pos, .. } => {
+                self.alias_writes(input_pos);
+                return None;
+            }
         };
 
         let buffer_len = tensor.handle.size_in_used() / elem_size as u64;
@@ -131,14 +173,17 @@ impl<R: Runtime> KernelLauncher<R> {
     /// Push a new input array to the state.
     pub fn register_buffer(&mut self, array: BufferArg<R>, elem_size: usize) {
         if let Some(tensor) = self.process_buffer(array, elem_size) {
-            self.resources.push(KernelResource::Buffer(tensor));
+            self.push_resource(KernelResource::Buffer(tensor));
         }
     }
 
     fn process_buffer(&mut self, array: BufferArg<R>, elem_size: usize) -> Option<BufferBinding> {
         let array = match array {
             BufferArg::Handle { handle, .. } => handle,
-            BufferArg::Alias { .. } => return None,
+            BufferArg::Alias { input_pos, .. } => {
+                self.alias_writes(input_pos);
+                return None;
+            }
         };
 
         let buffer_len = array.handle.size_in_used() / elem_size as u64;
@@ -158,8 +203,7 @@ impl<R: Runtime> KernelLauncher<R> {
             .expect("Can't use alias for TensorMap");
 
         let map = map.metadata.clone();
-        self.resources
-            .push(KernelResource::TensorMap(TensorMapBinding { binding, map }));
+        self.push_resource(KernelResource::TensorMap(TensorMapBinding { binding, map }));
     }
 }
 
@@ -169,6 +213,8 @@ impl<R: Runtime> KernelLauncher<R> {
             address_type: settings.address_type,
             settings,
             resources: Vec::new(),
+            writes: Vec::new(),
+            arg_writes: false,
             _runtime: PhantomData,
             #[cfg(not(feature = "std"))]
             info: InfoBuilder::default(),

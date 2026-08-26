@@ -470,7 +470,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 // We make the stream that would execute the kernel in error.
                 // The launch never ran, so every buffer it was given is left as
                 // it was; a read of one has to fail on this rather than copy it.
-                let unwritten: Vec<_> = args.memory_ids().collect();
+                let unwritten: Vec<_> = args.memory_ids_written().collect();
                 let stream = self.scheduler.stream(&stream_id);
                 stream
                     .errors
@@ -489,18 +489,26 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // automatically when the guard drops.
         let mut shared_inputs = self.shared_bindings_pool.acquire();
         // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
-        args.resources.iter().for_each(|resource| match resource {
-            KernelResource::Buffer(b) => {
-                self.streams_pool.push(b.stream);
-                self.unwritten.push(b.memory.id());
-                if b.stream != stream_id {
-                    shared_inputs.push(b.memory.clone());
+        args.resources
+            .iter()
+            .enumerate()
+            .for_each(|(index, resource)| match resource {
+                KernelResource::Buffer(b) => {
+                    self.streams_pool.push(b.stream);
+                    // Only what the kernel writes: an input this launch merely
+                    // reads is left exactly as it was, so a failure has nothing
+                    // to say about it.
+                    if args.writes(index) {
+                        self.unwritten.push(b.memory.id());
+                    }
+                    if b.stream != stream_id {
+                        shared_inputs.push(b.memory.clone());
+                    }
                 }
-            }
-            KernelResource::TensorMap(_) => {
-                panic!("Tensor maps not supported in WGPU")
-            }
-        });
+                KernelResource::TensorMap(_) => {
+                    panic!("Tensor maps not supported in WGPU")
+                }
+            });
 
         let resources = match self.prepare_bindings(args, compiler_info) {
             Ok(val) => val,

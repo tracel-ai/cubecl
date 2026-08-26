@@ -163,6 +163,12 @@ impl Launch {
         let mut args = quote! {};
 
         self.runtime_params().enumerate().for_each(|(i, input)| {
+            // `&mut` is how a kernel says it produces a value, and the only
+            // place that survives: `strip_ref` below erases it, and `&[T]` and
+            // `&mut [T]` share one `LaunchArg` impl. Told to the launcher here,
+            // it names the buffers a failed launch leaves unwritten without
+            // dragging in the ones it only read.
+            let writes = matches!(&input.ty, syn::Type::Reference(ty) if ty.mutability.is_some());
             let ty = strip_ref(input.ty.clone());
             let ty = anon_lifetime_to_static(ty);
             let ident = &input.name;
@@ -170,6 +176,7 @@ impl Launch {
 
             args.extend(quote! {#var,});
             defined.extend(quote! {
+                launcher.arg_writes(#writes);
                 let #var = <#ty as #launch_arg>::register(#ident, &mut launcher);
             });
         });

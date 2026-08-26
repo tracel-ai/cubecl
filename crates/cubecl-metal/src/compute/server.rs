@@ -173,7 +173,7 @@ impl MetalServer {
     /// left as it was: naming them makes a later read of one fail on this error
     /// rather than copy out bytes nothing wrote.
     fn push_launch_error(&mut self, stream_id: StreamId, err: LaunchError, args: &KernelArguments) {
-        let unwritten: Vec<_> = args.memory_ids().collect();
+        let unwritten: Vec<_> = args.memory_ids_written().collect();
         let mut resolved = match self.streams.resolve(stream_id, std::iter::empty(), false) {
             Ok(resolved) => resolved,
             Err(err) => unreachable!("{err}"),

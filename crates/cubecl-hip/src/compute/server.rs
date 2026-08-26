@@ -285,7 +285,7 @@ impl ComputeServer for HipServer {
         // reads of memory the run deliberately left alone.
         self.unwritten.clear();
         if !launch_mode.is_skipped() {
-            self.unwritten.extend(bindings.memory_ids());
+            self.unwritten.extend(bindings.memory_ids_written());
         }
 
         if let Err(err) = self.launch_checked(kernel, count, bindings, stream_id, launch_mode) {
@@ -845,10 +845,10 @@ impl HipServer {
         // all of them as they were. A no-op outside a capture window, and never
         // reached by a dry run, which records nothing to answer for.
         let stream = command.streams.current();
-        stream.capturing.record(bindings.memory_ids());
+        stream.capturing.record(bindings.memory_ids_written());
         // This launch is on its way, so a capture that failed to seal has
         // nothing left to say about the buffers it is about to write.
-        stream.errors.written(bindings.memory_ids());
+        stream.errors.written(bindings.memory_ids_written());
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -877,7 +877,7 @@ impl HipServer {
             return Ok(());
         }
 
-        let KernelArguments { resources, info } = bindings;
+        let KernelArguments { resources, info, .. } = bindings;
 
         let info_handle = info_buffer(&mut command, info.data)?;
 
