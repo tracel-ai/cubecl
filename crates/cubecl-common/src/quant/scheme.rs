@@ -826,11 +826,21 @@ mod tests {
         }
     }
 
+    /// 2^`exp`, from the exponent field rather than through `powi`.
+    ///
+    /// `powi` is only ever approximate — Miri returns a value a few ulp off, deliberately, so
+    /// nothing comes to depend on one host's precision — and a power of two that is a hair off is
+    /// a different power of two once its mantissa is cleared. Only for exponents f32 has a normal
+    /// for: -126..=127.
+    fn power_of_two(exp: i32) -> f32 {
+        f32::from_bits(((exp + 127) as u32) << 23)
+    }
+
     /// `ue8m0` stores a bare exponent, so rounding up to it is rounding up to a power of two.
     #[test]
     fn ue8m0_rounds_up_to_a_power_of_two() {
         for exp in -120..120 {
-            let power = 2f32.powi(exp);
+            let power = power_of_two(exp);
             // Already a power of two: nothing to round.
             assert_eq!(ScaleDtype::UE8M0.round_up(power), power, "2^{exp}");
             // Anything above it goes to the next one up, however little above.
