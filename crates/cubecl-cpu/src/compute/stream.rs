@@ -17,7 +17,7 @@ use cubecl_runtime::{
         MemoryManagementOptions,
     },
     storage::{BytesResource, BytesStorage},
-    stream::StreamErrors,
+    stream::{StreamErrorSink, StreamErrors},
     timestamp_profiler::TimestampProfiler,
 };
 use std::sync::{Arc, atomic::AtomicU64};
@@ -36,6 +36,12 @@ pub struct CpuStream {
     threadpool: &'static spin::Mutex<Threadpool>,
     next_counter_step: u64,
     atomic_counter: Arc<CachePadded<AtomicU64>>,
+}
+
+impl StreamErrorSink for CpuStream {
+    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
+        &self.errors
+    }
 }
 
 impl core::fmt::Debug for CpuStream {
@@ -189,29 +195,18 @@ impl CpuStream {
     }
 
     /// Registers a new error into the error sink, for `stream_id` to surface.
-    pub fn error(&mut self, stream_id: StreamId, error: ServerError) {
-        self.errors.push(stream_id, error);
-    }
-
-    /// Registers an error that left `unwritten` never written, for `stream_id`
-    /// to surface — see [`StreamErrors::push_unwritten`].
-    pub fn error_unwritten(
+    ///
+    /// `unwritten` names the buffers the failed work left as they were, so a
+    /// later read of one fails on this rather than copying out bytes nothing
+    /// wrote — empty for a failure that skipped no write. See
+    /// [`StreamErrors::push_unwritten`].
+    pub fn error(
         &mut self,
         stream_id: StreamId,
         error: ServerError,
         unwritten: impl IntoIterator<Item = ManagedMemoryId>,
     ) {
         self.errors.push_unwritten(stream_id, error, unwritten);
-    }
-
-    /// The queued errors that left one of `buffers` unwritten — see
-    /// [`StreamErrors::peek_unwritten`].
-    pub fn errors_unwritten(
-        &self,
-        buffers: &[ManagedMemoryId],
-        reader: StreamId,
-    ) -> Vec<ServerError> {
-        self.errors.peek_unwritten(buffers, reader)
     }
 
     /// Allocates a new empty buffer using the main memory pool.

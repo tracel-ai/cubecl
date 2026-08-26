@@ -3,7 +3,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryId, SharedMemoryBindings},
     server::{BufferBinding, ServerError},
-    stream::{StreamFactory, StreamPool},
+    stream::{StreamErrorSink, StreamErrors, StreamFactory, StreamPool},
 };
 use core::any::Any;
 use cubecl_environment::backtrace::BackTrace;
@@ -21,8 +21,10 @@ use std::{
 /// This trait provides the necessary methods for initializing streams, flushing them to create events,
 /// and waiting on events for synchronization purposes.
 pub trait EventStreamBackend: 'static {
-    /// The type representing a stream in this backend.
-    type Stream: core::fmt::Debug;
+    /// The type representing a stream in this backend, which records its
+    /// failures in a [`StreamErrors`](super::StreamErrors) the driver reads
+    /// through [`StreamErrorSink`].
+    type Stream: core::fmt::Debug + StreamErrorSink;
     /// The type representing an event in this backend.
     type Event: Send + 'static;
 
@@ -30,27 +32,6 @@ pub trait EventStreamBackend: 'static {
     fn create_stream(&self) -> Self::Stream;
     /// Returns the cursor of the given handle on the given stream.
     fn handle_cursor(stream: &Self::Stream, handle: &BufferBinding) -> u64;
-    /// Returns whether the stream can accept new tasks from `stream_id`.
-    ///
-    /// Errors are queued per logical stream (see
-    /// [`StreamErrors`](super::StreamErrors)), so a backend stream is broken
-    /// for the streams whose errors are still queued on it, not for every
-    /// stream sharing it.
-    fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool;
-
-    /// The errors queued on this stream that left one of `buffers` unwritten,
-    /// other than `reader`'s own — see
-    /// [`StreamErrors::peek_unwritten`](super::StreamErrors::peek_unwritten).
-    ///
-    /// Answers what a read needs to know before it copies anything: did the
-    /// work that was supposed to write these bytes actually run? See
-    /// [`MultiStream::producer_errors`].
-    fn errors_unwritten(
-        stream: &Self::Stream,
-        buffers: &[ManagedMemoryId],
-        reader: StreamId,
-    ) -> Vec<ServerError>;
-
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event
     /// that can be used for synchronization.
     fn flush(stream: &mut Self::Stream) -> Self::Event;
@@ -122,6 +103,12 @@ impl<B: EventStreamBackend> GcTask<B> {
 #[derive(Debug)]
 struct EventStreamBackendWrapper<B: EventStreamBackend> {
     backend: B,
+}
+
+impl<B: EventStreamBackend> StreamErrorSink for StreamWrapper<B> {
+    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
+        self.stream.errors()
+    }
 }
 
 impl<B: EventStreamBackend> StreamFactory for EventStreamBackendWrapper<B> {
@@ -230,17 +217,19 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.gc.sender.send(gc).unwrap();
     }
 
-    /// The errors saying the buffers `handles` name were never written — see
-    /// [`StreamPool::producer_errors`].
-    pub fn producer_errors<'a>(
+    /// Fails when the buffers `handles` name were never written — see
+    /// [`StreamPool::ensure_written`].
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::ServerUnhealthy`] naming the work that was supposed to
+    /// write them and failed.
+    pub fn ensure_written<'a>(
         &self,
         reader: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Vec<ServerError> {
-        self.streams
-            .producer_errors(reader, handles, |stream, buffers, reader| {
-                B::errors_unwritten(&stream.stream, buffers, reader)
-            })
+    ) -> Result<(), ServerError> {
+        self.streams.ensure_written(reader, handles)
     }
 
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary
@@ -259,7 +248,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         let stream = self.streams.get_mut(&stream_id);
         stream.cursor += 1;
 
-        if enforce_healthy && !B::is_healthy(&stream.stream, stream_id) {
+        if enforce_healthy && !stream.stream.healthy(stream_id) {
             return Err(ServerError::Generic {
                 reason: "Can't resolve the stream since it is currently in an error state".into(),
                 backtrace: BackTrace::capture(),
@@ -645,8 +634,10 @@ mod tests {
 
     struct TestBackend;
 
-    #[derive(Debug)]
-    struct TestStream {}
+    #[derive(Debug, Default)]
+    struct TestStream {
+        errors: StreamErrors,
+    }
 
     #[derive(Debug)]
     struct TestEvent {}
@@ -657,14 +648,27 @@ mod tests {
         gate: Arc<AtomicBool>,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     struct GatedStream {
         gate: Arc<AtomicBool>,
+        errors: StreamErrors,
     }
 
     #[derive(Debug)]
     struct GatedEvent {
         gate: Arc<AtomicBool>,
+    }
+
+    impl StreamErrorSink for GatedStream {
+        fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
+            &self.errors
+        }
+    }
+
+    impl StreamErrorSink for TestStream {
+        fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
+            &self.errors
+        }
     }
 
     impl EventStreamBackend for GatedBackend {
@@ -674,6 +678,7 @@ mod tests {
         fn create_stream(&self) -> Self::Stream {
             GatedStream {
                 gate: self.gate.clone(),
+                errors: StreamErrors::default(),
             }
         }
 
@@ -696,17 +701,6 @@ mod tests {
             0
         }
 
-        fn is_healthy(_stream: &Self::Stream, _stream_id: StreamId) -> bool {
-            true
-        }
-
-        fn errors_unwritten(
-            _stream: &Self::Stream,
-            _buffers: &[ManagedMemoryId],
-            _reader: StreamId,
-        ) -> Vec<ServerError> {
-            Vec::new()
-        }
     }
 
     impl EventStreamBackend for TestBackend {
@@ -714,7 +708,7 @@ mod tests {
         type Event = TestEvent;
 
         fn create_stream(&self) -> Self::Stream {
-            TestStream {}
+            TestStream::default()
         }
 
         fn flush(_stream: &mut Self::Stream) -> Self::Event {
@@ -731,16 +725,5 @@ mod tests {
             0
         }
 
-        fn is_healthy(_stream: &Self::Stream, _stream_id: StreamId) -> bool {
-            true
-        }
-
-        fn errors_unwritten(
-            _stream: &Self::Stream,
-            _buffers: &[ManagedMemoryId],
-            _reader: StreamId,
-        ) -> Vec<ServerError> {
-            Vec::new()
-        }
     }
 }

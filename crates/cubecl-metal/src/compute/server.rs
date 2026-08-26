@@ -243,17 +243,12 @@ impl ComputeServer for MetalServer {
         use objc2_metal::MTLBuffer;
 
         // Buffers another stream wrote are only as good as the work that wrote
-        // them; see `StreamPool::producer_errors`.
-        let producer_errors = self
+        // them; see `StreamPool::ensure_written`.
+        if let Err(err) = self
             .streams
-            .producer_errors(stream_id, descriptors.iter().map(|d| &d.handle));
-        if !producer_errors.is_empty() {
-            return Box::pin(async move {
-                Err(ServerError::ServerUnhealthy {
-                    errors: producer_errors,
-                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-                })
-            });
+            .ensure_written(stream_id, descriptors.iter().map(|d| &d.handle))
+        {
+            return Box::pin(async move { Err(err) });
         }
 
         // The reader's own, which this call takes.

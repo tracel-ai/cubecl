@@ -1,9 +1,8 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::ManagedMemoryId,
     server::{BufferBinding, ServerError},
-    stream::{StreamFactory, StreamPool},
+    stream::{StreamErrorSink, StreamErrors, StreamFactory, StreamPool},
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
 use cubecl_environment::stream::StreamId;
@@ -12,8 +11,10 @@ use cubecl_environment::stream::StreamId;
 pub trait SchedulerStreamBackend {
     /// Type representing a task.
     type Task: core::fmt::Debug;
-    /// Type representing a stream.
-    type Stream: core::fmt::Debug;
+    /// Type representing a stream, which records its failures in a
+    /// [`StreamErrors`] the scheduler reads
+    /// through [`StreamErrorSink`].
+    type Stream: core::fmt::Debug + StreamErrorSink;
     /// Type for the stream factory, which creates streams of type `Self::Stream`.
     type Factory: StreamFactory<Stream = Self::Stream>;
 
@@ -21,18 +22,6 @@ pub trait SchedulerStreamBackend {
     fn enqueue(task: Self::Task, stream: &mut Self::Stream);
     /// Flush the inner stream queue to ensure ordering between different streams.
     fn flush(stream: &mut Self::Stream);
-    /// The errors queued on this stream that left one of `buffers` unwritten,
-    /// other than `reader`'s own — see
-    /// [`StreamErrors::peek_unwritten`](crate::stream::StreamErrors::peek_unwritten).
-    ///
-    /// Answers what a read needs to know before it copies anything: did the
-    /// work that was supposed to write these bytes actually run? See
-    /// [`SchedulerMultiStream::producer_errors`].
-    fn errors_unwritten(
-        stream: &Self::Stream,
-        buffers: &[ManagedMemoryId],
-        reader: StreamId,
-    ) -> Vec<ServerError>;
     /// Returns a mutable reference to the stream factory.
     fn factory(&mut self) -> &mut Self::Factory;
     /// Whether this stream currently requires its own tasks to execute on
@@ -91,6 +80,12 @@ struct SchedulerPoolMarker<B: SchedulerStreamBackend> {
     backend: B,
 }
 
+impl<B: SchedulerStreamBackend> StreamErrorSink for Stream<B> {
+    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
+        self.stream.errors()
+    }
+}
+
 impl<B: SchedulerStreamBackend> StreamFactory for SchedulerPoolMarker<B> {
     // The type of stream produced by this factory.
     type Stream = Stream<B>;
@@ -144,17 +139,19 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         &mut self.pool.factory_mut().backend
     }
 
-    /// The errors saying the buffers `handles` name were never written — see
-    /// [`StreamPool::producer_errors`].
-    pub fn producer_errors<'a>(
+    /// Fails when the buffers `handles` name were never written — see
+    /// [`StreamPool::ensure_written`].
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::ServerUnhealthy`] naming the work that was supposed to
+    /// write them and failed.
+    pub fn ensure_written<'a>(
         &self,
         reader: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Vec<ServerError> {
-        self.pool
-            .producer_errors(reader, handles, |stream, buffers, reader| {
-                B::errors_unwritten(&stream.stream, buffers, reader)
-            })
+    ) -> Result<(), ServerError> {
+        self.pool.ensure_written(reader, handles)
     }
 
     /// Read-only iterator over initialized backend streams.

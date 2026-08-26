@@ -1,8 +1,12 @@
 //! The stream-side graph-capture lifecycle, shared by every backend with
 //! graph support (see [`ComputeServer::graph_prepare`](crate::server::ComputeServer::graph_prepare)).
 
+use crate::memory_management::ManagedMemoryId;
 use crate::metadata_cache::CacheMode;
 use crate::server::ServerError;
+use alloc::format;
+use alloc::vec::Vec;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
 
 /// Where a stream sits in the graph-capture lifecycle, and the only thing
@@ -33,9 +37,10 @@ use cubecl_environment::stream::StreamId;
 /// for its window" only holds if the window remembers whose it is: an error
 /// raised inside it belongs to the capture, not to whichever neighbour happens
 /// to flush next (see [`StreamErrors`](super::StreamErrors)).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StreamCaptureState {
     /// No capture is prepared or recording.
+    #[default]
     NoCapture,
     /// `graph_prepare` has armed the persistent pools for the warmup run;
     /// `begin_capture` may now open the window. Slices the warmup run reserves
@@ -109,6 +114,132 @@ impl CaptureEnd {
     /// recording is torn down instead of sealed.
     pub fn is_abandoned(&self) -> bool {
         matches!(self, CaptureEnd::Abandoned { .. })
+    }
+
+    /// The report a caller gets for closing a window it did not open: why the
+    /// recording was discarded, followed by `queued` — whatever the owner had
+    /// waiting on the stream, which the backend drains so nothing is left for a
+    /// logical stream that may never flush again.
+    ///
+    /// Only meaningful once [`is_abandoned`](Self::is_abandoned) says so; an
+    /// owned window is the caller's to seal and has nothing to report.
+    pub fn abandoned_error(&self, caller: StreamId, queued: Vec<ServerError>) -> ServerError {
+        let mut errors = queued;
+        errors.insert(
+            0,
+            ServerError::graph_state(format!(
+                "end_capture: the capture belongs to logical stream {:?}, not to {caller:?}; it \
+                 is discarded rather than left recording on a stream both share",
+                self.owner(),
+            )),
+        );
+
+        ServerError::ServerUnhealthy {
+            errors,
+            backtrace: BackTrace::capture(),
+        }
+    }
+}
+
+/// The graph capture of one pooled backend stream: where it sits in the
+/// lifecycle, and the memory its recorded launches were given.
+///
+/// The two travel together because neither is meaningful alone. A launch is
+/// remembered only while [`StreamCaptureState::Capture`] is the state, and what
+/// it remembers is only ever read once the window closes — so pairing them
+/// makes "buffers accumulate inside a window and nowhere else" a property of
+/// the type rather than a rule each backend has to keep.
+///
+/// Why the memory is worth keeping: a replay runs every recorded launch or
+/// none, so a replay that fails to enqueue leaves all of them exactly as they
+/// were, and so does a capture that never seals. Either way a later read of one
+/// has to fail rather than copy out bytes nothing wrote — which needs the list
+/// the launches themselves no longer hold.
+/// See [`StreamErrors::push_unwritten`](super::StreamErrors::push_unwritten).
+#[derive(Debug, Default)]
+pub struct StreamCapture {
+    state: StreamCaptureState,
+    recorded: Vec<ManagedMemoryId>,
+}
+
+impl StreamCapture {
+    /// Remember the memory a launch was given, when the stream is recording.
+    ///
+    /// A no-op outside a window, where a launch that fails names its own
+    /// buffers on the spot and there is no graph to answer for them later.
+    pub fn record(&mut self, buffers: impl IntoIterator<Item = ManagedMemoryId>) {
+        if self.state.is_recording() {
+            self.recorded.extend(buffers);
+        }
+    }
+
+    /// The memory of the capture that just closed, each id named once — the
+    /// same buffer comes back once per recorded launch that was given it.
+    pub fn take_recorded(&mut self) -> Vec<ManagedMemoryId> {
+        let mut recorded = core::mem::take(&mut self.recorded);
+        recorded.sort_unstable();
+        recorded.dedup();
+        recorded
+    }
+
+    /// See [`StreamCaptureState::is_recording`].
+    pub fn is_recording(&self) -> bool {
+        self.state.is_recording()
+    }
+
+    /// See [`StreamCaptureState::is_active`].
+    pub fn is_active(&self) -> bool {
+        self.state.is_active()
+    }
+
+    /// See [`StreamCaptureState::owner`].
+    pub fn owner(&self) -> Option<StreamId> {
+        self.state.owner()
+    }
+
+    /// See [`StreamCaptureState::cache_mode`].
+    pub fn cache_mode(&self) -> CacheMode {
+        self.state.cache_mode()
+    }
+
+    /// See [`StreamCaptureState::prepare`]. A capture starts from an empty
+    /// recording, so a window that was abandoned mid-flight cannot leak its
+    /// buffers into the next one.
+    ///
+    /// # Errors
+    ///
+    /// Fails when a capture is already prepared or recording, leaving both the
+    /// state and the recording untouched.
+    pub fn prepare(&mut self, owner: StreamId) -> Result<(), ServerError> {
+        self.state.prepare(owner)?;
+        self.recorded.clear();
+        Ok(())
+    }
+
+    /// See [`StreamCaptureState::begin`].
+    ///
+    /// # Errors
+    ///
+    /// Fails when no capture is prepared, or one is already recording.
+    pub fn begin(&mut self) -> Result<(), ServerError> {
+        self.state.begin()
+    }
+
+    /// See [`StreamCaptureState::end`]. The recording survives the transition
+    /// for [`take_recorded`](Self::take_recorded) to collect.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no capture is recording, leaving the state untouched.
+    pub fn end(&mut self, caller: StreamId) -> Result<CaptureEnd, ServerError> {
+        self.state.end(caller)
+    }
+
+    /// See [`StreamCaptureState::abort`]. The window never opened, so whatever
+    /// it had recorded goes with it.
+    pub fn abort(&mut self) {
+        self.state.abort();
+        self.recorded.clear();
     }
 }
 
@@ -255,6 +386,10 @@ mod tests {
 
     const OWNER: StreamId = StreamId { value: 7 };
 
+    fn id(value: usize) -> ManagedMemoryId {
+        ManagedMemoryId { value }
+    }
+
     /// The ordering rule the three backends rely on: a capture cannot start
     /// unprepared, and two cannot overlap on one stream. A backend that could
     /// reach `Capture` without `Prepare` would record against pools no warmup
@@ -354,6 +489,116 @@ mod tests {
         assert!(
             state.end(OWNER).unwrap().is_abandoned(),
             "the window it opened is long gone"
+        );
+    }
+
+    /// A graph answers for every buffer its launches were given, and names each
+    /// one once however many launches shared it.
+    ///
+    /// A failed replay runs none of the recorded launches, so the list is what
+    /// a later read of any of those buffers fails on. Repeats would make that
+    /// list grow with the length of the capture rather than with the working
+    /// set — a chat step records hundreds of launches over the same handful of
+    /// weights.
+    #[test]
+    fn a_capture_names_each_buffer_its_launches_were_given_once() {
+        let (a, b, c) = (id(1), id(2), id(3));
+
+        let mut capture = StreamCapture::default();
+        capture.prepare(OWNER).unwrap();
+        capture.begin().unwrap();
+        capture.record([a, b]);
+        capture.record([b, c]);
+        capture.record([a]);
+
+        assert_eq!(capture.end(OWNER).unwrap(), CaptureEnd::Owned { owner: OWNER });
+        assert_eq!(capture.take_recorded(), [a, b, c]);
+        assert!(
+            capture.take_recorded().is_empty(),
+            "the recording moves onto the graph, it is not left on the stream"
+        );
+    }
+
+    /// Outside a window a launch answers for its own buffers as it fails, so
+    /// nothing is remembered for a graph that will never exist.
+    ///
+    /// A stream that accumulated ids while not recording would grow one entry
+    /// per launch for the life of the process, and hand the next capture a list
+    /// of buffers it never touched.
+    #[test]
+    fn a_launch_outside_a_window_is_not_recorded() {
+        let mut capture = StreamCapture::default();
+
+        capture.record([id(1)]);
+        capture.prepare(OWNER).unwrap();
+        // Prepared is the warmup run: it executes rather than records.
+        capture.record([id(2)]);
+
+        capture.begin().unwrap();
+        capture.record([id(3)]);
+        capture.end(OWNER).unwrap();
+
+        assert_eq!(capture.take_recorded(), [id(3)]);
+    }
+
+    /// A window that never sealed leaves nothing behind for the next one.
+    ///
+    /// The stream is re-capturable after an abort or an abandoned end, and a
+    /// second capture that inherited the first one's buffers would pin memory
+    /// its own launches never saw — failing reads that had nothing to do with
+    /// it, on a graph that outlives the mistake.
+    #[test]
+    fn a_new_capture_starts_from_an_empty_recording() {
+        let neighbour = StreamId { value: 8 };
+
+        let mut capture = StreamCapture::default();
+        capture.prepare(OWNER).unwrap();
+        capture.begin().unwrap();
+        capture.record([id(1)]);
+        capture.abort();
+
+        capture.prepare(OWNER).unwrap();
+        capture.begin().unwrap();
+        capture.record([id(2)]);
+        assert!(capture.end(neighbour).unwrap().is_abandoned());
+        assert_eq!(capture.take_recorded(), [id(2)]);
+
+        capture.prepare(neighbour).unwrap();
+        capture.begin().unwrap();
+        assert!(
+            capture.take_recorded().is_empty(),
+            "the abandoned window's buffers are not this capture's to answer for"
+        );
+    }
+
+    /// What a caller learns from closing a window that was not theirs: whose it
+    /// was, and everything that owner had queued.
+    ///
+    /// The owner is the one piece of evidence the caller can act on — it names
+    /// the stream whose recording was thrown away. And the owner's errors have
+    /// to travel with the report because draining them is what keeps them from
+    /// waiting on a logical stream that may never flush again; dropped instead,
+    /// they would be the failures nobody ever hears about.
+    #[test]
+    fn an_abandoned_window_reports_whose_it_was_and_what_it_had_queued() {
+        let caller = StreamId { value: 8 };
+        let outcome = CaptureEnd::Abandoned { owner: OWNER };
+
+        let error = outcome.abandoned_error(caller, alloc::vec![ServerError::graph_state("queued")]);
+
+        let ServerError::ServerUnhealthy { errors, .. } = &error else {
+            panic!("an abandoned window reports as unhealthy, got: {error:?}");
+        };
+        let reported = alloc::format!("{error}");
+        assert!(
+            reported.contains(&alloc::format!("{OWNER:?}"))
+                && reported.contains(&alloc::format!("{caller:?}")),
+            "the report has to name the window's owner and the caller refused it, got: {reported}"
+        );
+        assert_eq!(errors.len(), 2, "the owner's queued error travels with it");
+        assert!(
+            alloc::format!("{}", errors[1]).contains("queued"),
+            "the explanation comes first, then what was already waiting"
         );
     }
 

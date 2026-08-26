@@ -5,9 +5,9 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{ManagedMemoryId, MemoryManagement, MemoryManagementOptions},
+    memory_management::{MemoryManagement, MemoryManagementOptions},
     server::BufferBinding,
-    stream::{EventStreamBackend, StreamErrors},
+    stream::{EventStreamBackend, StreamErrorSink, StreamErrors},
 };
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -117,6 +117,15 @@ impl std::fmt::Debug for MetalStream {
             .field("batch_bytes", &self.batch_bytes)
             .field("event_counter", &self.event_counter)
             .finish()
+    }
+}
+
+/// The queue lives behind a lock: several logical streams share the slot and
+/// the command-buffer completion handlers record into it from the driver's own
+/// threads.
+impl StreamErrorSink for MetalStream {
+    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
+        self.errors.lock()
     }
 }
 
@@ -398,18 +407,6 @@ impl EventStreamBackend for MetalStreamBackend {
             .memory_management
             .get_cursor(handle.memory.clone())
             .unwrap_or(u64::MAX)
-    }
-
-    fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool {
-        !stream.errors.lock().any(stream_id)
-    }
-
-    fn errors_unwritten(
-        stream: &Self::Stream,
-        buffers: &[ManagedMemoryId],
-        reader: StreamId,
-    ) -> Vec<ServerError> {
-        stream.errors.lock().peek_unwritten(buffers, reader)
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {

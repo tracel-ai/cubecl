@@ -1,6 +1,8 @@
 use crate::memory_management::ManagedMemoryId;
 use crate::server::{BufferBinding, ServerError};
+use crate::stream::StreamErrorSink;
 use alloc::vec::Vec;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
 
 /// Trait for creating streams, used by the stream pool to generate streams as needed.
@@ -116,12 +118,13 @@ impl<F: StreamFactory> StreamPool<F> {
         stream_index(id, self.max_streams)
     }
 
-    /// The errors saying the buffers `handles` name were never written, other
-    /// than `reader`'s own, as reported by `errors_unwritten`.
+    /// Fails when the buffers `handles` name were never written, with the
+    /// errors of the work that was supposed to write them.
     ///
     /// A read is only as good as the work that wrote the buffer: a launch that
     /// failed never wrote it, so copying its bytes out hands back whatever was
-    /// in memory before.
+    /// in memory before. `reader`'s own errors are left out — the read flushes
+    /// them on its way through, which reports them once.
     ///
     /// The question is asked of the buffers, not of a stream, and of every
     /// initialized slot rather than the handles' own. A handle names the stream
@@ -134,24 +137,38 @@ impl<F: StreamFactory> StreamPool<F> {
     ///
     /// The errors are read, never taken: the stream that caused each one still
     /// surfaces it on its own flush.
-    pub fn producer_errors<'a>(
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::ServerUnhealthy`] naming every failure that left one of
+    /// these buffers unwritten. The caller has nothing to retry — the bytes are
+    /// gone — so the error is the answer to the read, not a hint to try again.
+    pub fn ensure_written<'a>(
         &self,
         reader: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
-        errors_unwritten: impl Fn(&F::Stream, &[ManagedMemoryId], StreamId) -> Vec<ServerError>,
-    ) -> Vec<ServerError> {
+    ) -> Result<(), ServerError>
+    where
+        F::Stream: StreamErrorSink,
+    {
         let buffers: Vec<ManagedMemoryId> = handles.map(|handle| handle.memory.id()).collect();
 
         if buffers.is_empty() {
-            return Vec::new();
+            return Ok(());
         }
 
         let mut errors = Vec::new();
         for stream in self.streams() {
-            errors.extend(errors_unwritten(stream, &buffers, reader));
+            errors.extend(stream.unwritten(&buffers, reader));
         }
 
-        errors
+        match errors.is_empty() {
+            true => Ok(()),
+            false => Err(ServerError::ServerUnhealthy {
+                errors,
+                backtrace: BackTrace::capture(),
+            }),
+        }
     }
 
     /// Mutable access to the factory, e.g. to change the configuration new

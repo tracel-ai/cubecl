@@ -10,16 +10,15 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{BufferBinding, Handle, ServerError},
 };
-use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     config::streaming::StreamPriority,
     logging::ServerLogger,
     memory_management::{
-        ManagedMemoryId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
         drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{EventStreamBackend, StreamCaptureState, StreamErrors},
+    stream::{EventStreamBackend, StreamCapture, StreamErrorSink, StreamErrors},
 };
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -30,43 +29,24 @@ pub struct Stream {
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     pub errors: StreamErrors,
     pub drop_queue: drop_queue::PendingDropQueue<Fence>,
-    /// This stream's position in the graph-capture lifecycle (see
-    /// [`StreamCaptureState`]). Enforces the ordered `graph_prepare` →
-    /// `begin_capture` → `end_capture` transitions and gates the deferral of
-    /// fenced drop-queue flushes while a capture is recording.
-    pub capturing: StreamCaptureState,
+    /// This stream's graph capture (see [`StreamCapture`]): its position in
+    /// the lifecycle, and the memory its recorded launches were given. Enforces
+    /// the ordered `graph_prepare` → `begin_capture` → `end_capture`
+    /// transitions and gates the deferral of fenced drop-queue flushes while a
+    /// capture is recording.
+    pub capturing: StreamCapture,
     /// Reusable per-launch info buffers (kernel shapes/strides/scalars), keyed
     /// by the exact info words they were built from. Admission and
     /// least-recently-used eviction are decided by the cache's
     /// [`MetadataCachePolicy`]; the launch path sets its [`CacheMode`] from
     /// the capture lifecycle, so during graph capture every buffer is cached
-    /// and none is evicted mid-capture. See [`StreamCaptureState::cache_mode`].
+    /// and none is evicted mid-capture. See [`StreamCapture::cache_mode`].
     pub info_cache: MetadataInfoCache<Handle>,
-    /// The buffers the launches recorded into the capture in progress were
-    /// given, accumulated by [`record_buffers`](Self::record_buffers) and moved
-    /// onto the graph at `end_capture`. Empty outside a capture window.
-    pub capture_buffers: Vec<ManagedMemoryId>,
 }
 
-impl Stream {
-    /// Remember the buffers a launch was given, if it is being recorded into a
-    /// graph: a replay of that graph that fails runs none of the recorded
-    /// launches, so it leaves every one of them as it was, and the read that
-    /// follows has to fail on it. A no-op outside a capture window, where a
-    /// launch names its own buffers as it fails.
-    pub fn record_buffers(&mut self, buffers: &[ManagedMemoryId]) {
-        if self.capturing.is_recording() {
-            self.capture_buffers.extend(buffers.iter().copied());
-        }
-    }
-
-    /// The buffers of the capture that just closed, deduplicated — the same one
-    /// comes back once per recorded launch that was given it.
-    pub fn take_capture_buffers(&mut self) -> Vec<ManagedMemoryId> {
-        let mut buffers = core::mem::take(&mut self.capture_buffers);
-        buffers.sort_unstable();
-        buffers.dedup();
-        buffers
+impl StreamErrorSink for Stream {
+    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
+        &self.errors
     }
 }
 
@@ -202,9 +182,8 @@ impl EventStreamBackend for CudaStreamBackend {
             memory_management_cpu,
             errors: StreamErrors::default(),
             drop_queue: Default::default(),
-            capturing: StreamCaptureState::NoCapture,
+            capturing: StreamCapture::default(),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
-            capture_buffers: Vec::new(),
         }
     }
 
@@ -230,15 +209,4 @@ impl EventStreamBackend for CudaStreamBackend {
             .unwrap_or(u64::MAX)
     }
 
-    fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool {
-        !stream.errors.any(stream_id)
-    }
-
-    fn errors_unwritten(
-        stream: &Self::Stream,
-        buffers: &[ManagedMemoryId],
-        reader: StreamId,
-    ) -> Vec<ServerError> {
-        stream.errors.peek_unwritten(buffers, reader)
-    }
 }

@@ -158,9 +158,10 @@ pub struct HipServer {
     /// buffers it retained). Referencing graphs by id keeps the raw
     /// `hipGraphExec_t` inside the server, never boxed across the actor boundary.
     graphs: HashMap<GraphId, HipGraph>,
-    /// Reused scratch for the memory a launch was given, so a launch that fails
-    /// can name the buffers it leaves unwritten without allocating per launch.
-    unwritten_pool: Vec<ManagedMemoryId>,
+    /// The memory the launch in flight was given, held across the call that
+    /// consumes its arguments so a failure can still name what it left
+    /// unwritten. Reused, so a launch allocates nothing for it.
+    unwritten: Vec<ManagedMemoryId>,
 }
 
 // SAFETY: `HipServer` is only accessed from one thread at a time via the `DeviceHandle`
@@ -222,17 +223,12 @@ impl ComputeServer for HipServer {
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         // Buffers another stream wrote are only as good as the work that wrote
-        // them; see `StreamPool::producer_errors`.
-        let producer_errors = self
+        // them; see `StreamPool::ensure_written`.
+        if let Err(err) = self
             .streams
-            .producer_errors(stream_id, descriptors.iter().map(|d| &d.handle));
-        if !producer_errors.is_empty() {
-            return Box::pin(async move {
-                Err(ServerError::ServerUnhealthy {
-                    errors: producer_errors,
-                    backtrace: BackTrace::capture(),
-                })
-            });
+            .ensure_written(stream_id, descriptors.iter().map(|d| &d.handle))
+        {
+            return Box::pin(async move { Err(err) });
         }
 
         match self.command(
@@ -266,7 +262,7 @@ impl ComputeServer for HipServer {
             // what a later read of it has to fail on.
             let unwritten = [descriptor.handle.memory.id()];
             if let Err(err) = command.write_to_gpu(descriptor, data) {
-                command.error_unwritten(err.into(), unwritten);
+                command.error(err.into(), unwritten);
                 return;
             }
         }
@@ -282,16 +278,11 @@ impl ComputeServer for HipServer {
     ) {
         // Named before the launch consumes them: a failure below never reached
         // the device, so every buffer it was given is left as it was, and a read
-        // of one has to fail on the error rather than copy it. Taken out of the
-        // server and put back so the launch can borrow it alongside `self`; the
-        // allocation is kept across launches either way.
-        let mut unwritten = core::mem::take(&mut self.unwritten_pool);
-        unwritten.clear();
-        unwritten.extend(bindings.memory_ids());
+        // of one has to fail on the error rather than copy it.
+        self.unwritten.clear();
+        self.unwritten.extend(bindings.memory_ids());
 
-        let launched =
-            self.launch_checked(kernel, count, bindings, stream_id, launch_mode, &unwritten);
-        if let Err(err) = launched {
+        if let Err(err) = self.launch_checked(kernel, count, bindings, stream_id, launch_mode) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
@@ -299,9 +290,8 @@ impl ComputeServer for HipServer {
             stream
                 .current()
                 .errors
-                .push_unwritten(stream_id, err, unwritten.iter().copied());
+                .push_unwritten(stream_id, err, self.unwritten.iter().copied());
         }
-        self.unwritten_pool = unwritten;
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -484,7 +474,7 @@ impl ComputeServer for HipServer {
             stream.drop_queue.flush(|| Fence::new(sys));
             // The buffers the recorded launches ran against, which a failed
             // replay of the graph leaves unwritten.
-            let unwritten = stream.take_capture_buffers();
+            let unwritten = stream.capturing.take_recorded();
             // An abandoned window has no graph to hand back: destroy whatever
             // was instantiated and report instead, taking the owner's queued
             // errors along so nothing is left waiting on a logical stream that
@@ -499,20 +489,7 @@ impl ComputeServer for HipServer {
                             cubecl_hip_sys::hipGraphExecDestroy(exec);
                         }
                     }
-                    let mut errors = stream.errors.take(outcome.owner());
-                    errors.insert(
-                        0,
-                        ServerError::graph_state(format!(
-                            "end_capture: the capture belongs to logical stream {:?}, not to \
-                             {stream_id:?}; it is discarded rather than left recording on a \
-                             stream both share",
-                            outcome.owner(),
-                        )),
-                    );
-                    Err(ServerError::ServerUnhealthy {
-                        errors,
-                        backtrace: BackTrace::capture(),
-                    })
+                    Err(outcome.abandoned_error(stream_id, stream.errors.take(outcome.owner())))
                 }
             };
             match exec {
@@ -768,7 +745,7 @@ impl HipServer {
             ),
             utilities: Arc::new(utilities),
             graphs: HashMap::new(),
-            unwritten_pool: Vec::new(),
+            unwritten: Vec::new(),
         }
     }
 
@@ -828,17 +805,12 @@ impl HipServer {
         bindings: KernelArguments,
         stream_id: StreamId,
         launch_mode: LaunchMode,
-        unwritten: &[ManagedMemoryId],
     ) -> Result<(), ServerError> {
         let kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
-        let buffers = bindings.resources.iter().map(|resource| match resource {
-            KernelResource::Buffer(binding) => binding,
-            KernelResource::TensorMap(tensor_map) => &tensor_map.binding,
-        });
         let mut command = self.command(
             stream_id,
-            buffers,
+            bindings.buffers(),
             StreamErrorMode {
                 ignore: true,
                 flush: false,
@@ -848,7 +820,7 @@ impl HipServer {
         // A launch being recorded into a graph hands its buffers to the graph:
         // a replay that fails runs none of the recorded launches, so it leaves
         // all of them as they were. A no-op outside a capture window.
-        command.streams.current().record_buffers(unwritten);
+        command.streams.current().capturing.record(bindings.memory_ids());
 
         // A skipped launch stops here, after compilation and before anything
         // that touches a buffer: resolving resources, uploading metadata or

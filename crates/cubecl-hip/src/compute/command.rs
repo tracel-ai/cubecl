@@ -521,10 +521,14 @@ impl<'a> Command<'a> {
         Ok(())
     }
 
-    /// Registers an error that left `unwritten` never written, so a later read
-    /// of one of those buffers fails on it instead of copying out bytes nothing
-    /// wrote — see [`StreamErrors::push_unwritten`].
-    pub fn error_unwritten(
+    /// Registers an error on the stream, for the logical stream this command
+    /// runs on to surface.
+    ///
+    /// `unwritten` names the buffers the failed work left as they were, so a
+    /// later read of one fails on this rather than copying out bytes nothing
+    /// wrote — empty for a failure that skipped no write. See
+    /// [`StreamErrors::push_unwritten`].
+    pub fn error(
         &mut self,
         error: ServerError,
         unwritten: impl IntoIterator<Item = ManagedMemoryId>,

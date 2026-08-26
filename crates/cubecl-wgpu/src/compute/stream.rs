@@ -29,9 +29,9 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, ManagedMemoryId, SharedMemoryBindings},
+    memory_management::{ManagedMemoryHandle, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{StreamCaptureState, StreamErrors},
+    stream::{StreamCapture, StreamErrorSink, StreamErrors},
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -85,10 +85,16 @@ pub struct WgpuStream {
     /// [`StreamCaptureState`]). Enforces the ordered `graph_prepare` →
     /// `begin_capture` → `end_capture` transitions; while recording, enqueued
     /// launches append to `recording` instead of the encoder.
-    pub(crate) capturing: StreamCaptureState,
+    pub(crate) capturing: StreamCapture,
     /// The launches recorded since `begin_capture`, drained into a
     /// [`WgpuGraph`] at `end_capture`.
     recording: GraphRecording,
+}
+
+impl StreamErrorSink for WgpuStream {
+    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
+        &self.errors
+    }
 }
 
 impl WgpuStream {
@@ -163,7 +169,7 @@ impl WgpuStream {
             // entry pins a whole page (512 × 32 KiB ≈ 16 MiB worst case) —
             // unlike CUDA/HIP where an entry is a small dynamic-pool slice.
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::new(512, 2048)),
-            capturing: StreamCaptureState::NoCapture,
+            capturing: StreamCapture::default(),
             recording: GraphRecording::default(),
         }
     }
@@ -504,16 +510,6 @@ impl WgpuStream {
         self.mem_manage.reserve(size)
     }
 
-    /// The queued errors that left one of `buffers` unwritten — see
-    /// [`StreamErrors::peek_unwritten`].
-    pub fn errors_unwritten(
-        &self,
-        buffers: &[ManagedMemoryId],
-        reader: StreamId,
-    ) -> Vec<ServerError> {
-        self.errors.peek_unwritten(buffers, reader)
-    }
-
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
         let (handle, resource) = self.mem_manage.reserve_uniform(data.len() as u64);
         // A uniform created inside a recording window (e.g. a Vulkan address
@@ -826,16 +822,6 @@ impl WgpuStream {
     /// for `end_capture` to seal into a [`WgpuGraph`].
     pub(crate) fn take_recording(&mut self) -> GraphRecording {
         core::mem::take(&mut self.recording)
-    }
-
-    /// Remember the buffers a launch was given, if it is being recorded into a
-    /// graph: a replay of that graph that fails leaves every one of them as it
-    /// was, and the read that follows has to fail on it. A no-op outside a
-    /// capture window, where a launch names its own buffers as it fails.
-    pub(crate) fn record_buffers(&mut self, buffers: &[ManagedMemoryId]) {
-        if self.capturing.is_recording() {
-            self.recording.buffers.extend(buffers.iter().copied());
-        }
     }
 
     /// Re-encode a captured graph's tasks — one dispatch per recorded launch,

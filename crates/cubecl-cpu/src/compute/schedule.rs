@@ -3,11 +3,10 @@ use cubecl_common::bytes::Bytes;
 use cubecl_core::{
     CubeDim, MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{MetadataBindingInfo, ServerError},
+    server::MetadataBindingInfo,
 };
 use cubecl_environment::stream::StreamId;
 use cubecl_llvm::PlironEngine;
-use cubecl_runtime::memory_management::ManagedMemoryId;
 use cubecl_runtime::{
     logging::ServerLogger,
     storage::{BytesResource, ManagedResource},
@@ -120,14 +119,6 @@ impl SchedulerStreamBackend for ScheduledCpuBackend {
 
     fn flush(stream: &mut Self::Stream) {
         stream.submit();
-    }
-
-    fn errors_unwritten(
-        stream: &Self::Stream,
-        buffers: &[ManagedMemoryId],
-        reader: StreamId,
-    ) -> Vec<ServerError> {
-        stream.errors_unwritten(buffers, reader)
     }
 
     fn factory(&mut self) -> &mut Self::Factory {

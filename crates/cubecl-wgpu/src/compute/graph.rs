@@ -99,7 +99,4 @@ pub(crate) struct GraphRecording {
     /// `end_capture` so the memory manager's `capture_end` retains them on
     /// the graph — retention only covers slices still live at that point.
     pub(crate) uniform_pins: Vec<ManagedMemoryHandle>,
-    /// The buffers the recorded launches were given, in launch order and with
-    /// repeats (see [`WgpuGraph::unwritten`], which is this deduplicated).
-    pub(crate) buffers: Vec<ManagedMemoryId>,
 }

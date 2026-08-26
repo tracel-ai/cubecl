@@ -73,9 +73,10 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pub(crate) device: wgpu::Device,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
-    /// Reused scratch for the memory a launch was given, so a launch that fails
-    /// can name the buffers it leaves unwritten without allocating per launch.
-    unwritten_pool: Vec<ManagedMemoryId>,
+    /// The memory the launch in flight was given, held across the calls that
+    /// consume its arguments so a failure can still name what it left
+    /// unwritten. Reused, so a launch allocates nothing for it.
+    unwritten: Vec<ManagedMemoryId>,
     /// The pipelines built so far, in front of the SPIR-V store when there is
     /// one.
     pipelines: CompilationCache<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
@@ -147,7 +148,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         Self {
             compilation_options,
             streams_pool: Vec::new(),
-            unwritten_pool: Vec::new(),
+            unwritten: Vec::new(),
             device,
             pipelines,
             scheduler: SchedulerMultiStream::new(
@@ -340,18 +341,13 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         }
 
         // Buffers another stream wrote are only as good as the work that wrote
-        // them; see `StreamPool::producer_errors`. The reader's own errors are
+        // them; see `StreamPool::ensure_written`. The reader's own errors are
         // surfaced by `read_resources`' flush further down.
-        let producer_errors = self
+        if let Err(err) = self
             .scheduler
-            .producer_errors(stream_id, descriptors.iter().map(|d| &d.handle));
-        if !producer_errors.is_empty() {
-            return Box::pin(async move {
-                Err(ServerError::ServerUnhealthy {
-                    errors: producer_errors,
-                    backtrace: BackTrace::capture(),
-                })
-            });
+            .ensure_written(stream_id, descriptors.iter().map(|d| &d.handle))
+        {
+            return Box::pin(async move { Err(err) });
         }
 
         let mut streams = vec![stream_id];
@@ -489,7 +485,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         }
 
         self.streams_pool.clear();
-        self.unwritten_pool.clear();
+        self.unwritten.clear();
         // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
         // automatically when the guard drops.
         let mut shared_inputs = self.shared_bindings_pool.acquire();
@@ -497,7 +493,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         args.resources.iter().for_each(|resource| match resource {
             KernelResource::Buffer(b) => {
                 self.streams_pool.push(b.stream);
-                self.unwritten_pool.push(b.memory.id());
+                self.unwritten.push(b.memory.id());
                 if b.stream != stream_id {
                     shared_inputs.push(b.memory.clone());
                 }
@@ -513,22 +509,20 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 // We make the stream that would execute the kernel in error.
                 // Nothing was dispatched, so the buffers gathered above are
                 // still unwritten.
-                let unwritten = core::mem::take(&mut self.unwritten_pool);
-                let stream = self.scheduler.stream(&stream_id);
-                stream.errors.push_unwritten(
+                self.scheduler.stream(&stream_id).errors.push_unwritten(
                     stream_id,
                     ServerError::Io(err),
-                    unwritten.iter().copied(),
+                    self.unwritten.iter().copied(),
                 );
-                self.unwritten_pool = unwritten;
                 return;
             }
         };
-        // Taken out and put back so the stream can borrow `self` alongside it;
-        // the allocation is kept across launches either way.
-        let unwritten = core::mem::take(&mut self.unwritten_pool);
-        self.scheduler.stream(&stream_id).record_buffers(&unwritten);
-        self.unwritten_pool = unwritten;
+        // A launch recorded into a graph hands its buffers to the graph, which
+        // answers for them if a replay never runs. A no-op outside a window.
+        self.scheduler
+            .stream(&stream_id)
+            .capturing
+            .record(self.unwritten.iter().copied());
 
         let task = ScheduleTask::Execute {
             pipeline,
@@ -696,6 +690,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // than to whoever happens to be flushing.
         let outcome = stream.capturing.end(stream_id)?;
         let recording = stream.take_recording();
+        // The buffers the recorded launches ran against, which a failed replay
+        // of the graph leaves unwritten.
+        let unwritten = stream.capturing.take_recorded();
         let mut retained = stream.mem_manage.capture_end();
 
         // An error queued during the window (a rejected write, a failed
@@ -705,24 +702,17 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // inside the window. Draining them here is also what keeps an
         // abandoned window from leaving its errors queued for a stream that
         // may never flush again.
-        let mut errors = stream.flush_errors_queue(outcome.owner());
-        if outcome.is_abandoned() {
-            errors.insert(
-                0,
-                ServerError::graph_state(alloc::format!(
-                    "end_capture: the capture belongs to logical stream {:?}, not to \
-                     {stream_id:?}; it is discarded rather than left recording on a stream \
-                     both share",
-                    outcome.owner(),
-                )),
-            );
-        }
-        if !errors.is_empty() {
-            stream.info_cache.capture_discard();
-            return Err(ServerError::ServerUnhealthy {
+        let errors = stream.flush_errors_queue(outcome.owner());
+        let discarded = match outcome.is_abandoned() {
+            true => Some(outcome.abandoned_error(stream_id, errors)),
+            false => (!errors.is_empty()).then(|| ServerError::ServerUnhealthy {
                 errors,
                 backtrace: BackTrace::capture(),
-            });
+            }),
+        };
+        if let Some(err) = discarded {
+            stream.info_cache.capture_discard();
+            return Err(err);
         }
 
         let id = GraphId::new();
@@ -730,11 +720,6 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // id, so `graph_destroy` can release them later.
         stream.info_cache.capture_commit(id);
         retained.extend(recording.uniform_pins);
-        // The same buffer comes back once per recorded launch that was given
-        // it; a failed replay names each one once.
-        let mut unwritten = recording.buffers;
-        unwritten.sort_unstable();
-        unwritten.dedup();
         self.graphs.insert(
             id,
             WgpuGraph {

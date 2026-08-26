@@ -227,6 +227,35 @@ impl StreamErrors {
     }
 }
 
+/// A backend stream that queues its failures in a [`StreamErrors`].
+///
+/// Every backend keeps one queue per pooled stream, some of them behind a lock,
+/// and the multi-stream drivers ask it the same two questions on every read and
+/// every resolve. Answering them here means a backend supplies only where its
+/// queue lives, never what the drivers do with it.
+pub trait StreamErrorSink {
+    /// The queue this stream records its failures in.
+    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_;
+
+    /// Whether the stream can accept new work from `owner`.
+    ///
+    /// Broken for the streams whose errors are still queued on it, not for
+    /// every stream sharing it — a neighbour that launched nothing is healthy
+    /// however badly its slot-mate is doing.
+    fn healthy(&self, owner: StreamId) -> bool {
+        !self.errors().any(owner)
+    }
+
+    /// The queued errors that left one of `buffers` unwritten, other than
+    /// `reader`'s own — see [`StreamErrors::peek_unwritten`].
+    ///
+    /// Answers what a read needs to know before it copies anything: did the
+    /// work that was supposed to write these bytes actually run?
+    fn unwritten(&self, buffers: &[ManagedMemoryId], reader: StreamId) -> Vec<ServerError> {
+        self.errors().peek_unwritten(buffers, reader)
+    }
+}
+
 /// Whether `owner` surfaces an entry queued for `entry`: its own, plus the
 /// shared entries no stream owns.
 fn surfaced_by(entry: Option<StreamId>, owner: StreamId) -> bool {
