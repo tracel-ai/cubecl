@@ -789,6 +789,14 @@ impl ServerCommunication for CudaServer {
         op: ReduceOperation,
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
+        // The reduction reads the source, so it is worth no more than the work
+        // that wrote it; see `StreamPool::ensure_written`. The destination is
+        // overwritten whole and answers for nothing on the way in.
+        self.streams.ensure_written(stream_id, [&src].into_iter())?;
+
+        // Named before the bindings are consumed below.
+        let dst_unwritten = [dst.memory.id()];
+
         // We create a command on the server to retrieve the correct resource of the source and the destination
         // from the memory pools.
         if src.stream != dst.stream {
@@ -808,7 +816,7 @@ impl ServerCommunication for CudaServer {
                         reason: "Source and destination should be on the same stream.".into(),
                         backtrace: BackTrace::capture(),
                     },
-                    [dst.memory.id()],
+                    dst_unwritten,
                 );
             }
         }
@@ -857,8 +865,19 @@ impl ServerCommunication for CudaServer {
             .map_err(|e| ServerError::Generic {
                 reason: format!("NCCL all_reduce failed: {e:?}"),
                 backtrace: BackTrace::capture(),
+            })
+            .inspect_err(|err| {
+                // The caller is told here and now. Other streams are not, and
+                // the destination holds whatever it held before the collective
+                // that never ran — so a read of it fails on this copy rather
+                // than taking those bytes for a result.
+                self.queue_returned(stream_id, err.clone(), dst_unwritten);
             })?;
         }
+
+        // The result is on its way, so an earlier failure that left the
+        // destination stale has nothing left to say about it.
+        self.mark_written(stream_id, dst_unwritten);
 
         Ok(())
     }
@@ -1084,6 +1103,33 @@ impl CudaServer {
 
         let streams = self.streams.resolve(stream_id, handles, !mode.ignore)?;
         Ok(Command::new(&mut self.ctx, streams))
+    }
+
+    /// Queue an error the caller is already being handed, so a read of what it
+    /// left unwritten still fails on some other stream — see
+    /// [`StreamErrors::push_returned`](cubecl_runtime::stream::StreamErrors::push_returned).
+    fn queue_returned(
+        &mut self,
+        stream_id: StreamId,
+        error: ServerError,
+        unwritten: impl IntoIterator<Item = ManagedMemoryId>,
+    ) {
+        if let Ok(mut streams) = self.streams.resolve(stream_id, [].into_iter(), false) {
+            streams.current().errors.push_returned(error, unwritten);
+        }
+    }
+
+    /// End a reported failure's claim on `buffers`: work that writes them is on
+    /// its way — see
+    /// [`StreamErrors::written`](cubecl_runtime::stream::StreamErrors::written).
+    fn mark_written(
+        &mut self,
+        stream_id: StreamId,
+        buffers: impl IntoIterator<Item = ManagedMemoryId>,
+    ) {
+        if let Ok(mut streams) = self.streams.resolve(stream_id, [].into_iter(), false) {
+            streams.current().errors.written(buffers);
+        }
     }
 
     fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
