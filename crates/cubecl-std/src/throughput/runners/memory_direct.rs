@@ -48,7 +48,11 @@ pub fn build_kernel<R: Runtime>(
     // One pass moves the window twice: once in, once out.
     let ops_count = 2 * probe.window_lines * config.vector_size;
 
-    KernelConfig { sample, ops_count }
+    KernelConfig {
+        sample,
+        ops_count,
+        min_iterations: probe.min_iterations(),
+    }
 }
 
 #[cube(launch_unchecked)]

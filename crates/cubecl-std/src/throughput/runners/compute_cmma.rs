@@ -41,7 +41,11 @@ pub fn build_kernel<R: Runtime>(
     let planes_per_cube = config.cube_dim / config.plane_size;
     let ops_count = config.cube_count * planes_per_cube * ops_per_cmma;
 
-    KernelConfig { sample, ops_count }
+    KernelConfig {
+        sample,
+        ops_count,
+        min_iterations: 1,
+    }
 }
 
 #[cube(launch_unchecked)]

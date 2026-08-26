@@ -67,6 +67,17 @@ struct DeviceShape {
 }
 
 impl MemoryProbe {
+    /// Passes a launch has to carry for the window to come back to bytes a
+    /// whole pool of traffic has since evicted, which is the only thing making
+    /// a window smaller than the cache cold.
+    ///
+    /// One where the window is its own pool, since such a window is already
+    /// cold. Every pass moves a window, so this is the pool however small the
+    /// window: a launch costs a pool of traffic and no more.
+    pub fn min_iterations(&self) -> usize {
+        self.pool_lines.div_ceil(self.window_lines)
+    }
+
     /// Sizes a probe moving `working_set` bytes per pass, split evenly across
     /// the buffers `access` touches.
     ///
@@ -256,6 +267,28 @@ mod tests {
         assert_eq!(pinned.buffer_bytes, 128 * MB);
         assert_eq!(walked.buffer_bytes, 512 * MB);
         assert_eq!(copy.buffer_bytes, 512 * MB);
+    }
+
+    #[test]
+    fn a_small_window_carries_the_passes_that_walk_the_pool() {
+        // 8 KiB of a half-gigabyte pool: 65536 passes to come back round.
+        let small = probe(8 * KB, MemoryAccess::Read);
+        assert_eq!(small.min_iterations(), 512 * MB / (8 * KB));
+
+        // A pinned window is its own pool and cold without walking anywhere.
+        let pinned = probe(128 * MB, MemoryAccess::Read);
+        assert_eq!(pinned.min_iterations(), 1);
+    }
+
+    #[test]
+    fn walking_the_pool_costs_the_pool_whatever_the_window() {
+        // Every pass moves one window, so the traffic a launch must carry is
+        // the pool, and a small window buys passes rather than time.
+        for bytes in [8 * KB, 256 * KB, 4 * MB] {
+            let probe = probe(bytes, MemoryAccess::Read);
+            let walked = probe.min_iterations() * probe.window_lines;
+            assert_eq!(walked, probe.pool_lines, "at {bytes} bytes");
+        }
     }
 
     #[test]

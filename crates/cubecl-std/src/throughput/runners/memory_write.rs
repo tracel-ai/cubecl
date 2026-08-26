@@ -58,7 +58,11 @@ pub fn build_kernel<R: Runtime>(
     // Writes only, no `2 *`. That factor is the whole difference from the copy.
     let ops_count = probe.window_lines * config.vector_size;
 
-    KernelConfig { sample, ops_count }
+    KernelConfig {
+        sample,
+        ops_count,
+        min_iterations: probe.min_iterations(),
+    }
 }
 
 #[cube(launch_unchecked)]
