@@ -32,6 +32,20 @@ use cubecl_environment::stream::StreamId;
 /// transition brackets (arming its pools, opening the driver's capture), never
 /// the ordering rule itself.
 ///
+/// # What the neighbours pay
+///
+/// The window is held on a pooled stream, and logical streams fold onto those
+/// with `id % max_streams` — so a capture costs every logical stream sharing
+/// that slot, not just the one recording. On a software-graph backend a
+/// neighbour's read, sync or profile is refused outright for the duration, and
+/// its write is queued as its own error; on a hardware-graph backend a
+/// neighbour's fenced flush is deferred until the window closes. None of that
+/// is attributed to the capture, because a refusal is not a failure of the
+/// capture: the neighbour asked for something this slot cannot do right now.
+///
+/// It is a real cost of folding, and the reason a capture is worth pinning to a
+/// stream nothing else is scheduled on.
+///
 /// Both active states carry the logical stream that opened the capture. Several
 /// logical streams share one backend stream, so "the capture owns this stream
 /// for its window" only holds if the window remembers whose it is: an error
@@ -511,7 +525,10 @@ mod tests {
         capture.record([b, c]);
         capture.record([a]);
 
-        assert_eq!(capture.end(OWNER).unwrap(), CaptureEnd::Owned { owner: OWNER });
+        assert_eq!(
+            capture.end(OWNER).unwrap(),
+            CaptureEnd::Owned { owner: OWNER }
+        );
         assert_eq!(capture.take_recorded(), [a, b, c]);
         assert!(
             capture.take_recorded().is_empty(),
@@ -584,7 +601,8 @@ mod tests {
         let caller = StreamId { value: 8 };
         let outcome = CaptureEnd::Abandoned { owner: OWNER };
 
-        let error = outcome.abandoned_error(caller, alloc::vec![ServerError::graph_state("queued")]);
+        let error =
+            outcome.abandoned_error(caller, alloc::vec![ServerError::graph_state("queued")]);
 
         let ServerError::ServerUnhealthy { errors, .. } = &error else {
             panic!("an abandoned window reports as unhealthy, got: {error:?}");

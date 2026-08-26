@@ -250,7 +250,12 @@ impl<B: EventStreamBackend> MultiStream<B> {
 
         if enforce_healthy && !stream.stream.healthy(stream_id) {
             return Err(ServerError::Generic {
-                reason: "Can't resolve the stream since it is currently in an error state".into(),
+                reason: alloc::format!(
+                    "{stream_id:?} has failures queued and cannot take new work until they are \
+                     reported; they surface on its next flush, sync or profile end. An error the \
+                     pooled stream could not attribute reads as every logical stream's, so this \
+                     can name a stream that issued nothing itself."
+                ),
                 backtrace: BackTrace::capture(),
             });
         }
@@ -700,7 +705,6 @@ mod tests {
         fn handle_cursor(_stream: &Self::Stream, _handle: &BufferBinding) -> u64 {
             0
         }
-
     }
 
     impl EventStreamBackend for TestBackend {
@@ -724,6 +728,5 @@ mod tests {
         fn handle_cursor(_stream: &Self::Stream, _handle: &BufferBinding) -> u64 {
             0
         }
-
     }
 }

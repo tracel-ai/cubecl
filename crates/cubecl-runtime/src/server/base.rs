@@ -405,6 +405,15 @@ where
     fn utilities(&self) -> Arc<ServerUtilities<Self>>;
 
     /// Given bindings, returns the owned resources as bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::ServerUnhealthy`] when the work that was supposed to
+    /// write one of these buffers failed, whichever stream it ran on — copying
+    /// bytes out would hand back whatever was in memory before. Every
+    /// implementation asks
+    /// [`StreamPool::ensure_written`](crate::stream::StreamPool::ensure_written)
+    /// before it copies anything.
     fn read(
         &mut self,
         descriptors: Vec<CopyDescriptor>,
@@ -418,6 +427,13 @@ where
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>>;
 
     /// Given a resource handle, returns the storage resource.
+    ///
+    /// Unlike [`read`](Self::read), this hands back the memory itself and asks
+    /// nothing about what wrote it: a buffer a failed launch never filled comes
+    /// back holding whatever was there before, with no error. The check a read
+    /// does costs a scan of every stream's queue, which is worth it for a copy
+    /// out and not for handing over a pointer — so a caller that reads through
+    /// this is taking the guarantee on itself.
     fn get_resource(
         &mut self,
         binding: BufferBinding,
@@ -629,6 +645,25 @@ pub enum ReduceOperation {
 
 /// Defines functions for optimized data transfer between servers, supporting custom communication
 /// mechanisms such as peer-to-peer communication or specialized implementations.
+///
+/// # Outside the unwritten-buffer rules
+///
+/// A collective reads a source buffer and produces a destination one, and does
+/// neither of the things the rest of the server does about that: it does not
+/// ask whether the source was ever written (as
+/// [`read`](ComputeServer::read) does through
+/// [`StreamPool::ensure_written`](crate::stream::StreamPool::ensure_written)),
+/// and a failure does not name the destination it left as it was (as a failed
+/// [`launch`](ComputeServer::launch) does). So a collective over a buffer a
+/// failed launch never filled reduces stale bytes across every device in the
+/// group, and a collective that fails itself leaves a destination that reads
+/// back clean.
+///
+/// Closing that needs the same two calls the launch path makes —
+/// `ensure_written` over the sources on the way in,
+/// [`push_unwritten`](crate::stream::StreamErrors::push_unwritten) naming the
+/// destinations on the way out — on each of the operations below, in the one
+/// backend that implements them.
 pub trait ServerCommunication {
     /// Indicates whether server-to-server communication is enabled for this implementation.
     const SERVER_COMM_ENABLED: bool;
