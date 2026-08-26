@@ -40,11 +40,6 @@ struct ReadScalars(Vec<(Ptr<Operation>, TypeHandle, usize, Value)>);
 struct DynMetaReads(Vec<(Ptr<Operation>, usize, Value, Value)>);
 
 /// How the kernel entry presents its buffers to the host.
-///
-/// The metadata lowering in [`LowerEntryAbiPass`] is identical everywhere — `cube.shape`,
-/// `cube.stride`, `cube.buffer_len` and `cube.read_scalar` all resolve against the same `%info`
-/// pointer. What differs is how the host hands over the buffer pointers: through one indirection
-/// table, or as individual kernel arguments.
 pub trait EntryArgLayout {
     fn present_args(
         &self,
