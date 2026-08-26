@@ -135,8 +135,11 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
 
         start += window;
         // Back to the beginning, one line further along each time round, so a
-        // window that fills the whole buffer still moves between passes.
-        if start + window > len {
+        // window that fills the whole buffer still moves between passes. The
+        // test is whether the window starts past the end, not whether it
+        // reaches past: the index wraps, so the last position of a cycle
+        // straddles the end rather than being skipped.
+        if start >= len {
             wrap += 1;
             if wrap >= window {
                 wrap = 0;
