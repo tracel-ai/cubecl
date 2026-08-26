@@ -9,8 +9,8 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::{Captures, Window};
 use crate::{
+    compiler::HipCompiler,
     compute::{Command, context::HipContext, stream::HipStreamBackend},
-    runtime::HipCompiler,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{

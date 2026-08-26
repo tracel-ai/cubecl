@@ -1,4 +1,5 @@
 use crate::{
+    compiler::{HipCompilationOptions, HipCompiler},
     compute::{HipServer, context::HipContext},
     device::AmdDevice,
 };
@@ -21,7 +22,6 @@ use cubecl_core::{
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
-    ComputeKernel,
     hip::{
         self,
         arch::{AMDArchitecture, AmdWmma},
@@ -32,10 +32,9 @@ use cubecl_cpp::{
     },
     register_supported_types,
     shared::{
-        Architecture, CompilationOptions, CppCompiler, CppSupportedFeatures, register_mma_features,
+        Architecture, CompilationOptions, CppSupportedFeatures, register_mma_features,
         register_scaled_mma_features, register_wmma_features,
     },
-    target::Hip,
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_runtime::{
@@ -55,9 +54,6 @@ pub struct RuntimeOptions {
 
 #[derive(Debug, Clone)]
 pub struct HipRuntime;
-
-pub type HipCompiler = CppCompiler<Hip>;
-pub type HipComputeKernel = ComputeKernel;
 
 impl DeviceService for HipServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
@@ -185,13 +181,16 @@ impl DeviceService for HipServer {
         register_mma_features(supported_mma_combinations, &mut device_props);
         register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
-        let comp_opts = CompilationOptions {
-            warp_size: arch.warp_size() as usize,
-            supports_features: CppSupportedFeatures {
-                fast_math: true,
-                ..Default::default()
+        let comp_opts = HipCompilationOptions {
+            cpp: CompilationOptions {
+                warp_size: arch.warp_size() as usize,
+                supports_features: CppSupportedFeatures {
+                    fast_math: true,
+                    ..Default::default()
+                },
+                amd_wmma: arch.wmma_generation(),
             },
-            amd_wmma: arch.wmma_generation(),
+            arch: bare_arch.to_string(),
         };
         let hip_ctx = HipContext::new(comp_opts, device_props.clone(), fingerprint);
         let logger = Arc::new(ServerLogger::default());

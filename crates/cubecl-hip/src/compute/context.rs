@@ -7,8 +7,8 @@
 //! scope from.
 
 use super::storage::gpu::GpuResource;
-use crate::runtime::HipCompiler;
-use crate::{compute::stream::Stream, runtime::HipComputeKernel};
+use crate::compiler::{HipCompilationOptions, HipCompiler, HipRepresentation};
+use crate::compute::stream::Stream;
 use cubecl_core::{
     hash::{StableHash, StableHasher},
     ir::DeviceProperties,
@@ -16,7 +16,6 @@ use cubecl_core::{
     server::ResourceLimitError,
 };
 use cubecl_cpp::formatter::format_cpp;
-use cubecl_cpp::shared::CompilationOptions;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::Store;
 use cubecl_hip_sys::get_hip_include_path;
@@ -49,7 +48,7 @@ pub(crate) struct HipContext {
     /// name: see [`HipContext::is_loaded`].
     modules: CompilationCache<KernelId, HipCompiledKernel>,
     pub timestamps: TimestampProfiler,
-    pub compilation_options: CompilationOptions,
+    pub compilation_options: HipCompilationOptions,
     pub properties: DeviceProperties,
     pub compilation_cache: Option<Store<KernelCacheKey, CompilationCacheEntry>>,
     /// Cache mapping C++ code hashes to the key that first compiled them. We can skip the slow HIP
@@ -90,7 +89,7 @@ impl HipContext {
     /// with have to be the same string, and the only way to guarantee that is
     /// for there to be one string.
     pub fn new(
-        compilation_options: CompilationOptions,
+        compilation_options: HipCompilationOptions,
         properties: DeviceProperties,
         fingerprint: String,
     ) -> Self {
@@ -217,7 +216,7 @@ impl HipContext {
                 key,
                 CompilationCacheEntry {
                     entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                    shared_mem_bytes: repr.shared_memory_size,
+                    shared_mem_bytes: repr.shared_memory_size(),
                     binary: code.clone(),
                     io: io.clone(),
                 },
@@ -230,7 +229,7 @@ impl HipContext {
             kernel_id.clone(),
             jitc_kernel.entrypoint_name,
             jitc_kernel.cube_dim,
-            repr.shared_memory_size,
+            repr.shared_memory_size(),
             io.map(Arc::from),
         )?;
         Ok(())
@@ -347,8 +346,8 @@ impl HipContext {
         }
     }
 
-    fn validate_shared(&self, repr: &Option<HipComputeKernel>) -> Result<(), LaunchError> {
-        let requested = repr.as_ref().map(|repr| repr.shared_memory_size);
+    fn validate_shared(&self, repr: &Option<HipRepresentation>) -> Result<(), LaunchError> {
+        let requested = repr.as_ref().map(|repr| repr.shared_memory_size());
         let max = self.properties.hardware.max_shared_memory_size;
         if let Some(requested) = requested
             && requested > max
