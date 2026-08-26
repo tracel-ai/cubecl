@@ -1032,15 +1032,73 @@ pub struct KernelArguments {
     /// Packed scalars and metadata. First scalars sorted by type, then static metadata,
     /// then dynamic metadata.
     pub info: MetadataBindingInfo,
-    /// Which of `resources` the kernel writes, one flag per resource in the same
-    /// order — `&mut` in the `#[cube]` signature, plus any input an aliased
-    /// output writes in place.
-    ///
-    /// Empty when nothing declared it, which reads as "every resource might be
-    /// written": a caller that builds arguments by hand gets the conservative
-    /// answer rather than a silently empty one. See
+    /// Which of `resources` the kernel writes — `&mut` in the `#[cube]`
+    /// signature, plus any input an aliased output writes in place. See
     /// [`memory_ids_written`](Self::memory_ids_written).
-    pub writes: Vec<bool>,
+    pub writes: WriteMask,
+}
+
+/// Which of a launch's resources the kernel writes, one bit per resource in the
+/// order they were registered.
+///
+/// A bitmask rather than a `Vec<bool>` because every launch builds one and
+/// almost none of them are read: the answer matters only when the launch fails,
+/// and a launch that succeeds should not have paid an allocation to say so.
+///
+/// Every fallback answers "written", never "not written". Nothing declared
+/// ([`Default`]), a resource past the [`CAPACITY`](Self::CAPACITY) the bits
+/// cover, an index past what was declared — a caller that builds arguments by
+/// hand or a kernel wider than the mask gets the conservative answer rather
+/// than a silently empty one. Naming a buffer the kernel only read fails a read
+/// that would have been fine, loudly; missing one it writes hands back the bytes
+/// that were there before, silently.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct WriteMask {
+    bits: u64,
+    len: u32,
+}
+
+impl WriteMask {
+    /// How many resources the bits cover. A launch with more than this many
+    /// reads as writing all of them.
+    pub const CAPACITY: usize = u64::BITS as usize;
+
+    /// Declare whether the next resource is one the kernel writes.
+    pub fn push(&mut self, writes: bool) {
+        if writes && (self.len as usize) < Self::CAPACITY {
+            self.bits |= 1 << self.len;
+        }
+        self.len += 1;
+    }
+
+    /// Declare that the kernel writes the resource already at `index`, for an
+    /// output that aliases an input and writes it in place.
+    ///
+    /// Does nothing for an index nothing was declared for, which already reads
+    /// as written.
+    pub fn set(&mut self, index: usize) {
+        if index < (self.len as usize).min(Self::CAPACITY) {
+            self.bits |= 1 << index;
+        }
+    }
+
+    /// Whether the kernel writes the resource at `index`.
+    pub fn get(&self, index: usize) -> bool {
+        if self.len == 0 || index >= Self::CAPACITY || index >= self.len as usize {
+            return true;
+        }
+        self.bits & (1 << index) != 0
+    }
+
+    /// How many resources were declared.
+    pub fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    /// Whether nothing was declared, which reads as every resource written.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 }
 
 impl core::fmt::Display for KernelArguments {
@@ -1073,8 +1131,8 @@ impl KernelArguments {
         self
     }
 
-    /// Set which resources the kernel writes, one flag per resource.
-    pub fn with_writes(mut self, writes: Vec<bool>) -> Self {
+    /// Set which resources the kernel writes.
+    pub fn with_writes(mut self, writes: WriteMask) -> Self {
         self.writes = writes;
         self
     }
@@ -1122,16 +1180,10 @@ impl KernelArguments {
             .map(|(_, binding)| binding.memory.id())
     }
 
-    /// Whether the kernel writes the resource at `index`.
-    ///
-    /// True for every resource when nothing declared a mask, so arguments built
-    /// by hand answer conservatively rather than claiming the kernel writes
-    /// nothing.
+    /// Whether the kernel writes the resource at `index` — see
+    /// [`WriteMask::get`].
     pub fn writes(&self, index: usize) -> bool {
-        match self.writes.is_empty() {
-            true => true,
-            false => self.writes.get(index).copied().unwrap_or(true),
-        }
+        self.writes.get(index)
     }
 }
 
@@ -1452,5 +1504,55 @@ mod tests {
         let actual = cube_count_spread(&max, required);
         let expected = [25, 32, 4];
         assert_eq!(actual, expected);
+    }
+
+    /// A declared mask answers exactly, in registration order.
+    #[test_log::test]
+    fn a_write_mask_answers_what_was_declared() {
+        let mut writes = WriteMask::default();
+        writes.push(false);
+        writes.push(true);
+        writes.push(false);
+
+        assert!(!writes.get(0) && writes.get(1) && !writes.get(2));
+        assert_eq!(writes.len(), 3);
+    }
+
+    /// Every fallback answers "written": an undeclared mask, an index past what
+    /// was declared, a launch wider than the bits.
+    ///
+    /// Naming a buffer the kernel only read fails a read that would have been
+    /// fine, loudly. Missing one it writes hands back the bytes that were there
+    /// before, silently, and nothing ever says so.
+    #[test_log::test]
+    fn an_undeclared_write_mask_reads_as_everything_written() {
+        let undeclared = WriteMask::default();
+        assert!(undeclared.is_empty());
+        assert!(undeclared.get(0) && undeclared.get(7));
+
+        let mut writes = WriteMask::default();
+        writes.push(false);
+        assert!(writes.get(1), "past what was declared");
+
+        for _ in 0..(WriteMask::CAPACITY + 4) {
+            writes.push(false);
+        }
+        assert!(
+            writes.get(WriteMask::CAPACITY),
+            "past what the bits can hold"
+        );
+    }
+
+    /// An output that aliases an input writes that input in place, so the input
+    /// is written however its own argument was declared.
+    #[test_log::test]
+    fn a_write_mask_takes_an_alias_after_the_fact() {
+        let mut writes = WriteMask::default();
+        writes.push(false);
+        writes.push(false);
+
+        writes.set(0);
+
+        assert!(writes.get(0) && !writes.get(1));
     }
 }

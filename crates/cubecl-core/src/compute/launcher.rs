@@ -7,7 +7,9 @@ use crate::{InfoBuilder, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
 use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
-use cubecl_runtime::server::{BufferBinding, CubeCount, KernelResource, TensorMapBinding};
+use cubecl_runtime::server::{
+    BufferBinding, CubeCount, KernelResource, TensorMapBinding, WriteMask,
+};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
@@ -24,8 +26,8 @@ std::thread_local! {
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
     resources: Vec<KernelResource>,
-    /// Which of `resources` the kernel writes, one flag per resource.
-    writes: Vec<bool>,
+    /// Which of `resources` the kernel writes, one bit per resource.
+    writes: WriteMask,
     /// Whether the argument being registered right now is one the kernel
     /// writes. Set by [`arg_writes`](Self::arg_writes) before each argument, so
     /// everything that argument registers inherits it — a `&mut` struct of
@@ -135,8 +137,8 @@ impl<R: Runtime> KernelLauncher<R> {
     /// the input is written however its own argument was declared. Missing this
     /// would leave an in-place kernel's only buffer unnamed when it fails.
     fn alias_writes(&mut self, input_pos: usize) {
-        if self.arg_writes && let Some(writes) = self.writes.get_mut(input_pos) {
-            *writes = true;
+        if self.arg_writes {
+            self.writes.set(input_pos);
         }
     }
 
@@ -213,7 +215,7 @@ impl<R: Runtime> KernelLauncher<R> {
             address_type: settings.address_type,
             settings,
             resources: Vec::new(),
-            writes: Vec::new(),
+            writes: WriteMask::default(),
             arg_writes: false,
             _runtime: PhantomData,
             #[cfg(not(feature = "std"))]
