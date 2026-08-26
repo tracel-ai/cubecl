@@ -218,6 +218,20 @@ impl ComputeServer for HipServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        // Buffers another stream wrote are only as good as the work that wrote
+        // them; see `StreamPool::producer_errors`.
+        let producer_errors = self
+            .streams
+            .producer_errors(stream_id, descriptors.iter().map(|d| &d.handle));
+        if !producer_errors.is_empty() {
+            return Box::pin(async move {
+                Err(ServerError::ServerUnhealthy {
+                    errors: producer_errors,
+                    backtrace: BackTrace::capture(),
+                })
+            });
+        }
+
         match self.command(
             stream_id,
             descriptors.iter().map(|d| &d.handle),
@@ -265,7 +279,7 @@ impl ComputeServer for HipServer {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
             };
-            stream.current().errors.push(err);
+            stream.current().errors.push(stream_id, err);
         }
     }
 
@@ -294,7 +308,7 @@ impl ComputeServer for HipServer {
             },
         )?;
         let stream = command.streams.current();
-        stream.capturing.prepare()?;
+        stream.capturing.prepare(stream_id)?;
         // Route every allocation from here until `end_capture` into the
         // persistent pool and snapshot which slices are already in use. Called
         // before the warmup run, so the pool is warm before `begin_capture` —
@@ -490,7 +504,7 @@ impl ComputeServer for HipServer {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
             };
-            stream.current().errors.push(err);
+            stream.current().errors.push(stream_id, err);
         }
     }
 
@@ -515,7 +529,7 @@ impl ComputeServer for HipServer {
             // live graph still pins are dropped, freeing their buffers.
             stream.info_cache.graph_release(graph);
             if let Err(err) = synced {
-                stream.errors.push(err);
+                stream.errors.push_sync_failure(stream_id, err);
             }
         }
     }
@@ -723,7 +737,7 @@ impl HipServer {
             Ok(stream) => stream,
             Err(_) => return Vec::new(),
         };
-        let errors = core::mem::take(&mut stream.current().errors);
+        let errors = stream.current().errors.take(stream_id);
 
         // It is very important to tag current profiles as being wrong.
         if !errors.is_empty() {

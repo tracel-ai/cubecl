@@ -1,6 +1,7 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
+    server::{BufferBinding, ServerError},
     stream::{StreamFactory, StreamPool},
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
@@ -19,6 +20,13 @@ pub trait SchedulerStreamBackend {
     fn enqueue(task: Self::Task, stream: &mut Self::Stream);
     /// Flush the inner stream queue to ensure ordering between different streams.
     fn flush(stream: &mut Self::Stream);
+    /// The errors `owner` alone caused on this stream, left queued for it to
+    /// surface — see [`StreamErrors::peek_owned`](crate::stream::StreamErrors::peek_owned).
+    ///
+    /// Answers what another stream needs to know about `owner`: did the work
+    /// that wrote the buffer it is about to consume actually run? See
+    /// [`SchedulerMultiStream::producer_errors`].
+    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError>;
     /// Returns a mutable reference to the stream factory.
     fn factory(&mut self) -> &mut Self::Factory;
     /// Whether this stream currently requires its own tasks to execute on
@@ -128,6 +136,18 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// unaffected.
     pub fn backend_mut(&mut self) -> &mut B {
         &mut self.pool.factory_mut().backend
+    }
+
+    /// The errors owned by the streams that wrote `handles` — see
+    /// [`StreamPool::producer_errors`].
+    pub fn producer_errors<'a>(
+        &mut self,
+        reader: StreamId,
+        handles: impl Iterator<Item = &'a BufferBinding>,
+    ) -> Vec<ServerError> {
+        self.pool.producer_errors(reader, handles, |stream, owner| {
+            B::errors_owned(&stream.stream, owner)
+        })
     }
 
     /// Read-only iterator over initialized backend streams.

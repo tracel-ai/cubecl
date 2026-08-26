@@ -30,8 +30,21 @@ pub trait EventStreamBackend: 'static {
     fn create_stream(&self) -> Self::Stream;
     /// Returns the cursor of the given handle on the given stream.
     fn handle_cursor(stream: &Self::Stream, handle: &BufferBinding) -> u64;
-    /// Returns whether the stream can access new tasks.
-    fn is_healthy(stream: &Self::Stream) -> bool;
+    /// Returns whether the stream can accept new tasks from `stream_id`.
+    ///
+    /// Errors are queued per logical stream (see
+    /// [`StreamErrors`](super::StreamErrors)), so a backend stream is broken
+    /// for the streams whose errors are still queued on it, not for every
+    /// stream sharing it.
+    fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool;
+
+    /// The errors `owner` alone caused on this stream, left queued for it to
+    /// surface — see [`StreamErrors::peek_owned`](super::StreamErrors::peek_owned).
+    ///
+    /// Answers what another stream needs to know about `owner`: did the work
+    /// that wrote the buffer it is about to consume actually run? See
+    /// [`MultiStream::producer_errors`].
+    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError>;
 
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event
     /// that can be used for synchronization.
@@ -212,6 +225,19 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.gc.sender.send(gc).unwrap();
     }
 
+    /// The errors owned by the streams that wrote `handles` — see
+    /// [`StreamPool::producer_errors`].
+    pub fn producer_errors<'a>(
+        &mut self,
+        reader: StreamId,
+        handles: impl Iterator<Item = &'a BufferBinding>,
+    ) -> Vec<ServerError> {
+        self.streams
+            .producer_errors(reader, handles, |stream, owner| {
+                B::errors_owned(&stream.stream, owner)
+            })
+    }
+
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary
     /// alignment based on the provided bindings.
     ///
@@ -228,7 +254,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         let stream = self.streams.get_mut(&stream_id);
         stream.cursor += 1;
 
-        if enforce_healthy && !B::is_healthy(&stream.stream) {
+        if enforce_healthy && !B::is_healthy(&stream.stream, stream_id) {
             return Err(ServerError::Generic {
                 reason: "Can't resolve the stream since it is currently in an error state".into(),
                 backtrace: BackTrace::capture(),
@@ -665,8 +691,12 @@ mod tests {
             0
         }
 
-        fn is_healthy(_stream: &Self::Stream) -> bool {
+        fn is_healthy(_stream: &Self::Stream, _stream_id: StreamId) -> bool {
             true
+        }
+
+        fn errors_owned(_stream: &Self::Stream, _owner: StreamId) -> Vec<ServerError> {
+            Vec::new()
         }
     }
 
@@ -692,8 +722,12 @@ mod tests {
             0
         }
 
-        fn is_healthy(_stream: &Self::Stream) -> bool {
+        fn is_healthy(_stream: &Self::Stream, _stream_id: StreamId) -> bool {
             true
+        }
+
+        fn errors_owned(_stream: &Self::Stream, _owner: StreamId) -> Vec<ServerError> {
+            Vec::new()
         }
     }
 }
