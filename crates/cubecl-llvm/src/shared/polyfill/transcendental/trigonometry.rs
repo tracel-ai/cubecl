@@ -62,7 +62,13 @@ pub fn cos<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 /// hardware `sin` useless far from the origin.
 #[cube]
 fn cos_sin_radians<N: Size>(x: Vector<f32, N>) -> (Vector<f32, N>, Vector<f32, N>) {
+    // False for a NaN as well as for an angle too large, which is what the quadrant below
+    // needs: rounding a non-finite to an integer is a poison value rather than a wrong
+    // number, and poison steering a select licenses any answer at all.
+    let reducible = x.abs().less_equal(&Vector::new(REDUCTION_LIMIT));
+
     let quadrant = (x * Vector::new(FRAC_2_PI)).round();
+    let quadrant = select_many(reducible, quadrant, Vector::new(0.0f32));
 
     let offset = fma(-quadrant, Vector::new(PI_2_A), x);
     let offset = fma(-quadrant, Vector::new(PI_2_B), offset);
@@ -76,14 +82,13 @@ fn cos_sin_radians<N: Size>(x: Vector<f32, N>) -> (Vector<f32, N>, Vector<f32, N
     let sine = select_many(x.equal(&Vector::new(0.0f32)), x, sine);
 
     // Past the limit the answer is not merely inaccurate, it is arbitrary, and the
-    // arithmetic that produces it runs off to an infinity that would poison whatever sums
+    // arithmetic that produces it runs off to an infinity that would spoil whatever sums
     // it. Saying so is better than returning a number of the right magnitude.
-    let beyond = x.abs().greater_than(&Vector::new(REDUCTION_LIMIT));
     let unknown = Vector::<f32, N>::new(f32::NAN);
 
     (
-        select_many(beyond, unknown, cosine),
-        select_many(beyond, unknown, sine),
+        select_many(reducible, cosine, unknown),
+        select_many(reducible, sine, unknown),
     )
 }
 

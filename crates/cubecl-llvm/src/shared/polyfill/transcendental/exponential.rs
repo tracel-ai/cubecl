@@ -50,6 +50,12 @@ pub fn exp<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let x = Vector::<f32, N>::cast_from(x).clamp(Vector::new(EXP_MIN), Vector::new(EXP_MAX));
 
     let k = (x * Vector::new(LOG2_E)).round();
+
+    // The clamp keeps an infinity but not a NaN, and rounding a NaN to an integer below is
+    // a poison value rather than a wrong number. Zeroing it here costs the NaN nothing: it
+    // still reaches the result through `r`.
+    let k = select_many(k.equal(&k), k, Vector::new(0.0f32));
+
     let r = fma(-k, Vector::new(LN2_HI), x);
     let r = fma(-k, Vector::new(LN2_LO), r);
 
