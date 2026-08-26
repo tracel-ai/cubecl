@@ -331,11 +331,20 @@ impl ComputeServer for MetalServer {
         }
 
         for (descriptor, data) in descriptors {
+            // The copy leaves the destination as it was on failure, which is
+            // what a later read of it has to fail on — so it is queued for the
+            // caller to surface rather than logged and forgotten, as on every
+            // other backend.
+            let unwritten = [descriptor.handle.memory.id()];
             let (resource, offset) =
                 match resolve_origin_resource(&mut resolved, &descriptor.handle) {
                     Ok(r) => r,
                     Err(e) => {
-                        log::warn!("metal write: buffer not found: {e}");
+                        resolved.current().errors.lock().push_unwritten(
+                            stream_id,
+                            ServerError::Io(e),
+                            unwritten,
+                        );
                         continue;
                     }
                 };
