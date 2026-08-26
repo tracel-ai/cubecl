@@ -18,10 +18,10 @@ use crate::throughput::{MemoryAccess, ThroughputKey, ThroughputMode, ThroughputV
 /// The smallest working set a curve is measured at, in bytes moved per pass.
 ///
 /// Low enough to catch the bottom of the ramp, which is further down than it
-/// looks: on an M2 Pro the curve is already within 12% of the bus figure at
-/// 256 KiB and only falls away below that — 146 GB/s at 128 KiB, 94 at 64 KiB,
-/// 11 at 8 KiB. A sweep starting a few hundred kilobytes up would report an
-/// almost flat curve and miss the effect it exists to measure.
+/// looks: an Arc iGPU reads within 5% of its sustained figure at 128 KiB and
+/// only falls away below that, 102 GB/s at 64 KiB, 66 at 32 KiB and 17 at
+/// 8 KiB against 110. A sweep starting a few hundred kilobytes up would report
+/// an almost flat curve and miss the effect it exists to measure.
 pub const MIN_WORKING_SET: u64 = 8 * 1024;
 
 /// The working sets a curve is measured at: powers of two from
