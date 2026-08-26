@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_common::quant::scheme::*;
-use cubecl_common::{e2m1x2, e4m3, e5m2};
+use cubecl_common::{e4m3, e5m2};
 use cubecl_core as cubecl;
 
 /// Dequantize a vector of values, where `vector_size * num_quants` is a power of two.
@@ -152,7 +152,9 @@ fn packing_mask(scheme: QuantScheme) -> u32 {
 /// With a `table` the value is an index and the cast is its lookup; otherwise sign conversion
 /// is applied for integer quantization before casting to the float type,
 /// while minifloats are simply truncated to `u8`, reinterpreted and then cast.
-/// For `e2m1`, casting is done on the packed `e2m1x2` representation.
+/// `e2m1` decodes its packed pair in software ([`e2m1_packed_bits_to_float`]) rather than through
+/// the `e2m1x2` type: that cast lowers on CUDA alone, and this is the decoder every quantized read
+/// on every backend goes through.
 ///
 /// # Returns
 /// Two floating point numbers for `e2m1`, one for all other formats.
@@ -182,7 +184,7 @@ fn cast_masked_plain<F: Numeric, N: Size>(
         // For minifloat we can assume if they're supported then u8 is supported
         QuantValue::E5M2 => Vector::<F, N>::cast_from(e5m2::from_bits(value as u8)),
         QuantValue::E4M3 => Vector::<F, N>::cast_from(e4m3::from_bits(value as u8)),
-        QuantValue::E2M1 => Vector::<F, N>::cast_from(e2m1x2::from_bits(value as u8)),
+        QuantValue::E2M1 => crate::quant::fp4::e2m1_packed_bits_to_float::<F, N>(value),
         QuantValue::Q8F
         | QuantValue::Q4F
         | QuantValue::Q2F

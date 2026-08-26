@@ -1,5 +1,6 @@
 mod base;
 mod dequantize;
+pub mod fp4;
 pub mod round;
 pub mod view;
 

@@ -95,7 +95,7 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     // any multiple of four lanes, but `TypeUsage` is per element type and cannot say "buffer,
     // but never scalar", and a scalar fp8 has no WGSL type at all. Callers that want fp8 in
     // memory bind it as `u32` words and reinterpret, which needs no buffer usage.
-    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
+    for ty in [FloatKind::E4M3, FloatKind::E5M2, FloatKind::UE8M0] {
         props.register_type_usage(ElemType::Float(ty), TypeUsage::Conversion);
     }
 
