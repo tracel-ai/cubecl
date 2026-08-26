@@ -38,6 +38,7 @@ pub fn build_kernel<R: Runtime>(
                 probe.window_lines,
                 iterations,
                 probe.blocked,
+                probe.walks(),
                 dtype,
             )
         };
@@ -62,6 +63,7 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
     window: usize,
     n_iter: usize,
     #[comptime] blocked: bool,
+    #[comptime] walks: bool,
     #[define(I)] _dtype: ElemType,
 ) {
     let len = output.len();
@@ -84,17 +86,44 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
     // — leaving the probe reporting a bandwidth the hardware never moved.
     let mut start = 0;
     let mut wrap = 0;
+    let mut turn = 0;
+
+    // What keeps a pass with no pool to walk from being folded into the one
+    // after it: the copy carries a value no other pass stores. One add against
+    // a line moved in and back out.
+    let mut mark = Vector::<I, N>::empty();
+    let mut stamp = 0;
+    let lanes = mark.vector_size();
+    #[unroll]
+    for lane in 0..lanes {
+        mark.insert(lane, I::cast_from(0));
+    }
 
     for _ in 0..n_iter {
         for step in 0..steps {
+            // A window with no pool to walk turns inside each worker's own run
+            // instead. The addresses still move between passes, without which
+            // the compiler folds a pass that rewrites its own bytes away and
+            // the probe reports twice what the bus can carry, but a line never
+            // changes hands and so is never pulled from the cache holding it.
+            let place = if walks {
+                step
+            } else {
+                let mut turned = step + turn;
+                if turned >= steps {
+                    turned -= steps;
+                }
+                turned
+            };
+
             // Coalesced spreads one step's addresses across adjacent threads,
             // which is only fast where those threads share a real plane. A
             // CPU worker has no such neighbour, so it instead gets a run of
             // `steps` lines entirely its own.
             let base = if blocked {
-                ABSOLUTE_POS * steps + step
+                ABSOLUTE_POS * steps + place
             } else {
-                ABSOLUTE_POS + (step * stride)
+                ABSOLUTE_POS + (place * stride)
             };
 
             if base < window {
@@ -103,22 +132,35 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
                     idx -= len;
                 }
 
-                output[idx] = input[idx];
+                output[idx] = if walks { input[idx] } else { input[idx] + mark };
             }
         }
 
-        start += window;
-        // Back to the beginning, one line further along each time round, so a
-        // window that fills the whole buffer still moves between passes. The
-        // test is whether the window starts past the end, not whether it
-        // reaches past: the index wraps, so the last position of a cycle
-        // straddles the end rather than being skipped.
-        if start >= len {
-            wrap += 1;
-            if wrap >= window {
-                wrap = 0;
+        if walks {
+            start += window;
+            // Back to the beginning, one line further along each time round,
+            // so a window that fills the whole buffer still moves between
+            // passes. The test is whether the window starts past the end, not
+            // whether it reaches past: the index wraps, so the last position
+            // of a cycle straddles the end rather than being skipped.
+            if start >= len {
+                wrap += 1;
+                if wrap >= window {
+                    wrap = 0;
+                }
+                start = wrap;
             }
-            start = wrap;
+        } else {
+            turn += 1;
+            if turn >= steps {
+                turn = 0;
+            }
+
+            stamp += 1;
+            #[unroll]
+            for lane in 0..lanes {
+                mark.insert(lane, I::cast_from(stamp));
+            }
         }
     }
 }

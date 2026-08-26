@@ -36,6 +36,8 @@ pub struct MemoryProbe {
     /// their wrap-around from `len()`, so a buffer longer than the pool would
     /// walk them past what [`prime`] wrote.
     pub buffer_bytes: usize,
+    /// Whether the probe was asked to measure its working set where it sits.
+    pub resident: bool,
     /// Cubes to dispatch, which is [`LaunchConfig::cube_count`] unless the
     /// window is too small to give every thread a line.
     pub cube_count: usize,
@@ -67,6 +69,18 @@ struct DeviceShape {
 }
 
 impl MemoryProbe {
+    /// Whether a pass moves on rather than turning inside the run each worker
+    /// already holds.
+    ///
+    /// Only a probe asked to stay resident turns. A cold window walks even
+    /// where it is its own pool and has only a line to move by, because that
+    /// line is what its coldness rests on, and because a GPU reports twice the
+    /// write bandwidth it has when a pass stops moving, for reasons that
+    /// survived both a reordering and a per-pass stamp and are not understood.
+    pub fn walks(&self) -> bool {
+        !self.resident
+    }
+
     /// Passes a launch has to carry for the window to come back to bytes a
     /// whole pool of traffic has since evicted, which is the only thing making
     /// a window smaller than the cache cold.
@@ -144,6 +158,7 @@ impl MemoryProbe {
         let cube_count = (window_lines / shape.cube_dim).clamp(1, shape.cube_count);
 
         Self {
+            resident: spec.resident,
             pool_lines,
             window_lines,
             buffer_bytes: pool_lines * line_bytes,
