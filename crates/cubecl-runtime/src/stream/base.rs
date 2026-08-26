@@ -138,6 +138,12 @@ impl<F: StreamFactory> StreamPool<F> {
     /// The errors are read, never taken: the stream that caused each one still
     /// surfaces it on its own flush.
     ///
+    /// One slot is asked a narrower question than the rest — the one `reader`
+    /// folds onto, whose queue the read's own flush drains a moment later.
+    /// What that flush is about to report is left out here, so the read reports
+    /// it once; no other slot has a flush of `reader` coming, so nothing is
+    /// held back there.
+    ///
     /// # Errors
     ///
     /// [`ServerError::ServerUnhealthy`] naming every failure that left one of
@@ -157,9 +163,13 @@ impl<F: StreamFactory> StreamPool<F> {
             return Ok(());
         }
 
+        let own = stream_index(&reader, self.max_streams);
         let mut errors = Vec::new();
-        for stream in self.streams() {
-            errors.extend(stream.unwritten(&buffers, reader));
+        for (index, stream) in self.streams.iter().enumerate() {
+            let Some(stream) = stream else {
+                continue;
+            };
+            errors.extend(stream.unwritten(&buffers, reader, index == own));
         }
 
         match errors.is_empty() {

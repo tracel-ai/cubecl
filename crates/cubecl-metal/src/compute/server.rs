@@ -361,6 +361,11 @@ impl ComputeServer for MetalServer {
                 &descriptor.strides,
                 descriptor.elem_size,
             );
+
+            // The buffer is filled, so an earlier failure that left it stale has
+            // nothing left to say about it: a caller recovers by writing from
+            // the host as much as by relaunching.
+            resolved.current().errors.lock().written(unwritten);
         }
     }
 
@@ -547,6 +552,10 @@ impl ComputeServer for MetalServer {
 
         stream.batch_ops += 1;
         stream.batch_bytes += total_buffer_bytes;
+
+        // This launch is on its way, so an earlier failure that left these
+        // buffers stale has nothing left to say about them.
+        stream.errors.lock().written(bindings.memory_ids_written());
 
         let needs_flush = stream.batch_ops > stream.max_ops_per_batch
             || (stream.batch_bytes >> 20) > stream.max_mb_per_batch;

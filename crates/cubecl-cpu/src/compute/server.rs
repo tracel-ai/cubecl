@@ -274,7 +274,8 @@ impl ComputeServer for CpuServer {
             // the caller's stream — the one that flushes them — even though the
             // resource is resolved on the stream that owns the handle. Each
             // leaves the destination unwritten, which is what a later read of it
-            // has to fail on.
+            // has to fail on; the write that lands fills it, which is what ends
+            // an earlier failure's claim on it.
             let unwritten = [desc.handle.memory.id()];
             if contiguous_strides(&desc.shape) != desc.strides {
                 self.scheduler.stream(&stream_id).error(
@@ -310,6 +311,10 @@ impl ComputeServer for CpuServer {
             };
 
             self.scheduler.register(stream_id, task, &[owner]);
+            // The write is on its way, so an earlier failure that left this
+            // buffer stale has nothing left to say about it: a caller recovers
+            // by writing from the host as much as by relaunching.
+            self.scheduler.stream(&stream_id).written(unwritten);
         }
     }
 
@@ -400,6 +405,11 @@ impl ComputeServer for CpuServer {
         };
 
         self.scheduler.register(stream_id, task, &self.streams_pool);
+        // This launch is on its way, so an earlier failure that left these
+        // buffers stale has nothing left to say about them.
+        self.scheduler
+            .stream(&stream_id)
+            .written(self.unwritten.iter().copied());
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

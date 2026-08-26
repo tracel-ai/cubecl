@@ -537,6 +537,15 @@ impl<'a> Command<'a> {
         let stream = self.streams.current();
         stream.errors.push_unwritten(stream_id, error, unwritten);
     }
+
+    /// Ends a reported failure's claim on `buffers`: work that writes them is
+    /// on its way, so a read of one is no longer reading bytes nothing wrote.
+    ///
+    /// The counterpart of [`error`](Self::error), for the paths that succeed.
+    /// See [`StreamErrors::written`].
+    pub fn written(&mut self, buffers: impl IntoIterator<Item = ManagedMemoryId>) {
+        self.streams.current().errors.written(buffers);
+    }
 }
 
 /// Asynchronously copies data from GPU device memory to host memory.

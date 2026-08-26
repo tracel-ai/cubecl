@@ -273,11 +273,17 @@ impl ComputeServer for CudaServer {
 
         for (descriptor, data) in descriptors {
             // The copy leaves the destination as it was on failure, which is
-            // what a later read of it has to fail on.
-            let unwritten = [descriptor.handle.memory.id()];
-            if let Err(err) = command.write_to_gpu(descriptor, data) {
-                command.error(err.into(), unwritten);
-                return;
+            // what a later read of it has to fail on — and fills it on success,
+            // which is what ends an earlier failure's claim on it. A buffer a
+            // launch left stale is recovered by writing it from the host just
+            // as much as by relaunching into it.
+            let written = [descriptor.handle.memory.id()];
+            match command.write_to_gpu(descriptor, data) {
+                Ok(()) => command.written(written),
+                Err(err) => {
+                    command.error(err.into(), written);
+                    return;
+                }
             }
         }
     }

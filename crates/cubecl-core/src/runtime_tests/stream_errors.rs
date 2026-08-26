@@ -13,13 +13,18 @@
 //!
 //! *Were these bytes ever written* — which no stream id can answer, because a
 //! handle names where a buffer was **created** and nothing re-tags it.
+//!
+//! And *for how long* — the answers end at different times. The report is owed
+//! once and the flush that makes it is usually the launching stream's own,
+//! which comes long before anyone reads; the buffer stays stale until something
+//! fills it, from the host or from a launch that runs.
 
 use crate::{self as cubecl};
 use alloc::string::{String, ToString};
 use cubecl::prelude::*;
+use cubecl_common::bytes::Bytes;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
-use cubecl_common::bytes::Bytes;
 use cubecl_runtime::server::Handle;
 
 /// Fills every element with `value`, so a buffer says which write reached it
@@ -160,7 +165,11 @@ pub fn test_a_buffer_the_failure_never_touched_reads_normally<R: Runtime>(
     let untouched = reader.executes(|| client.create_from_slice(u32::as_bytes(&[7u32])));
     producer.executes(|| launch_rejected(&client, "unrelated"));
 
-    let read = reader.executes(|| client.read_one(untouched).expect("nothing wrote to this one"));
+    let read = reader.executes(|| {
+        client
+            .read_one(untouched)
+            .expect("nothing wrote to this one")
+    });
     assert_eq!(u32::from_bytes(&read), &[7]);
 }
 
@@ -249,6 +258,108 @@ pub fn test_a_failed_launch_leaves_the_buffers_it_only_reads_readable<R: Runtime
     assert_eq!(u32::from_bytes(&read), &[7]);
 }
 
+/// A report is owed once; the bytes stay stale until something writes them.
+///
+/// The flush that reports a launch failure is usually the launching stream's
+/// own, and it comes long before anyone reads. If the report were also what
+/// ended the buffer's claim, the failure would read as success from that moment
+/// on — on exactly the buffer the launch existed to fill, and to every stream,
+/// the launching one included.
+pub fn test_a_buffer_stays_unreadable_after_the_failure_was_reported<R: Runtime>(
+    client: ComputeClient<R>,
+) {
+    let (producer, reader) = sharing_one_pooled_stream(1_000_007);
+
+    let out = producer.executes(|| launch_rejected(&client, "reported-once"));
+
+    producer.executes(|| {
+        client
+            .flush()
+            .expect_err("the launching stream reports its own rejection");
+        client
+            .flush()
+            .expect("and is free to queue work again once it has");
+    });
+
+    // Reported is not written.
+    reader.executes(|| assert_rejected(&client, out.clone(), "reported-once"));
+    producer.executes(|| assert_rejected(&client, out, "reported-once"));
+}
+
+/// A buffer a failed launch left stale is sound again once something fills it.
+///
+/// Filling it from the host is how a caller recovers when it has the bytes
+/// already, and it happens before the flush that reports the failure as often
+/// as after — so a claim that only listened for writes from its report onward
+/// would refuse the buffer for good.
+pub fn test_a_host_write_makes_a_stale_buffer_readable_again<R: Runtime>(client: ComputeClient<R>) {
+    let (producer, reader) = sharing_one_pooled_stream(1_000_008);
+
+    let out = producer.executes(|| {
+        let out = client.empty(core::mem::size_of::<u32>());
+        launch_rejected_into(&client, out.clone(), "recovered");
+        out
+    });
+
+    // Nothing has written it yet.
+    reader.executes(|| assert_rejected(&client, out.clone(), "recovered"));
+
+    producer.executes(|| {
+        client.write(
+            &out,
+            Bytes::from_bytes_vec(u32::as_bytes(&[42u32]).to_vec()),
+        )
+    });
+
+    let read = reader.executes(|| {
+        client
+            .read_one(out)
+            .expect("the host write filled what the launch never did")
+    });
+    assert_eq!(u32::from_bytes(&read), &[42]);
+
+    // The stream that failed is owed its error either way.
+    producer.executes(|| {
+        client
+            .flush()
+            .expect_err("the launching stream keeps its own rejection")
+    });
+}
+
+/// A relaunch into the same buffer is the other way out, and it must not be
+/// refused on its way in.
+///
+/// The launching stream is unhealthy until it flushes, so the recovery has to
+/// come after a flush — and once it has, the buffer the second launch writes is
+/// readable, whatever the first one left behind.
+pub fn test_a_relaunch_makes_a_stale_buffer_readable_again<R: Runtime>(client: ComputeClient<R>) {
+    let (producer, reader) = sharing_one_pooled_stream(1_000_009);
+    let len = 4;
+
+    let out = producer.executes(|| {
+        let out = client.empty(len * core::mem::size_of::<u32>());
+        launch_rejected_into(&client, out.clone(), "relaunched");
+        client
+            .flush()
+            .expect_err("the launching stream reports its own rejection");
+        fill::launch::<R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(len as u32),
+            unsafe { BufferArg::from_raw_parts(out.clone(), len) },
+            3,
+        );
+        out
+    });
+
+    let read = reader.executes(|| {
+        client
+            .read_one(out)
+            .expect("the second launch wrote what the first never did")
+    });
+    assert_eq!(u32::from_bytes(&read), &[3; 4]);
+}
+
 /// An output that aliases an input writes that input in place, so a failure
 /// leaves the aliased buffer unwritten however its own argument was declared.
 ///
@@ -333,6 +444,30 @@ macro_rules! testgen_stream_errors {
             fn test_a_write_lands_after_the_work_queued_on_its_buffers_stream() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::stream_errors::test_a_write_lands_after_the_work_queued_on_its_buffers_stream::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_buffer_stays_unreadable_after_the_failure_was_reported() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::test_a_buffer_stays_unreadable_after_the_failure_was_reported::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_host_write_makes_a_stale_buffer_readable_again() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::test_a_host_write_makes_a_stale_buffer_readable_again::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_relaunch_makes_a_stale_buffer_readable_again() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::test_a_relaunch_makes_a_stale_buffer_readable_again::<
                     TestRuntime,
                 >(client);
             }
