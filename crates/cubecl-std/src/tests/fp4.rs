@@ -75,7 +75,11 @@ pub fn test_e2m1_codec_matches_host<R: Runtime>(client: ComputeClient<R>) {
         // format's, so assert only that a NaN lands on a real code rather than wrapping out of
         // the nibble.
         if value.is_nan() {
-            assert!(encoded[i] <= 0xF, "encode NaN left the nibble: {:#x}", encoded[i]);
+            assert!(
+                encoded[i] <= 0xF,
+                "encode NaN left the nibble: {:#x}",
+                encoded[i]
+            );
             continue;
         }
         let expected = encode(value);
