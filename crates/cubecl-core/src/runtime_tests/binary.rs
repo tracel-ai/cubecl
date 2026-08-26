@@ -334,6 +334,18 @@ fn test_fma_kernel<F: Float, N: Size>(
     }
 }
 
+#[cube(launch_unchecked)]
+fn test_manual_fma_kernel<F: Float, N: Size>(
+    a: &[Vector<F, N>],
+    b: &[Vector<F, N>],
+    c: &[Vector<F, N>],
+    output: &mut [Vector<F, N>],
+) {
+    if ABSOLUTE_POS < c.len() {
+        output[ABSOLUTE_POS] = a[ABSOLUTE_POS] * b[ABSOLUTE_POS] + c[ABSOLUTE_POS];
+    }
+}
+
 macro_rules! test_fma_impl {
     (
         $test_name:ident,
@@ -369,6 +381,27 @@ macro_rules! test_fma_impl {
                     )
                 };
 
+                assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
+
+                let a = $a;
+                let b = $b;
+                let c = $c;
+                let output_handle = client.empty($expected.len() * core::mem::size_of::<$float_type>());
+                let a_handle = client.create_from_slice($float_type::as_bytes(a));
+                let b_handle = client.create_from_slice($float_type::as_bytes(b));
+                let c_handle = client.create_from_slice($float_type::as_bytes(c));
+                unsafe {
+                    test_manual_fma_kernel::launch_unchecked::<F, R>(
+                        &client,
+                        CubeCount::Static(1, 1, 1),
+                        CubeDim::new_1d((a.len() / $input_vectorization as usize) as u32),
+                        $input_vectorization,
+                        BufferArg::from_raw_parts(a_handle, a.len()),
+                        BufferArg::from_raw_parts(b_handle, b.len()),
+                        BufferArg::from_raw_parts(c_handle, c.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                    )
+                };
                 assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
             }
             )*

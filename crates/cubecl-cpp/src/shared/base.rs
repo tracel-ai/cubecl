@@ -38,8 +38,8 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
-    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, simple_cse::SimpleCSEPass,
-    sroa::SROAPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
+    simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -236,6 +236,7 @@ where
         func_passes.add_pass(LowerOpsAfterUnrollCppPass::<T>::default());
 
         func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(InstCombinePass::default());
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
