@@ -138,8 +138,16 @@ impl StreamErrors {
     /// moment it is queued until the stream that owns it flushes — under
     /// [`StreamPolicy::PerTask`](cubecl_environment::stream::StreamPolicy)
     /// possibly never, leaving [`MAX_OWNED`] reclaim plus somebody else's flush
-    /// to clear it. Narrowing to the buffers a kernel actually writes needs
-    /// per-binding visibility, which the launch path does not carry today.
+    /// to clear it.
+    ///
+    /// What it would take to narrow: whether a kernel writes a buffer is not
+    /// carried anywhere a launch can read it. `&mut [T]` and `&[T]` share one
+    /// `LaunchArg` impl, so the distinction is gone by the time `KernelLauncher`
+    /// builds the arguments, and the compiler recovers it afterwards by
+    /// analysing the body. Reading it back off the compiled kernel would still leave the
+    /// commonest failure wide, since a launch that fails to compile has no
+    /// analysis to consult. Narrow this when the launch arguments carry a write
+    /// mask of their own.
     pub fn push_unwritten(
         &mut self,
         owner: StreamId,
