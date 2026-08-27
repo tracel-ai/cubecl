@@ -143,7 +143,7 @@ impl CaptureEnd {
         ))];
         errors.extend(doomed);
 
-        ServerError::ServerUnhealthy {
+        ServerError::Several {
             errors,
             backtrace: BackTrace::capture(),
         }
@@ -641,8 +641,8 @@ mod tests {
 
         let error = outcome.abandoned_error(caller, Some(ServerError::graph_state("doomed")));
 
-        let ServerError::ServerUnhealthy { errors, .. } = &error else {
-            panic!("an abandoned window reports as unhealthy, got: {error:?}");
+        let ServerError::Several { errors, .. } = &error else {
+            panic!("an abandoned window reports several failures at once, got: {error:?}");
         };
         let reported = alloc::format!("{error}");
         assert!(

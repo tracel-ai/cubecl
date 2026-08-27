@@ -165,6 +165,47 @@ impl ErrorGraph {
         })
     }
 
+    /// The report a read owes for the claims it found: one error per distinct
+    /// failure, however many of the buffers carry it.
+    ///
+    /// This is the shape of every "were these bytes written" answer in the
+    /// system — [`StreamPool::ensure_written`](crate::stream::StreamPool::ensure_written)
+    /// and any harness standing in for it — so the dedup and the wrapping live
+    /// here rather than once per caller.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::Several`] naming each failure once, in the order the
+    /// claims were found. The caller has nothing to retry — the bytes are gone
+    /// — so this is the answer to the read, not a hint to try again.
+    pub fn reports(
+        &self,
+        claims: impl Iterator<Item = (FailureId, ManagedMemoryId)>,
+    ) -> Result<(), ServerError> {
+        let mut seen: Vec<FailureId> = Vec::new();
+        let mut errors = Vec::new();
+
+        for (failure, memory) in claims {
+            if seen.contains(&failure) {
+                continue;
+            }
+            seen.push(failure);
+            // The full report: the root error, and the skip chain from this
+            // buffer back toward it.
+            if let Some(error) = self.report(failure, memory) {
+                errors.push(error);
+            }
+        }
+
+        match errors.is_empty() {
+            true => Ok(()),
+            false => Err(ServerError::Several {
+                errors,
+                backtrace: BackTrace::capture(),
+            }),
+        }
+    }
+
     /// One more allocation carries `failure`.
     ///
     /// The other half of [`untag`](Self::untag), called only by the taint

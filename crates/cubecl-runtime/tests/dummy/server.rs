@@ -1,7 +1,6 @@
 use super::DummyKernel;
 use crate::dummy::DummyCompiler;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
-use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
@@ -38,12 +37,12 @@ pub struct DummyServer {
     memory_management: MemoryManagement<BytesStorage>,
     timestamps: TimestampProfiler,
     utilities: Arc<ServerUtilities<Self>>,
-    /// Errors are handled lazily, as on a real server: a failed launch records its error
-    /// here, and it surfaces at the next `flush`/`sync`/`end_profile`, each of which
-    /// drains the whole queue. Recording happens once, here; tagging the in-flight
-    /// profile is the drain's job.
-    errors: Vec<ServerError>,
     /// The failures the server's tainted allocations still point at.
+    ///
+    /// Errors live on the memory here as they do on a real server: a failed
+    /// launch leaves the buffers it was going to write carrying the failure,
+    /// and a read, check or sync of one of them reports it. Nothing is queued
+    /// and no call "drains" anything.
     failures: ErrorGraph,
 }
 
@@ -192,10 +191,12 @@ impl ComputeServer for DummyServer {
 
     fn sync(
         &mut self,
-        _handles: Vec<BufferBinding>,
+        handles: Vec<BufferBinding>,
         _stream_id: StreamId,
     ) -> DynFut<Result<(), ServerError>> {
-        let result = self.take_pending_error();
+        // The claim check a read would have made, without the read. There is
+        // no device to fault here, so the barrier itself never fails.
+        let result = self.ensure_written(handles.iter());
         Box::pin(async move { result })
     }
 
@@ -224,11 +225,15 @@ impl ComputeServer for DummyServer {
         let kernel = match kernel.compile(kernel.define(), &mut DummyCompiler, &()) {
             Ok(kernel) => kernel,
             Err(err) => {
-                // Recorded once, in the error queue. Tagging the profiler is the drain's
-                // job, exactly as on a real server: a launch failure the queue never gets
-                // drained for would otherwise be reported twice.
-                let err = cubecl_runtime::server::LaunchError::from(err);
-                self.errors.push(err.into());
+                // No IR, so no answer about what the kernel writes: every buffer
+                // the launch was given is left as it was and carries the failure,
+                // exactly as on a real server.
+                let error = ServerError::from(cubecl_runtime::server::LaunchError::from(err));
+                self.timestamps.failure(&error);
+                if !launch_mode.is_skipped() {
+                    let written: Vec<_> = bindings.buffers().cloned().collect();
+                    self.taint(error, written.iter());
+                }
                 return;
             }
         };
@@ -273,26 +278,29 @@ impl ComputeServer for DummyServer {
     }
 
     fn flush(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
-        self.take_pending_error()
+        // A launch failure is not the flush's to report: it lives on the
+        // buffers the launch left unwritten. There is no device fault here,
+        // so nothing is left for a flush to say.
+        Ok(())
     }
 
     fn check(
         &mut self,
-        _handles: Vec<BufferBinding>,
+        handles: Vec<BufferBinding>,
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
-        Ok(())
+        self.ensure_written(handles.iter())
     }
 
-    fn memory_usage(&mut self, _stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
-        Ok(self.memory_management.memory_usage())
+    fn memory_usage(&mut self, _stream_id: StreamId) -> MemoryUsage {
+        self.memory_management.memory_usage()
     }
 
     fn memory_report(
         &mut self,
         _stream_id: StreamId,
-    ) -> Result<cubecl_runtime::memory_management::MemoryReport, ServerError> {
-        Ok(self.memory_management.memory_report())
+    ) -> cubecl_runtime::memory_management::MemoryReport {
+        self.memory_management.memory_report()
     }
 
     fn memory_cleanup(&mut self, _stream_id: StreamId) {
@@ -308,13 +316,9 @@ impl ComputeServer for DummyServer {
         _stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        // The profile boundary drains the queue, like the real servers, which sync here.
-        // Errors recorded during the profile belong to it, and leaving them pending would
-        // hand them to whatever call comes next.
-        if let Err(err) = self.take_pending_error() {
-            self.timestamps.error(ProfileError::Server(Box::new(err)));
-        }
-
+        // A failure inside the window already invalidated the measurement at
+        // the moment it happened, exactly as on a real server: the launch path
+        // tags the profiler where it fails rather than at a drain.
         self.timestamps.stop(token)
     }
 
@@ -370,41 +374,43 @@ impl DummyServer {
             memory_management,
             utilities,
             timestamps: TimestampProfiler::default(),
-            errors: Vec::new(),
             failures: ErrorGraph::default(),
         }
     }
 
-    /// Drains the error queue, tagging any in-flight profile as wrong. Mirrors
-    /// `flush_errors` on the cuda and wgpu servers.
-    fn flush_errors(&mut self) -> Vec<ServerError> {
-        let errors = core::mem::take(&mut self.errors);
-
-        // It is very important to tag current profiles as being wrong.
-        if !errors.is_empty() {
-            self.timestamps.error(ProfileError::Unknown {
-                reason: format!("{errors:?}"),
-                backtrace: BackTrace::capture(),
-            });
-        }
-
-        errors
+    /// Fails when the buffers `handles` name carry a failure — the claim check
+    /// a read makes, through the same [`ErrorGraph::reports`] a real server's
+    /// [`StreamPool::ensure_written`] goes through.
+    ///
+    /// [`StreamPool::ensure_written`]: cubecl_runtime::stream::StreamPool::ensure_written
+    fn ensure_written<'a>(
+        &self,
+        handles: impl Iterator<Item = &'a BufferBinding>,
+    ) -> Result<(), ServerError> {
+        self.failures.reports(handles.filter_map(|handle| {
+            let failure = self
+                .memory_management
+                .failure(&handle.memory, handle.range())?;
+            Some((failure, handle.memory.id()))
+        }))
     }
 
-    /// Drains the error queue and aggregates it, as `flush`/`sync` do on a real server.
-    /// Every error surfaces: none is silently dropped, and none is left behind to be
-    /// reported by a later, unrelated call.
-    fn take_pending_error(&mut self) -> Result<(), ServerError> {
-        let errors = self.flush_errors();
-
-        if errors.is_empty() {
-            return Ok(());
+    /// Taint every allocation in `written` with `error`: the work that was
+    /// going to write those buffers did not run, so a read of any of them
+    /// fails on this failure until something writes them again.
+    fn taint<'a>(&mut self, error: ServerError, written: impl Iterator<Item = &'a BufferBinding>) {
+        let failure = self.failures.insert(error);
+        for handle in written {
+            self.memory_management.taint(
+                &handle.memory,
+                handle.range(),
+                failure,
+                &mut self.failures,
+            );
         }
-
-        Err(ServerError::ServerUnhealthy {
-            errors,
-            backtrace: BackTrace::capture(),
-        })
+        // A failure that named no buffer anything still holds has nothing to
+        // wait for.
+        self.failures.prune(failure);
     }
 
     /// Utility to create a new buffer and immediately copy contiguous data into it

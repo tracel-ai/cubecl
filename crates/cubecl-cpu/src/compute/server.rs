@@ -311,17 +311,21 @@ impl ComputeServer for CpuServer {
         }
     }
 
-    fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
-        let stream = self.scheduler.stream(&stream_id);
-        Ok(stream.memory_management.memory_usage())
+    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
+        self.scheduler
+            .stream(&stream_id)
+            .memory_management
+            .memory_usage()
     }
 
     fn memory_report(
         &mut self,
         stream_id: StreamId,
-    ) -> Result<cubecl_runtime::memory_management::MemoryReport, ServerError> {
-        let stream = self.scheduler.stream(&stream_id);
-        Ok(stream.memory_management.memory_report())
+    ) -> cubecl_runtime::memory_management::MemoryReport {
+        self.scheduler
+            .stream(&stream_id)
+            .memory_management
+            .memory_report()
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {

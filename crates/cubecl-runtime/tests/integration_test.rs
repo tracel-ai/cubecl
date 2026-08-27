@@ -635,7 +635,7 @@ fn a_dry_run_reserves_without_mapping() {
         ]),
     );
 
-    let report = client.memory_report().unwrap();
+    let report = client.memory_report();
     let pool = arena(&report);
     assert_eq!(
         pool.pages_unmapped, pool.pages,
@@ -646,7 +646,7 @@ fn a_dry_run_reserves_without_mapping() {
     // Reading is a resolution: the backing appears exactly there.
     let data = client.read_one(out).unwrap();
     assert_eq!(data.len(), SIZE as usize);
-    let report = client.memory_report().unwrap();
+    let report = client.memory_report();
     assert_eq!(
         arena(&report).pages_unmapped,
         0,

@@ -1,7 +1,6 @@
 use crate::memory_management::{ErrorGraph, FailureId, ManagedMemoryId};
 use crate::server::{BufferBinding, ServerError};
 use alloc::vec::Vec;
-use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
 
 /// What a launch's read-set check found: the failure claiming an input, the
@@ -183,7 +182,7 @@ impl<F: StreamFactory> StreamPool<F> {
     ///
     /// # Errors
     ///
-    /// [`ServerError::ServerUnhealthy`] naming every failure one of these
+    /// [`ServerError::Several`] naming every failure one of these
     /// buffers carries, each failure once however many buffers carry it. The
     /// caller has nothing to retry — the bytes are gone — so the error is the
     /// answer to the read, not a hint to try again.
@@ -195,34 +194,10 @@ impl<F: StreamFactory> StreamPool<F> {
     where
         F::Stream: StreamMemory,
     {
-        let mut seen: Vec<FailureId> = Vec::new();
-        let mut errors = Vec::new();
-
-        for handle in handles {
-            let Some(stream) = self.try_get(&handle.stream) else {
-                continue;
-            };
-            let Some(failure) = stream.failure(handle) else {
-                continue;
-            };
-            if seen.contains(&failure) {
-                continue;
-            }
-            seen.push(failure);
-            // The full report: the root error, and the skip chain from this
-            // buffer back toward it.
-            if let Some(error) = failures.report(failure, handle.memory.id()) {
-                errors.push(error);
-            }
-        }
-
-        match errors.is_empty() {
-            true => Ok(()),
-            false => Err(ServerError::ServerUnhealthy {
-                errors,
-                backtrace: BackTrace::capture(),
-            }),
-        }
+        failures.reports(handles.filter_map(|handle| {
+            let failure = self.try_get(&handle.stream)?.failure(handle)?;
+            Some((failure, handle.memory.id()))
+        }))
     }
 
     /// Taint every allocation in `written` with `error`: the work that was

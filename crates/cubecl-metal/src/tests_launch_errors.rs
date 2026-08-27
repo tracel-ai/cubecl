@@ -41,8 +41,8 @@ fn oversized_shared_memory_is_a_resource_limit_error() {
     let err = client
         .flush()
         .expect_err("a launch requesting more shared memory than the device limit must fail");
-    let ServerError::ServerUnhealthy { errors, .. } = err else {
-        panic!("expected ServerUnhealthy, got: {err}");
+    let ServerError::Several { errors, .. } = err else {
+        panic!("expected Several, got: {err}");
     };
     match &errors[0] {
         ServerError::Launch(LaunchError::TooManyResources(ResourceLimitError::SharedMemory {

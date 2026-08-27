@@ -678,16 +678,14 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         stream.end_profile(token, stream_id, failures)
     }
 
-    fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
+    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.stream(&stream_id);
-        Ok(stream.mem_manage.memory_usage())
+        self.scheduler.stream(&stream_id).mem_manage.memory_usage()
     }
 
-    fn memory_report(&mut self, stream_id: StreamId) -> Result<MemoryReport, ServerError> {
+    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport {
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.stream(&stream_id);
-        Ok(stream.mem_manage.memory_report())
+        self.scheduler.stream(&stream_id).mem_manage.memory_report()
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {

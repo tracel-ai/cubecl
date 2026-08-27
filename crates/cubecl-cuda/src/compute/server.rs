@@ -688,14 +688,12 @@ impl ComputeServer for CudaServer {
         Ok(ManagedResource::new(memory, resource))
     }
 
-    fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
-        let mut command = self.command_no_inputs(stream_id);
-        Ok(command.memory_usage())
+    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
+        self.command_no_inputs(stream_id).memory_usage()
     }
 
-    fn memory_report(&mut self, stream_id: StreamId) -> Result<MemoryReport, ServerError> {
-        let mut command = self.command_no_inputs(stream_id);
-        Ok(command.memory_report())
+    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport {
+        self.command_no_inputs(stream_id).memory_report()
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {

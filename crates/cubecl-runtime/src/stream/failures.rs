@@ -76,7 +76,7 @@ pub trait FailureStore {
     ///
     /// # Errors
     ///
-    /// [`ServerError::ServerUnhealthy`] naming the work that was supposed to
+    /// [`ServerError::Several`] naming the work that was supposed to
     /// write them and failed.
     fn ensure_written<'a>(
         &self,

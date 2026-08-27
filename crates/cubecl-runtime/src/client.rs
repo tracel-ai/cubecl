@@ -10,7 +10,7 @@ use crate::{
     },
     runtime::Runtime,
     server::{
-        BufferBinding, CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle, IoError,
+        BufferBinding, CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle,
         KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
         MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities,
@@ -392,7 +392,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,
         slices: Vec<Vec<u8>>,
-    ) -> Result<Vec<MemoryLayout>, IoError> {
+    ) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
 
@@ -419,14 +419,14 @@ impl<R: Runtime> ComputeClient<R> {
             server.write(descriptors, stream_id);
         });
 
-        Ok(layouts)
+        layouts
     }
 
     fn do_create(
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,
         data: Vec<Bytes>,
-    ) -> Result<Vec<MemoryLayout>, IoError> {
+    ) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
 
@@ -453,7 +453,7 @@ impl<R: Runtime> ComputeClient<R> {
             server.write(descriptors, stream_id);
         });
 
-        Ok(layouts)
+        layouts
     }
 
     /// Returns a resource handle containing the given data.
@@ -472,12 +472,17 @@ impl<R: Runtime> ComputeClient<R> {
             )],
             vec![slice.to_vec()],
         )
-        .unwrap()
         .remove(0)
         .memory
     }
 
-    /// todo: docs
+    /// Run `task` with this device to itself, so nothing else is scheduled
+    /// against it for the duration.
+    ///
+    /// # Errors
+    ///
+    /// The device could not be taken exclusively — another holder has it, or
+    /// its runner is gone. Nothing ran, so the caller may retry.
     pub fn exclusive<'a, Re: Send + 'static, F: FnOnce() -> Re + Send + 'a>(
         &'a self,
         task: F,
@@ -491,7 +496,12 @@ impl<R: Runtime> ComputeClient<R> {
             })
     }
 
-    /// dodo: Docs
+    /// Run `task` with every allocation it makes routed to the persistent
+    /// pool, then restore the previous mode.
+    ///
+    /// Persistent slices are exact-fit and are not reclaimed by the ordinary
+    /// sweep, which is what weights want: allocated once, alive for the
+    /// process, and stable enough for a graph capture to record against.
     pub fn memory_persistent_allocation<
         'a,
         Re: Send,
@@ -501,7 +511,7 @@ impl<R: Runtime> ComputeClient<R> {
         &'a self,
         input: Input,
         task: F,
-    ) -> Result<Re, ServerError> {
+    ) -> Re {
         let stream_id = StreamId::current();
 
         self.device.submit(move |server| {
@@ -515,7 +525,7 @@ impl<R: Runtime> ComputeClient<R> {
             server.allocation_mode(MemoryAllocationMode::Auto, stream_id);
         });
 
-        Ok(output)
+        output
     }
 
     /// Write `data` into an existing allocation, in place (same device pointer).
@@ -548,7 +558,6 @@ impl<R: Runtime> ComputeClient<R> {
             )],
             vec![data],
         )
-        .unwrap()
         .remove(0)
         .memory
     }
@@ -584,7 +593,6 @@ impl<R: Runtime> ComputeClient<R> {
             )],
             vec![slice.to_vec()],
         )
-        .unwrap()
         .remove(0)
     }
 
@@ -610,7 +618,6 @@ impl<R: Runtime> ComputeClient<R> {
             )],
             vec![bytes],
         )
-        .unwrap()
         .remove(0)
     }
 
@@ -632,7 +639,7 @@ impl<R: Runtime> ComputeClient<R> {
             descriptors_.push(a);
         }
 
-        self.do_create_from_slices(descriptors_, data).unwrap()
+        self.do_create_from_slices(descriptors_, data)
     }
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
@@ -644,13 +651,10 @@ impl<R: Runtime> ComputeClient<R> {
     ) -> Vec<MemoryLayout> {
         let (descriptors, data) = descriptors.into_iter().unzip();
 
-        self.do_create(descriptors, data).unwrap()
+        self.do_create(descriptors, data)
     }
 
-    fn do_empty(
-        &self,
-        descriptors: Vec<MemoryLayoutDescriptor>,
-    ) -> Result<Vec<MemoryLayout>, IoError> {
+    fn do_empty(&self, descriptors: Vec<MemoryLayoutDescriptor>) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
 
@@ -659,14 +663,14 @@ impl<R: Runtime> ComputeClient<R> {
             server.initialize_memory(memory, size, stream_id);
         });
 
-        Ok(layouts)
+        layouts
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     pub fn empty(&self, size: usize) -> Handle {
         let shape: Shape = [size].into();
         let descriptor = MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Contiguous, shape, 1);
-        self.do_empty(vec![descriptor]).unwrap().remove(0).memory
+        self.do_empty(vec![descriptor]).remove(0).memory
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
@@ -674,13 +678,13 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn empty_tensor(&self, shape: Shape, elem_size: usize) -> MemoryLayout {
         let descriptor =
             MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Optimized, shape, elem_size);
-        self.do_empty(vec![descriptor]).unwrap().remove(0)
+        self.do_empty(vec![descriptor]).remove(0)
     }
 
     /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
     /// See [`ComputeClient::create_tensor`]
     pub fn empty_tensors(&self, descriptors: Vec<MemoryLayoutDescriptor>) -> Vec<MemoryLayout> {
-        self.do_empty(descriptors).unwrap()
+        self.do_empty(descriptors)
     }
 
     /// Marks the given [Bytes] as being a staging buffer, maybe transferring it to pinned memory
@@ -1091,14 +1095,14 @@ impl<R: Runtime> ComputeClient<R> {
     /// The closure iterates the server's `stream_ids()` and folds each
     /// per-stream `memory_usage(id)` with `MemoryUsage::combine`, so the
     /// result is correct regardless of which thread queries it.
-    pub fn memory_usage(&self) -> Result<MemoryUsage, ServerError> {
+    pub fn memory_usage(&self) -> MemoryUsage {
         self.device
             .submit_blocking(move |server| {
                 server
                     .stream_ids()
                     .into_iter()
-                    .try_fold(MemoryUsage::default(), |acc, id| {
-                        Ok(acc.combine(server.memory_usage(id)?))
+                    .fold(MemoryUsage::default(), |acc, id| {
+                        acc.combine(server.memory_usage(id))
                     })
             })
             .unwrap_or_resume()
@@ -1116,7 +1120,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// Unlike [`memory_usage`](Self::memory_usage), which aggregates across
     /// streams, this reads one stream: pools are per stream, and a plan is
     /// measured and installed on the stream that runs the workload.
-    pub fn memory_report(&self) -> Result<MemoryReport, ServerError> {
+    pub fn memory_report(&self) -> MemoryReport {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.memory_report(stream_id))

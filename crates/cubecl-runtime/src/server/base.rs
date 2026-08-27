@@ -216,10 +216,6 @@ pub enum LaunchError {
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
-
-    /// Can't launch because of an IO Error.
-    #[error("An io error happened during launch\nCaused by:\n  {0}")]
-    IoError(#[from] IoError),
 }
 
 /// Resource limit errors.
@@ -261,19 +257,6 @@ pub enum ResourceLimitError {
         requested: (u32, u32, u32),
         /// Maximum value
         max: (u32, u32, u32),
-        /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
-        backtrace: BackTrace,
-    },
-    /// Total of cube dim `CubeDim` exceeds maximum
-    #[error(
-        "Max units per cube exceeds maximum bounds.\nRequested {requested}, max is {max}.\nBacktrace\n{backtrace}"
-    )]
-    MaxUnitPerCube {
-        /// Requested value
-        requested: u32,
-        /// Maximum value
-        max: u32,
         /// The backtrace for this error.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
@@ -366,10 +349,12 @@ pub enum ServerError {
         backtrace: BackTrace,
     },
 
-    /// The server is an invalid state.
-    #[error("The server is in an invalid state\nCaused by:\n  {}", errors.iter().join("\n"))]
-    ServerUnhealthy {
-        /// The details of the generic error.
+    /// More than one thing went wrong at once, and the caller is owed all of
+    /// them: a read naming buffers that several distinct failures claim, or a
+    /// capture that was both doomed and abandoned.
+    #[error("Several failures at once\nCaused by:\n  {}", errors.iter().join("\n"))]
+    Several {
+        /// The failures, in the order they were found.
         errors: Vec<Self>,
         /// The backtrace for this error.
         #[cfg_attr(std_io, serde(skip))]
@@ -445,7 +430,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`ServerError::ServerUnhealthy`] when the work that was supposed to
+    /// [`ServerError::Several`] when the work that was supposed to
     /// write one of these buffers failed, whichever stream it ran on — copying
     /// bytes out would hand back whatever was in memory before. Every
     /// implementation asks
@@ -610,13 +595,13 @@ where
     }
 
     /// Memory usage of the given stream.
-    fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
+    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage;
 
     /// Structured per-pool report of the given stream's **main GPU** memory:
     /// each pool's shape, usage, and high-water marks, in allocation-routing
     /// order. The read side of a measured memory plan — see
     /// [`MemoryManagement::memory_report`](crate::memory_management::MemoryManagement::memory_report).
-    fn memory_report(&mut self, stream_id: StreamId) -> Result<MemoryReport, ServerError>;
+    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport;
 
     /// Stream ids the client should iterate to aggregate across the device.
     ///
@@ -1073,14 +1058,6 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
-    /// Handle wasn't found in the memory pool
-    #[error("couldn't free the handle, since it is currently in used. \n{backtrace}")]
-    FreeError {
-        /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
-        backtrace: BackTrace,
-    },
-
     /// Unknown error happened during execution
     #[error("Unknown error happened during execution: {description}\n{backtrace}")]
     Unknown {
@@ -1098,10 +1075,6 @@ pub enum IoError {
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
-
-    /// Can't perform the IO operation because of a runtime error.
-    #[error("Can't perform the IO operation because of a runtime error: {0}")]
-    Execution(#[from] Box<ServerError>),
 }
 
 impl core::fmt::Debug for IoError {
