@@ -1,11 +1,11 @@
 use cubecl_core::{self as cubecl, frontend::polyfills::*, prelude::*};
-use cubecl_ir::{dialect::math, prelude::*};
+use cubecl_ir::{dialect::math, interfaces::TypedExt, prelude::*};
 use pliron_spirv::{ext::gl, ops, types::StructType};
 
 use crate::{
     lower::{LowerOp, lower_binop, lower_unop},
     ops::{
-        base::{binop_to_spirv_dialect, unop_to_spirv_dialect},
+        base::{binop_to_spirv_dialect, ternop_to_spirv_dialect, unop_to_spirv_dialect},
         to_spirv_dialect::ToSpirvDialectOp,
     },
     types::ty_to_spirv_dialect,
@@ -136,8 +136,15 @@ lower_binop!(math::RhypotOp, rhypot);
 lower_binop!(math::PowfOp, powf);
 lower_binop!(math::PowiOp, powi);
 
+ternop_to_spirv_dialect!(math::FmaOp => gl::FmaOp);
+
+/// `gl::FmaOp` is defined for floats only, so an integer fma keeps its multiply and add.
 #[op_interface_impl]
 impl LowerOp for math::FmaOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        self.get_result(ctx).scalar_ty(ctx).is_int(ctx)
+    }
+
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         define_scalar!(T);
         define_size!(S);
@@ -145,11 +152,11 @@ impl LowerOp for math::FmaOp {
         let b = self.b(scope.ctx());
         let c = self.c(scope.ctx());
         scope.register_value_type::<T, S>(a);
-        vec![fma::expand::<T, S>(scope, a.into(), b.into(), c.into()).read_value(scope)]
+        vec![int_fma::expand::<T, S>(scope, a.into(), b.into(), c.into()).read_value(scope)]
     }
 }
 
 #[cube]
-fn fma<T: Float, N: Size>(a: Vector<T, N>, b: Vector<T, N>, c: Vector<T, N>) -> Vector<T, N> {
+fn int_fma<T: Int, N: Size>(a: Vector<T, N>, b: Vector<T, N>, c: Vector<T, N>) -> Vector<T, N> {
     a * b + c
 }
