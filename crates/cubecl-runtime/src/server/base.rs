@@ -322,10 +322,6 @@ pub enum ServerError {
     #[error("A launch error happened\nCaused by:\n  {0}")]
     Launch(#[from] LaunchError),
 
-    /// An execution error happened during profiling
-    #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
-    Profile(#[from] ProfileError),
-
     /// An IO error happened
     #[error("An IO error happened\nCaused by:\n  {0}")]
     Io(#[from] IoError),
@@ -599,9 +595,7 @@ where
     /// [`end_capture`](ComputeServer::end_capture).
     fn replay(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = (graph, stream_id);
-        Err(ServerError::graph_state(
-            "this server does not support graph capture",
-        ))
+        Err(ServerError::graph_capture_unsupported())
     }
 
     /// Release the graph identified by `graph`, destroying whatever it recorded
@@ -654,10 +648,6 @@ where
     /// cross-stream pins yet, which can lag behind an explicit
     /// [`memory_cleanup`](Self::memory_cleanup). The layout still applies to
     /// streams created afterwards; retry to rebuild the calling stream too.
-    ///
-    /// [`StreamUnavailable`](InstallMemoryPoolsError::StreamUnavailable) when
-    /// the calling stream is already in an error state, so its pools could not
-    /// be reached. Future streams still get the layout.
     ///
     /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from servers
     /// without configurable pools, which is the default implementation.

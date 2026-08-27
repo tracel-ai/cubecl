@@ -390,10 +390,6 @@ pub enum InstallMemoryPoolsError {
         /// Bytes still live in the dynamic pools.
         bytes_in_use: u64,
     },
-    /// The calling stream could not be resolved because it is already in an
-    /// error state. The layout still applies to streams created afterwards;
-    /// the underlying failure surfaces at the next flush or sync, as usual.
-    StreamUnavailable,
     /// This server has no configurable dynamic pools. Permanent — unlike
     /// [`PoolsInUse`](Self::PoolsInUse), retrying will never succeed.
     Unsupported,
@@ -405,10 +401,6 @@ impl core::fmt::Display for InstallMemoryPoolsError {
             InstallMemoryPoolsError::PoolsInUse { bytes_in_use } => write!(
                 f,
                 "the dynamic pools kept their layout: {bytes_in_use} bytes are still live in them"
-            ),
-            InstallMemoryPoolsError::StreamUnavailable => write!(
-                f,
-                "the calling stream kept its layout: it is already in an error state"
             ),
             InstallMemoryPoolsError::Unsupported => {
                 write!(f, "this server has no configurable dynamic memory pools")

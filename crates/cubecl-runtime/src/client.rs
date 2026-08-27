@@ -1196,10 +1196,6 @@ impl<R: Runtime> ComputeClient<R> {
     /// layout still applies to streams created afterwards, and retrying after
     /// the remaining work drains rebuilds the current stream too.
     ///
-    /// [`StreamUnavailable`](InstallMemoryPoolsError::StreamUnavailable) when
-    /// the current stream is already in an error state; that failure surfaces
-    /// at the next flush or sync, as usual.
-    ///
     /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from a runtime
     /// with no configurable pools, where retrying will never succeed.
     ///
@@ -1302,10 +1298,7 @@ impl<R: Runtime> ComputeClient<R> {
                 Ok(result)
             })
             .unwrap_or_resume()
-            .map_err(|err| ProfileError::Unknown {
-                reason: alloc::format!("{err}"),
-                backtrace: BackTrace::capture(),
-            })?;
+            .map_err(|err| ProfileError::from(&err))?;
 
         #[cfg(feature = "profile-tracy")]
         if let Some(mut gpu_span) = gpu_span {

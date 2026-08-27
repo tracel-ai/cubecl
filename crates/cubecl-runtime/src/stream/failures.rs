@@ -48,13 +48,9 @@ impl Failures {
         }
     }
 
-    /// What the failure ids carried by this device's allocations mean.
-    pub fn graph(&self) -> &ErrorGraph {
-        &self.graph
-    }
-
-    /// [`graph`](Self::graph), mutably — handed down to every reserve, bind
-    /// and cleanup, since those are where slices shed the failures they carry.
+    /// What the failure ids carried by this device's allocations mean, handed
+    /// down to every reserve, bind and cleanup — those are where slices shed
+    /// the failures they carry.
     pub fn graph_mut(&mut self) -> &mut ErrorGraph {
         &mut self.graph
     }

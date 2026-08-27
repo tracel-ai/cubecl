@@ -161,11 +161,13 @@ impl<F: StreamFactory> StreamPool<F> {
     /// whichever context happens to be current. A buffer's slot was
     /// initialized by the allocation itself, so `None` here means the binding
     /// is not this pool's to answer for.
-    pub fn try_get(&self, id: &StreamId) -> Option<&F::Stream> {
+    fn try_get(&self, id: &StreamId) -> Option<&F::Stream> {
         self.streams[stream_index(id, self.max_streams)].as_ref()
     }
 
-    /// [`try_get`](Self::try_get), mutably.
+    /// The stream on `id`'s slot, when that slot was ever initialized,
+    /// mutably. Never creates one — see the reason on the read-only twin
+    /// this file keeps private.
     pub fn try_get_mut(&mut self, id: &StreamId) -> Option<&mut F::Stream> {
         self.streams[stream_index(id, self.max_streams)].as_mut()
     }

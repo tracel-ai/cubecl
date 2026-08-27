@@ -214,15 +214,6 @@ impl<'a, B: EventStreamBackend> ResolvedStreams<'a, B> {
         self.streams.written(written, self.failures);
     }
 
-    /// Fails when the buffers `handles` name carry a failure — see
-    /// [`StreamPool::ensure_written`].
-    pub fn ensure_written<'b>(
-        &self,
-        handles: impl Iterator<Item = &'b BufferBinding>,
-    ) -> Result<(), ServerError> {
-        self.streams.ensure_written(self.failures, handles)
-    }
-
     /// Enqueue a task to be cleaned.
     pub fn gc(&mut self, gc: GcTask<B>) {
         self.gc.sender.send(gc).unwrap();
@@ -296,20 +287,20 @@ impl<B: EventStreamBackend> MultiStream<B> {
         &mut self,
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Result<ResolvedStreams<'_, B>, ServerError> {
+    ) -> ResolvedStreams<'_, B> {
         let analysis = self.align_streams(stream_id, handles);
 
         let stream = self.streams.get_mut(&stream_id);
         stream.cursor += 1;
 
-        Ok(ResolvedStreams {
+        ResolvedStreams {
             cursor: stream.cursor,
             streams: &mut self.streams,
             failures: self.failures.graph_mut(),
             current: stream_id,
             analysis,
             gc: &self.gc,
-        })
+        }
     }
 
     /// Aligns the target stream with other streams based on shared bindings.
@@ -507,8 +498,8 @@ mod tests {
         let binding_2 = handle(stream_2);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter()).unwrap();
-        ms.resolve(stream_2, [].into_iter()).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         let analysis = ms.update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter());
 
@@ -532,8 +523,8 @@ mod tests {
         let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, 4);
-        ms.resolve(stream_1, [].into_iter()).unwrap();
-        ms.resolve(stream_2, [].into_iter()).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         let analysis =
             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
@@ -558,8 +549,8 @@ mod tests {
         let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter()).unwrap();
-        ms.resolve(stream_2, [].into_iter()).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         let analysis =
             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
@@ -580,11 +571,10 @@ mod tests {
         let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter()).unwrap();
-        ms.resolve(stream_2, [].into_iter()).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
-        ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter())
-            .unwrap();
+        ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
 
         let stream1 = ms.streams.get_mut(&stream_1);
         let index_2 = stream_index(&stream_2, MAX_STREAMS as usize);
@@ -604,14 +594,14 @@ mod tests {
 
         let gate = Arc::new(AtomicBool::new(false));
         let mut ms = MultiStream::new(logger, GatedBackend { gate: gate.clone() }, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter()).unwrap();
-        ms.resolve(stream_2, [].into_iter()).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         let handle = Handle::new(stream_1, 10);
         let observer = handle.memory.clone();
         let binding = handle.binding();
 
-        drop(ms.resolve(stream_2, [&binding].into_iter()).unwrap());
+        drop(ms.resolve(stream_2, [&binding].into_iter()));
         drop(binding);
 
         // The GC thread is blocked on the (gated) consumer event, so the pinned
@@ -634,13 +624,13 @@ mod tests {
 
         let gate = Arc::new(AtomicBool::new(true));
         let mut ms = MultiStream::new(logger, GatedBackend { gate: gate.clone() }, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter()).unwrap();
-        ms.resolve(stream_2, [].into_iter()).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         // First resolve records stream_1 as synced on stream_2.
         let handle_1 = Handle::new(stream_1, 10);
         let binding_1 = handle_1.binding();
-        drop(ms.resolve(stream_2, [&binding_1].into_iter()).unwrap());
+        drop(ms.resolve(stream_2, [&binding_1].into_iter()));
         drop(binding_1);
 
         // Close the gate for the second round.
@@ -654,7 +644,7 @@ mod tests {
         // analysis is empty — but the binding must still be pinned: the origin
         // stream could otherwise free/reuse the memory under the in-flight
         // consumer.
-        let resolved = ms.resolve(stream_2, [&binding_2].into_iter()).unwrap();
+        let resolved = ms.resolve(stream_2, [&binding_2].into_iter());
         assert!(resolved.analysis.slices.is_empty());
         drop(resolved);
         drop(binding_2);
