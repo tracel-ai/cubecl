@@ -142,12 +142,13 @@ pub fn roofline_bounds<R: Runtime>(
 ) -> Bounds {
     // The ceiling a kernel is scored against is the one for the traffic it
     // actually moves. Probing the default working set instead asked what half
-    // a gigabyte reaches, which no autotuned kernel is.
+    // a gigabyte reaches, which no autotuned kernel is. Past what the device
+    // will allocate the probe measures the cap regardless, so capping the ask
+    // keeps one cache entry rather than one per oversized kernel.
+    let access = MemoryAccess::Copy;
+    let footprint = (work.bytes as u64).min(working_set_cap(client, access));
     let memory_key = ThroughputKey {
-        mode: ThroughputMode::Memory(MemorySpec::new(
-            MemoryAccess::Copy,
-            sweep_size(work.bytes as u64),
-        )),
+        mode: ThroughputMode::Memory(MemorySpec::new(access, sweep_size(footprint))),
     };
     let launch_key = ThroughputKey {
         mode: ThroughputMode::Launch,
