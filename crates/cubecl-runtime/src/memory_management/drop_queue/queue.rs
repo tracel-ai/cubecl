@@ -94,6 +94,18 @@ impl<F: Fence> PendingDropQueue<F> {
         self.policy_state.should_flush(&self.policy)
     }
 
+    /// Flush until nothing is held back.
+    ///
+    /// One [`flush`](Self::flush) frees the batch staged two cycles ago and
+    /// rotates the current one into pending, so what was just dropped is still
+    /// held when it returns. A caller that needs the memory *now* — an
+    /// explicit cleanup, a capture window about to open onto pools that may
+    /// not allocate — wants both rotations.
+    pub fn drain<Factory: Fn() -> F>(&mut self, factory: Factory) {
+        self.flush(&factory);
+        self.flush(&factory);
+    }
+
     /// Rotate the double-buffer and free any memory the device is done with.
     ///
     /// `factory` is called to produce a [`Fence`]. It should submit (or

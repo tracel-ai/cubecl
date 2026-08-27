@@ -12,7 +12,6 @@
 //! and a 2D copy of a contiguous one is slower and refused outright for very
 //! tall transfers.
 
-use crate::compute::status::checked;
 use crate::compute::{
     MB, context::HipContext, fence::Fence, gpu::GpuResource,
     io::controller::PinnedMemoryManagedAllocController, stream::HipStreamBackend,
@@ -32,6 +31,8 @@ use cubecl_hip_sys::{
     hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice, ihipStream_t,
 };
 use cubecl_runtime::{
+    allocator::Pitch,
+    driver::checked,
     id::KernelId,
     memory_management::{
         InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle,
@@ -81,15 +82,13 @@ impl<'a> Command<'a> {
         let stream = self.streams.current();
         // Deferred frees sit in the drop queue until a fenced flush, so an
         // explicit cleanup must drain it first or the pools still see those
-        // slices as live. The queue is a double buffer (one flush only rotates
-        // the current batch), so flush twice. Skipped mid-capture: a host sync
-        // aborts the capture, and the capture path drains the queue itself.
-        // The cleanups below stay safe mid-capture: `cleanup` defers all frees
-        // while a capture is active.
+        // slices as live. Skipped mid-capture: a host sync aborts the capture,
+        // and the capture path drains the queue itself. The cleanups below stay
+        // safe mid-capture: `cleanup` defers all frees while a capture is
+        // active.
         if !stream.capturing.is_recording() {
             let sys = stream.sys;
-            stream.drop_queue.flush(|| Fence::new(sys));
-            stream.drop_queue.flush(|| Fence::new(sys));
+            stream.drop_queue.drain(|| Fence::new(sys));
             // The info cache's buffers are live slices in the dynamic pools;
             // an explicit cleanup exists to leave those pools empty (e.g. for
             // a rebuild sized to the next workload), so every entry not
@@ -137,15 +136,9 @@ impl<'a> Command<'a> {
         let (stream, failures) = self.streams.current_and_failures();
         match stream.memory_management_gpu.reserve(size, failures) {
             Ok(handle) => Ok(handle),
-            // The allocation can never fit; reclaiming would not change that.
-            Err(err @ IoError::BufferTooBig { .. }) => Err(err),
-            // Out of memory *right now* is not out of memory for good: pool
-            // pages whose slices have all been dropped are still resident, and
-            // the frees that would release them may sit in the deferred drop
-            // queue. Reclaim this stream's memory and retry once; only a
-            // failure after that is reported. Without the retry, a transient
-            // peak — a model build holding float weights while their quantized
-            // copies allocate, an autotune sample on a full device — becomes a
+            Err(err) if !err.may_succeed_after_reclaim() => Err(err),
+            // Reclaim this stream's memory and retry once; only a failure after
+            // that is reported. Without the retry a transient peak becomes a
             // never-initialized handle whose every downstream use fails.
             Err(err) => {
                 log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
@@ -467,38 +460,6 @@ impl<'a> Command<'a> {
         }
 
         result
-    }
-}
-
-/// The 2D shape of a copy to or from a pitched buffer: how wide each row is,
-/// how many rows there are, and the stride between their starts.
-///
-/// [`of`](Self::of) answers `None` for a buffer that needs no 2D copy at all.
-/// A row stride equal to the row width means no padding, so the whole buffer
-/// is one contiguous span and the plain linear copy is both correct and
-/// faster — the driver also refuses the 2D copy for very tall transfers, an
-/// embedding table's 128k rows say, which the linear path handles.
-struct Pitch {
-    width_bytes: usize,
-    height: usize,
-    stride_bytes: usize,
-}
-
-impl Pitch {
-    /// The pitch of a buffer with this layout, or `None` when its rows are
-    /// contiguous. The caller has already validated the strides as pitched
-    /// row-major.
-    fn of(shape: &[usize], strides: &[usize], elem_size: usize) -> Option<Self> {
-        let rank = shape.len();
-        let width = *shape.last().unwrap_or(&1);
-        if rank < 2 || strides[rank - 2] == width {
-            return None;
-        }
-        Some(Self {
-            width_bytes: width * elem_size,
-            height: shape.iter().rev().skip(1).product(),
-            stride_bytes: strides[rank - 2] * elem_size,
-        })
     }
 }
 

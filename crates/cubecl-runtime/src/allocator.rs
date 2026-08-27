@@ -144,3 +144,44 @@ pub fn offset_handles(
 
     out
 }
+
+/// The 2D geometry of a copy to or from a pitched allocation: how wide each
+/// row is, how many rows there are, and the stride between their starts.
+///
+/// [`of`](Self::of) answers `None` for an allocation that needs no 2D copy at
+/// all. A row stride equal to the row width means no padding, so the whole
+/// buffer is one contiguous span and the plain linear copy is both correct and
+/// faster — drivers also refuse the 2D form for very tall transfers, an
+/// embedding table's 128k rows say, which the linear path handles.
+///
+/// This is the read side of what [`PitchedMemoryLayoutPolicy`] produces, and
+/// it is the same arithmetic whichever driver performs the copy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pitch {
+    /// The bytes in one row, which is what both sides of the copy transfer.
+    pub width_bytes: usize,
+    /// How many rows the copy moves.
+    pub height: usize,
+    /// The bytes between the starts of two rows on the pitched side.
+    pub stride_bytes: usize,
+}
+
+impl Pitch {
+    /// The pitch of an allocation with this layout, or `None` when its rows
+    /// are contiguous.
+    ///
+    /// The caller has already validated the strides as pitched row-major; this
+    /// only asks whether there is padding to step over.
+    pub fn of(shape: &[usize], strides: &[usize], elem_size: usize) -> Option<Self> {
+        let rank = shape.len();
+        let width = *shape.last().unwrap_or(&1);
+        if rank < 2 || strides[rank - 2] == width {
+            return None;
+        }
+        Some(Self {
+            width_bytes: width * elem_size,
+            height: shape.iter().rev().skip(1).product(),
+            stride_bytes: strides[rank - 2] * elem_size,
+        })
+    }
+}

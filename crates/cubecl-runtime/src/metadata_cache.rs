@@ -31,13 +31,12 @@
 //! refcounted, so an info buffer shared by two graphs survives until both are
 //! gone.
 //!
-//! The runtime drives it in three steps, so a value is only ever cloned into the
-//! cache when it will actually be kept:
-//!
-//! 1. ask [`MetadataInfoCache::should_cache`] — if `false`, create the value and
-//!    return it directly, never touching the cache;
-//! 2. otherwise [`get`](MetadataInfoCache::get) — a hit returns the cached value;
-//! 3. on a miss, create the value and [`insert`](MetadataInfoCache::insert) it.
+//! A launch asks [`lookup`](MetadataInfoCache::lookup) and follows the
+//! [`Lookup`] it gets back: a hit is the buffer, and a miss says whether the
+//! one it is about to build is worth [`store`](MetadataInfoCache::store)ing.
+//! Info the policy will not cache is built and forgotten, so a value is only
+//! ever cloned into the cache when it will actually be kept, and the cache
+//! never learns a key it would not have used.
 
 use alloc::vec::Vec;
 use cubecl_environment::collections::{HashMap, HashSet};
@@ -156,6 +155,21 @@ struct Entry<V> {
     locks: u32,
 }
 
+/// What the cache says about an info buffer a launch is about to need.
+///
+/// Two answers, because a miss still has to say whether the result is worth
+/// keeping: an info too large for the policy is built and forgotten, and the
+/// cache never learns a key it would not have used.
+pub enum Lookup<V> {
+    /// The buffer is already cached, and this is it.
+    Hit(V),
+    /// Nothing is cached for it; build the buffer.
+    Build {
+        /// Whether to hand the result back through [`MetadataInfoCache::store`].
+        store: bool,
+    },
+}
+
 /// A cache of metadata info buffers keyed by [`InfoCacheKey`], generic over the
 /// value type `V` (a device buffer handle for a compute backend). Evicting an
 /// entry drops its `V`; when `V` is a memory handle that returns the buffer to
@@ -163,7 +177,8 @@ struct Entry<V> {
 ///
 /// All policy is delegated to [`MetadataCachePolicy`]; this type only carries
 /// out its decisions. See the [module docs](self) for the intended
-/// `should_cache` → `get` → `insert` flow.
+/// [`lookup`](MetadataInfoCache::lookup) is the entry point a launch wants;
+/// the steps it composes are public for the paths that need them apart.
 #[derive(Debug)]
 pub struct MetadataInfoCache<V> {
     entries: HashMap<InfoCacheKey, Entry<V>>,
@@ -244,6 +259,43 @@ impl<V: Clone> MetadataInfoCache<V> {
     ///
     /// Call only when [`should_cache`](Self::should_cache) is `true`; on a miss
     /// create the value and hand it to [`insert`](Self::insert).
+    /// What to do about the info `words`, under `mode`.
+    ///
+    /// The one entry point a launch needs: it sets the mode, asks the policy
+    /// whether this info is worth caching at all, and looks it up if so. A
+    /// caller that reached for [`mode`](Self::mode), [`should_cache`] and
+    /// [`get`] in sequence was spelling this out, and every backend spelled it
+    /// out the same way.
+    ///
+    /// The words are borrowed here so a hit clones nothing; a miss hands them
+    /// to [`store`](Self::store) by value, as the key.
+    ///
+    /// [`should_cache`]: Self::should_cache
+    /// [`get`]: Self::get
+    pub fn lookup(&mut self, mode: CacheMode, words: &[u64]) -> Lookup<V> {
+        self.mode(mode);
+        if !self.should_cache(core::mem::size_of_val(words)) {
+            return Lookup::Build { store: false };
+        }
+        match self.get(words) {
+            Some(value) => Lookup::Hit(value),
+            None => Lookup::Build { store: true },
+        }
+    }
+
+    /// Record `value` as the buffer for `words`, after a [`Lookup::Build`]
+    /// that asked for it.
+    pub fn store(&mut self, words: InfoCacheKey, value: V) {
+        self.insert(words, value);
+    }
+
+    /// Look up `key`, advancing the logical clock by one tick. On a hit the
+    /// entry is marked used — its recency resets — and the value is cloned out.
+    /// During a capture ([`pins_entries`](MetadataCachePolicy::pins_entries)) a
+    /// hit also pins the entry to the graph being recorded, once per capture.
+    ///
+    /// [`lookup`](Self::lookup) composes this with the policy check ahead of
+    /// it; reach for this directly only when that check has already been made.
     pub fn get(&mut self, key: &[u64]) -> Option<V> {
         self.clock += 1;
         let clock = self.clock;

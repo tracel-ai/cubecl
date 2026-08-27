@@ -1,5 +1,5 @@
 use crate::{
-    compute::{HipServer, context::HipContext, status::checked},
+    compute::{HipServer, context::HipContext},
     device::AmdDevice,
 };
 use core::ffi::c_int;
@@ -39,7 +39,8 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
+    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, driver::checked,
+    logging::ServerLogger,
 };
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 

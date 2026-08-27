@@ -26,6 +26,7 @@ use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::kernel::BufferIOAttr;
+use cubecl_runtime::metadata_cache::Lookup;
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
     compiler::CubeTask,
@@ -579,39 +580,35 @@ impl HipServer {
     }
 }
 
-/// Build — or reuse from the cache — the device buffer holding a launch's info words.
+/// Build — or reuse from the cache — the device buffer holding a launch's info
+/// words.
 ///
-/// Reuse a cached info buffer when a launch has already staged these exact info words.
-/// The info is read-only metadata (no tensor pointers), so sharing it across launches —
-/// even of different kernels — is sound, and it means a stable-shape decode allocates
-/// and copies no info inside a capture window (all launches hit warm buffers).
+/// The info is read-only metadata with no tensor pointers in it, so sharing a
+/// buffer across launches — of different kernels, even — is sound, and it is
+/// what lets a stable-shape decode allocate and copy nothing inside a capture
+/// window. The cache's [`lookup`] makes every decision; the capture lifecycle
+/// drives its mode, so during a capture every buffer is kept and none evicted.
 ///
-/// The cache's policy makes every decision (see
-/// [`MetadataInfoCache`](cubecl_runtime::metadata_cache::MetadataInfoCache)), and the
-/// capture lifecycle drives its mode so that during capture every buffer is cached and
-/// none is evicted. We ask the policy first and only touch the cache when it says to —
-/// otherwise we just build the buffer, never keeping a key we wouldn't use. `words` is
-/// taken by value so a miss hands it to the cache as the key without cloning. The
-/// buffer's bytes always equal the key bytes, so a hit is byte-identical to what the miss
-/// path would have built.
+/// `words` is taken by value so a miss hands them to the cache as the key
+/// without cloning, and the buffer's bytes always equal the key's, so a hit is
+/// byte-identical to what the miss would have built.
+///
+/// [`lookup`]: cubecl_runtime::metadata_cache::MetadataInfoCache::lookup
 fn info_buffer(command: &mut Command<'_>, words: Vec<u64>) -> Result<Handle, ServerError> {
-    let size = core::mem::size_of_val(words.as_slice());
-    let cache_mode = command.streams.current().capturing.cache_mode();
-    command.streams.current().info_cache.mode(cache_mode);
-
-    if !command.streams.current().info_cache.should_cache(size) {
-        return Ok(command.create_with_data(bytemuck::cast_slice(&words))?);
+    let stream = command.streams.current();
+    let mode = stream.capturing.cache_mode();
+    match stream.info_cache.lookup(mode, &words) {
+        Lookup::Hit(handle) => Ok(handle),
+        Lookup::Build { store } => {
+            let handle = command.create_with_data(bytemuck::cast_slice(&words))?;
+            if store {
+                command
+                    .streams
+                    .current()
+                    .info_cache
+                    .store(words, handle.clone());
+            }
+            Ok(handle)
+        }
     }
-    // Look up by the borrowed words — a hit clones nothing. On a miss we build the buffer
-    // and move the words into the cache as the key.
-    if let Some(handle) = command.streams.current().info_cache.get(&words) {
-        return Ok(handle);
-    }
-    let handle = command.create_with_data(bytemuck::cast_slice(&words))?;
-    command
-        .streams
-        .current()
-        .info_cache
-        .insert(words, handle.clone());
-    Ok(handle)
 }

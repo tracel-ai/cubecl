@@ -7,7 +7,6 @@
 //! scope from.
 
 use super::storage::gpu::GpuResource;
-use crate::compute::status::checked;
 use crate::runtime::HipCompiler;
 use crate::{compute::stream::Stream, runtime::HipComputeKernel};
 use cubecl_core::{
@@ -24,6 +23,7 @@ use cubecl_hip_sys::get_hip_include_path;
 use cubecl_runtime::compiler::{
     CompilationCache, build_id_hash, compilation_store, store_compiled,
 };
+use cubecl_runtime::driver::checked;
 use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{

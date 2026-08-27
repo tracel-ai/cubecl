@@ -5,8 +5,8 @@
 //! an event recorded on the stream and handed out: the server records it and
 //! returns, and whoever holds it waits on its own time.
 
-use crate::compute::status::checked;
 use cubecl_core::server::ServerError;
+use cubecl_runtime::driver::checked;
 
 /// A fence is simply an [event](hipEvent_t) created on a [stream](hipStream_t) that you can wait
 /// until completion.

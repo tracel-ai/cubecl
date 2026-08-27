@@ -1,6 +1,6 @@
-use crate::compute::status::checked;
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_runtime::driver::checked;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use std::collections::HashMap;
 

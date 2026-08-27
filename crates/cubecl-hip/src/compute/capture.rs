@@ -9,12 +9,12 @@
 //! path would otherwise run are deferred across it.
 
 use crate::compute::fence::Fence;
-use crate::compute::status::checked;
 use crate::compute::stream::Stream;
 use cubecl_core::server::{BufferBinding, ServerError};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
 use cubecl_hip_sys::hipGraphExec_t;
+use cubecl_runtime::driver::checked;
 use cubecl_runtime::id::GraphId;
 use cubecl_runtime::memory_management::ManagedMemoryHandle;
 use std::collections::HashMap;
@@ -181,13 +181,10 @@ impl<'a> Window<'a> {
         self.stream.capturing.begin()?;
         // Reclaim deferred frees before the window opens: warmup's pinned
         // staging buffers (and any other drop-queued slices) sit in the drop
-        // queue until flushed, so without this the recorded run finds no free
+        // queue until drained, so without this the recorded run finds no free
         // staging slice and allocates a fresh one mid-capture — which faults.
-        // The queue is a double buffer (a flush only frees the batch from two
-        // cycles ago and rotates the current one into `pending`), so flush
-        // twice to actually free warmup's just-staged buffers and return them
-        // to their pools for the recorded run to reuse.
-        self.flush_drop_queue_twice();
+        let sys = self.stream.sys;
+        self.stream.drop_queue.drain(|| Fence::new(sys));
         // Warmup is over: release the slices it retained (see
         // `CaptureState::primed`) so the recorded run reuses them instead of
         // allocating. Mandatory rather than an optimization — priming
@@ -266,7 +263,8 @@ impl<'a> Window<'a> {
         retained.extend(self.stream.memory_management_cpu.capture_end());
         // Reclaim the buffers dropped while the window was open, whose fenced
         // flushes were deferred for as long as it was.
-        self.flush_drop_queue_twice();
+        let sys = self.stream.sys;
+        self.stream.drop_queue.drain(|| Fence::new(sys));
         // The memory the recorded launches write. A recording that becomes a
         // graph answers for it on a failed replay; one that does not is
         // answered for by the caller, since those launches never ran and now
@@ -324,15 +322,6 @@ impl<'a> Window<'a> {
                  the first replay will upload on demand: {err}"
             );
         }
-    }
-
-    /// Drain the drop queue for real. It is a double buffer — one flush frees
-    /// the batch from two cycles ago and rotates the current one into pending —
-    /// so a single flush would leave the slices just staged still held.
-    fn flush_drop_queue_twice(&mut self) {
-        let sys = self.stream.sys;
-        self.stream.drop_queue.flush(|| Fence::new(sys));
-        self.stream.drop_queue.flush(|| Fence::new(sys));
     }
 }
 

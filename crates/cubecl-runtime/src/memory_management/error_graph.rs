@@ -169,7 +169,7 @@ impl ErrorGraph {
     /// failure, however many of the buffers carry it.
     ///
     /// This is the shape of every "were these bytes written" answer in the
-    /// system — [`StreamPool::ensure_written`](crate::stream::StreamPool::ensure_written)
+    /// system — [`FailureStore::ensure_written`](crate::stream::FailureStore::ensure_written)
     /// and any harness standing in for it — so the dedup and the wrapping live
     /// here rather than once per caller.
     ///

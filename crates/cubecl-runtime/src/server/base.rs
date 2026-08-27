@@ -434,7 +434,7 @@ where
     /// write one of these buffers failed, whichever stream it ran on — copying
     /// bytes out would hand back whatever was in memory before. Every
     /// implementation asks
-    /// [`StreamPool::ensure_written`](crate::stream::StreamPool::ensure_written)
+    /// [`FailureStore::ensure_written`](crate::stream::FailureStore::ensure_written)
     /// before it copies anything.
     fn read(
         &mut self,
@@ -695,7 +695,7 @@ pub enum ReduceOperation {
 /// the same two answers the rest of the server gives: ask whether the source
 /// carries a failure on the way in (as [`read`](ComputeServer::read) does
 /// through
-/// [`StreamPool::ensure_written`](crate::stream::StreamPool::ensure_written)),
+/// [`FailureStore::ensure_written`](crate::stream::FailureStore::ensure_written)),
 /// and taint the destination on the way out when the operation fails (as a
 /// failed [`launch`](ComputeServer::launch) does). Skipping either lets a
 /// collective reduce stale bytes across every device in the group, or leave a
@@ -1075,6 +1075,23 @@ pub enum IoError {
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
+}
+
+impl IoError {
+    /// Whether reclaiming memory could still make this allocation succeed.
+    ///
+    /// Out of memory *right now* is not out of memory for good: pool pages
+    /// whose slices have all been dropped are still resident, and the frees
+    /// that would release them may sit in a deferred drop queue. A transient
+    /// peak — a model build holding float weights while their quantized copies
+    /// allocate, an autotune sample on a full device — is rescued by a reclaim
+    /// and a second attempt.
+    ///
+    /// A buffer larger than any page the device can hold is the exception. It
+    /// never fits, so reclaiming would only spend the time.
+    pub fn may_succeed_after_reclaim(&self) -> bool {
+        !matches!(self, IoError::BufferTooBig { .. })
+    }
 }
 
 impl core::fmt::Debug for IoError {

@@ -22,7 +22,7 @@ use cubecl_runtime::{
 };
 use std::sync::Arc;
 
-use crate::compute::status::checked;
+use cubecl_runtime::driver::checked;
 
 use crate::compute::{
     cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
