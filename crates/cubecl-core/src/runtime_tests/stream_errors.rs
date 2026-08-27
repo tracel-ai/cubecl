@@ -370,25 +370,81 @@ pub fn test_a_read_downstream_of_a_failure_fails_on_the_root_cause<R: Runtime>(
 ) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_011);
 
-    let (out1, out2) = producer.executes(|| {
-        let out1 = launch_rejected(&client, "root-cause");
-        let out2 = client.empty(core::mem::size_of::<u32>());
-        // A valid kernel reading the buffer the rejection left stale: it must
-        // not run, and what it would have written carries the rejection.
+    let launch_copy = |input: &Handle, out: &Handle| {
         copy::launch::<R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(1),
-            unsafe { BufferArg::from_raw_parts(out1.clone(), 1) },
-            unsafe { BufferArg::from_raw_parts(out2.clone(), 1) },
+            unsafe { BufferArg::from_raw_parts(input.clone(), 1) },
+            unsafe { BufferArg::from_raw_parts(out.clone(), 1) },
         );
-        (out1, out2)
+    };
+
+    let (out1, out2, out3) = producer.executes(|| {
+        let out1 = launch_rejected(&client, "root-cause");
+        let out2 = client.empty(core::mem::size_of::<u32>());
+        let out3 = client.empty(core::mem::size_of::<u32>());
+        // Two hops of valid kernels reading what the rejection left stale:
+        // neither runs, and everything downstream carries the rejection.
+        launch_copy(&out1, &out2);
+        launch_copy(&out2, &out3);
+        (out1, out2, out3)
     });
 
-    // The downstream buffer reports the failure that stopped its producer.
+    // Two hops down, the read reports the root cause — and the path to it:
+    // each hop the launch that was skipped and the buffer that stopped it.
+    let err = reader.executes(|| {
+        client
+            .read_one(out3)
+            .expect_err("the copies never ran, so nothing wrote this buffer")
+            .to_string()
+    });
+    assert!(
+        err.contains("root-cause"),
+        "the root failure travels the whole chain: {err}"
+    );
+    assert!(
+        err.matches("skipped `").count() == 2,
+        "both skipped hops are named on the way to the root: {err}"
+    );
+    assert!(
+        err.contains("failure #"),
+        "the failure id ties every read of this failure together: {err}"
+    );
+
+    // The middle and root buffers report the same failure.
     reader.executes(|| assert_rejected(&client, out2, "root-cause"));
-    // And the root buffer still reports the same one.
     reader.executes(|| assert_rejected(&client, out1, "root-cause"));
+}
+
+/// `check` answers whether the bytes can be trusted without reading them and
+/// without a barrier — one lookup, so a caller can recover per tensor instead
+/// of tearing down a device.
+pub fn test_check_answers_without_a_read<R: Runtime>(client: ComputeClient<R>) {
+    let (producer, reader) = sharing_one_pooled_stream(1_000_013);
+
+    let (stale, clean) = producer.executes(|| {
+        let stale = launch_rejected(&client, "checked-not-read");
+        let clean = client.create_from_slice(u32::as_bytes(&[5u32]));
+        (stale, clean)
+    });
+
+    reader.executes(|| {
+        client
+            .check(&clean)
+            .expect("a buffer whose writer succeeded checks clean");
+        let err = client
+            .check(&stale)
+            .expect_err("the rejected launch never wrote this one")
+            .to_string();
+        assert!(
+            err.contains("checked-not-read"),
+            "the check names the failure a read would have named: {err}"
+        );
+    });
+
+    // And the check took nothing: a read still reports the same failure.
+    reader.executes(|| assert_rejected(&client, stale, "checked-not-read"));
 }
 
 /// An output that aliases an input writes that input in place, so a failure
@@ -459,6 +515,14 @@ macro_rules! testgen_stream_errors {
             fn test_a_read_downstream_of_a_failure_fails_on_the_root_cause() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::stream_errors::test_a_read_downstream_of_a_failure_fails_on_the_root_cause::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_check_answers_without_a_read() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::test_check_answers_without_a_read::<
                     TestRuntime,
                 >(client);
             }

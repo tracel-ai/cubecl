@@ -478,11 +478,23 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         }
     }
 
+    fn check(
+        &mut self,
+        handles: Vec<BufferBinding>,
+        _stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        self.scheduler.ensure_written(handles.iter())
+    }
+
     fn get_resource(
         &mut self,
         binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<WgpuResource>, ServerError> {
+        // The same claim check a read makes: a buffer a failed launch never
+        // filled reports the failure rather than handing back a pointer to
+        // whatever was there before.
+        self.scheduler.ensure_written([&binding].into_iter())?;
         let mut streams = vec![stream_id];
         if binding.stream != stream_id {
             streams.push(binding.stream);
@@ -512,6 +524,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // A dry run stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
         // fail unrelated reads of memory the run deliberately left alone.
+        let kernel_id = kernel.id();
         let (pipeline, compiler_info, io) = match self.pipeline(kernel, &args) {
             Ok(val) => val,
             Err(err) => {
@@ -545,17 +558,17 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // caller write fresh inputs before each replay — clearing the very
         // taint that would explain the hole. A tainted input dooms the
         // capture instead, and end_capture refuses to seal it.
-        if let Some((failure, error)) = self
+        if let Some(found) = self
             .scheduler
             .read_failure(args.buffers_read(io.as_deref()))
         {
             let stream = self.scheduler.stream(&stream_id);
-            stream.profile_failure(&error);
+            stream.profile_failure(&found.error);
             if stream.capturing.is_recording() {
-                stream.capturing.fail(error);
+                stream.capturing.fail(found.error.clone());
             }
             self.scheduler
-                .propagate(failure, args.buffers_written(io.as_deref()));
+                .propagate(&found, kernel_id, args.buffers_written(io.as_deref()));
             return;
         }
 

@@ -386,13 +386,18 @@ impl ComputeServer for CpuServer {
         // scattering into memory that carried no failure at all. The outputs
         // take the failure that stopped the launch, exactly as a failed
         // launch's would, so a read downstream fails on the root cause.
-        if let Some((failure, error)) = self
+        if let Some(found) = self
             .scheduler
             .read_failure(bindings.buffers_read(io.as_deref()))
         {
-            self.scheduler.stream(&stream_id).profile_failure(&error);
             self.scheduler
-                .propagate(failure, bindings.buffers_written(io.as_deref()));
+                .stream(&stream_id)
+                .profile_failure(&found.error);
+            self.scheduler.propagate(
+                &found,
+                kernel_id.clone(),
+                bindings.buffers_written(io.as_deref()),
+            );
             return;
         }
 
@@ -429,6 +434,14 @@ impl ComputeServer for CpuServer {
         if let Err(err) = result {
             self.scheduler.stream(&stream_id).profile_failure(&err);
         }
+    }
+
+    fn check(
+        &mut self,
+        handles: Vec<BufferBinding>,
+        _stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        self.scheduler.ensure_written(handles.iter())
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -486,6 +499,10 @@ impl ComputeServer for CpuServer {
         binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError> {
+        // The same claim check a read makes: a buffer a failed launch never
+        // filled reports the failure rather than handing back a pointer to
+        // whatever was there before.
+        self.scheduler.ensure_written([&binding].into_iter())?;
         let mut streams = vec![stream_id];
         if binding.stream != stream_id {
             streams.push(binding.stream);

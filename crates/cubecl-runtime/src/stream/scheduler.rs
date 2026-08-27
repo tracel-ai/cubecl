@@ -220,19 +220,32 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     pub fn read_failure<'a>(
         &self,
         reads: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Option<(FailureId, ServerError)> {
+    ) -> Option<super::ReadFailure> {
         self.pool.read_failure(&self.failures, reads)
     }
 
     /// A skipped launch's outputs take the failure that stopped it: nothing
     /// wrote them, exactly as if the launch had failed, and the claim names
-    /// the root cause rather than minting a new one.
+    /// the root cause rather than minting a new one. The skip is recorded on
+    /// the failure, so a read of anything downstream can name the path back
+    /// to the root.
     pub fn propagate<'a>(
         &mut self,
-        failure: FailureId,
+        found: &super::ReadFailure,
+        kernel: crate::id::KernelId,
         written: impl Iterator<Item = &'a BufferBinding>,
     ) {
-        self.pool.taint_with(failure, written, &mut self.failures);
+        let written: Vec<&BufferBinding> = written.collect();
+        self.failures.skipped(
+            found.failure,
+            crate::memory_management::Skipped {
+                kernel,
+                needed: found.needed,
+                produced: written.iter().map(|handle| handle.memory.id()).collect(),
+            },
+        );
+        self.pool
+            .taint_with(found.failure, written.into_iter(), &mut self.failures);
     }
 
     /// Record a device fault — see the field. The first fault wins: it is the

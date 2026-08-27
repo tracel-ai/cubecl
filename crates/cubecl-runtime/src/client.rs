@@ -950,6 +950,23 @@ impl<R: Runtime> ComputeClient<R> {
         unsafe { self.launch_inner(kernel, count, bindings, self.stream_id()) }
     }
 
+    /// Whether the bytes behind `handle` can be trusted, right now and with
+    /// no barrier: the claim check a read makes, without the read. One
+    /// lookup, so a fusion layer or an autotuner can recover per tensor
+    /// instead of tearing down a device.
+    ///
+    /// Instant means enqueue-time failures only — a compile or binding
+    /// failure is visible here immediately, a device fault is not until the
+    /// queue drains. [`sync`](Self::sync) with the handle is the complete
+    /// answer; [`read_one`](Self::read_one) is that plus the copy.
+    pub fn check(&self, handle: &Handle) -> Result<(), ServerError> {
+        let binding = handle.clone().binding();
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.check(vec![binding], stream_id))
+            .unwrap_or_resume()
+    }
+
     /// Flush all outstanding commands.
     pub fn flush(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();

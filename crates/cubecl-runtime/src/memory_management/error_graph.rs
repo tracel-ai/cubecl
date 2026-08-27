@@ -13,8 +13,13 @@
 //! itself, and what it prunes is exactly the failures nothing can still read:
 //! the graph leaks if and only if the program leaks memory.
 
+use crate::id::KernelId;
+use crate::memory_management::ManagedMemoryId;
 use crate::server::ServerError;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::num::NonZeroU32;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 
 /// The id a tainted allocation carries, naming the failure that left its
@@ -47,7 +52,43 @@ struct Failure {
     error: ServerError,
     /// How many slices carry this id. The node lives while this is non-zero.
     tagged: u32,
+    /// What this failure stopped, newest last, capped to the most recent —
+    /// see [`Skipped`]. On the failure rather than on the buffers because a
+    /// record stored on an allocation dies when that allocation does, and a
+    /// chain of links would break as soon as an intermediate buffer is freed
+    /// — the common case for a fused graph where only the last tensor is
+    /// kept. Holds ids, never handles, so the record of what a failure
+    /// stopped never retains the memory it names.
+    skipped: Vec<Skipped>,
+    /// Every skip, the capped list included: the report says how many are
+    /// missing from the walk.
+    skipped_total: u64,
 }
+
+/// One launch a failure stopped: the kernel that did not run, the buffer
+/// whose claim stopped it, and what it would have produced.
+///
+/// A read of a downstream buffer walks these backwards — the record that
+/// produced this buffer, then the record that produced what that one needed —
+/// so the report names the path from the read back to the root instead of
+/// only the root.
+#[derive(Debug, Clone)]
+pub struct Skipped {
+    /// The kernel the skip stopped.
+    pub kernel: KernelId,
+    /// The claimed buffer the kernel would have read.
+    pub needed: ManagedMemoryId,
+    /// The buffers the kernel would have written, which now carry the same
+    /// failure.
+    pub produced: Vec<ManagedMemoryId>,
+}
+
+/// How many [`Skipped`] records one failure keeps. Newest win: the walk a
+/// read makes starts from the most recent buffers, so keeping the oldest
+/// would leave them with no entry to start from, while a deep chain reaching
+/// a gap before the root costs nothing — the root is on the node itself and
+/// never in the list.
+pub const MAX_SKIPPED: usize = 16;
 
 impl ErrorGraph {
     /// Hold `error` until nothing carries its id any more.
@@ -61,8 +102,67 @@ impl ErrorGraph {
             .checked_add(1)
             .expect("a failure id was minted for every u32");
         let id = FailureId(NonZeroU32::new(self.minted).expect("minted starts above zero"));
-        self.nodes.insert(id, Failure { error, tagged: 0 });
+        self.nodes.insert(
+            id,
+            Failure {
+                error,
+                tagged: 0,
+                skipped: Vec::new(),
+                skipped_total: 0,
+            },
+        );
         id
+    }
+
+    /// Record a launch `failure` stopped — see [`Skipped`]. Keeps the newest
+    /// [`MAX_SKIPPED`] records and counts them all.
+    pub fn skipped(&mut self, failure: FailureId, record: Skipped) {
+        let Some(node) = self.nodes.get_mut(&failure) else {
+            return;
+        };
+        node.skipped_total += 1;
+        if node.skipped.len() == MAX_SKIPPED {
+            node.skipped.remove(0);
+        }
+        node.skipped.push(record);
+    }
+
+    /// The report a read of `memory` gets when `failure` claims its bytes:
+    /// the root error, and the path from this buffer back toward it,
+    /// reconstructed by walking the skip records backwards.
+    pub fn report(&self, failure: FailureId, memory: ManagedMemoryId) -> Option<ServerError> {
+        let node = self.nodes.get(&failure)?;
+
+        let mut chain = Vec::new();
+        let mut target = memory;
+        let mut upper = node.skipped.len();
+        while let Some(found) = node.skipped[..upper]
+            .iter()
+            .rposition(|record| record.produced.contains(&target))
+        {
+            let record = &node.skipped[found];
+            chain.push(alloc::format!(
+                "skipped `{}`: it needed memory {:?}, which carried the failure",
+                record.kernel.short_name(),
+                record.needed,
+            ));
+            target = record.needed;
+            upper = found;
+        }
+        let dropped = node.skipped_total.saturating_sub(node.skipped.len() as u64);
+        if !chain.is_empty() && dropped > 0 {
+            chain.push(alloc::format!(
+                "({dropped} older skip record(s) were dropped; the walk may stop before the root)"
+            ));
+        }
+
+        Some(ServerError::Unwritten {
+            failure: failure.0.get(),
+            claimed: node.tagged,
+            chain,
+            root: Box::new(node.error.clone()),
+            backtrace: BackTrace::capture(),
+        })
     }
 
     /// One more allocation carries `failure`.
@@ -205,6 +305,88 @@ mod tests {
 
         graph.untag(Some(failure));
         assert!(graph.is_empty());
+    }
+
+    fn skip(
+        kernel_name: KernelId,
+        needed: ManagedMemoryId,
+        produced: &[ManagedMemoryId],
+    ) -> Skipped {
+        Skipped {
+            kernel: kernel_name,
+            needed,
+            produced: produced.to_vec(),
+        }
+    }
+
+    fn memory_id(value: usize) -> ManagedMemoryId {
+        ManagedMemoryId { value }
+    }
+
+    struct Fill;
+    struct Matmul;
+    struct Gelu;
+
+    /// The walk a read makes: from the buffer asked about, backwards through
+    /// the skip records, to the root — each hop the record that produced what
+    /// the previous one needed.
+    #[test]
+    fn a_report_walks_the_skip_chain_back_to_the_root() {
+        let mut graph = ErrorGraph::default();
+        let failure = graph.insert(error("fill_f32 failed to compile"));
+        graph.tag(failure);
+
+        let (root_out, mid, last) = (memory_id(77), memory_id(91), memory_id(103));
+        graph.skipped(failure, skip(KernelId::new::<Matmul>(), root_out, &[mid]));
+        graph.skipped(failure, skip(KernelId::new::<Gelu>(), mid, &[last]));
+
+        let report = graph.report(failure, last).unwrap();
+        let text = alloc::format!("{report}");
+        let gelu = text.find("Gelu").expect("the newest hop comes first");
+        let matmul = text.find("Matmul").expect("then the one it needed");
+        assert!(gelu < matmul, "newest skip first, root last: {text}");
+        assert!(
+            text.contains("fill_f32 failed to compile"),
+            "the root is always in the report: {text}"
+        );
+        assert!(
+            text.contains(&alloc::format!("#{}", failure.0.get())),
+            "the failure id ties reads of the same failure together: {text}"
+        );
+
+        // A buffer no record produced reports the root alone.
+        let report = graph.report(failure, memory_id(555)).unwrap();
+        let text = alloc::format!("{report}");
+        assert!(!text.contains("Gelu") && text.contains("fill_f32 failed to compile"));
+    }
+
+    /// The cap keeps the newest records — the walk starts from the most
+    /// recent buffers, so keeping the oldest would leave them with no entry
+    /// to start from — and the report says what it dropped.
+    #[test]
+    fn the_skip_cap_keeps_the_newest_records() {
+        let mut graph = ErrorGraph::default();
+        let failure = graph.insert(error("root"));
+        graph.tag(failure);
+
+        for i in 0..(MAX_SKIPPED + 4) {
+            graph.skipped(
+                failure,
+                skip(KernelId::new::<Fill>(), memory_id(i), &[memory_id(i + 1)]),
+            );
+        }
+
+        let newest = memory_id(MAX_SKIPPED + 4);
+        let report = graph.report(failure, newest).unwrap();
+        let text = alloc::format!("{report}");
+        assert!(
+            text.contains("Fill"),
+            "the newest buffer still has an entry to walk from: {text}"
+        );
+        assert!(
+            text.contains("4 older skip record(s) were dropped"),
+            "and the report says the walk may stop early: {text}"
+        );
     }
 
     /// Pruning is only for the untainted case: a failure something carries

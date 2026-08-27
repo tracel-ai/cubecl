@@ -420,13 +420,16 @@ impl ComputeServer for MetalServer {
         // scattering into memory that carried no failure at all. The outputs
         // take the failure that stopped the launch, exactly as a failed
         // launch's would, so a read downstream fails on the root cause.
-        if let Some((failure, error)) = self
+        if let Some(found) = self
             .streams
             .read_failure(bindings.buffers_read(io.as_deref()))
         {
-            self.profile_failure(&error);
-            self.streams
-                .propagate(failure, bindings.buffers_written(io.as_deref()));
+            self.profile_failure(&found.error);
+            self.streams.propagate(
+                &found,
+                kernel_id.clone(),
+                bindings.buffers_written(io.as_deref()),
+            );
             return;
         }
 
@@ -627,6 +630,14 @@ impl ComputeServer for MetalServer {
         Box::pin(async move { MetalStreamBackend::wait_event_sync(fence) })
     }
 
+    fn check(
+        &mut self,
+        handles: Vec<BufferBinding>,
+        _stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        self.streams.ensure_written(handles.iter())
+    }
+
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         // A launch failure is not the flush's to report — it lives on the
         // buffers the launch left unwritten. The device fault is: the context
@@ -718,6 +729,10 @@ impl ComputeServer for MetalServer {
         binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<<MetalStorage as ComputeStorage>::Resource>, ServerError> {
+        // The same claim check a read makes: a buffer a failed launch never
+        // filled reports the failure rather than handing back a pointer to
+        // whatever was there before.
+        self.streams.ensure_written([&binding].into_iter())?;
         let mut resolved = self.streams.resolve(stream_id, std::iter::once(&binding))?;
         // Resolve from the binding's origin stream; see `resolve_origin_resource`.
         let stream = resolved.get(&binding.stream);

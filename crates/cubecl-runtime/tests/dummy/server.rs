@@ -276,6 +276,14 @@ impl ComputeServer for DummyServer {
         self.take_pending_error()
     }
 
+    fn check(
+        &mut self,
+        _handles: Vec<BufferBinding>,
+        _stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        Ok(())
+    }
+
     fn memory_usage(&mut self, _stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         Ok(self.memory_management.memory_usage())
     }

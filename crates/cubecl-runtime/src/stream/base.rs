@@ -1,8 +1,21 @@
-use crate::memory_management::{ErrorGraph, FailureId};
+use crate::memory_management::{ErrorGraph, FailureId, ManagedMemoryId};
 use crate::server::{BufferBinding, ServerError};
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
+
+/// What a launch's read-set check found: the failure claiming an input, the
+/// input it claims, and the error — everything the skip needs to record and
+/// a capture needs to fail with.
+pub struct ReadFailure {
+    /// The failure claiming the input.
+    pub failure: FailureId,
+    /// The claimed input, which the skip record names as what the launch
+    /// needed.
+    pub needed: ManagedMemoryId,
+    /// The failure's error, cloned for the paths that report it directly.
+    pub error: ServerError,
+}
 
 /// Trait for creating streams, used by the stream pool to generate streams as needed.
 pub trait StreamFactory {
@@ -194,8 +207,10 @@ impl<F: StreamFactory> StreamPool<F> {
                 continue;
             }
             seen.push(failure);
-            if let Some(error) = failures.error(failure) {
-                errors.push(error.clone());
+            // The full report: the root error, and the skip chain from this
+            // buffer back toward it.
+            if let Some(error) = failures.report(failure, handle.memory.id()) {
+                errors.push(error);
             }
         }
 
@@ -326,7 +341,7 @@ impl<F: StreamFactory> StreamPool<F> {
         &self,
         failures: &ErrorGraph,
         reads: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Option<(FailureId, ServerError)>
+    ) -> Option<ReadFailure>
     where
         F::Stream: StreamMemory,
     {
@@ -340,7 +355,11 @@ impl<F: StreamFactory> StreamPool<F> {
             let Some(error) = failures.error(failure) else {
                 continue;
             };
-            return Some((failure, error.clone()));
+            return Some(ReadFailure {
+                failure,
+                needed: handle.memory.id(),
+                error: error.clone(),
+            });
         }
         None
     }

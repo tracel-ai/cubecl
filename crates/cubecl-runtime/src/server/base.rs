@@ -321,6 +321,30 @@ pub enum ServerError {
     #[error("An IO error happened\nCaused by:\n  {0}")]
     Io(#[from] IoError),
 
+    /// The bytes asked about were never written: the work that was going to
+    /// write them failed, or was skipped downstream of a failure. `chain`
+    /// walks from the buffer asked about back toward the root, newest skip
+    /// first, and `root` is the failure that started it.
+    #[error(
+        "The bytes were never written (failure #{failure}, still claiming {claimed} buffer(s))\n{}Caused by:\n  {root}\nAsked at:\n{backtrace}",
+        chain.iter().map(|hop| alloc::format!("  {hop}\n")).collect::<String>()
+    )]
+    Unwritten {
+        /// The failure's id in the device's error store, as printed by every
+        /// other read that trips over the same failure.
+        failure: u32,
+        /// How many buffers the failure still claims.
+        claimed: u32,
+        /// The skip chain from the buffer asked about back toward the root.
+        chain: Vec<String>,
+        /// The failure that started it, backtrace included.
+        root: Box<ServerError>,
+        /// Where the question was asked, so the lazy report and the read that
+        /// tripped over it can be tied together.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// The server is an invalid state.
     #[error("The server is in an invalid state\nCaused by:\n  {}", errors.iter().join("\n"))]
     ServerUnhealthy {
@@ -427,14 +451,22 @@ where
         stream_id: StreamId,
     ) -> DynFut<Result<(), ServerError>>;
 
+    /// Whether the bytes the handles name can be trusted, right now and with
+    /// no barrier: the claim check a read makes, without the read. Instant —
+    /// enqueue-time failures only. A device fault needs [`sync`](Self::sync),
+    /// which drains first.
+    fn check(
+        &mut self,
+        handles: Vec<BufferBinding>,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError>;
+
     /// Given a resource handle, returns the storage resource.
     ///
-    /// Unlike [`read`](Self::read), this hands back the memory itself and asks
-    /// nothing about what wrote it: a buffer a failed launch never filled comes
-    /// back holding whatever was there before, with no error. The check a read
-    /// does costs a scan of every stream's queue, which is worth it for a copy
-    /// out and not for handing over a pointer — so a caller that reads through
-    /// this is taking the guarantee on itself.
+    /// The same claim check a read makes guards this too: a buffer a failed
+    /// launch never filled reports the failure rather than handing back a
+    /// pointer to whatever was there before. It costs a field read on a slice
+    /// the resolution walks anyway.
     fn get_resource(
         &mut self,
         binding: BufferBinding,
