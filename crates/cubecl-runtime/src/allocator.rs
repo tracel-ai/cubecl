@@ -185,3 +185,56 @@ impl Pitch {
         })
     }
 }
+
+#[cfg(test)]
+mod pitch_tests {
+    use super::Pitch;
+
+    /// A contiguous buffer has no pitch, so a copy of it is one linear span.
+    ///
+    /// The distinction is not an optimization: drivers refuse the 2D form for
+    /// very tall transfers, and the linear path is what handles those.
+    #[test]
+    fn contiguous_rows_have_no_pitch() {
+        // A row stride equal to the row width is exactly no padding.
+        assert_eq!(Pitch::of(&[4, 8], &[8, 1], 4), None);
+        // Rank 0 and 1 have no second-to-last dimension to be padded.
+        assert_eq!(Pitch::of(&[8], &[1], 4), None);
+        assert_eq!(Pitch::of(&[], &[], 4), None);
+    }
+
+    /// A padded buffer reports the geometry the 2D copy needs, in bytes.
+    ///
+    /// Every one of the three is a byte count the driver indexes with; a wrong
+    /// one scrambles the rows rather than failing, which is why this is worth
+    /// checking away from a device.
+    #[test]
+    fn padded_rows_report_width_height_and_stride() {
+        // 4 rows of 8 f32, padded to a stride of 12 elements.
+        let pitch = Pitch::of(&[4, 8], &[12, 1], 4).expect("a padded row is a pitch");
+        assert_eq!(pitch.width_bytes, 8 * 4);
+        assert_eq!(pitch.stride_bytes, 12 * 4);
+        assert_eq!(pitch.height, 4);
+    }
+
+    /// The height is every dimension but the last, so a rank-3 buffer's rows
+    /// are counted across the leading dimensions rather than only the middle.
+    #[test]
+    fn height_counts_every_row_not_only_the_last_dimension() {
+        let pitch = Pitch::of(&[2, 3, 8], &[36, 12, 1], 4).expect("a padded row is a pitch");
+        assert_eq!(pitch.height, 6);
+        assert_eq!(pitch.width_bytes, 8 * 4);
+        assert_eq!(pitch.stride_bytes, 12 * 4);
+    }
+
+    /// The element size scales all three, so the same layout of a wider
+    /// element is the same geometry in more bytes.
+    #[test]
+    fn the_geometry_is_bytes_not_elements() {
+        let narrow = Pitch::of(&[4, 8], &[12, 1], 1).expect("a padded row is a pitch");
+        let wide = Pitch::of(&[4, 8], &[12, 1], 8).expect("a padded row is a pitch");
+        assert_eq!(wide.width_bytes, narrow.width_bytes * 8);
+        assert_eq!(wide.stride_bytes, narrow.stride_bytes * 8);
+        assert_eq!(wide.height, narrow.height);
+    }
+}

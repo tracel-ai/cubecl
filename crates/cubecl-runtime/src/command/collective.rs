@@ -159,7 +159,7 @@ impl<D: CollectiveDriver> Collectives<D> {
         // number.
         let mut devices = devices;
         devices.sort();
-        let rank = self.rank_in(&devices).ok_or_else(|| ServerError::Generic {
+        let rank = rank_in(self.device, &devices).ok_or_else(|| ServerError::Generic {
             reason: format!(
                 "this device ({:?}) is not among the {} the group was formed over, \
                      so it has no rank in it",
@@ -199,22 +199,102 @@ impl<D: CollectiveDriver> Collectives<D> {
     /// [`ServerError::Generic`] when every device in the pair is this one, so
     /// there is no peer to name.
     pub fn peer_rank(&self, devices: &[DeviceId]) -> Result<usize, ServerError> {
-        devices
-            .iter()
-            .position(|id| id.index_id != self.device.index_id)
-            .ok_or_else(|| ServerError::Generic {
-                reason: format!(
-                    "every device in the pair is this one ({:?}), so there is no peer",
-                    self.device
-                ),
-                backtrace: BackTrace::capture(),
-            })
+        peer_of(self.device, devices).ok_or_else(|| ServerError::Generic {
+            reason: format!(
+                "every device in the pair is this one ({:?}), so there is no peer",
+                self.device
+            ),
+            backtrace: BackTrace::capture(),
+        })
+    }
+}
+
+/// `device`'s position in `devices`, which is its rank.
+///
+/// Free of the driver because a rank is arithmetic over device ids and
+/// nothing else — which is also what lets it be checked without one.
+fn rank_in(device: DeviceId, devices: &[DeviceId]) -> Option<usize> {
+    devices.iter().position(|id| id.index_id == device.index_id)
+}
+
+/// The position of the one device in `devices` that is not `device`.
+fn peer_of(device: DeviceId, devices: &[DeviceId]) -> Option<usize> {
+    devices.iter().position(|id| id.index_id != device.index_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    /// A device is its index, since that is all a rank is computed from.
+    fn device(index: u16) -> DeviceId {
+        DeviceId {
+            type_id: 0,
+            index_id: index,
+        }
     }
 
-    /// This device's position in `devices`, which is its rank.
-    fn rank_in(&self, devices: &[DeviceId]) -> Option<usize> {
-        devices
-            .iter()
-            .position(|id| id.index_id == self.device.index_id)
+    /// A rank is a position in the sorted group, so every member computes the
+    /// same one whatever order it was handed the devices in.
+    ///
+    /// The property worth defending above every other here, because breaking
+    /// it does not fail: two ranks that disagree hang, each waiting for a peer
+    /// that is answering to a different number.
+    #[test]
+    fn a_rank_does_not_depend_on_the_order_the_group_was_given_in() {
+        let group = [device(7), device(2), device(5)];
+        for given in [
+            vec![group[0], group[1], group[2]],
+            vec![group[2], group[1], group[0]],
+            vec![group[1], group[2], group[0]],
+        ] {
+            let mut sorted = given.clone();
+            sorted.sort();
+            for (expected, member) in sorted.iter().enumerate() {
+                assert_eq!(
+                    rank_in(*member, &sorted),
+                    Some(expected),
+                    "{member:?} in {given:?}"
+                );
+            }
+        }
+    }
+
+    /// A device outside the group has no rank in it, rather than silently
+    /// taking someone else's.
+    #[test]
+    fn a_device_outside_the_group_has_no_rank() {
+        assert_eq!(rank_in(device(9), &[device(1), device(2)]), None);
+    }
+
+    /// The peer of a pair is whichever member is not this device.
+    #[test]
+    fn the_peer_of_a_pair_is_the_other_member() {
+        let pair = [device(3), device(8)];
+        assert_eq!(peer_of(device(3), &pair), Some(1));
+        assert_eq!(peer_of(device(8), &pair), Some(0));
+    }
+
+    /// A pair of one device has no peer, rather than a rank that would send a
+    /// transfer to the device it came from.
+    #[test]
+    fn a_pair_of_one_device_has_no_peer() {
+        assert_eq!(peer_of(device(4), &[device(4), device(4)]), None);
+    }
+
+    /// Ranks are compared by device index alone, so two devices of different
+    /// kinds at the same index are the same member of a group.
+    ///
+    /// Not obviously right — it is what the collective has always done — but
+    /// worth pinning, because a group spanning two device types would silently
+    /// give both the same rank.
+    #[test]
+    fn a_rank_is_the_device_index_and_nothing_else() {
+        let other_kind = DeviceId {
+            type_id: 1,
+            index_id: 2,
+        };
+        assert_eq!(rank_in(other_kind, &[device(1), device(2)]), Some(1));
     }
 }
