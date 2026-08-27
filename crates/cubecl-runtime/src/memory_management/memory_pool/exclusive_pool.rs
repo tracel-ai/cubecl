@@ -254,7 +254,7 @@ impl MemoryPool for ExclusiveMemoryPool {
                     // If free found is sufficiently high (ie. we've seen this alloc as free multiple times,
                     // without it being used in the meantime), deallocate it.
                     if page.free_count >= ALLOC_AFTER_FREE || explicit {
-                        failures.untag(page.slice.failure);
+                        page.slice.tainted.clear(failures);
                         storage.dealloc(page.slice.storage.id);
                         continue;
                     }

@@ -18,7 +18,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    server::{IoError, ProfileError, ProfilingToken, ServerError},
+    server::{BufferBinding, IoError, ProfileError, ProfilingToken, ServerError},
     zspace::Shape,
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -29,9 +29,7 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{
-        ErrorGraph, FailureId, ManagedMemoryBinding, ManagedMemoryHandle, SharedMemoryBindings,
-    },
+    memory_management::{ErrorGraph, FailureId, ManagedMemoryHandle, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     stream::{StreamCapture, StreamErrorSink, StreamErrors, StreamMemory},
     timestamp_profiler::TimestampProfiler,
@@ -104,20 +102,15 @@ impl StreamErrorSink for WgpuStream {
 }
 
 impl StreamMemory for WgpuStream {
-    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
         self.mem_manage.failure(binding)
     }
 
-    fn taint(
-        &mut self,
-        binding: &ManagedMemoryBinding,
-        failure: FailureId,
-        failures: &mut ErrorGraph,
-    ) {
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
         self.mem_manage.taint(binding, failure, failures)
     }
 
-    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
         self.mem_manage.written(binding, failures)
     }
 }
@@ -261,7 +254,7 @@ impl WgpuStream {
                     // owned by another stream is the server-side rejection's to
                     // taint, and that rejection comes first.
                     let failure = failures.insert(err.clone());
-                    self.mem_manage.taint(&handle.memory, failure, failures);
+                    self.mem_manage.taint(&handle, failure, failures);
                     failures.prune(failure);
                     self.capture_error(err);
                     return;

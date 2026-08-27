@@ -222,12 +222,12 @@ impl MemoryPool for PersistentPool {
             let mut slices = Vec::new();
             let mut sizes = HashMap::<u64, Vec<usize>>::new();
 
-            for slice in self.slices.drain(..) {
+            for mut slice in self.slices.drain(..) {
                 if slice.is_free() {
                     // A dropped slice releases the failure it carried. A
                     // minted-but-never-materialized id has nothing behind
                     // it for the driver to free.
-                    failures.untag(slice.failure);
+                    slice.tainted.clear(failures);
                     if slice.mapped {
                         storage.dealloc(slice.storage.id);
                     }

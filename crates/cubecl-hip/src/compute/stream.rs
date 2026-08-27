@@ -7,8 +7,7 @@ use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        ErrorGraph, FailureId, ManagedMemoryBinding, MemoryAllocationMode, MemoryManagement,
-        MemoryManagementOptions,
+        ErrorGraph, FailureId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
         drop_queue::{self, FlushingPolicy, PendingDropQueue},
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
@@ -55,21 +54,19 @@ impl StreamErrorSink for Stream {
 }
 
 impl StreamMemory for Stream {
-    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
-        self.memory_management_gpu.failure(binding)
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
+        self.memory_management_gpu
+            .failure(&binding.memory, binding.range())
     }
 
-    fn taint(
-        &mut self,
-        binding: &ManagedMemoryBinding,
-        failure: FailureId,
-        failures: &mut ErrorGraph,
-    ) {
-        self.memory_management_gpu.taint(binding, failure, failures)
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
+        self.memory_management_gpu
+            .taint(&binding.memory, binding.range(), failure, failures)
     }
 
-    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
-        self.memory_management_gpu.written(binding, failures)
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
+        self.memory_management_gpu
+            .written(&binding.memory, binding.range(), failures)
     }
 }
 

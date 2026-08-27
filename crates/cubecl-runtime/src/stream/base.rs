@@ -1,4 +1,4 @@
-use crate::memory_management::{ErrorGraph, FailureId, ManagedMemoryBinding};
+use crate::memory_management::{ErrorGraph, FailureId};
 use crate::server::{BufferBinding, ServerError};
 use crate::stream::StreamErrorSink;
 use alloc::vec::Vec;
@@ -20,21 +20,21 @@ pub trait StreamFactory {
 /// the one whose allocations back [`BufferBinding`]s, never the auxiliary
 /// staging or uniform managers — and everything the drivers do with the
 /// answer lives on the shared wrappers.
+///
+/// The whole binding is passed rather than its memory handle because a
+/// binding names a byte range of its allocation ([`BufferBinding::range`]),
+/// and the claim is exactly that range: a launch that failed writing one
+/// region of a buffer says nothing about the rest of it.
 pub trait StreamMemory {
-    /// The failure carried by the allocation behind `binding`, if any.
-    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId>;
+    /// The failure claiming any byte the binding names, if one does.
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId>;
 
-    /// Point the allocation behind `binding` at `failure`.
-    fn taint(
-        &mut self,
-        binding: &ManagedMemoryBinding,
-        failure: FailureId,
-        failures: &mut ErrorGraph,
-    );
+    /// Point the bytes `binding` names at `failure`.
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph);
 
-    /// The allocation behind `binding` has a writer again: release the
-    /// failure it carried.
-    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph);
+    /// The bytes `binding` names have a writer again: release every claim on
+    /// them, and only on them.
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph);
 }
 
 /// Represents a pool of streams, managing a collection of streams created by a factory.
@@ -191,7 +191,7 @@ impl<F: StreamFactory> StreamPool<F> {
             let Some(stream) = self.try_get(&handle.stream) else {
                 continue;
             };
-            let Some(failure) = stream.failure(&handle.memory) else {
+            let Some(failure) = stream.failure(handle) else {
                 continue;
             };
             if seen.contains(&failure) {
@@ -250,7 +250,7 @@ impl<F: StreamFactory> StreamPool<F> {
             let Some(stream) = self.streams[index].as_mut() else {
                 continue;
             };
-            stream.taint(&handle.memory, failure, failures);
+            stream.taint(handle, failure, failures);
         }
     }
 
@@ -339,7 +339,7 @@ impl<F: StreamFactory> StreamPool<F> {
             let Some(stream) = self.streams[index].as_mut() else {
                 continue;
             };
-            stream.written(&handle.memory, failures);
+            stream.written(handle, failures);
         }
     }
 

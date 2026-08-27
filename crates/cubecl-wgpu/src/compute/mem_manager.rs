@@ -124,25 +124,27 @@ impl WgpuMemManager {
     /// The failure carried by the allocation behind `binding`, if any — see
     /// [`MemoryManagement::failure`]. Main pool only: the auxiliary pools'
     /// allocations never back a [`BufferBinding`].
-    pub(crate) fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
-        self.memory_pool.failure(binding)
+    pub(crate) fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
+        self.memory_pool.failure(&binding.memory, binding.range())
     }
 
-    /// Point the allocation behind `binding` at `failure` — see
+    /// Point the bytes `binding` names at `failure` — see
     /// [`MemoryManagement::taint`].
     pub(crate) fn taint(
         &mut self,
-        binding: &ManagedMemoryBinding,
+        binding: &BufferBinding,
         failure: FailureId,
         failures: &mut ErrorGraph,
     ) {
-        self.memory_pool.taint(binding, failure, failures)
+        self.memory_pool
+            .taint(&binding.memory, binding.range(), failure, failures)
     }
 
-    /// The allocation behind `binding` has a writer again — see
+    /// The bytes `binding` names have a writer again — see
     /// [`MemoryManagement::written`].
-    pub(crate) fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
-        self.memory_pool.written(binding, failures)
+    pub(crate) fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
+        self.memory_pool
+            .written(&binding.memory, binding.range(), failures)
     }
 
     pub(crate) fn reserve_staging(

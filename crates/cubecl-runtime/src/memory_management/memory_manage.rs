@@ -23,6 +23,7 @@ use alloc::string::{String, ToString};
 #[cfg(not(exclusive_memory_only))]
 use alloc::vec;
 use alloc::vec::Vec;
+use core::ops::Range;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashSet;
 use cubecl_environment::sync::Arc;
@@ -1362,37 +1363,46 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             })?
     }
 
-    /// The failure carried by the allocation behind `binding`, if any.
+    /// The failure claiming any byte of `range` in the allocation behind
+    /// `binding`, if one does.
     ///
     /// This is the read path's whole check: a field on a slice the resolution
     /// walks anyway. A binding this manager does not hold answers `None` —
     /// lookup errors are [`find`](Self::find)'s to report, and a failed lookup
     /// carries no failure to name.
-    pub fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
-        self.find(binding).ok().and_then(|slice| slice.failure)
+    pub fn failure(&self, binding: &ManagedMemoryBinding, range: Range<u64>) -> Option<FailureId> {
+        self.find(binding)
+            .ok()
+            .and_then(|slice| slice.tainted.failure(&range))
     }
 
-    /// Point the allocation behind `binding` at `failure`.
+    /// Point `range` of the allocation behind `binding` at `failure`.
     ///
     /// A binding this manager does not hold is left alone, for the same
     /// reason [`failure`](Self::failure) answers `None` for one.
     pub fn taint(
         &mut self,
         binding: &ManagedMemoryBinding,
+        range: Range<u64>,
         failure: FailureId,
         failures: &mut ErrorGraph,
     ) {
         if let Ok(slice) = self.find_mut(binding) {
-            failures.taint(&mut slice.failure, failure);
+            slice.tainted.taint(range, failure, failures);
         }
     }
 
-    /// The allocation behind `binding` has a writer again: release the
-    /// failure it carried, so a read of it stops failing on work that has
-    /// since been redone.
-    pub fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
+    /// `range` of the allocation behind `binding` has a writer again: release
+    /// every claim on those bytes — and only those bytes, since a partial
+    /// write says nothing about the rest of the buffer.
+    pub fn written(
+        &mut self,
+        binding: &ManagedMemoryBinding,
+        range: Range<u64>,
+        failures: &mut ErrorGraph,
+    ) {
         if let Ok(slice) = self.find_mut(binding) {
-            failures.untag(slice.failure.take());
+            slice.tainted.written(range, failures);
         }
     }
 }

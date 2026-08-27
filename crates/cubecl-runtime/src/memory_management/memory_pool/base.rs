@@ -1,6 +1,6 @@
 use super::{ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle};
 use crate::{
-    memory_management::{ErrorGraph, FailureId, MemoryUsage},
+    memory_management::{ErrorGraph, MemoryUsage, Taint},
     server::IoError,
     storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
@@ -177,15 +177,16 @@ pub(crate) struct Slice {
     /// laziness here; sliced pools track it on the page, whose id every slice
     /// shares.
     pub mapped: bool,
-    /// The failure that tainted this allocation, if any.
+    /// The tainted regions of this allocation, if any.
     ///
     /// Whether these bytes can be trusted is a property of the memory, so it
-    /// lives here rather than in any stream's bookkeeping. What the id means
-    /// is the [`ErrorGraph`]'s to say; the slice only carries it, and sheds it
-    /// the moment the allocation it describes ends — see
-    /// [`bind`](Self::bind) and the untag calls on every path that drops a
-    /// slice.
-    pub failure: Option<FailureId>,
+    /// lives here rather than in any stream's bookkeeping. What a failure id
+    /// means is the [`ErrorGraph`]'s to say; the slice only carries the
+    /// claims, byte-ranged so a partial write releases exactly what it
+    /// covers, and sheds them the moment the allocation it describes ends —
+    /// see [`bind`](Self::bind) and the clear calls on every path that drops
+    /// a slice.
+    pub tainted: Taint,
 }
 
 impl Slice {
@@ -196,15 +197,15 @@ impl Slice {
             padding,
             cursor: 0,
             mapped: true,
-            failure: None,
+            tainted: Taint::default(),
         }
     }
 
     /// Take on a new allocation. Whatever tainted the last one says nothing
-    /// about the next, so the failure is released before the handle changes
+    /// about the next, so every claim is released before the handle changes
     /// hands.
     pub(crate) fn bind(&mut self, handle: ManagedMemoryHandle, failures: &mut ErrorGraph) {
-        failures.untag(self.failure.take());
+        self.tainted.clear(failures);
         self.handle = handle;
     }
 

@@ -122,7 +122,7 @@ impl DirectPool {
             if slice.mapped {
                 storage.dealloc(slice.storage.id);
             }
-            failures.untag(slice.failure);
+            slice.tainted.clear(failures);
             reserved -= slice.effective_size();
             *entry = None;
             self.vacant.push(index);
@@ -282,7 +282,7 @@ impl MemoryPool for DirectPool {
             if slice.mapped {
                 storage.dealloc(slice.storage.id);
             }
-            failures.untag(slice.failure);
+            slice.tainted.clear(failures);
             *entry = None;
             self.vacant.push(index);
         }

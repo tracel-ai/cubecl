@@ -226,7 +226,7 @@ impl MemoryPage {
     /// outlive its carrier.
     pub fn shed(&mut self, failures: &mut ErrorGraph) {
         for slice in self.slices.iter_mut() {
-            failures.untag(slice.failure.take());
+            slice.tainted.clear(failures);
         }
     }
 
@@ -261,7 +261,7 @@ impl MemoryPage {
         let mut offset = 0;
         let mut size = 0;
 
-        for (index, slice) in self.slices.drain(..).enumerate() {
+        for (index, mut slice) in self.slices.drain(..).enumerate() {
             let status = match &mut task {
                 Some(task) => task.on_coalesce(index),
                 None => MemoryTaskStatus::Ignoring,
@@ -271,11 +271,11 @@ impl MemoryPage {
                 MemoryTaskStatus::StartMerging => {
                     offset = slice.storage.utilization.offset;
                     size = slice.effective_size();
-                    failures.untag(slice.failure);
+                    slice.tainted.clear(failures);
                 }
                 MemoryTaskStatus::Merging => {
                     size += slice.effective_size();
-                    failures.untag(slice.failure);
+                    slice.tainted.clear(failures);
                 }
                 MemoryTaskStatus::Ignoring => {
                     let slice_pos_updated = self.slices_tmp.len();
@@ -288,7 +288,7 @@ impl MemoryPage {
                 MemoryTaskStatus::Completed => {
                     let slice_pos_updated = self.slices_tmp.len();
                     size += slice.effective_size();
-                    failures.untag(slice.failure);
+                    slice.tainted.clear(failures);
 
                     let mut storage = self.storage.clone();
                     storage.utilization = StorageUtilization { offset, size };

@@ -7,8 +7,12 @@
 //! [`StreamPool`] of streams each owning a [`MemoryManagement`], the
 //! device-wide [`ErrorGraph`], and the write scope every launch and host
 //! write runs inside — over random sequences of allocate, launch, write,
-//! read, flush, free and cleanup across several logical streams. The model
-//! keeps its own answer per buffer and compares after every read.
+//! read, flush, free and cleanup across several logical streams. Launches,
+//! writes and reads go through partial bindings as often as whole ones,
+//! because the claim is byte-ranged: a launch that failed writing one region
+//! says nothing about the rest. The model keeps its own answer per buffer —
+//! one staleness flag per byte, deliberately nothing like the interval
+//! arithmetic it checks — and compares after every read.
 //!
 //! Two invariants ride along, checked continuously:
 //!
@@ -26,8 +30,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
-    ErrorGraph, FailureId, ManagedMemoryBinding, MemoryConfiguration, MemoryManagement,
-    MemoryManagementOptions,
+    ErrorGraph, FailureId, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
 };
 use cubecl_runtime::server::{BufferBinding, Handle, ServerError};
 use cubecl_runtime::storage::BytesStorage;
@@ -41,22 +44,29 @@ const MAX_STREAMS: u8 = 4;
 const OPS_PER_RUN: usize = 300;
 const SEEDS: u64 = 40;
 
-/// What the model believes about a live buffer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Expect {
-    /// The last work given this buffer succeeded (or nothing wrote it yet,
-    /// which reads as trustworthy: fresh memory carries no failure).
-    Trusted,
-    /// The last work that was going to write this buffer failed, and nothing
-    /// has written it since.
-    Stale,
-}
-
 struct Buffer {
     /// Owns the allocation; dropping it frees the slice.
     _handle: Handle,
     binding: BufferBinding,
-    expect: Expect,
+    /// What the model believes, byte by byte: `true` where the last work
+    /// that was going to write the byte failed and nothing has written it
+    /// since. Fresh memory reads as trustworthy — it carries no failure.
+    stale: Vec<bool>,
+}
+
+impl Buffer {
+    /// The binding for `range`, as a caller slicing into the buffer builds
+    /// one: `offset_start` trims the front, `offset_end` trims the back.
+    fn slice(&self, range: &core::ops::Range<u64>) -> BufferBinding {
+        let mut binding = self.binding.clone();
+        binding.offset_start = Some(range.start);
+        binding.offset_end = Some(binding.size - range.end);
+        binding
+    }
+
+    fn size(&self) -> u64 {
+        self.binding.size
+    }
 }
 
 struct TestStream {
@@ -81,21 +91,18 @@ impl StreamErrorSink for TestStream {
 }
 
 impl StreamMemory for TestStream {
-    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
-        self.memory.failure(binding)
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
+        self.memory.failure(&binding.memory, binding.range())
     }
 
-    fn taint(
-        &mut self,
-        binding: &ManagedMemoryBinding,
-        failure: FailureId,
-        failures: &mut ErrorGraph,
-    ) {
-        self.memory.taint(binding, failure, failures)
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
+        self.memory
+            .taint(&binding.memory, binding.range(), failure, failures)
     }
 
-    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
-        self.memory.written(binding, failures)
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
+        self.memory
+            .written(&binding.memory, binding.range(), failures)
     }
 }
 
@@ -253,8 +260,19 @@ impl Harness {
         self.buffers.push(Buffer {
             binding: handle.clone().binding(),
             _handle: handle,
-            expect: Expect::Trusted,
+            stale: vec![false; size as usize],
         });
+    }
+
+    /// A random byte range of a `size`-byte buffer: the whole thing half the
+    /// time, a proper slice of it otherwise.
+    fn pick_range(&mut self, size: u64) -> core::ops::Range<u64> {
+        if self.rng.chance(50) {
+            return 0..size;
+        }
+        let start = self.rng.below(size as usize) as u64;
+        let end = start + 1 + self.rng.below((size - start) as usize) as u64;
+        start..end
     }
 
     /// A launch on a random stream, writing a random subset of live buffers,
@@ -275,9 +293,15 @@ impl Harness {
             }
         }
 
-        let bindings: Vec<BufferBinding> = indices
+        let mut writes = Vec::new();
+        for index in &indices {
+            let range = self.pick_range(self.buffers[*index].size());
+            writes.push((*index, range));
+        }
+
+        let bindings: Vec<BufferBinding> = writes
             .iter()
-            .map(|i| self.buffers[*i].binding.clone())
+            .map(|(index, range)| self.buffers[*index].slice(range))
             .collect();
         let _ = self.device.while_writing(
             id,
@@ -289,11 +313,10 @@ impl Harness {
             },
         );
 
-        for index in indices {
-            self.buffers[index].expect = match fail {
-                true => Expect::Stale,
-                false => Expect::Trusted,
-            };
+        for (index, range) in writes {
+            for byte in range.start as usize..range.end as usize {
+                self.buffers[index].stale[byte] = fail;
+            }
         }
     }
 
@@ -304,7 +327,8 @@ impl Harness {
             return;
         }
         let index = self.rng.below(self.buffers.len());
-        let binding = self.buffers[index].binding.clone();
+        let range = self.pick_range(self.buffers[index].size());
+        let binding = self.buffers[index].slice(&range);
         let id = binding.stream;
         let _ = self.device.while_writing(
             id,
@@ -312,7 +336,9 @@ impl Harness {
             |binding, written| written.push(binding.clone()),
             |_, _, _| Ok::<(), ServerError>(()),
         );
-        self.buffers[index].expect = Expect::Trusted;
+        for byte in range.start as usize..range.end as usize {
+            self.buffers[index].stale[byte] = false;
+        }
     }
 
     /// The oracle: a read fails if and only if the model says the bytes are
@@ -322,20 +348,25 @@ impl Harness {
             return;
         }
         let index = self.rng.below(self.buffers.len());
+        let range = self.pick_range(self.buffers[index].size());
         let buffer = &self.buffers[index];
+        let binding = buffer.slice(&range);
         let result = self
             .device
             .pool
-            .ensure_written(&self.device.failures, [&buffer.binding].into_iter());
+            .ensure_written(&self.device.failures, [&binding].into_iter());
 
-        match buffer.expect {
-            Expect::Trusted => assert!(
+        let stale = buffer.stale[range.start as usize..range.end as usize]
+            .iter()
+            .any(|stale| *stale);
+        match stale {
+            false => assert!(
                 result.is_ok(),
-                "a buffer whose last writer succeeded must read: {result:?}"
+                "bytes whose last writer succeeded must read: {result:?}"
             ),
-            Expect::Stale => assert!(
+            true => assert!(
                 result.is_err(),
-                "a buffer whose last writer failed must not read"
+                "bytes whose last writer failed must not read"
             ),
         }
     }
@@ -393,16 +424,16 @@ fn run(config: MemoryConfiguration, seed: u64) {
         }
     }
 
-    // Read every live buffer once more: the oracle at rest.
+    // Read every live buffer whole once more: the oracle at rest.
     for index in 0..harness.buffers.len() {
         let buffer = &harness.buffers[index];
         let result = harness
             .device
             .pool
             .ensure_written(&harness.device.failures, [&buffer.binding].into_iter());
-        match buffer.expect {
-            Expect::Trusted => assert!(result.is_ok(), "trusted buffer failed at rest: {result:?}"),
-            Expect::Stale => assert!(result.is_err(), "stale buffer read clean at rest"),
+        match buffer.stale.iter().any(|stale| *stale) {
+            false => assert!(result.is_ok(), "trusted buffer failed at rest: {result:?}"),
+            true => assert!(result.is_err(), "stale buffer read clean at rest"),
         }
     }
 
@@ -543,4 +574,60 @@ fn a_mid_launch_panic_leaves_the_write_set_tainted() {
         .pool
         .ensure_written(&harness.device.failures, [&binding].into_iter())
         .expect("a rewritten buffer reads again");
+}
+
+/// The precision step 3 exists for, end to end: a failed launch taints the
+/// range it was going to write, a partial host write releases exactly the
+/// bytes it covers, and reads of the untouched remainder keep failing on the
+/// original error.
+#[test]
+fn a_partial_host_write_releases_only_the_bytes_it_covers() {
+    let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 7);
+    harness.alloc();
+    let buffer = &harness.buffers[0];
+    let size = buffer.size();
+    let whole = buffer.binding.clone();
+    let middle = buffer.slice(&(size / 4..size / 2));
+    let id = whole.stream;
+
+    // A launch fails writing the whole buffer.
+    let _ = harness.device.while_writing(
+        id,
+        whole.clone(),
+        |binding, written| written.push(binding.clone()),
+        |_, _, _| Err::<(), ServerError>(error("the launch that left these bytes")),
+    );
+
+    // The host rewrites the middle quarter.
+    let _ = harness.device.while_writing(
+        id,
+        middle.clone(),
+        |binding, written| written.push(binding.clone()),
+        |_, _, _| Ok::<(), ServerError>(()),
+    );
+
+    // The rewritten bytes read; the rest still fails on the launch's error.
+    harness
+        .device
+        .pool
+        .ensure_written(&harness.device.failures, [&middle].into_iter())
+        .expect("the rewritten bytes have a writer");
+    let front = harness.buffers[0].slice(&(0..size / 4));
+    let read = harness
+        .device
+        .pool
+        .ensure_written(&harness.device.failures, [&front].into_iter())
+        .expect_err("the untouched bytes still carry the failure");
+    assert!(
+        reason(&read).contains("the launch that left these bytes"),
+        "the remainder still names the original failure"
+    );
+    let whole_read = harness
+        .device
+        .pool
+        .ensure_written(&harness.device.failures, [&whole].into_iter());
+    assert!(
+        whole_read.is_err(),
+        "a read spanning stale bytes fails however much of it was rewritten"
+    );
 }

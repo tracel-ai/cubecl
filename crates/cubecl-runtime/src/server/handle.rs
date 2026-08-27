@@ -163,6 +163,14 @@ impl BufferBinding {
     pub fn size_in_used(&self) -> u64 {
         self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
     }
+
+    /// The byte range of the allocation this binding names: what the offsets
+    /// leave of the buffer. This is the region the taint bookkeeping claims
+    /// when work writing through this binding fails, and releases when work
+    /// writing through it lands.
+    pub fn range(&self) -> core::ops::Range<u64> {
+        self.offset_start.unwrap_or(0)..self.size - self.offset_end.unwrap_or(0)
+    }
     /// Get the total size of the handle, in bytes.
     pub fn size(&self) -> u64 {
         self.size

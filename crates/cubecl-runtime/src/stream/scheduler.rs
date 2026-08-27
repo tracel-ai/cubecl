@@ -1,7 +1,7 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::{ErrorGraph, FailureId, ManagedMemoryBinding},
+    memory_management::{ErrorGraph, FailureId},
     server::{BufferBinding, ServerError},
     stream::{StreamErrorSink, StreamErrors, StreamFactory, StreamMemory, StreamPool},
 };
@@ -103,20 +103,15 @@ impl<B: SchedulerStreamBackend> StreamErrorSink for Stream<B> {
 }
 
 impl<B: SchedulerStreamBackend> StreamMemory for Stream<B> {
-    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
         self.stream.failure(binding)
     }
 
-    fn taint(
-        &mut self,
-        binding: &ManagedMemoryBinding,
-        failure: FailureId,
-        failures: &mut ErrorGraph,
-    ) {
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
         self.stream.taint(binding, failure, failures)
     }
 
-    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
         self.stream.written(binding, failures)
     }
 }

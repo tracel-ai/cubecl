@@ -65,19 +65,14 @@ impl ErrorGraph {
         id
     }
 
-    /// Point `slot` at `failure`, releasing whatever it held before.
+    /// One more allocation carries `failure`.
     ///
-    /// Tainting is *set*, never *add*: a slot already carrying `failure` is
-    /// left alone, so a loop failing the same way every iteration cannot
-    /// increment `tagged` against a single slice forever and pin the node for
-    /// the life of the process.
-    pub fn taint(&mut self, slot: &mut Option<FailureId>, failure: FailureId) {
-        if *slot == Some(failure) {
-            return;
-        }
-        let released = slot.replace(failure);
+    /// The other half of [`untag`](Self::untag), called only by the taint
+    /// bookkeeping on the slices — [`Taint`](super::Taint) — which owns the
+    /// invariant that a claim tags exactly once however many times it is
+    /// re-tainted or split.
+    pub(crate) fn tag(&mut self, failure: FailureId) {
         self.node_mut(failure).tagged += 1;
-        self.untag(released);
     }
 
     /// One fewer allocation carries `failure`; the node is dropped when none
@@ -167,54 +162,19 @@ mod tests {
         let mut graph = ErrorGraph::default();
         let failure = graph.insert(error("launch"));
 
-        let mut a = None;
-        let mut b = None;
-        graph.taint(&mut a, failure);
-        graph.taint(&mut b, failure);
+        graph.tag(failure);
+        graph.tag(failure);
         assert_eq!(graph.len(), 1);
 
-        graph.untag(a.take());
-        assert!(graph.error(failure).is_some(), "b still carries it");
+        graph.untag(Some(failure));
+        assert!(graph.error(failure).is_some(), "one carrier remains");
 
-        graph.untag(b.take());
+        graph.untag(Some(failure));
         assert!(
             graph.error(failure).is_none(),
             "nothing carries it, so it is gone"
         );
         assert!(graph.is_empty());
-    }
-
-    /// Tainting is set, never add: the most ordinary failing program — a loop
-    /// failing the same way every iteration — must not pin a node forever.
-    #[test]
-    fn retainting_with_the_same_failure_counts_once() {
-        let mut graph = ErrorGraph::default();
-        let failure = graph.insert(error("launch"));
-
-        let mut slot = None;
-        graph.taint(&mut slot, failure);
-        graph.taint(&mut slot, failure);
-        graph.taint(&mut slot, failure);
-
-        graph.untag(slot.take());
-        assert!(graph.is_empty(), "one slice, one tag, one untag");
-    }
-
-    /// A slice tainted again by a different failure releases the one it held,
-    /// so the superseded node can go as soon as its last carrier moves on.
-    #[test]
-    fn a_new_failure_releases_the_one_the_slot_held() {
-        let mut graph = ErrorGraph::default();
-        let first = graph.insert(error("first"));
-        let second = graph.insert(error("second"));
-
-        let mut slot = None;
-        graph.taint(&mut slot, first);
-        graph.taint(&mut slot, second);
-
-        assert!(graph.error(first).is_none(), "nothing carries it any more");
-        assert!(graph.error(second).is_some());
-        assert_eq!(slot, Some(second));
     }
 
     /// A failure that tainted nothing is pruned rather than retained: a dry
@@ -235,8 +195,7 @@ mod tests {
         let mut graph = ErrorGraph::default();
         let failure = graph.insert(error("torn down"));
 
-        let mut slot = None;
-        graph.taint(&mut slot, failure);
+        graph.tag(failure);
         graph.replace(failure, error("launch"));
 
         match graph.error(failure) {
@@ -244,7 +203,7 @@ mod tests {
             other => panic!("expected the replaced error, got {other:?}"),
         }
 
-        graph.untag(slot.take());
+        graph.untag(Some(failure));
         assert!(graph.is_empty());
     }
 
@@ -255,8 +214,7 @@ mod tests {
         let mut graph = ErrorGraph::default();
         let failure = graph.insert(error("launch"));
 
-        let mut slot = None;
-        graph.taint(&mut slot, failure);
+        graph.tag(failure);
         graph.prune(failure);
 
         assert!(graph.error(failure).is_some());

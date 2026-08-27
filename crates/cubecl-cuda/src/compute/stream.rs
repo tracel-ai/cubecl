@@ -14,8 +14,8 @@ use cubecl_runtime::{
     config::streaming::StreamPriority,
     logging::ServerLogger,
     memory_management::{
-        ErrorGraph, FailureId, ManagedMemoryBinding, MemoryAllocationMode, MemoryManagement,
-        MemoryManagementOptions, drop_queue,
+        ErrorGraph, FailureId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
     stream::{EventStreamBackend, StreamCapture, StreamErrorSink, StreamErrors, StreamMemory},
@@ -55,21 +55,19 @@ impl StreamErrorSink for Stream {
 }
 
 impl StreamMemory for Stream {
-    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
-        self.memory_management_gpu.failure(binding)
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
+        self.memory_management_gpu
+            .failure(&binding.memory, binding.range())
     }
 
-    fn taint(
-        &mut self,
-        binding: &ManagedMemoryBinding,
-        failure: FailureId,
-        failures: &mut ErrorGraph,
-    ) {
-        self.memory_management_gpu.taint(binding, failure, failures)
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
+        self.memory_management_gpu
+            .taint(&binding.memory, binding.range(), failure, failures)
     }
 
-    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
-        self.memory_management_gpu.written(binding, failures)
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
+        self.memory_management_gpu
+            .written(&binding.memory, binding.range(), failures)
     }
 }
 

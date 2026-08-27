@@ -5,9 +5,7 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{
-        ErrorGraph, FailureId, ManagedMemoryBinding, MemoryManagement, MemoryManagementOptions,
-    },
+    memory_management::{ErrorGraph, FailureId, MemoryManagement, MemoryManagementOptions},
     server::BufferBinding,
     stream::{EventStreamBackend, StreamErrorSink, StreamErrors, StreamMemory},
 };
@@ -136,21 +134,19 @@ impl StreamErrorSink for MetalStream {
 }
 
 impl StreamMemory for MetalStream {
-    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
-        self.memory_management.failure(binding)
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
+        self.memory_management
+            .failure(&binding.memory, binding.range())
     }
 
-    fn taint(
-        &mut self,
-        binding: &ManagedMemoryBinding,
-        failure: FailureId,
-        failures: &mut ErrorGraph,
-    ) {
-        self.memory_management.taint(binding, failure, failures)
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
+        self.memory_management
+            .taint(&binding.memory, binding.range(), failure, failures)
     }
 
-    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
-        self.memory_management.written(binding, failures)
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
+        self.memory_management
+            .written(&binding.memory, binding.range(), failures)
     }
 }
 

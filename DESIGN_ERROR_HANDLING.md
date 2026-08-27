@@ -567,13 +567,20 @@ The next step is to store the region rather than tagging the whole allocation.
 ```rust
 struct Tainted {
     failure: FailureId,
-    ranges: SmallVec<[Range<u64>; 2]>,
+    ranges: Vec<Range<u64>>,
 }
 ```
 
 That closes the hole where a host write covering part of a buffer ends the claim on all of it.
 It also limits how far an over-named input can spread taint, which matters once propagation is in.
 It stays a single lookup, and it costs a few bytes only on the slices that carry a failure.
+
+A slice holds a list of these, not one, because one failure per slice cannot survive partial writes.
+A buffer half-stale from failure F takes a successful launch on its other half: entry taints that half with the provisional node, and if the slot held a single failure the provisional would displace F — leaving F's untouched bytes reporting a torn-down scope that never happened.
+Claims by different failures on one allocation have to coexist, each with its own ranges, and a new claim carves only the bytes it actually names out of the old ones.
+The whole list lives behind one pointer, so a clean slice pays a word.
+
+The range a claim covers comes from the binding itself: `BufferBinding` carries its `size` and both offsets, so `offset_start..size - offset_end` is computable wherever the binding is, and `StreamMemory` passes bindings down whole instead of bare memory handles.
 
 ## Diagnostics
 

@@ -1,9 +1,7 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::{
-        ErrorGraph, FailureId, ManagedMemoryBinding, ManagedMemoryId, SharedMemoryBindings,
-    },
+    memory_management::{ErrorGraph, FailureId, ManagedMemoryId, SharedMemoryBindings},
     server::{BufferBinding, ServerError},
     stream::{StreamErrorSink, StreamErrors, StreamFactory, StreamMemory, StreamPool},
 };
@@ -131,20 +129,15 @@ impl<B: EventStreamBackend> StreamErrorSink for StreamWrapper<B> {
 }
 
 impl<B: EventStreamBackend> StreamMemory for StreamWrapper<B> {
-    fn failure(&self, binding: &ManagedMemoryBinding) -> Option<FailureId> {
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
         self.stream.failure(binding)
     }
 
-    fn taint(
-        &mut self,
-        binding: &ManagedMemoryBinding,
-        failure: FailureId,
-        failures: &mut ErrorGraph,
-    ) {
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
         self.stream.taint(binding, failure, failures)
     }
 
-    fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
         self.stream.written(binding, failures)
     }
 }
@@ -806,35 +799,35 @@ mod tests {
 
     /// The test streams manage no memory, so nothing carries a failure.
     impl StreamMemory for GatedStream {
-        fn failure(&self, _binding: &ManagedMemoryBinding) -> Option<FailureId> {
+        fn failure(&self, _binding: &BufferBinding) -> Option<FailureId> {
             None
         }
 
         fn taint(
             &mut self,
-            _binding: &ManagedMemoryBinding,
+            _binding: &BufferBinding,
             _failure: FailureId,
             _failures: &mut ErrorGraph,
         ) {
         }
 
-        fn written(&mut self, _binding: &ManagedMemoryBinding, _failures: &mut ErrorGraph) {}
+        fn written(&mut self, _binding: &BufferBinding, _failures: &mut ErrorGraph) {}
     }
 
     impl StreamMemory for TestStream {
-        fn failure(&self, _binding: &ManagedMemoryBinding) -> Option<FailureId> {
+        fn failure(&self, _binding: &BufferBinding) -> Option<FailureId> {
             None
         }
 
         fn taint(
             &mut self,
-            _binding: &ManagedMemoryBinding,
+            _binding: &BufferBinding,
             _failure: FailureId,
             _failures: &mut ErrorGraph,
         ) {
         }
 
-        fn written(&mut self, _binding: &ManagedMemoryBinding, _failures: &mut ErrorGraph) {}
+        fn written(&mut self, _binding: &BufferBinding, _failures: &mut ErrorGraph) {}
     }
 
     impl EventStreamBackend for GatedBackend {
