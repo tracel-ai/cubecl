@@ -58,6 +58,12 @@ pub struct CompiledKernel {
     cube_dim: CubeDim,
     shared_mem_bytes: usize,
     func: *mut CUfunc_st,
+    /// What the kernel does with each buffer binding, by buffer position --
+    /// the compiler's answer, carried here because on a cache hit nothing
+    /// else of the compilation survives. `None` for entries persisted before
+    /// the answer existed, which the launch path reads as every buffer both
+    /// read and written.
+    io: Option<Arc<[cubecl_runtime::kernel::BufferIO]>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
@@ -65,6 +71,10 @@ pub struct PtxCacheEntry {
     entrypoint_name: String,
     shared_mem_bytes: usize,
     ptx: Vec<std::ffi::c_char>,
+    /// See [`CompiledKernel::io`]; defaulted for entries persisted before the
+    /// field existed.
+    #[serde(default)]
+    io: Option<Vec<cubecl_runtime::kernel::BufferIO>>,
 }
 
 impl CudaContext {
@@ -128,6 +138,7 @@ impl CudaContext {
                     entry.entrypoint_name,
                     kernel_id.cube_dim.into(),
                     entry.shared_mem_bytes,
+                    entry.io.map(Arc::from),
                 )?;
                 return Ok(Ok(()));
             }
@@ -251,6 +262,7 @@ impl CudaContext {
             })?
         };
 
+        let io = kernel_compiled.io.take();
         let repr = kernel_compiled.repr.unwrap();
 
         if let Some(cache) = &mut self.ptx_cache {
@@ -263,6 +275,7 @@ impl CudaContext {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
                     shared_mem_bytes: repr.shared_memory_size,
                     ptx: ptx.clone(),
+                    io: io.clone(),
                 },
             );
             store_compiled(second_line_cache, cpp_hash.unwrap(), key);
@@ -274,6 +287,7 @@ impl CudaContext {
             kernel_compiled.entrypoint_name,
             cube_dim,
             repr.shared_memory_size,
+            io.map(Arc::from),
         )?;
         Ok(())
     }
@@ -285,6 +299,7 @@ impl CudaContext {
         entrypoint_name: String,
         cube_dim: CubeDim,
         shared_mem_bytes: usize,
+        io: Option<Arc<[cubecl_runtime::kernel::BufferIO]>>,
     ) -> Result<(), CompilationError> {
         let func_name = CString::new(entrypoint_name).unwrap();
         // SAFETY: `ptx` is a valid null-terminated PTX binary from NVRTC. `func_name` is a
@@ -310,10 +325,24 @@ impl CudaContext {
                 cube_dim,
                 shared_mem_bytes,
                 func,
+                io,
             },
         );
 
         Ok(())
+    }
+
+    /// What the compiled kernel does with each buffer binding, by buffer
+    /// position -- `None` when the kernel is not loaded or predates the
+    /// answer, which the launch path reads as every buffer both read and
+    /// written.
+    pub fn kernel_io(
+        &mut self,
+        kernel_id: &KernelId,
+    ) -> Option<Arc<[cubecl_runtime::kernel::BufferIO]>> {
+        self.modules
+            .get(kernel_id)
+            .and_then(|kernel| kernel.io.clone())
     }
 
     pub fn execute_task(

@@ -278,24 +278,53 @@ impl ComputeServer for HipServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
+        // Compilation comes first — memoized, so a launch after the first
+        // pays a map lookup — because the write scope stages what the
+        // compiled kernel says it writes. A kernel that fails to compile has
+        // no IR and no answer, so every buffer the launch was given is left
+        // as it was and all of them carry the failure.
+        //
+        // A dry run stages none either way. It was never going to write, so a
+        // failure in it leaves nothing stale, and tainting its buffers would
+        // fail unrelated reads of memory the run deliberately left alone. It
+        // stops right after compilation, before anything that touches a
+        // buffer: resolving resources, uploading metadata or reading a
+        // dynamic cube count would materialize memory a dry run exists to
+        // leave unmapped.
+        let kernel_id = kernel.id();
+        if !self.ctx.is_loaded(&kernel_id) {
+            let logger = self.streams.logger.clone();
+            if let Err(err) = self.ctx.compile_kernel(&kernel_id, kernel, logger) {
+                let error = ServerError::Launch(err);
+                let _ = self.while_writing(
+                    stream_id,
+                    bindings,
+                    |bindings, written| {
+                        if !launch_mode.is_skipped() {
+                            written.extend(bindings.buffers().cloned());
+                        }
+                    },
+                    |_, _, _| Err::<(), ServerError>(error),
+                );
+                return;
+            }
+        }
+        if launch_mode.is_skipped() {
+            return;
+        }
+
+        let io = self.ctx.kernel_io(&kernel_id);
+
         // The scope taints what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
         // bytes nothing wrote.
-        //
-        // A dry run stages none. It was never going to write, so a failure in
-        // it leaves nothing stale, and tainting its buffers would fail
-        // unrelated reads of memory the run deliberately left alone.
         let _ = self.while_writing(
             stream_id,
             bindings,
-            |bindings, written| {
-                if !launch_mode.is_skipped() {
-                    written.extend(bindings.buffers_written().cloned());
-                }
-            },
+            |bindings, written| written.extend(bindings.buffers_written(io.as_deref()).cloned()),
             |server, bindings, _| {
-                server.launch_checked(kernel, count, bindings, stream_id, launch_mode)
+                server.launch_checked(kernel_id, count, bindings, stream_id, io.as_deref())
             },
         );
     }
@@ -819,14 +848,12 @@ impl HipServer {
 
     fn launch_checked(
         &mut self,
-        kernel: Box<dyn CubeTask<HipCompiler>>,
+        kernel_id: KernelId,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        launch_mode: LaunchMode,
+        io: Option<&[cubecl_runtime::kernel::BufferIO]>,
     ) -> Result<(), ServerError> {
-        let kernel_id = kernel.id();
-        let logger = self.streams.logger.clone();
         let mut command = self.command(
             stream_id,
             bindings.buffers(),
@@ -836,22 +863,14 @@ impl HipServer {
             },
         )?;
 
-        // A skipped launch stops here, after compilation and before anything
-        // that touches a buffer: resolving resources, uploading metadata or
-        // reading a dynamic cube count would materialize memory a dry run
-        // exists to leave unmapped (and the readback would block on garbage
-        // values).
-        if launch_mode.is_skipped() {
-            command.compile_only(&kernel_id, kernel, logger)?;
-            return Ok(());
-        }
-
         // A launch being recorded into a graph hands its buffers to the graph:
         // a replay that fails runs none of the recorded launches, so it leaves
         // all of them as they were. A no-op outside a capture window, and never
         // reached by a dry run, which records nothing to answer for.
         let stream = command.streams.current();
-        stream.capturing.record(bindings.buffers_written().cloned());
+        stream
+            .capturing
+            .record(bindings.buffers_written(io).cloned());
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -899,7 +918,7 @@ impl HipServer {
 
         resources.push(command.resource(info_handle.binding())?);
 
-        command.kernel(kernel_id, kernel, count, &resources, logger)?;
+        command.kernel(kernel_id, count, &resources)?;
 
         Ok(())
     }

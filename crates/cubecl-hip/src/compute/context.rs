@@ -54,6 +54,12 @@ pub struct HipCompiledKernel {
     func: cubecl_hip_sys::hipFunction_t,
     cube_dim: CubeDim,
     shared_mem_bytes: usize,
+    /// What the kernel does with each buffer binding, by buffer position --
+    /// the compiler's answer, carried here because on a cache hit nothing
+    /// else of the compilation survives. `None` for entries persisted before
+    /// the answer existed, which the launch path reads as every buffer both
+    /// read and written.
+    io: Option<Arc<[cubecl_runtime::kernel::BufferIO]>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -61,6 +67,10 @@ pub struct CompilationCacheEntry {
     entrypoint_name: String,
     shared_mem_bytes: usize,
     binary: Vec<i8>,
+    /// See [`HipCompiledKernel::io`]; defaulted for entries persisted before
+    /// the field existed.
+    #[serde(default)]
+    io: Option<Vec<cubecl_runtime::kernel::BufferIO>>,
 }
 
 impl HipContext {
@@ -118,6 +128,7 @@ impl HipContext {
                     entry.entrypoint_name,
                     kernel_id.cube_dim.into(),
                     entry.shared_mem_bytes,
+                    entry.io.map(Arc::from),
                 )?;
                 return Ok(Ok(()));
             }
@@ -304,6 +315,7 @@ impl HipContext {
             }
         }
 
+        let io = jitc_kernel.io.take();
         let repr = jitc_kernel.repr.unwrap();
 
         if let Some(cache) = self.compilation_cache.as_mut() {
@@ -316,6 +328,7 @@ impl HipContext {
                     entrypoint_name: jitc_kernel.entrypoint_name.clone(),
                     shared_mem_bytes: repr.shared_memory_size,
                     binary: code.clone(),
+                    io: io.clone(),
                 },
             );
             store_compiled(second_line_cache, cpp_hash.unwrap(), key);
@@ -327,6 +340,7 @@ impl HipContext {
             jitc_kernel.entrypoint_name,
             jitc_kernel.cube_dim,
             repr.shared_memory_size,
+            io.map(Arc::from),
         )?;
         Ok(())
     }
@@ -338,6 +352,7 @@ impl HipContext {
         entrypoint_name: String,
         cube_dim: CubeDim,
         shared_mem_bytes: usize,
+        io: Option<Arc<[cubecl_runtime::kernel::BufferIO]>>,
     ) -> Result<(), CompilationError> {
         let func_name = CString::new(entrypoint_name.clone()).unwrap();
 
@@ -380,10 +395,24 @@ impl HipContext {
                 func,
                 cube_dim,
                 shared_mem_bytes,
+                io,
             },
         );
 
         Ok(())
+    }
+
+    /// What the compiled kernel does with each buffer binding, by buffer
+    /// position -- `None` when the kernel is not loaded or predates the
+    /// answer, which the launch path reads as every buffer both read and
+    /// written.
+    pub fn kernel_io(
+        &mut self,
+        kernel_id: &KernelId,
+    ) -> Option<Arc<[cubecl_runtime::kernel::BufferIO]>> {
+        self.modules
+            .get(kernel_id)
+            .and_then(|kernel| kernel.io.clone())
     }
 
     /// Executes a task on the given stream.

@@ -1,9 +1,6 @@
-use crate::{
-    CudaCompiler,
-    compute::{
-        MB, context::CudaContext, io::controller::PinnedMemoryManagedAllocController,
-        storage::gpu::GpuResource, stream::CudaStreamBackend, sync::Fence,
-    },
+use crate::compute::{
+    MB, context::CudaContext, io::controller::PinnedMemoryManagedAllocController,
+    storage::gpu::GpuResource, stream::CudaStreamBackend, sync::Fence,
 };
 use cubecl_common::bytes::{AllocationProperty, Bytes};
 #[cfg(debug_assertions)]
@@ -20,9 +17,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
-    compiler::CubeTask,
     id::KernelId,
-    logging::ServerLogger,
     memory_management::{
         InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle,
         MemoryReport,
@@ -30,7 +25,7 @@ use cubecl_runtime::{
     stream::ResolvedStreams,
 };
 use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, cuMemcpy2DAsync_v2};
-use std::{ffi::c_void, ops::DerefMut, sync::Arc};
+use std::{ffi::c_void, ops::DerefMut};
 
 #[derive(new)]
 /// The `Command` struct encapsulates a CUDA context and a set of resolved CUDA streams, providing an
@@ -546,52 +541,27 @@ impl<'a> Command<'a> {
         Box::pin(async { fence.wait_sync() })
     }
 
-    /// Compile and cache `kernel` without launching — everything a skipped
-    /// launch owes the caches, and nothing else: no buffer is resolved, so a
-    /// dry run's lazily-carved allocations stay unmapped.
-    pub fn compile_only(
-        &mut self,
-        kernel_id: &KernelId,
-        kernel: Box<dyn CubeTask<CudaCompiler>>,
-        logger: Arc<ServerLogger>,
-    ) -> Result<(), LaunchError> {
-        if !self.ctx.is_loaded(kernel_id) {
-            self.ctx.compile_kernel(kernel_id, kernel, logger)?;
-        }
-        Ok(())
-    }
-
     /// Executes a registered CUDA kernel with the specified parameters.
     ///
-    /// Always launches: a skipped launch stops at
-    /// [`compile_only`](Self::compile_only) in the server, before any resource
-    /// is resolved, so it never reaches here.
+    /// Always launches an already-compiled kernel: the server compiles before
+    /// entering its write scope, and a skipped launch stops there, before any
+    /// resource is resolved, so it never reaches here.
     ///
     /// # Parameters
     ///
     /// * `kernel_id` - The identifier of the kernel to execute.
-    /// * `kernel` - The cube task to compile if not cached.
-    /// * `mode` - The execution mode for the current kernel.
     /// * `dispatch_count` - The number of thread blocks in the x, y, and z dimensions.
-    /// * `tensor_maps` - Tensor maps for structured memory access.
     /// * `resources` - GPU resources (e.g., buffers) used by the kernel.
-    /// * `scalars` - Scalar arguments passed to the kernel.
-    /// * `logger` - The logger to use to write compilation & runtime info.
     ///
     /// # Panics
     ///
     /// * If the execution fails, with an error message or profiling error.
-    #[allow(clippy::too_many_arguments)]
     pub fn kernel(
         &mut self,
         kernel_id: KernelId,
-        kernel: Box<dyn CubeTask<CudaCompiler>>,
         dispatch_count: (u32, u32, u32),
         resources: &mut [*mut c_void],
-        logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        self.compile_only(&kernel_id, kernel, logger)?;
-
         let stream = self.streams.current();
 
         let result = self

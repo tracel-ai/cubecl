@@ -213,6 +213,38 @@ pub trait FuncInterface: Op {
     }
 }
 
+/// The per-buffer IO the visibility pass stamped on `func`'s arguments,
+/// indexed by buffer position — the vector a compiled kernel carries to the
+/// launch site.
+///
+/// Every argument with a [`BufferBindingAttr`] contributes. One without a
+/// stamped [`BufferIOAttr`] answers `ReadWrite`: that covers a tensor map,
+/// whose global side the visibility analysis cannot see, and any argument the
+/// pass never reached — the conservative direction for the launch path, since
+/// over-claiming costs a spurious loud failure and under-claiming costs a
+/// silent clean read of garbage.
+pub fn buffer_io_by_position(ctx: &Context, func: FuncOp) -> alloc::vec::Vec<BufferIOAttr> {
+    let num_args = func.get_entry_block(ctx).deref(ctx).get_num_arguments();
+    let mut io = alloc::vec::Vec::new();
+    for arg in 0..num_args {
+        let binding = func
+            .get_arg_attr::<BufferBindingAttr>(ctx, arg, &ATTR_BUFFER_BINDING)
+            .map(|it| *it);
+        let Some(binding) = binding else {
+            continue;
+        };
+        let stamped = func
+            .get_arg_attr::<BufferIOAttr>(ctx, arg, &ATTR_BUFFER_IO)
+            .map(|it| *it)
+            .unwrap_or(BufferIOAttr::ReadWrite);
+        if io.len() <= binding.buffer_pos {
+            io.resize(binding.buffer_pos + 1, BufferIOAttr::ReadWrite);
+        }
+        io[binding.buffer_pos] = stamped;
+    }
+    io
+}
+
 fn get_arg_or_init_mut(dict: &mut AttributeDict, arg_idx: usize) -> &mut DictAttr {
     let args_attrs = attr_get_or_insert_mut(dict, &ATTR_KEY_ARG_ATTRS, || VecAttr::new(vec![]))
         .expect("Should be `VecAttr`");

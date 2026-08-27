@@ -1,4 +1,5 @@
 use super::Handle;
+use crate::kernel::BufferIO;
 use crate::{
     client::ComputeClient,
     compiler::CompilationError,
@@ -1060,73 +1061,6 @@ pub struct KernelArguments {
     /// Packed scalars and metadata. First scalars sorted by type, then static metadata,
     /// then dynamic metadata.
     pub info: MetadataBindingInfo,
-    /// Which of `resources` the kernel writes — `&mut` in the `#[cube]`
-    /// signature, plus any input an aliased output writes in place. See
-    /// [`buffers_written`](Self::buffers_written).
-    pub writes: WriteMask,
-}
-
-/// Which of a launch's resources the kernel writes, one bit per resource in the
-/// order they were registered.
-///
-/// A bitmask rather than a `Vec<bool>` because every launch builds one and
-/// almost none of them are read: the answer matters only when the launch fails,
-/// and a launch that succeeds should not have paid an allocation to say so.
-///
-/// Every fallback answers "written", never "not written". Nothing declared
-/// ([`Default`]), a resource past the [`CAPACITY`](Self::CAPACITY) the bits
-/// cover, an index past what was declared — a caller that builds arguments by
-/// hand or a kernel wider than the mask gets the conservative answer rather
-/// than a silently empty one. Naming a buffer the kernel only read fails a read
-/// that would have been fine, loudly; missing one it writes hands back the bytes
-/// that were there before, silently.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct WriteMask {
-    bits: u64,
-    len: u32,
-}
-
-impl WriteMask {
-    /// How many resources the bits cover. A launch with more than this many
-    /// reads as writing all of them.
-    pub const CAPACITY: usize = u64::BITS as usize;
-
-    /// Declare whether the next resource is one the kernel writes.
-    pub fn push(&mut self, writes: bool) {
-        if writes && (self.len as usize) < Self::CAPACITY {
-            self.bits |= 1 << self.len;
-        }
-        self.len += 1;
-    }
-
-    /// Declare that the kernel writes the resource already at `index`, for an
-    /// output that aliases an input and writes it in place.
-    ///
-    /// Does nothing for an index nothing was declared for, which already reads
-    /// as written.
-    pub fn set(&mut self, index: usize) {
-        if index < (self.len as usize).min(Self::CAPACITY) {
-            self.bits |= 1 << index;
-        }
-    }
-
-    /// Whether the kernel writes the resource at `index`.
-    pub fn get(&self, index: usize) -> bool {
-        if self.len == 0 || index >= Self::CAPACITY || index >= self.len as usize {
-            return true;
-        }
-        self.bits & (1 << index) != 0
-    }
-
-    /// How many resources were declared.
-    pub fn len(&self) -> usize {
-        self.len as usize
-    }
-
-    /// Whether nothing was declared, which reads as every resource written.
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
 }
 
 impl core::fmt::Display for KernelArguments {
@@ -1159,12 +1093,6 @@ impl KernelArguments {
         self
     }
 
-    /// Set which resources the kernel writes.
-    pub fn with_writes(mut self, writes: WriteMask) -> Self {
-        self.writes = writes;
-        self
-    }
-
     /// Set the info to `info`
     pub fn with_info(mut self, info: MetadataBindingInfo) -> Self {
         self.info = info;
@@ -1191,26 +1119,53 @@ impl KernelArguments {
         self.buffers().map(|binding| binding.memory.id())
     }
 
-    /// The buffers this launch was given that the kernel writes — the ones a
-    /// launch that fails taints, and nothing else.
+    /// The buffers this launch was given that the kernel writes, per the
+    /// compiled kernel's own answer — the ones a launch that fails taints,
+    /// and nothing else.
     ///
-    /// Naming an input here would fail a read of memory the launch never
-    /// touched, on any stream, until something writes it again. Leaving out
-    /// something the kernel does write is the worse mistake by far — a read of
-    /// it hands back the bytes that were there before, silently — so
-    /// [`writes`](Self::writes) is built to over-name rather than under-name,
-    /// and an empty one means every resource.
-    pub fn buffers_written(&self) -> impl Iterator<Item = &BufferBinding> {
+    /// `io` is what the compiler recorded from its visibility analysis,
+    /// indexed like `resources` (see
+    /// [`BufferIO`](crate::kernel::BufferIO)). `None`, or a vector shorter
+    /// than the resources, reads as written: naming a buffer the kernel only
+    /// read fails a read that would have been fine, loudly; missing one it
+    /// writes hands back the bytes that were there before, silently — so
+    /// every fallback over-names.
+    pub fn buffers_written<'a>(
+        &'a self,
+        io: Option<&'a [BufferIO]>,
+    ) -> impl Iterator<Item = &'a BufferBinding> {
         self.buffers()
             .enumerate()
-            .filter(move |(index, _)| self.writes(*index))
-            .map(|(_, binding)| binding)
+            .filter_map(move |(index, binding)| {
+                let written = io
+                    .and_then(|io| io.get(index))
+                    .map(|io| io.written())
+                    .unwrap_or(true);
+                written.then_some(binding)
+            })
     }
 
-    /// Whether the kernel writes the resource at `index` — see
-    /// [`WriteMask::get`].
-    pub fn writes(&self, index: usize) -> bool {
-        self.writes.get(index)
+    /// The buffers this launch was given that the kernel reads — the ones
+    /// whose contents have to be trustworthy before the launch runs, and the
+    /// only ones checked: a pure output is not read, so a relaunch into a
+    /// tainted buffer is exactly how the buffer gets repaired.
+    ///
+    /// The same fallback direction as [`buffers_written`](Self::buffers_written):
+    /// no answer reads as read, so a kernel the compiler kept no answer for is
+    /// checked on everything rather than checked on nothing.
+    pub fn buffers_read<'a>(
+        &'a self,
+        io: Option<&'a [BufferIO]>,
+    ) -> impl Iterator<Item = &'a BufferBinding> {
+        self.buffers()
+            .enumerate()
+            .filter_map(move |(index, binding)| {
+                let read = io
+                    .and_then(|io| io.get(index))
+                    .map(|io| io.read())
+                    .unwrap_or(true);
+                read.then_some(binding)
+            })
     }
 }
 
@@ -1512,6 +1467,8 @@ fn cube_count_spread(max: &(u32, u32, u32), num_cubes: u32) -> [u32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
 
     #[test_log::test]
     fn safe_num_cubes_even() {
@@ -1533,53 +1490,63 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-    /// A declared mask answers exactly, in registration order.
+    /// The compiled kernel's answer drives both sets exactly, in resource
+    /// order.
     #[test_log::test]
-    fn a_write_mask_answers_what_was_declared() {
-        let mut writes = WriteMask::default();
-        writes.push(false);
-        writes.push(true);
-        writes.push(false);
+    fn buffer_io_drives_the_read_and_write_sets() {
+        use crate::kernel::BufferIO;
+        use cubecl_environment::stream::StreamId;
 
-        assert!(!writes.get(0) && writes.get(1) && !writes.get(2));
-        assert_eq!(writes.len(), 3);
+        let stream = StreamId { value: 0 };
+        let args = KernelArguments::new().with_buffers(vec![
+            Handle::new(stream, 8).binding(),
+            Handle::new(stream, 8).binding(),
+            Handle::new(stream, 8).binding(),
+            Handle::new(stream, 8).binding(),
+        ]);
+        let io = [
+            BufferIO::ReadOnly,
+            BufferIO::WriteOnly,
+            BufferIO::ReadWrite,
+            BufferIO::Dead,
+        ];
+
+        let written: Vec<_> = args.buffers_written(Some(&io)).collect();
+        assert_eq!(written.len(), 2, "WriteOnly and ReadWrite are written");
+        assert!(core::ptr::eq(written[0], args.buffers().nth(1).unwrap()));
+        assert!(core::ptr::eq(written[1], args.buffers().nth(2).unwrap()));
+
+        let read: Vec<_> = args.buffers_read(Some(&io)).collect();
+        assert_eq!(read.len(), 2, "ReadOnly and ReadWrite are read");
+        assert!(core::ptr::eq(read[0], args.buffers().nth(0).unwrap()));
+        assert!(core::ptr::eq(read[1], args.buffers().nth(2).unwrap()));
     }
 
-    /// Every fallback answers "written": an undeclared mask, an index past what
-    /// was declared, a launch wider than the bits.
-    ///
-    /// Naming a buffer the kernel only read fails a read that would have been
-    /// fine, loudly. Missing one it writes hands back the bytes that were there
-    /// before, silently, and nothing ever says so.
+    /// Every fallback over-names: a kernel the compiler kept no answer for,
+    /// and a resource past what the answer covers, read as both read and
+    /// written. Naming a buffer the kernel only read fails a read that would
+    /// have been fine, loudly; missing one it writes hands back the bytes
+    /// that were there before, silently.
     #[test_log::test]
-    fn an_undeclared_write_mask_reads_as_everything_written() {
-        let undeclared = WriteMask::default();
-        assert!(undeclared.is_empty());
-        assert!(undeclared.get(0) && undeclared.get(7));
+    fn missing_io_reads_as_everything_read_and_written() {
+        use crate::kernel::BufferIO;
+        use cubecl_environment::stream::StreamId;
 
-        let mut writes = WriteMask::default();
-        writes.push(false);
-        assert!(writes.get(1), "past what was declared");
+        let stream = StreamId { value: 0 };
+        let args = KernelArguments::new().with_buffers(vec![
+            Handle::new(stream, 8).binding(),
+            Handle::new(stream, 8).binding(),
+        ]);
 
-        for _ in 0..(WriteMask::CAPACITY + 4) {
-            writes.push(false);
-        }
-        assert!(
-            writes.get(WriteMask::CAPACITY),
-            "past what the bits can hold"
+        assert_eq!(args.buffers_written(None).count(), 2);
+        assert_eq!(args.buffers_read(None).count(), 2);
+
+        let short = [BufferIO::Dead];
+        assert_eq!(
+            args.buffers_written(Some(&short)).count(),
+            1,
+            "the uncovered resource reads as written"
         );
-    }
-
-    /// An output that aliases an input writes that input in place, so the input
-    /// is written however its own argument was declared.
-    #[test_log::test]
-    fn a_write_mask_takes_an_alias_after_the_fact() {
-        let mut writes = WriteMask::default();
-        writes.push(false);
-        writes.push(false);
-
-        writes.set(0);
-
-        assert!(writes.get(0) && !writes.get(1));
+        assert_eq!(args.buffers_read(Some(&short)).count(), 1);
     }
 }

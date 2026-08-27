@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 
 use cubecl_core::ir::{
     ContextExt,
-    attributes::{ATTR_BUFFER_IO, BufferIOAttr, FuncInterface},
+    attributes::{ATTR_BUFFER_IO, BufferIOAttr, FuncInterface, buffer_io_by_position},
     cube_op,
     dialect::OperationPtrExt,
     interfaces::{AlignedType, HasElementType},
@@ -318,6 +318,15 @@ pub fn shared_memory_size(ctx: &Context, module: Ptr<Operation>) -> usize {
         *size += op.size(ctx).0;
     });
     size
+}
+
+/// The four-state per-buffer IO, by buffer position — see
+/// [`buffer_io_by_position`].
+pub fn buffer_io(ctx: &Context, entry_func: FuncOp) -> Vec<cubecl_runtime::kernel::BufferIO> {
+    buffer_io_by_position(ctx, entry_func)
+        .into_iter()
+        .map(Into::into)
+        .collect()
 }
 
 pub fn buffers(ctx: &Context, entry_func: FuncOp) -> Vec<Visibility> {

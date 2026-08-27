@@ -99,6 +99,7 @@ impl CubeTask<DummyCompiler> for KernelTask {
             debug_name: None,
             source: String::new(),
             repr: Some(self.clone()),
+            io: None,
             cube_dim: CubeDim::new_single(),
             debug_info: None,
         })

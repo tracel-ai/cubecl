@@ -371,51 +371,60 @@ impl ComputeServer for MetalServer {
     ) {
         use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder, MTLDevice, MTLResourceOptions};
 
+        // Compilation comes first — memoized, so a launch after the first
+        // pays a map lookup — because the write scope stages what the
+        // compiled kernel says it writes. A kernel that fails to compile has
+        // no IR and no answer, so every buffer the launch was given is left
+        // as it was and all of them carry the failure.
+        //
+        // A dry run stages none either way. It was never going to write, so a
+        // failure in it leaves nothing stale, and tainting its buffers would
+        // fail unrelated reads of memory the run deliberately left alone.
+        let kernel_id = kernel.id();
+        let compiled = (|| {
+            cubecl_runtime::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)?;
+            cubecl_runtime::validation::validate_units(&self.utilities.properties, &kernel_id)?;
+            self.context.compile_kernel(
+                &kernel_id,
+                kernel,
+                self.utilities.properties.hardware.max_shared_memory_size,
+                self.utilities.logger.clone(),
+            )
+        })();
+        let compiled = match compiled {
+            Ok(compiled) => compiled,
+            Err(err) => {
+                let error = ServerError::Launch(err);
+                let _ = self.while_writing(
+                    stream_id,
+                    bindings,
+                    |bindings, written| {
+                        if !launch_mode.is_skipped() {
+                            written.extend(bindings.buffers().cloned());
+                        }
+                    },
+                    |_, _, _| Err::<(), ServerError>(error),
+                );
+                return;
+            }
+        };
+        if launch_mode.is_skipped() {
+            return;
+        }
+        let io = compiled.io.clone();
+
         // The scope taints what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
         // bytes nothing wrote. The paths that used to bail out silently now
         // name what they left unwritten.
-        //
-        // A dry run stages none. It was never going to write, so a failure in
-        // it leaves nothing stale, and tainting its buffers would fail
-        // unrelated reads of memory the run deliberately left alone.
         let _ = self.while_writing(
             stream_id,
             bindings,
             |bindings, written| {
-                if !launch_mode.is_skipped() {
-                    written.extend(bindings.buffers_written().cloned());
-                }
+                written.extend(bindings.buffers_written(io.as_deref()).cloned())
             },
             |server, bindings, _| {
-                let kernel_id = kernel.id();
-
-                cubecl_runtime::validation::validate_cube_dim(
-                    &server.utilities.properties,
-                    &kernel_id,
-                )
-                .map_err(ServerError::Launch)?;
-                cubecl_runtime::validation::validate_units(
-                    &server.utilities.properties,
-                    &kernel_id,
-                )
-                .map_err(ServerError::Launch)?;
-
-                let compiled = server
-                    .context
-                    .compile_kernel(
-                        &kernel_id,
-                        kernel,
-                        server.utilities.properties.hardware.max_shared_memory_size,
-                        server.utilities.logger.clone(),
-                    )
-                    .map_err(ServerError::Launch)?;
-
-                if launch_mode.is_skipped() {
-                    return Ok(());
-                }
-
                 let dispatch_info = match count {
                     CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
                     CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),

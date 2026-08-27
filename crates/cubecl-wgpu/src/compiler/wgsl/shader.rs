@@ -210,6 +210,13 @@ impl Pass for EnableFeaturesPass {
 
 pub struct ComputeShader {
     pub buffers: Vec<Visibility>,
+    /// What the kernel does with each buffer binding, by buffer position —
+    /// the four-state answer the launch path's taint bookkeeping consumes.
+    /// Captured from the IR attributes before [`rewrite_args`] widens them
+    /// for the shader: the shader's visibility is deliberately forced wider
+    /// than the kernel's own behavior, and the taint bookkeeping needs the
+    /// kernel's, not the shader's.
+    pub io: Vec<cubecl_runtime::kernel::BufferIO>,
     pub shared_memory_size: usize,
     pub ctx: Context,
 }

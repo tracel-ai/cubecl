@@ -218,15 +218,19 @@ pub fn test_a_write_lands_after_the_work_queued_on_its_buffers_stream<R: Runtime
     );
 }
 
-/// A failed launch says nothing about the buffers it only reads.
+/// A launch that never compiled taints everything it was given, the buffers
+/// it would only have read included.
 ///
-/// A launch names its outputs when it fails, because those are the buffers
-/// something was going to write and now nothing has. Its inputs it leaves
-/// exactly as it found them — they hold whatever the stream that filled them
-/// put there — so failing a read of one reports a kernel the reader never
-/// launched, about memory that is perfectly good. `&mut` in the signature is
-/// what separates the two.
-pub fn test_a_failed_launch_leaves_the_buffers_it_only_reads_readable<R: Runtime>(
+/// The read set and the write set are the compiled kernel's own answer, and a
+/// kernel that failed to compile never gave one — there is no IR to ask. So
+/// every buffer the launch was handed is claimed by the failure: naming the
+/// input fails a read that would have been fine, loudly, where guessing from
+/// the signature would be the write mask this design deleted. A launch that
+/// fails *after* compilation stages only what the kernel writes, so its
+/// read-only inputs stay readable — the property the write scope's own tests
+/// pin, since no portable kernel fails between compilation and enqueue on
+/// every backend.
+pub fn test_a_launch_that_never_compiled_taints_everything_it_was_given<R: Runtime>(
     client: ComputeClient<R>,
 ) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_005);
@@ -249,11 +253,20 @@ pub fn test_a_failed_launch_leaves_the_buffers_it_only_reads_readable<R: Runtime
 
     // The output is what the launch was going to write, so it is unreadable.
     reader.executes(|| assert_rejected(&client, out, "read-only-input"));
-    // The input is untouched, and still says what its writer wrote.
+    // With no compiled kernel to say otherwise, the input is claimed too.
+    reader.executes(|| assert_rejected(&client, input.clone(), "read-only-input"));
+
+    // And writing it again is the recovery, exactly as for an output.
+    producer.executes(|| {
+        client.write(
+            &input,
+            Bytes::from_bytes_vec(u32::as_bytes(&[7u32]).to_vec()),
+        )
+    });
     let read = reader.executes(|| {
         client
             .read_one(input)
-            .expect("the failed launch never wrote this one, it only read it")
+            .expect("a rewritten buffer reads again")
     });
     assert_eq!(u32::from_bytes(&read), &[7]);
 }
@@ -425,9 +438,9 @@ macro_rules! testgen_stream_errors {
             }
 
             #[$crate::runtime_tests::test_log::test]
-            fn test_a_failed_launch_leaves_the_buffers_it_only_reads_readable() {
+            fn test_a_launch_that_never_compiled_taints_everything_it_was_given() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::stream_errors::test_a_failed_launch_leaves_the_buffers_it_only_reads_readable::<
+                cubecl_core::runtime_tests::stream_errors::test_a_launch_that_never_compiled_taints_everything_it_was_given::<
                     TestRuntime,
                 >(client);
             }

@@ -59,6 +59,16 @@ pub enum ParamsTransfer {
 }
 
 /// Compiler kind and info used when compiling a specific kernel. Used to determine parameter passing strategies.
+/// What a launch needs from a compiled kernel: the pipeline, the parameter
+/// strategy, and the per-buffer IO the taint bookkeeping stages from. The IO
+/// rides in the cache because on a hit nothing else of the compilation
+/// survives.
+pub type PipelineEntry = (
+    Arc<ComputePipeline>,
+    CompilerInfo,
+    Option<Arc<[cubecl_runtime::kernel::BufferIO]>>,
+);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompilerInfo {
     Vulkan { params_transfer: ParamsTransfer },
@@ -75,7 +85,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     streams_pool: Vec<StreamId>,
     /// The pipelines built so far, in front of the SPIR-V store when there is
     /// one.
-    pipelines: CompilationCache<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
+    pipelines: CompilationCache<KernelId, PipelineEntry>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
     pub(crate) spirv_cache: Option<Store<(u64, KernelCacheKey), cubecl_spirv::SpirvCacheEntry>>,
@@ -206,7 +216,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         &mut self,
         kernel: <Self as ComputeServer>::Kernel,
         bindings: &KernelArguments,
-    ) -> Result<(Arc<ComputePipeline>, CompilerInfo), LaunchError> {
+    ) -> Result<PipelineEntry, LaunchError> {
         let kernel_id = kernel.id();
         let mode = kernel_id.mode;
 
@@ -238,6 +248,9 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         self.scheduler.logger.log_compilation(&compiled);
 
         compiler.validate_ir(&compiled.repr, &self.utilities.properties)?;
+        // The compiled kernel's per-buffer answer, before the repr is
+        // consumed: what the write scope stages from.
+        let io = compiled.io.take().map(Arc::from);
         let (compiler_info, auto_repr) = compiler.normalize_repr(compiled.repr);
         let repr = auto_repr.as_ref().map(|r| r.as_ref());
 
@@ -275,8 +288,10 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             mode,
         )?;
         let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings);
-        self.pipelines
-            .insert(kernel_id.clone(), (pipeline.clone(), compiler_info));
+        self.pipelines.insert(
+            kernel_id.clone(),
+            (pipeline.clone(), compiler_info, io.clone()),
+        );
 
         #[cfg(feature = "spirv")]
         if let Some(Err(key)) = cached
@@ -290,7 +305,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             );
         }
 
-        Ok((pipeline, compiler_info))
+        Ok((pipeline, compiler_info, io))
     }
 }
 
@@ -484,31 +499,45 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
+        // Compilation comes first — memoized, so a launch after the first
+        // pays a map lookup — because the write scope stages what the
+        // compiled kernel says it writes. A kernel that fails to compile has
+        // no IR and no answer, so every buffer the launch was given is left
+        // as it was and all of them carry the failure.
+        //
+        // A dry run stages none either way. It was never going to write, so a
+        // failure in it leaves nothing stale, and tainting its buffers would
+        // fail unrelated reads of memory the run deliberately left alone.
+        let (pipeline, compiler_info, io) = match self.pipeline(kernel, &args) {
+            Ok(val) => val,
+            Err(err) => {
+                let error = ServerError::Launch(err);
+                let _ = self.while_writing(
+                    stream_id,
+                    args,
+                    |args, written| {
+                        if !launch_mode.is_skipped() {
+                            written.extend(args.buffers().cloned());
+                        }
+                    },
+                    |_, _, _| Err::<(), ServerError>(error),
+                );
+                return;
+            }
+        };
+        if launch_mode.is_skipped() {
+            return;
+        }
+
         // The scope taints what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
         // bytes nothing wrote.
-        //
-        // A dry run stages none. It was never going to write, so a failure in
-        // it leaves nothing stale, and tainting its buffers would fail
-        // unrelated reads of memory the run deliberately left alone.
         let _ = self.while_writing(
             stream_id,
             args,
-            |args, written| {
-                if !launch_mode.is_skipped() {
-                    written.extend(args.buffers_written().cloned());
-                }
-            },
+            |args, written| written.extend(args.buffers_written(io.as_deref()).cloned()),
             |server, args, written| {
-                let (pipeline, compiler_info) = server
-                    .pipeline(kernel, &args)
-                    .map_err(ServerError::Launch)?;
-
-                if launch_mode.is_skipped() {
-                    return Ok(());
-                }
-
                 server.streams_pool.clear();
                 // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
                 // automatically when the guard drops.

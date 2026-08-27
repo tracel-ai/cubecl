@@ -7,9 +7,7 @@ use crate::{InfoBuilder, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
 use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
-use cubecl_runtime::server::{
-    BufferBinding, CubeCount, KernelResource, TensorMapBinding, WriteMask,
-};
+use cubecl_runtime::server::{BufferBinding, CubeCount, KernelResource, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
@@ -26,14 +24,6 @@ std::thread_local! {
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
     resources: Vec<KernelResource>,
-    /// Which of `resources` the kernel writes, one bit per resource.
-    writes: WriteMask,
-    /// Whether the argument being registered right now is one the kernel
-    /// writes. Set by [`arg_writes`](Self::arg_writes) before each argument, so
-    /// everything that argument registers inherits it — a `&mut` struct of
-    /// tensors registers several resources and the kernel may write any of
-    /// them.
-    arg_writes: bool,
     address_type: AddressType,
     pub settings: KernelSettings,
     #[cfg(not(feature = "std"))]
@@ -103,7 +93,6 @@ impl<R: Runtime> KernelLauncher<R> {
         let info = self.with_info(|info| info.finish(address_type));
 
         bindings.resources = self.resources;
-        bindings.writes = self.writes;
         bindings.info = info;
 
         bindings
@@ -112,34 +101,9 @@ impl<R: Runtime> KernelLauncher<R> {
 
 // Tensors/arrays
 impl<R: Runtime> KernelLauncher<R> {
-    /// Declare whether the argument registered next is one the kernel writes.
-    ///
-    /// `&mut` in the `#[cube]` signature is how a kernel says it produces a
-    /// value — the macro has no other way to tell, since `&[T]` and `&mut [T]`
-    /// share one [`LaunchArg`](crate::prelude::LaunchArg) impl and the
-    /// distinction is gone by the time this runs.
-    ///
-    /// It stays set for everything that argument registers, which is the safe
-    /// direction: a `&mut` struct of tensors names all of them, and the kernel
-    /// may write any.
-    pub fn arg_writes(&mut self, writes: bool) {
-        self.arg_writes = writes;
-    }
-
-    /// Record a resource and whether the kernel writes it, so the two can never
-    /// fall out of step.
+    /// Record a resource.
     fn push_resource(&mut self, resource: KernelResource) {
         self.resources.push(resource);
-        self.writes.push(self.arg_writes);
-    }
-
-    /// An output that aliases an input writes that input's buffer in place, so
-    /// the input is written however its own argument was declared. Missing this
-    /// would leave an in-place kernel's only buffer unnamed when it fails.
-    fn alias_writes(&mut self, input_pos: usize) {
-        if self.arg_writes {
-            self.writes.set(input_pos);
-        }
     }
 
     /// Push a new input tensor to the state.
@@ -153,7 +117,7 @@ impl<R: Runtime> KernelLauncher<R> {
         let tensor = match tensor {
             TensorArg::Handle { handle, .. } => handle,
             TensorArg::Alias { input_pos, .. } => {
-                self.alias_writes(input_pos);
+                let _ = input_pos;
                 return None;
             }
         };
@@ -183,7 +147,7 @@ impl<R: Runtime> KernelLauncher<R> {
         let array = match array {
             BufferArg::Handle { handle, .. } => handle,
             BufferArg::Alias { input_pos, .. } => {
-                self.alias_writes(input_pos);
+                let _ = input_pos;
                 return None;
             }
         };
@@ -215,8 +179,6 @@ impl<R: Runtime> KernelLauncher<R> {
             address_type: settings.address_type,
             settings,
             resources: Vec::new(),
-            writes: WriteMask::default(),
-            arg_writes: false,
             _runtime: PhantomData,
             #[cfg(not(feature = "std"))]
             info: InfoBuilder::default(),

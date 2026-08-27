@@ -84,6 +84,10 @@ impl Compiler for SpirvCompiler {
     type Representation = SpirvKernel;
     type CompilationOptions = WgpuCompilationOptions;
 
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<cubecl_runtime::kernel::BufferIO>> {
+        repr.io.clone()
+    }
+
     fn compile(
         &mut self,
         value: KernelDefinition,
@@ -116,7 +120,7 @@ impl Compiler for SpirvCompiler {
             cube_dim: value.settings.cube_dim,
         });
 
-        let (module, bindings, shared_size) = self.compile_kernel(
+        let (module, bindings, io, shared_size) = self.compile_kernel(
             &mut ctx,
             module,
             entry_func,
@@ -135,6 +139,7 @@ impl Compiler for SpirvCompiler {
             assembled_module: module.assemble(),
             module: Some(Arc::new(module)),
             bindings,
+            io: Some(io),
             shared_size,
             immediate_size,
             info_visibility,
@@ -165,7 +170,15 @@ impl SpirvCompiler {
         entry_func: FuncOp,
         settings: KernelSettings,
         #[cfg(feature = "pliron-dump")] ir_printing_dir: Option<std::path::PathBuf>,
-    ) -> Result<(Module, Vec<Visibility>, usize), CompilationError> {
+    ) -> Result<
+        (
+            Module,
+            Vec<Visibility>,
+            Vec<cubecl_runtime::kernel::BufferIO>,
+            usize,
+        ),
+        CompilationError,
+    > {
         let entry = entry_func.get_entry_block(ctx);
         let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>();
         let module_op = module.get_operation();
@@ -252,6 +265,12 @@ impl SpirvCompiler {
             }
         });
         let bindings: Vec<Visibility> = bindings.collect();
+        // The four-state answer, by buffer position, before anything widens
+        // or collapses it: what the launch path's taint bookkeeping consumes.
+        let io = cubecl_core::ir::attributes::buffer_io_by_position(ctx, entry_func)
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<cubecl_runtime::kernel::BufferIO>>();
 
         verify_operation(module_op, ctx)?;
 
@@ -303,7 +322,7 @@ impl SpirvCompiler {
         spirv_module.to_spirv(ctx, &mut builder)?;
         let module = builder.module();
 
-        Ok((module, bindings, shared_size))
+        Ok((module, bindings, io, shared_size))
     }
 }
 

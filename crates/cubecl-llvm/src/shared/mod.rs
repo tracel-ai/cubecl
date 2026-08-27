@@ -62,6 +62,10 @@ impl Compiler for PlironCompiler {
 
     type CompilationOptions = PlironOptions;
 
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<cubecl_runtime::kernel::BufferIO>> {
+        Some(repr.buffer_io().to_vec())
+    }
+
     fn compile(
         &mut self,
         kernel: KernelDefinition,
@@ -92,6 +96,7 @@ impl Compiler for PlironCompiler {
 impl PlironCompiler {
     fn compile_ir(self, kernel: KernelDefinition) -> PlironEngine {
         let module = kernel.body.state().module;
+        let entry_func = kernel.body.state().entry_func;
         let module_op = module.get_operation();
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
@@ -146,9 +151,19 @@ impl PlironCompiler {
         // the cube ops — the same post-optimization point the other backends
         // annotate at.
         passes.add_pass(AnnotateGlobalVisibilityPass);
+        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
+
+        // Read the stamped answer now: the entry ABI lowering below folds the
+        // buffer arguments behind a pointer table and erases them, attributes
+        // included.
+        let io = cubecl_core::ir::attributes::buffer_io_by_position(&ctx, entry_func)
+            .into_iter()
+            .map(Into::into)
+            .collect();
+
+        let mut passes = OpPass::<ModuleOp, Passes>::default();
         passes.add_pass(NestedOpsPass::new(lowering_passes));
         passes.add_pass(builtin_to_llvm_pass());
-
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
         if let Err(e) = verify_operation(module_op, &ctx) {
@@ -160,7 +175,7 @@ impl PlironCompiler {
             shared_memories: shared_memories.take(),
         };
 
-        PlironEngine::compile(&ctx, module, &kernel.settings.kernel_name, requirements)
+        PlironEngine::compile(&ctx, module, &kernel.settings.kernel_name, requirements, io)
             .expect("Failed to convert to LLVM IR")
     }
 }

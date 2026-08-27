@@ -1,9 +1,6 @@
-use crate::{
-    compute::{
-        MB, context::HipContext, fence::Fence, gpu::GpuResource,
-        io::controller::PinnedMemoryManagedAllocController, stream::HipStreamBackend,
-    },
-    runtime::HipCompiler,
+use crate::compute::{
+    MB, context::HipContext, fence::Fence, gpu::GpuResource,
+    io::controller::PinnedMemoryManagedAllocController, stream::HipStreamBackend,
 };
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{
@@ -23,16 +20,14 @@ use cubecl_hip_sys::{
     ihipStream_t,
 };
 use cubecl_runtime::{
-    compiler::CubeTask,
     id::KernelId,
-    logging::ServerLogger,
     memory_management::{
         InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle,
         MemoryReport,
     },
     stream::ResolvedStreams,
 };
-use std::{ffi::c_void, sync::Arc};
+use std::ffi::c_void;
 
 #[derive(new)]
 /// The `Command` struct encapsulates a HIP context and a set of resolved HIP streams, providing an
@@ -462,35 +457,17 @@ impl<'a> Command<'a> {
         Box::pin(async { fence.wait_sync() })
     }
 
-    /// Compile and cache `kernel` without launching — everything a skipped
-    /// launch owes the caches, and nothing else: no buffer is resolved, so a
-    /// dry run's lazily-carved allocations stay unmapped.
-    pub fn compile_only(
-        &mut self,
-        kernel_id: &KernelId,
-        kernel: Box<dyn CubeTask<HipCompiler>>,
-        logger: Arc<ServerLogger>,
-    ) -> Result<(), LaunchError> {
-        if !self.ctx.is_loaded(kernel_id) {
-            self.ctx.compile_kernel(kernel_id, kernel, logger)?;
-        }
-        Ok(())
-    }
-
     /// Executes a registered HIP kernel with the specified parameters.
     ///
-    /// Always launches: a skipped launch stops at
-    /// [`compile_only`](Self::compile_only) in the server, before any resource
-    /// is resolved, so it never reaches here.
+    /// Always launches an already-compiled kernel: the server compiles before
+    /// entering its write scope, and a skipped launch stops there, before any
+    /// resource is resolved, so it never reaches here.
     ///
     /// # Parameters
     ///
     /// * `kernel_id` - The identifier of the kernel to execute.
-    /// * `kernel` - The cube task to compile if not cached.
-    /// * `mode` - The execution mode for the current kernel.
     /// * `dispatch_count` - The number of thread blocks in the x, y, and z dimensions.
     /// * `resources` - GPU resources (e.g., buffers) used by the kernel.
-    /// * `logger` - The logger to use to write compilation & runtime info.
     ///
     /// # Panics
     ///
@@ -498,13 +475,9 @@ impl<'a> Command<'a> {
     pub fn kernel(
         &mut self,
         kernel_id: KernelId,
-        kernel: Box<dyn CubeTask<HipCompiler>>,
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
-        logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        self.compile_only(&kernel_id, kernel, logger)?;
-
         let stream = self.streams.current();
 
         let result = self

@@ -34,6 +34,10 @@ pub struct KernelRequirements {
 struct JitKernel {
     func: KernelFn,
     requirements: KernelRequirements,
+    /// What the kernel does with each buffer binding, by buffer position --
+    /// read off the IR before the entry ABI lowering erased the arguments,
+    /// for the launch path's taint bookkeeping.
+    io: Vec<cubecl_runtime::kernel::BufferIO>,
     _lljit: LLVMLLJIT,
     _llvm_ctx: Rc<LLVMContext>,
 }
@@ -55,6 +59,7 @@ impl PlironEngine {
         module: ModuleOp,
         kernel_name: &str,
         requirements: KernelRequirements,
+        io: Vec<cubecl_runtime::kernel::BufferIO>,
     ) -> pliron::result::Result<Self> {
         INIT_NATIVE.call_once(|| {
             initialize_native().expect("failed to initialize native target");
@@ -87,6 +92,7 @@ impl PlironEngine {
         Ok(PlironEngine(Arc::new(JitKernel {
             func,
             requirements,
+            io,
             _lljit: lljit,
             _llvm_ctx: llvm_ctx,
         })))
@@ -95,6 +101,11 @@ impl PlironEngine {
     /// What the host has to provide to launch this kernel, see [`KernelRequirements`].
     pub fn requirements(&self) -> &KernelRequirements {
         &self.0.requirements
+    }
+
+    /// What the kernel does with each buffer binding, by buffer position.
+    pub fn buffer_io(&self) -> &[cubecl_runtime::kernel::BufferIO] {
+        &self.0.io
     }
 
     pub fn run_kernel(&self, data: &mut PlironData) {

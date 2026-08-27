@@ -109,7 +109,7 @@ impl CpuServer {
 
     fn prepare_task(
         &mut self,
-        kernel: Box<dyn CubeTask<CpuCompiler>>,
+        kernel_id: KernelId,
         count: CubeCount,
         bindings: BindingsResource,
         stream_id: StreamId,
@@ -133,15 +133,12 @@ impl CpuServer {
             }
         };
 
-        self.prepare_task_inner(kernel, cube_count, bindings, stream_id)
+        self.prepare_task_inner(kernel_id, cube_count, bindings, stream_id)
     }
 
     /// Compile and cache `kernel` without scheduling anything — everything a
     /// skipped launch owes the caches, touching no buffer.
-    fn compile_only(
-        &mut self,
-        kernel: Box<dyn CubeTask<CpuCompiler>>,
-    ) -> Result<(), CompilationError> {
+    fn compile_only(&mut self, kernel: &dyn CubeTask<CpuCompiler>) -> Result<(), CompilationError> {
         let kernel_id = kernel.id();
         if self.compilation_cache.contains_key(&kernel_id) {
             return Ok(());
@@ -155,17 +152,15 @@ impl CpuServer {
 
     fn prepare_task_inner(
         &mut self,
-        kernel: Box<dyn CubeTask<CpuCompiler>>,
+        kernel_id: KernelId,
         cube_count: [u32; 3],
         bindings: BindingsResource,
         stream_id: StreamId,
     ) -> Result<ScheduleTask, CompilationError> {
-        let kernel_id = kernel.id();
-        self.compile_only(kernel)?;
         let kernel = self
             .compilation_cache
             .get_mut(&kernel_id)
-            .expect("just compiled");
+            .expect("compiled before the write scope was entered");
 
         let cube_dim = kernel.mlir.cube_dim;
 
@@ -346,37 +341,54 @@ impl ComputeServer for CpuServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
+        // Compilation comes first — memoized, so a launch after the first
+        // pays a map lookup — because the write scope stages what the
+        // compiled kernel says it writes. A kernel that fails to compile has
+        // no IR and no answer, so every buffer the launch was given is left
+        // as it was and all of them carry the failure.
+        //
+        // A dry run stages none either way. It was never going to write, so a
+        // failure in it leaves nothing stale, and tainting its buffers would
+        // fail unrelated reads of memory the run deliberately left alone. It
+        // stops right after compilation, before anything that touches a
+        // buffer: resolving resources or reading a dynamic cube count would
+        // materialize memory a dry run exists to leave unmapped. It registers
+        // no stream dependency either, which is correct rather than an
+        // oversight — nothing is scheduled, so there is no work for a later
+        // stream to order against.
+        let kernel_id = kernel.id();
+        if let Err(err) = self.compile_only(kernel.as_ref()) {
+            let error = ServerError::Launch(LaunchError::CompilationError(err));
+            let _ = self.while_writing(
+                stream_id,
+                bindings,
+                |bindings, written| {
+                    if !launch_mode.is_skipped() {
+                        written.extend(bindings.buffers().cloned());
+                    }
+                },
+                |_, _, _| Err::<(), ServerError>(error),
+            );
+            return;
+        }
+        if launch_mode.is_skipped() {
+            return;
+        }
+
+        let io = self
+            .compilation_cache
+            .get(&kernel_id)
+            .and_then(|kernel| kernel.mlir.io.clone());
+
         // The scope taints what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
         // bytes nothing wrote.
-        //
-        // A dry run stages none. It was never going to write, so a failure in
-        // it leaves nothing stale, and tainting its buffers would fail
-        // unrelated reads of memory the run deliberately left alone.
         let _ = self.while_writing(
             stream_id,
             bindings,
-            |bindings, written| {
-                if !launch_mode.is_skipped() {
-                    written.extend(bindings.buffers_written().cloned());
-                }
-            },
+            |bindings, written| written.extend(bindings.buffers_written(io.as_deref()).cloned()),
             |server, bindings, _| {
-                // A skipped launch stops here, after compilation and before
-                // anything that touches a buffer: resolving resources or
-                // reading a dynamic cube count would materialize memory a dry
-                // run exists to leave unmapped. It registers no stream
-                // dependency either, which is correct rather than an
-                // oversight — nothing is scheduled, so there is no work for a
-                // later stream to order against.
-                if launch_mode.is_skipped() {
-                    return server
-                        .compile_only(kernel)
-                        .map(|_| ())
-                        .map_err(|err| ServerError::Launch(LaunchError::CompilationError(err)));
-                }
-
                 server.streams_pool.clear();
                 bindings
                     .resources
@@ -390,7 +402,7 @@ impl ComputeServer for CpuServer {
                     .for_each(|b| server.streams_pool.push(b.stream));
                 let bindings = server.prepare_bindings(bindings);
                 let task = server
-                    .prepare_task(kernel, count, bindings, stream_id)
+                    .prepare_task(kernel_id, count, bindings, stream_id)
                     .map_err(|err| ServerError::Launch(LaunchError::CompilationError(err)))?;
 
                 server

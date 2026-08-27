@@ -1,6 +1,6 @@
 use super::wgsl;
 use crate::WgpuServer;
-use crate::{AutoRepresentationRef, CompilerInfo, WgpuCompiler};
+use crate::{AutoRepresentationRef, WgpuCompiler};
 use cubecl_core::{CubeDim, ExecutionMode, WgpuCompilationOptions, server::KernelArguments};
 use cubecl_core::{MemoryConfiguration, prelude::Visibility};
 use cubecl_ir::DeviceProperties;
@@ -36,7 +36,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         bindings: &KernelArguments,
         mode: ExecutionMode,
     ) -> Result<
-        Option<Result<(Arc<ComputePipeline>, CompilerInfo), (u64, KernelCacheKey)>>,
+        Option<Result<crate::compute::PipelineEntry, (u64, KernelCacheKey)>>,
         CompilationError,
     > {
         #[cfg(not(feature = "spirv"))]
@@ -66,9 +66,11 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 )?;
                 let pipeline =
                     self.create_pipeline(&entry.entrypoint_name, Some(repr), module, bindings);
+                let io = entry.kernel.io.clone().map(std::sync::Arc::from);
                 Ok(Some(Ok((
                     pipeline,
-                    CompilerInfo::Vulkan { params_transfer },
+                    crate::compute::CompilerInfo::Vulkan { params_transfer },
+                    io,
                 ))))
             } else {
                 Ok(Some(Err(key)))
