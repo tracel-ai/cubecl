@@ -1,5 +1,5 @@
 use crate::{
-    compute::{HipServer, context::HipContext},
+    compute::{HipServer, context::HipContext, status::checked},
     device::AmdDevice,
 };
 use core::ffi::c_int;
@@ -37,7 +37,7 @@ use cubecl_cpp::{
     },
     target::Hip,
 };
-use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
+use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
 };
@@ -98,11 +98,8 @@ impl DeviceService for HipServer {
         unsafe {
             let status = cubecl_hip_sys::hipSetDevice(device.index as cubecl_hip_sys::hipDevice_t);
             hipSetDeviceFlags(hipDeviceScheduleSpin);
-
-            assert_eq!(
-                status, HIP_SUCCESS,
-                "Should set the default device for the current thread"
-            );
+            checked("hipSetDevice", status)
+                .expect("the current thread needs its device set before anything is issued");
         }
 
         // SAFETY: Calling HIP FFI to query device memory info. The pointers to `free` and
@@ -115,10 +112,8 @@ impl DeviceService for HipServer {
                 &free as *const _ as *mut usize,
                 &total as *const _ as *mut usize,
             );
-            assert_eq!(
-                status, HIP_SUCCESS,
-                "Should get the available memory of the device"
-            );
+            checked("hipMemGetInfo", status)
+                .expect("the memory pools are sized against the device's capacity");
             total
         };
         let mem_properties = MemoryDeviceProperties {
@@ -282,10 +277,11 @@ impl Runtime for HipRuntime {
             unsafe {
                 result = hipGetDeviceCount(&mut device_count);
             }
-            if result == HIP_SUCCESS {
-                device_count.try_into().unwrap_or(0)
-            } else {
-                0
+            // No devices rather than an error: a machine with no HIP runtime
+            // installed is answering the question, not failing at it.
+            match checked("hipGetDeviceCount", result) {
+                Ok(()) => device_count.try_into().unwrap_or(0),
+                Err(_) => 0,
             }
         }
         (0..device_count())
@@ -340,10 +336,9 @@ impl DeviceProbe {
                 props.as_mut_ptr(),
                 index as cubecl_hip_sys::hipDevice_t,
             );
-            assert_eq!(
-                status, HIP_SUCCESS,
-                "the HIP driver could not describe device {index}"
-            );
+            checked("hipGetDevicePropertiesR0600", status).unwrap_or_else(|err| {
+                panic!("the driver could not describe device {index}: {err}")
+            });
             props.assume_init()
         };
 

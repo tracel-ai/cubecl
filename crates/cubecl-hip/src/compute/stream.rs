@@ -11,7 +11,6 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{BufferBinding, Handle, ServerError},
 };
-use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
@@ -22,6 +21,8 @@ use cubecl_runtime::{
     stream::{EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::sync::Arc;
+
+use crate::compute::status::checked;
 
 use crate::compute::{
     cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
@@ -119,7 +120,9 @@ impl EventStreamBackend for HipStreamBackend {
                 &mut stream,
                 cubecl_hip_sys::hipStreamNonBlocking,
             );
-            assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
+            // Fatal: the pool hands out streams by value and every operation
+            // on this backend is issued against one.
+            checked("hipStreamCreateWithFlags", stream_status).expect("the pool needs a stream");
             stream
         };
         let storage = GpuStorage::new(self.mem_alignment);

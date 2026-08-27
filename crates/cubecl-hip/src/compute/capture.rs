@@ -9,6 +9,7 @@
 //! path would otherwise run are deferred across it.
 
 use crate::compute::fence::Fence;
+use crate::compute::status::checked;
 use crate::compute::stream::Stream;
 use cubecl_core::server::{BufferBinding, ServerError};
 use cubecl_environment::backtrace::BackTrace;
@@ -103,7 +104,7 @@ impl Captures {
         // SAFETY: `exec` is a valid instantiated graph; launching it on the
         // stream re-runs the recorded sequence.
         let status = unsafe { cubecl_hip_sys::hipGraphLaunch(graph.exec, stream.sys) };
-        hip_check("hipGraphLaunch", status)
+        Ok(checked("hipGraphLaunch", status)?)
     }
 
     /// Drop the executable `id` names and release what it held: the buffers it
@@ -203,12 +204,12 @@ impl<'a> Window<'a> {
                 cubecl_hip_sys::hipStreamCaptureMode_hipStreamCaptureModeGlobal,
             )
         };
-        if let Err(err) = hip_check("hipStreamBeginCapture", status) {
+        if let Err(err) = checked("hipStreamBeginCapture", status) {
             self.stream.memory_management_gpu.capture_end();
             self.stream.memory_management_cpu.capture_end();
             self.stream.info_cache.capture_discard();
             self.stream.capturing.abort();
-            return Err(err);
+            return Err(err.into());
         }
         // Recording now: fenced drop-queue flushes on the execution path are
         // suppressed for as long as the window is open, since a host sync
@@ -317,7 +318,7 @@ impl<'a> Window<'a> {
         // SAFETY: `exec` was just instantiated and `sys` is this stream; the
         // upload is enqueued stream-ordered.
         let uploaded = unsafe { cubecl_hip_sys::hipGraphUpload(exec, self.stream.sys) };
-        if let Err(err) = hip_check("hipGraphUpload", uploaded) {
+        if let Err(err) = checked("hipGraphUpload", uploaded) {
             log::warn!(
                 "Pre-uploading the captured graph failed; \
                  the first replay will upload on demand: {err}"
@@ -332,17 +333,6 @@ impl<'a> Window<'a> {
         let sys = self.stream.sys;
         self.stream.drop_queue.flush(|| Fence::new(sys));
         self.stream.drop_queue.flush(|| Fence::new(sys));
-    }
-}
-
-fn hip_check(op: &str, status: cubecl_hip_sys::hipError_t) -> Result<(), ServerError> {
-    if status == cubecl_hip_sys::HIP_SUCCESS {
-        Ok(())
-    } else {
-        Err(ServerError::Generic {
-            reason: format!("{op} failed with HIP status {status}"),
-            backtrace: BackTrace::capture(),
-        })
     }
 }
 
@@ -362,11 +352,8 @@ unsafe fn count_memory_nodes(graph: cubecl_hip_sys::hipGraph_t) -> usize {
     // asks the driver for the node count only, written to `num_nodes`.
     let counted =
         unsafe { cubecl_hip_sys::hipGraphGetNodes(graph, std::ptr::null_mut(), &mut num_nodes) };
-    if counted != cubecl_hip_sys::HIP_SUCCESS {
-        log::warn!(
-            "hipGraphGetNodes failed with HIP status {counted} while counting the graph's \
-             nodes; skipping the memory-node check for this capture"
-        );
+    if let Err(err) = checked("hipGraphGetNodes", counted) {
+        log::warn!("{err} while counting the graph's nodes; skipping the memory-node check");
         return 0;
     }
     let mut nodes: Vec<cubecl_hip_sys::hipGraphNode_t> = vec![std::ptr::null_mut(); num_nodes];
@@ -375,10 +362,10 @@ unsafe fn count_memory_nodes(graph: cubecl_hip_sys::hipGraph_t) -> usize {
     // `num_read` entries — the count the call above reported.
     let read =
         unsafe { cubecl_hip_sys::hipGraphGetNodes(graph, nodes.as_mut_ptr(), &mut num_read) };
-    if read != cubecl_hip_sys::HIP_SUCCESS {
+    if let Err(err) = checked("hipGraphGetNodes", read) {
         log::warn!(
-            "hipGraphGetNodes failed with HIP status {read} while reading the graph's \
-             {num_nodes} node(s); skipping the memory-node check for this capture"
+            "{err} while reading the graph's {num_nodes} node(s); \
+             skipping the memory-node check"
         );
         return 0;
     }
@@ -391,11 +378,8 @@ unsafe fn count_memory_nodes(graph: cubecl_hip_sys::hipGraph_t) -> usize {
             // SAFETY: `node` is one of the handles the driver just wrote into `nodes`, so it
             // is a valid node of the still-live `graph`.
             let queried = unsafe { cubecl_hip_sys::hipGraphNodeGetType(**node, &mut ty) };
-            if queried != cubecl_hip_sys::HIP_SUCCESS {
-                log::warn!(
-                    "hipGraphNodeGetType failed with HIP status {queried}; treating the node \
-                     as not a memory node"
-                );
+            if let Err(err) = checked("hipGraphNodeGetType", queried) {
+                log::warn!("{err}; treating the node as not a memory node");
                 return false;
             }
             matches!(
@@ -432,7 +416,7 @@ unsafe fn instantiate_recording(
 ) -> Result<cubecl_hip_sys::hipGraphExec_t, ServerError> {
     unsafe {
         let mut graph: cubecl_hip_sys::hipGraph_t = std::ptr::null_mut();
-        hip_check(
+        checked(
             "hipStreamEndCapture",
             cubecl_hip_sys::hipStreamEndCapture(sys, &mut graph),
         )?;
@@ -450,7 +434,7 @@ unsafe fn instantiate_recording(
             )));
         }
         let mut exec: cubecl_hip_sys::hipGraphExec_t = std::ptr::null_mut();
-        let instantiated = hip_check(
+        let instantiated = checked(
             "hipGraphInstantiate",
             cubecl_hip_sys::hipGraphInstantiate(
                 &mut exec,
@@ -461,6 +445,6 @@ unsafe fn instantiate_recording(
             ),
         );
         cubecl_hip_sys::hipGraphDestroy(graph);
-        instantiated.map(|_| exec)
+        instantiated.map(|_| exec).map_err(Into::into)
     }
 }

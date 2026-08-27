@@ -12,6 +12,7 @@
 //! and a 2D copy of a contiguous one is slower and refused outright for very
 //! tall transfers.
 
+use crate::compute::status::checked;
 use crate::compute::{
     MB, context::HipContext, fence::Fence, gpu::GpuResource,
     io::controller::PinnedMemoryManagedAllocController, stream::HipStreamBackend,
@@ -28,8 +29,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_hip_sys::{
-    HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice,
-    ihipStream_t,
+    hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice, ihipStream_t,
 };
 use cubecl_runtime::{
     id::KernelId,
@@ -536,12 +536,7 @@ unsafe fn write_to_cpu(
             )
         };
 
-        if status != HIP_SUCCESS {
-            return Err(IoError::Unknown {
-                description: format!("HIP memcpy failed: {status}"),
-                backtrace: BackTrace::capture(),
-            });
-        }
+        checked("hipMemcpyDtoHAsync", status)?;
         return Ok(());
     };
 
@@ -561,16 +556,14 @@ unsafe fn write_to_cpu(
         )
     };
 
-    if status != HIP_SUCCESS {
-        return Err(IoError::Unknown {
-            description: format!(
-                "HIP 2D memcpy to host failed: {status} (shape {shape:?}, \
-                 strides {strides:?}, elem_size {elem_size}, spitch {}, width {}, height {})",
-                pitch.stride_bytes, pitch.width_bytes, pitch.height
-            ),
-            backtrace: BackTrace::capture(),
-        });
-    }
+    checked("hipMemcpy2DAsync", status).map_err(|err| IoError::Unknown {
+        description: format!(
+            "{err}; copying to the host from shape {shape:?}, strides {strides:?}, \
+             elem_size {elem_size}, spitch {}, width {}, height {}",
+            pitch.stride_bytes, pitch.width_bytes, pitch.height
+        ),
+        backtrace: BackTrace::capture(),
+    })?;
 
     Ok(())
 }
@@ -621,17 +614,14 @@ unsafe fn write_to_gpu(
                 stream,
             )
         };
-        if status != HIP_SUCCESS {
-            return Err(IoError::Unknown {
-                description: format!(
-                    "HIP 2D memcpy to device failed: {status} (shape {shape:?}, \
-                     strides {strides:?}, elem_size {elem_size}, dpitch {}, \
-                     width {}, height {}, resource size {})",
-                    pitch.stride_bytes, pitch.width_bytes, pitch.height, resource.size
-                ),
-                backtrace: BackTrace::capture(),
-            });
-        }
+        checked("hipMemcpy2DAsync", status).map_err(|err| IoError::Unknown {
+            description: format!(
+                "{err}; copying to the device from shape {shape:?}, strides {strides:?}, \
+                 elem_size {elem_size}, dpitch {}, width {}, height {}, resource size {}",
+                pitch.stride_bytes, pitch.width_bytes, pitch.height, resource.size
+            ),
+            backtrace: BackTrace::capture(),
+        })?;
     } else {
         if resource.size < data.len() as u64 {
             return Err(IoError::Unknown {
@@ -648,12 +638,7 @@ unsafe fn write_to_gpu(
         // `data.len()` bytes.
         let status =
             unsafe { cubecl_hip_sys::hipMemcpyHtoDAsync(resource.ptr, ptr, data.len(), stream) };
-        if status != HIP_SUCCESS {
-            return Err(IoError::Unknown {
-                description: format!("HIP memcpy to device failed: {status}"),
-                backtrace: BackTrace::capture(),
-            });
-        }
+        checked("hipMemcpyHtoDAsync", status)?;
     };
 
     Ok(())

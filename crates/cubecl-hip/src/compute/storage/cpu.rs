@@ -1,6 +1,6 @@
+use crate::compute::status::checked;
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use std::{collections::HashMap, ffi::c_void};
 
@@ -108,12 +108,7 @@ impl ComputeStorage for PinnedMemoryStorage {
                 cubecl_hip_sys::hipHostMallocMapped,
             );
 
-            if result != HIP_SUCCESS {
-                return Err(IoError::Unknown {
-                    description: format!("cuMemAllocHost_v2 failed with error code: {result:?}"),
-                    backtrace: BackTrace::capture(),
-                });
-            }
+            checked("hipHostMalloc", result)?;
 
             // For safety, reducing the odds of missing mapped memory page.
             cubecl_hip_sys::hipStreamSynchronize(self.stream);
