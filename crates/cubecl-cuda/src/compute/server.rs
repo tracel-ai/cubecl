@@ -3,7 +3,7 @@ use crate::{
     CudaCompiler,
     compute::{
         Captures, Command, Window,
-        communication::{get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
+        communication::{nccl_comm_id, nccl_dtype_count, to_nccl_op},
         context::CudaContext,
         stream::CudaStreamBackend,
         sync::Fence,
@@ -434,8 +434,16 @@ impl ServerCommunication for CudaServer {
             let rank = device_ids
                 .iter()
                 .position(|id| id.index_id == self.device_id.index_id)
-                .expect("Device's peer id should be in the list of device ids.");
-            let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
+                .ok_or_else(|| ServerError::Generic {
+                    reason: format!(
+                        "this device ({:?}) is not among the {} the group was formed over, \
+                         so it has no rank in it",
+                        self.device_id,
+                        device_ids.len()
+                    ),
+                    backtrace: BackTrace::capture(),
+                })?;
+            let nccl_comm_id = nccl_comm_id(device_ids.clone())?;
 
             // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
             // shared across all participating ranks. `rank` is this device's position in the
@@ -503,14 +511,29 @@ impl ServerCommunication for CudaServer {
         // Wait for data to be ready on compute stream.
         Fence::new(stream).wait_async(self.comm_stream);
 
-        // Get the communicator.
-        let comm = self
-            .communicators
-            .get(&CommunicationId::from(device_ids))
-            .expect("Communicator for this ID should be initialized");
+        // Get the communicator. A group that was never initialized is the
+        // caller's mistake, but the destination still holds whatever it held,
+        // so it takes the failure exactly as a refused reduction would.
+        let comm = match self.communicators.get(&CommunicationId::from(device_ids)) {
+            Some(comm) => comm,
+            None => {
+                let error = ServerError::Generic {
+                    reason: "no communicator for this group; `comm_init` has to run first".into(),
+                    backtrace: BackTrace::capture(),
+                };
+                self.taint_returned(stream_id, error.clone(), &destination);
+                return Err(error);
+            }
+        };
 
         // Perform the `cudarc::nccl::result::all_reduce` operation.
-        let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
+        let (nccl_dtype, count) = match nccl_dtype_count(dtype, resource_src.size) {
+            Ok(pair) => pair,
+            Err(error) => {
+                self.taint_returned(stream_id, error.clone(), &destination);
+                return Err(error);
+            }
+        };
         // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
@@ -586,15 +609,25 @@ impl ServerCommunication for CudaServer {
         let comm = self
             .communicators
             .get(&comm_id)
-            .expect("Communicator for this ID should exist");
+            .ok_or_else(|| ServerError::Generic {
+                reason: "no communicator for this pair; `comm_init` has to run first".into(),
+                backtrace: BackTrace::capture(),
+            })?;
 
         let rank_dst = device_ids
             .iter()
             .position(|id| id.index_id != self.device_id.index_id)
-            .unwrap() as i32;
+            .ok_or_else(|| ServerError::Generic {
+                reason: format!(
+                    "the destination device is this one ({:?}), so there is no peer to send \
+                     to",
+                    self.device_id
+                ),
+                backtrace: BackTrace::capture(),
+            })? as i32;
 
         // Perform the `send` operation.
-        let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource.size);
+        let (nccl_dtype, count) = nccl_dtype_count(dtype, resource.size)?;
         // SAFETY: `resource.ptr` is a valid device pointer.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
@@ -641,15 +674,25 @@ impl ServerCommunication for CudaServer {
         let comm = self
             .communicators
             .get(&comm_id)
-            .expect("Communicator for this ID should exist");
+            .ok_or_else(|| ServerError::Generic {
+                reason: "no communicator for this pair; `comm_init` has to run first".into(),
+                backtrace: BackTrace::capture(),
+            })?;
 
         let rank_src = device_ids
             .iter()
             .position(|id| id.index_id != self.device_id.index_id)
-            .unwrap() as i32;
+            .ok_or_else(|| ServerError::Generic {
+                reason: format!(
+                    "the source device is this one ({:?}), so there is no peer to recv \
+                     from",
+                    self.device_id
+                ),
+                backtrace: BackTrace::capture(),
+            })? as i32;
 
         // Perform the `recv` operation.
-        let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_dst.size);
+        let (nccl_dtype, count) = nccl_dtype_count(dtype, resource_dst.size)?;
         // SAFETY: `resource.ptr` is a valid device pointer.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
