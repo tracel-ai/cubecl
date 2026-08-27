@@ -7,7 +7,7 @@
 //! forgot it would be silent.
 
 use super::storage::gpu::{GpuResource, GpuStorage};
-use crate::compute::capture::{Captures, Sealed, Window};
+use crate::compute::capture::{Captures, Refused, Window};
 use crate::{
     compute::{command::Command, context::HipContext, fence::Fence, stream::HipStreamBackend},
     runtime::HipCompiler,
@@ -213,12 +213,12 @@ impl ComputeServer for HipServer {
 
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let id = GraphId::new();
-        let sealed = {
+        let instantiated = {
             let mut command = self.command_no_inputs(stream_id);
-            Window::on(command.streams.current()).seal(stream_id, id)?
+            Window::on(command.streams.current()).instantiate(stream_id, id)
         };
-        match sealed {
-            Sealed::Graph(graph) => {
+        match instantiated {
+            Ok(graph) => {
                 self.graphs.insert(id, graph);
                 Ok(id)
             }
@@ -226,7 +226,7 @@ impl ComputeServer for HipServer {
             // every buffer they were given is left as it was. The caller gets
             // the error below; the taint is what makes a read of one of those
             // buffers fail on some other stream, which heard nothing.
-            Sealed::Refused { error, written } => {
+            Err(Refused { error, written }) => {
                 self.streams.taint(error.clone(), written.iter());
                 Err(error)
             }
