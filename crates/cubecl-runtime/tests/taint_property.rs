@@ -28,6 +28,7 @@
 
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
+use cubecl_runtime::id::KernelId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
     ErrorGraph, FailureId, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
@@ -35,7 +36,8 @@ use cubecl_runtime::memory_management::{
 use cubecl_runtime::server::{BufferBinding, Handle, ServerError};
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::stream::{
-    FailureStore, Failures, StreamFactory, StreamMemory, StreamPool, WriteScoped,
+    ExecuteScope, FailureStore, Failures, ScopedOutcome, StreamFactory, StreamMemory, StreamPool,
+    WriteScoped,
 };
 use std::sync::Arc;
 
@@ -284,10 +286,13 @@ impl Harness {
             .iter()
             .map(|(index, range)| self.buffers[*index].slice(range))
             .collect();
-        let _ = self.device.while_writing(bindings, |_, _| match fail {
-            true => Err(error("launch")),
-            false => Ok(()),
-        });
+        let _ =
+            ExecuteScope::over(&mut self.device, StreamId::current(), bindings).execute(|_, _| {
+                match fail {
+                    true => Err(error("launch")),
+                    false => Ok(()),
+                }
+            });
 
         for (index, range) in writes {
             for byte in range.start as usize..range.end as usize {
@@ -306,9 +311,8 @@ impl Harness {
         let range = self.pick_range(self.buffers[index].size());
         let binding = self.buffers[index].slice(&range);
         let _id = binding.stream;
-        let _ = self
-            .device
-            .while_writing(vec![binding], |_, _| Ok::<(), ServerError>(()));
+        let _ = ExecuteScope::over(&mut self.device, StreamId::current(), vec![binding])
+            .execute(|_, _| Ok::<(), ServerError>(()));
         for byte in range.start as usize..range.end as usize {
             self.buffers[index].stale[byte] = false;
         }
@@ -431,11 +435,14 @@ fn a_scope_that_succeeds_releases_the_provisional_failure() {
     harness.alloc();
     let binding = harness.buffers[0].binding.clone();
 
-    let result = harness
-        .device
-        .while_writing(vec![binding.clone()], |_, _| Ok::<(), ServerError>(()));
+    let result = ExecuteScope::over(
+        &mut harness.device,
+        StreamId::current(),
+        vec![binding.clone()],
+    )
+    .execute(|_, _| Ok::<(), ServerError>(()));
 
-    assert!(result.is_ok());
+    assert!(matches!(result, ScopedOutcome::Executed(())));
     assert!(
         harness.device.failures.graph().is_empty(),
         "success leaves no node"
@@ -456,11 +463,14 @@ fn a_scope_that_fails_names_the_real_error_and_logs_it() {
     let binding = harness.buffers[0].binding.clone();
     let _id = binding.stream;
 
-    let result = harness.device.while_writing(vec![binding.clone()], |_, _| {
-        Err::<(), ServerError>(error("the real failure"))
-    });
+    let result = ExecuteScope::over(
+        &mut harness.device,
+        StreamId::current(),
+        vec![binding.clone()],
+    )
+    .execute(|_, _| Err::<(), ServerError>(error("the real failure")));
 
-    assert!(result.is_err());
+    assert!(matches!(result, ScopedOutcome::Failed(_)));
     let read = harness
         .device
         .ensure_written([&binding].into_iter())
@@ -487,12 +497,14 @@ fn a_mid_launch_panic_leaves_the_write_set_tainted() {
     let binding = harness.buffers[0].binding.clone();
 
     let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = harness.device.while_writing(
+        let _ = ExecuteScope::over(
+            &mut harness.device,
+            StreamId::current(),
             vec![binding.clone()],
-            |_, _| -> Result<(), ServerError> {
-                panic!("mid-launch, before anything could report")
-            },
-        );
+        )
+        .execute(|_, _| -> Result<(), ServerError> {
+            panic!("mid-launch, before anything could report")
+        });
     }));
     assert!(panicked.is_err(), "the panic propagates");
 
@@ -508,15 +520,74 @@ fn a_mid_launch_panic_leaves_the_write_set_tainted() {
 
     // Writing the buffer again is the recovery, exactly as for an ordinary
     // failure: the provisional node is released and the graph empties.
-    let result = harness
-        .device
-        .while_writing(vec![binding.clone()], |_, _| Ok::<(), ServerError>(()));
-    assert!(result.is_ok());
+    let result = ExecuteScope::over(
+        &mut harness.device,
+        StreamId::current(),
+        vec![binding.clone()],
+    )
+    .execute(|_, _| Ok::<(), ServerError>(()));
+    assert!(matches!(result, ScopedOutcome::Executed(())));
     assert!(harness.device.failures.graph().is_empty());
     harness
         .device
         .ensure_written([&binding].into_iter())
         .expect("a rewritten buffer reads again");
+}
+
+/// A skipped scope points its write set at the failure its input carried, and
+/// never mints one of its own.
+///
+/// The two paths cannot interleave — a scope enters or skips, decided in the
+/// constructor — and this is why that matters. Entering first would mint a
+/// provisional failure, have it overwritten by the propagated one, and then
+/// leave it in the graph forever: the exit that prunes it is on the path that
+/// does not run.
+#[test]
+fn a_skipped_scope_claims_the_failure_its_input_carried_and_mints_none() {
+    let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 11);
+    harness.alloc();
+    harness.alloc();
+    let input = harness.buffers[0].binding.clone();
+    let output = harness.buffers[1].binding.clone();
+
+    // A launch fails writing the input, so it carries a failure.
+    let _ = ExecuteScope::over(
+        &mut harness.device,
+        StreamId::current(),
+        vec![input.clone()],
+    )
+    .execute(|_, _| Err::<(), ServerError>(error("the launch that left these bytes")));
+    let carried = harness.device.failures.graph().len();
+    assert_eq!(carried, 1, "one failure, on the input");
+
+    // A launch reading it is skipped, and its output takes the same failure.
+    let outcome = ExecuteScope::launching(
+        &mut harness.device,
+        KernelId::new::<()>(),
+        StreamId::current(),
+        [&input].into_iter(),
+        vec![output.clone()],
+    )
+    .execute(|_, _| -> Result<(), ServerError> {
+        unreachable!("a skipped scope must not run its body")
+    });
+    assert!(matches!(outcome, ScopedOutcome::Skipped));
+
+    // No second failure was minted: the output names the original one.
+    assert_eq!(
+        harness.device.failures.graph().len(),
+        carried,
+        "a skip reuses the failure it found, and a provisional would linger"
+    );
+    let read = harness
+        .device
+        .ensure_written([&output].into_iter())
+        .expect_err("a skipped launch's output must not read");
+    assert!(
+        reason(&read).contains("the launch that left these bytes"),
+        "the output names the root cause, got: {}",
+        reason(&read)
+    );
 }
 
 /// The precision step 3 exists for, end to end: a failed launch taints the
@@ -534,14 +605,20 @@ fn a_partial_host_write_releases_only_the_bytes_it_covers() {
     let _id = whole.stream;
 
     // A launch fails writing the whole buffer.
-    let _ = harness.device.while_writing(vec![whole.clone()], |_, _| {
-        Err::<(), ServerError>(error("the launch that left these bytes"))
-    });
+    let _ = ExecuteScope::over(
+        &mut harness.device,
+        StreamId::current(),
+        vec![whole.clone()],
+    )
+    .execute(|_, _| Err::<(), ServerError>(error("the launch that left these bytes")));
 
     // The host rewrites the middle quarter.
-    let _ = harness
-        .device
-        .while_writing(vec![middle.clone()], |_, _| Ok::<(), ServerError>(()));
+    let _ = ExecuteScope::over(
+        &mut harness.device,
+        StreamId::current(),
+        vec![middle.clone()],
+    )
+    .execute(|_, _| Ok::<(), ServerError>(()));
 
     // The rewritten bytes read; the rest still fails on the launch's error.
     harness

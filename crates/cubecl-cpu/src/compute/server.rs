@@ -31,7 +31,7 @@ use cubecl_runtime::{
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
     storage::{BytesStorage, ComputeStorage, ManagedResource},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
-    stream::{FailureStore, WriteScoped},
+    stream::{ExecuteScope, FailureStore, WriteScoped, failed_writing},
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -49,6 +49,12 @@ impl WriteScoped for CpuServer {
 
     fn write_streams(&mut self) -> &mut Self::Streams {
         &mut self.scheduler
+    }
+
+    fn on_failure(&mut self, stream: StreamId, error: &ServerError) {
+        // Measured per stream on this backend, so the scope's stream is the
+        // one whose measurement a failure invalidates.
+        self.scheduler.stream(&stream).profile_failure(error);
     }
 }
 
@@ -279,7 +285,7 @@ impl ComputeServer for CpuServer {
             // owns the handle.
             let mut written = self.write_set();
             written.push(desc.handle.clone());
-            let result = self.while_writing(written, |server, _| {
+            ExecuteScope::over(self, stream_id, written).execute(|server, _| {
                 if contiguous_strides(&desc.shape) != desc.strides {
                     return Err(ServerError::Io(IoError::UnsupportedStrides {
                         backtrace: BackTrace::capture(),
@@ -302,10 +308,6 @@ impl ComputeServer for CpuServer {
                 server.scheduler.register(stream_id, task, &[owner]);
                 Ok(())
             });
-            if let Err(err) = result {
-                self.scheduler.stream(&stream_id).profile_failure(&err);
-                return;
-            }
         }
     }
 
@@ -365,7 +367,7 @@ impl ComputeServer for CpuServer {
             if !launch_mode.is_skipped() {
                 let mut written = self.write_set();
                 written.extend(bindings.buffers().cloned());
-                self.failed_writing(written, error);
+                failed_writing(self, stream_id, written, error);
             }
             return;
         }
@@ -378,34 +380,21 @@ impl ComputeServer for CpuServer {
             .get(&kernel_id)
             .and_then(|kernel| kernel.mlir.io.clone());
 
-        // Skip, do not taint: a launch whose input cannot be trusted does not
-        // run. Running it is not merely wasted device time — a buffer holding
-        // garbage can be read as a dynamic cube count or as gather indices,
-        // scattering into memory that carried no failure at all. The outputs
-        // take the failure that stopped the launch, exactly as a failed
-        // launch's would, so a read downstream fails on the root cause.
-        if let Some(found) = self
-            .scheduler
-            .read_failure(bindings.buffers_read(io.as_deref()))
-        {
-            self.scheduler
-                .stream(&stream_id)
-                .profile_failure(&found.error);
-            self.scheduler.propagate(
-                &found,
-                kernel_id.clone(),
-                bindings.buffers_written(io.as_deref()),
-            );
-            return;
-        }
-
-        // The scope taints what the launch writes until the body proves the
+        // The scope claims what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
-        // bytes nothing wrote.
+        // bytes nothing wrote. An input that already carries a failure skips
+        // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io.as_deref()).cloned());
-        let result = self.while_writing(written, |server, _| {
+        ExecuteScope::launching(
+            self,
+            kernel_id.clone(),
+            stream_id,
+            bindings.buffers_read(io.as_deref()),
+            written,
+        )
+        .execute(|server, _| {
             server.streams_pool.clear();
             bindings
                 .resources
@@ -427,9 +416,6 @@ impl ComputeServer for CpuServer {
                 .register(stream_id, task, &server.streams_pool);
             Ok(())
         });
-        if let Err(err) = result {
-            self.scheduler.stream(&stream_id).profile_failure(&err);
-        }
     }
 
     fn check(

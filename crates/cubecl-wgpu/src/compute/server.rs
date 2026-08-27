@@ -48,7 +48,7 @@ use cubecl_runtime::{
         SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
         SchedulerStreamBackend,
     },
-    stream::{FailureStore, WriteScoped},
+    stream::{ExecuteScope, FailureStore, WriteScoped, failed_writing},
     validation::{validate_cube_dim, validate_units},
 };
 use wgpu::ComputePipeline;
@@ -113,6 +113,20 @@ impl<C: WgpuCompiler> WriteScoped for WgpuServer<C> {
 
     fn write_streams(&mut self) -> &mut Self::Streams {
         &mut self.scheduler
+    }
+
+    fn on_failure(&mut self, stream: StreamId, error: &ServerError) {
+        // Measured per stream on this backend, so the scope's stream is the
+        // one whose measurement a failure invalidates.
+        self.scheduler.stream(&stream).profile_failure(error);
+    }
+
+    fn on_skip(&mut self, stream: StreamId, error: &ServerError) {
+        // A doomed capture is refused at `end_capture`; nothing else changes.
+        let stream = self.scheduler.stream(&stream);
+        if stream.capturing.is_recording() {
+            stream.capturing.fail(error.clone());
+        }
     }
 }
 
@@ -443,7 +457,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             // owns the handle.
             let mut written = self.write_set();
             written.push(desc.handle.clone());
-            let result = self.while_writing(written, |server, _| {
+            ExecuteScope::over(self, stream_id, written).execute(|server, _| {
                 if contiguous_strides(&desc.shape) != desc.strides {
                     return Err(ServerError::Io(IoError::UnsupportedStrides {
                         backtrace: BackTrace::capture(),
@@ -470,10 +484,6 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 server.scheduler.register(stream_id, task, &[owner]);
                 Ok(())
             });
-            if let Err(err) = result {
-                self.scheduler.stream(&stream_id).profile_failure(&err);
-                return;
-            }
         }
     }
 
@@ -532,7 +542,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 if !launch_mode.is_skipped() {
                     let mut written = self.write_set();
                     written.extend(args.buffers().cloned());
-                    self.failed_writing(written, error);
+                    failed_writing(self, stream_id, written, error);
                 }
                 return;
             }
@@ -551,29 +561,23 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // Except while this stream records a graph: skipping would seal a
         // recording missing an operation, and the replay contract has the
         // caller write fresh inputs before each replay — clearing the very
-        // taint that would explain the hole. A tainted input dooms the
-        // capture instead, and end_capture refuses to seal it.
-        if let Some(found) = self
-            .scheduler
-            .read_failure(args.buffers_read(io.as_deref()))
-        {
-            let stream = self.scheduler.stream(&stream_id);
-            stream.profile_failure(&found.error);
-            if stream.capturing.is_recording() {
-                stream.capturing.fail(found.error.clone());
-            }
-            self.scheduler
-                .propagate(&found, kernel_id, args.buffers_written(io.as_deref()));
-            return;
-        }
-
-        // The scope taints what the launch writes until the body proves the
+        // claim that would explain the hole. A doomed capture is refused at
+        // `end_capture` instead.
+        //
+        // The scope claims what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
         // bytes nothing wrote.
         let mut written = self.write_set();
         written.extend(args.buffers_written(io.as_deref()).cloned());
-        let result = self.while_writing(written, |server, written| {
+        ExecuteScope::launching(
+            self,
+            kernel_id,
+            stream_id,
+            args.buffers_read(io.as_deref()),
+            written,
+        )
+        .execute(|server, written| {
             server.streams_pool.clear();
             // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
             // automatically when the guard drops.
@@ -611,9 +615,6 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 .register(stream_id, task, &server.streams_pool);
             Ok(())
         });
-        if let Err(err) = result {
-            self.scheduler.stream(&stream_id).profile_failure(&err);
-        }
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -858,23 +859,21 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         let recorded = wgpu_graph.written.clone();
         let mut written = self.write_set();
         written.extend(recorded);
-        let result = self.while_writing(written, |server, _| {
-            server
-                .scheduler
-                .stream(&stream_id)
-                .reject_while_recording("replay")?;
-            let wgpu_graph = server
-                .graphs
-                .get(&graph)
-                .expect("checked above; nothing in the scope removes graphs");
-            let (stream, failures) = server.scheduler.stream_and_failures(&stream_id);
-            stream.replay_graph(wgpu_graph, failures);
-            Ok(())
-        });
-        if let Err(err) = &result {
-            self.scheduler.stream(&stream_id).profile_failure(err);
-        }
-        result
+        ExecuteScope::over(self, stream_id, written)
+            .execute(|server, _| {
+                server
+                    .scheduler
+                    .stream(&stream_id)
+                    .reject_while_recording("replay")?;
+                let wgpu_graph = server
+                    .graphs
+                    .get(&graph)
+                    .expect("checked above; nothing in the scope removes graphs");
+                let (stream, failures) = server.scheduler.stream_and_failures(&stream_id);
+                stream.replay_graph(wgpu_graph, failures);
+                Ok(())
+            })
+            .into_result()
     }
 
     fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {

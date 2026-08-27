@@ -37,7 +37,7 @@ use cubecl_runtime::{
     },
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
-    stream::{FailureStore, MultiStream, WriteScoped},
+    stream::{ExecuteScope, FailureStore, MultiStream, WriteScoped, failed_writing},
 };
 use cudarc::driver::sys::{
     CUstream_st, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
@@ -177,13 +177,10 @@ impl ComputeServer for CudaServer {
         for (descriptor, data) in descriptors {
             let mut written = self.write_set();
             written.push(descriptor.handle.clone());
-            let result = self.while_writing(written, |server, _| {
+            ExecuteScope::over(self, stream_id, written).execute(|server, _| {
                 let mut command = server.command(stream_id, [&descriptor.handle].into_iter());
                 command.write_to_gpu(descriptor, data).map_err(Into::into)
             });
-            if let Err(err) = result {
-                self.profile_failure(&err);
-            }
         }
     }
 
@@ -196,7 +193,7 @@ impl ComputeServer for CudaServer {
         launch_mode: LaunchMode,
     ) {
         let kernel_id = kernel.id();
-        if self.compile_failed(&kernel_id, kernel, &bindings, launch_mode) {
+        if self.compile_failed(&kernel_id, kernel, &bindings, stream_id, launch_mode) {
             return;
         }
         // A dry run stops right here, after compilation and before anything
@@ -207,22 +204,24 @@ impl ComputeServer for CudaServer {
             return;
         }
         let io = self.ctx.kernel_io(&kernel_id);
-        if self.skip_on_failed_input(&kernel_id, &bindings, io.as_deref(), stream_id) {
-            return;
-        }
 
-        // The scope taints what the launch writes until the body proves the
+        // The scope claims what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
-        // bytes nothing wrote.
+        // bytes nothing wrote. An input that already carries a failure skips
+        // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io.as_deref()).cloned());
-        let result = self.while_writing(written, |server, _| {
+        ExecuteScope::launching(
+            self,
+            kernel_id.clone(),
+            stream_id,
+            bindings.buffers_read(io.as_deref()),
+            written,
+        )
+        .execute(|server, _| {
             server.launch_checked(kernel_id, count, bindings, stream_id, io.as_deref())
         });
-        if let Err(err) = result {
-            self.profile_failure(&err);
-        }
     }
 
     fn check(
@@ -291,14 +290,12 @@ impl ComputeServer for CudaServer {
         // for them, and the graph itself is the only thing that writes them.
         let mut written = self.write_set();
         self.graphs.extend_written(graph, &mut written);
-        let result = self.while_writing(written, |server, _| {
-            let mut streams = server.streams.resolve(stream_id, [].into_iter());
-            server.graphs.replay(graph, streams.current())
-        });
-        if let Err(err) = &result {
-            self.profile_failure(err);
-        }
-        result
+        ExecuteScope::over(self, stream_id, written)
+            .execute(|server, _| {
+                let mut streams = server.streams.resolve(stream_id, [].into_iter());
+                server.graphs.replay(graph, streams.current())
+            })
+            .into_result()
     }
 
     fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {
@@ -539,6 +536,19 @@ impl WriteScoped for CudaServer {
     fn write_streams(&mut self) -> &mut Self::Streams {
         &mut self.streams
     }
+
+    fn on_failure(&mut self, _stream: StreamId, error: &ServerError) {
+        self.profile_failure(error);
+    }
+
+    fn on_skip(&mut self, stream: StreamId, error: &ServerError) {
+        // A doomed capture is refused at `end_capture`; nothing else changes.
+        if let Some(stream) = self.streams.try_stream_mut(&stream)
+            && stream.capturing.is_recording()
+        {
+            stream.capturing.fail(error.clone());
+        }
+    }
 }
 
 impl CudaServer {
@@ -618,6 +628,7 @@ impl CudaServer {
         kernel_id: &KernelId,
         kernel: <Self as ComputeServer>::Kernel,
         bindings: &KernelArguments,
+        stream_id: StreamId,
         launch_mode: LaunchMode,
     ) -> bool {
         if self.ctx.is_loaded(kernel_id) {
@@ -627,12 +638,12 @@ impl CudaServer {
         let Err(err) = self.ctx.compile_kernel(kernel_id, kernel, logger) else {
             return false;
         };
-        let error = ServerError::Launch(err);
-        self.profile_failure(&error);
         if !launch_mode.is_skipped() {
             let mut written = self.write_set();
             written.extend(bindings.buffers().cloned());
-            self.failed_writing(written, error);
+            failed_writing(self, stream_id, written, ServerError::Launch(err));
+        } else {
+            self.profile_failure(&ServerError::Launch(err));
         }
         true
     }
@@ -653,27 +664,6 @@ impl CudaServer {
     /// write fresh inputs before each replay — clearing the very taint that
     /// would explain the hole. A tainted input dooms the capture instead, and
     /// `end_capture` refuses to seal it.
-    fn skip_on_failed_input(
-        &mut self,
-        kernel_id: &KernelId,
-        bindings: &KernelArguments,
-        io: Option<&[BufferIOAttr]>,
-        stream_id: StreamId,
-    ) -> bool {
-        let Some(found) = self.streams.read_failure(bindings.buffers_read(io)) else {
-            return false;
-        };
-        self.profile_failure(&found.error);
-        if let Some(stream) = self.streams.try_stream_mut(&stream_id)
-            && stream.capturing.is_recording()
-        {
-            stream.capturing.fail(found.error.clone());
-        }
-        self.streams
-            .propagate(&found, kernel_id.clone(), bindings.buffers_written(io));
-        true
-    }
-
     /// The reduction itself, so every way it can fail settles the destination
     /// through one path in [`all_reduce`](ComputeServer::all_reduce).
     ///

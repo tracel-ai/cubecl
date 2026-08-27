@@ -310,7 +310,7 @@ impl ComputeServer for MetalServer {
             // backend.
             let mut written = self.write_set();
             written.push(descriptor.handle.clone());
-            let result = self.while_writing(written, |server, _| {
+            ExecuteScope::over(self, stream_id, written).execute(|server, _| {
                 let mut resolved = server
                     .streams
                     .resolve(stream_id, [&descriptor.handle].into_iter());
@@ -331,9 +331,6 @@ impl ComputeServer for MetalServer {
                 );
                 Ok(())
             });
-            if let Err(err) = result {
-                self.profile_failure(&err);
-            }
         }
     }
 
@@ -375,7 +372,7 @@ impl ComputeServer for MetalServer {
                 if !launch_mode.is_skipped() {
                     let mut written = self.write_set();
                     written.extend(bindings.buffers().cloned());
-                    self.failed_writing(written, error);
+                    failed_writing(self, stream_id, written, error);
                 }
                 return;
             }
@@ -411,7 +408,7 @@ impl ComputeServer for MetalServer {
         // name what they left unwritten.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io.as_deref()).cloned());
-        let result = self.while_writing(written, |server, _| {
+        ExecuteScope::over(self, stream_id, written).execute(|server, _| {
             let dispatch_info = match count {
                 CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
                 CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),
@@ -567,9 +564,6 @@ impl ComputeServer for MetalServer {
 
             Ok(())
         });
-        if let Err(err) = result {
-            self.profile_failure(&err);
-        }
     }
 
     fn sync(
