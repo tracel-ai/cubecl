@@ -4,7 +4,7 @@
 //! needs but not what a barrier needs: [`sync_cube`](super::synchronization) has to publish the
 //! writes made before it and to acquire the ones made by the other units of the cube. These
 //! CPU-private ops carry the ordering they must be lowered with, and become their `llvm` dialect
-//! counterpart in [`to_llvm::atomic`](super::to_llvm::atomic).
+//! counterpart in [`to_llvm`](super::to_llvm).
 
 use cubecl_core::ir::dialect::atomic::AtomicLoadOp;
 use cubecl_core::ir::dialect::memory::LoadOp;

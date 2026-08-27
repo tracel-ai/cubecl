@@ -15,11 +15,11 @@ use pliron::builtin::types::{IntegerType, Signedness};
 use pliron::dict_key;
 use pliron_llvm::ops as llvm;
 
-use crate::shared::entrypoint::runtime_arg;
-use crate::shared::polyfill::LowerOp;
-use crate::shared::polyfill::ordered_atomic::{
+use crate::cpu::entrypoint::runtime_arg;
+use crate::cpu::ordered_atomic::{
     atomic_fetch_add_acq_rel, atomic_load_acquire, atomic_store_release,
 };
+use crate::shared::polyfill::LowerOp;
 
 dict_key!(
     /// Marks the kernel argument pointing to the counters backing [`cube_barrier`].

@@ -1,6 +1,4 @@
 pub mod branch;
-pub mod entrypoint;
-pub mod jit;
 pub mod metadata;
 pub mod polyfill;
 pub mod shared_memory;
@@ -44,28 +42,18 @@ use pliron::{
 use crate::amdgpu::abi::KernargArgs;
 use crate::amdgpu::builtins::InsertAmdgpuBuiltinsPass;
 use crate::amdgpu::plane_dim_for;
-use crate::shared::{
-    branch::SCFToLlvmCf,
+use crate::cpu::{
+    abi::TableArgs,
     entrypoint::InsertConstantEmulationPass,
     jit::engine::{KernelRequirements, PlironEngine},
-    metadata::{LowerEntryAbiPass, TableArgs},
-    polyfill::{LowerComplexOpPass, synchronization::uses_cube_barrier},
     shared_memory::SharedMemories,
-    shared_memory::declares_shared_memory,
-    to_llvm::CubeToLLVMPass,
+    synchronization::uses_cube_barrier,
 };
-
-/// Which machine the pliron pipeline is lowering for.
-///
-/// The target is chosen once, from the environment, before any device is known.
-/// The specific gfx architecture is *not* part of it: that is a property of the
-/// device being compiled for and arrives later, on [`PlironOptions`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum LlvmTarget {
-    #[default]
-    Cpu,
-    AmdGpu,
-}
+use crate::shared::{
+    branch::SCFToLlvmCf, metadata::LowerEntryAbiPass, polyfill::LowerComplexOpPass,
+    shared_memory::declares_shared_memory, to_llvm::CubeToLLVMPass,
+};
+use crate::target::{CtxTarget, LlvmTarget};
 
 #[derive(Clone, Debug, Default)]
 pub struct PlironCompiler {
@@ -181,6 +169,8 @@ impl PlironCompiler {
         let module_op = module.get_operation();
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
+        ctx.set_target(LlvmTarget::Cpu);
+
         let needs_parallelism = kernel.settings.cube_dim.num_elems() > 1
             && (uses_cube_barrier(&ctx, module_op) || declares_shared_memory(&ctx, module_op));
         // Filled in by the entry ABI pass, which is where the shared memories get their slot.
@@ -264,6 +254,8 @@ impl PlironCompiler {
         let module = kernel.body.state().module;
         let module_op = module.get_operation();
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
+
+        ctx.set_target(LlvmTarget::AmdGpu);
 
         // Checked before any pass runs: both of these would otherwise be lowered
         // by passes that assume the CPU host, and miscompile silently.

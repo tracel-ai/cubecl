@@ -1,6 +1,3 @@
-use crate::shared::polyfill::ordered_atomic::{
-    OrderedAtomicFetchAddOp, OrderedAtomicLoadOp, OrderedAtomicStoreOp,
-};
 use crate::shared::to_llvm::ty::scalar_alignment;
 
 use super::prelude::*;
@@ -95,74 +92,6 @@ impl ToLLVMDialect for AtomicStoreOp {
         store.set_alignment(ctx, align);
         rewriter.insert_op(ctx, &store);
         rewriter.replace_operation(ctx, self.get_operation(), store.get_operation());
-        Ok(())
-    }
-}
-
-#[op_interface_impl]
-impl ToLLVMDialect for OrderedAtomicLoadOp {
-    fn rewrite(
-        &self,
-        ctx: &mut Context,
-        rewriter: &mut DialectConversionRewriter,
-        operands_info: &OperandsInfo,
-    ) -> Result<()> {
-        let ptr = self.ptr(ctx);
-        let ordering = self.ordering(ctx).clone();
-        let result = self.get_result(ctx);
-        let res_cube_ty = operands_info
-            .lookup_most_recent_type(result)
-            .unwrap_or_else(|| result.get_type(ctx));
-        let align = scalar_alignment(ctx, res_cube_ty);
-        let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
-
-        let op = llvm::AtomicLoadOp::new(ctx, ptr, res_ty, ordering, None);
-        op.set_alignment(ctx, align);
-        rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
-        Ok(())
-    }
-}
-
-#[op_interface_impl]
-impl ToLLVMDialect for OrderedAtomicStoreOp {
-    fn rewrite(
-        &self,
-        ctx: &mut Context,
-        rewriter: &mut DialectConversionRewriter,
-        operands_info: &OperandsInfo,
-    ) -> Result<()> {
-        let ptr = self.ptr(ctx);
-        let value = self.value(ctx);
-        let ordering = self.ordering(ctx).clone();
-        let value_cube_ty = operands_info
-            .lookup_most_recent_type(value)
-            .unwrap_or_else(|| value.get_type(ctx));
-        let align = scalar_alignment(ctx, value_cube_ty);
-
-        let store = llvm::AtomicStoreOp::new(ctx, value, ptr, ordering, None);
-        store.set_alignment(ctx, align);
-        rewriter.insert_op(ctx, &store);
-        rewriter.replace_operation(ctx, self.get_operation(), store.get_operation());
-        Ok(())
-    }
-}
-
-#[op_interface_impl]
-impl ToLLVMDialect for OrderedAtomicFetchAddOp {
-    fn rewrite(
-        &self,
-        ctx: &mut Context,
-        rewriter: &mut DialectConversionRewriter,
-        _operands_info: &OperandsInfo,
-    ) -> Result<()> {
-        let ptr = self.ptr(ctx);
-        let value = self.value(ctx);
-        let ordering = self.ordering(ctx).clone();
-
-        let op = llvm::AtomicRmwOp::new(ctx, ptr, value, AtomicRmwKindAttr::Add, ordering, None);
-        rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
         Ok(())
     }
 }

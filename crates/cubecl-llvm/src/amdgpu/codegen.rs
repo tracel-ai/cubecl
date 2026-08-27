@@ -66,7 +66,7 @@ pub fn emit_code_object(
     let (object, asm) = compile_to_object(&ir, arch, want_asm)?;
 
     #[cfg(feature = "pliron-dump")]
-    if let Some(dir) = crate::shared::jit::engine::ir_dump_path(entrypoint) {
+    if let Some(dir) = crate::cpu::jit::engine::ir_dump_path(entrypoint) {
         let _ = std::fs::write(dir.join("amdgpu.ll"), &ir);
         if let Some(asm) = &asm {
             let _ = std::fs::write(dir.join("amdgpu.s"), asm);

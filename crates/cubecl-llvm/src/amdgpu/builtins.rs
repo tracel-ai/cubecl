@@ -18,7 +18,7 @@ use pliron::builtin::types::{IntegerType, Signedness};
 use pliron_llvm::ops::{CallIntrinsicOp, GepIndex, GetElementPtrOp, LoadOp};
 use pliron_llvm::types::{FuncType, PointerType as LlvmPointerType};
 
-use crate::shared::entrypoint::{
+use crate::cpu::entrypoint::{
     BuiltinValues, Replacer, absolute_pos, absolute_pos_x, absolute_pos_y, absolute_pos_z,
     constant, cube_count, cube_pos, set_dim_and_cluster_constants, unit_pos,
 };

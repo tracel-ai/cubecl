@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 /// A polynomial in `x`, its coefficients given from the constant term up.
 #[cube]
-pub(super) fn horner<N: Size, const D: usize>(
+pub(crate) fn horner<N: Size, const D: usize>(
     x: Vector<f32, N>,
     #[comptime] coefficients: [f32; D],
 ) -> Vector<f32, N> {
@@ -23,20 +23,20 @@ const CARRIED_BITS: u32 = 12;
 
 /// The leading part of `value`, with the low mantissa bits cleared so that multiplying it
 /// by an integer of up to [`CARRIED_BITS`] bits is exact.
-pub(super) const fn leading_part(value: f64) -> f32 {
+pub(crate) const fn leading_part(value: f64) -> f32 {
     let head = value as f32;
     f32::from_bits(head.to_bits() & !((1u32 << CARRIED_BITS) - 1))
 }
 
 /// What [`leading_part`] left behind, to the accuracy an `f32` can hold.
-pub(super) const fn trailing_part(value: f64) -> f32 {
+pub(crate) const fn trailing_part(value: f64) -> f32 {
     (value - leading_part(value) as f64) as f32
 }
 
 /// The worst relative error of `approximation` against `exact` over `[from, to]`, sampled
 /// densely enough that a mistyped digit cannot hide between two points.
 #[cfg(test)]
-pub(super) fn worst_relative_error(
+pub(crate) fn worst_relative_error(
     from: f64,
     to: f64,
     exact: impl Fn(f64) -> f64,
@@ -60,7 +60,7 @@ pub(super) fn worst_relative_error(
 /// The host mirror of [`horner`], for tests that ask what the checked-in coefficients are
 /// worth without a target in the way.
 #[cfg(test)]
-pub(super) fn evaluate(coefficients: &[f32], x: f64) -> f64 {
+pub(crate) fn evaluate(coefficients: &[f32], x: f64) -> f64 {
     coefficients
         .iter()
         .rev()
