@@ -37,7 +37,7 @@ impl MemoryResource {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct BufferVisibility {
     /// Whether the buffer is ever read from
     pub readable: bool,

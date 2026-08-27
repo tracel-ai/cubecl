@@ -613,8 +613,11 @@ It fails in the wrong direction.
 An effect through a pointer `PointerSource` cannot trace is silently dropped, so the buffer keeps its default of neither readable nor writable, which stamps as `Dead`, which under this design means no check on the way in and no taint on the way out.
 `MemoryEffect::ReadAll` and `WriteAll`, which inline asm produces, are explicitly ignored with a comment saying so.
 And neither the analysis nor the pass has a test.
-So before anything leans on it: flip the untraceable fallback to read-write, handle the asm effects, and test the pass.
-That hardening is independently a bug fix, since the current default already emits `const` and `NonWritable` on buffers it failed to trace.
+So before anything leans on it: fix the untraceable fallback, handle the asm effects, and test the pass.
+The fallback turned out sharper than read-write-everything: a pointer's own type carries its address space, and for globals the binding index, so an access through an untraceable pointer is pinned to the one buffer its type names, and only a `ReadAll`/`WriteAll` from asm widens every buffer.
+A non-pointer effect value — a matrix fragment, a barrier token — is register-space and touches no global, which keeps cmma kernels precise.
+That hardening is independently a bug fix, since the previous default already emitted `const` and `NonWritable` on buffers it failed to trace.
+One hole it does not close: the TMA ops report only their shared-memory side as effects, and the global side behind the tensor map descriptor stays invisible to the analysis — tensor maps are separate bindings outside the globals map, so the read-set step has to treat them by their own attribute, not through this analysis.
 
 The boundary still exists and is smaller: the visibility is per kernel and cached with the compilation, while `WriteMask` is built per launch, so the launch path has to read it from the compiled kernel it is about to dispatch rather than from the arguments it was handed.
 Register the pass in `cubecl-llvm` too, which is the one backend of the five that does not run it.

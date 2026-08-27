@@ -15,7 +15,8 @@ use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 use std::{path::PathBuf, str::FromStr};
 
 use cubecl_opt::passes::{
-    inst_combine::InstCombinePass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
+    simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::CompilationError;
 
@@ -126,18 +127,26 @@ impl PlironCompiler {
         func_passes.add_pass(LowerComplexOpPass::default());
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
-        func_passes.add_pass(BranchToSCFPass::default());
-        func_passes.add_pass(SCFToLlvmCf::default());
-        func_passes.add_pass(LowerEntryAbiPass::new(
+
+        let mut lowering_passes = OpPass::<FuncOp, Passes>::default();
+        lowering_passes.add_pass(BranchToSCFPass::default());
+        lowering_passes.add_pass(SCFToLlvmCf::default());
+        lowering_passes.add_pass(LowerEntryAbiPass::new(
             kernel.info.clone(),
             shared_memories.clone(),
         ));
-        func_passes.add_pass(CubeToLLVMPass::default());
-        func_passes.add_pass(SimplifyCFGPass);
-        func_passes.add_pass(DCEPass);
-        func_passes.add_pass(Mem2RegPass);
+        lowering_passes.add_pass(CubeToLLVMPass::default());
+        lowering_passes.add_pass(SimplifyCFGPass);
+        lowering_passes.add_pass(DCEPass);
+        lowering_passes.add_pass(Mem2RegPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
+        // Reads cube-dialect memory effects, so it has to run after the
+        // optimizations that shape them and before the lowering group erases
+        // the cube ops — the same post-optimization point the other backends
+        // annotate at.
+        passes.add_pass(AnnotateGlobalVisibilityPass);
+        passes.add_pass(NestedOpsPass::new(lowering_passes));
         passes.add_pass(builtin_to_llvm_pass());
 
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
