@@ -17,7 +17,6 @@ use cubecl_core::prelude::*;
 
 use crate::shared::polyfill::LowerOp;
 use crate::shared::polyfill::transcendental::{cos, exp, ln, sin, tanh};
-use crate::target::{CtxTarget, LlvmTarget};
 use cubecl_core::ir::Scope;
 
 /// Lower a unary op to `$polyfill`, unconditionally or only where `$gate` accepts the input.
@@ -51,20 +50,10 @@ fn is_narrow_float_line(input: Value, ctx: &Context) -> bool {
     input.vector_size(ctx) > 1 && !input.scalar_ty(ctx).is_float64(ctx)
 }
 
-/// Whether the polynomial replaces the target's own trigonometry, which the AMDGPU wants even
-/// where the CPU does not.
-fn should_polyfill_trigonometry(input: Value, ctx: &Context) -> bool {
-    match ctx.target() {
-        LlvmTarget::Cpu => is_narrow_float_line(input, ctx),
-        // Double precision still has no second set of coefficients to reduce with.
-        LlvmTarget::AmdGpu => !input.scalar_ty(ctx).is_float64(ctx),
-    }
-}
-
 lower_unary_math_arith!(ExpOp => exp, is_narrow_float_line);
 lower_unary_math_arith!(LogOp => ln, is_narrow_float_line);
-lower_unary_math_arith!(SinOp => sin, should_polyfill_trigonometry);
-lower_unary_math_arith!(CosOp => cos, should_polyfill_trigonometry);
+lower_unary_math_arith!(SinOp => sin, is_narrow_float_line);
+lower_unary_math_arith!(CosOp => cos, is_narrow_float_line);
 lower_unary_math_arith!(TanhOp => tanh, is_narrow_float_line);
 
 macro_rules! lower_binary_math_arith {

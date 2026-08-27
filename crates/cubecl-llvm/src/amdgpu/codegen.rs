@@ -7,7 +7,9 @@ use pliron_llvm::to_llvm_ir;
 use std::ffi::{CStr, CString};
 use std::sync::Once;
 
+use crate::amdgpu::device_libs::link_device_libs;
 use crate::amdgpu::lld::link_relocatable;
+use crate::amdgpu::ocml::redirect_intrinsics_to_ocml;
 use crate::amdgpu::plane_dim_for;
 use crate::shared::AmdGpuModule;
 
@@ -205,12 +207,24 @@ fn compile_to_object(
             }
         };
 
-        // Layout from the target machine, so the two can never drift apart.
+        // Layout from the target machine, so the two can never drift apart. It has to be
+        // set before the device libraries are linked, since they carry their own.
         let layout = LLVMCreateTargetDataLayout(tm);
         LLVMSetModuleDataLayout(module, layout);
         LLVMDisposeTargetData(layout);
 
-        let result = run_pipeline_and_emit(module, tm, want_asm);
+        // Both before the pipeline: the rewrite leaves calls to declarations, the link gives
+        // them bodies, and the pipeline is what inlines those bodies away again. A kernel
+        // that redirected nothing needs no device libraries, and must not require them.
+        let result = redirect_intrinsics_to_ocml(module)
+            .and_then(|needs_device_libs| {
+                if needs_device_libs {
+                    link_device_libs(module, arch)
+                } else {
+                    Ok(())
+                }
+            })
+            .and_then(|()| run_pipeline_and_emit(module, tm, want_asm));
 
         LLVMDisposeModule(module);
         LLVMContextDispose(ctx);
@@ -355,6 +369,45 @@ entry:
             finalized.contains("amdhsa_code_object_version"),
             "{finalized}"
         );
+    }
+
+    /// The intrinsics with no AMDGPU lowering reach a code object through OCML, scalar and
+    /// vector alike. Without the rewrite and the device library behind it, codegen aborts
+    /// the process with `no libcall available for fsinh`.
+    #[test]
+    fn transcendentals_without_hardware_go_through_ocml() {
+        let ir = r#"
+declare float @llvm.sinh.f32(float)
+declare <4 x float> @llvm.atan.v4f32(<4 x float>)
+declare double @llvm.exp.f64(double)
+declare float @llvm.atan2.f32(float, float)
+define void @k(ptr addrspace(1) %out, float %x, <4 x float> %v, double %d) {
+entry:
+  %a = call float @llvm.sinh.f32(float %x)
+  %b = call <4 x float> @llvm.atan.v4f32(<4 x float> %v)
+  %c = call double @llvm.exp.f64(double %d)
+  %e = call float @llvm.atan2.f32(float %a, float %x)
+  store float %e, ptr addrspace(1) %out
+  %p1 = getelementptr i8, ptr addrspace(1) %out, i64 16
+  store <4 x float> %b, ptr addrspace(1) %p1
+  %p2 = getelementptr i8, ptr addrspace(1) %out, i64 32
+  store double %c, ptr addrspace(1) %p2
+  ret void
+}
+"#;
+        let finalized = finalize_ir(ir, "k", "gfx1201", 64).unwrap();
+        let (object, asm) = compile_to_object(&finalized, "gfx1201", true).unwrap();
+        assert_eq!(&object[..4], b"\x7fELF");
+
+        // Inlined and stripped: nothing of the library is left to call.
+        let asm = asm.unwrap();
+        assert!(
+            !asm.contains("__ocml_"),
+            "OCML should be inlined away:\n{asm}"
+        );
+        assert!(!asm.contains("s_swappc"), "no calls should survive:\n{asm}");
+
+        crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();
     }
 
     /// Codegen produces a relocatable ELF, and LLD turns it into the `ET_DYN`
