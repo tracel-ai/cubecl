@@ -104,34 +104,14 @@ impl DispatcherWorker {
     }
 }
 
-/// How long an idle worker polls `try_recv`, yielding the CPU between
-/// misses, before parking in the blocking `recv`. A parked worker costs a
-/// futex wake per launch, and a barrier kernel runs at the latency of its
-/// last-woken unit, while the budget caps what an actually-idle pool burns.
-const IDLE_POLL: std::time::Duration = std::time::Duration::from_micros(200);
-
 impl Worker for DispatcherWorker {
     fn work(mut self) {
         loop {
             if self.aside.is_empty() {
-                let mut received = None;
-                let poll_start = std::time::Instant::now();
-                while poll_start.elapsed() < IDLE_POLL {
-                    match self.rx.try_recv() {
-                        Ok(task) => {
-                            received = Some(task);
-                            break;
-                        }
-                        // The workers cover every logical CPU, so polling in earnest
-                        // starves the client and any still-running units.
-                        Err(_) => std::thread::yield_now(),
-                    }
-                }
-                let task = match received {
-                    Some(task) => Ok(task),
-                    None => self.rx.recv(),
-                };
-                if let Ok(mut task) = task {
+                // Block rather than poll. A drained pool has nothing of its
+                // own to do, and polling costs the client the CPU exactly when
+                // it is the only thread with a launch left to prepare.
+                if let Ok(mut task) = self.rx.recv() {
                     if task.is_ready() {
                         task.compute();
                         self.len.fetch_sub(1, atomic::Ordering::Relaxed);
