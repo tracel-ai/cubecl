@@ -287,14 +287,10 @@ impl Harness {
             .iter()
             .map(|(index, range)| self.buffers[*index].slice(range))
             .collect();
-        let _ = self.device.while_writing(
-            bindings,
-            |bindings, written| written.extend(bindings.iter().cloned()),
-            |_, _, _| match fail {
-                true => Err(error("launch")),
-                false => Ok(()),
-            },
-        );
+        let _ = self.device.while_writing(bindings, |_, _| match fail {
+            true => Err(error("launch")),
+            false => Ok(()),
+        });
 
         for (index, range) in writes {
             for byte in range.start as usize..range.end as usize {
@@ -313,11 +309,9 @@ impl Harness {
         let range = self.pick_range(self.buffers[index].size());
         let binding = self.buffers[index].slice(&range);
         let _id = binding.stream;
-        let _ = self.device.while_writing(
-            binding,
-            |binding, written| written.push(binding.clone()),
-            |_, _, _| Ok::<(), ServerError>(()),
-        );
+        let _ = self
+            .device
+            .while_writing(vec![binding], |_, _| Ok::<(), ServerError>(()));
         for byte in range.start as usize..range.end as usize {
             self.buffers[index].stale[byte] = false;
         }
@@ -446,11 +440,9 @@ fn a_scope_that_succeeds_releases_the_provisional_failure() {
     harness.alloc();
     let binding = harness.buffers[0].binding.clone();
 
-    let result = harness.device.while_writing(
-        binding.clone(),
-        |binding, written| written.push(binding.clone()),
-        |_, _, _| Ok::<(), ServerError>(()),
-    );
+    let result = harness
+        .device
+        .while_writing(vec![binding.clone()], |_, _| Ok::<(), ServerError>(()));
 
     assert!(result.is_ok());
     assert!(harness.device.failures.is_empty(), "success leaves no node");
@@ -471,11 +463,9 @@ fn a_scope_that_fails_names_the_real_error_and_logs_it() {
     let binding = harness.buffers[0].binding.clone();
     let _id = binding.stream;
 
-    let result = harness.device.while_writing(
-        binding.clone(),
-        |binding, written| written.push(binding.clone()),
-        |_, _, _| Err::<(), ServerError>(error("the real failure")),
-    );
+    let result = harness.device.while_writing(vec![binding.clone()], |_, _| {
+        Err::<(), ServerError>(error("the real failure"))
+    });
 
     assert!(result.is_err());
     let read = harness
@@ -506,9 +496,8 @@ fn a_mid_launch_panic_leaves_the_write_set_tainted() {
 
     let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _ = harness.device.while_writing(
-            binding.clone(),
-            |binding, written| written.push(binding.clone()),
-            |_, _, _| -> Result<(), ServerError> {
+            vec![binding.clone()],
+            |_, _| -> Result<(), ServerError> {
                 panic!("mid-launch, before anything could report")
             },
         );
@@ -528,11 +517,9 @@ fn a_mid_launch_panic_leaves_the_write_set_tainted() {
 
     // Writing the buffer again is the recovery, exactly as for an ordinary
     // failure: the provisional node is released and the graph empties.
-    let result = harness.device.while_writing(
-        binding.clone(),
-        |binding, written| written.push(binding.clone()),
-        |_, _, _| Ok::<(), ServerError>(()),
-    );
+    let result = harness
+        .device
+        .while_writing(vec![binding.clone()], |_, _| Ok::<(), ServerError>(()));
     assert!(result.is_ok());
     assert!(harness.device.failures.is_empty());
     harness
@@ -557,18 +544,14 @@ fn a_partial_host_write_releases_only_the_bytes_it_covers() {
     let _id = whole.stream;
 
     // A launch fails writing the whole buffer.
-    let _ = harness.device.while_writing(
-        whole.clone(),
-        |binding, written| written.push(binding.clone()),
-        |_, _, _| Err::<(), ServerError>(error("the launch that left these bytes")),
-    );
+    let _ = harness.device.while_writing(vec![whole.clone()], |_, _| {
+        Err::<(), ServerError>(error("the launch that left these bytes"))
+    });
 
     // The host rewrites the middle quarter.
-    let _ = harness.device.while_writing(
-        middle.clone(),
-        |binding, written| written.push(binding.clone()),
-        |_, _, _| Ok::<(), ServerError>(()),
-    );
+    let _ = harness
+        .device
+        .while_writing(vec![middle.clone()], |_, _| Ok::<(), ServerError>(()));
 
     // The rewritten bytes read; the rest still fails on the launch's error.
     harness

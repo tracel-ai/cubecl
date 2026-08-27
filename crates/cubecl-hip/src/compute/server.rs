@@ -229,14 +229,12 @@ impl ComputeServer for HipServer {
             // recovered by writing it from the host just as much as by
             // relaunching into it — and leaves it as it was on failure, which
             // is what a later read of it has to fail on.
-            let result = self.while_writing(
-                (descriptor, data),
-                |(descriptor, _), written| written.push(descriptor.handle.clone()),
-                |server, (descriptor, data), _| {
-                    let mut command = server.command(stream_id, [&descriptor.handle].into_iter());
-                    command.write_to_gpu(descriptor, data).map_err(Into::into)
-                },
-            );
+            let mut written = self.write_set();
+            written.push(descriptor.handle.clone());
+            let result = self.while_writing(written, |server, _| {
+                let mut command = server.command(stream_id, [&descriptor.handle].into_iter());
+                command.write_to_gpu(descriptor, data).map_err(Into::into)
+            });
             if let Err(err) = result {
                 self.profile_failure(&err);
                 return;
@@ -271,15 +269,11 @@ impl ComputeServer for HipServer {
             if let Err(err) = self.ctx.compile_kernel(&kernel_id, kernel, logger) {
                 let error = ServerError::Launch(err);
                 self.profile_failure(&error);
-                let _ = self.while_writing(
-                    bindings,
-                    |bindings, written| {
-                        if !launch_mode.is_skipped() {
-                            written.extend(bindings.buffers().cloned());
-                        }
-                    },
-                    |_, _, _| Err::<(), ServerError>(error),
-                );
+                if !launch_mode.is_skipped() {
+                    let mut written = self.write_set();
+                    written.extend(bindings.buffers().cloned());
+                    self.failed_writing(written, error);
+                }
                 return;
             }
         }
@@ -323,13 +317,11 @@ impl ComputeServer for HipServer {
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
         // bytes nothing wrote.
-        let result = self.while_writing(
-            bindings,
-            |bindings, written| written.extend(bindings.buffers_written(io.as_deref()).cloned()),
-            |server, bindings, _| {
-                server.launch_checked(kernel_id, count, bindings, stream_id, io.as_deref())
-            },
-        );
+        let mut written = self.write_set();
+        written.extend(bindings.buffers_written(io.as_deref()).cloned());
+        let result = self.while_writing(written, |server, _| {
+            server.launch_checked(kernel_id, count, bindings, stream_id, io.as_deref())
+        });
         if let Err(err) = result {
             self.profile_failure(&err);
         }
@@ -583,16 +575,15 @@ impl ComputeServer for HipServer {
         // for them, and the graph itself is the only thing that writes them.
         // An unknown graph writes none: the record of which buffers went with
         // it is gone too.
-        let written = self
+        let recorded = self
             .graphs
             .get(&graph)
             .map(|entry| entry.written.clone())
             .unwrap_or_default();
-        let result = self.while_writing(
-            (),
-            |_, staged| staged.extend(written.iter().cloned()),
-            |server, _, _| server.replay_checked(graph, stream_id),
-        );
+        let mut written = self.write_set();
+        written.extend(recorded);
+        let result =
+            self.while_writing(written, |server, _| server.replay_checked(graph, stream_id));
         if let Err(err) = &result {
             self.profile_failure(err);
         }

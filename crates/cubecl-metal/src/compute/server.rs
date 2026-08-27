@@ -308,32 +308,29 @@ impl ComputeServer for MetalServer {
             // a later read of it has to fail on. Queued for the caller to
             // surface rather than logged and forgotten, as on every other
             // backend.
-            let result = self.while_writing(
-                (descriptor, data),
-                |(descriptor, _), written| written.push(descriptor.handle.clone()),
-                |server, (descriptor, data), _| {
-                    let mut resolved = server
-                        .streams
-                        .resolve(stream_id, [&descriptor.handle].into_iter());
-                    let (resource, offset) =
-                        resolve_origin_resource(&mut resolved, &descriptor.handle)
-                            .map_err(ServerError::Io)?;
+            let mut written = self.write_set();
+            written.push(descriptor.handle.clone());
+            let result = self.while_writing(written, |server, _| {
+                let mut resolved = server
+                    .streams
+                    .resolve(stream_id, [&descriptor.handle].into_iter());
+                let (resource, offset) = resolve_origin_resource(&mut resolved, &descriptor.handle)
+                    .map_err(ServerError::Io)?;
 
-                    let buffer = resource.inner();
-                    let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
-                    let base_ptr = protocol_obj.contents().as_ptr() as *mut u8;
-                    let dst_ptr = unsafe { base_ptr.add(offset as usize) };
+                let buffer = resource.inner();
+                let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
+                let base_ptr = protocol_obj.contents().as_ptr() as *mut u8;
+                let dst_ptr = unsafe { base_ptr.add(offset as usize) };
 
-                    write_pitched(
-                        dst_ptr,
-                        &data,
-                        &descriptor.shape,
-                        &descriptor.strides,
-                        descriptor.elem_size,
-                    );
-                    Ok(())
-                },
-            );
+                write_pitched(
+                    dst_ptr,
+                    &data,
+                    &descriptor.shape,
+                    &descriptor.strides,
+                    descriptor.elem_size,
+                );
+                Ok(())
+            });
             if let Err(err) = result {
                 self.profile_failure(&err);
             }
@@ -375,15 +372,11 @@ impl ComputeServer for MetalServer {
             Err(err) => {
                 let error = ServerError::Launch(err);
                 self.profile_failure(&error);
-                let _ = self.while_writing(
-                    bindings,
-                    |bindings, written| {
-                        if !launch_mode.is_skipped() {
-                            written.extend(bindings.buffers().cloned());
-                        }
-                    },
-                    |_, _, _| Err::<(), ServerError>(error),
-                );
+                if !launch_mode.is_skipped() {
+                    let mut written = self.write_set();
+                    written.extend(bindings.buffers().cloned());
+                    self.failed_writing(written, error);
+                }
                 return;
             }
         };
@@ -416,168 +409,164 @@ impl ComputeServer for MetalServer {
         // read of those buffers failing on the error rather than copying
         // bytes nothing wrote. The paths that used to bail out silently now
         // name what they left unwritten.
-        let result = self.while_writing(
-            bindings,
-            |bindings, written| {
-                written.extend(bindings.buffers_written(io.as_deref()).cloned())
-            },
-            |server, bindings, _| {
-                let dispatch_info = match count {
-                    CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
-                    CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),
-                };
+        let mut written = self.write_set();
+        written.extend(bindings.buffers_written(io.as_deref()).cloned());
+        let result = self.while_writing(written, |server, _| {
+            let dispatch_info = match count {
+                CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
+                CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),
+            };
 
-                // Resolve every binding (including the dynamic count) so the current stream
-                // waits on each binding's origin stream before dispatching.
-                let mut resolved = server.streams.resolve(
-                    stream_id,
-                    bindings
-                        .resources
-                        .iter()
-                        .map(|res| match res {
-                            KernelResource::Buffer(binding) => binding,
-                            KernelResource::TensorMap(_) => {
-                                panic!("Tensor maps not supported on Metal")
-                            }
-                        })
-                        .chain(match &dispatch_info {
-                            DispatchInfo::Dynamic(binding) => Some(binding),
-                            DispatchInfo::Static(..) => None,
-                        }),
-                );
-
-                let mut resources = Vec::with_capacity(bindings.resources.len());
-                let mut total_buffer_bytes: usize = 0;
-                for binding in bindings.resources.iter() {
-                    let binding = match binding {
+            // Resolve every binding (including the dynamic count) so the current stream
+            // waits on each binding's origin stream before dispatching.
+            let mut resolved = server.streams.resolve(
+                stream_id,
+                bindings
+                    .resources
+                    .iter()
+                    .map(|res| match res {
                         KernelResource::Buffer(binding) => binding,
                         KernelResource::TensorMap(_) => {
                             panic!("Tensor maps not supported on Metal")
                         }
-                    };
-                    let (resource, offset) = resolve_origin_resource(&mut resolved, binding)
-                        .map_err(ServerError::Io)?;
+                    })
+                    .chain(match &dispatch_info {
+                        DispatchInfo::Dynamic(binding) => Some(binding),
+                        DispatchInfo::Static(..) => None,
+                    }),
+            );
 
-                    total_buffer_bytes += binding.size_in_used() as usize;
-
-                    resources.push((resource, offset));
-                }
-
-                // The indirect count buffer is read GPU-side, so it too comes from its origin stream.
-                let indirect_buffer_info = match &dispatch_info {
-                    DispatchInfo::Dynamic(binding) => Some(
-                        resolve_origin_resource(&mut resolved, binding).map_err(ServerError::Io)?,
-                    ),
-                    _ => None,
+            let mut resources = Vec::with_capacity(bindings.resources.len());
+            let mut total_buffer_bytes: usize = 0;
+            for binding in bindings.resources.iter() {
+                let binding = match binding {
+                    KernelResource::Buffer(binding) => binding,
+                    KernelResource::TensorMap(_) => {
+                        panic!("Tensor maps not supported on Metal")
+                    }
                 };
+                let (resource, offset) = resolve_origin_resource(&mut resolved, binding)
+                    .map_err(ServerError::Io)?;
 
-                // Work is issued on the current stream; resources above came from their origins.
-                let (stream, failures) = resolved.current_and_failures();
+                total_buffer_bytes += binding.size_in_used() as usize;
 
-                let device = stream.device.clone();
-                let active = stream.get_or_create_encoder();
-                let encoder = &active.encoder;
+                resources.push((resource, offset));
+            }
 
-                (*encoder).setComputePipelineState(&compiled.pipeline);
+            // The indirect count buffer is read GPU-side, so it too comes from its origin stream.
+            let indirect_buffer_info = match &dispatch_info {
+                DispatchInfo::Dynamic(binding) => Some(
+                    resolve_origin_resource(&mut resolved, binding).map_err(ServerError::Io)?,
+                ),
+                _ => None,
+            };
 
-                for (index, (resource, offset)) in resources.iter().enumerate() {
-                    let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
+            // Work is issued on the current stream; resources above came from their origins.
+            let (stream, failures) = resolved.current_and_failures();
+
+            let device = stream.device.clone();
+            let active = stream.get_or_create_encoder();
+            let encoder = &active.encoder;
+
+            (*encoder).setComputePipelineState(&compiled.pipeline);
+
+            for (index, (resource, offset)) in resources.iter().enumerate() {
+                let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
+                unsafe {
+                    (*encoder).setBuffer_offset_atIndex(Some(buffer), *offset as usize, index);
+                }
+            }
+
+            let buffer_index = resources.len();
+
+            if !bindings.info.data.is_empty() {
+                let info_bytes: &[u8] = bytemuck::cast_slice(&bindings.info.data);
+                if info_bytes.len() <= 4096 {
+                    use std::ptr::NonNull;
                     unsafe {
-                        (*encoder).setBuffer_offset_atIndex(Some(buffer), *offset as usize, index);
-                    }
-                }
-
-                let buffer_index = resources.len();
-
-                if !bindings.info.data.is_empty() {
-                    let info_bytes: &[u8] = bytemuck::cast_slice(&bindings.info.data);
-                    if info_bytes.len() <= 4096 {
-                        use std::ptr::NonNull;
-                        unsafe {
-                            (*encoder).setBytes_length_atIndex(
-                                NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
-                                info_bytes.len(),
-                                buffer_index,
-                            );
-                        }
-                    } else {
-                        use std::ptr::NonNull;
-                        let info_buffer = unsafe {
-                            (*device).newBufferWithBytes_length_options(
-                                NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
-                                info_bytes.len(),
-                                MTLResourceOptions::StorageModeShared,
-                            )
-                        };
-                        match info_buffer {
-                            Some(buf) => {
-                                unsafe {
-                                    (*encoder).setBuffer_offset_atIndex(Some(&buf), 0, buffer_index);
-                                }
-                                active.temporaries.push(buf);
-                            }
-                            None => {
-                                return Err(ServerError::Generic {
-                                    reason: format!(
-                                        "failed to allocate a {} B Metal buffer for the kernel's \
-                                         metadata",
-                                        info_bytes.len()
-                                    ),
-                                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-                                });
-                            }
-                        }
-                    }
-                }
-
-                let cube_dim = compiled.cube_dim;
-                let threads_per_threadgroup = objc2_metal::MTLSize {
-                    width: cube_dim.x as usize,
-                    height: cube_dim.y as usize,
-                    depth: cube_dim.z as usize,
-                };
-
-                match dispatch_info {
-                    DispatchInfo::Static(grid_x, grid_y, grid_z) => {
-                        let threadgroups = objc2_metal::MTLSize {
-                            width: grid_x as usize,
-                            height: grid_y as usize,
-                            depth: grid_z as usize,
-                        };
-
-                        (*encoder).dispatchThreadgroups_threadsPerThreadgroup(
-                            threadgroups,
-                            threads_per_threadgroup,
+                        (*encoder).setBytes_length_atIndex(
+                            NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
+                            info_bytes.len(),
+                            buffer_index,
                         );
                     }
-                    DispatchInfo::Dynamic(_) => {
-                        let (resource, offset) = indirect_buffer_info.unwrap();
-                        let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
-
-                        unsafe {
-                            (*encoder)
-                                .dispatchThreadgroupsWithIndirectBuffer_indirectBufferOffset_threadsPerThreadgroup(
-                                    buffer,
-                                    offset as usize,
-                                    threads_per_threadgroup,
-                                );
+                } else {
+                    use std::ptr::NonNull;
+                    let info_buffer = unsafe {
+                        (*device).newBufferWithBytes_length_options(
+                            NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
+                            info_bytes.len(),
+                            MTLResourceOptions::StorageModeShared,
+                        )
+                    };
+                    match info_buffer {
+                        Some(buf) => {
+                            unsafe {
+                                (*encoder).setBuffer_offset_atIndex(Some(&buf), 0, buffer_index);
+                            }
+                            active.temporaries.push(buf);
+                        }
+                        None => {
+                            return Err(ServerError::Generic {
+                                reason: format!(
+                                    "failed to allocate a {} B Metal buffer for the kernel's \
+                                     metadata",
+                                    info_bytes.len()
+                                ),
+                                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+                            });
                         }
                     }
                 }
+            }
 
-                stream.batch_ops += 1;
-                stream.batch_bytes += total_buffer_bytes;
+            let cube_dim = compiled.cube_dim;
+            let threads_per_threadgroup = objc2_metal::MTLSize {
+                width: cube_dim.x as usize,
+                height: cube_dim.y as usize,
+                depth: cube_dim.z as usize,
+            };
 
-                let needs_flush = stream.batch_ops > stream.max_ops_per_batch
-                    || (stream.batch_bytes >> 20) > stream.max_mb_per_batch;
+            match dispatch_info {
+                DispatchInfo::Static(grid_x, grid_y, grid_z) => {
+                    let threadgroups = objc2_metal::MTLSize {
+                        width: grid_x as usize,
+                        height: grid_y as usize,
+                        depth: grid_z as usize,
+                    };
 
-                if needs_flush {
-                    MetalStreamBackend::flush(stream, failures);
+                    (*encoder).dispatchThreadgroups_threadsPerThreadgroup(
+                        threadgroups,
+                        threads_per_threadgroup,
+                    );
                 }
+                DispatchInfo::Dynamic(_) => {
+                    let (resource, offset) = indirect_buffer_info.unwrap();
+                    let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
 
-                Ok(())
-            },
-        );
+                    unsafe {
+                        (*encoder)
+                            .dispatchThreadgroupsWithIndirectBuffer_indirectBufferOffset_threadsPerThreadgroup(
+                                buffer,
+                                offset as usize,
+                                threads_per_threadgroup,
+                            );
+                    }
+                }
+            }
+
+            stream.batch_ops += 1;
+            stream.batch_bytes += total_buffer_bytes;
+
+            let needs_flush = stream.batch_ops > stream.max_ops_per_batch
+                || (stream.batch_bytes >> 20) > stream.max_mb_per_batch;
+
+            if needs_flush {
+                MetalStreamBackend::flush(stream, failures);
+            }
+
+            Ok(())
+        });
         if let Err(err) = result {
             self.profile_failure(&err);
         }

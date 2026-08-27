@@ -277,33 +277,31 @@ impl ComputeServer for CpuServer {
             // queues failures on the caller's stream, the one that flushes
             // them, even though the resource is resolved on the stream that
             // owns the handle.
-            let result = self.while_writing(
-                (desc, data),
-                |(desc, _), written| written.push(desc.handle.clone()),
-                |server, (desc, data), _| {
-                    if contiguous_strides(&desc.shape) != desc.strides {
-                        return Err(ServerError::Io(IoError::UnsupportedStrides {
-                            backtrace: BackTrace::capture(),
-                        }));
-                    }
+            let mut written = self.write_set();
+            written.push(desc.handle.clone());
+            let result = self.while_writing(written, |server, _| {
+                if contiguous_strides(&desc.shape) != desc.strides {
+                    return Err(ServerError::Io(IoError::UnsupportedStrides {
+                        backtrace: BackTrace::capture(),
+                    }));
+                }
 
-                    // The write is registered on the caller, so name the
-                    // stream that owns the handle as an argument: its queued
-                    // work has to land before this write overwrites the same
-                    // memory.
-                    let owner = desc.handle.stream;
-                    let memory = desc.handle.memory.clone();
-                    let stream = server.scheduler.stream(&owner);
-                    let resource = stream.get_resource(desc.handle).map_err(ServerError::Io)?;
-                    let task = ScheduleTask::Write {
-                        data,
-                        buffer: ManagedResource::new(memory, resource),
-                    };
+                // The write is registered on the caller, so name the
+                // stream that owns the handle as an argument: its queued
+                // work has to land before this write overwrites the same
+                // memory.
+                let owner = desc.handle.stream;
+                let memory = desc.handle.memory.clone();
+                let stream = server.scheduler.stream(&owner);
+                let resource = stream.get_resource(desc.handle).map_err(ServerError::Io)?;
+                let task = ScheduleTask::Write {
+                    data,
+                    buffer: ManagedResource::new(memory, resource),
+                };
 
-                    server.scheduler.register(stream_id, task, &[owner]);
-                    Ok(())
-                },
-            );
+                server.scheduler.register(stream_id, task, &[owner]);
+                Ok(())
+            });
             if let Err(err) = result {
                 self.scheduler.stream(&stream_id).profile_failure(&err);
                 return;
@@ -364,15 +362,11 @@ impl ComputeServer for CpuServer {
         if let Err(err) = self.compile_only(kernel.as_ref()) {
             let error = ServerError::Launch(LaunchError::CompilationError(err));
             self.scheduler.stream(&stream_id).profile_failure(&error);
-            let _ = self.while_writing(
-                bindings,
-                |bindings, written| {
-                    if !launch_mode.is_skipped() {
-                        written.extend(bindings.buffers().cloned());
-                    }
-                },
-                |_, _, _| Err::<(), ServerError>(error),
-            );
+            if !launch_mode.is_skipped() {
+                let mut written = self.write_set();
+                written.extend(bindings.buffers().cloned());
+                self.failed_writing(written, error);
+            }
             return;
         }
         if launch_mode.is_skipped() {
@@ -409,32 +403,30 @@ impl ComputeServer for CpuServer {
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
         // bytes nothing wrote.
-        let result = self.while_writing(
-            bindings,
-            |bindings, written| written.extend(bindings.buffers_written(io.as_deref()).cloned()),
-            |server, bindings, _| {
-                server.streams_pool.clear();
-                bindings
-                    .resources
-                    .iter()
-                    .filter_map(|b| {
-                        let KernelResource::Buffer(b) = b else {
-                            return None;
-                        };
-                        Some(b)
-                    })
-                    .for_each(|b| server.streams_pool.push(b.stream));
-                let bindings = server.prepare_bindings(bindings);
-                let task = server
-                    .prepare_task(kernel_id, count, bindings, stream_id)
-                    .map_err(|err| ServerError::Launch(LaunchError::CompilationError(err)))?;
+        let mut written = self.write_set();
+        written.extend(bindings.buffers_written(io.as_deref()).cloned());
+        let result = self.while_writing(written, |server, _| {
+            server.streams_pool.clear();
+            bindings
+                .resources
+                .iter()
+                .filter_map(|b| {
+                    let KernelResource::Buffer(b) = b else {
+                        return None;
+                    };
+                    Some(b)
+                })
+                .for_each(|b| server.streams_pool.push(b.stream));
+            let bindings = server.prepare_bindings(bindings);
+            let task = server
+                .prepare_task(kernel_id, count, bindings, stream_id)
+                .map_err(|err| ServerError::Launch(LaunchError::CompilationError(err)))?;
 
-                server
-                    .scheduler
-                    .register(stream_id, task, &server.streams_pool);
-                Ok(())
-            },
-        );
+            server
+                .scheduler
+                .register(stream_id, task, &server.streams_pool);
+            Ok(())
+        });
         if let Err(err) = result {
             self.scheduler.stream(&stream_id).profile_failure(&err);
         }

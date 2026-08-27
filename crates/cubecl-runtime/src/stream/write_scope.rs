@@ -66,32 +66,42 @@ pub trait WriteScoped: Sized {
     /// the way in and settle on the way out while `body` holds the rest.
     fn write_streams(&mut self) -> &mut Self::Streams;
 
-    /// Run `body` inside a scope over what the work writes.
+    /// An empty write set, pooled on the driver, for the caller to fill with
+    /// what the work it is about to run writes. Filling it here rather than
+    /// inside the scope is what lets the body take the arguments the set was
+    /// read from by value. A set left empty claims nothing, which is what a
+    /// dry run wants.
+    fn write_set(&mut self) -> Vec<BufferBinding> {
+        self.write_streams().stage()
+    }
+
+    /// Run `body` inside a scope over `written`, the set from
+    /// [`write_set`](Self::write_set).
     ///
-    /// `writes` names the write set from `payload` — the arguments the body
-    /// consumes, handed through by value because the set borrows from them
-    /// and the body needs them back. It stages nothing for work that writes
-    /// nothing, a dry run above all. `body` does the device work and may
-    /// return early anywhere; it also receives the staged set, for the
-    /// backends that record it into a capture.
-    ///
-    /// On entry every staged buffer is tainted with a provisional failure. On
+    /// On entry every buffer in it is tainted with a provisional failure. On
     /// exit the taint is released if `body` succeeded, and replaced with the
     /// real error — logged there, since a read of the claimed buffers is what
-    /// reports it — if it did not. A body that panics never reaches the exit,
-    /// and the provisional taint is exactly what it leaves behind.
-    fn while_writing<A, R>(
+    /// reports it — if it did not. `body` may return early anywhere; it also
+    /// receives the set, for the backends that record it into a capture. A
+    /// body that panics never reaches the exit, and the provisional taint is
+    /// exactly what it leaves behind.
+    fn while_writing<R>(
         &mut self,
-        payload: A,
-        writes: impl FnOnce(&A, &mut Vec<BufferBinding>),
-        body: impl FnOnce(&mut Self, A, &[BufferBinding]) -> Result<R, ServerError>,
+        written: Vec<BufferBinding>,
+        body: impl FnOnce(&mut Self, &[BufferBinding]) -> Result<R, ServerError>,
     ) -> Result<R, ServerError> {
-        let mut written = self.write_streams().stage();
-        writes(&payload, &mut written);
         let provisional = self.write_streams().enter(&written);
-        let result = body(self, payload, &written);
+        let result = body(self, &written);
         self.write_streams()
             .exit(provisional, written, result.as_ref().err());
         result
+    }
+
+    /// Claim `written` for `error` without running anything: work that never
+    /// started leaves its destinations exactly as they were, so a read of one
+    /// of them has to fail on the error that stopped it. A scope whose body
+    /// is the failure itself.
+    fn failed_writing(&mut self, written: Vec<BufferBinding>, error: ServerError) {
+        let _ = self.while_writing(written, |_, _| Err::<(), _>(error));
     }
 }

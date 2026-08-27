@@ -441,37 +441,35 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             // queues failures on the caller's stream, the one that flushes
             // them, even though the resource is resolved on the stream that
             // owns the handle.
-            let result = self.while_writing(
-                (desc, data),
-                |(desc, _), written| written.push(desc.handle.clone()),
-                |server, (desc, data), _| {
-                    if contiguous_strides(&desc.shape) != desc.strides {
-                        return Err(ServerError::Io(IoError::UnsupportedStrides {
-                            backtrace: BackTrace::capture(),
-                        }));
-                    }
+            let mut written = self.write_set();
+            written.push(desc.handle.clone());
+            let result = self.while_writing(written, |server, _| {
+                if contiguous_strides(&desc.shape) != desc.strides {
+                    return Err(ServerError::Io(IoError::UnsupportedStrides {
+                        backtrace: BackTrace::capture(),
+                    }));
+                }
 
-                    // The write is registered on the caller, so name the
-                    // stream that owns the handle as an argument: its queued
-                    // work has to land before this write overwrites the same
-                    // memory.
-                    let owner = desc.handle.stream;
-                    let handle = desc.handle.clone();
-                    let stream = server.scheduler.stream(&owner);
-                    let resource = stream
-                        .mem_manage
-                        .get_resource(desc.handle)
-                        .map_err(ServerError::Io)?;
-                    let task = ScheduleTask::Write {
-                        data,
-                        buffer: resource,
-                        handle,
-                    };
+                // The write is registered on the caller, so name the
+                // stream that owns the handle as an argument: its queued
+                // work has to land before this write overwrites the same
+                // memory.
+                let owner = desc.handle.stream;
+                let handle = desc.handle.clone();
+                let stream = server.scheduler.stream(&owner);
+                let resource = stream
+                    .mem_manage
+                    .get_resource(desc.handle)
+                    .map_err(ServerError::Io)?;
+                let task = ScheduleTask::Write {
+                    data,
+                    buffer: resource,
+                    handle,
+                };
 
-                    server.scheduler.register(stream_id, task, &[owner]);
-                    Ok(())
-                },
-            );
+                server.scheduler.register(stream_id, task, &[owner]);
+                Ok(())
+            });
             if let Err(err) = result {
                 self.scheduler.stream(&stream_id).profile_failure(&err);
                 return;
@@ -531,15 +529,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             Err(err) => {
                 let error = ServerError::Launch(err);
                 self.scheduler.stream(&stream_id).profile_failure(&error);
-                let _ = self.while_writing(
-                    args,
-                    |args, written| {
-                        if !launch_mode.is_skipped() {
-                            written.extend(args.buffers().cloned());
-                        }
-                    },
-                    |_, _, _| Err::<(), ServerError>(error),
-                );
+                if !launch_mode.is_skipped() {
+                    let mut written = self.write_set();
+                    written.extend(args.buffers().cloned());
+                    self.failed_writing(written, error);
+                }
                 return;
             }
         };
@@ -577,48 +571,46 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
         // bytes nothing wrote.
-        let result = self.while_writing(
-            args,
-            |args, written| written.extend(args.buffers_written(io.as_deref()).cloned()),
-            |server, args, written| {
-                server.streams_pool.clear();
-                // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
-                // automatically when the guard drops.
-                let mut shared_inputs = server.shared_bindings_pool.acquire();
-                // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
-                args.resources.iter().for_each(|resource| match resource {
-                    KernelResource::Buffer(b) => {
-                        server.streams_pool.push(b.stream);
-                        if b.stream != stream_id {
-                            shared_inputs.push(b.memory.clone());
-                        }
+        let mut written = self.write_set();
+        written.extend(args.buffers_written(io.as_deref()).cloned());
+        let result = self.while_writing(written, |server, written| {
+            server.streams_pool.clear();
+            // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
+            // automatically when the guard drops.
+            let mut shared_inputs = server.shared_bindings_pool.acquire();
+            // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
+            args.resources.iter().for_each(|resource| match resource {
+                KernelResource::Buffer(b) => {
+                    server.streams_pool.push(b.stream);
+                    if b.stream != stream_id {
+                        shared_inputs.push(b.memory.clone());
                     }
-                    KernelResource::TensorMap(_) => {
-                        panic!("Tensor maps not supported in WGPU")
-                    }
-                });
+                }
+                KernelResource::TensorMap(_) => {
+                    panic!("Tensor maps not supported in WGPU")
+                }
+            });
 
-                let resources = server
-                    .prepare_bindings(args, compiler_info)
-                    .map_err(ServerError::Io)?;
-                // A launch recorded into a graph hands its buffers to the graph, which
-                // answers for them if a replay never runs. A no-op outside a window.
-                let stream = server.scheduler.stream(&stream_id);
-                stream.capturing.record(written.iter().cloned());
+            let resources = server
+                .prepare_bindings(args, compiler_info)
+                .map_err(ServerError::Io)?;
+            // A launch recorded into a graph hands its buffers to the graph, which
+            // answers for them if a replay never runs. A no-op outside a window.
+            let stream = server.scheduler.stream(&stream_id);
+            stream.capturing.record(written.iter().cloned());
 
-                let task = ScheduleTask::Execute {
-                    pipeline,
-                    count,
-                    resources,
-                    shared_inputs,
-                };
+            let task = ScheduleTask::Execute {
+                pipeline,
+                count,
+                resources,
+                shared_inputs,
+            };
 
-                server
-                    .scheduler
-                    .register(stream_id, task, &server.streams_pool);
-                Ok(())
-            },
-        );
+            server
+                .scheduler
+                .register(stream_id, task, &server.streams_pool);
+            Ok(())
+        });
         if let Err(err) = result {
             self.scheduler.stream(&stream_id).profile_failure(&err);
         }
@@ -863,24 +855,22 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // would leave the graph's buffers unreadable forever — the graph
         // retains their handles, so none of the shedding paths can ever fire
         // for them, and the graph itself is the only thing that writes them.
-        let written = wgpu_graph.written.clone();
-        let result = self.while_writing(
-            (),
-            |_, staged| staged.extend(written.iter().cloned()),
-            |server, _, _| {
-                server
-                    .scheduler
-                    .stream(&stream_id)
-                    .reject_while_recording("replay")?;
-                let wgpu_graph = server
-                    .graphs
-                    .get(&graph)
-                    .expect("checked above; nothing in the scope removes graphs");
-                let (stream, failures) = server.scheduler.stream_and_failures(&stream_id);
-                stream.replay_graph(wgpu_graph, failures);
-                Ok(())
-            },
-        );
+        let recorded = wgpu_graph.written.clone();
+        let mut written = self.write_set();
+        written.extend(recorded);
+        let result = self.while_writing(written, |server, _| {
+            server
+                .scheduler
+                .stream(&stream_id)
+                .reject_while_recording("replay")?;
+            let wgpu_graph = server
+                .graphs
+                .get(&graph)
+                .expect("checked above; nothing in the scope removes graphs");
+            let (stream, failures) = server.scheduler.stream_and_failures(&stream_id);
+            stream.replay_graph(wgpu_graph, failures);
+            Ok(())
+        });
         if let Err(err) = &result {
             self.scheduler.stream(&stream_id).profile_failure(err);
         }
