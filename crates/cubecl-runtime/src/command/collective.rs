@@ -159,17 +159,15 @@ impl<D: CollectiveDriver> Collectives<D> {
         // number.
         let mut devices = devices;
         devices.sort();
-        let rank = self
-            .rank_of(&devices, self.device)
-            .ok_or_else(|| ServerError::Generic {
-                reason: format!(
-                    "this device ({:?}) is not among the {} the group was formed over, \
+        let rank = self.rank_in(&devices).ok_or_else(|| ServerError::Generic {
+            reason: format!(
+                "this device ({:?}) is not among the {} the group was formed over, \
                      so it has no rank in it",
-                    self.device,
-                    devices.len()
-                ),
-                backtrace: BackTrace::capture(),
-            })?;
+                self.device,
+                devices.len()
+            ),
+            backtrace: BackTrace::capture(),
+        })?;
 
         let comm = D::join(D::group_id(&id)?, devices.len(), rank)?;
         self.joined.insert(id.clone(), comm);
@@ -213,8 +211,10 @@ impl<D: CollectiveDriver> Collectives<D> {
             })
     }
 
-    /// The position of `device` in `devices`, which is its rank.
-    fn rank_of(&self, devices: &[DeviceId], device: DeviceId) -> Option<usize> {
-        devices.iter().position(|id| id.index_id == device.index_id)
+    /// This device's position in `devices`, which is its rank.
+    fn rank_in(&self, devices: &[DeviceId]) -> Option<usize> {
+        devices
+            .iter()
+            .position(|id| id.index_id == self.device.index_id)
     }
 }

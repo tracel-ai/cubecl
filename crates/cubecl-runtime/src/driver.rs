@@ -12,7 +12,7 @@
 
 use crate::compiler::CompilationError;
 use crate::server::{IoError, LaunchError, ServerError};
-use alloc::string::{String, ToString};
+use alloc::string::ToString;
 use cubecl_environment::backtrace::BackTrace;
 
 /// A driver entry point that failed, named by what was called.
@@ -95,24 +95,5 @@ pub fn checked(op: &'static str, status: u32) -> Result<(), DriverError> {
     match status {
         0 => Ok(()),
         status => Err(DriverError { op, status }),
-    }
-}
-
-/// [`checked`], with `context` appended to the message.
-///
-/// For the calls whose failure is only diagnosable alongside what they were
-/// given — a strided copy's geometry, a launch's kernel.
-///
-/// # Errors
-///
-/// [`DriverError`]'s message followed by `context`, as a [`String`].
-pub fn checked_with(
-    op: &'static str,
-    status: u32,
-    context: impl FnOnce() -> String,
-) -> Result<(), String> {
-    match checked(op, status) {
-        Ok(()) => Ok(()),
-        Err(err) => Err(alloc::format!("{err}; {}", context())),
     }
 }

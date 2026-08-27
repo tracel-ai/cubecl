@@ -200,7 +200,7 @@ impl ComputeServer for HipServer {
         }
         let mut command = self.command_no_inputs(stream_id);
 
-        let current = command.streams.current();
+        let current = command.stream();
         current.drop_queue.flush(|| Fence::new(current.sys));
         current.memory_management_gpu.storage().flush();
 
@@ -209,19 +209,19 @@ impl ComputeServer for HipServer {
 
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
-        Window::on(command.streams.current()).prepare(stream_id)
+        Window::on(command.stream()).prepare(stream_id)
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
-        Window::on(command.streams.current()).begin()
+        Window::on(command.stream()).begin()
     }
 
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let id = GraphId::new();
         let instantiated = {
             let mut command = self.command_no_inputs(stream_id);
-            Window::on(command.streams.current()).instantiate(stream_id, id)
+            Window::on(command.stream()).instantiate(stream_id, id)
         };
         match instantiated {
             Ok(graph) => {
@@ -248,7 +248,7 @@ impl ComputeServer for HipServer {
         // retains their handles, so none of the shedding paths can ever fire
         // for them, and the graph itself is the only thing that writes them.
         let mut written = self.write_set();
-        written.extend(self.graphs.written(graph));
+        self.graphs.extend_written(graph, &mut written);
         let result = self.while_writing(written, |server, _| {
             let mut streams = server.streams.resolve(stream_id, [].into_iter());
             server.graphs.replay(graph, streams.current())
@@ -523,7 +523,7 @@ impl HipServer {
         // a replay that fails runs none of the recorded launches, so it leaves
         // all of them as they were. A no-op outside a capture window, and never
         // reached by a dry run, which records nothing to answer for.
-        let stream = command.streams.current();
+        let stream = command.stream();
         stream
             .capturing
             .record(bindings.buffers_written(io).cloned());
@@ -596,18 +596,14 @@ impl HipServer {
 ///
 /// [`lookup`]: cubecl_runtime::metadata_cache::MetadataInfoCache::lookup
 fn info_buffer(command: &mut Command<'_>, words: Vec<u64>) -> Result<Handle, ServerError> {
-    let stream = command.streams.current();
+    let stream = command.stream();
     let mode = stream.capturing.cache_mode();
     match stream.info_cache.lookup(mode, &words) {
         Lookup::Hit(handle) => Ok(handle),
         Lookup::Build { store } => {
             let handle = command.create_with_data(bytemuck::cast_slice(&words))?;
             if store {
-                command
-                    .streams
-                    .current()
-                    .info_cache
-                    .store(words, handle.clone());
+                command.stream().info_cache.store(words, handle.clone());
             }
             Ok(handle)
         }

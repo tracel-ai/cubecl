@@ -35,14 +35,21 @@ use cubecl_ir::MemoryDeviceProperties;
 /// current stream behind whichever streams own the buffers it was given.
 pub struct Command<'a, D: Driver> {
     ctx: &'a mut D::Context,
-    /// The streams this command was resolved against.
-    pub streams: ResolvedStreams<'a, D::Backend>,
+    streams: ResolvedStreams<'a, D::Backend>,
 }
 
 impl<'a, D: Driver> Command<'a, D> {
     /// A command against `ctx` over the streams `streams` resolved.
     pub fn new(ctx: &'a mut D::Context, streams: ResolvedStreams<'a, D::Backend>) -> Self {
         Self { ctx, streams }
+    }
+
+    /// The stream this command is issued on.
+    ///
+    /// The one part of the resolution a backend reaches for directly: the
+    /// driver calls take a stream, and this is the one they take.
+    pub fn stream(&mut self) -> &mut D::Stream {
+        self.streams.current()
     }
 
     /// The device allocation `binding` names, resolved on the stream that

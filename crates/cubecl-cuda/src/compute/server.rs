@@ -61,21 +61,20 @@ use std::{ffi::c_void, sync::Arc};
 /// bytes, so a hit is byte-identical to what the miss path would have built.
 fn info_buffer(command: &mut Command<'_>, words: &[u64]) -> Result<Handle, ServerError> {
     let size = core::mem::size_of_val(words);
-    let cache_mode = command.streams.current().capturing.cache_mode();
-    command.streams.current().info_cache.mode(cache_mode);
+    let cache_mode = command.stream().capturing.cache_mode();
+    command.stream().info_cache.mode(cache_mode);
 
-    if !command.streams.current().info_cache.should_cache(size) {
+    if !command.stream().info_cache.should_cache(size) {
         return Ok(command.create_with_data(bytemuck::cast_slice(words))?);
     }
     // Look up by the borrowed words — a hit clones nothing. On a miss we build
     // the buffer and clone the words into the cache as the key.
-    if let Some(handle) = command.streams.current().info_cache.get(words) {
+    if let Some(handle) = command.stream().info_cache.get(words) {
         return Ok(handle);
     }
     let handle = command.create_with_data(bytemuck::cast_slice(words))?;
     command
-        .streams
-        .current()
+        .stream()
         .info_cache
         .insert(words.to_vec(), handle.clone());
     Ok(handle)
@@ -243,7 +242,7 @@ impl ComputeServer for CudaServer {
         }
         let mut command = self.command_no_inputs(stream_id);
 
-        let current = command.streams.current();
+        let current = command.stream();
         current.drop_queue.flush(|| Fence::new(current.sys));
         current.memory_management_gpu.storage().flush();
 
@@ -252,19 +251,19 @@ impl ComputeServer for CudaServer {
 
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
-        Window::on(command.streams.current()).prepare(stream_id)
+        Window::on(command.stream()).prepare(stream_id)
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
-        Window::on(command.streams.current()).begin()
+        Window::on(command.stream()).begin()
     }
 
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let id = GraphId::new();
         let instantiated = {
             let mut command = self.command_no_inputs(stream_id);
-            Window::on(command.streams.current()).instantiate(stream_id, id)
+            Window::on(command.stream()).instantiate(stream_id, id)
         };
         match instantiated {
             Ok(graph) => {
@@ -291,7 +290,7 @@ impl ComputeServer for CudaServer {
         // retains their handles, so none of the shedding paths can ever fire
         // for them, and the graph itself is the only thing that writes them.
         let mut written = self.write_set();
-        written.extend(self.graphs.written(graph));
+        self.graphs.extend_written(graph, &mut written);
         let result = self.while_writing(written, |server, _| {
             let mut streams = server.streams.resolve(stream_id, [].into_iter());
             server.graphs.replay(graph, streams.current())
@@ -464,7 +463,7 @@ impl ServerCommunication for CudaServer {
 
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
-        let stream = command.streams.current().sys;
+        let stream = command.stream().sys;
         drop(command);
 
         // The collectives ran on their own stream; this is where the compute
@@ -488,7 +487,7 @@ impl ServerCommunication for CudaServer {
         // was allocated on.
         let mut command = self.command(stream_id, [&desc.handle].into_iter());
         let resource = command.resource(binding)?;
-        let stream = command.streams.current().sys;
+        let stream = command.stream().sys;
         drop(command);
 
         // Wait for the data to be ready on the compute stream.
@@ -704,7 +703,7 @@ impl CudaServer {
         let mut command = self.command(stream_id, [&src, &dst].into_iter());
         let resource_src = command.resource(src)?;
         let resource_dst = command.resource(dst)?;
-        let stream = command.streams.current().sys;
+        let stream = command.stream().sys;
         drop(command);
 
         // Wait for the data to be ready on the compute stream.
@@ -768,7 +767,7 @@ impl CudaServer {
         // a replay that fails runs none of the recorded launches, so it leaves
         // all of them as they were. A no-op outside a capture window, and never
         // reached by a dry run, which records nothing to answer for.
-        let stream = command.streams.current();
+        let stream = command.stream();
         stream
             .capturing
             .record(bindings.buffers_written(io).cloned());

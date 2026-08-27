@@ -148,16 +148,19 @@ impl<D: GraphDriver> Captures<D> {
         self.graphs.contains_key(&id)
     }
 
-    /// The buffers `id`'s recorded launches write.
+    /// Add the buffers `id`'s recorded launches write to `written`.
     ///
-    /// Empty for an unknown id, which is the honest answer rather than a
+    /// Extends rather than answers with a vector of its own, because the
+    /// caller is filling a pooled write set and a replay should allocate for
+    /// it no more than a launch does.
+    ///
+    /// An unknown id adds nothing, which is the honest answer rather than a
     /// missing one: a graph that is gone took the record of which buffers went
     /// with it, and a replay of it writes nothing.
-    pub fn written(&self, id: GraphId) -> Vec<BufferBinding> {
-        self.graphs
-            .get(&id)
-            .map(|graph| graph.written.clone())
-            .unwrap_or_default()
+    pub fn extend_written(&self, id: GraphId, written: &mut Vec<BufferBinding>) {
+        if let Some(graph) = self.graphs.get(&id) {
+            written.extend(graph.written.iter().cloned());
+        }
     }
 
     /// Enqueue `id`'s recorded sequence on `stream`.
