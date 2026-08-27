@@ -72,7 +72,7 @@ paste = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.2", features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", features = [
     "export_tests",
 ] }
 cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.3", features = [
