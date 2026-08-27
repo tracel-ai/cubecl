@@ -261,20 +261,26 @@ impl ComputeServer for HipServer {
         if !self.graphs.contains(graph) {
             return;
         }
+        // What the graph's replays write, taken before the graph goes: if the
+        // wait below fails, these are the buffers a replay may not have
+        // finished writing, and they are what the failure belongs to.
+        let mut written = Vec::new();
+        self.graphs.extend_written(graph, &mut written);
+
         // Wait for in-flight replays before dropping the executable: `replay`
         // returns at enqueue time, so one may still be running against it. A
         // failed sync means the stream already faulted — so no replay is still
-        // running and destroying is safe — but don't silently swallow the
-        // error: surface it on the stream so the next op reports it.
+        // running and destroying is safe.
         let synced = cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id));
         let mut streams = self.streams.resolve(stream_id, [].into_iter());
         self.graphs.destroy(graph, streams.current());
         drop(streams);
         if let Err(err) = synced {
-            // The synchronize itself failed, leaving a context every logical
-            // stream sharing it keeps hitting: a device fault, not any
-            // buffer's failure.
-            self.streams.fault(err);
+            // The wait failed, so a replay may not have run. Claim what it
+            // would have written rather than faulting the device: a read of
+            // one of those buffers has to fail, and work on this stream that
+            // shares no buffer with the graph has nothing to do with it.
+            failed_writing(self, stream_id, written, err);
         }
     }
 
