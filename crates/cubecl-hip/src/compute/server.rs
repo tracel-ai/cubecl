@@ -101,17 +101,13 @@ impl ComputeServer for HipServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
-        // Buffers another stream wrote are only as good as the work that wrote
-        // them; see `StreamPool::ensure_written`.
+        // The bytes are only as good as the work that wrote them, and the
+        // context that would have written them has to still work.
         if let Err(err) = self
             .streams
-            .ensure_written(descriptors.iter().map(|d| &d.handle))
+            .ensure_readable(descriptors.iter().map(|d| &d.handle))
         {
             return Box::pin(async move { Err(err) });
-        }
-        // The one failure no buffer can report: the context itself.
-        if let Some(fault) = self.streams.take_fault() {
-            return Box::pin(async move { Err(fault) });
         }
 
         let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.handle));
@@ -187,6 +183,9 @@ impl ComputeServer for HipServer {
         handles: Vec<BufferBinding>,
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
+        // `ensure_written`, not `ensure_readable`: a check answers a question
+        // about buffers without reading them, and the device fault is owed to
+        // exactly one reporter — taking it here would silence the next flush.
         self.streams.ensure_written(handles.iter())
     }
 
@@ -287,11 +286,8 @@ impl ComputeServer for HipServer {
         // The claim check a read would have made, without the read; claims
         // are set at enqueue time, so they are already in place. A fault the
         // barrier itself reveals comes back through the fence below.
-        if let Err(err) = self.streams.ensure_written(handles.iter()) {
+        if let Err(err) = self.streams.ensure_readable(handles.iter()) {
             return Box::pin(async move { Err(err) });
-        }
-        if let Some(fault) = self.streams.take_fault() {
-            return Box::pin(async move { Err(fault) });
         }
         self.command_no_inputs(stream_id).sync()
     }
@@ -321,7 +317,8 @@ impl ComputeServer for HipServer {
     ) -> Result<ManagedResource<GpuResource>, ServerError> {
         // The same claim check a read makes: a buffer a failed launch never
         // filled reports the failure rather than handing back a pointer to
-        // whatever was there before.
+        // whatever was there before. Not the fault, though — that is owed to
+        // the next flush or sync, and one reporter only.
         self.streams.ensure_written([&binding].into_iter())?;
         let mut command = self.command(stream_id, [&binding].into_iter());
         let memory = binding.memory.clone();

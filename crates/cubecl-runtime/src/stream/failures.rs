@@ -105,6 +105,34 @@ pub trait FailureStore {
         }))
     }
 
+    /// Fails when the buffers `handles` name cannot be trusted, or when the
+    /// device itself has faulted.
+    ///
+    /// The check every path that hands bytes back to a caller makes, and the
+    /// two questions are different: a buffer has no writer, or the context
+    /// that would have produced one is broken and no buffer can say so.
+    ///
+    /// This takes the fault, so it belongs only to the paths that *report*
+    /// one — a read, a sync, a flush. A path that merely answers a question
+    /// about a buffer uses [`ensure_written`](Self::ensure_written) instead:
+    /// the fault is owed to exactly one reporter, and taking it to answer a
+    /// question would silence the next flush.
+    ///
+    /// # Errors
+    ///
+    /// The failures those buffers carry, or the device fault, whichever came
+    /// first.
+    fn ensure_readable<'a>(
+        &mut self,
+        handles: impl Iterator<Item = &'a BufferBinding>,
+    ) -> Result<(), ServerError> {
+        self.ensure_written(handles)?;
+        match self.take_fault() {
+            Some(fault) => Err(fault),
+            None => Ok(()),
+        }
+    }
+
     /// The failure claiming bytes any of `reads` names, with its error — the
     /// check a launch makes before it runs.
     ///
