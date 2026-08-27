@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{KernelConfig, MemoryAccess, ThroughputKey};
+use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputKey};
 
 use crate::throughput::{LaunchConfig, memory_probe::MemoryProbe};
 
@@ -20,19 +20,13 @@ pub fn build_kernel<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
     config: LaunchConfig,
-    working_set: usize,
+    spec: MemorySpec,
 ) -> KernelConfig {
     let client = client.clone();
     let dtype = key.dtype();
 
     let line_bytes = config.vector_size * dtype.size();
-    let probe = MemoryProbe::new(
-        &client,
-        config,
-        line_bytes,
-        MemoryAccess::Write,
-        working_set,
-    );
+    let probe = MemoryProbe::new(&client, config, line_bytes, spec);
 
     let out_handle = client.empty(probe.buffer_bytes);
 
@@ -130,11 +124,11 @@ pub fn memory_write_throughput<I: Numeric, N: Size>(
         }
 
         start += window;
-        // Back to the beginning, one line further along each time round, so a
-        // window that fills the whole buffer still moves between passes. The
-        // test is whether the window starts past the end, not whether it
-        // reaches past: the index wraps, so the last position of a cycle
-        // straddles the end rather than being skipped.
+        // Back to the beginning, one line further along each time round,
+        // so a window that fills the whole buffer still moves between
+        // passes. The test is whether the window starts past the end, not
+        // whether it reaches past: the index wraps, so the last position
+        // of a cycle straddles the end rather than being skipped.
         if start >= len {
             wrap += 1;
             if wrap >= window {

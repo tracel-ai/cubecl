@@ -4,8 +4,8 @@ use cubecl_runtime::{
     runtime::Runtime,
     server::CubeDim,
     throughput::{
-        DEFAULT_BUFFER_BYTES, MemoryAccess, MemoryCurve, MemoryPoint, ThroughputKey,
-        ThroughputMode, ThroughputValue, working_set_sweep,
+        DEFAULT_BUFFER_BYTES, MemoryAccess, MemoryCurve, MemoryPoint, MemorySpec, ThroughputKey,
+        ThroughputMode, ThroughputValue, sweep_size, working_set_sweep,
     },
     tune::{Bounds, Thresholds, Work, calculate_bounds},
 };
@@ -39,28 +39,36 @@ pub fn device_throughput<R: Runtime>(
 ///
 /// One point per size in [`working_set_sweep`], each measured and cached
 /// exactly like the single-size probe — [`measure_peak_throughput`] with a
-/// [`ThroughputMode::MemoryWorkingSet`] key — so a curve costs one probe per
-/// size on the first run and nothing afterwards.
+/// [`ThroughputMode::Memory`] key — so a curve costs one probe per size on the
+/// first run and nothing afterwards.
 ///
 /// Native only, panics on WASM
 pub fn measure_memory_curve<R: Runtime>(
     client: &ComputeClient<R>,
     access: MemoryAccess,
 ) -> MemoryCurve {
-    let points = working_set_sweep(working_set_cap(client, access))
-        .into_iter()
-        .map(|bytes| {
-            let key = ThroughputKey {
-                mode: ThroughputMode::MemoryWorkingSet { access, bytes },
-            };
-
-            MemoryPoint {
-                bytes,
-                value: measure_peak_throughput::<R>(client, key),
-            }
-        });
+    let points = sweep::<R>(client, access, |bytes| {
+        ThroughputMode::Memory(MemorySpec::new(access, bytes))
+    });
 
     MemoryCurve::new(access, points)
+}
+
+/// One measured point per size in [`working_set_sweep`], each cached exactly
+/// like the single-size probe, so a curve costs one probe per size on the
+/// first run and nothing afterwards.
+fn sweep<R: Runtime>(
+    client: &ComputeClient<R>,
+    access: MemoryAccess,
+    mode: impl Fn(u64) -> ThroughputMode,
+) -> alloc::vec::Vec<MemoryPoint> {
+    working_set_sweep(working_set_cap(client, access))
+        .into_iter()
+        .map(|bytes| MemoryPoint {
+            bytes,
+            value: measure_peak_throughput::<R>(client, ThroughputKey { mode: mode(bytes) }),
+        })
+        .collect()
 }
 
 /// The largest working set `access` can be probed at: as much as one buffer can
@@ -99,28 +107,18 @@ pub fn measure_peak_throughput<R: Runtime>(
             }
             compute_cmma::build_kernel(client, key, cmma_config, launch_config)
         }
-        ThroughputMode::Memory
-        | ThroughputMode::MemoryRead
-        | ThroughputMode::MemoryWrite
-        | ThroughputMode::MemoryWorkingSet { .. } => {
-            // The memory modes differ only in access and working set, and
+        ThroughputMode::Memory(_) => {
+            // The memory modes differ only in what they ask of the probe, and
             // `memory_probe` is the one place that mapping lives.
-            let (access, working_set) = key
+            let spec = key
                 .mode
                 .memory_probe()
                 .expect("A memory mode describes a probe");
-            let working_set = working_set.min(usize::MAX as u64) as usize;
 
-            match access {
-                MemoryAccess::Copy => {
-                    memory_direct::build_kernel(client, key, launch_config, working_set)
-                }
-                MemoryAccess::Read => {
-                    memory_read::build_kernel(client, key, launch_config, working_set)
-                }
-                MemoryAccess::Write => {
-                    memory_write::build_kernel(client, key, launch_config, working_set)
-                }
+            match spec.access {
+                MemoryAccess::Copy => memory_direct::build_kernel(client, key, launch_config, spec),
+                MemoryAccess::Read => memory_read::build_kernel(client, key, launch_config, spec),
+                MemoryAccess::Write => memory_write::build_kernel(client, key, launch_config, spec),
             }
         }
         ThroughputMode::Launch => launch_overhead::build_kernel(client, key, launch_config),
@@ -142,8 +140,14 @@ pub fn roofline_bounds<R: Runtime>(
     work: Work,
     thresholds: Thresholds,
 ) -> Bounds {
+    // The ceiling a kernel is scored against is the one for the traffic it
+    // actually moves. Probing the default working set instead asked what half
+    // a gigabyte reaches, which no autotuned kernel is.
     let memory_key = ThroughputKey {
-        mode: ThroughputMode::Memory,
+        mode: ThroughputMode::Memory(MemorySpec::new(
+            MemoryAccess::Copy,
+            sweep_size(work.bytes as u64),
+        )),
     };
     let launch_key = ThroughputKey {
         mode: ThroughputMode::Launch,

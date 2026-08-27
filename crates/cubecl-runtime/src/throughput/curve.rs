@@ -13,7 +13,7 @@
 
 use alloc::vec::Vec;
 
-use crate::throughput::{MemoryAccess, ThroughputKey, ThroughputMode, ThroughputValue};
+use crate::throughput::{MemoryAccess, MemorySpec, ThroughputKey, ThroughputMode, ThroughputValue};
 
 /// The smallest working set a curve is measured at, in bytes moved per pass.
 ///
@@ -50,6 +50,18 @@ pub fn working_set_sweep(cap: u64) -> Vec<u64> {
     }
 
     sizes
+}
+
+/// The sweep size a working set of `bytes` is probed at: the next power of two
+/// at or above it, never below [`MIN_WORKING_SET`].
+///
+/// A probe per distinct byte count would fill the cache with sizes measured
+/// once and never asked for again. Snapping to the grid the curve already
+/// samples bounds that to one entry an octave, and costs at most the
+/// difference between neighbouring points of a curve read by interpolation
+/// anyway.
+pub fn sweep_size(bytes: u64) -> u64 {
+    bytes.max(MIN_WORKING_SET).next_power_of_two()
 }
 
 /// One measured point of a [`MemoryCurve`].
@@ -137,12 +149,9 @@ impl MemoryCurve {
 
     /// What a point measured, in bytes moved per second.
     fn rate(&self, point: &MemoryPoint) -> f64 {
-        point.value.bytes_per_s(&ThroughputKey {
-            mode: ThroughputMode::MemoryWorkingSet {
-                access: self.access,
-                bytes: point.bytes,
-            },
-        })
+        let mode = ThroughputMode::Memory(MemorySpec::new(self.access, point.bytes));
+
+        point.value.bytes_per_s(&ThroughputKey { mode })
     }
 }
 
