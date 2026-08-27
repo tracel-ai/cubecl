@@ -1,7 +1,7 @@
 /// Scheduler based multi-stream support.
 pub mod scheduler;
 
-mod base;
+pub mod base;
 mod capture;
 mod failures;
 mod write_scope;

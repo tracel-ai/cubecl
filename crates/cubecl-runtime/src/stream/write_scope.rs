@@ -15,40 +15,9 @@
 //! and must not assert during an unwind. A closure makes the early return
 //! structurally impossible.
 
-use crate::memory_management::FailureId;
 use crate::server::{BufferBinding, ServerError};
+use crate::stream::FailureStore;
 use alloc::vec::Vec;
-
-/// The multi-stream driver a write scope stages, taints and settles through.
-///
-/// Implemented by the drivers that own the device's
-/// [`ErrorGraph`](crate::memory_management::ErrorGraph) and its streams; the
-/// real work happens on [`StreamPool::enter_write`] and
-/// [`StreamPool::exit_write`], and this trait is how a scope reaches them
-/// without knowing which driver the server keeps.
-///
-/// [`StreamPool::enter_write`]: super::StreamPool::enter_write
-/// [`StreamPool::exit_write`]: super::StreamPool::exit_write
-pub trait WriteStreams {
-    /// The vector the scope stages its write set in, pooled on the driver so
-    /// a launch allocates little for it. [`exit`](Self::exit) hands it back.
-    fn stage(&mut self) -> Vec<BufferBinding>;
-
-    /// Taint every buffer in `written` with a provisional failure, minted
-    /// because the real one does not exist yet. `None` when the set is empty:
-    /// a dry run enters and leaves having claimed nothing.
-    fn enter(&mut self, written: &[BufferBinding]) -> Option<FailureId>;
-
-    /// Settle the scope: release the provisional failure when `error` is
-    /// `None`, swap the real error in for it and log it otherwise — and
-    /// return the staged vector to the pool either way.
-    fn exit(
-        &mut self,
-        provisional: Option<FailureId>,
-        written: Vec<BufferBinding>,
-        error: Option<&ServerError>,
-    );
-}
 
 /// A server whose device work runs inside a write scope.
 ///
@@ -60,19 +29,18 @@ pub trait WriteStreams {
 /// [`while_writing`]: Self::while_writing
 pub trait WriteScoped: Sized {
     /// The multi-stream driver the server keeps.
-    type Streams: WriteStreams;
+    type Streams: FailureStore;
 
     /// The driver, split-borrowed from the server so the scope can taint on
     /// the way in and settle on the way out while `body` holds the rest.
     fn write_streams(&mut self) -> &mut Self::Streams;
 
-    /// An empty write set, pooled on the driver, for the caller to fill with
-    /// what the work it is about to run writes. Filling it here rather than
-    /// inside the scope is what lets the body take the arguments the set was
-    /// read from by value. A set left empty claims nothing, which is what a
-    /// dry run wants.
+    /// An empty write set for the caller to fill with what the work it is
+    /// about to run writes. Filling it here rather than inside the scope is
+    /// what lets the body take the arguments the set was read from by value.
+    /// A set left empty claims nothing, which is what a dry run wants.
     fn write_set(&mut self) -> Vec<BufferBinding> {
-        self.write_streams().stage()
+        self.write_streams().write_set()
     }
 
     /// Run `body` inside a scope over `written`, the set from
@@ -90,10 +58,10 @@ pub trait WriteScoped: Sized {
         written: Vec<BufferBinding>,
         body: impl FnOnce(&mut Self, &[BufferBinding]) -> Result<R, ServerError>,
     ) -> Result<R, ServerError> {
-        let provisional = self.write_streams().enter(&written);
+        let provisional = self.write_streams().enter_write(&written);
         let result = body(self, &written);
         self.write_streams()
-            .exit(provisional, written, result.as_ref().err());
+            .exit_write(provisional, written, result.as_ref().err());
         result
     }
 

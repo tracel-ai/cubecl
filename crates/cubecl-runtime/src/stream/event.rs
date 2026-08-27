@@ -3,7 +3,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, ManagedMemoryId, SharedMemoryBindings},
     server::{BufferBinding, ServerError},
-    stream::{FailureStore, Failures, StreamFactory, StreamMemory, StreamPool},
+    stream::{FailureStore, Failures, StreamFactory, StreamMemory, StreamPool, base},
 };
 use core::any::Any;
 use cubecl_environment::collections::HashMap;
@@ -199,19 +199,19 @@ impl<'a, B: EventStreamBackend> ResolvedStreams<'a, B> {
     }
 
     /// Taint every allocation in `written` with `error` — see
-    /// [`StreamPool::taint`].
+    /// [`base::taint`].
     pub fn taint<'b>(
         &mut self,
         error: ServerError,
         written: impl Iterator<Item = &'b BufferBinding>,
     ) {
-        self.streams.taint(error, written, self.failures);
+        base::taint(self.streams, error, written, self.failures);
     }
 
     /// Release the failure on every allocation in `written` — see
-    /// [`StreamPool::written`].
+    /// [`base::written`].
     pub fn written<'b>(&mut self, written: impl Iterator<Item = &'b BufferBinding>) {
-        self.streams.written(written, self.failures);
+        base::written(self.streams, written, self.failures);
     }
 
     /// Enqueue a task to be cleaned.

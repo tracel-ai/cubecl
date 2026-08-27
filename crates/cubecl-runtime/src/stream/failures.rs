@@ -12,7 +12,7 @@ use crate::id::KernelId;
 use crate::logging::ServerLogger;
 use crate::memory_management::{ErrorGraph, FailureId, Skipped};
 use crate::server::{BufferBinding, ServerError};
-use crate::stream::{ReadFailure, StreamFactory, StreamMemory, StreamPool, WriteStreams};
+use crate::stream::{ReadFailure, StreamFactory, StreamMemory, StreamPool, base};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -48,9 +48,13 @@ impl Failures {
         }
     }
 
-    /// What the failure ids carried by this device's allocations mean, handed
-    /// down to every reserve, bind and cleanup — those are where slices shed
-    /// the failures they carry.
+    /// What the failure ids carried by this device's allocations mean.
+    pub fn graph(&self) -> &ErrorGraph {
+        &self.graph
+    }
+
+    /// [`graph`](Self::graph) mutably, handed down to every reserve, bind and
+    /// cleanup — those are where slices shed the failures they carry.
     pub fn graph_mut(&mut self) -> &mut ErrorGraph {
         &mut self.graph
     }
@@ -59,10 +63,14 @@ impl Failures {
 /// A multi-stream driver that owns a device's [`Failures`].
 ///
 /// Implementing [`split`](Self::split) and [`parts`](Self::parts) buys the
-/// whole taint surface below, and [`WriteStreams`] with it.
+/// whole taint surface below, and the write scope's hooks with it. Whether a
+/// buffer can be trusted lives on its allocation, so every operation here is
+/// the same two steps: resolve each binding to the stream that allocated it,
+/// and tell that stream's memory what happened.
 pub trait FailureStore {
-    /// The factory the driver's [`StreamPool`] was built from.
-    type Factory: StreamFactory;
+    /// The factory the driver's [`StreamPool`] was built from. Its streams
+    /// expose the memory the taint is recorded on.
+    type Factory: StreamFactory<Stream: StreamMemory>;
 
     /// The pool and the store, split-borrowed: nearly every operation here
     /// reaches the allocations through the pool while mutating the store.
@@ -71,55 +79,75 @@ pub trait FailureStore {
     /// [`split`](Self::split) for the read-only questions.
     fn parts(&self) -> (&StreamPool<Self::Factory>, &Failures);
 
-    /// Fails when the buffers `handles` name carry a failure — see
-    /// [`StreamPool::ensure_written`].
+    /// Fails when the buffers `handles` name carry a failure, with the errors
+    /// of the work that was supposed to write them.
+    ///
+    /// A read is only as good as the work that wrote the buffer: a launch that
+    /// failed never wrote it, so copying its bytes out hands back whatever was
+    /// in memory before. Whether that happened is a field on the allocation,
+    /// so the question is answered by the slice each binding resolves to — a
+    /// lookup the read was going to do anyway — and by nobody's queue.
     ///
     /// # Errors
     ///
-    /// [`ServerError::Several`] naming the work that was supposed to
-    /// write them and failed.
+    /// [`ServerError::Several`] naming every failure one of these buffers
+    /// carries, each failure once however many buffers carry it. The caller
+    /// has nothing to retry — the bytes are gone — so the error is the answer
+    /// to the read, not a hint to try again.
     fn ensure_written<'a>(
         &self,
         handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Result<(), ServerError>
-    where
-        <Self::Factory as StreamFactory>::Stream: StreamMemory,
-    {
+    ) -> Result<(), ServerError> {
         let (pool, failures) = self.parts();
-        pool.ensure_written(&failures.graph, handles)
+        failures.graph.reports(handles.filter_map(|handle| {
+            let failure = pool.try_get(&handle.stream)?.failure(handle)?;
+            Some((failure, handle.memory.id()))
+        }))
     }
 
-    /// The failure claiming bytes any of `reads` names — see
-    /// [`StreamPool::read_failure`].
+    /// The failure claiming bytes any of `reads` names, with its error — the
+    /// check a launch makes before it runs.
+    ///
+    /// A launch whose input cannot be trusted does not run: a buffer holding
+    /// garbage can be read as a dynamic cube count or as indices in a gather,
+    /// so running would risk dispatching an absurd grid or scattering into
+    /// memory that carried no failure at all. Skipping costs the same lookup,
+    /// because the inputs have to be read either way to decide anything.
     fn read_failure<'a>(
         &self,
         reads: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Option<ReadFailure>
-    where
-        <Self::Factory as StreamFactory>::Stream: StreamMemory,
-    {
+    ) -> Option<ReadFailure> {
         let (pool, failures) = self.parts();
-        pool.read_failure(&failures.graph, reads)
+        reads
+            .filter_map(|handle| {
+                let failure = pool.try_get(&handle.stream)?.failure(handle)?;
+                Some(ReadFailure {
+                    failure,
+                    needed: handle.memory.id(),
+                    error: failures.graph.error(failure)?.clone(),
+                })
+            })
+            .next()
     }
 
-    /// Taint every allocation in `written` with `error` — see
-    /// [`StreamPool::taint`].
-    fn taint<'a>(&mut self, error: ServerError, written: impl Iterator<Item = &'a BufferBinding>)
-    where
-        <Self::Factory as StreamFactory>::Stream: StreamMemory,
-    {
+    /// Taint every allocation in `written` with `error`: the work that was
+    /// going to write those buffers did not run, so a read of any of them
+    /// fails on this failure until something writes them again.
+    ///
+    /// Each binding is resolved to the manager of the stream it was created
+    /// on, which may not be the stream that failed — that is the point: the
+    /// fact lands on the memory, wherever it lives.
+    fn taint<'a>(&mut self, error: ServerError, written: impl Iterator<Item = &'a BufferBinding>) {
         let (pool, failures) = self.split();
-        pool.taint(error, written, &mut failures.graph);
+        base::taint(pool, error, written, &mut failures.graph);
     }
 
-    /// Release the failure on every allocation in `written` — see
-    /// [`StreamPool::written`].
-    fn written<'a>(&mut self, written: impl Iterator<Item = &'a BufferBinding>)
-    where
-        <Self::Factory as StreamFactory>::Stream: StreamMemory,
-    {
+    /// Release the failure on every allocation in `written`: work that writes
+    /// them has been enqueued, so a read of one is no longer reading bytes
+    /// nothing wrote.
+    fn written<'a>(&mut self, written: impl Iterator<Item = &'a BufferBinding>) {
         let (pool, failures) = self.split();
-        pool.written(written, &mut failures.graph);
+        base::written(pool, written, &mut failures.graph);
     }
 
     /// A skipped launch's outputs take the failure that stopped it: nothing
@@ -136,9 +164,7 @@ pub trait FailureStore {
         found: &ReadFailure,
         kernel: KernelId,
         written: impl Iterator<Item = &'a BufferBinding>,
-    ) where
-        <Self::Factory as StreamFactory>::Stream: StreamMemory,
-    {
+    ) {
         let (pool, failures) = self.split();
         let mut staged = core::mem::take(&mut failures.scratch);
         staged.extend(written.cloned());
@@ -150,7 +176,7 @@ pub trait FailureStore {
                 produced: staged.iter().map(|handle| handle.memory.id()).collect(),
             },
         );
-        pool.taint_with(found.failure, staged.iter(), &mut failures.graph);
+        base::taint_with(pool, found.failure, staged.iter(), &mut failures.graph);
         staged.clear();
         failures.scratch = staged;
     }
@@ -172,35 +198,68 @@ pub trait FailureStore {
         let (_, failures) = self.split();
         failures.fault.take()
     }
-}
 
-impl<T: FailureStore> WriteStreams for T
-where
-    <T::Factory as StreamFactory>::Stream: StreamMemory,
-{
-    fn stage(&mut self) -> Vec<BufferBinding> {
+    /// An empty write set, pooled here so a launch allocates nothing for it.
+    /// [`exit_write`](Self::exit_write) hands it back.
+    fn write_set(&mut self) -> Vec<BufferBinding> {
         let (_, failures) = self.split();
         core::mem::take(&mut failures.scratch)
     }
 
-    fn enter(&mut self, written: &[BufferBinding]) -> Option<FailureId> {
+    /// Enter a write scope over `written`: taint every buffer the work is
+    /// going to write with a provisional failure, minted here because the real
+    /// one does not exist yet.
+    ///
+    /// The default this sets is tainted unless proven written — the opposite
+    /// of clearing on success and hoping every failure path remembered to
+    /// taint. A body that returns early, or panics before
+    /// [`exit_write`](Self::exit_write) runs, leaves the write set carrying
+    /// this failure, so a read of one of its buffers fails loudly instead of
+    /// returning bytes nothing wrote.
+    ///
+    /// An empty write set — a dry run, a launch writing nothing — claims
+    /// nothing and mints nothing.
+    fn enter_write(&mut self, written: &[BufferBinding]) -> Option<FailureId> {
+        if written.is_empty() {
+            return None;
+        }
         let (pool, failures) = self.split();
-        pool.enter_write(written, &mut failures.graph)
+        // Payload-free on purpose: this node is minted and dropped again on
+        // every launch that succeeds, so it may not cost a formatted string
+        // or a stack walk. See [`ServerError::TornDown`].
+        let provisional = failures.graph.insert(ServerError::TornDown);
+        base::taint_with(pool, provisional, written.iter(), &mut failures.graph);
+        Some(provisional)
     }
 
-    fn exit(
+    /// Settle the scope entered over `written`: release the provisional
+    /// failure when the work was enqueued, and swap the real error in for it
+    /// when the work was not. The taint is the whole answer — a read of one
+    /// of these buffers fails on it, whoever asks — and the error is logged
+    /// here, the backstop for the failure nobody ever reads. The staged
+    /// vector goes back to the pool either way.
+    fn exit_write(
         &mut self,
         provisional: Option<FailureId>,
         mut written: Vec<BufferBinding>,
         error: Option<&ServerError>,
     ) {
-        let (pool, failures) = self.split();
-        if let Some(error) = error {
-            // The backstop of the lazy model: the taint reports through every
-            // read, and this line covers the failure nobody ever reads.
-            failures.logger.log_failure(error);
+        match error {
+            None => self.written(written.iter()),
+            Some(error) => {
+                let (_, failures) = self.split();
+                failures.logger.log_failure(error);
+                if let Some(provisional) = provisional {
+                    failures.graph.replace(provisional, error.clone());
+                }
+            }
         }
-        pool.exit_write(provisional, &written, error, &mut failures.graph);
+        let (_, failures) = self.split();
+        // Covers the failure that tainted nothing — every binding resolving to
+        // a slot no stream ever initialized — and costs one lookup otherwise.
+        if let Some(provisional) = provisional {
+            failures.graph.prune(provisional);
+        }
         written.clear();
         failures.scratch = written;
     }
