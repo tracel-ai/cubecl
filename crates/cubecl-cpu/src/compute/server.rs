@@ -380,6 +380,21 @@ impl ComputeServer for CpuServer {
             .get(&kernel_id)
             .and_then(|kernel| kernel.mlir.io.clone());
 
+        // Skip, do not taint: a launch whose input cannot be trusted does not
+        // run. Running it is not merely wasted device time — a buffer holding
+        // garbage can be read as a dynamic cube count or as gather indices,
+        // scattering into memory that carried no failure at all. The outputs
+        // take the failure that stopped the launch, exactly as a failed
+        // launch's would, so a read downstream fails on the root cause.
+        if let Some((failure, _)) = self
+            .scheduler
+            .read_failure(bindings.buffers_read(io.as_deref()))
+        {
+            self.scheduler
+                .propagate(failure, bindings.buffers_written(io.as_deref()));
+            return;
+        }
+
         // The scope taints what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying

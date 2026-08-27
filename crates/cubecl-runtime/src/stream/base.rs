@@ -324,6 +324,37 @@ impl<F: StreamFactory> StreamPool<F> {
         }
     }
 
+    /// The failure claiming bytes any of `reads` names, with its error — the
+    /// check a launch makes before it runs.
+    ///
+    /// A launch whose input cannot be trusted does not run: a buffer holding
+    /// garbage can be read as a dynamic cube count or as indices in a gather,
+    /// so running would risk dispatching an absurd grid or scattering into
+    /// memory that carried no failure at all. Skipping costs the same lookup,
+    /// because the inputs have to be read either way to decide anything.
+    pub fn read_failure<'a>(
+        &self,
+        failures: &ErrorGraph,
+        reads: impl Iterator<Item = &'a BufferBinding>,
+    ) -> Option<(FailureId, ServerError)>
+    where
+        F::Stream: StreamMemory,
+    {
+        for handle in reads {
+            let Some(stream) = self.try_get(&handle.stream) else {
+                continue;
+            };
+            let Some(failure) = stream.failure(handle) else {
+                continue;
+            };
+            let Some(error) = failures.error(failure) else {
+                continue;
+            };
+            return Some((failure, error.clone()));
+        }
+        None
+    }
+
     /// Release the failure on every allocation in `written`: work that writes
     /// them has been enqueued, so a read of one is no longer reading bytes
     /// nothing wrote.

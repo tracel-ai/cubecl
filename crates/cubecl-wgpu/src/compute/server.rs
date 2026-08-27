@@ -529,6 +529,31 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             return;
         }
 
+        // Skip, do not taint: a launch whose input cannot be trusted does not
+        // run. Running it is not merely wasted device time — a buffer holding
+        // garbage can be read as a dynamic cube count or as gather indices,
+        // scattering into memory that carried no failure at all. The outputs
+        // take the failure that stopped the launch, exactly as a failed
+        // launch's would, so a read downstream fails on the root cause.
+        //
+        // Except while this stream records a graph: skipping would seal a
+        // recording missing an operation, and the replay contract has the
+        // caller write fresh inputs before each replay — clearing the very
+        // taint that would explain the hole. A tainted input dooms the
+        // capture instead, and end_capture refuses to seal it.
+        if let Some((failure, error)) = self
+            .scheduler
+            .read_failure(args.buffers_read(io.as_deref()))
+        {
+            let stream = self.scheduler.stream(&stream_id);
+            if stream.capturing.is_recording() {
+                stream.capturing.fail(error);
+            }
+            self.scheduler
+                .propagate(failure, args.buffers_written(io.as_deref()));
+            return;
+        }
+
         // The scope taints what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
@@ -751,7 +776,18 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // inside the window. Draining them here is also what keeps an
         // abandoned window from leaving its errors queued for a stream that
         // may never flush again.
-        let errors = stream.flush_errors_queue(outcome.owner());
+        let mut errors = stream.flush_errors_queue(outcome.owner());
+        // A launch inside the window read a buffer carrying a failure, so the
+        // recording is missing an operation — same refusal as a queued error.
+        if let Some(reason) = stream.capturing.take_failure() {
+            errors.insert(
+                0,
+                ServerError::graph_state(format!(
+                    "capture recorded a launch whose input carried a failure, so the recording \
+                     is missing an operation and cannot seal: {reason}"
+                )),
+            );
+        }
         let discarded = match outcome.is_abandoned() {
             true => Some(outcome.abandoned_error(stream_id, errors)),
             false => (!errors.is_empty()).then(|| ServerError::ServerUnhealthy {
@@ -790,9 +826,6 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // Order the replay after previously queued work on this stream.
         self.scheduler.execute_streams(vec![stream_id]);
 
-        // Fire-and-forget like `launch`: on failure, push the error onto the
-        // stream's queue so it surfaces on the next flush/sync rather than
-        // blocking the caller here.
         // Nothing to name here: the graph is gone, and with it the record of
         // which buffers its launches would have written.
         let Some(wgpu_graph) = self.graphs.get(&graph) else {
@@ -803,22 +836,33 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             );
             return;
         };
-        let recording = self
-            .scheduler
-            .stream(&stream_id)
-            .reject_while_recording("replay");
-        if let Err(err) = recording {
-            // None of the recorded launches run, so every buffer the graph
-            // writes is left as it was.
-            self.scheduler.taint(err.clone(), wgpu_graph.written.iter());
-            self.scheduler
-                .stream(&stream_id)
-                .errors
-                .push(stream_id, err);
-            return;
-        }
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream.replay_graph(wgpu_graph, failures);
+
+        // A replay writes the buffers its recorded launches were given, so it
+        // takes the same scope over that write set and settles it: a failed
+        // enqueue leaves them carrying the failure, and the next replay that
+        // lands releases the claim. Without the settle one transient failure
+        // would leave the graph's buffers unreadable forever — the graph
+        // retains their handles, so none of the shedding paths can ever fire
+        // for them, and the graph itself is the only thing that writes them.
+        let written = wgpu_graph.written.clone();
+        let _ = self.while_writing(
+            stream_id,
+            (),
+            |_, staged| staged.extend(written.iter().cloned()),
+            |server, _, _| {
+                server
+                    .scheduler
+                    .stream(&stream_id)
+                    .reject_while_recording("replay")?;
+                let wgpu_graph = server
+                    .graphs
+                    .get(&graph)
+                    .expect("checked above; nothing in the scope removes graphs");
+                let (stream, failures) = server.scheduler.stream_and_failures(&stream_id);
+                stream.replay_graph(wgpu_graph, failures);
+                Ok(())
+            },
+        );
     }
 
     fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {

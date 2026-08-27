@@ -321,6 +321,36 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.streams.written(written, &mut self.failures);
     }
 
+    /// The failure claiming bytes any of `reads` names — see
+    /// [`StreamPool::read_failure`].
+    pub fn read_failure<'a>(
+        &self,
+        reads: impl Iterator<Item = &'a BufferBinding>,
+    ) -> Option<(FailureId, ServerError)> {
+        self.streams.read_failure(&self.failures, reads)
+    }
+
+    /// A skipped launch's outputs take the failure that stopped it: nothing
+    /// wrote them, exactly as if the launch had failed, and the claim names
+    /// the root cause rather than minting a new one.
+    pub fn propagate<'a>(
+        &mut self,
+        failure: FailureId,
+        written: impl Iterator<Item = &'a BufferBinding>,
+    ) {
+        self.streams
+            .taint_with(failure, written, &mut self.failures);
+    }
+
+    /// The backend stream on `stream_id`'s slot when that slot was ever
+    /// initialized, mutably — a lookup that must not create a stream (see
+    /// [`StreamPool::try_get_mut`]).
+    pub fn try_stream_mut(&mut self, stream_id: &StreamId) -> Option<&mut B::Stream> {
+        self.streams
+            .try_get_mut(stream_id)
+            .map(|wrapper| &mut wrapper.stream)
+    }
+
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary
     /// alignment based on the provided bindings.
     ///

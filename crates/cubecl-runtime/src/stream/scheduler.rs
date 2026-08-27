@@ -215,6 +215,26 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         self.pool.written(written, &mut self.failures);
     }
 
+    /// The failure claiming bytes any of `reads` names — see
+    /// [`StreamPool::read_failure`].
+    pub fn read_failure<'a>(
+        &self,
+        reads: impl Iterator<Item = &'a BufferBinding>,
+    ) -> Option<(FailureId, ServerError)> {
+        self.pool.read_failure(&self.failures, reads)
+    }
+
+    /// A skipped launch's outputs take the failure that stopped it: nothing
+    /// wrote them, exactly as if the launch had failed, and the claim names
+    /// the root cause rather than minting a new one.
+    pub fn propagate<'a>(
+        &mut self,
+        failure: FailureId,
+        written: impl Iterator<Item = &'a BufferBinding>,
+    ) {
+        self.pool.taint_with(failure, written, &mut self.failures);
+    }
+
     /// Mutable access to the scheduling backend, e.g. to change the
     /// configuration new streams are created with. Already-created streams are
     /// unaffected.

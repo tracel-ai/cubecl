@@ -315,6 +315,32 @@ impl ComputeServer for HipServer {
 
         let io = self.ctx.kernel_io(&kernel_id);
 
+        // Skip, do not taint: a launch whose input cannot be trusted does not
+        // run. Running it is not merely wasted device time — a buffer holding
+        // garbage can be read as a dynamic cube count or as gather indices,
+        // scattering into memory that carried no failure at all. The outputs
+        // take the failure that stopped the launch, exactly as a failed
+        // launch's would, so a read downstream fails on the root cause.
+        //
+        // Except while this stream records a graph: skipping would seal a
+        // recording missing an operation, and the replay contract has the
+        // caller write fresh inputs before each replay — clearing the very
+        // taint that would explain the hole. A tainted input dooms the
+        // capture instead, and end_capture refuses to seal it.
+        if let Some((failure, error)) = self
+            .streams
+            .read_failure(bindings.buffers_read(io.as_deref()))
+        {
+            if let Some(stream) = self.streams.try_stream_mut(&stream_id)
+                && stream.capturing.is_recording()
+            {
+                stream.capturing.fail(error);
+            }
+            self.streams
+                .propagate(failure, bindings.buffers_written(io.as_deref()));
+            return;
+        }
+
         // The scope taints what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
@@ -454,6 +480,10 @@ impl ComputeServer for HipServer {
             // and torn down all the same, since nobody else is coming back to
             // close it; only its owner gets a graph out of it.
             let outcome = stream.capturing.end(stream_id)?;
+            // A launch inside the window read a buffer carrying a failure, so
+            // the recording is missing an operation and must not seal; the
+            // driver capture still has to be closed below either way.
+            let doomed = stream.capturing.take_failure();
             // SAFETY: ends the capture begun on this stream and instantiates the
             // recorded graph into an executable; the intermediate `graph` is freed
             // whether or not instantiation succeeds, leaving only the `exec` the
@@ -465,6 +495,13 @@ impl ComputeServer for HipServer {
                     cubecl_hip_sys::hipStreamEndCapture(stream.sys, &mut graph),
                 )
                 .and_then(|_| {
+                    if let Some(reason) = doomed {
+                        cubecl_hip_sys::hipGraphDestroy(graph);
+                        return Err(ServerError::graph_state(format!(
+                            "capture recorded a launch whose input carried a failure, so the \
+                             recording is missing an operation and cannot seal: {reason}"
+                        )));
+                    }
                     // A capture that recorded a memory node is unusable: the graph allocates on
                     // launch and never frees, so the driver rejects every relaunch while the
                     // first launch quietly succeeds. Fail here instead, so `stop_capture`
@@ -572,25 +609,26 @@ impl ComputeServer for HipServer {
     }
 
     fn replay(&mut self, graph: GraphId, stream_id: StreamId) {
-        // Fire-and-forget like `launch`: enqueue the graph dispatch and, on
-        // failure, push the error onto the stream's queue so it surfaces on the
-        // next flush/sync rather than blocking the caller here.
-        if let Err(err) = self.replay_checked(graph, stream_id) {
-            // None of the recorded launches ran, so every buffer the graph
-            // writes is left as it was. An unknown graph taints none: the
-            // record of which buffers went with it is gone too.
-            let written = self
-                .graphs
-                .get(&graph)
-                .map(|hip| hip.written.clone())
-                .unwrap_or_default();
-            let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
-                Ok(stream) => stream,
-                Err(err) => unreachable!("{err}"),
-            };
-            stream.taint(err.clone(), written.iter());
-            stream.current().errors.push(stream_id, err);
-        }
+        // A replay writes the buffers its recorded launches were given, so it
+        // takes the same scope over that write set and settles it: a failed
+        // enqueue leaves them carrying the failure, and the next replay that
+        // lands releases the claim. Without the settle one transient failure
+        // would leave the graph's buffers unreadable forever — the graph
+        // retains their handles, so none of the shedding paths can ever fire
+        // for them, and the graph itself is the only thing that writes them.
+        // An unknown graph writes none: the record of which buffers went with
+        // it is gone too.
+        let written = self
+            .graphs
+            .get(&graph)
+            .map(|entry| entry.written.clone())
+            .unwrap_or_default();
+        let _ = self.while_writing(
+            stream_id,
+            (),
+            |_, staged| staged.extend(written.iter().cloned()),
+            |server, _, _| server.replay_checked(graph, stream_id),
+        );
     }
 
     fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {

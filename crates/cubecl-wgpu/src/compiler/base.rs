@@ -147,6 +147,16 @@ impl Compiler for AutoCompiler {
         Ok(kernel)
     }
 
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<cubecl_runtime::kernel::BufferIO>> {
+        match repr {
+            AutoRepresentation::Wgsl(shader) => WgslCompiler::buffer_io(shader),
+            #[cfg(feature = "spirv")]
+            AutoRepresentation::SpirV(kernel) => cubecl_spirv::SpirvCompiler::buffer_io(kernel),
+            #[cfg(feature = "msl")]
+            AutoRepresentation::Msl(kernel) => MslCompiler::buffer_io(kernel),
+        }
+    }
+
     fn extension(&self) -> &'static str {
         match self {
             AutoCompiler::Wgsl(_) => "wgsl",

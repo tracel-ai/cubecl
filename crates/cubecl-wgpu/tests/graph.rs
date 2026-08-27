@@ -510,7 +510,14 @@ fn wgpu_graph_write_rejected_while_recording() {
          is missing that operation"
     );
 
-    // The failed capture left the stream usable.
+    // The failed capture left the stream usable — after the input is
+    // rewritten. The rejected write left it carrying the rejection: its
+    // intended contents never arrived, so a launch reading it is skipped
+    // until something writes it for real. Outside the window the write lands.
+    client.write(
+        &input,
+        Bytes::from_bytes_vec(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]).to_vec()),
+    );
     launch(&client);
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
@@ -873,5 +880,110 @@ fn wgpu_graph_capture_is_isolated_from_another_stream() {
     // The recorded pass is exactly this stream's one launch: replaying adds one.
     unsafe { graph.replay() };
     let out = client.read_one(output).unwrap();
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+}
+
+/// A kernel the compiler refuses, for tainting a buffer on demand.
+#[cube(launch_unchecked)]
+fn poisoned(out: &mut [f32], #[comptime] reason: String) {
+    push_validation_error(reason);
+    out[0] = 1f32;
+}
+
+/// A tainted input inside a capture window dooms the capture instead of
+/// skipping the launch: a graph missing an operation is worse than a late
+/// diagnostic, and the replay contract has the caller write fresh inputs
+/// before each replay — clearing the very taint that would explain the hole.
+#[test]
+fn wgpu_graph_capture_refuses_a_tainted_input() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+
+    let n = 4usize;
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    // Taint the input: the rejected launch was going to write it and never
+    // did. Drain the queued report so the capture path is otherwise clean.
+    unsafe {
+        poisoned::launch_unchecked::<WgpuRuntime>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(&client, n),
+            BufferArg::from_raw_parts(input.clone(), n),
+            "doomed-window".to_string(),
+        )
+    };
+    let _ = client.flush();
+
+    client.graph_prepare().expect("graph_prepare");
+    client.start_capture().expect("start_capture");
+    add_one::launch::<WgpuRuntime>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, n),
+        unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+        unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+    );
+
+    let err = client
+        .stop_capture()
+        .expect_err("the recording is missing an operation and must not seal")
+        .to_string();
+    assert!(
+        err.contains("missing an operation"),
+        "the refusal names the hole in the recording, got: {err}"
+    );
+}
+
+/// A replay settles its write set like a launch: a failed enqueue leaves the
+/// graph's buffers carrying the failure, and the next replay that lands
+/// releases the claim. Without the settle, one transient failure would leave
+/// them unreadable forever — the graph retains their handles, so no shedding
+/// path can ever fire for them, and the graph itself is the only writer.
+#[test]
+fn wgpu_graph_replay_settles_after_a_failed_enqueue() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+
+    let n = 4usize;
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    let launch = |client: &ComputeClient<WgpuRuntime>| {
+        add_one::launch::<WgpuRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    client.graph_prepare().expect("graph_prepare");
+    launch(&client);
+    let _ = client.read_one(output.clone()).unwrap();
+    client.start_capture().expect("start_capture");
+    launch(&client);
+    let graph = client.stop_capture().expect("stop_capture");
+
+    // A replay into a recording window is refused, which is the one enqueue
+    // failure every backend can produce on demand — the graph's write set is
+    // left carrying it.
+    client.graph_prepare().expect("graph_prepare");
+    client.start_capture().expect("start_capture");
+    unsafe { graph.replay() };
+    let _ = client.stop_capture();
+
+    client
+        .read_one(output.clone())
+        .expect_err("the failed replay never wrote the graph's output");
+
+    // The next replay lands, and the claim is released: recovery, not a
+    // permanently unreadable graph.
+    unsafe { graph.replay() };
+    let out = client
+        .read_one(output)
+        .expect("a replay that lands settles the write set");
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }

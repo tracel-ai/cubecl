@@ -44,6 +44,14 @@ pub fn rejected(out: &mut [u32], #[comptime] reason: String) {
     out[0] = 1u32;
 }
 
+/// Copies input to output, so a failure can travel one hop downstream.
+#[cube(launch)]
+pub fn copy(input: &[u32], out: &mut [u32]) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = input[ABSOLUTE_POS];
+    }
+}
+
 /// The same refusal, with an input the kernel only reads alongside the output
 /// it writes.
 #[cube(launch_unchecked)]
@@ -373,6 +381,40 @@ pub fn test_a_relaunch_makes_a_stale_buffer_readable_again<R: Runtime>(client: C
     assert_eq!(u32::from_bytes(&read), &[3; 4]);
 }
 
+/// A launch whose input carries a failure is skipped, and its outputs take
+/// the failure that stopped it — so a read anywhere downstream fails on the
+/// root cause instead of copying out bytes nothing computed.
+///
+/// This is the case the whole model exists for. Every backend used to clear
+/// its outputs on a successful launch without looking at its inputs, so the
+/// direct read of a buffer nothing wrote was caught and everything computed
+/// *from* one was missed — in a fused stack, nearly everything that matters.
+pub fn test_a_read_downstream_of_a_failure_fails_on_the_root_cause<R: Runtime>(
+    client: ComputeClient<R>,
+) {
+    let (producer, reader) = sharing_one_pooled_stream(1_000_011);
+
+    let (out1, out2) = producer.executes(|| {
+        let out1 = launch_rejected(&client, "root-cause");
+        let out2 = client.empty(core::mem::size_of::<u32>());
+        // A valid kernel reading the buffer the rejection left stale: it must
+        // not run, and what it would have written carries the rejection.
+        copy::launch::<R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            unsafe { BufferArg::from_raw_parts(out1.clone(), 1) },
+            unsafe { BufferArg::from_raw_parts(out2.clone(), 1) },
+        );
+        (out1, out2)
+    });
+
+    // The downstream buffer reports the failure that stopped its producer.
+    reader.executes(|| assert_rejected(&client, out2, "root-cause"));
+    // And the root buffer still reports the same one.
+    reader.executes(|| assert_rejected(&client, out1, "root-cause"));
+}
+
 /// An output that aliases an input writes that input in place, so a failure
 /// leaves the aliased buffer unwritten however its own argument was declared.
 ///
@@ -441,6 +483,14 @@ macro_rules! testgen_stream_errors {
             fn test_a_launch_that_never_compiled_taints_everything_it_was_given() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::stream_errors::test_a_launch_that_never_compiled_taints_everything_it_was_given::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_read_downstream_of_a_failure_fails_on_the_root_cause() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::test_a_read_downstream_of_a_failure_fails_on_the_root_cause::<
                     TestRuntime,
                 >(client);
             }

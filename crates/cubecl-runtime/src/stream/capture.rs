@@ -173,6 +173,13 @@ impl CaptureEnd {
 pub struct StreamCapture {
     state: StreamCaptureState,
     recorded: Vec<BufferBinding>,
+    /// The failure that doomed the window, if one did — a launch inside it
+    /// read a buffer carrying a failure. Skipping that launch would seal a
+    /// graph missing an operation, and the replay contract has the caller
+    /// write fresh inputs before each replay, clearing the very taint that
+    /// would explain the hole — so the window is doomed instead, and
+    /// `end_capture` refuses to seal it.
+    failed: Option<ServerError>,
 }
 
 impl StreamCapture {
@@ -193,6 +200,21 @@ impl StreamCapture {
         recorded.sort_unstable_by_key(|binding| binding.memory.id());
         recorded.dedup_by_key(|binding| binding.memory.id());
         recorded
+    }
+
+    /// Doom the recording: a launch inside the window read a buffer carrying
+    /// a failure — see [`Self::take_failure`]. The first failure wins, and a
+    /// stream that is not recording has no window to doom.
+    pub fn fail(&mut self, error: ServerError) {
+        if self.state.is_recording() && self.failed.is_none() {
+            self.failed = Some(error);
+        }
+    }
+
+    /// The failure that doomed this window, taken as it closes. `Some` means
+    /// the recording is missing at least one operation and must not seal.
+    pub fn take_failure(&mut self) -> Option<ServerError> {
+        self.failed.take()
     }
 
     /// See [`StreamCaptureState::is_recording`].
@@ -226,6 +248,7 @@ impl StreamCapture {
     pub fn prepare(&mut self, owner: StreamId) -> Result<(), ServerError> {
         self.state.prepare(owner)?;
         self.recorded.clear();
+        self.failed = None;
         Ok(())
     }
 
@@ -253,6 +276,7 @@ impl StreamCapture {
     pub fn abort(&mut self) {
         self.state.abort();
         self.recorded.clear();
+        self.failed = None;
     }
 }
 
