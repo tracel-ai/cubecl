@@ -1,15 +1,14 @@
 mod contiguous;
-
+mod erased;
 mod handle;
 pub mod identity;
 mod matrix_batch_layout;
-mod sink;
 
 pub use contiguous::*;
+pub use erased::*;
 pub use handle::*;
 pub use identity::*;
 pub use matrix_batch_layout::*;
-pub use sink::*;
 pub use view::*;
 
 pub mod layout;
