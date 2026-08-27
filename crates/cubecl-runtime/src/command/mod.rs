@@ -2,8 +2,10 @@
 
 mod backend;
 mod base;
+mod capture;
 mod staging;
 
 pub use backend::*;
 pub use base::*;
+pub use capture::*;
 pub use staging::*;

@@ -7,7 +7,7 @@
 //! forgot it would be silent.
 
 use super::storage::gpu::{GpuResource, GpuStorage};
-use crate::compute::capture::{Captures, Refused, Window};
+use crate::compute::{Captures, Window};
 use crate::{
     compute::{Command, context::HipContext, fence::Fence, stream::HipStreamBackend},
     runtime::HipCompiler,
@@ -25,6 +25,7 @@ use cubecl_core::{
 use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
+use cubecl_runtime::command::Refused;
 use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::metadata_cache::Lookup;
 use cubecl_runtime::{
