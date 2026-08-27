@@ -1,46 +1,30 @@
-//! What NCCL needs to be told about a collective, and the identifiers that
-//! keep every rank in one.
+//! NCCL's half of collectives: agreeing an identifier, joining, naming an
+//! element type, and the three operations.
+//!
+//! The bookkeeping around them — which groups this device has joined, what its
+//! rank in one is — is the shared
+//! [`Collectives`](cubecl_runtime::command::Collectives)'.
 
 use std::{collections::HashMap, sync::OnceLock};
 
 use cubecl_core::{
-    device::DeviceId,
     ir::{ElemType, FloatKind, IntKind, UIntKind},
     server::{CommunicationId, ReduceOperation, ServerError},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::sync::Mutex;
+use cubecl_runtime::command::CollectiveDriver;
+use std::mem::MaybeUninit;
+
+use crate::compute::driver::Cuda;
+use crate::compute::storage::gpu::GpuResource;
 
 /// Global state map from [`CommunicationId`] to boxed [`cudarc::nccl::sys::ncclUniqueId`].
 static UNIQUE_IDS_MAP: OnceLock<Mutex<HashMap<CommunicationId, cudarc::nccl::sys::ncclUniqueId>>> =
     OnceLock::new();
 
-/// The identifier every rank of the group over `device_ids` joins under,
-/// minted once and remembered.
-///
-/// # Errors
-///
-/// NCCL's refusal to mint one, which stops the group forming at all.
-pub(crate) fn nccl_comm_id(
-    device_ids: Vec<DeviceId>,
-) -> Result<cudarc::nccl::sys::ncclUniqueId, ServerError> {
-    let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock();
-    let comm_id = CommunicationId::from(device_ids);
-    match unique_ids_map.get_mut(&comm_id) {
-        Some(id) => Ok(*id),
-        None => {
-            let id = cudarc::nccl::result::get_uniqueid().map_err(|err| ServerError::Generic {
-                reason: format!("NCCL could not mint a communicator id: {err:?}"),
-                backtrace: BackTrace::capture(),
-            })?;
-            unique_ids_map.insert(comm_id, id);
-            Ok(id)
-        }
-    }
-}
-
 /// The NCCL reduction for `op`.
-pub(crate) fn to_nccl_op(op: ReduceOperation) -> cudarc::nccl::sys::ncclRedOp_t {
+fn to_nccl_op(op: ReduceOperation) -> cudarc::nccl::sys::ncclRedOp_t {
     match op {
         ReduceOperation::Sum => cudarc::nccl::sys::ncclRedOp_t::ncclSum,
         ReduceOperation::Mean => cudarc::nccl::sys::ncclRedOp_t::ncclAvg,
@@ -55,7 +39,7 @@ pub(crate) fn to_nccl_op(op: ReduceOperation) -> cudarc::nccl::sys::ncclRedOp_t 
 /// Reported rather than fatal: a collective is one operation among many, and
 /// refusing it is not a reason to take the process down — the caller can pick
 /// another type, or another way to move the tensor.
-pub(crate) fn nccl_dtype_count(
+fn nccl_dtype_count(
     dtype: ElemType,
     size: u64,
 ) -> Result<(cudarc::nccl::sys::ncclDataType_t, usize), ServerError> {
@@ -99,4 +83,134 @@ pub(crate) fn nccl_dtype_count(
     };
 
     Ok((nccl, (size / width) as usize))
+}
+
+impl CollectiveDriver for Cuda {
+    type Communicator = cudarc::nccl::sys::ncclComm_t;
+    type UniqueId = cudarc::nccl::sys::ncclUniqueId;
+    type DataType = cudarc::nccl::sys::ncclDataType_t;
+    type CommStream = cudarc::driver::sys::CUstream;
+
+    fn group_id(id: &CommunicationId) -> Result<Self::UniqueId, ServerError> {
+        let mut ids = UNIQUE_IDS_MAP.get_or_init(Default::default).lock();
+        match ids.get(id) {
+            Some(id) => Ok(*id),
+            None => {
+                let minted =
+                    cudarc::nccl::result::get_uniqueid().map_err(|err| ServerError::Generic {
+                        reason: format!("NCCL could not mint a communicator id: {err:?}"),
+                        backtrace: BackTrace::capture(),
+                    })?;
+                ids.insert(id.clone(), minted);
+                Ok(minted)
+            }
+        }
+    }
+
+    fn join(
+        id: Self::UniqueId,
+        ranks: usize,
+        rank: usize,
+    ) -> Result<Self::Communicator, ServerError> {
+        let mut comm = MaybeUninit::uninit();
+        // SAFETY: `comm` is a valid `MaybeUninit`, `id` is the identifier every
+        // rank of this group joins under, and `rank` is this device's position
+        // in it. A successful `comm_init_rank` is what makes `assume_init`
+        // valid.
+        unsafe {
+            cudarc::nccl::result::comm_init_rank(comm.as_mut_ptr(), ranks as i32, id, rank as i32)
+                .map_err(|err| ServerError::Generic {
+                    reason: format!("NCCL comm_init_rank failed: {err:?}"),
+                    backtrace: BackTrace::capture(),
+                })?;
+            Ok(comm.assume_init())
+        }
+    }
+
+    fn data_type(dtype: ElemType, size: u64) -> Result<(Self::DataType, usize), ServerError> {
+        nccl_dtype_count(dtype, size)
+    }
+
+    fn all_reduce(
+        comm: &Self::Communicator,
+        src: &GpuResource,
+        dst: &GpuResource,
+        dtype: Self::DataType,
+        count: usize,
+        op: ReduceOperation,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError> {
+        // SAFETY: both pointers are live device allocations, `comm` was joined
+        // by `join` above, and `stream` is the dedicated collective stream.
+        unsafe {
+            cudarc::nccl::result::all_reduce(
+                src.ptr as *const _,
+                dst.ptr as *mut _,
+                count,
+                dtype,
+                to_nccl_op(op),
+                *comm,
+                stream as _,
+            )
+            .map(|_| ())
+            .map_err(|err| ServerError::Generic {
+                reason: format!("NCCL all_reduce failed: {err:?}"),
+                backtrace: BackTrace::capture(),
+            })
+        }
+    }
+
+    fn send(
+        comm: &Self::Communicator,
+        src: &GpuResource,
+        dtype: Self::DataType,
+        count: usize,
+        peer: usize,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError> {
+        // SAFETY: `src.ptr` is a live device allocation, `comm` was joined by
+        // `join` above, and `stream` is the dedicated collective stream.
+        unsafe {
+            cudarc::nccl::result::send(
+                src.ptr as *const _,
+                count,
+                dtype,
+                peer as i32,
+                *comm,
+                stream as _,
+            )
+            .map(|_| ())
+            .map_err(|err| ServerError::Generic {
+                reason: format!("NCCL send failed: {err:?}"),
+                backtrace: BackTrace::capture(),
+            })
+        }
+    }
+
+    fn recv(
+        comm: &Self::Communicator,
+        dst: &GpuResource,
+        dtype: Self::DataType,
+        count: usize,
+        peer: usize,
+        stream: Self::CommStream,
+    ) -> Result<(), ServerError> {
+        // SAFETY: `dst.ptr` is a live device allocation, `comm` was joined by
+        // `join` above, and `stream` is the dedicated collective stream.
+        unsafe {
+            cudarc::nccl::result::recv(
+                dst.ptr as *mut _,
+                count,
+                dtype,
+                peer as i32,
+                *comm,
+                stream as _,
+            )
+            .map(|_| ())
+            .map_err(|err| ServerError::Generic {
+                reason: format!("NCCL recv failed: {err:?}"),
+                backtrace: BackTrace::capture(),
+            })
+        }
+    }
 }
