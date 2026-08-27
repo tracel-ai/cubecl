@@ -357,15 +357,6 @@ impl ServerError {
     }
 }
 
-/// How errors are handled in a stream when executing a task.
-#[derive(Clone, Copy)]
-pub struct StreamErrorMode {
-    /// Whether the task still executes even if the stream is in error.
-    pub ignore: bool,
-    /// Whether the errors are flushed by the current task.
-    pub flush: bool,
-}
-
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
@@ -424,8 +415,17 @@ where
     /// Writes the specified bytes into the buffers given
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId);
 
-    /// Wait for the completion of every task in the server.
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>>;
+    /// Wait for the completion of every task in the server, then answer for
+    /// `handles`: the barrier first, so device faults count, and then the
+    /// claim check a read would have made — a read without the read.
+    ///
+    /// An empty `handles` is the plain barrier plus the device fault, which
+    /// is the only failure left that no buffer can report.
+    fn sync(
+        &mut self,
+        handles: Vec<BufferBinding>,
+        stream_id: StreamId,
+    ) -> DynFut<Result<(), ServerError>>;
 
     /// Given a resource handle, returns the storage resource.
     ///
@@ -465,6 +465,12 @@ where
     );
 
     /// Flush all outstanding tasks in the server.
+    ///
+    /// # Errors
+    ///
+    /// The device fault, when the context itself is broken — a launch failure
+    /// is not the flush's to report: it lives on the buffers the launch left
+    /// unwritten, and surfaces on any read, sync or check of them.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
     /// Prepare `stream_id` for an upcoming graph capture: route allocations
@@ -527,14 +533,18 @@ where
     /// recorded dispatches, which is still far cheaper than the launch path but
     /// stays O(n) in recorded launches.
     ///
-    /// Fire-and-forget, like [`launch`](ComputeServer::launch): the call enqueues
-    /// the dispatch and returns without waiting, so a failure is **not** returned
-    /// here — it is pushed onto the stream's error queue and surfaces on the next
-    /// [`flush`](ComputeServer::flush)/[`sync`](ComputeServer::sync), which leaves
-    /// the server unhealthy until drained. A no-op by default: a [`GraphId`] can
-    /// only come from [`end_capture`](ComputeServer::end_capture), unsupported here.
-    fn replay(&mut self, graph: GraphId, stream_id: StreamId) {
+    /// The call enqueues the dispatch and returns without waiting for the
+    /// device; what it reports is the enqueue — an unknown or destroyed
+    /// graph, a refusal — since a caller replaying a graph is standing right
+    /// there. A failure also leaves the graph's write set carrying it, so a
+    /// read of those buffers fails until a replay lands. Unsupported by
+    /// default: a [`GraphId`] can only come from
+    /// [`end_capture`](ComputeServer::end_capture).
+    fn replay(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = (graph, stream_id);
+        Err(ServerError::graph_state(
+            "this server does not support graph capture",
+        ))
     }
 
     /// Release the graph identified by `graph`, destroying whatever it recorded

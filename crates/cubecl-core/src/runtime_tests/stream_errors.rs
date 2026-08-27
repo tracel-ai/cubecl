@@ -105,22 +105,6 @@ fn assert_rejected<R: Runtime>(client: &ComputeClient<R>, out: Handle, reason: &
     );
 }
 
-/// A rejected launch belongs to the stream that made it, and to no neighbour
-/// sharing its pooled stream.
-pub fn test_a_rejected_launch_stays_on_its_own_stream<R: Runtime>(client: ComputeClient<R>) {
-    let (launching, neighbour) = sharing_one_pooled_stream(1_000_001);
-
-    let out = launching.executes(|| launch_rejected(&client, "attribution"));
-
-    neighbour.executes(|| {
-        client
-            .flush()
-            .expect("the neighbouring stream launched nothing, so it has nothing to report")
-    });
-
-    launching.executes(|| assert_rejected(&client, out, "attribution"));
-}
-
 /// A read is only as good as the work that wrote the buffer.
 ///
 /// The rejection belongs to the stream that launched, so the reader's own flush
@@ -131,13 +115,15 @@ pub fn test_a_read_surfaces_the_producers_rejection<R: Runtime>(client: ComputeC
 
     let out = producer.executes(|| launch_rejected(&client, "producer"));
 
-    reader.executes(|| assert_rejected(&client, out, "producer"));
-    // Reading the producer's error does not take it: the stream that made the
-    // launch still reports it itself.
+    reader.executes(|| assert_rejected(&client, out.clone(), "producer"));
+    // Reading the failure does not clear it: the claim lives on the buffer
+    // until something writes it. And it is nobody's to *report* — a launch
+    // failure is not the flush's business any more.
     producer.executes(|| {
         client
             .flush()
-            .expect_err("the launching stream keeps its own rejection")
+            .expect("a launch failure is not the flush's to report");
+        assert_rejected(&client, out, "producer");
     });
 }
 
@@ -282,10 +268,8 @@ pub fn test_a_launch_that_never_compiled_taints_everything_it_was_given<R: Runti
 /// A report is owed once; the bytes stay stale until something writes them.
 ///
 /// The flush that reports a launch failure is usually the launching stream's
-/// own, and it comes long before anyone reads. If the report were also what
-/// ended the buffer's claim, the failure would read as success from that moment
-/// on — on exactly the buffer the launch existed to fill, and to every stream,
-/// the launching one included.
+/// own, and flushing has nothing to do with the claim: the bytes stay stale
+/// until something writes them, however many flushes and reads come between.
 pub fn test_a_buffer_stays_unreadable_after_the_failure_was_reported<R: Runtime>(
     client: ComputeClient<R>,
 ) {
@@ -296,10 +280,8 @@ pub fn test_a_buffer_stays_unreadable_after_the_failure_was_reported<R: Runtime>
     producer.executes(|| {
         client
             .flush()
-            .expect_err("the launching stream reports its own rejection");
-        client
-            .flush()
-            .expect("and is free to queue work again once it has");
+            .expect("a launch failure is not the flush's to report");
+        client.flush().expect("on any flush, however many");
     });
 
     // Reported is not written.
@@ -339,20 +321,17 @@ pub fn test_a_host_write_makes_a_stale_buffer_readable_again<R: Runtime>(client:
     });
     assert_eq!(u32::from_bytes(&read), &[42]);
 
-    // The stream that failed is owed its error either way.
+    // And nothing was left owing a report anywhere.
     producer.executes(|| {
         client
             .flush()
-            .expect_err("the launching stream keeps its own rejection")
+            .expect("a launch failure is not the flush's to report")
     });
 }
 
 /// A relaunch into the same buffer is the other way out, and it must not be
-/// refused on its way in.
-///
-/// The launching stream is unhealthy until it flushes, so the recovery has to
-/// come after a flush — and once it has, the buffer the second launch writes is
-/// readable, whatever the first one left behind.
+/// refused on its way in: a pure output is not read, so the launch that would
+/// repair a buffer is never the one skipped for its being broken.
 pub fn test_a_relaunch_makes_a_stale_buffer_readable_again<R: Runtime>(client: ComputeClient<R>) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_009);
     let len = 4;
@@ -360,9 +339,6 @@ pub fn test_a_relaunch_makes_a_stale_buffer_readable_again<R: Runtime>(client: C
     let out = producer.executes(|| {
         let out = client.empty(len * core::mem::size_of::<u32>());
         launch_rejected_into(&client, out.clone(), "relaunched");
-        client
-            .flush()
-            .expect_err("the launching stream reports its own rejection");
         fill::launch::<R>(
             &client,
             CubeCount::new_single(),
@@ -454,14 +430,6 @@ macro_rules! testgen_stream_errors {
     () => {
         mod stream_errors {
             use super::*;
-
-            #[$crate::runtime_tests::test_log::test]
-            fn test_a_rejected_launch_stays_on_its_own_stream() {
-                let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::stream_errors::test_a_rejected_launch_stays_on_its_own_stream::<
-                    TestRuntime,
-                >(client);
-            }
 
             #[$crate::runtime_tests::test_log::test]
             fn test_a_read_surfaces_the_producers_rejection() {

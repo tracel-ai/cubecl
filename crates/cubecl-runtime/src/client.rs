@@ -10,7 +10,7 @@ use crate::{
     },
     runtime::Runtime,
     server::{
-        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle, IoError,
+        BufferBinding, CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle, IoError,
         KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
         MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities,
@@ -126,12 +126,13 @@ impl<R: Runtime> Graph<R> {
     ///   the capture stream (keep the client pinned to it via
     ///   [`set_stream`](ComputeClient::set_stream), or do everything from the
     ///   one client), so they order against the replay instead of racing it.
-    pub unsafe fn replay(&self) {
+    pub unsafe fn replay(&self) -> Result<(), ServerError> {
         let id = self.inner.id;
         let stream_id = self.inner.stream_id;
         self.inner
             .device
-            .submit(move |server| server.replay(id, stream_id));
+            .submit_blocking(move |server| server.replay(id, stream_id))
+            .unwrap_or_resume()
     }
 }
 
@@ -1009,13 +1010,30 @@ impl<R: Runtime> ComputeClient<R> {
         })
     }
 
-    /// Wait for the completion of every task in the server.
-    pub fn sync(&self) -> DynFut<Result<(), ServerError>> {
+    /// Wait for the completion of every task in the server, then answer for
+    /// `handles`: the barrier first, so device faults count, and then the
+    /// claim check a read would have made — a read without the read, for the
+    /// caller that needs to know its work produced something trustworthy and
+    /// does not want to pull it to the host to find out.
+    ///
+    /// The common barrier stays `client.sync([])`, which also reports the
+    /// device fault — the only failure left that no buffer can report. A
+    /// launch failure is not the sync's to report unless a handle names one
+    /// of the buffers it left unwritten; it surfaces on any read, sync or
+    /// check of those.
+    pub fn sync<'a>(
+        &self,
+        handles: impl IntoIterator<Item = &'a Handle>,
+    ) -> DynFut<Result<(), ServerError>> {
         let stream_id = self.stream_id();
+        let bindings: Vec<BufferBinding> = handles
+            .into_iter()
+            .map(|handle| handle.clone().binding())
+            .collect();
 
         let fut = self
             .device
-            .submit_blocking(move |server| server.sync(stream_id))
+            .submit_blocking(move |server| server.sync(bindings, stream_id))
             .unwrap_or_resume();
 
         self.utilities.logger.profile_summary();

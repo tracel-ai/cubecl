@@ -3,7 +3,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId},
     server::{BufferBinding, ServerError},
-    stream::{StreamErrorSink, StreamErrors, StreamFactory, StreamMemory, StreamPool},
+    stream::{StreamFactory, StreamMemory, StreamPool},
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
 use cubecl_environment::stream::StreamId;
@@ -12,10 +12,9 @@ use cubecl_environment::stream::StreamId;
 pub trait SchedulerStreamBackend {
     /// Type representing a task.
     type Task: core::fmt::Debug;
-    /// Type representing a stream, which records its failures in a
-    /// [`StreamErrors`] the scheduler reads through [`StreamErrorSink`], and
-    /// exposes the memory its kernels see through [`StreamMemory`].
-    type Stream: core::fmt::Debug + StreamErrorSink + StreamMemory;
+    /// Type representing a stream, which exposes the memory its kernels see
+    /// through [`StreamMemory`].
+    type Stream: core::fmt::Debug + StreamMemory;
     /// Type for the stream factory, which creates streams of type `Self::Stream`.
     type Factory: StreamFactory<Stream = Self::Stream>;
 
@@ -58,6 +57,12 @@ pub struct SchedulerMultiStream<B: SchedulerStreamBackend> {
     /// The vector a write scope stages its write set in, pooled here so a
     /// launch allocates little for it.
     write_scratch: Vec<BufferBinding>,
+    /// The one failure that is a device's rather than any buffer's: a fault
+    /// the driver reports against the context — a validation canary, a failed
+    /// submission — with no launch to pin it on. Reported by the next flush
+    /// or sync, which is the only thing left that nobody else can tell the
+    /// caller.
+    fault: Option<ServerError>,
 }
 
 /// Defines the scheduling strategy for task execution.
@@ -92,16 +97,6 @@ struct SchedulerPoolMarker<B: SchedulerStreamBackend> {
     backend: B,
 }
 
-impl<B: SchedulerStreamBackend> StreamErrorSink for Stream<B> {
-    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
-        self.stream.errors()
-    }
-
-    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
-        self.stream.errors_mut()
-    }
-}
-
 impl<B: SchedulerStreamBackend> StreamMemory for Stream<B> {
     fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
         self.stream.failure(binding)
@@ -129,11 +124,15 @@ impl<B: SchedulerStreamBackend> super::WriteStreams for SchedulerMultiStream<B> 
         &mut self,
         provisional: Option<FailureId>,
         mut written: Vec<BufferBinding>,
-        stream_id: StreamId,
         error: Option<&ServerError>,
     ) {
+        if let Some(error) = error {
+            // The backstop of the lazy model: the taint reports through every
+            // read, and this line covers the failure nobody ever reads.
+            self.logger.log_failure(error);
+        }
         self.pool
-            .exit_write(provisional, &written, stream_id, error, &mut self.failures);
+            .exit_write(provisional, &written, error, &mut self.failures);
         written.clear();
         self.write_scratch = written;
     }
@@ -178,6 +177,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             strategy: options.strategy,
             logger,
             write_scratch: Vec::new(),
+            fault: None,
         }
     }
 
@@ -233,6 +233,21 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         written: impl Iterator<Item = &'a BufferBinding>,
     ) {
         self.pool.taint_with(failure, written, &mut self.failures);
+    }
+
+    /// Record a device fault — see the field. The first fault wins: it is the
+    /// one that broke the context, and it is logged either way.
+    pub fn fault(&mut self, error: ServerError) {
+        self.logger.log_failure(&error);
+        if self.fault.is_none() {
+            self.fault = Some(error);
+        }
+    }
+
+    /// The device fault owed to the next flush or sync, taken — reported
+    /// once, like the queue it replaces.
+    pub fn take_fault(&mut self) -> Option<ServerError> {
+        self.fault.take()
     }
 
     /// Mutable access to the scheduling backend, e.g. to change the

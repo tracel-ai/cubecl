@@ -31,7 +31,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, ManagedMemoryHandle, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{StreamCapture, StreamErrorSink, StreamErrors, StreamMemory},
+    stream::{StreamCapture, StreamMemory},
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -56,7 +56,11 @@ enum Timings {
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
     pub device: wgpu::Device,
-    pub errors: StreamErrors,
+    /// The one failure that is the device's rather than any buffer's: a
+    /// validation canary, a fault the driver reports against the context.
+    /// Reported by the next flush or sync, which is the only thing left that
+    /// nobody else can tell the caller.
+    fault: Option<ServerError>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -89,16 +93,6 @@ pub struct WgpuStream {
     /// The launches recorded since `begin_capture`, drained into a
     /// [`WgpuGraph`] at `end_capture`.
     recording: GraphRecording,
-}
-
-impl StreamErrorSink for WgpuStream {
-    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
-        &self.errors
-    }
-
-    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
-        &mut self.errors
-    }
 }
 
 impl StreamMemory for WgpuStream {
@@ -168,7 +162,7 @@ impl WgpuStream {
             mem_manage,
             compute_pass: None,
             timings,
-            errors: StreamErrors::default(),
+            fault: None,
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -229,10 +223,34 @@ impl WgpuStream {
     /// Only the report lives here. What the rejected work was going to write
     /// is tainted at the raise site, on the allocations themselves.
     fn capture_error(&mut self, error: ServerError) {
-        match self.capturing.owner() {
-            Some(owner) => self.errors.push(owner, error),
-            None => self.errors.push_shared(error),
+        match self.capturing.is_recording() {
+            true => self.capturing.fail(error),
+            false => self.fault(error),
         }
+    }
+
+    /// Record a device fault — see the field. The first fault wins: it is the
+    /// one that broke the context, and it is logged either way.
+    pub fn fault(&mut self, error: ServerError) {
+        log::warn!("{error}");
+        if self.fault.is_none() {
+            self.fault = Some(error);
+        }
+    }
+
+    /// The device fault owed to the next flush or sync, taken — reported
+    /// once, like the queue it replaces.
+    pub fn take_fault(&mut self) -> Option<ServerError> {
+        self.fault.take()
+    }
+
+    /// Mark every open profile invalid: a failure inside a profiling window
+    /// invalidates the measurement. A no-op with no profile open.
+    pub fn profile_failure(&mut self, error: &ServerError) {
+        self.profile_error(ProfileError::Unknown {
+            reason: alloc::format!("{error}"),
+            backtrace: BackTrace::capture(),
+        });
     }
 
     /// Enqueue a [`ScheduleTask`] on this stream.
@@ -678,31 +696,27 @@ impl WgpuStream {
     /// For the pooled paths that flush the stream without any logical stream
     /// asking — a full task queue, the ordering barrier before a write, the
     /// scheduler aligning streams. Whatever is queued stays queued, for the
-    /// flush of the stream that owns it (see [`StreamErrors`]).
+    /// flush of the stream that owns it.
     pub fn submit(&mut self, failures: &mut ErrorGraph) {
         self.submit_tasks(failures);
         self.collect_validation_errors();
     }
 
-    /// Submit the queued work, then surface the errors `owner` owns.
-    ///
-    /// # Errors
-    ///
-    /// [`ServerError::ServerUnhealthy`] carrying everything `owner` had queued,
-    /// which this call takes: the stream is usable again afterwards, and the
-    /// other streams sharing it keep their own errors.
-    pub fn flush(&mut self, owner: StreamId, failures: &mut ErrorGraph) -> Result<(), ServerError> {
+    /// Submit the queued work, then report the device fault if one arrived.
+    /// A launch failure is not the flush's to report: it lives on the buffers
+    /// the launch left unwritten, and surfaces on any read, sync or check of
+    /// them.
+    pub fn flush(
+        &mut self,
+        _owner: StreamId,
+        failures: &mut ErrorGraph,
+    ) -> Result<(), ServerError> {
         self.submit(failures);
 
-        let errors = self.flush_errors_queue(owner);
-        if errors.is_empty() {
-            return Ok(());
+        match self.take_fault() {
+            Some(fault) => Err(fault),
+            None => Ok(()),
         }
-
-        Err(ServerError::ServerUnhealthy {
-            errors,
-            backtrace: BackTrace::capture(),
-        })
     }
 
     fn submit_tasks(&mut self, failures: &mut ErrorGraph) {
@@ -756,23 +770,20 @@ impl WgpuStream {
         self.pending_write_count = 0;
     }
 
-    /// Drain the driver's validation canary into the queue.
+    /// Drain the driver's validation canary into the device fault.
     ///
-    /// The driver reports these against the device, not the launch that caused
-    /// them, so they go in shared — whichever stream flushes next surfaces them.
+    /// The driver reports these against the device, not the launch that
+    /// caused them, which is exactly what the fault slot is for.
     fn collect_validation_errors(&mut self) {
         #[cfg(feature = "deny-validation-errors")]
         {
             let validation_errors = wgpu_hal::VALIDATION_CANARY.get_and_reset();
-            self.errors
-                .extend_shared(
-                    validation_errors
-                        .into_iter()
-                        .map(|err| ServerError::Validation {
-                            message: err,
-                            backtrace: BackTrace::capture(),
-                        }),
-                );
+            for err in validation_errors.into_iter() {
+                self.fault(ServerError::Validation {
+                    message: err,
+                    backtrace: BackTrace::capture(),
+                });
+            }
         }
     }
 
@@ -999,19 +1010,6 @@ impl WgpuStream {
         }
 
         self.flush_if_needed(failures);
-    }
-
-    pub(crate) fn flush_errors_queue(&mut self, owner: StreamId) -> Vec<ServerError> {
-        let errors = self.errors.take(owner);
-
-        if !errors.is_empty() {
-            self.profile_error(ProfileError::Unknown {
-                reason: alloc::format!("{:?}", errors),
-                backtrace: BackTrace::capture(),
-            });
-        }
-
-        errors
     }
 }
 

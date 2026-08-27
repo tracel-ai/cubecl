@@ -173,7 +173,7 @@ pub fn prime<R: Runtime>(
             dtype,
         );
     }
-    let _ = cubecl_core::future::block_on(client.sync());
+    let _ = cubecl_core::future::block_on(client.sync([]));
 }
 
 #[cube(launch_unchecked)]

@@ -17,7 +17,7 @@ use cubecl_runtime::{
         MemoryManagementOptions,
     },
     storage::{BytesResource, BytesStorage},
-    stream::{StreamErrorSink, StreamErrors, StreamMemory},
+    stream::StreamMemory,
     timestamp_profiler::TimestampProfiler,
 };
 use std::sync::{Arc, atomic::AtomicU64};
@@ -32,20 +32,9 @@ pub struct CpuStream {
     /// slice to shared memory, aliasing an input and corrupting it in place.
     pub(crate) shared_memory_management: MemoryManagement<BytesStorage>,
     pub(crate) timestamps: TimestampProfiler,
-    errors: StreamErrors,
     threadpool: &'static spin::Mutex<Threadpool>,
     next_counter_step: u64,
     atomic_counter: Arc<CachePadded<AtomicU64>>,
-}
-
-impl StreamErrorSink for CpuStream {
-    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
-        &self.errors
-    }
-
-    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
-        &mut self.errors
-    }
 }
 
 impl StreamMemory for CpuStream {
@@ -103,7 +92,6 @@ impl CpuStream {
             memory_management,
             shared_memory_management,
             timestamps: TimestampProfiler::default(),
-            errors: StreamErrors::default(),
             threadpool,
             next_counter_step,
             atomic_counter,
@@ -161,7 +149,7 @@ impl CpuStream {
     /// For the pooled paths that flush the stream without any logical stream
     /// asking — a full task queue, the ordering barrier before a write, the
     /// scheduler aligning streams. Whatever is queued stays queued, for the
-    /// flush of the stream that owns it (see [`StreamErrors`]).
+    /// flush of the stream that owns it.
     pub fn submit(&mut self) {
         // Spin briefly, then yield between polls: the client is not pinned,
         // and a pure spin parked on a worker's logical CPU keeps that worker
@@ -182,46 +170,21 @@ impl CpuStream {
         }
     }
 
-    /// Wait for the queued work, then surface the errors `owner` owns.
-    ///
-    /// # Errors
-    ///
-    /// [`ServerError::ServerUnhealthy`] carrying everything `owner` had queued,
-    /// which this call takes: the stream is usable again afterwards, and the
-    /// other streams sharing it keep their own errors.
-    pub fn flush(&mut self, owner: StreamId) -> Result<(), ServerError> {
+    /// Wait for the queued work. A launch failure is not the flush's to
+    /// report: it lives on the buffers the launch left unwritten, and
+    /// surfaces on any read, sync or check of them.
+    pub fn flush(&mut self, _owner: StreamId) -> Result<(), ServerError> {
         self.submit();
+        Ok(())
+    }
 
-        let errors = self.flush_errors_queue(owner);
-        if errors.is_empty() {
-            return Ok(());
-        }
-
-        Err(ServerError::ServerUnhealthy {
-            errors,
+    /// Mark every open profile invalid: a failure inside a profiling window
+    /// invalidates the measurement. A no-op with no profile open.
+    pub fn profile_failure(&mut self, error: &ServerError) {
+        self.timestamps.error(ProfileError::Unknown {
+            reason: alloc::format!("{error}"),
             backtrace: BackTrace::capture(),
-        })
-    }
-
-    pub(crate) fn flush_errors_queue(&mut self, owner: StreamId) -> Vec<ServerError> {
-        let errors = self.errors.take(owner);
-
-        if !errors.is_empty() {
-            self.timestamps.error(ProfileError::Unknown {
-                reason: alloc::format!("{:?}", errors),
-                backtrace: BackTrace::capture(),
-            });
-        }
-
-        errors
-    }
-
-    /// Registers a new error into the error sink, for `stream_id` to surface.
-    ///
-    /// Only the report: whether the buffers the failure left behind can be
-    /// trusted lives on their allocations, tainted through the scheduler.
-    pub fn error(&mut self, stream_id: StreamId, error: ServerError) {
-        self.errors.push(stream_id, error);
+        });
     }
 
     /// Allocates a new empty buffer using the main memory pool.

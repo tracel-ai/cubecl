@@ -34,10 +34,7 @@ use cubecl_runtime::memory_management::{
 };
 use cubecl_runtime::server::{BufferBinding, Handle, ServerError};
 use cubecl_runtime::storage::BytesStorage;
-use cubecl_runtime::stream::{
-    StreamErrorSink, StreamErrors, StreamFactory, StreamMemory, StreamPool, WriteScoped,
-    WriteStreams,
-};
+use cubecl_runtime::stream::{StreamFactory, StreamMemory, StreamPool, WriteScoped, WriteStreams};
 use std::sync::Arc;
 
 const MAX_STREAMS: u8 = 4;
@@ -71,22 +68,11 @@ impl Buffer {
 
 struct TestStream {
     memory: MemoryManagement<BytesStorage>,
-    errors: StreamErrors,
 }
 
 impl core::fmt::Debug for TestStream {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TestStream").finish()
-    }
-}
-
-impl StreamErrorSink for TestStream {
-    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
-        &self.errors
-    }
-
-    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
-        &mut self.errors
     }
 }
 
@@ -124,7 +110,6 @@ impl StreamFactory for Factory {
                 self.logger.clone(),
                 MemoryManagementOptions::new("property harness"),
             ),
-            errors: StreamErrors::default(),
         }
     }
 }
@@ -152,11 +137,10 @@ impl WriteStreams for Device {
         &mut self,
         provisional: Option<FailureId>,
         mut written: Vec<BufferBinding>,
-        stream_id: StreamId,
         error: Option<&ServerError>,
     ) {
         self.pool
-            .exit_write(provisional, &written, stream_id, error, &mut self.failures);
+            .exit_write(provisional, &written, error, &mut self.failures);
         written.clear();
         self.scratch = written;
     }
@@ -283,7 +267,7 @@ impl Harness {
         if self.buffers.is_empty() {
             return;
         }
-        let id = self.stream_id();
+        let _id = self.stream_id();
         let count = 1 + self.rng.below(3.min(self.buffers.len()));
         let mut indices = Vec::new();
         for _ in 0..count {
@@ -304,7 +288,6 @@ impl Harness {
             .map(|(index, range)| self.buffers[*index].slice(range))
             .collect();
         let _ = self.device.while_writing(
-            id,
             bindings,
             |bindings, written| written.extend(bindings.iter().cloned()),
             |_, _, _| match fail {
@@ -329,9 +312,8 @@ impl Harness {
         let index = self.rng.below(self.buffers.len());
         let range = self.pick_range(self.buffers[index].size());
         let binding = self.buffers[index].slice(&range);
-        let id = binding.stream;
+        let _id = binding.stream;
         let _ = self.device.while_writing(
-            id,
             binding,
             |binding, written| written.push(binding.clone()),
             |_, _, _| Ok::<(), ServerError>(()),
@@ -369,14 +351,6 @@ impl Harness {
                 "bytes whose last writer failed must not read"
             ),
         }
-    }
-
-    /// A flush drains what the stream is owed and changes nothing about any
-    /// buffer: reported is not written.
-    fn flush(&mut self) {
-        let id = self.stream_id();
-        let stream = self.device.pool.get_mut(&id);
-        let _ = stream.errors.take(id);
     }
 
     /// Drop a live buffer. Its slice frees and later sheds any taint through
@@ -417,8 +391,7 @@ fn run(config: MemoryConfiguration, seed: u64) {
             20..=39 => harness.launch(true),
             40..=59 => harness.launch(false),
             60..=69 => harness.host_write(),
-            70..=84 => harness.read(),
-            85..=89 => harness.flush(),
+            70..=89 => harness.read(),
             90..=95 => harness.free(),
             _ => harness.cleanup(),
         }
@@ -474,7 +447,6 @@ fn a_scope_that_succeeds_releases_the_provisional_failure() {
     let binding = harness.buffers[0].binding.clone();
 
     let result = harness.device.while_writing(
-        binding.stream,
         binding.clone(),
         |binding, written| written.push(binding.clone()),
         |_, _, _| Ok::<(), ServerError>(()),
@@ -497,10 +469,9 @@ fn a_scope_that_fails_names_the_real_error_and_queues_it() {
     let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 7);
     harness.alloc();
     let binding = harness.buffers[0].binding.clone();
-    let id = binding.stream;
+    let _id = binding.stream;
 
     let result = harness.device.while_writing(
-        id,
         binding.clone(),
         |binding, written| written.push(binding.clone()),
         |_, _, _| Err::<(), ServerError>(error("the real failure")),
@@ -521,9 +492,6 @@ fn a_scope_that_fails_names_the_real_error_and_queues_it() {
         !read.contains("torn down"),
         "the provisional error was replaced, got: {read}"
     );
-
-    let queued = harness.device.pool.get_mut(&id).errors.take(id);
-    assert_eq!(queued.len(), 1, "the failure is queued for the next flush");
 }
 
 /// The provisional node doing its one irreplaceable job: a body that panics
@@ -538,7 +506,6 @@ fn a_mid_launch_panic_leaves_the_write_set_tainted() {
 
     let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _ = harness.device.while_writing(
-            binding.stream,
             binding.clone(),
             |binding, written| written.push(binding.clone()),
             |_, _, _| -> Result<(), ServerError> {
@@ -562,7 +529,6 @@ fn a_mid_launch_panic_leaves_the_write_set_tainted() {
     // Writing the buffer again is the recovery, exactly as for an ordinary
     // failure: the provisional node is released and the graph empties.
     let result = harness.device.while_writing(
-        binding.stream,
         binding.clone(),
         |binding, written| written.push(binding.clone()),
         |_, _, _| Ok::<(), ServerError>(()),
@@ -588,11 +554,10 @@ fn a_partial_host_write_releases_only_the_bytes_it_covers() {
     let size = buffer.size();
     let whole = buffer.binding.clone();
     let middle = buffer.slice(&(size / 4..size / 2));
-    let id = whole.stream;
+    let _id = whole.stream;
 
     // A launch fails writing the whole buffer.
     let _ = harness.device.while_writing(
-        id,
         whole.clone(),
         |binding, written| written.push(binding.clone()),
         |_, _, _| Err::<(), ServerError>(error("the launch that left these bytes")),
@@ -600,7 +565,6 @@ fn a_partial_host_write_releases_only_the_bytes_it_covers() {
 
     // The host rewrites the middle quarter.
     let _ = harness.device.while_writing(
-        id,
         middle.clone(),
         |binding, written| written.push(binding.clone()),
         |_, _, _| Ok::<(), ServerError>(()),

@@ -1,6 +1,5 @@
 use crate::memory_management::{ErrorGraph, FailureId};
 use crate::server::{BufferBinding, ServerError};
-use crate::stream::StreamErrorSink;
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
@@ -167,9 +166,6 @@ impl<F: StreamFactory> StreamPool<F> {
     /// so the question is answered by the slice each binding resolves to — a
     /// lookup the read was going to do anyway — and by nobody's queue.
     ///
-    /// The errors are read, never taken: the stream that caused each one still
-    /// surfaces it on its own flush.
-    ///
     /// # Errors
     ///
     /// [`ServerError::ServerUnhealthy`] naming every failure one of these
@@ -291,20 +287,17 @@ impl<F: StreamFactory> StreamPool<F> {
 
     /// Exit the write scope entered over `written`: release the provisional
     /// failure when the work was enqueued, and swap the real error in for it
-    /// when the work was not.
-    ///
-    /// On failure the error is also queued on `stream_id`, the stream that
-    /// issued the work, so its next flush still reports what happened — the
-    /// taint answers reads, the queue answers attribution.
+    /// when the work was not. The taint is the whole answer — a read of one
+    /// of these buffers fails on it, whoever asks — and the failure site logs
+    /// it, so nothing is queued for anyone to report later.
     pub fn exit_write(
         &mut self,
         provisional: Option<FailureId>,
         written: &[BufferBinding],
-        stream_id: StreamId,
         error: Option<&ServerError>,
         failures: &mut ErrorGraph,
     ) where
-        F::Stream: StreamMemory + StreamErrorSink,
+        F::Stream: StreamMemory,
     {
         match error {
             None => self.written(written.iter(), failures),
@@ -312,9 +305,6 @@ impl<F: StreamFactory> StreamPool<F> {
                 if let Some(provisional) = provisional {
                     failures.replace(provisional, error.clone());
                 }
-                self.get_mut(&stream_id)
-                    .errors_mut()
-                    .push(stream_id, error.clone());
             }
         }
         // Covers the failure that tainted nothing — every binding resolving to

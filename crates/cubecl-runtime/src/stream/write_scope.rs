@@ -18,7 +18,6 @@
 use crate::memory_management::FailureId;
 use crate::server::{BufferBinding, ServerError};
 use alloc::vec::Vec;
-use cubecl_environment::stream::StreamId;
 
 /// The multi-stream driver a write scope stages, taints and settles through.
 ///
@@ -41,13 +40,12 @@ pub trait WriteStreams {
     fn enter(&mut self, written: &[BufferBinding]) -> Option<FailureId>;
 
     /// Settle the scope: release the provisional failure when `error` is
-    /// `None`, swap the real error in for it and queue it on `stream_id`
-    /// otherwise — and return the staged vector to the pool either way.
+    /// `None`, swap the real error in for it and log it otherwise — and
+    /// return the staged vector to the pool either way.
     fn exit(
         &mut self,
         provisional: Option<FailureId>,
         written: Vec<BufferBinding>,
-        stream_id: StreamId,
         error: Option<&ServerError>,
     );
 }
@@ -79,12 +77,11 @@ pub trait WriteScoped: Sized {
     ///
     /// On entry every staged buffer is tainted with a provisional failure. On
     /// exit the taint is released if `body` succeeded, and replaced with the
-    /// real error — queued on `stream_id` for its next flush to report — if
-    /// it did not. A body that panics never reaches the exit, and the
-    /// provisional taint is exactly what it leaves behind.
+    /// real error — logged there, since a read of the claimed buffers is what
+    /// reports it — if it did not. A body that panics never reaches the exit,
+    /// and the provisional taint is exactly what it leaves behind.
     fn while_writing<A, R>(
         &mut self,
-        stream_id: StreamId,
         payload: A,
         writes: impl FnOnce(&A, &mut Vec<BufferBinding>),
         body: impl FnOnce(&mut Self, A, &[BufferBinding]) -> Result<R, ServerError>,
@@ -94,7 +91,7 @@ pub trait WriteScoped: Sized {
         let provisional = self.write_streams().enter(&written);
         let result = body(self, payload, &written);
         self.write_streams()
-            .exit(provisional, written, stream_id, result.as_ref().err());
+            .exit(provisional, written, result.as_ref().err());
         result
     }
 }

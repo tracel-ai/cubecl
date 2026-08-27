@@ -486,8 +486,12 @@ Deleting the queue loses nothing there, but it is the fourth answer and the tric
 ErrorGraph       the one store of failures
 Slice.failure    the index for whether these bytes can be trusted
 open profiles    marked at the same site, so a measurement knows it is invalid
-device fault     one Option<FailureId> on the server, for the first group above
+device fault     one Option<ServerError>, for the first group above
 ```
+
+The fault landed as a plain `Option<ServerError>` rather than a graph id, since it is the one failure the refcount deliberately does not govern, and it lives where each driver's threading requires: on the multi-stream wrapper for cuda and hip, on the wgpu stream for the validation canary, behind metal's completion-handler mutex.
+It reports once — the flush or sync that takes it clears the slot — which is the behavior the queue had, and the first fault wins over later ones, because it is the one that broke the context.
+Every fault is logged at the moment it is recorded, so report-once never means observed-once.
 
 `StreamErrors` goes entirely, and `Surfaced`, `Owner`, `AnyStream`, `reclaim_orphans`, `take` and `MAX_OWNED` with it.
 Per-stream attribution existed to route lazy launch errors to the stream that caused them, and a launch error now taints the memory it failed to write, which needs no routing.

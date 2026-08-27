@@ -18,7 +18,7 @@ use cubecl_runtime::{
         drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{EventStreamBackend, StreamCapture, StreamErrorSink, StreamErrors, StreamMemory},
+    stream::{EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -27,7 +27,6 @@ pub struct Stream {
     pub sys: cudarc::driver::sys::CUstream,
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
-    pub errors: StreamErrors,
     pub drop_queue: drop_queue::PendingDropQueue<Fence>,
     /// This stream's graph capture (see [`StreamCapture`]): its position in
     /// the lifecycle, and the memory its recorded launches were given. Enforces
@@ -42,16 +41,6 @@ pub struct Stream {
     /// the capture lifecycle, so during graph capture every buffer is cached
     /// and none is evicted mid-capture. See [`StreamCapture::cache_mode`].
     pub info_cache: MetadataInfoCache<Handle>,
-}
-
-impl StreamErrorSink for Stream {
-    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
-        &self.errors
-    }
-
-    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
-        &mut self.errors
-    }
 }
 
 impl StreamMemory for Stream {
@@ -201,7 +190,6 @@ impl EventStreamBackend for CudaStreamBackend {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
-            errors: StreamErrors::default(),
             drop_queue: Default::default(),
             capturing: StreamCapture::default(),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),

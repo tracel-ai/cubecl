@@ -190,7 +190,11 @@ impl ComputeServer for DummyServer {
         }
     }
 
-    fn sync(&mut self, _stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
+    fn sync(
+        &mut self,
+        _handles: Vec<BufferBinding>,
+        _stream_id: StreamId,
+    ) -> DynFut<Result<(), ServerError>> {
         let result = self.take_pending_error();
         Box::pin(async move { result })
     }

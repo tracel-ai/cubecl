@@ -83,12 +83,12 @@ fn wgpu_graph_capture_replay() {
     let graph = client.stop_capture().expect("stop_capture");
 
     // Replay executes the recorded launch; the output is input + 1.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output.clone()).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
     // Replaying again re-runs it deterministically.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
@@ -133,7 +133,7 @@ fn wgpu_graph_mid_capture_allocation_is_allowed() {
         "a mid-capture allocation is legal on wgpu: the fresh slice is pinned to the graph",
     );
 
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
@@ -171,7 +171,7 @@ fn wgpu_graph_input_rewrite() {
     launch(&client);
     let graph = client.stop_capture().expect("stop_capture");
 
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output.clone()).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
@@ -181,7 +181,7 @@ fn wgpu_graph_input_rewrite() {
         &input,
         Bytes::from_bytes_vec(f32::as_bytes(&[10.0, 20.0, 30.0, 40.0]).to_vec()),
     );
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[11.0, 21.0, 31.0, 41.0]);
 }
@@ -254,7 +254,7 @@ fn wgpu_graph_intermediate_recycling() {
     // Replay. The graph's own OUTPUT is correct regardless: its first kernel
     // rewrites `tmp` before the second reads it (write-before-read), so
     // external reuse cannot corrupt the graph's result.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out_bytes = client.read_one(output).unwrap();
     let out = f32::from_bytes(&out_bytes);
     assert_eq!(
@@ -358,8 +358,8 @@ fn wgpu_graph_many_launches_dynamic_metadata() {
     let graph = client.stop_capture().expect("stop_capture");
 
     // Warmup + 2 replays = 3 executed passes (the recorded pass ran 0 times).
-    unsafe { graph.replay() };
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
+    unsafe { graph.replay() }.expect("replay enqueues");
     let (exp_a, exp_b) = simulate(0.0, 3);
     assert_eq!(
         f32::from_bytes(&client.read_one(a.clone()).unwrap()),
@@ -375,7 +375,7 @@ fn wgpu_graph_many_launches_dynamic_metadata() {
     let fresh = f32::as_bytes(&[100.0f32; N]).to_vec();
     client.write(&a, Bytes::from_bytes_vec(fresh.clone()));
     client.write(&b, Bytes::from_bytes_vec(fresh));
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let (exp_a, exp_b) = simulate(100.0, 1);
     assert_eq!(
         f32::from_bytes(&client.read_one(a.clone()).unwrap()),
@@ -429,7 +429,7 @@ fn wgpu_graph_lifecycle_state_errors() {
     client.start_capture().expect("start_capture");
     launch(&client);
     let graph = client.stop_capture().expect("stop_capture");
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
@@ -468,7 +468,7 @@ fn wgpu_graph_read_rejected_while_recording() {
 
     // The rejection did not poison the capture: it completes and replays.
     let graph = client.stop_capture().expect("stop_capture");
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
@@ -653,7 +653,7 @@ fn wgpu_graph_destroy_leaves_an_enqueued_replay_intact() {
 
     // Encode the replay, then destroy without reading: the submit that makes
     // the replay real has to come from `graph_destroy`.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     drop(graph);
 
     // Reallocate over the just-released memory. Each of these writes would
@@ -878,7 +878,7 @@ fn wgpu_graph_capture_is_isolated_from_another_stream() {
     let graph = client.stop_capture().expect("stop_capture");
 
     // The recorded pass is exactly this stream's one launch: replaying adds one.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
@@ -972,7 +972,7 @@ fn wgpu_graph_replay_settles_after_a_failed_enqueue() {
     // left carrying it.
     client.graph_prepare().expect("graph_prepare");
     client.start_capture().expect("start_capture");
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect_err("a replay cannot be recorded into a capture");
     let _ = client.stop_capture();
 
     client
@@ -981,7 +981,7 @@ fn wgpu_graph_replay_settles_after_a_failed_enqueue() {
 
     // The next replay lands, and the claim is released: recovery, not a
     // permanently unreadable graph.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client
         .read_one(output)
         .expect("a replay that lands settles the write set");

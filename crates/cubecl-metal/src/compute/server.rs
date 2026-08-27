@@ -150,21 +150,30 @@ impl MetalServer {
     /// Collects synchronous launch failures and asynchronous GPU faults from the stream's
     /// error sink. Draining the sink clears the poison so a recovered stream can serve
     /// new work.
-    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
-        let mut errors = Vec::new();
-
-        if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
-            errors.append(&mut resolved.current().take_errors(stream_id));
-        }
-
-        if !errors.is_empty() {
+    /// The device fault, if the completion handlers recorded one — and mark
+    /// open profiles invalid when they did, since the measurement is wrong.
+    fn take_fault(&mut self, stream_id: StreamId) -> Option<ServerError> {
+        let fault = self
+            .streams
+            .resolve(stream_id, std::iter::empty())
+            .ok()
+            .and_then(|mut resolved| resolved.current().take_fault());
+        if let Some(fault) = &fault {
             self.timestamps.error(ProfileError::Unknown {
-                reason: format!("{errors:?}"),
+                reason: format!("{fault}"),
                 backtrace: cubecl_environment::backtrace::BackTrace::capture(),
             });
         }
+        fault
+    }
 
-        errors
+    /// Mark every open profile invalid: a failure inside a profiling window
+    /// invalidates the measurement. A no-op with no profile open.
+    fn profile_failure(&mut self, error: &ServerError) {
+        self.timestamps.error(ProfileError::Unknown {
+            reason: format!("{error}"),
+            backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+        });
     }
 }
 
@@ -209,7 +218,7 @@ impl ComputeServer for MetalServer {
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
         let mut resolved = self
             .streams
-            .resolve(stream_id, std::iter::empty(), false)
+            .resolve(stream_id, std::iter::empty())
             .expect("Failed to resolve stream for initialize_memory");
         let cursor = resolved.cursor;
         let stream = resolved.current();
@@ -241,25 +250,18 @@ impl ComputeServer for MetalServer {
             return Box::pin(async move { Err(err) });
         }
 
-        // The reader's own, which this call takes.
-        let errors = self.flush_errors(stream_id);
-        if !errors.is_empty() {
-            return Box::pin(async move {
-                Err(ServerError::ServerUnhealthy {
-                    errors,
-                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-                })
-            });
+        // The one failure no buffer can report: the context itself.
+        if let Some(fault) = self.take_fault(stream_id) {
+            return Box::pin(async move { Err(fault) });
         }
 
-        let mut resolved =
-            match self
-                .streams
-                .resolve(stream_id, descriptors.iter().map(|d| &d.handle), false)
-            {
-                Ok(r) => r,
-                Err(e) => return Box::pin(async move { Err(e) }),
-            };
+        let mut resolved = match self
+            .streams
+            .resolve(stream_id, descriptors.iter().map(|d| &d.handle))
+        {
+            Ok(r) => r,
+            Err(e) => return Box::pin(async move { Err(e) }),
+        };
 
         // Flush, wait, then read.
         let (stream, failures) = resolved.current_and_failures();
@@ -270,7 +272,7 @@ impl ComputeServer for MetalServer {
         }
 
         // A faulted command buffer still signals completion, so surface any recorded fault.
-        if let Some(e) = resolved.current().take_errors(stream_id).into_iter().next() {
+        if let Some(e) = resolved.current().take_fault() {
             return Box::pin(async move { Err(e) });
         }
 
@@ -301,17 +303,16 @@ impl ComputeServer for MetalServer {
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
         use objc2_metal::MTLBuffer;
 
-        let mut resolved =
-            match self
-                .streams
-                .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.handle), false)
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    log::warn!("metal write: failed to resolve stream: {e}");
-                    return;
-                }
-            };
+        let mut resolved = match self
+            .streams
+            .resolve(stream_id, descriptors.iter().map(|(d, _)| &d.handle))
+        {
+            Ok(r) => r,
+            Err(e) => {
+                log::warn!("metal write: failed to resolve stream: {e}");
+                return;
+            }
+        };
 
         let (stream, failures) = resolved.current_and_failures();
         let event = MetalStreamBackend::flush(stream, failures);
@@ -329,16 +330,13 @@ impl ComputeServer for MetalServer {
             // a later read of it has to fail on. Queued for the caller to
             // surface rather than logged and forgotten, as on every other
             // backend.
-            let _ = self.while_writing(
-                stream_id,
+            let result = self.while_writing(
                 (descriptor, data),
                 |(descriptor, _), written| written.push(descriptor.handle.clone()),
                 |server, (descriptor, data), _| {
-                    let mut resolved = server.streams.resolve(
-                        stream_id,
-                        [&descriptor.handle].into_iter(),
-                        false,
-                    )?;
+                    let mut resolved = server
+                        .streams
+                        .resolve(stream_id, [&descriptor.handle].into_iter())?;
                     let (resource, offset) =
                         resolve_origin_resource(&mut resolved, &descriptor.handle)
                             .map_err(ServerError::Io)?;
@@ -358,6 +356,9 @@ impl ComputeServer for MetalServer {
                     Ok(())
                 },
             );
+            if let Err(err) = result {
+                self.profile_failure(&err);
+            }
         }
     }
 
@@ -395,8 +396,8 @@ impl ComputeServer for MetalServer {
             Ok(compiled) => compiled,
             Err(err) => {
                 let error = ServerError::Launch(err);
+                self.profile_failure(&error);
                 let _ = self.while_writing(
-                    stream_id,
                     bindings,
                     |bindings, written| {
                         if !launch_mode.is_skipped() {
@@ -419,10 +420,11 @@ impl ComputeServer for MetalServer {
         // scattering into memory that carried no failure at all. The outputs
         // take the failure that stopped the launch, exactly as a failed
         // launch's would, so a read downstream fails on the root cause.
-        if let Some((failure, _)) = self
+        if let Some((failure, error)) = self
             .streams
             .read_failure(bindings.buffers_read(io.as_deref()))
         {
+            self.profile_failure(&error);
             self.streams
                 .propagate(failure, bindings.buffers_written(io.as_deref()));
             return;
@@ -433,8 +435,7 @@ impl ComputeServer for MetalServer {
         // read of those buffers failing on the error rather than copying
         // bytes nothing wrote. The paths that used to bail out silently now
         // name what they left unwritten.
-        let _ = self.while_writing(
-            stream_id,
+        let result = self.while_writing(
             bindings,
             |bindings, written| {
                 written.extend(bindings.buffers_written(io.as_deref()).cloned())
@@ -597,20 +598,26 @@ impl ComputeServer for MetalServer {
                 Ok(())
             },
         );
+        if let Err(err) = result {
+            self.profile_failure(&err);
+        }
     }
 
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
-        let errors = self.flush_errors(stream_id);
-        if !errors.is_empty() {
-            return Box::pin(async move {
-                Err(ServerError::ServerUnhealthy {
-                    errors,
-                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-                })
-            });
+    fn sync(
+        &mut self,
+        handles: Vec<BufferBinding>,
+        stream_id: StreamId,
+    ) -> DynFut<Result<(), ServerError>> {
+        // The claim check a read would have made, without the read; claims
+        // are set at enqueue time, so they are already in place.
+        if let Err(err) = self.streams.ensure_written(handles.iter()) {
+            return Box::pin(async move { Err(err) });
+        }
+        if let Some(fault) = self.take_fault(stream_id) {
+            return Box::pin(async move { Err(fault) });
         }
 
-        let mut resolved = match self.streams.resolve(stream_id, std::iter::empty(), false) {
+        let mut resolved = match self.streams.resolve(stream_id, std::iter::empty()) {
             Ok(r) => r,
             Err(e) => return Box::pin(async move { Err(e) }),
         };
@@ -621,15 +628,14 @@ impl ComputeServer for MetalServer {
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let errors = self.flush_errors(stream_id);
-        if !errors.is_empty() {
-            return Err(ServerError::ServerUnhealthy {
-                errors,
-                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-            });
+        // A launch failure is not the flush's to report — it lives on the
+        // buffers the launch left unwritten. The device fault is: the context
+        // itself is broken, and no buffer can say so.
+        if let Some(fault) = self.take_fault(stream_id) {
+            return Err(fault);
         }
 
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty(), false)?;
+        let mut resolved = self.streams.resolve(stream_id, std::iter::empty())?;
         let (stream, failures) = resolved.current_and_failures();
         MetalStreamBackend::flush(stream, failures);
         Ok(())
@@ -637,11 +643,11 @@ impl ComputeServer for MetalServer {
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         // Drain prior work so the window only contains command buffers committed from here on.
-        if let Err(err) = cubecl_environment::future::block_on(self.sync(stream_id)) {
+        if let Err(err) = cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id)) {
             log::warn!("{err}");
         }
         // Begin collecting this window's work-bearing command buffers on the stream.
-        if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
+        if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty()) {
             resolved.current().profiling = Some(Vec::new());
         }
         Ok(self.timestamps.start())
@@ -653,9 +659,9 @@ impl ComputeServer for MetalServer {
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
         // Flush the final encoder and wait for GPU completion so timestamps are valid.
-        if let Err(err) = cubecl_environment::future::block_on(self.sync(stream_id)) {
+        if let Err(err) = cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id)) {
             // Drop any collected buffers so a retry can't accumulate stale work.
-            if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
+            if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty()) {
                 resolved.current().profiling = None;
             }
             self.timestamps.error(ProfileError::Unknown {
@@ -670,7 +676,7 @@ impl ComputeServer for MetalServer {
 
         let buffers = self
             .streams
-            .resolve(stream_id, std::iter::empty(), false)
+            .resolve(stream_id, std::iter::empty())
             .ok()
             .and_then(|mut resolved| resolved.current().profiling.take())
             .unwrap_or_default();
@@ -712,9 +718,7 @@ impl ComputeServer for MetalServer {
         binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<<MetalStorage as ComputeStorage>::Resource>, ServerError> {
-        let mut resolved = self
-            .streams
-            .resolve(stream_id, std::iter::once(&binding), false)?;
+        let mut resolved = self.streams.resolve(stream_id, std::iter::once(&binding))?;
         // Resolve from the binding's origin stream; see `resolve_origin_resource`.
         let stream = resolved.get(&binding.stream);
 
@@ -731,7 +735,7 @@ impl ComputeServer for MetalServer {
         &mut self,
         stream_id: StreamId,
     ) -> Result<cubecl_runtime::memory_management::MemoryUsage, ServerError> {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty(), false)?;
+        let mut resolved = self.streams.resolve(stream_id, std::iter::empty())?;
         let stream = resolved.current();
         Ok(stream.memory_management.memory_usage())
     }
@@ -740,13 +744,13 @@ impl ComputeServer for MetalServer {
         &mut self,
         stream_id: StreamId,
     ) -> Result<cubecl_runtime::memory_management::MemoryReport, ServerError> {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty(), false)?;
+        let mut resolved = self.streams.resolve(stream_id, std::iter::empty())?;
         let stream = resolved.current();
         Ok(stream.memory_management.memory_report())
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
-        if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
+        if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty()) {
             let (stream, failures) = resolved.current_and_failures();
             stream.memory_management.cleanup(true, failures);
         }
@@ -757,7 +761,7 @@ impl ComputeServer for MetalServer {
         mode: cubecl_runtime::memory_management::MemoryAllocationMode,
         stream_id: StreamId,
     ) {
-        if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
+        if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty()) {
             let stream = resolved.current();
             stream.memory_management.mode(mode);
         }
@@ -775,7 +779,7 @@ impl ComputeServer for MetalServer {
 
         // The calling stream's pools are rebuilt in place, keeping the old
         // layout when something is still live in them.
-        match self.streams.resolve(stream_id, std::iter::empty(), false) {
+        match self.streams.resolve(stream_id, std::iter::empty()) {
             Ok(mut resolved) => {
                 let (stream, failures) = resolved.current_and_failures();
                 stream

@@ -7,7 +7,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, MemoryManagement, MemoryManagementOptions},
     server::BufferBinding,
-    stream::{EventStreamBackend, StreamErrorSink, StreamErrors, StreamMemory},
+    stream::{EventStreamBackend, StreamMemory},
 };
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -32,7 +32,7 @@ pub struct ActiveEncoder {
 fn install_completion_handler(
     command_buffer: &ProtocolObject<dyn MTLCommandBuffer>,
     temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
-    errors: Arc<Mutex<StreamErrors>>,
+    fault: Arc<Mutex<Option<ServerError>>>,
     signal_event: Option<(Retained<ProtocolObject<dyn MTLSharedEvent>>, u64)>,
 ) {
     if temporaries.is_empty() && signal_event.is_none() {
@@ -53,12 +53,16 @@ fn install_completion_handler(
                     ),
                     None => "Metal command buffer failed with an unknown error".to_string(),
                 };
-                // A completed command buffer carries no logical stream, so the
-                // fault goes to whichever stream flushes the sink next.
-                errors.lock().push_shared(ServerError::Generic {
-                    reason,
-                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-                });
+                // A completed command buffer carries no logical stream: it
+                // is the device's fault, reported by the next flush or sync.
+                // The first fault wins — it is the one that broke the context.
+                let mut fault = fault.lock();
+                if fault.is_none() {
+                    *fault = Some(ServerError::Generic {
+                        reason,
+                        backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+                    });
+                }
 
                 // Metal leaves encoded events unsignaled on fault; signal manually
                 // so a dependent `wait_sync` fails fast.
@@ -100,9 +104,11 @@ pub struct MetalStream {
     pub max_submitted_ops: usize,
     /// Last committed command buffer, kept alive for back-pressure waits.
     pub last_command_buffer: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
-    /// GPU command-buffer faults recorded asynchronously by completion handlers; a
-    /// non-empty sink poisons the stream (see [`MetalStreamBackend::is_healthy`]).
-    pub errors: Arc<Mutex<StreamErrors>>,
+    /// The device fault, recorded asynchronously by command-buffer completion
+    /// handlers on the driver's own threads — hence the lock. Reported by the
+    /// next flush or sync, which is the only thing left that nobody else can
+    /// tell the caller.
+    pub fault: Arc<Mutex<Option<ServerError>>>,
     /// When `Some`, device profiling is active on this stream: each work-bearing command
     /// buffer committed during the window is collected here so its GPU timestamps
     /// (`GPUStartTime`/`GPUEndTime`) can be read after completion.
@@ -117,19 +123,6 @@ impl std::fmt::Debug for MetalStream {
             .field("batch_bytes", &self.batch_bytes)
             .field("event_counter", &self.event_counter)
             .finish()
-    }
-}
-
-/// The queue lives behind a lock: several logical streams share the slot and
-/// the command-buffer completion handlers record into it from the driver's own
-/// threads.
-impl StreamErrorSink for MetalStream {
-    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
-        self.errors.lock()
-    }
-
-    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
-        self.errors.lock()
     }
 }
 
@@ -172,11 +165,10 @@ impl MetalStream {
         self.active_encoder.as_mut().unwrap()
     }
 
-    /// Drains the errors `stream_id` surfaces: the GPU command-buffer faults
-    /// recorded asynchronously by completion handlers, plus the launch failures
-    /// queued for that stream (see [`StreamErrors`]).
-    pub fn take_errors(&self, stream_id: StreamId) -> Vec<ServerError> {
-        self.errors.lock().take(stream_id)
+    /// The device fault owed to the next flush or sync, taken — reported
+    /// once, like the queue it replaces.
+    pub fn take_fault(&self) -> Option<ServerError> {
+        self.fault.lock().take()
     }
 
     /// Waits on a previously submitted command buffer if total queued ops
@@ -247,7 +239,7 @@ impl MetalEvent {
             install_completion_handler(
                 &active.command_buffer,
                 active.temporaries,
-                stream.errors.clone(),
+                stream.fault.clone(),
                 None,
             );
             (*active.command_buffer).commit();
@@ -359,7 +351,7 @@ impl EventStreamBackend for MetalStreamBackend {
             submitted_ops: 0,
             max_submitted_ops,
             last_command_buffer: None,
-            errors: Arc::new(Mutex::new(StreamErrors::default())),
+            fault: Arc::new(Mutex::new(None)),
             profiling: None,
         }
     }
@@ -382,7 +374,7 @@ impl EventStreamBackend for MetalStreamBackend {
             install_completion_handler(
                 &active.command_buffer,
                 active.temporaries,
-                stream.errors.clone(),
+                stream.fault.clone(),
                 signal,
             );
             (*active.command_buffer).commit();
@@ -395,7 +387,7 @@ impl EventStreamBackend for MetalStreamBackend {
             let event_ref: &ProtocolObject<dyn MTLEvent> =
                 ProtocolObject::from_ref(&*stream.shared_event);
             (*signal_buffer).encodeSignalEvent_value(event_ref, signal_value);
-            install_completion_handler(&signal_buffer, Vec::new(), stream.errors.clone(), signal);
+            install_completion_handler(&signal_buffer, Vec::new(), stream.fault.clone(), signal);
             (*signal_buffer).commit();
             signal_buffer
         };
@@ -458,21 +450,18 @@ mod tests {
         backend.create_stream()
     }
 
-    /// A populated error sink makes `is_healthy` false, and draining it clears the poison.
+    /// The device fault is reported once: taking it clears the slot, and the
+    /// first fault wins over any later one.
     #[test]
-    fn error_sink_poisons_is_healthy() {
+    fn a_device_fault_is_reported_once() {
         let stream = test_stream();
-        let stream_id = StreamId { value: 0 };
-        assert!(MetalStreamBackend::is_healthy(&stream, stream_id));
+        assert!(stream.take_fault().is_none());
 
-        stream.errors.lock().push_shared(ServerError::Generic {
+        *stream.fault.lock() = Some(ServerError::Generic {
             reason: "injected fault".to_string(),
             backtrace: cubecl_environment::backtrace::BackTrace::capture(),
         });
-        assert!(!MetalStreamBackend::is_healthy(&stream, stream_id));
-
-        let drained = stream.take_errors(stream_id);
-        assert_eq!(drained.len(), 1);
-        assert!(MetalStreamBackend::is_healthy(&stream, stream_id));
+        assert!(stream.take_fault().is_some());
+        assert!(stream.take_fault().is_none(), "reported once");
     }
 }

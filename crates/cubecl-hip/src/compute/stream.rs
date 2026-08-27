@@ -11,7 +11,7 @@ use cubecl_runtime::{
         drop_queue::{self, FlushingPolicy, PendingDropQueue},
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{EventStreamBackend, StreamCapture, StreamErrorSink, StreamErrors, StreamMemory},
+    stream::{EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::sync::Arc;
 
@@ -26,7 +26,6 @@ pub struct Stream {
     pub(crate) sys: cubecl_hip_sys::hipStream_t,
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
-    pub errors: StreamErrors,
     pub drop_queue: drop_queue::PendingDropQueue<Fence>,
     /// This stream's graph capture (see [`StreamCapture`]): its position in
     /// the lifecycle, and the memory its recorded launches were given. Enforces
@@ -41,16 +40,6 @@ pub struct Stream {
     /// capture every buffer is cached and none is evicted mid-capture. See
     /// [`StreamCapture::cache_mode`].
     pub info_cache: MetadataInfoCache<Handle>,
-}
-
-impl StreamErrorSink for Stream {
-    fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
-        &self.errors
-    }
-
-    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
-        &mut self.errors
-    }
 }
 
 impl StreamMemory for Stream {
@@ -156,7 +145,6 @@ impl EventStreamBackend for HipStreamBackend {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
-            errors: StreamErrors::default(),
             capturing: StreamCapture::default(),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
             drop_queue: PendingDropQueue::new(FlushingPolicy {

@@ -386,20 +386,16 @@ impl<'a> Command<'a> {
         Ok(())
     }
 
-    /// Registers an error on the stream, for the logical stream this command
-    /// runs on to surface, and taints the buffers the failed work left as
-    /// they were — so a later read of one fails on this rather than copying
-    /// out bytes nothing wrote. `written` is empty for a failure that skipped
-    /// no write.
+    /// Taints the buffers the failed work left as they were — so a later
+    /// read of one fails on this rather than copying out bytes nothing wrote.
+    /// The caller holds the only report owed. `written` is empty for a
+    /// failure that skipped no write.
     pub fn error<'b>(
         &mut self,
         error: ServerError,
         written: impl Iterator<Item = &'b BufferBinding>,
     ) {
-        let stream_id = self.streams.current;
-        self.streams.taint(error.clone(), written);
-        let stream = self.streams.current();
-        stream.errors.push(stream_id, error);
+        self.streams.taint(error, written);
     }
 
     /// Writes data from the host to GPU memory as specified by the copy descriptor.

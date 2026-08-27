@@ -48,8 +48,8 @@ use cubecl_environment::stream::StreamId;
 /// Both active states carry the logical stream that opened the capture. Several
 /// logical streams share one backend stream, so "the capture owns this stream
 /// for its window" only holds if the window remembers whose it is: an error
-/// raised inside it belongs to the capture, not to whichever neighbour happens
-/// to flush next (see [`StreamErrors`](super::StreamErrors)).
+/// raised inside it dooms the capture, not whichever neighbour happens to be
+/// using the slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StreamCaptureState {
     /// No capture is prepared or recording.

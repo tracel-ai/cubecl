@@ -51,7 +51,7 @@ pub fn build_kernel<R: Runtime>(
                 dtype,
             )
         };
-        let _ = cubecl_core::future::block_on(client.sync());
+        let _ = cubecl_core::future::block_on(client.sync([]));
         start.elapsed()
     });
 

@@ -278,7 +278,6 @@ impl ComputeServer for CpuServer {
             // them, even though the resource is resolved on the stream that
             // owns the handle.
             let result = self.while_writing(
-                stream_id,
                 (desc, data),
                 |(desc, _), written| written.push(desc.handle.clone()),
                 |server, (desc, data), _| {
@@ -305,7 +304,8 @@ impl ComputeServer for CpuServer {
                     Ok(())
                 },
             );
-            if result.is_err() {
+            if let Err(err) = result {
+                self.scheduler.stream(&stream_id).profile_failure(&err);
                 return;
             }
         }
@@ -359,8 +359,8 @@ impl ComputeServer for CpuServer {
         let kernel_id = kernel.id();
         if let Err(err) = self.compile_only(kernel.as_ref()) {
             let error = ServerError::Launch(LaunchError::CompilationError(err));
+            self.scheduler.stream(&stream_id).profile_failure(&error);
             let _ = self.while_writing(
-                stream_id,
                 bindings,
                 |bindings, written| {
                     if !launch_mode.is_skipped() {
@@ -386,10 +386,11 @@ impl ComputeServer for CpuServer {
         // scattering into memory that carried no failure at all. The outputs
         // take the failure that stopped the launch, exactly as a failed
         // launch's would, so a read downstream fails on the root cause.
-        if let Some((failure, _)) = self
+        if let Some((failure, error)) = self
             .scheduler
             .read_failure(bindings.buffers_read(io.as_deref()))
         {
+            self.scheduler.stream(&stream_id).profile_failure(&error);
             self.scheduler
                 .propagate(failure, bindings.buffers_written(io.as_deref()));
             return;
@@ -399,8 +400,7 @@ impl ComputeServer for CpuServer {
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
         // bytes nothing wrote.
-        let _ = self.while_writing(
-            stream_id,
+        let result = self.while_writing(
             bindings,
             |bindings, written| written.extend(bindings.buffers_written(io.as_deref()).cloned()),
             |server, bindings, _| {
@@ -426,18 +426,41 @@ impl ComputeServer for CpuServer {
                 Ok(())
             },
         );
+        if let Err(err) = result {
+            self.scheduler.stream(&stream_id).profile_failure(&err);
+        }
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.flush(stream_id)
+        stream.flush(stream_id)?;
+        // The device fault is the only thing left that nobody else can tell
+        // the caller — a launch failure lives on the buffers it left
+        // unwritten.
+        match self.scheduler.take_fault() {
+            Some(fault) => Err(fault),
+            None => Ok(()),
+        }
     }
 
-    fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
+    fn sync(
+        &mut self,
+        handles: Vec<BufferBinding>,
+        stream_id: StreamId,
+    ) -> DynFut<Result<(), ServerError>> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        let result = stream.flush(stream_id);
+        let mut result = stream.flush(stream_id);
+        // The claim check a read would have made, without the read.
+        if result.is_ok() {
+            result = self.scheduler.ensure_written(handles.iter());
+        }
+        if result.is_ok()
+            && let Some(fault) = self.scheduler.take_fault()
+        {
+            result = Err(fault);
+        }
 
         Box::pin(async move { result })
     }
