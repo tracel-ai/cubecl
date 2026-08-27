@@ -49,12 +49,17 @@ pub fn working_set_sweep(cap: u64) -> Vec<u64> {
     sizes
 }
 
-/// The sweep size a working set of `bytes` is probed at: the next power of two
-/// at or above it, never below [`MIN_WORKING_SET`].
+/// The sweep size a working set of `bytes` is probed at: the power of two at or
+/// below it, never below [`MIN_WORKING_SET`].
 ///
-/// One cache entry an octave, rather than one per distinct byte count.
+/// One cache entry an octave, rather than one per distinct byte count. Down, so
+/// the ceiling a consumer reads is one the working set can reach: the rate
+/// climbs steeply per octave along the ramp, and the size above would report
+/// close to twice what these bytes move.
 pub fn sweep_size(bytes: u64) -> u64 {
-    bytes.max(MIN_WORKING_SET).next_power_of_two()
+    let bytes = bytes.max(MIN_WORKING_SET);
+
+    1 << (u64::BITS - 1 - bytes.leading_zeros())
 }
 
 /// One measured point of a [`MemoryCurve`].
@@ -165,6 +170,40 @@ fn log2(bytes: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sweep_size_is_the_octave_at_or_below_the_working_set() {
+        assert_eq!(sweep_size(16 * 1024), 16 * 1024);
+        assert_eq!(sweep_size(16 * 1024 + 1), 16 * 1024);
+        assert_eq!(sweep_size(32 * 1024 - 1), 16 * 1024);
+    }
+
+    /// Reading a ceiling from the octave above would credit a kernel with a
+    /// rate its own working set cannot reach.
+    #[test]
+    fn a_sweep_size_never_rounds_up() {
+        for bytes in [MIN_WORKING_SET, 9 * 1024, 100_000, 1 << 30] {
+            assert!(sweep_size(bytes) <= bytes, "at {bytes}");
+        }
+    }
+
+    /// Every size lands on the grid the curve is measured at, so a probe is
+    /// shared rather than added.
+    #[test]
+    fn a_sweep_size_lands_on_the_measured_grid() {
+        let grid = working_set_sweep(1 << 30);
+
+        for bytes in [1, 9 * 1024, 100_000, 1 << 20, 1 << 30] {
+            assert!(grid.contains(&sweep_size(bytes)), "at {bytes}");
+        }
+    }
+
+    /// Below the smallest measured point there is nothing to round down to.
+    #[test]
+    fn a_working_set_under_the_floor_gets_the_floor() {
+        assert_eq!(sweep_size(0), MIN_WORKING_SET);
+        assert_eq!(sweep_size(1), MIN_WORKING_SET);
+    }
     use core::time::Duration;
 
     const MB: u64 = 1024 * 1024;

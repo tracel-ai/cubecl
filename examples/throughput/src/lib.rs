@@ -87,7 +87,7 @@ pub fn memory_curve<R: Runtime>(device: &R::Device) {
 }
 
 fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
-    println!("\n  {access:?}{:>16}", "peak");
+    println!("\n  {:<8}{:>18}", format!("{access:?}"), "peak");
 
     for point in curve.points() {
         let rate = match curve.ceiling_at(point.bytes) {

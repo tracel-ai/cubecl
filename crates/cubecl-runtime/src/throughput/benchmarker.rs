@@ -4,7 +4,7 @@ use crate::{
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use cubecl_common::profile::Duration;
+use cubecl_common::profile::{Duration, Instant};
 use cubecl_environment::config::RuntimeConfig;
 use cubecl_environment::sync::Mutex;
 
@@ -49,8 +49,8 @@ impl ThroughputBenchmarker {
 
         let sample = kernel_config.sample;
 
-        let iterations = self.warmup(kernel_config.min_iterations, &sample);
-        let duration = self.sample_peak_duration(iterations, &sample);
+        let iterations = Self::warmup(kernel_config.min_iterations, &sample);
+        let duration = Self::sample_peak_duration(iterations, &sample);
 
         let value = ThroughputValue {
             ops_count: kernel_config.ops_count,
@@ -69,11 +69,13 @@ impl ThroughputBenchmarker {
     ///
     /// Never returns fewer than `min_iterations`, which the kernel needs to be
     /// measuring what it claims rather than merely to be timed accurately.
-    fn warmup(&self, min_iterations: usize, sample: impl Fn(usize) -> Duration) -> usize {
+    fn warmup(min_iterations: usize, sample: impl Fn(usize) -> Duration) -> usize {
         const MAX_WARMUP: usize = 50;
-        // Guards the blind doubling below, rather than budgeting the launch,
-        // which the duration target does.
         const MAX_ITERATIONS: usize = 1 << 24;
+        // A timer reading zero says nothing about the pass, so doubling against
+        // it converges on nothing and stops early. An iteration is a real launch
+        // for the probe that measures launches, which pays for every one.
+        const MAX_BLIND_ITERATIONS: usize = 1 << 10;
         const PLATEAU_TOL: f64 = 0.03;
         const PATIENCE: usize = 3;
         const TARGET_DURATION_MS: f64 = 20.0;
@@ -81,18 +83,22 @@ impl ThroughputBenchmarker {
         let mut best = f64::INFINITY;
         let mut stable = 0;
         let mut iterations = min_iterations.max(1);
-        let ceiling = MAX_ITERATIONS.max(iterations);
 
         for _ in 0..MAX_WARMUP {
             let duration = sample(iterations).as_secs_f64() * 1000.0;
             if duration < TARGET_DURATION_MS {
-                let extra_iters = if duration > 1e-6 {
+                let (extra_iters, ceiling) = if duration > 1e-6 {
                     let duration_per_iter = duration / iterations as f64;
-                    ((TARGET_DURATION_MS - duration) / duration_per_iter).ceil() as usize
+                    (
+                        ((TARGET_DURATION_MS - duration) / duration_per_iter).ceil() as usize,
+                        MAX_ITERATIONS,
+                    )
                 } else {
-                    iterations
+                    (iterations, MAX_BLIND_ITERATIONS)
                 };
-                if iterations == ceiling {
+
+                let ceiling = ceiling.max(min_iterations);
+                if iterations >= ceiling {
                     break;
                 }
                 iterations = (iterations + extra_iters.max(1)).min(ceiling);
@@ -120,7 +126,6 @@ impl ThroughputBenchmarker {
     /// Sample the peak throughput of the kernel by running it multiple times
     /// and measuring the duration of each iteration.
     fn sample_peak_duration(
-        &self,
         iterations: usize,
         sample_once: impl Fn(usize) -> Duration,
     ) -> Duration {
@@ -139,13 +144,12 @@ impl ThroughputBenchmarker {
 
         let mut best = f64::INFINITY;
         let mut stale = 0;
-        let mut spent = Duration::ZERO;
+        // Wall clock, not the sum of what the samples report: a probe whose
+        // timer reads zero would otherwise never spend any of the budget.
+        let start = Instant::now();
 
         for i in 0..MAX_SAMPLES {
-            let sample = sample_once(iterations);
-            spent += sample;
-
-            let s = sample.as_secs_f64();
+            let s = sample_once(iterations).as_secs_f64();
             if s < best * (1.0 - REL_TOL) {
                 best = s;
                 stale = 0;
@@ -153,11 +157,56 @@ impl ThroughputBenchmarker {
                 best = best.min(s);
                 stale += 1;
             }
-            if (i > MIN_SAMPLES && stale >= PATIENCE) || spent >= SAMPLE_BUDGET {
+            if (i > MIN_SAMPLES && stale >= PATIENCE) || start.elapsed() >= SAMPLE_BUDGET {
                 break;
             }
         }
 
         Duration::from_secs_f64(best / iterations as f64)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::cell::Cell;
+
+    /// One iteration of the launch probe is a real launch, so a device whose
+    /// timer reads zero must not be answered by doubling toward the ceiling the
+    /// duration target drives.
+    #[test]
+    fn a_timer_reading_zero_does_not_climb_to_the_duration_ceiling() {
+        let iterations = ThroughputBenchmarker::warmup(1, |_| Duration::ZERO);
+
+        assert!(iterations <= 1 << 10, "climbed to {iterations}");
+    }
+
+    /// The passes a probe needs to be measuring what it claims are not the
+    /// timer's to give away.
+    #[test]
+    fn a_blind_timer_never_cuts_below_the_passes_a_probe_needs() {
+        let needed = 1 << 20;
+
+        assert!(ThroughputBenchmarker::warmup(needed, |_| Duration::ZERO) >= needed);
+    }
+
+    #[test]
+    fn a_timer_reading_zero_still_stops_sampling() {
+        let calls = Cell::new(0);
+        let _ = ThroughputBenchmarker::sample_peak_duration(1, |_| {
+            calls.set(calls.get() + 1);
+            Duration::ZERO
+        });
+
+        assert!(calls.get() < 200, "ran {} samples", calls.get());
+    }
+
+    /// A working timer still drives the count to the duration target.
+    #[test]
+    fn a_pass_far_under_the_target_grows_until_it_reaches_it() {
+        let iterations =
+            ThroughputBenchmarker::warmup(1, |iterations| Duration::from_micros(iterations as u64));
+
+        assert_eq!(iterations, 20_000);
     }
 }
