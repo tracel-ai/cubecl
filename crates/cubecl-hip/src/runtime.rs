@@ -248,7 +248,7 @@ impl DeviceService for HipServer {
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
-        self.utilities() as ServerUtilitiesHandle
+        cubecl_core::server::ComputeServer::utilities(self) as ServerUtilitiesHandle
     }
 }
 
