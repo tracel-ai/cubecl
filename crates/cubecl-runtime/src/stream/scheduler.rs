@@ -26,6 +26,14 @@ pub trait SchedulerStreamBackend {
     fn enqueue(task: Self::Task, stream: &mut Self::Stream, failures: &mut ErrorGraph);
     /// Flush the inner stream queue to ensure ordering between different streams.
     fn flush(stream: &mut Self::Stream, failures: &mut ErrorGraph);
+    /// Whether a batch that has just filled up may be handed to the backend
+    /// without flushing it. Only the queue-filling path asks: a read or a
+    /// stream alignment always flushes, since those need the work finished.
+    /// Backends that flush cheaply have nothing to gain here and keep the
+    /// default.
+    fn may_skip_wait(_stream: &mut Self::Stream) -> bool {
+        false
+    }
     /// Returns a mutable reference to the stream factory.
     fn factory(&mut self) -> &mut Self::Factory;
     /// Whether this stream currently requires its own tasks to execute on
@@ -201,9 +209,14 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         let current = self.pool.get_mut(&stream_id);
         current.tasks.push(task);
 
-        // If the task queue exceeds the maximum, execute the stream.
-        if current.tasks.len() >= self.max_tasks {
-            self.execute_streams(vec![stream_id]);
+        // If the task queue exceeds the maximum, execute the stream. Filling a
+        // queue only needs the tasks handed to the backend; waiting for them
+        // belongs to the callers that read results back, so the backend is
+        // asked whether this batch can hand off without waiting.
+        let full = current.tasks.len() >= self.max_tasks;
+        if full {
+            let wait = !B::may_skip_wait(&mut current.stream);
+            self.execute_streams_inner(vec![stream_id], wait);
         }
     }
 
@@ -245,6 +258,10 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
 
     /// Executes tasks from the specified streams based on the scheduling strategy.
     pub fn execute_streams(&mut self, stream_ids: Vec<StreamId>) {
+        self.execute_streams_inner(stream_ids, true);
+    }
+
+    fn execute_streams_inner(&mut self, stream_ids: Vec<StreamId>, wait: bool) {
         let mut indices = Vec::with_capacity(stream_ids.len());
 
         // Collect unique stream indices to avoid redundant processing.
@@ -283,14 +300,14 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         // sequential path keeps every task on the stream that owns it.
         match self.strategy {
             SchedulerStrategy::Interleave if !isolation => {
-                self.execute_schedules_interleave(schedules)
+                self.execute_schedules_interleave(schedules, wait)
             }
-            _ => self.execute_schedules_sequence(schedules),
+            _ => self.execute_schedules_sequence(schedules, wait),
         }
     }
 
     /// Executes schedules sequentially, processing each stream's tasks in order.
-    fn execute_schedules_sequence(&mut self, schedules: Vec<Schedule<B>>) {
+    fn execute_schedules_sequence(&mut self, schedules: Vec<Schedule<B>>, wait: bool) {
         for schedule in schedules {
             let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) }; // Note: `unsafe` usage assumes valid index.
             for task in schedule.tasks {
@@ -299,7 +316,9 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             }
 
             // Makes sure the tasks are ordered on the compute queue.
-            B::flush(&mut stream.stream, self.failures.graph_mut());
+            if wait {
+                B::flush(&mut stream.stream, self.failures.graph_mut());
+            }
         }
     }
 
@@ -309,7 +328,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// flushing all other streams first and flushing the execution stream at the end.
     /// This way, we ensure that most tasks are actually interleaved on the real compute queue
     /// shared across all streams.
-    fn execute_schedules_interleave(&mut self, mut schedules: Vec<Schedule<B>>) {
+    fn execute_schedules_interleave(&mut self, mut schedules: Vec<Schedule<B>>, wait: bool) {
         // Makes sure the tasks are ordered on the compute queue.
         for schedule in schedules.iter_mut().skip(1) {
             let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) };
@@ -337,7 +356,9 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         }
 
         // Making sure all tasks are registered to the queue.
-        B::flush(&mut stream.stream, self.failures.graph_mut());
+        if wait {
+            B::flush(&mut stream.stream, self.failures.graph_mut());
+        }
     }
 }
 
