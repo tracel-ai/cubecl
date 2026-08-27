@@ -140,7 +140,9 @@ pub fn kernel_shuffle_up<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
     let val = output[UNIT_POS as usize];
     let val2 = plane_shuffle_up(val, 1);
 
-    output[UNIT_POS as usize] = val2;
+    if UNIT_POS_PLANE >= 1 {
+        output[UNIT_POS as usize] = val2;
+    }
 }
 
 #[cube(launch)]
@@ -148,7 +150,9 @@ pub fn kernel_shuffle_down<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>)
     let val = output[UNIT_POS as usize];
     let val2 = plane_shuffle_down(val, 1);
 
-    output[UNIT_POS as usize] = val2;
+    if UNIT_POS_PLANE + 1 < PLANE_DIM {
+        output[UNIT_POS as usize] = val2;
+    }
 }
 
 pub fn test_plane_sum<
@@ -776,14 +780,13 @@ pub fn test_plane_shuffle_up<
     client: ComputeClient<TestRuntime>,
     vectorization: VectorSize,
 ) {
-    let plane_size = 32;
+    let plane_size = client.properties().hardware.plane_size_max;
     let input: Vec<f32> = (0..plane_size * vectorization as u32)
         .map(|x| x as f32)
         .collect();
     let mut expected = input.clone();
 
-    // Shuffle up with delta=1: lane i gets value from lane (i - 1)
-    // Lane 0 stays the same, lanes 1..31 shift down
+    // Unit 0 is undefined, so the kernel leaves it alone and it keeps its input.
     for lane in 1..plane_size as usize {
         for v in 0..vectorization {
             expected[lane * vectorization + v] = input[(lane - 1) * vectorization + v];
@@ -822,8 +825,7 @@ pub fn test_plane_shuffle_down<
         .collect();
     let mut expected = input.clone();
 
-    // Shuffle down with delta=1: lane i gets value from lane (i + 1)
-    // Lanes 0..30 shift up, lane 31 stays the same
+    // The last unit is undefined, so the kernel leaves it alone and it keeps its input.
     for lane in 0..(plane_size - 1) as usize {
         for v in 0..vectorization {
             expected[lane * vectorization + v] = input[(lane + 1) * vectorization + v];
