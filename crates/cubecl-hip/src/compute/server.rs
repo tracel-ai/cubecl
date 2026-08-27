@@ -77,7 +77,7 @@ impl ComputeServer for HipServer {
 
         Ok(sizes
             .iter()
-            .map(|size| command.reserve_cpu(*size, true, None))
+            .map(|size| command.reserve_cpu(*size, None))
             .collect())
     }
 

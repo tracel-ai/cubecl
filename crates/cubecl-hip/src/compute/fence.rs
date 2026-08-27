@@ -1,3 +1,10 @@
+//! Waiting on a stream from outside the server.
+//!
+//! The server is behind a mutex or a channel, so a synchronize that blocked
+//! while holding it would stop every other logical stream too. A [`Fence`] is
+//! an event recorded on the stream and handed out: the server records it and
+//! returns, and whoever holds it waits on its own time.
+
 use cubecl_core::server::ServerError;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_hip_sys::HIP_SUCCESS;

@@ -1,3 +1,11 @@
+//! One backend stream, and everything that hangs off it.
+//!
+//! A stream owns its own memory: allocations are per stream, not per device,
+//! so a buffer resolves to the stream that created it and nowhere else. What
+//! it carries beside the driver handle is the state that has to move in step
+//! with the work queued on it — the deferred frees, the capture window, and
+//! the per-launch info buffers a capture may not allocate inside.
+
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,

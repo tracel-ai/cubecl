@@ -1,3 +1,17 @@
+//! One unit of work against the device.
+//!
+//! Every operation the server exposes that touches memory or launches a
+//! kernel goes through a [`Command`]: it pairs the context holding the
+//! compiled kernels with the streams the operation was resolved against, and
+//! resolving is what orders the current stream behind whichever streams own
+//! the buffers it was handed.
+//!
+//! The copies at the bottom are where the driver's pitched layouts are dealt
+//! with. Both directions ask [`Pitch`] the same question — is there padding
+//! between the rows — because a linear copy of a pitched buffer scrambles it,
+//! and a 2D copy of a contiguous one is slower and refused outright for very
+//! tall transfers.
+
 use crate::compute::{
     MB, context::HipContext, fence::Fence, gpu::GpuResource,
     io::controller::PinnedMemoryManagedAllocController, stream::HipStreamBackend,
@@ -27,26 +41,24 @@ use cubecl_runtime::{
 };
 use std::ffi::c_void;
 
+/// One unit of work against the device: the context that holds its compiled
+/// kernels, and the streams it was resolved against.
+///
+/// Built per operation rather than held, because resolving is what orders the
+/// current stream behind whichever streams own the buffers it was given.
 #[derive(new)]
-/// The `Command` struct encapsulates a HIP context and a set of resolved HIP streams, providing an
-/// interface for executing GPU-related operations such as memory allocation, data transfers, kernel
-/// registration, and task execution.
 pub struct Command<'a> {
     ctx: &'a mut HipContext,
     pub(crate) streams: ResolvedStreams<'a, HipStreamBackend>,
 }
 
 impl<'a> Command<'a> {
-    /// Retrieves a GPU resource associated with the provided binding.
+    /// The device allocation `binding` names, resolved on the stream that
+    /// created it rather than the current one.
     ///
-    /// # Parameters
+    /// # Errors
     ///
-    /// * `binding` - The binding specifying the stream, memory, and offsets for the resource.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(GpuResource)` - The GPU resource associated with the binding.
-    /// * `Err(IoError::InvalidHandle)` - If the binding does not correspond to a valid resource.
+    /// [`IoError::InvalidHandle`] when the binding names no live allocation.
     pub fn resource(&mut self, binding: BufferBinding) -> Result<GpuResource, IoError> {
         self.streams
             .get(&binding.stream)
@@ -54,11 +66,7 @@ impl<'a> Command<'a> {
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
 
-    /// Retrieves the gpu memory usage of the current stream.
-    ///
-    /// # Returns
-    ///
-    /// * The [`MemoryUsage`] struct.
+    /// The current stream's GPU memory usage.
     pub fn memory_usage(&mut self) -> MemoryUsage {
         self.streams.current().memory_management_gpu.memory_usage()
     }
@@ -97,10 +105,6 @@ impl<'a> Command<'a> {
     }
 
     /// Set the [`MemoryAllocationMode`] for the current stream.
-    ///
-    /// # Parameters
-    ///
-    /// * `mode` - The allocation mode to be used.
     pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {
         self.streams.current().memory_management_gpu.mode(mode)
     }
@@ -122,16 +126,12 @@ impl<'a> Command<'a> {
             .install_pools(config, props, failures)
     }
 
-    /// Allocates a new GPU memory buffer of the specified size.
+    /// Allocate `size` bytes of GPU memory on the current stream.
     ///
-    /// # Parameters
+    /// # Errors
     ///
-    /// * `size` - The size of the memory to allocate (in bytes).
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(Handle)` - A handle to the newly allocated GPU memory.
-    /// * `Err(IoError)` - If the allocation fails.
+    /// [`IoError::BufferTooBig`] when no device could ever fit it, and
+    /// whatever the allocator reports when a reclaim-and-retry still cannot.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
         let (stream, failures) = self.streams.current_and_failures();
@@ -189,30 +189,12 @@ impl<'a> Command<'a> {
             .bind(reserved, new, cursor, failures)
     }
 
-    /// Creates a [Bytes] instance from pinned memory, if suitable for the given size.
+    /// `size` bytes of host memory, pinned when the pool can serve it.
     ///
-    /// For small data transfers (<= 100 MB) or when explicitly marked as pinned, this function
-    /// uses pinned memory to optimize performance. For larger transfers, it falls back to regular memory.
-    ///
-    /// # Arguments
-    ///
-    /// * `size` - The number of bytes to allocate.
-    /// * `marked_pinned` - Whether to force the use of pinned memory.
-    ///
-    /// # Returns
-    ///
-    /// A [Bytes] instance of the correct size.
-    pub fn reserve_cpu(
-        &mut self,
-        size: usize,
-        marked_pinned: bool,
-        origin: Option<StreamId>,
-    ) -> Bytes {
-        // Use pinned memory for small transfers (<= 100 MB) or when explicitly marked.
-        if !marked_pinned && size > 100 * MB {
-            return Bytes::from_bytes_vec(vec![0; size]);
-        }
-
+    /// Pinned pages transfer by DMA without a bounce, but they are scarce, so
+    /// an exhausted pool falls back to the heap rather than failing: this
+    /// always answers with a buffer of the size asked for.
+    pub fn reserve_cpu(&mut self, size: usize, origin: Option<StreamId>) -> Bytes {
         self.reserve_pinned(size, origin)
             .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]))
     }
@@ -238,17 +220,16 @@ impl<'a> Command<'a> {
         Some(unsafe { Bytes::from_controller(controller, size) })
     }
 
-    /// Asynchronously reads data from GPU memory to host memory based on the provided copy descriptors.
+    /// Copy each descriptor's device memory back to the host, resolving once
+    /// the copies have landed.
     ///
-    /// # Parameters
+    /// The copies are enqueued before the future is returned; awaiting it
+    /// waits on the fence that follows them.
     ///
-    /// * `descriptors` - A vector of descriptors specifying the source GPU memory and its layout.
+    /// # Errors
     ///
-    /// # Returns
-    ///
-    /// * A `Future` resolving to:
-    ///   * `Ok(Vec<Bytes>)` - The data read from the GPU as a vector of byte arrays.
-    ///   * `Err(IoError)` - If the read operation fails.
+    /// [`IoError::UnsupportedStrides`] for a layout the driver cannot copy,
+    /// and whatever the fence reports when the stream itself failed.
     pub fn read_async(
         &mut self,
         descriptors: Vec<CopyDescriptor>,
@@ -257,7 +238,7 @@ impl<'a> Command<'a> {
             .iter()
             .map(|b| b.handle.clone())
             .collect::<Vec<_>>();
-        let result = self.copies_to_bytes(descriptors, true);
+        let result = self.copies_to_bytes(descriptors);
         let fence = Fence::new(self.streams.current().sys);
 
         async move {
@@ -272,15 +253,11 @@ impl<'a> Command<'a> {
         }
     }
 
-    fn copies_to_bytes(
-        &mut self,
-        descriptors: Vec<CopyDescriptor>,
-        pinned: bool,
-    ) -> Result<Vec<Bytes>, IoError> {
+    fn copies_to_bytes(&mut self, descriptors: Vec<CopyDescriptor>) -> Result<Vec<Bytes>, IoError> {
         let mut result = Vec::with_capacity(descriptors.len());
 
         for descriptor in descriptors {
-            result.push(self.copy_to_bytes(descriptor, pinned, None)?);
+            result.push(self.copy_to_bytes(descriptor, None)?);
         }
 
         Ok(result)
@@ -289,27 +266,22 @@ impl<'a> Command<'a> {
     fn copy_to_bytes(
         &mut self,
         descriptor: CopyDescriptor,
-        pinned: bool,
         stream_id: Option<StreamId>,
     ) -> Result<Bytes, IoError> {
         let num_bytes = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-        let mut bytes = self.reserve_cpu(num_bytes, pinned, stream_id);
+        let mut bytes = self.reserve_cpu(num_bytes, stream_id);
         self.write_to_cpu(descriptor, &mut bytes, stream_id)?;
 
         Ok(bytes)
     }
 
-    /// Writes data to the host from the GPU memory as specified by the copy descriptor.
+    /// Enqueue a copy of `descriptor`'s device memory into `bytes`.
     ///
-    /// # Parameters
+    /// # Errors
     ///
-    /// * `descriptor` - Describes the source GPU memory, its shape, strides, and element size.
-    /// * `bytes` - The host bytes to write from the GPU.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` - If the write operation succeeds.
-    /// * `Err(IoError)` - If the strides are invalid or the resource cannot be accessed.
+    /// [`IoError::UnsupportedStrides`] for a layout that is not pitched
+    /// row-major, [`IoError::InvalidHandle`] for a binding that names no live
+    /// allocation, and the driver's refusal to copy.
     pub fn write_to_cpu(
         &mut self,
         descriptor: CopyDescriptor,
@@ -341,17 +313,13 @@ impl<'a> Command<'a> {
         unsafe { write_to_cpu(&shape, &strides, elem_size, bytes, resource.ptr, stream.sys) }
     }
 
-    /// Writes data from the host to GPU memory as specified by the copy descriptor.
+    /// Enqueue a copy of `data` into the device memory `descriptor` names.
     ///
-    /// # Parameters
+    /// # Errors
     ///
-    /// * `descriptor` - Describes the destination GPU memory, its shape, strides, and element size.
-    /// * `data` - The host data to write to the GPU.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` - If the write operation succeeds.
-    /// * `Err(IoError)` - If the strides are invalid or the resource cannot be accessed.
+    /// [`IoError::UnsupportedStrides`] for a layout that is not pitched
+    /// row-major, [`IoError::InvalidHandle`] for a binding that names no live
+    /// allocation, and the driver's refusal to copy.
     pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: Bytes) -> Result<(), IoError> {
         let CopyDescriptor {
             handle: binding,
@@ -426,16 +394,11 @@ impl<'a> Command<'a> {
         Ok(())
     }
 
-    /// Allocates a new GPU memory buffer and immediately copies contiguous host data into it.
+    /// Allocate device memory for `data` and enqueue the copy into it.
     ///
-    /// # Parameters
+    /// # Errors
     ///
-    /// * `data` - The host data to copy to the GPU.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
-    /// * `Err(IoError)` - If the allocation or data copy fails.
+    /// Whatever the allocation or the copy reports.
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
         let mut staging =
             self.reserve_pinned(data.len(), None)
@@ -461,11 +424,11 @@ impl<'a> Command<'a> {
         Ok(handle)
     }
 
-    /// Synchronizes the current stream, ensuring all pending operations are complete.
+    /// Wait for everything already enqueued on the current stream to finish.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// * A `DynFut<()>` future that resolves when the stream is synchronized.
+    /// The fault the barrier reveals, when the stream itself failed.
     pub fn sync(&mut self) -> DynFut<Result<(), ServerError>> {
         let fence = Fence::new(self.streams.current().sys);
 
@@ -477,12 +440,6 @@ impl<'a> Command<'a> {
     /// Always launches an already-compiled kernel: the server compiles before
     /// entering its write scope, and a skipped launch stops there, before any
     /// resource is resolved, so it never reaches here.
-    ///
-    /// # Parameters
-    ///
-    /// * `kernel_id` - The identifier of the kernel to execute.
-    /// * `dispatch_count` - The number of thread blocks in the x, y, and z dimensions.
-    /// * `resources` - GPU resources (e.g., buffers) used by the kernel.
     ///
     /// # Errors
     ///
@@ -513,6 +470,38 @@ impl<'a> Command<'a> {
     }
 }
 
+/// The 2D shape of a copy to or from a pitched buffer: how wide each row is,
+/// how many rows there are, and the stride between their starts.
+///
+/// [`of`](Self::of) answers `None` for a buffer that needs no 2D copy at all.
+/// A row stride equal to the row width means no padding, so the whole buffer
+/// is one contiguous span and the plain linear copy is both correct and
+/// faster — the driver also refuses the 2D copy for very tall transfers, an
+/// embedding table's 128k rows say, which the linear path handles.
+struct Pitch {
+    width_bytes: usize,
+    height: usize,
+    stride_bytes: usize,
+}
+
+impl Pitch {
+    /// The pitch of a buffer with this layout, or `None` when its rows are
+    /// contiguous. The caller has already validated the strides as pitched
+    /// row-major.
+    fn of(shape: &[usize], strides: &[usize], elem_size: usize) -> Option<Self> {
+        let rank = shape.len();
+        let width = *shape.last().unwrap_or(&1);
+        if rank < 2 || strides[rank - 2] == width {
+            return None;
+        }
+        Some(Self {
+            width_bytes: width * elem_size,
+            height: shape.iter().rev().skip(1).product(),
+            stride_bytes: strides[rank - 2] * elem_size,
+        })
+    }
+}
+
 /// Asynchronously copies data from GPU device memory to host memory.
 ///
 /// # Safety
@@ -521,7 +510,7 @@ impl<'a> Command<'a> {
 /// - `stream` must be a valid, initialized HIP stream.
 /// - `bytes` must have sufficient capacity for the copy.
 /// - The caller must synchronize the stream before reading from `bytes`.
-pub(crate) unsafe fn write_to_cpu(
+unsafe fn write_to_cpu(
     shape: &[usize],
     strides: &[usize],
     elem_size: usize,
@@ -535,16 +524,7 @@ pub(crate) unsafe fn write_to_cpu(
         return Ok(());
     }
 
-    let rank = shape.len();
-
-    // A row stride equal to the row width means no pitch padding: the copy is
-    // one contiguous span, so use the plain linear copy. Only genuinely pitched
-    // sources need the 2D copy (which the driver also rejects for very tall
-    // transfers, e.g. an embedding table's 128k rows). The caller validated the
-    // strides as pitched row-major.
-    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
-
-    if !pitched {
+    let Some(pitch) = Pitch::of(shape, strides, elem_size) else {
         // SAFETY: The data is contiguous. `resource_ptr` and `bytes` are valid
         // and `bytes.len()` does not exceed the device allocation size.
         let status = unsafe {
@@ -563,24 +543,19 @@ pub(crate) unsafe fn write_to_cpu(
             });
         }
         return Ok(());
-    }
+    };
 
-    let dim_x = shape[rank - 1];
-    let width_bytes = dim_x * elem_size;
-    let dim_y: usize = shape.iter().rev().skip(1).product();
-    let pitch = strides[rank - 2] * elem_size;
-
-    // SAFETY: The source is pitched. The 2D async copy respects the pitch
-    // (stride of the second-to-last dimension); a flat copy would scramble the
-    // rows, so a failure is an error rather than a fallback.
+    // SAFETY: The source is pitched. The 2D async copy respects the stride of
+    // the second-to-last dimension; a flat copy would scramble the rows, so a
+    // failure is an error rather than a fallback.
     let status = unsafe {
         cubecl_hip_sys::hipMemcpy2DAsync(
             bytes.as_mut_ptr() as *mut _,
-            width_bytes,
+            pitch.width_bytes,
             resource_ptr,
-            pitch,
-            width_bytes,
-            dim_y,
+            pitch.stride_bytes,
+            pitch.width_bytes,
+            pitch.height,
             hipMemcpyKind_hipMemcpyDeviceToHost,
             stream,
         )
@@ -589,8 +564,9 @@ pub(crate) unsafe fn write_to_cpu(
     if status != HIP_SUCCESS {
         return Err(IoError::Unknown {
             description: format!(
-                "HIP 2D memcpy failed: {status} (shape {shape:?}, strides {strides:?}, \
-                 elem_size {elem_size}, spitch {pitch}, width {width_bytes}, height {dim_y})"
+                "HIP 2D memcpy to host failed: {status} (shape {shape:?}, \
+                 strides {strides:?}, elem_size {elem_size}, spitch {}, width {}, height {})",
+                pitch.stride_bytes, pitch.width_bytes, pitch.height
             ),
             backtrace: BackTrace::capture(),
         });
@@ -615,8 +591,6 @@ unsafe fn write_to_gpu(
     data: &[u8],
     stream: *mut ihipStream_t,
 ) -> Result<(), IoError> {
-    let rank = shape.len();
-
     // Nothing to copy for an empty tensor; `data` may be a dangling (zero-size)
     // staging buffer that must not reach the driver.
     if data.is_empty() {
@@ -631,29 +605,18 @@ unsafe fn write_to_gpu(
 
     let ptr = data as *const _ as *mut _;
 
-    // A row stride equal to the row width means no pitch padding: the copy is
-    // one contiguous span, so use the plain linear copy. Only genuinely pitched
-    // destinations need the 2D copy (which the driver also rejects for very
-    // tall transfers, e.g. an embedding table's 128k rows).
-    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
-
-    if pitched {
-        let stride = strides[rank - 2];
-        let width = *shape.last().unwrap_or(&1);
-        let height: usize = shape.iter().rev().skip(1).product();
-        let width_bytes = width * elem_size;
-        let stride_bytes = stride * elem_size;
-
-        // SAFETY: For rank > 1, the 2D copy uses the computed pitch (stride) to correctly
-        // lay out rows in device memory. `resource.ptr` has been allocated with the pitched size.
+    if let Some(pitch) = Pitch::of(shape, strides, elem_size) {
+        // SAFETY: The destination is pitched. The 2D copy lays the rows out at
+        // the stride the allocation was sized for; `resource.ptr` was allocated
+        // with that pitched size.
         let status = unsafe {
             cubecl_hip_sys::hipMemcpy2DAsync(
                 resource.ptr,
-                stride_bytes,
+                pitch.stride_bytes,
                 ptr,
-                width_bytes,
-                width_bytes,
-                height,
+                pitch.width_bytes,
+                pitch.width_bytes,
+                pitch.height,
                 hipMemcpyKind_hipMemcpyHostToDevice,
                 stream,
             )
@@ -662,9 +625,9 @@ unsafe fn write_to_gpu(
             return Err(IoError::Unknown {
                 description: format!(
                     "HIP 2D memcpy to device failed: {status} (shape {shape:?}, \
-                     strides {strides:?}, elem_size {elem_size}, dpitch {stride_bytes}, \
-                     width {width_bytes}, height {height}, resource size {})",
-                    resource.size
+                     strides {strides:?}, elem_size {elem_size}, dpitch {}, \
+                     width {}, height {}, resource size {})",
+                    pitch.stride_bytes, pitch.width_bytes, pitch.height, resource.size
                 ),
                 backtrace: BackTrace::capture(),
             });
