@@ -7,17 +7,15 @@ use llvm_sys::LLVMTypeKind;
 use llvm_sys::core::*;
 use llvm_sys::prelude::{LLVMModuleRef, LLVMTypeRef, LLVMValueRef};
 
-/// Intrinsics with no AMDGPU lowering at any width. `tanh` joins the hardware only on
-/// gfx1250, which is late enough that it is simpler to give every device the library.
-const NEVER_LOWERED: [&str; 8] = [
-    "tan", "sinh", "cosh", "tanh", "asin", "acos", "atan", "atan2",
+/// Intrinsics the backend cannot give a correct answer for at any width.
+const NEVER_CORRECT: [&str; 9] = [
+    "tan", "sinh", "cosh", "tanh", "asin", "acos", "atan", "atan2", "pow",
 ];
 
 /// Intrinsics the hardware has in single precision but not in double, where the whole
 /// transcendental unit is missing.
-const SINGLE_PRECISION_ONLY: [&str; 9] = [
-    "exp", "exp2", "exp10", "log", "log2", "log10", "sin", "cos", "pow",
-];
+const SINGLE_PRECISION_ONLY: [&str; 8] =
+    ["exp", "exp2", "exp10", "log", "log2", "log10", "sin", "cos"];
 
 /// The OCML suffix for a float type, and the name LLVM mangles it to.
 fn float_suffix(kind: LLVMTypeKind) -> Option<&'static str> {
@@ -39,9 +37,10 @@ fn intrinsic_base(name: &str) -> Option<&str> {
     (!base.is_empty()).then_some(base)
 }
 
-/// Whether an intrinsic of `base` over `suffix` reaches codegen with nothing behind it.
+/// Whether an intrinsic of `base` over `suffix` needs the library: either nothing at all is
+/// behind it, or what is behind it gives the wrong answer.
 fn needs_ocml(base: &str, suffix: &str) -> bool {
-    NEVER_LOWERED.contains(&base) || (suffix == "f64" && SINGLE_PRECISION_ONLY.contains(&base))
+    NEVER_CORRECT.contains(&base) || (suffix == "f64" && SINGLE_PRECISION_ONLY.contains(&base))
 }
 
 /// Points every call of an unsupported float intrinsic in `module` at OCML.
@@ -295,6 +294,16 @@ mod tests {
         }
     }
 
+    /// `pow` is not like its neighbours: the backend lowers it at every width, but as a bare
+    /// `exp2(y * log2(x))`, which is NaN for every negative base. It has to reach OCML in
+    /// single precision too, where `exp` and `log` are content with the hardware.
+    #[test]
+    fn pow_goes_to_ocml_at_every_width() {
+        for suffix in ["f16", "f32", "f64"] {
+            assert!(needs_ocml("pow", suffix), "pow is wrong in {suffix}");
+        }
+    }
+
     /// Single precision keeps the hardware where it has any, and gives up the rest.
     #[test]
     fn only_what_the_backend_cannot_lower_goes_to_ocml() {
@@ -304,7 +313,7 @@ mod tests {
             assert!(needs_ocml(base, "f32"), "{base} has no f32 lowering");
             assert!(needs_ocml(base, "f64"), "{base} has no f64 lowering");
         }
-        for base in ["exp", "log", "sin", "cos", "pow", "exp2", "log10"] {
+        for base in ["exp", "log", "sin", "cos", "exp2", "log10"] {
             assert!(!needs_ocml(base, "f32"), "{base} lowers in f32");
             assert!(needs_ocml(base, "f64"), "{base} has no f64 unit");
         }
