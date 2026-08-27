@@ -63,15 +63,9 @@ pub enum ThroughputMode {
     },
     /// Traffic across the memory interface, as described by its [`MemorySpec`].
     ///
-    /// `bytes` is what one pass moves, the same currency the measured rate is
-    /// in, so a kernel that touches N bytes asks about N whichever access it
-    /// resembles: a [`Copy`](MemoryAccess::Copy) splits it between two buffers
-    /// of `bytes / 2`, a [`Read`](MemoryAccess::Read) moves all of it out of
-    /// one.
-    ///
-    /// Sweeping the size is [`MemoryCurve`](crate::throughput::MemoryCurve),
-    /// which is what a consumer wants: pick the curve that asks its question,
-    /// then read a ceiling off it with `ceiling_at`.
+    /// `bytes` is the total one pass moves, so a
+    /// [`Copy`](MemoryAccess::Copy) splits it across two buffers where a
+    /// [`Read`](MemoryAccess::Read) takes it all from one.
     Memory(MemorySpec),
     /// Launch overhead measurement.
     Launch,

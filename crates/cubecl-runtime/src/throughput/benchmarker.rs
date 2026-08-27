@@ -16,12 +16,8 @@ pub struct KernelConfig {
     pub sample: Box<dyn Fn(usize) -> Duration>,
     /// The number of operations processed in one iteration.
     pub ops_count: usize,
-    /// Iterations a launch must carry however quickly they turn out to run.
-    ///
-    /// A duration target cannot express this. What makes a memory probe cold is
-    /// that its window walks a whole pool before returning to bytes it already
-    /// read, and the shorter the window the more iterations that same walk
-    /// takes.
+    /// Iterations a launch must carry however quickly they turn out to run,
+    /// which a duration target cannot express.
     pub min_iterations: usize,
 }
 
@@ -75,11 +71,8 @@ impl ThroughputBenchmarker {
     /// measuring what it claims rather than merely to be timed accurately.
     fn warmup(&self, min_iterations: usize, sample: impl Fn(usize) -> Duration) -> usize {
         const MAX_WARMUP: usize = 50;
-        // A guard on the branch below that doubles blind when the timer reads
-        // zero, not a budget: what a launch costs is the duration target, and
-        // capping the count instead leaves a cheap pass measuring the fixed
-        // cost of the launch around it. A probe holding its working set still
-        // has no walk to make it expensive, so it needs the whole range.
+        // Guards the blind doubling below, rather than budgeting the launch,
+        // which the duration target does.
         const MAX_ITERATIONS: usize = 1 << 24;
         const PLATEAU_TOL: f64 = 0.03;
         const PATIENCE: usize = 3;
@@ -140,11 +133,8 @@ impl ThroughputBenchmarker {
         const MAX_SAMPLES: usize = 200;
         const REL_TOL: f64 = 0.01;
         const PATIENCE: usize = 12;
-        // Counting samples prices them all the same, and they are not: a probe
-        // whose launch fills the duration target costs forty times one whose
-        // pass is a few microseconds. Spending a fixed time instead leaves the
-        // cheap probes their long survey and stops the dear ones once the
-        // minimum has had a fair number of chances to fall.
+        // A sample count prices them all the same, and a probe filling the
+        // duration target costs forty times one whose pass is microseconds.
         const SAMPLE_BUDGET: Duration = Duration::from_millis(200);
 
         let mut best = f64::INFINITY;

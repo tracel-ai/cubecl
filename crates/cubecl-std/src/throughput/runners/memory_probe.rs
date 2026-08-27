@@ -67,13 +67,9 @@ struct DeviceShape {
 }
 
 impl MemoryProbe {
-    /// Passes a launch has to carry for the window to come back to bytes a
-    /// whole pool of traffic has since evicted, which is the only thing making
-    /// a window smaller than the cache cold.
-    ///
-    /// One where the window is its own pool, since such a window is already
-    /// cold. Every pass moves a window, so this is the pool however small the
-    /// window: a launch costs a pool of traffic and no more.
+    /// Passes a launch carries for the window to come back to bytes a whole
+    /// pool of traffic has since evicted, which is what keeps a window smaller
+    /// than the cache cold.
     pub fn min_iterations(&self) -> usize {
         self.pool_lines.div_ceil(self.window_lines)
     }

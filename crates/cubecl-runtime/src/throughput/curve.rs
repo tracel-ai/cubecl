@@ -17,11 +17,8 @@ use crate::throughput::{MemoryAccess, MemorySpec, ThroughputKey, ThroughputMode,
 
 /// The smallest working set a curve is measured at, in bytes moved per pass.
 ///
-/// Low enough to catch the bottom of the ramp, which is further down than it
-/// looks: an Arc iGPU reads within 5% of its sustained figure at 128 KiB and
-/// only falls away below that, 102 GB/s at 64 KiB, 66 at 32 KiB and 17 at
-/// 8 KiB against 110. A sweep starting a few hundred kilobytes up would report
-/// an almost flat curve and miss the effect it exists to measure.
+/// The ramp bottoms out further down than it looks: an Arc iGPU reads 102 GB/s
+/// at 64 KiB, 66 at 32 KiB and 17 at 8 KiB, against 110 sustained.
 pub const MIN_WORKING_SET: u64 = 8 * 1024;
 
 /// The working sets a curve is measured at: powers of two from
@@ -55,11 +52,7 @@ pub fn working_set_sweep(cap: u64) -> Vec<u64> {
 /// The sweep size a working set of `bytes` is probed at: the next power of two
 /// at or above it, never below [`MIN_WORKING_SET`].
 ///
-/// A probe per distinct byte count would fill the cache with sizes measured
-/// once and never asked for again. Snapping to the grid the curve already
-/// samples bounds that to one entry an octave, and costs at most the
-/// difference between neighbouring points of a curve read by interpolation
-/// anyway.
+/// One cache entry an octave, rather than one per distinct byte count.
 pub fn sweep_size(bytes: u64) -> u64 {
     bytes.max(MIN_WORKING_SET).next_power_of_two()
 }
