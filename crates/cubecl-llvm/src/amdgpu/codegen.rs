@@ -7,10 +7,11 @@ use pliron_llvm::to_llvm_ir;
 use std::ffi::{CStr, CString};
 use std::sync::Once;
 
-use crate::amdgpu::device_libs::link_device_libs;
+use crate::amdgpu::device_libs::{DeviceLibs, link_device_libs};
 use crate::amdgpu::lld::link_relocatable;
 use crate::amdgpu::ocml::redirect_intrinsics_to_ocml;
 use crate::amdgpu::plane_dim_for;
+use crate::amdgpu::printf::lower_printf_to_hostcall;
 use crate::shared::AmdGpuModule;
 
 /// The HSA target triple; the specific device is the `-mcpu`, not the triple.
@@ -213,23 +214,63 @@ fn compile_to_object(
         LLVMSetModuleDataLayout(module, layout);
         LLVMDisposeTargetData(layout);
 
-        // Both before the pipeline: the rewrite leaves calls to declarations, the link gives
-        // them bodies, and the pipeline is what inlines those bodies away again. A kernel
-        // that redirected nothing needs no device libraries, and must not require them.
-        let result = redirect_intrinsics_to_ocml(module)
-            .and_then(|needs_device_libs| {
-                if needs_device_libs {
-                    link_device_libs(module, arch)
-                } else {
-                    Ok(())
-                }
-            })
+        let result = lower_to_device_libs(module, arch)
             .and_then(|()| run_pipeline_and_emit(module, tm, want_asm));
 
         LLVMDisposeModule(module);
         LLVMContextDispose(ctx);
         LLVMDisposeTargetMachine(tm);
         result
+    }
+}
+
+/// Rewrites what the AMDGPU backend cannot handle on its own into calls to the `ROCm` device
+/// libraries, and links those in.
+///
+/// # Safety
+/// `module` must be a live LLVM module.
+unsafe fn lower_to_device_libs(
+    module: llvm_sys::prelude::LLVMModuleRef,
+    arch: &str,
+) -> Result<(), String> {
+    unsafe {
+        let needs = DeviceLibs {
+            math: redirect_intrinsics_to_ocml(module)?,
+            printf: lower_printf_to_hostcall(module),
+        };
+
+        if needs.any() {
+            link_device_libs(module, arch, needs, CODE_OBJECT_VERSION)?;
+        }
+        Ok(())
+    }
+}
+
+/// Runs the pass `pipeline` over `module`.
+///
+/// # Safety
+/// `module` and `tm` must be live LLVM handles.
+unsafe fn run_passes(
+    module: llvm_sys::prelude::LLVMModuleRef,
+    tm: llvm_sys::target_machine::LLVMTargetMachineRef,
+    pipeline: &CStr,
+) -> Result<(), String> {
+    use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage};
+    use llvm_sys::transforms::pass_builder::{
+        LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
+    };
+
+    unsafe {
+        let options = LLVMCreatePassBuilderOptions();
+        let err = LLVMRunPasses(module, pipeline.as_ptr(), tm, options);
+        LLVMDisposePassBuilderOptions(options);
+        if !err.is_null() {
+            let c_msg = LLVMGetErrorMessage(err);
+            let msg = CStr::from_ptr(c_msg).to_string_lossy().into_owned();
+            LLVMDisposeErrorMessage(c_msg);
+            return Err(msg);
+        }
+        Ok(())
     }
 }
 
@@ -243,26 +284,22 @@ unsafe fn run_pipeline_and_emit(
     tm: llvm_sys::target_machine::LLVMTargetMachineRef,
     want_asm: bool,
 ) -> Result<(Vec<u8>, Option<String>), String> {
-    use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage};
+    use llvm_sys::core::{LLVMCloneModule, LLVMDisposeModule};
     use llvm_sys::target_machine::LLVMCodeGenFileType;
-    use llvm_sys::transforms::pass_builder::{
-        LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
-    };
 
     unsafe {
-        let options = LLVMCreatePassBuilderOptions();
-        let err = LLVMRunPasses(module, PASS_PIPELINE.as_ptr(), tm, options);
-        LLVMDisposePassBuilderOptions(options);
-        if !err.is_null() {
-            let c_msg = LLVMGetErrorMessage(err);
-            let msg = CStr::from_ptr(c_msg).to_string_lossy().into_owned();
-            LLVMDisposeErrorMessage(c_msg);
-            return Err(msg);
-        }
+        run_passes(module, tm, PASS_PIPELINE)?;
 
+        // Emission lowers the module it is given, in place: the AMDGPU control flow passes
+        // rewrite branches into `llvm.amdgcn.if` and leave it there. Asking the same module
+        // for a second file would put that already lowered IR back through the pipeline, and
+        // the second time around it no longer selects. So the assembly is taken off a copy,
+        // and the object off the module as the optimizer left it.
         let asm = if want_asm {
-            let bytes = emit(module, tm, LLVMCodeGenFileType::LLVMAssemblyFile)?;
-            Some(String::from_utf8_lossy(&bytes).into_owned())
+            let copy = LLVMCloneModule(module);
+            let bytes = emit(copy, tm, LLVMCodeGenFileType::LLVMAssemblyFile);
+            LLVMDisposeModule(copy);
+            Some(String::from_utf8_lossy(&bytes?).into_owned())
         } else {
             None
         };
@@ -406,6 +443,46 @@ entry:
             "OCML should be inlined away:\n{asm}"
         );
         assert!(!asm.contains("s_swappc"), "no calls should survive:\n{asm}");
+
+        crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();
+    }
+
+    /// A kernel that prints reaches a code object. Left to the backend this aborts the
+    /// process rather than failing the compile, so there is nothing to assert on but the
+    /// finished object.
+    #[test]
+    fn printf_reaches_a_code_object() {
+        let ir = r#"
+@cube_printf_fmt_0 = private global [16 x i8] c"Test value: %f\0A\00"
+declare i32 @printf(ptr, ...)
+define void @k(ptr addrspace(1) %out) {
+entry:
+  %v = load float, ptr addrspace(1) %out
+  %d = fpext float %v to double
+  %r = call i32 (ptr, ...) @printf(ptr @cube_printf_fmt_0, double %d)
+  ret void
+}
+"#;
+        let finalized = finalize_ir(ir, "k", "gfx1201", 64).unwrap();
+        let (object, asm) = compile_to_object(&finalized, "gfx1201", true).unwrap();
+        assert_eq!(&object[..4], b"\x7fELF");
+
+        // The hostcall conversation, not the OpenCL buffer: the kernel talks to the host
+        // through the hostcall buffer, and leaves no `amdhsa.printf` note behind for HIP's
+        // runtime to parse, which is the path that threw on the way out of the launch.
+        let asm = asm.unwrap();
+        assert!(
+            asm.contains("hidden_hostcall_buffer"),
+            "the kernel should ask for the hostcall buffer:\n{asm}"
+        );
+        assert!(
+            !asm.contains("amdhsa.printf"),
+            "the OpenCL buffered metadata should not be emitted:\n{asm}"
+        );
+        assert!(
+            !asm.contains("__ockl_printf_begin@"),
+            "OCKL should be linked in, not left as a relocation:\n{asm}"
+        );
 
         crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();
     }

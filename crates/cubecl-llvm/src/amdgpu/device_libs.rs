@@ -11,6 +11,8 @@ use std::sync::{Mutex, OnceLock};
 
 use llvm_sys::prelude::LLVMModuleRef;
 
+use crate::amdgpu::plane_dim_for;
+
 unsafe extern "C" {
     /// See `device_libs_shim.cpp`. Returns null on success, else an owned message.
     fn cubecl_link_device_bitcode(
@@ -74,23 +76,68 @@ fn device_lib(name: &str) -> Result<&'static [u8], String> {
     Ok(bitcode)
 }
 
-/// The device libraries a kernel for `arch` links against.
-fn device_libs_for(arch: &str) -> [String; 4] {
+/// What a module needs out of the device libraries. A kernel that needs neither links nothing,
+/// and so still compiles on a machine with no `ROCm` installed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DeviceLibs {
+    /// `OCML`, for the float intrinsics the hardware has no correct answer for. See
+    /// [`ocml`](super::ocml).
+    pub math: bool,
+    /// `OCKL`, for the `__printf_*` buffer a lowered `printf` writes into. See
+    /// [`printf`](super::printf).
+    pub printf: bool,
+}
+
+impl DeviceLibs {
+    pub fn any(&self) -> bool {
+        self.math || self.printf
+    }
+}
+
+/// The device libraries a kernel for `arch` links against, in link order.
+///
+/// Each library leaves control globals undefined, and each of those is a whole bitcode file
+/// whose only job is to define one. The two math option flags are set to the conservative side:
+/// no assumption that operands are finite, and no unsafe reassociation. The other three follow
+/// the device and the code object, so they are derived rather than chosen.
+fn device_libs_for(arch: &str, needs: DeviceLibs, code_object_version: u32) -> Vec<String> {
     let isa = arch.strip_prefix("gfx").unwrap_or(arch);
-    [
-        "ocml.bc".to_string(),
-        "oclc_finite_only_off.bc".to_string(),
-        "oclc_unsafe_math_off.bc".to_string(),
-        format!("oclc_isa_version_{isa}.bc"),
-    ]
+    let mut libs = Vec::new();
+
+    if needs.math {
+        libs.push("ocml.bc".to_string());
+        libs.push("oclc_finite_only_off.bc".to_string());
+        libs.push("oclc_unsafe_math_off.bc".to_string());
+    }
+    if needs.printf {
+        libs.push("ockl.bc".to_string());
+        libs.push(format!("oclc_abi_version_{code_object_version}.bc"));
+        let wave = if plane_dim_for(arch) == 64 {
+            "on"
+        } else {
+            "off"
+        };
+        libs.push(format!("oclc_wavefrontsize64_{wave}.bc"));
+    }
+    if needs.any() {
+        // Wanted by both, so appended once here rather than by whichever asked first.
+        libs.push(format!("oclc_isa_version_{isa}.bc"));
+    }
+
+    libs
 }
 
 /// Links what `module` needs out of the `ROCm` device libraries for `arch`.
 ///
 /// # Safety
 /// `module` must be a live LLVM module, already stamped with the AMDGPU triple and layout.
-pub unsafe fn link_device_libs(module: LLVMModuleRef, arch: &str) -> Result<(), String> {
-    for name in device_libs_for(arch) {
+pub unsafe fn link_device_libs(
+    module: LLVMModuleRef,
+    arch: &str,
+    needs: DeviceLibs,
+    code_object_version: u32,
+) -> Result<(), String> {
+    for name in device_libs_for(arch, needs, code_object_version) {
         let bitcode = device_lib(&name)?;
 
         // SAFETY: `bitcode` lives for the process, and the shim only reads it.
@@ -111,14 +158,77 @@ pub unsafe fn link_device_libs(module: LLVMModuleRef, arch: &str) -> Result<(), 
 mod tests {
     use super::*;
 
-    /// The ISA control library is named by the bare architecture number.
+    const MATH: DeviceLibs = DeviceLibs {
+        math: true,
+        printf: false,
+    };
+    const PRINTF: DeviceLibs = DeviceLibs {
+        math: false,
+        printf: true,
+    };
+
+    /// The ISA control library is named by the bare architecture number, and comes along
+    /// whichever library asked.
     #[test]
     fn the_isa_library_follows_the_architecture() {
-        assert_eq!(device_libs_for("gfx1201")[3], "oclc_isa_version_1201.bc");
-        assert_eq!(device_libs_for("gfx90a")[3], "oclc_isa_version_90a.bc");
-        assert_eq!(
-            device_libs_for("gfx12-generic")[3],
-            "oclc_isa_version_12-generic.bc"
+        for needs in [MATH, PRINTF] {
+            assert_eq!(
+                device_libs_for("gfx1201", needs, 500).last().unwrap(),
+                "oclc_isa_version_1201.bc"
+            );
+            assert_eq!(
+                device_libs_for("gfx90a", needs, 500).last().unwrap(),
+                "oclc_isa_version_90a.bc"
+            );
+            assert_eq!(
+                device_libs_for("gfx12-generic", needs, 500).last().unwrap(),
+                "oclc_isa_version_12-generic.bc"
+            );
+        }
+    }
+
+    /// A kernel that needs nothing links nothing, so `ROCm` is only required by the kernels
+    /// that actually reach into it.
+    #[test]
+    fn needing_nothing_links_nothing() {
+        assert!(device_libs_for("gfx1201", DeviceLibs::default(), 500).is_empty());
+    }
+
+    /// Printing pulls in OCKL, and with it the two control globals OCML never wanted: the
+    /// code object's ABI version and the wavefront width of the device.
+    #[test]
+    fn printing_pulls_in_ockl_and_its_controls() {
+        let libs = device_libs_for("gfx1201", PRINTF, 500);
+        assert!(libs.contains(&"ockl.bc".to_string()), "{libs:?}");
+        assert!(
+            libs.contains(&"oclc_abi_version_500.bc".to_string()),
+            "{libs:?}"
         );
+        // gfx1201 is RDNA, so wave32.
+        assert!(
+            libs.contains(&"oclc_wavefrontsize64_off.bc".to_string()),
+            "{libs:?}"
+        );
+        // gfx90a is CDNA, so wave64.
+        let cdna = device_libs_for("gfx90a", PRINTF, 500);
+        assert!(
+            cdna.contains(&"oclc_wavefrontsize64_on.bc".to_string()),
+            "{cdna:?}"
+        );
+    }
+
+    /// The ISA library is not linked twice when both halves want it.
+    #[test]
+    fn the_shared_control_library_is_listed_once() {
+        let libs = device_libs_for(
+            "gfx1201",
+            DeviceLibs {
+                math: true,
+                printf: true,
+            },
+            500,
+        );
+        let isa = libs.iter().filter(|l| l.starts_with("oclc_isa_")).count();
+        assert_eq!(isa, 1, "{libs:?}");
     }
 }

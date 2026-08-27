@@ -12,11 +12,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // before the bundler's LLVM list. lld is not in `llvm-config --libs`.
     println!("cargo::rerun-if-changed=src/amdgpu/lld_shim.cpp");
     println!("cargo::rerun-if-changed=src/amdgpu/device_libs_shim.cpp");
+    println!("cargo::rerun-if-changed=src/amdgpu/printf_shim.cpp");
     let prefix = tracel_llvm_bundler::config::llvm_path()?.into_os_string();
     let mut shim = cc::Build::new();
     shim.cpp(true)
         .file("src/amdgpu/lld_shim.cpp")
-        .file("src/amdgpu/device_libs_shim.cpp");
+        .file("src/amdgpu/device_libs_shim.cpp")
+        .file("src/amdgpu/printf_shim.cpp");
 
     for flag in tracel_llvm_bundler::config::get_cxxflags(Some(&prefix))?.split_whitespace() {
         // LLVM's headers do not build clean under the `-Wall -Wextra` that `cc` adds, and

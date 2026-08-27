@@ -6,6 +6,7 @@ pub mod codegen;
 pub mod device_libs;
 pub mod lld;
 pub mod ocml;
+pub mod printf;
 
 /// Wavefront width of `arch`: 32 on RDNA (gfx10 and later), 64 on GCN and CDNA.
 pub fn plane_dim_for(arch: &str) -> u32 {
