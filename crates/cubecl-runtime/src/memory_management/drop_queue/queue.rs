@@ -1,3 +1,4 @@
+use crate::server::ServerError;
 use alloc::vec::Vec;
 use cubecl_common::bytes::Bytes;
 
@@ -7,9 +8,23 @@ use crate::memory_management::{
 
 /// A synchronization primitive that blocks until the device has finished
 /// processing all commands submitted before the fence was created.
-pub trait Fence {
-    /// Block the current thread until the signals this fence.
-    fn sync(self);
+pub trait Fence: Sized {
+    /// Block the current thread until the device signals this fence.
+    ///
+    /// # Errors
+    ///
+    /// The fault the wait reveals, when the stream itself failed.
+    fn wait(self) -> Result<(), ServerError>;
+
+    /// [`wait`](Self::wait), ignoring a fault.
+    ///
+    /// What the drop queue needs: it only has to know the device is done
+    /// reading the memory it is about to free, and a stream that faulted is
+    /// done either way. The fault reaches the caller through whatever it
+    /// touches next.
+    fn sync(self) {
+        let _ = self.wait();
+    }
 }
 
 /// Defers the drop of CPU-side [`Bytes`] allocations until the device has
@@ -154,8 +169,9 @@ mod tests {
     }
 
     impl Fence for MockFence<'_> {
-        fn sync(self) {
+        fn wait(self) -> Result<(), ServerError> {
             self.sync_count.set(self.sync_count.get() + 1);
+            Ok(())
         }
     }
 

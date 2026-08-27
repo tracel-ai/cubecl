@@ -69,8 +69,8 @@ impl StreamMemory for Stream {
 }
 
 impl drop_queue::Fence for Fence {
-    fn sync(self) {
-        let _ = self.wait_sync().ok();
+    fn wait(self) -> Result<(), ServerError> {
+        self.wait_sync()
     }
 }
 

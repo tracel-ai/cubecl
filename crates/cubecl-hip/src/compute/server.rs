@@ -9,7 +9,7 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::capture::{Captures, Refused, Window};
 use crate::{
-    compute::{command::Command, context::HipContext, fence::Fence, stream::HipStreamBackend},
+    compute::{Command, context::HipContext, fence::Fence, stream::HipStreamBackend},
     runtime::HipCompiler,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};

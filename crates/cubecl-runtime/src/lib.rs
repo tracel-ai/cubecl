@@ -49,6 +49,8 @@ pub mod logging;
 /// TMA-related runtime types
 pub mod tma;
 
+pub mod command;
+
 pub mod driver;
 
 /// Compiler trait and related types
