@@ -7,9 +7,7 @@ use cubecl_core::{
     MemoryConfiguration, MemoryUsage,
     bytes::AllocationProperty,
     ir::MemoryDeviceProperties,
-    server::{
-        BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError,
-    },
+    server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError},
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -167,19 +165,28 @@ impl<'a> Command<'a> {
     pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
         let handle = Handle::new(self.streams.current, size);
         let reserved = self.reserve(size)?;
-        self.bind(reserved, handle.memory.clone());
+        self.bind(reserved, handle.memory.clone())?;
 
         Ok(handle)
     }
 
+    /// Give `reserved`'s storage to `new`, so handles issued against `new`
+    /// resolve to it.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError`] when the reservation has no initialized storage to give.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn bind(&mut self, reserved: ManagedMemoryHandle, new: ManagedMemoryHandle) {
+    pub fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        new: ManagedMemoryHandle,
+    ) -> Result<(), IoError> {
         let cursor = self.cursor();
         let (stream, failures) = self.streams.current_and_failures();
         stream
             .memory_management_gpu
             .bind(reserved, new, cursor, failures)
-            .unwrap();
     }
 
     /// Creates a [Bytes] instance from pinned memory, if suitable for the given size.
@@ -384,7 +391,15 @@ impl<'a> Command<'a> {
 
         let data = match should_stage {
             true => {
-                let mut buffer = self.reserve_pinned(size, None).unwrap();
+                // Pinned staging is a DMA optimization, not a requirement, so
+                // an exhausted pinned pool falls back to a plain heap buffer
+                // rather than failing the write — the same answer `reserve_cpu`
+                // gives for the same condition. File-backed data still lands in
+                // real memory before the driver reads it asynchronously, which
+                // is the half of the staging that is mandatory.
+                let mut buffer = self
+                    .reserve_pinned(size, None)
+                    .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]));
                 data.copy_into(&mut buffer);
                 buffer
             }
@@ -469,9 +484,13 @@ impl<'a> Command<'a> {
     /// * `dispatch_count` - The number of thread blocks in the x, y, and z dimensions.
     /// * `resources` - GPU resources (e.g., buffers) used by the kernel.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// * If the execution fails, with an error message or profiling error.
+    /// The driver's refusal to enqueue the launch, returned whether or not a
+    /// profile is open. An open profile is not a reason to hold the failure
+    /// here: the caller's write scope is what claims the buffers the launch
+    /// never wrote, and the caller invalidates every open profile on the same
+    /// path, so keeping it would lose the claim and duplicate the report.
     pub fn kernel(
         &mut self,
         kernel_id: KernelId,
@@ -490,14 +509,7 @@ impl<'a> Command<'a> {
             stream.drop_queue.flush(|| Fence::new(stream.sys));
         }
 
-        if let Err(err) = result {
-            match self.ctx.timestamps.is_empty() {
-                true => Err(err)?,
-                false => self.ctx.timestamps.error(ProfileError::Launch(err)),
-            }
-        };
-
-        Ok(())
+        result
     }
 }
 
@@ -634,8 +646,8 @@ unsafe fn write_to_gpu(
 
         // SAFETY: For rank > 1, the 2D copy uses the computed pitch (stride) to correctly
         // lay out rows in device memory. `resource.ptr` has been allocated with the pitched size.
-        unsafe {
-            let status = cubecl_hip_sys::hipMemcpy2DAsync(
+        let status = unsafe {
+            cubecl_hip_sys::hipMemcpy2DAsync(
                 resource.ptr,
                 stride_bytes,
                 ptr,
@@ -644,14 +656,18 @@ unsafe fn write_to_gpu(
                 height,
                 hipMemcpyKind_hipMemcpyHostToDevice,
                 stream,
-            );
-            assert_eq!(
-                status, HIP_SUCCESS,
-                "Should send data to device (2D copy: shape {shape:?}, strides {strides:?}, \
-                 elem_size {elem_size}, dpitch {stride_bytes}, width {width_bytes}, \
-                 height {height}, resource size {})",
-                resource.size
-            );
+            )
+        };
+        if status != HIP_SUCCESS {
+            return Err(IoError::Unknown {
+                description: format!(
+                    "HIP 2D memcpy to device failed: {status} (shape {shape:?}, \
+                     strides {strides:?}, elem_size {elem_size}, dpitch {stride_bytes}, \
+                     width {width_bytes}, height {height}, resource size {})",
+                    resource.size
+                ),
+                backtrace: BackTrace::capture(),
+            });
         }
     } else {
         if resource.size < data.len() as u64 {
@@ -667,9 +683,13 @@ unsafe fn write_to_gpu(
         // SAFETY: For rank <= 1 data is contiguous, the bound check above ensures the
         // device allocation is large enough, and `ptr` points to valid host data of
         // `data.len()` bytes.
-        unsafe {
-            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(resource.ptr, ptr, data.len(), stream);
-            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+        let status =
+            unsafe { cubecl_hip_sys::hipMemcpyHtoDAsync(resource.ptr, ptr, data.len(), stream) };
+        if status != HIP_SUCCESS {
+            return Err(IoError::Unknown {
+                description: format!("HIP memcpy to device failed: {status}"),
+                backtrace: BackTrace::capture(),
+            });
         }
     };
 

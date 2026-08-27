@@ -82,12 +82,16 @@ impl ComputeServer for HipServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+        // Fatal rather than reported: `initialize_memory` has no error channel,
+        // and an allocation that never got its storage cannot be handed back
+        // as a taint either — nothing has a binding to it yet.
         let mut command = self.command_no_inputs(stream_id);
-
         let reserved = command
             .reserve(size)
             .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of device memory: {err}"));
-        command.bind(reserved, memory);
+        command
+            .bind(reserved, memory)
+            .unwrap_or_else(|err| panic!("failed to bind {size} bytes of device memory: {err}"));
     }
 
     fn read(
@@ -528,13 +532,14 @@ impl HipServer {
             // One option is to create a dummy kernel with 1 thread that launches the real kernel with the dynamic dispatch settings.
             // For now, just read the dispatch settings from the buffer.
             CubeCount::Dynamic(binding) => {
+                // Inside the write scope, so a failed readback claims what the
+                // launch would have written rather than aborting the process.
                 let data = future::block_on(command.read_async(vec![CopyDescriptor::new(
                     binding,
                     [3].into(),
                     [1].into(),
                     4,
-                )]))
-                .unwrap();
+                )]))?;
                 let data = bytemuck::cast_slice(&data[0]);
                 assert!(
                     data.len() == 3,
