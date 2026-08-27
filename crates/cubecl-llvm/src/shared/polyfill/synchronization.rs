@@ -22,24 +22,22 @@ impl LowerOp for SyncOp {
         let op = self.get_operation();
 
         match sync_scope {
-            // A plane is one unit on the CPU, so it is always in sync with itself. On the GPU
-            // it is a wavefront, which executes in lockstep for the same reason.
-            SyncScope::Plane => {}
-            SyncScope::Cube => match target {
+            // A unit is always in sync with itself.
+            SyncScope::Unit => {}
+            SyncScope::Plane => match target {
+                // A plane is one unit on the CPU, so there is nothing to synchronize.
+                LlvmTarget::Cpu => {}
+                LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_plane(scope),
+            },
+            // A device wide barrier is a cube barrier on the GPU, as it is in the C++ backends:
+            // a kernel cannot synchronize past its own cube.
+            SyncScope::Cube | SyncScope::Device => match target {
+                LlvmTarget::Cpu if sync_scope == SyncScope::Device => {
+                    panic!("Device wide synchronization is not supported by the CPU runtime")
+                }
                 LlvmTarget::Cpu => crate::cpu::synchronization::lower_sync_cube(scope, op),
                 LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_cube(scope),
             },
-            SyncScope::Device => match target {
-                LlvmTarget::Cpu => {
-                    panic!("Device wide synchronization is not supported by the CPU runtime")
-                }
-                LlvmTarget::AmdGpu => {
-                    unimplemented!(
-                        "device wide synchronization is not supported on the AMDGPU target yet"
-                    )
-                }
-            },
-            SyncScope::Unit => {}
         }
         vec![]
     }
