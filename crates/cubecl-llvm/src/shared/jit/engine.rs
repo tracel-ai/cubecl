@@ -1,3 +1,4 @@
+use cubecl_runtime::kernel::BufferIOAttr;
 use std::ffi::c_void;
 use std::fmt::Display;
 use std::rc::Rc;
@@ -37,7 +38,7 @@ struct JitKernel {
     /// What the kernel does with each buffer binding, by buffer position --
     /// read off the IR before the entry ABI lowering erased the arguments,
     /// for the launch path's taint bookkeeping.
-    io: Vec<cubecl_runtime::kernel::BufferIO>,
+    io: Vec<BufferIOAttr>,
     _lljit: LLVMLLJIT,
     _llvm_ctx: Rc<LLVMContext>,
 }
@@ -59,7 +60,7 @@ impl PlironEngine {
         module: ModuleOp,
         kernel_name: &str,
         requirements: KernelRequirements,
-        io: Vec<cubecl_runtime::kernel::BufferIO>,
+        io: Vec<BufferIOAttr>,
     ) -> pliron::result::Result<Self> {
         INIT_NATIVE.call_once(|| {
             initialize_native().expect("failed to initialize native target");
@@ -104,7 +105,7 @@ impl PlironEngine {
     }
 
     /// What the kernel does with each buffer binding, by buffer position.
-    pub fn buffer_io(&self) -> &[cubecl_runtime::kernel::BufferIO] {
+    pub fn buffer_io(&self) -> &[BufferIOAttr] {
         &self.0.io
     }
 

@@ -26,7 +26,7 @@ use cubecl_runtime::{
     memory_management::{InstallMemoryPoolsError, ManagedMemoryHandle},
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
-    stream::{EventStreamBackend, MultiStream, ResolvedStreams, WriteScoped},
+    stream::{EventStreamBackend, FailureStore, MultiStream, ResolvedStreams, WriteScoped},
     timestamp_profiler::TimestampProfiler,
 };
 use objc2::rc::Retained;
@@ -170,10 +170,7 @@ impl MetalServer {
     /// Mark every open profile invalid: a failure inside a profiling window
     /// invalidates the measurement. A no-op with no profile open.
     fn profile_failure(&mut self, error: &ServerError) {
-        self.timestamps.error(ProfileError::Unknown {
-            reason: format!("{error}"),
-            backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-        });
+        self.timestamps.failure(error);
     }
 }
 

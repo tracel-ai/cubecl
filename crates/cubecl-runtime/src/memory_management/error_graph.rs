@@ -83,14 +83,14 @@ pub struct Skipped {
     pub produced: Vec<ManagedMemoryId>,
 }
 
-/// How many [`Skipped`] records one failure keeps. Newest win: the walk a
-/// read makes starts from the most recent buffers, so keeping the oldest
-/// would leave them with no entry to start from, while a deep chain reaching
-/// a gap before the root costs nothing — the root is on the node itself and
-/// never in the list.
-pub const MAX_SKIPPED: usize = 16;
-
 impl ErrorGraph {
+    /// How many [`Skipped`] records one failure keeps. Newest win: the walk a
+    /// read makes starts from the most recent buffers, so keeping the oldest
+    /// would leave them with no entry to start from, while a deep chain
+    /// reaching a gap before the root costs nothing — the root is on the node
+    /// itself and never in the list.
+    pub const MAX_SKIPPED: usize = 16;
+
     /// Hold `error` until nothing carries its id any more.
     ///
     /// The node starts carried by nothing, so a caller that taints no slice
@@ -115,13 +115,13 @@ impl ErrorGraph {
     }
 
     /// Record a launch `failure` stopped — see [`Skipped`]. Keeps the newest
-    /// [`MAX_SKIPPED`] records and counts them all.
+    /// [`MAX_SKIPPED`](Self::MAX_SKIPPED) records and counts them all.
     pub fn skipped(&mut self, failure: FailureId, record: Skipped) {
         let Some(node) = self.nodes.get_mut(&failure) else {
             return;
         };
         node.skipped_total += 1;
-        if node.skipped.len() == MAX_SKIPPED {
+        if node.skipped.len() == Self::MAX_SKIPPED {
             node.skipped.remove(0);
         }
         node.skipped.push(record);
@@ -226,7 +226,8 @@ impl ErrorGraph {
         self.nodes.get(&failure).map(|node| &node.error)
     }
 
-    /// How many failures the device is still holding.
+    /// How many failures the device is still holding — the bound the whole
+    /// design rests on, which is why the property harness watches it.
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
@@ -369,14 +370,14 @@ mod tests {
         let failure = graph.insert(error("root"));
         graph.tag(failure);
 
-        for i in 0..(MAX_SKIPPED + 4) {
+        for i in 0..(ErrorGraph::MAX_SKIPPED + 4) {
             graph.skipped(
                 failure,
                 skip(KernelId::new::<Fill>(), memory_id(i), &[memory_id(i + 1)]),
             );
         }
 
-        let newest = memory_id(MAX_SKIPPED + 4);
+        let newest = memory_id(ErrorGraph::MAX_SKIPPED + 4);
         let report = graph.report(failure, newest).unwrap();
         let text = alloc::format!("{report}");
         assert!(

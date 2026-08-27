@@ -12,23 +12,37 @@
 //! this type owns the carrier side of the refcount — one tag per failure per
 //! allocation, held while that failure still claims at least one byte.
 //!
-//! A clean slice pays one word: the entries live behind a `Box` that exists
-//! only while something is tainted.
+//! # Why the storage is inline
+//!
+//! Every launch that writes anything runs the whole cycle on the success
+//! path: the write scope claims each buffer on the way in and releases it on
+//! the way out. So the case to price is not the clean slice, it is *one
+//! failure over one range, held for the length of a launch* — and behind a
+//! `Box<Vec<Vec<_>>>` that case cost three allocations and three frees per
+//! written buffer per launch. Inline capacity for one claim of one range
+//! makes it cost none, for about four words on a slice that already holds a
+//! storage handle, a memory handle, a cursor and its padding. A second
+//! failure, or a range a partial write split in two, spills to the heap as
+//! before.
 
 use super::{ErrorGraph, FailureId};
-use alloc::boxed::Box;
-use alloc::vec::Vec;
 use core::ops::Range;
+use smallvec::SmallVec;
+
+/// The claims one allocation carries before spilling to the heap. One: a
+/// launch's write scope claims the whole binding under a single failure, and
+/// that is what every launch of a working program does.
+type Claims = SmallVec<[Tainted; 1]>;
+
+/// The ranges one claim covers before spilling. One: a claim starts as the
+/// whole binding and only splits when a partial write lands inside it.
+type Ranges = SmallVec<[Range<u64>; 1]>;
 
 /// The tainted regions of one allocation, refcounted into the device's
 /// [`ErrorGraph`].
 #[derive(Debug, Default)]
 pub struct Taint {
-    // The indirection is the point, not an accident: every slice carries this
-    // field, and the box keeps the clean case at one word instead of a vec's
-    // three. The double allocation only ever costs a slice that is tainted.
-    #[allow(clippy::box_collection)]
-    entries: Option<Box<Vec<Tainted>>>,
+    entries: Claims,
 }
 
 /// One failure's claim on the allocation.
@@ -37,7 +51,7 @@ struct Tainted {
     failure: FailureId,
     /// The bytes this failure left unwritten: disjoint, sorted, never empty.
     /// More than one range because a partial write can split a claim in two.
-    ranges: Vec<Range<u64>>,
+    ranges: Ranges,
 }
 
 impl Taint {
@@ -53,7 +67,7 @@ impl Taint {
         if range.is_empty() {
             return;
         }
-        let entries = self.entries.get_or_insert_default();
+        let entries = &mut self.entries;
         entries.retain_mut(|entry| {
             if entry.failure == failure {
                 return true;
@@ -73,7 +87,7 @@ impl Taint {
                 failures.tag(failure);
                 entries.push(Tainted {
                     failure,
-                    ranges: alloc::vec![range],
+                    ranges: Ranges::from_buf([range]),
                 });
             }
         }
@@ -83,13 +97,10 @@ impl Taint {
     /// and only on them — a write covering part of a buffer says nothing
     /// about the rest, which keeps carrying the failure that left it stale.
     pub fn written(&mut self, range: Range<u64>, failures: &mut ErrorGraph) {
-        let Some(entries) = self.entries.as_mut() else {
-            return;
-        };
         if range.is_empty() {
             return;
         }
-        entries.retain_mut(|entry| {
+        self.entries.retain_mut(|entry| {
             subtract(&mut entry.ranges, &range);
             match entry.ranges.is_empty() {
                 true => {
@@ -99,9 +110,6 @@ impl Taint {
                 false => true,
             }
         });
-        if entries.is_empty() {
-            self.entries = None;
-        }
     }
 
     /// The failure claiming any byte of `range`, if one does.
@@ -109,8 +117,7 @@ impl Taint {
     /// A range overlapping several failures names one of them: the read fails
     /// either way, and the caller dedupes by id across a whole read anyway.
     pub fn failure(&self, range: &Range<u64>) -> Option<FailureId> {
-        let entries = self.entries.as_ref()?;
-        entries
+        self.entries
             .iter()
             .find(|entry| entry.ranges.iter().any(|held| overlaps(held, range)))
             .map(|entry| entry.failure)
@@ -120,16 +127,14 @@ impl Taint {
     /// is rebound, coalesced away, tombstoned or swept — since a tag must not
     /// outlive its carrier.
     pub fn clear(&mut self, failures: &mut ErrorGraph) {
-        if let Some(entries) = self.entries.take() {
-            for entry in entries.into_iter() {
-                failures.untag(Some(entry.failure));
-            }
+        for entry in core::mem::take(&mut self.entries) {
+            failures.untag(Some(entry.failure));
         }
     }
 
     /// Whether nothing claims any byte.
     pub fn is_clean(&self) -> bool {
-        self.entries.is_none()
+        self.entries.is_empty()
     }
 }
 
@@ -140,7 +145,7 @@ fn overlaps(a: &Range<u64>, b: &Range<u64>) -> bool {
 }
 
 /// Remove `cut` from `ranges`, splitting a range it lands inside.
-fn subtract(ranges: &mut Vec<Range<u64>>, cut: &Range<u64>) {
+fn subtract(ranges: &mut Ranges, cut: &Range<u64>) {
     let mut index = 0;
     while index < ranges.len() {
         let held = ranges[index].clone();
@@ -173,7 +178,7 @@ fn subtract(ranges: &mut Vec<Range<u64>>, cut: &Range<u64>) {
 
 /// Add `new` to `ranges`, fusing whatever it overlaps or touches so the list
 /// stays disjoint and sorted.
-fn add(ranges: &mut Vec<Range<u64>>, mut new: Range<u64>) {
+fn add(ranges: &mut Ranges, mut new: Range<u64>) {
     ranges.retain(|held| {
         // Touching counts: [0, 10) and [10, 20) fuse into [0, 20).
         let fuses = held.start <= new.end && new.start <= held.end;
@@ -296,9 +301,9 @@ mod tests {
         taint.taint(20..30, failure, &mut graph);
         taint.taint(10..20, failure, &mut graph);
 
-        let entries = taint.entries.as_ref().unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].ranges, alloc::vec![0..30]);
+        assert_eq!(taint.entries.len(), 1);
+        assert_eq!(taint.entries[0].ranges.len(), 1);
+        assert_eq!(taint.entries[0].ranges[0], 0..30);
     }
 
     /// Clearing releases every claim at once, for the slice that stops

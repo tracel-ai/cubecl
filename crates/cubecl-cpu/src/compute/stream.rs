@@ -8,7 +8,6 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
 };
-use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     logging::ServerLogger,
@@ -181,10 +180,7 @@ impl CpuStream {
     /// Mark every open profile invalid: a failure inside a profiling window
     /// invalidates the measurement. A no-op with no profile open.
     pub fn profile_failure(&mut self, error: &ServerError) {
-        self.timestamps.error(ProfileError::Unknown {
-            reason: alloc::format!("{error}"),
-            backtrace: BackTrace::capture(),
-        });
+        self.timestamps.failure(error);
     }
 
     /// Allocates a new empty buffer using the main memory pool.

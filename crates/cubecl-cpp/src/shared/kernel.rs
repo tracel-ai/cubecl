@@ -1,7 +1,7 @@
 use crate::shared::ty::TypeExtCPP;
 
 use cubecl_core::ir::metadata::Info;
-use cubecl_runtime::kernel::{BufferIO, Visibility};
+use cubecl_runtime::kernel::{BufferIOAttr, Visibility};
 use pliron::context::Context;
 
 use core::fmt::{Display, Write};
@@ -12,7 +12,7 @@ pub struct ComputeKernel {
     /// What the kernel does with each buffer binding, by buffer position —
     /// the four-state answer the launch path's taint bookkeeping consumes.
     /// Unlike [`buffers`](Self::buffers) this is never widened or collapsed.
-    pub io: Vec<BufferIO>,
+    pub io: Vec<BufferIOAttr>,
     /// The emitted source, rendered once during `compile_ir` where emission errors can still
     /// fail the compilation.
     pub source: String,

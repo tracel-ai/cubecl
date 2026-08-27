@@ -3,7 +3,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, ManagedMemoryId, SharedMemoryBindings},
     server::{BufferBinding, ServerError},
-    stream::{StreamFactory, StreamMemory, StreamPool},
+    stream::{FailureStore, Failures, StreamFactory, StreamMemory, StreamPool},
 };
 use core::any::Any;
 use cubecl_environment::collections::HashMap;
@@ -51,31 +51,24 @@ pub trait EventStreamBackend: 'static {
 pub struct MultiStream<B: EventStreamBackend> {
     /// The map of stream IDs to their corresponding stream wrappers.
     streams: StreamPool<EventStreamBackendWrapper<B>>,
-    /// Every failure the device is still holding — one store for all the
-    /// streams, because a launch failing on one can taint a slice owned by
-    /// another and both have to point at the same thing.
-    failures: ErrorGraph,
+    /// Every failure the device is still holding, and the write scope's
+    /// scratch — see [`Failures`].
+    failures: Failures,
     /// The logger used by the server.
     pub logger: Arc<ServerLogger>,
     max_streams: usize,
     gc: GcThread<B>,
     shared_bindings_pool: Vec<(ManagedMemoryId, StreamId, u64)>,
-    /// The vector a write scope stages its write set in, pooled here so a
-    /// launch allocates little for it.
-    write_scratch: Vec<BufferBinding>,
-    /// The one failure that is a device's rather than any buffer's: a fault
-    /// the driver reports against the context — a failed command buffer, a
-    /// validation canary, a synchronize that failed on a path with no caller
-    /// to hand it to. Reported by the next flush or sync, which is the only
-    /// thing left that nobody else can tell the caller.
-    fault: Option<ServerError>,
 }
 
 /// A wrapper around a backend stream that includes synchronization metadata.
 ///
 /// This includes the stream itself, a map of last synchronized cursors from other streams,
 /// and the current cursor position for this stream.
-pub(crate) struct StreamWrapper<B: EventStreamBackend> {
+/// A backend stream plus the synchronization metadata the pool keeps beside
+/// it. Public only because it is the pool's stream type in
+/// [`FailureStore::Factory`]; backends reach the stream itself, not this.
+pub struct StreamWrapper<B: EventStreamBackend> {
     /// The underlying backend stream.
     stream: B::Stream,
     /// The current cursor position, representing the logical progress or version of operations on this stream.
@@ -117,7 +110,9 @@ impl<B: EventStreamBackend> GcTask<B> {
 }
 
 #[derive(Debug)]
-struct EventStreamBackendWrapper<B: EventStreamBackend> {
+/// The factory a [`MultiStream`]'s pool is built from. Public only because it
+/// names the pool in [`FailureStore::Factory`]; it has no surface of its own.
+pub struct EventStreamBackendWrapper<B: EventStreamBackend> {
     backend: B,
 }
 
@@ -265,13 +260,11 @@ impl<B: EventStreamBackend> MultiStream<B> {
         let wrapper = EventStreamBackendWrapper { backend };
         Self {
             streams: StreamPool::new(wrapper, max_streams, 1),
-            failures: ErrorGraph::default(),
+            failures: Failures::new(logger.clone()),
             logger,
             max_streams: max_streams as usize,
             gc: GcThread::new(),
             shared_bindings_pool: Vec::new(),
-            write_scratch: Vec::new(),
-            fault: None,
         }
     }
 
@@ -285,69 +278,6 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.gc.sender.send(gc).unwrap();
     }
 
-    /// Fails when the buffers `handles` name carry a failure — see
-    /// [`StreamPool::ensure_written`].
-    ///
-    /// # Errors
-    ///
-    /// [`ServerError::ServerUnhealthy`] naming the work that was supposed to
-    /// write them and failed.
-    pub fn ensure_written<'a>(
-        &self,
-        handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Result<(), ServerError> {
-        self.streams.ensure_written(&self.failures, handles)
-    }
-
-    /// Taint every allocation in `written` with `error` — see
-    /// [`StreamPool::taint`].
-    pub fn taint<'a>(
-        &mut self,
-        error: ServerError,
-        written: impl Iterator<Item = &'a BufferBinding>,
-    ) {
-        self.streams.taint(error, written, &mut self.failures);
-    }
-
-    /// Release the failure on every allocation in `written` — see
-    /// [`StreamPool::written`].
-    pub fn written<'a>(&mut self, written: impl Iterator<Item = &'a BufferBinding>) {
-        self.streams.written(written, &mut self.failures);
-    }
-
-    /// The failure claiming bytes any of `reads` names — see
-    /// [`StreamPool::read_failure`].
-    pub fn read_failure<'a>(
-        &self,
-        reads: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Option<super::ReadFailure> {
-        self.streams.read_failure(&self.failures, reads)
-    }
-
-    /// A skipped launch's outputs take the failure that stopped it: nothing
-    /// wrote them, exactly as if the launch had failed, and the claim names
-    /// the root cause rather than minting a new one. The skip is recorded on
-    /// the failure, so a read of anything downstream can name the path back
-    /// to the root.
-    pub fn propagate<'a>(
-        &mut self,
-        found: &super::ReadFailure,
-        kernel: crate::id::KernelId,
-        written: impl Iterator<Item = &'a BufferBinding>,
-    ) {
-        let written: Vec<&BufferBinding> = written.collect();
-        self.failures.skipped(
-            found.failure,
-            crate::memory_management::Skipped {
-                kernel,
-                needed: found.needed,
-                produced: written.iter().map(|handle| handle.memory.id()).collect(),
-            },
-        );
-        self.streams
-            .taint_with(found.failure, written.into_iter(), &mut self.failures);
-    }
-
     /// The backend stream on `stream_id`'s slot when that slot was ever
     /// initialized, mutably — a lookup that must not create a stream (see
     /// [`StreamPool::try_get_mut`]).
@@ -355,21 +285,6 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.streams
             .try_get_mut(stream_id)
             .map(|wrapper| &mut wrapper.stream)
-    }
-
-    /// Record a device fault — see the field. The first fault wins: it is the
-    /// one that broke the context, and it is logged either way.
-    pub fn fault(&mut self, error: ServerError) {
-        self.logger.log_failure(&error);
-        if self.fault.is_none() {
-            self.fault = Some(error);
-        }
-    }
-
-    /// The device fault owed to the next flush or sync, taken — reported
-    /// once, like the queue it replaces.
-    pub fn take_fault(&mut self) -> Option<ServerError> {
-        self.fault.take()
     }
 
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary
@@ -390,7 +305,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         Ok(ResolvedStreams {
             cursor: stream.cursor,
             streams: &mut self.streams,
-            failures: &mut self.failures,
+            failures: self.failures.graph_mut(),
             current: stream_id,
             analysis,
             gc: &self.gc,
@@ -492,7 +407,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         unsafe {
             for origin in analysis.slices.keys() {
                 let stream = self.streams.get_mut_index(*origin);
-                let event = B::flush(&mut stream.stream, &mut self.failures);
+                let event = B::flush(&mut stream.stream, self.failures.graph_mut());
 
                 events.push(((origin, stream.cursor), event));
             }
@@ -515,30 +430,15 @@ impl<B: EventStreamBackend> MultiStream<B> {
     }
 }
 
-impl<B: EventStreamBackend> super::WriteStreams for MultiStream<B> {
-    fn stage(&mut self) -> Vec<BufferBinding> {
-        core::mem::take(&mut self.write_scratch)
+impl<B: EventStreamBackend> FailureStore for MultiStream<B> {
+    type Factory = EventStreamBackendWrapper<B>;
+
+    fn split(&mut self) -> (&mut StreamPool<Self::Factory>, &mut Failures) {
+        (&mut self.streams, &mut self.failures)
     }
 
-    fn enter(&mut self, written: &[BufferBinding]) -> Option<crate::memory_management::FailureId> {
-        self.streams.enter_write(written, &mut self.failures)
-    }
-
-    fn exit(
-        &mut self,
-        provisional: Option<crate::memory_management::FailureId>,
-        mut written: Vec<BufferBinding>,
-        error: Option<&ServerError>,
-    ) {
-        if let Some(error) = error {
-            // The backstop of the lazy model: the taint reports through every
-            // read, and this line covers the failure nobody ever reads.
-            self.logger.log_failure(error);
-        }
-        self.streams
-            .exit_write(provisional, &written, error, &mut self.failures);
-        written.clear();
-        self.write_scratch = written;
+    fn parts(&self) -> (&StreamPool<Self::Factory>, &Failures) {
+        (&self.streams, &self.failures)
     }
 }
 

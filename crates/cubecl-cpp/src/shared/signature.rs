@@ -322,7 +322,7 @@ pub fn shared_memory_size(ctx: &Context, module: Ptr<Operation>) -> usize {
 
 /// The four-state per-buffer IO, by buffer position — see
 /// [`buffer_io_by_position`].
-pub fn buffer_io(ctx: &Context, entry_func: FuncOp) -> Vec<cubecl_runtime::kernel::BufferIO> {
+pub fn buffer_io(ctx: &Context, entry_func: FuncOp) -> Vec<BufferIOAttr> {
     buffer_io_by_position(ctx, entry_func)
         .into_iter()
         .map(Into::into)

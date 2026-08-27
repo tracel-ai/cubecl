@@ -263,14 +263,16 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
 
     /// What the compiled kernel does with each buffer binding, by buffer
     /// position — the visibility analysis's answer, when the representation
-    /// kept it (see [`BufferIO`](crate::kernel::BufferIO)).
+    /// kept it (see [`BufferIOAttr`](crate::kernel::BufferIOAttr)).
     ///
     /// `None` reads as every buffer both read and written, the conservative
     /// direction. A compiler overriding this must answer from the IR
     /// attributes the annotate pass stamped, never from what its shader
     /// language kept — wgpu's shader visibility, for one, is deliberately
     /// forced wider than the kernel's own behavior.
-    fn buffer_io(_repr: &Self::Representation) -> Option<alloc::vec::Vec<crate::kernel::BufferIO>> {
+    fn buffer_io(
+        _repr: &Self::Representation,
+    ) -> Option<alloc::vec::Vec<crate::kernel::BufferIOAttr>> {
         None
     }
 

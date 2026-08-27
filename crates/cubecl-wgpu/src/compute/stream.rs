@@ -86,7 +86,7 @@ pub struct WgpuStream {
     /// [`WgpuMemManager::release_uniforms`].
     pub(crate) info_cache: MetadataInfoCache<(ManagedMemoryHandle, WgpuResource)>,
     /// This stream's position in the graph-capture lifecycle (see
-    /// [`StreamCaptureState`]). Enforces the ordered `graph_prepare` →
+    /// [`StreamCapture`]). Enforces the ordered `graph_prepare` →
     /// `begin_capture` → `end_capture` transitions; while recording, enqueued
     /// launches append to `recording` instead of the encoder.
     pub(crate) capturing: StreamCapture,
@@ -192,11 +192,12 @@ impl WgpuStream {
     /// launch is not — a read, a sync, a profile, a host write, a replay — has
     /// no recorded form and must not silently do nothing. One place builds the
     /// refusal so every caller reports the same thing; whether that refusal is
-    /// returned to the caller or queued as a stream error is the caller's call.
+    /// returned to the caller or landed on the buffers it left untouched is
+    /// the caller's call.
     ///
     /// # Errors
     ///
-    /// Fails while [`StreamCaptureState::Capture`] is set, naming `operation`.
+    /// Fails while [`StreamCapture::is_recording`] holds, naming `operation`.
     pub(crate) fn reject_while_recording(&self, operation: &str) -> Result<(), ServerError> {
         if !self.capturing.is_recording() {
             return Ok(());
@@ -247,10 +248,7 @@ impl WgpuStream {
     /// Mark every open profile invalid: a failure inside a profiling window
     /// invalidates the measurement. A no-op with no profile open.
     pub fn profile_failure(&mut self, error: &ServerError) {
-        self.profile_error(ProfileError::Unknown {
-            reason: alloc::format!("{error}"),
-            backtrace: BackTrace::capture(),
-        });
+        self.profile_error(error.into());
     }
 
     /// Enqueue a [`ScheduleTask`] on this stream.
@@ -292,7 +290,7 @@ impl WgpuStream {
                 // The capture lifecycle drives the info cache: while a graph is
                 // prepared or recording, every buffer is cached, none is
                 // evicted, and touched entries are pinned to the graph being
-                // built (see [`StreamCaptureState::cache_mode`]). Set on the
+                // built (see [`StreamCapture::cache_mode`]). Set on the
                 // launch path, before anything resolves an info buffer, as the
                 // hardware backends do.
                 self.info_cache.mode(self.capturing.cache_mode());
@@ -862,7 +860,7 @@ impl WgpuStream {
                 Ok(resource) => ReplayDispatch::Dynamic(resource),
                 Err(err) => {
                     // The recording is now incomplete; `end_capture` sees the
-                    // queued error and rejects the capture. It taints nothing
+                    // doomed window and rejects the capture. It taints nothing
                     // itself: rejecting the capture is what taints the buffers,
                     // and it taints every one the recording was given, this
                     // launch's included.

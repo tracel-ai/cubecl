@@ -289,13 +289,10 @@ impl<F: StreamFactory> StreamPool<F> {
         if written.is_empty() {
             return None;
         }
-        let provisional = failures.insert(ServerError::Generic {
-            reason: "the work writing this buffer was torn down before it could say what went \
-                     wrong: its write scope never reached the exit that names the real failure, \
-                     which a panic mid-launch explains"
-                .into(),
-            backtrace: BackTrace::default(),
-        });
+        // Payload-free on purpose: this node is minted and dropped again on
+        // every launch that succeeds, so it may not cost a formatted string
+        // or a stack walk. See [`ServerError::TornDown`].
+        let provisional = failures.insert(ServerError::TornDown);
         self.taint_with(provisional, written.iter(), failures);
         Some(provisional)
     }

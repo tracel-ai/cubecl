@@ -102,11 +102,22 @@ impl<R: Runtime> Graph<R> {
     /// Either way pipeline lookup, binding resolution and metadata upload
     /// happened once, at capture.
     ///
-    /// Non-blocking, like a kernel launch: this enqueues the dispatch and returns
-    /// immediately. A replay failure is not reported here — it lands in the
-    /// stream's error queue and surfaces on the next
-    /// [`sync`](ComputeClient::sync)/[`flush`](ComputeClient::flush) (e.g. when
-    /// reading the output back).
+    /// Blocking only on the enqueue: [`replay`](Self::replay) waits for the
+    /// device thread to accept the dispatch and hands back what that enqueue
+    /// said — an unknown or destroyed graph, a refusal — then returns without
+    /// waiting for the device. A failure also leaves the graph's write set
+    /// carrying it, so a read of those buffers keeps failing until a replay
+    /// lands.
+    ///
+    /// The wait is a move, not a cost. Measured with `graph_bench` on wgpu
+    /// against a fire-and-forget replay, end-to-end time per kernel is
+    /// unchanged (within a few percent at every size from 150 to 5000
+    /// dispatches) and replay still beats the ordinary launch path by the same
+    /// margin: the device-thread work happens either way, and blocking here
+    /// only stops deferring the wait to the next sync. What does change is the
+    /// enqueue measurement itself — it goes from ~0.2µs, the cost of posting
+    /// to a channel, to the real cost of enqueuing the pass — so read that
+    /// column as caller-visible latency rather than as a regression.
     ///
     /// # Safety
     ///

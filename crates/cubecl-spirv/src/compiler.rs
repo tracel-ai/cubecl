@@ -84,7 +84,7 @@ impl Compiler for SpirvCompiler {
     type Representation = SpirvKernel;
     type CompilationOptions = WgpuCompilationOptions;
 
-    fn buffer_io(repr: &Self::Representation) -> Option<Vec<cubecl_runtime::kernel::BufferIO>> {
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
         repr.io.clone()
     }
 
@@ -170,15 +170,7 @@ impl SpirvCompiler {
         entry_func: FuncOp,
         settings: KernelSettings,
         #[cfg(feature = "pliron-dump")] ir_printing_dir: Option<std::path::PathBuf>,
-    ) -> Result<
-        (
-            Module,
-            Vec<Visibility>,
-            Vec<cubecl_runtime::kernel::BufferIO>,
-            usize,
-        ),
-        CompilationError,
-    > {
+    ) -> Result<(Module, Vec<Visibility>, Vec<BufferIOAttr>, usize), CompilationError> {
         let entry = entry_func.get_entry_block(ctx);
         let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>();
         let module_op = module.get_operation();
@@ -270,7 +262,7 @@ impl SpirvCompiler {
         let io = cubecl_core::ir::attributes::buffer_io_by_position(ctx, entry_func)
             .into_iter()
             .map(Into::into)
-            .collect::<Vec<cubecl_runtime::kernel::BufferIO>>();
+            .collect::<Vec<BufferIOAttr>>();
 
         verify_operation(module_op, ctx)?;
 

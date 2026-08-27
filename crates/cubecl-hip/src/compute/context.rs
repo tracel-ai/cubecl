@@ -15,6 +15,7 @@ use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCC
 use cubecl_runtime::compiler::{
     CompilationCache, build_id_hash, compilation_store, store_compiled,
 };
+use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     compiler::CompilationError,
@@ -59,7 +60,7 @@ pub struct HipCompiledKernel {
     /// else of the compilation survives. `None` for entries persisted before
     /// the answer existed, which the launch path reads as every buffer both
     /// read and written.
-    io: Option<Arc<[cubecl_runtime::kernel::BufferIO]>>,
+    io: Option<Arc<[BufferIOAttr]>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -70,7 +71,7 @@ pub struct CompilationCacheEntry {
     /// See [`HipCompiledKernel::io`]; defaulted for entries persisted before
     /// the field existed.
     #[serde(default)]
-    io: Option<Vec<cubecl_runtime::kernel::BufferIO>>,
+    io: Option<Vec<BufferIOAttr>>,
 }
 
 impl HipContext {
@@ -352,7 +353,7 @@ impl HipContext {
         entrypoint_name: String,
         cube_dim: CubeDim,
         shared_mem_bytes: usize,
-        io: Option<Arc<[cubecl_runtime::kernel::BufferIO]>>,
+        io: Option<Arc<[BufferIOAttr]>>,
     ) -> Result<(), CompilationError> {
         let func_name = CString::new(entrypoint_name.clone()).unwrap();
 
@@ -403,13 +404,10 @@ impl HipContext {
     }
 
     /// What the compiled kernel does with each buffer binding, by buffer
-    /// position -- `None` when the kernel is not loaded or predates the
+    /// position — `None` when the kernel is not loaded or predates the
     /// answer, which the launch path reads as every buffer both read and
     /// written.
-    pub fn kernel_io(
-        &mut self,
-        kernel_id: &KernelId,
-    ) -> Option<Arc<[cubecl_runtime::kernel::BufferIO]>> {
+    pub fn kernel_io(&mut self, kernel_id: &KernelId) -> Option<Arc<[BufferIOAttr]>> {
         self.modules
             .get(kernel_id)
             .and_then(|kernel| kernel.io.clone())

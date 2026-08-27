@@ -1,5 +1,5 @@
 use super::Handle;
-use crate::kernel::BufferIO;
+use crate::kernel::BufferIOAttr;
 use crate::{
     client::ComputeClient,
     compiler::CompilationError,
@@ -75,6 +75,15 @@ pub enum ProfileError {
     /// An execution error happened during profiling
     #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
     Server(#[from] Box<ServerError>),
+}
+
+/// A failure during a profiling window invalidates the measurement, whatever
+/// the failure was. Every backend answers a launch, write or replay failure
+/// this way, so the conversion lives here rather than five times over.
+impl From<&ServerError> for ProfileError {
+    fn from(error: &ServerError) -> Self {
+        ProfileError::Server(Box::new(error.clone()))
+    }
 }
 
 impl core::fmt::Debug for ProfileError {
@@ -321,6 +330,22 @@ pub enum ServerError {
     #[error("An IO error happened\nCaused by:\n  {0}")]
     Io(#[from] IoError),
 
+    /// The work writing this buffer was torn down before it could say what
+    /// went wrong: its write scope never reached the exit that names the real
+    /// failure, which a panic mid-launch explains.
+    ///
+    /// This is the provisional error every write scope enters with, so it
+    /// carries no payload and captures no backtrace — a launch that succeeds
+    /// mints one and drops it again, and paying a `String` and a stack walk
+    /// per launch for the message nobody normally reads is the whole reason
+    /// it is a variant rather than a [`Generic`](Self::Generic).
+    #[error(
+        "The work writing this buffer was torn down before it could say what went wrong: its \
+         write scope never reached the exit that names the real failure, which a panic \
+         mid-launch explains"
+    )]
+    TornDown,
+
     /// The bytes asked about were never written: the work that was going to
     /// write them failed, or was skipped downstream of a failure. `chain`
     /// walks from the buffer asked about back toward the root, newest skip
@@ -540,7 +565,7 @@ where
     /// which `graph_prepare` plus a warmup run is what avoids. Whether an
     /// operation the window cannot record fails the call or fails
     /// `end_capture`, and whether a mid-window allocation is fatal, is the
-    /// backend's to say; see [`StreamCaptureState::Capture`](crate::stream::StreamCaptureState).
+    /// backend's to say; see [`StreamCapture`](crate::stream::StreamCapture).
     ///
     /// The default is unsupported. Two shapes of backend override it: a
     /// **hardware graph** (CUDA, HIP), where the driver records a replayable
@@ -1167,21 +1192,21 @@ impl KernelArguments {
     ///
     /// `io` is what the compiler recorded from its visibility analysis,
     /// indexed like `resources` (see
-    /// [`BufferIO`](crate::kernel::BufferIO)). `None`, or a vector shorter
+    /// [`BufferIOAttr`](crate::kernel::BufferIOAttr)). `None`, or a vector shorter
     /// than the resources, reads as written: naming a buffer the kernel only
     /// read fails a read that would have been fine, loudly; missing one it
     /// writes hands back the bytes that were there before, silently — so
     /// every fallback over-names.
     pub fn buffers_written<'a>(
         &'a self,
-        io: Option<&'a [BufferIO]>,
+        io: Option<&'a [BufferIOAttr]>,
     ) -> impl Iterator<Item = &'a BufferBinding> {
         self.buffers()
             .enumerate()
             .filter_map(move |(index, binding)| {
                 let written = io
                     .and_then(|io| io.get(index))
-                    .map(|io| io.written())
+                    .map(|io| io.is_writable())
                     .unwrap_or(true);
                 written.then_some(binding)
             })
@@ -1197,14 +1222,14 @@ impl KernelArguments {
     /// checked on everything rather than checked on nothing.
     pub fn buffers_read<'a>(
         &'a self,
-        io: Option<&'a [BufferIO]>,
+        io: Option<&'a [BufferIOAttr]>,
     ) -> impl Iterator<Item = &'a BufferBinding> {
         self.buffers()
             .enumerate()
             .filter_map(move |(index, binding)| {
                 let read = io
                     .and_then(|io| io.get(index))
-                    .map(|io| io.read())
+                    .map(|io| io.is_readable())
                     .unwrap_or(true);
                 read.then_some(binding)
             })
@@ -1536,7 +1561,7 @@ mod tests {
     /// order.
     #[test_log::test]
     fn buffer_io_drives_the_read_and_write_sets() {
-        use crate::kernel::BufferIO;
+        use crate::kernel::BufferIOAttr;
         use cubecl_environment::stream::StreamId;
 
         let stream = StreamId { value: 0 };
@@ -1547,10 +1572,10 @@ mod tests {
             Handle::new(stream, 8).binding(),
         ]);
         let io = [
-            BufferIO::ReadOnly,
-            BufferIO::WriteOnly,
-            BufferIO::ReadWrite,
-            BufferIO::Dead,
+            BufferIOAttr::ReadOnly,
+            BufferIOAttr::WriteOnly,
+            BufferIOAttr::ReadWrite,
+            BufferIOAttr::Dead,
         ];
 
         let written: Vec<_> = args.buffers_written(Some(&io)).collect();
@@ -1560,7 +1585,7 @@ mod tests {
 
         let read: Vec<_> = args.buffers_read(Some(&io)).collect();
         assert_eq!(read.len(), 2, "ReadOnly and ReadWrite are read");
-        assert!(core::ptr::eq(read[0], args.buffers().nth(0).unwrap()));
+        assert!(core::ptr::eq(read[0], args.buffers().next().unwrap()));
         assert!(core::ptr::eq(read[1], args.buffers().nth(2).unwrap()));
     }
 
@@ -1571,7 +1596,7 @@ mod tests {
     /// that were there before, silently.
     #[test_log::test]
     fn missing_io_reads_as_everything_read_and_written() {
-        use crate::kernel::BufferIO;
+        use crate::kernel::BufferIOAttr;
         use cubecl_environment::stream::StreamId;
 
         let stream = StreamId { value: 0 };
@@ -1583,7 +1608,7 @@ mod tests {
         assert_eq!(args.buffers_written(None).count(), 2);
         assert_eq!(args.buffers_read(None).count(), 2);
 
-        let short = [BufferIO::Dead];
+        let short = [BufferIOAttr::Dead];
         assert_eq!(
             args.buffers_written(Some(&short)).count(),
             1,

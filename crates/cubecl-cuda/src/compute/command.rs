@@ -386,18 +386,6 @@ impl<'a> Command<'a> {
         Ok(())
     }
 
-    /// Taints the buffers the failed work left as they were — so a later
-    /// read of one fails on this rather than copying out bytes nothing wrote.
-    /// The caller holds the only report owed. `written` is empty for a
-    /// failure that skipped no write.
-    pub fn error<'b>(
-        &mut self,
-        error: ServerError,
-        written: impl Iterator<Item = &'b BufferBinding>,
-    ) {
-        self.streams.taint(error, written);
-    }
-
     /// Writes data from the host to GPU memory as specified by the copy descriptor.
     ///
     /// # Parameters

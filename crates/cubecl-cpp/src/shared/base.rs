@@ -16,6 +16,7 @@ use crate::{
     },
     target::{CppTarget, Shared, Target},
 };
+use cubecl_runtime::kernel::BufferIOAttr;
 
 use super::ComputeKernel;
 use core::marker::PhantomData;
@@ -120,7 +121,7 @@ where
     type Representation = ComputeKernel;
     type CompilationOptions = CompilationOptions;
 
-    fn buffer_io(repr: &Self::Representation) -> Option<Vec<cubecl_runtime::kernel::BufferIO>> {
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
         Some(repr.io.clone())
     }
 

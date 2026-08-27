@@ -3,6 +3,7 @@ use crate::compiler::wgsl::{
     self, EnableFeaturesPass, builtin::LowerBuiltinsPass, lower::LowerOpsWgslPass,
     metadata::declare_info, rewrite_args, shared_memory_size, types,
 };
+use cubecl_runtime::kernel::BufferIOAttr;
 
 use cubecl_core::{
     WgpuCompilationOptions,
@@ -56,7 +57,7 @@ impl cubecl_core::Compiler for WgslCompiler {
     type Representation = ComputeShader;
     type CompilationOptions = WgpuCompilationOptions;
 
-    fn buffer_io(repr: &Self::Representation) -> Option<Vec<cubecl_runtime::kernel::BufferIO>> {
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
         Some(repr.io.clone())
     }
 

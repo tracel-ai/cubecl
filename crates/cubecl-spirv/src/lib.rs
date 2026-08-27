@@ -1,5 +1,6 @@
 #![allow(unknown_lints, unnecessary_transmutes)]
 
+use cubecl_runtime::kernel::BufferIOAttr;
 use std::{
     fmt::{Debug, Display},
     sync::Arc,
@@ -32,7 +33,7 @@ pub struct SpirvKernel {
     /// entries persisted before the field existed, which reads as no answer:
     /// every buffer both read and written.
     #[serde(default)]
-    pub io: Option<Vec<cubecl_runtime::kernel::BufferIO>>,
+    pub io: Option<Vec<BufferIOAttr>>,
     pub shared_size: usize,
     pub immediate_size: Option<usize>,
     pub info_visibility: Visibility,

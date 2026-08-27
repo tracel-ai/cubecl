@@ -30,8 +30,8 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
     storage::{BytesStorage, ComputeStorage, ManagedResource},
-    stream::WriteScoped,
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
+    stream::{FailureStore, WriteScoped},
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -264,7 +264,7 @@ impl ComputeServer for CpuServer {
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
-        // No health gate, as on every other backend: a queued error is the
+        // No health gate, as on every other backend: a failure is the
         // caller's to surface at its next flush, and refusing the write here
         // would leave the buffer unwritten for a caller whose flush has already
         // reported and cleared that error.

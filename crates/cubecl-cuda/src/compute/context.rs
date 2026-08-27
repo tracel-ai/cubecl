@@ -1,6 +1,7 @@
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::{
     compiler::{CompilationError, build_id_hash},
     validation::{validate_cube_dim, validate_units},
@@ -63,7 +64,7 @@ pub struct CompiledKernel {
     /// else of the compilation survives. `None` for entries persisted before
     /// the answer existed, which the launch path reads as every buffer both
     /// read and written.
-    io: Option<Arc<[cubecl_runtime::kernel::BufferIO]>>,
+    io: Option<Arc<[BufferIOAttr]>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
@@ -74,7 +75,7 @@ pub struct PtxCacheEntry {
     /// See [`CompiledKernel::io`]; defaulted for entries persisted before the
     /// field existed.
     #[serde(default)]
-    io: Option<Vec<cubecl_runtime::kernel::BufferIO>>,
+    io: Option<Vec<BufferIOAttr>>,
 }
 
 impl CudaContext {
@@ -299,7 +300,7 @@ impl CudaContext {
         entrypoint_name: String,
         cube_dim: CubeDim,
         shared_mem_bytes: usize,
-        io: Option<Arc<[cubecl_runtime::kernel::BufferIO]>>,
+        io: Option<Arc<[BufferIOAttr]>>,
     ) -> Result<(), CompilationError> {
         let func_name = CString::new(entrypoint_name).unwrap();
         // SAFETY: `ptx` is a valid null-terminated PTX binary from NVRTC. `func_name` is a
@@ -333,13 +334,10 @@ impl CudaContext {
     }
 
     /// What the compiled kernel does with each buffer binding, by buffer
-    /// position -- `None` when the kernel is not loaded or predates the
+    /// position — `None` when the kernel is not loaded or predates the
     /// answer, which the launch path reads as every buffer both read and
     /// written.
-    pub fn kernel_io(
-        &mut self,
-        kernel_id: &KernelId,
-    ) -> Option<Arc<[cubecl_runtime::kernel::BufferIO]>> {
+    pub fn kernel_io(&mut self, kernel_id: &KernelId) -> Option<Arc<[BufferIOAttr]>> {
         self.modules
             .get(kernel_id)
             .and_then(|kernel| kernel.io.clone())

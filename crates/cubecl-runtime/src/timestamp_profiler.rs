@@ -2,7 +2,7 @@ use cubecl_common::profile::{Instant, ProfileDuration};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 
-use crate::server::{ProfileError, ProfilingToken};
+use crate::server::{ProfileError, ProfilingToken, ServerError};
 
 #[derive(Default, Debug)]
 /// A simple struct to keep track of timestamps for kernel execution.
@@ -53,5 +53,18 @@ impl TimestampProfiler {
         self.state
             .iter_mut()
             .for_each(|(_, state)| *state = State::Error(error.clone()));
+    }
+
+    /// Mark every open profile invalid because device work failed.
+    ///
+    /// This is what keeps a tuning candidate that failed from benchmarking at
+    /// close to zero and winning the tune. A no-op with no profile open, so a
+    /// failure path calls it unconditionally and pays nothing for the common
+    /// case of no measurement in flight.
+    pub fn failure(&mut self, error: &ServerError) {
+        if self.state.is_empty() {
+            return;
+        }
+        self.error(error.into());
     }
 }

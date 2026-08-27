@@ -1,3 +1,4 @@
+use cubecl_runtime::kernel::BufferIOAttr;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
@@ -43,11 +44,11 @@ use cubecl_runtime::{
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
     storage::ManagedResource,
-    stream::WriteScoped,
     stream::scheduler::{
         SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
         SchedulerStreamBackend,
     },
+    stream::{FailureStore, WriteScoped},
     validation::{validate_cube_dim, validate_units},
 };
 use wgpu::ComputePipeline;
@@ -66,7 +67,7 @@ pub enum ParamsTransfer {
 pub type PipelineEntry = (
     Arc<ComputePipeline>,
     CompilerInfo,
-    Option<Arc<[cubecl_runtime::kernel::BufferIO]>>,
+    Option<Arc<[BufferIOAttr]>>,
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -400,12 +401,12 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // Writes go on the queue, not the encoder — they cannot be recorded
         // into a software graph (v1; CUDA records them as memcpy nodes).
         //
-        // Rejected lazily, and queued on the caller. When the caller is the
-        // stream recording the capture, that is what fails its `end_capture`
-        // rather than handing back a graph missing an operation. When it is a
-        // neighbour sharing the pooled stream, the write was never going into
-        // anyone's graph and the refusal is the neighbour's own to surface —
-        // failing a capture on it would report one stream's window to another.
+        // Rejected lazily. When the caller is the stream recording the
+        // capture, the refusal dooms its `end_capture` rather than handing
+        // back a graph missing an operation. When it is a neighbour sharing
+        // the pooled stream, the write was never going into anyone's graph and
+        // the taint on its own destinations is the whole report — dooming a
+        // capture on it would charge one stream's window to another.
         {
             let recording = self
                 .scheduler
@@ -759,9 +760,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         stream.capturing.begin()?;
 
-        // Submit the warmup work and surface its queued errors now, so a
-        // warmup failure is reported here — where the diagnostic points at the
-        // cause — instead of failing `end_capture` later.
+        // Submit the warmup work and surface its failure now, so a warmup
+        // failure is reported here — where the diagnostic points at the cause
+        // — instead of dooming `end_capture` later.
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         if let Err(err) = stream.flush(stream_id, failures) {
             // The capture never opened: disarm retention and return to
@@ -798,13 +799,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         let written = stream.capturing.take_recorded();
         let mut retained = stream.mem_manage.capture_end();
 
-        // An error queued during the window (a rejected write, a failed
+        // A failure raised during the window (a rejected write, a failed
         // binding) means the recording is missing an operation: reject the
-        // capture rather than hand back a graph that silently skips work.
-        // `begin_capture` drained pre-window errors, so anything here arose
-        // inside the window. Draining them here is also what keeps an
-        // abandoned window from leaving its errors queued for a stream that
-        // may never flush again.
+        // capture rather than hand back a graph that silently skips work. The
+        // window is doomed from the moment one lands, so what is read here
+        // arose inside it and nowhere else.
         // A rejection inside the window — a write that cannot be recorded, a
         // launch whose input carried a failure — doomed the recording: it is
         // missing an operation and must not seal.
@@ -815,7 +814,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             ))
         });
         let discarded = match outcome.is_abandoned() {
-            true => Some(outcome.abandoned_error(stream_id, doomed.into_iter().collect())),
+            true => Some(outcome.abandoned_error(stream_id, doomed)),
             false => doomed,
         };
         if let Some(err) = discarded {
@@ -850,7 +849,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
 
         // A use-after-free in the caller's own code, with the caller standing
-        // right there: returned, not queued. Nothing to taint either — the
+        // right there, so it is returned. Nothing to taint either — the
         // graph is gone, and with it the record of which buffers its launches
         // would have written.
         let Some(wgpu_graph) = self.graphs.get(&graph) else {

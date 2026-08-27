@@ -26,6 +26,7 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
+use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
     compiler::CubeTask,
@@ -39,7 +40,7 @@ use cubecl_runtime::{
     },
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
-    stream::{MultiStream, WriteScoped},
+    stream::{FailureStore, MultiStream, WriteScoped},
 };
 use cudarc::driver::sys::{
     CUstream_st, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
@@ -467,7 +468,12 @@ impl ComputeServer for CudaServer {
             // A launch inside the window read a buffer carrying a failure, so
             // the recording is missing an operation and must not seal; the
             // driver capture still has to be closed below either way.
-            let doomed = stream.capturing.take_failure();
+            let doomed = stream.capturing.take_failure().map(|reason| {
+                ServerError::graph_state(format!(
+                    "capture recorded a launch whose input carried a failure, so the recording \
+                     is missing an operation and cannot seal: {reason}"
+                ))
+            });
             // SAFETY: ends the capture begun on this stream and instantiates the
             // recorded graph into an executable; the intermediate `graph` is freed
             // whether or not instantiation succeeds, leaving only the `exec` the
@@ -479,12 +485,9 @@ impl ComputeServer for CudaServer {
                     cudarc::driver::sys::cuStreamEndCapture(stream.sys, &mut graph),
                 )
                 .and_then(|_| {
-                    if let Some(reason) = doomed {
+                    if let Some(doomed) = doomed.clone() {
                         cudarc::driver::sys::cuGraphDestroy(graph);
-                        return Err(ServerError::graph_state(format!(
-                            "capture recorded a launch whose input carried a failure, so the \
-                             recording is missing an operation and cannot seal: {reason}"
-                        )));
+                        return Err(doomed);
                     }
                     // A capture that recorded a memory node is unusable: the graph allocates on
                     // launch and never frees, so the driver rejects every relaunch with
@@ -527,9 +530,8 @@ impl ComputeServer for CudaServer {
             // for below, since those launches never ran and now never will.
             let written = stream.capturing.take_recorded();
             // An abandoned window has no graph to hand back: destroy whatever
-            // was instantiated and report instead, taking the owner's queued
-            // errors along so nothing is left waiting on a logical stream that
-            // may never flush again.
+            // was instantiated and report instead, carrying along whatever had
+            // already doomed the recording so the caller sees both reasons.
             let exec = match outcome.is_abandoned() {
                 false => exec,
                 true => {
@@ -540,7 +542,7 @@ impl ComputeServer for CudaServer {
                             cudarc::driver::sys::cuGraphExecDestroy(exec);
                         }
                     }
-                    Err(outcome.abandoned_error(stream_id, Vec::new()))
+                    Err(outcome.abandoned_error(stream_id, doomed))
                 }
             };
             match exec {
@@ -805,22 +807,17 @@ impl ServerCommunication for CudaServer {
         // Staged before the bindings are consumed below.
         let destination = dst.clone();
 
-        // We create a command on the server to retrieve the correct resource of the source and the destination
-        // from the memory pools.
+        // The collective needs both bindings on one stream, and nothing below
+        // can proceed without that. The destination keeps whatever it held, so
+        // it takes the failure: a read of it has to fail on this rather than
+        // take those bytes for a result.
         if src.stream != dst.stream {
-            for stream in [src.stream, dst.stream].iter() {
-                let mut command = self.command_no_inputs(*stream)?;
-                // The reduction is refused, so its destination keeps whatever
-                // it held: a read of it has to fail on this rather than take
-                // the bytes for a result.
-                command.error(
-                    ServerError::Generic {
-                        reason: "Source and destination should be on the same stream.".into(),
-                        backtrace: BackTrace::capture(),
-                    },
-                    [&destination].into_iter(),
-                );
-            }
+            let error = ServerError::Generic {
+                reason: "Source and destination should be on the same stream.".into(),
+                backtrace: BackTrace::capture(),
+            };
+            self.taint_returned(stream_id, error.clone(), &destination);
+            return Err(error);
         }
 
         let mut command_src = self.command(stream_id, [&src, &dst].into_iter())?;
@@ -1076,10 +1073,7 @@ impl CudaServer {
     /// that failed from benchmarking at close to zero and winning the tune. A
     /// no-op with no profile open.
     fn profile_failure(&mut self, error: &ServerError) {
-        self.ctx.timestamps.error(ProfileError::Unknown {
-            reason: alloc::format!("{error}"),
-            backtrace: BackTrace::capture(),
-        });
+        self.ctx.timestamps.failure(error);
     }
 
     /// Taint what a failure the caller is already being handed left as it was,
@@ -1104,7 +1098,7 @@ impl CudaServer {
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        io: Option<&[cubecl_runtime::kernel::BufferIO]>,
+        io: Option<&[BufferIOAttr]>,
     ) -> Result<(), ServerError> {
         let address_type = kernel_id.address_type;
         let grid_constants = self
@@ -1207,7 +1201,7 @@ impl CudaServer {
     }
 
     /// Enqueue a graph replay, returning any error to [`replay`](ComputeServer::replay)
-    /// to push onto the stream's error queue. Mirrors [`launch_checked`]: the
+    /// to hand back to the caller. Mirrors [`launch_checked`]: the
     /// stream's existing errors are ignored (they surface on the next sync) so a
     /// replay just adds its own on failure.
     ///

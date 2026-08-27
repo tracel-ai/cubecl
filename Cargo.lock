@@ -1073,6 +1073,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "smallvec",
  "tempfile",
  "test-log",
  "thiserror",

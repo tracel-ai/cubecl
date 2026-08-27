@@ -216,7 +216,7 @@ pub struct ComputeShader {
     /// for the shader: the shader's visibility is deliberately forced wider
     /// than the kernel's own behavior, and the taint bookkeeping needs the
     /// kernel's, not the shader's.
-    pub io: Vec<cubecl_runtime::kernel::BufferIO>,
+    pub io: Vec<BufferIOAttr>,
     pub shared_memory_size: usize,
     pub ctx: Context,
 }

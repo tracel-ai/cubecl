@@ -1,23 +1,22 @@
 //! What a read is owed when the work that was supposed to write a buffer never
 //! ran.
 //!
-//! Errors are lazy: a failed launch is queued and surfaces at the next flush,
-//! sync or profile end. That leaves two questions every backend has to answer
-//! the same way, and these tests are where the answers are pinned down.
-//!
-//! *Who reports it* — logical streams are folded onto the pooled ones with
-//! `id % max_streams`, so two of them share a backend stream. A neighbour that
-//! drained somebody else's rejection would fail on a kernel it never launched,
-//! while the stream that did launch it read back an untouched buffer as if all
-//! was well.
+//! Whether a buffer can be trusted is a property of that memory, not of any
+//! stream: a failed launch leaves the buffers it was going to write carrying
+//! the failure, and a read of one of them fails on it whoever asks. That
+//! leaves two questions every backend has to answer the same way, and these
+//! tests are where the answers are pinned down.
 //!
 //! *Were these bytes ever written* — which no stream id can answer, because a
-//! handle names where a buffer was **created** and nothing re-tags it.
+//! handle names where a buffer was **created** and nothing re-tags it. Only
+//! the allocation connects the read to the launch that never ran, which is why
+//! a buffer allocated on the reader and written by a failure on another stream
+//! still fails.
 //!
-//! And *for how long* — the answers end at different times. The report is owed
-//! once and the flush that makes it is usually the launching stream's own,
-//! which comes long before anyone reads; the buffer stays stale until something
-//! fills it, from the host or from a launch that runs.
+//! *For how long* — until something writes those bytes, from the host or from
+//! a launch that runs, and for no shorter. Flushing has nothing to do with it:
+//! a launch failure is not the flush's to report any more, so a buffer stays
+//! stale across however many flushes and reads come between.
 
 use crate::{self as cubecl};
 use alloc::string::{String, ToString};
@@ -132,7 +131,7 @@ pub fn test_a_read_surfaces_the_producers_rejection<R: Runtime>(client: ComputeC
 ///
 /// `Handle::stream` names where a buffer was created and nothing re-tags it, so
 /// the allocation and the read both name the reader — which launched nothing
-/// and has nothing queued. Only the buffer itself connects the read to the
+/// and failed at nothing. Only the buffer itself connects the read to the
 /// launch that never ran.
 pub fn test_a_read_surfaces_a_rejection_on_a_buffer_it_allocated_itself<R: Runtime>(
     client: ComputeClient<R>,
@@ -147,10 +146,10 @@ pub fn test_a_read_surfaces_a_rejection_on_a_buffer_it_allocated_itself<R: Runti
 
 /// A failure on one buffer is not a reason to refuse a read of another.
 ///
-/// The queued error stays until its own stream flushes — under a per-task
-/// stream policy, possibly never. A read that failed on the mere presence of an
-/// error somewhere would refuse every unrelated buffer for as long as that
-/// entry sat there.
+/// The claim lives on the buffer the failure left unwritten and nowhere else,
+/// and it lives until something writes it — under a per-task stream policy,
+/// possibly forever. A read that failed on the mere presence of a failure
+/// somewhere would refuse every unrelated buffer for exactly that long.
 pub fn test_a_buffer_the_failure_never_touched_reads_normally<R: Runtime>(
     client: ComputeClient<R>,
 ) {
@@ -219,11 +218,20 @@ pub fn test_a_write_lands_after_the_work_queued_on_its_buffers_stream<R: Runtime
 /// kernel that failed to compile never gave one — there is no IR to ask. So
 /// every buffer the launch was handed is claimed by the failure: naming the
 /// input fails a read that would have been fine, loudly, where guessing from
-/// the signature would be the write mask this design deleted. A launch that
-/// fails *after* compilation stages only what the kernel writes, so its
-/// read-only inputs stay readable — the property the write scope's own tests
-/// pin, since no portable kernel fails between compilation and enqueue on
-/// every backend.
+/// the signature would be the write mask this design deleted.
+///
+/// The cost of that choice is real and accepted here rather than hidden: the
+/// launch wrote nothing, so a tainted input is a false positive, and because
+/// skipping propagates, one compile error can make every tensor downstream of
+/// those inputs unreadable until they are written again. The trade is against
+/// the other direction, where a buffer the kernel would have written reads
+/// back clean and nothing ever says so. A loud false failure is recoverable —
+/// write the buffer, relaunch — and silent garbage is not.
+///
+/// A launch that fails *after* compilation stages only what the kernel writes,
+/// so its read-only inputs stay readable — the property the write scope's own
+/// tests pin, since no portable kernel fails between compilation and enqueue
+/// on every backend.
 pub fn test_a_launch_that_never_compiled_taints_everything_it_was_given<R: Runtime>(
     client: ComputeClient<R>,
 ) {
@@ -265,11 +273,11 @@ pub fn test_a_launch_that_never_compiled_taints_everything_it_was_given<R: Runti
     assert_eq!(u32::from_bytes(&read), &[7]);
 }
 
-/// A report is owed once; the bytes stay stale until something writes them.
+/// Reporting a failure is not writing the bytes.
 ///
-/// The flush that reports a launch failure is usually the launching stream's
-/// own, and flushing has nothing to do with the claim: the bytes stay stale
-/// until something writes them, however many flushes and reads come between.
+/// Flushing has nothing to do with the claim, and neither does reading: the
+/// bytes stay stale until something writes them, however many flushes and
+/// failed reads come between.
 pub fn test_a_buffer_stays_unreadable_after_the_failure_was_reported<R: Runtime>(
     client: ComputeClient<R>,
 ) {

@@ -465,7 +465,7 @@ fn a_scope_that_succeeds_releases_the_provisional_failure() {
 /// not the provisional one — and queues it on the issuing stream for its next
 /// flush to report.
 #[test]
-fn a_scope_that_fails_names_the_real_error_and_queues_it() {
+fn a_scope_that_fails_names_the_real_error_and_logs_it() {
     let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 7);
     harness.alloc();
     let binding = harness.buffers[0].binding.clone();

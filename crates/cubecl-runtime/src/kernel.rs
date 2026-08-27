@@ -73,54 +73,13 @@ pub enum Visibility {
     ReadWrite,
 }
 
-/// What a compiled kernel does with one buffer binding, by buffer position —
-/// the four-state answer the compiler's visibility analysis stamped on the
-/// entry function, carried to the launch site so the write scope stages
-/// exactly what the kernel writes and checks exactly what it reads.
+/// What a compiled kernel does with each buffer binding, by buffer position.
 ///
-/// Four states because the launch path asks two independent questions.
-/// Written decides what a failure taints; read decides what is checked before
-/// launching. An aliased or accumulating argument answers yes to both, a pure
-/// output answers only the first — which is what lets a relaunch repair a
-/// tainted buffer — and a buffer the kernel never touches answers neither.
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
-pub enum BufferIO {
-    /// Read, never written: checked before launch, never claimed by a
-    /// failure.
-    ReadOnly,
-    /// Written, never read: claimed by a failure, never checked.
-    WriteOnly,
-    /// Both — the aliased and accumulator cases included.
-    ReadWrite,
-    /// Neither: no check on the way in, no claim on the way out.
-    Dead,
-}
-
-impl BufferIO {
-    /// Whether the kernel writes the buffer, so a failed launch leaves it
-    /// carrying the failure.
-    pub fn written(&self) -> bool {
-        matches!(self, BufferIO::WriteOnly | BufferIO::ReadWrite)
-    }
-
-    /// Whether the kernel reads the buffer, so its contents have to be
-    /// trustworthy before the launch runs.
-    pub fn read(&self) -> bool {
-        matches!(self, BufferIO::ReadOnly | BufferIO::ReadWrite)
-    }
-}
-
-impl From<cubecl_ir::attributes::BufferIOAttr> for BufferIO {
-    fn from(attr: cubecl_ir::attributes::BufferIOAttr) -> Self {
-        use cubecl_ir::attributes::BufferIOAttr;
-        match attr {
-            BufferIOAttr::ReadOnly => BufferIO::ReadOnly,
-            BufferIOAttr::WriteOnly => BufferIO::WriteOnly,
-            BufferIOAttr::ReadWrite => BufferIO::ReadWrite,
-            BufferIOAttr::Dead => BufferIO::Dead,
-        }
-    }
-}
+/// The IR owns this concept — the visibility analysis stamps it on the entry
+/// function's arguments — so the launch path reads that enum rather than a
+/// copy of it that could drift. Re-exported here because a backend reaching
+/// for it is holding a [`CompiledKernel`], not an IR context.
+pub use cubecl_ir::attributes::BufferIOAttr;
 
 /// A kernel, compiled in the target language
 pub struct CompiledKernel<C: Compiler> {
@@ -161,11 +120,11 @@ pub struct CompiledKernel<C: Compiler> {
     /// Size of a cube for the compiled kernel
     pub cube_dim: CubeDim,
     /// What the kernel does with each buffer binding, by buffer position —
-    /// see [`BufferIO`]. `None` when the compiler kept no answer, which the
+    /// see [`BufferIOAttr`]. `None` when the compiler kept no answer, which the
     /// launch path reads as every buffer both read and written: the
     /// conservative direction, since over-claiming costs a spurious loud
     /// failure and under-claiming costs a silent clean read of garbage.
-    pub io: Option<alloc::vec::Vec<BufferIO>>,
+    pub io: Option<alloc::vec::Vec<BufferIOAttr>>,
     /// Extra debugging information about the compiled kernel.
     pub debug_info: Option<DebugInformation>,
 }

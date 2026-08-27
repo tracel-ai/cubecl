@@ -3,6 +3,7 @@ use cubecl_common::hash::StableHash;
 use cubecl_core::prelude::*;
 use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::{
     compiler::{CubeTask, KernelCacheKey, build_id_hash},
     logging::ServerLogger,
@@ -30,7 +31,7 @@ pub struct CompiledKernel {
     /// else of the compilation survives. `None` for entries persisted before
     /// the answer existed, which the launch path reads as every buffer both
     /// read and written.
-    pub(crate) io: Option<std::sync::Arc<[cubecl_runtime::kernel::BufferIO]>>,
+    pub(crate) io: Option<std::sync::Arc<[BufferIOAttr]>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
@@ -41,7 +42,7 @@ pub struct MslCacheEntry {
     /// See [`CompiledKernel::io`]; defaulted for entries persisted before the
     /// field existed.
     #[serde(default)]
-    io: Option<Vec<cubecl_runtime::kernel::BufferIO>>,
+    io: Option<Vec<BufferIOAttr>>,
 }
 
 /// Compiles `CubeCL` IR to MSL and on to `MTLComputePipelineState`, caching results.

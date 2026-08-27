@@ -32,24 +32,45 @@ dict_key!(
 dict_key!(ATTR_BUFFER_BINDING, "buffer_binding");
 dict_key!(ATTR_TENSOR_MAP_BINDING, "tensor_map_binding");
 
+/// What a compiled kernel does with one buffer binding, stamped on the entry
+/// function's arguments by the visibility analysis and carried to the launch
+/// site, where the write scope stages exactly what the kernel writes and
+/// checks exactly what it reads.
+///
+/// Four states because the launch path asks two independent questions.
+/// Writable decides what a failure taints; readable decides what is checked
+/// before launching. An aliased or accumulating argument answers yes to both,
+/// a pure output answers only the first — which is what lets a relaunch
+/// repair a tainted buffer — and a buffer the kernel never touches answers
+/// neither.
 #[pliron_attr(name = "cube.buffer_io", format, verifier = "succ")]
-#[derive(new, PartialEq, Clone, Copy, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(new, PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub enum BufferIOAttr {
+    /// Read, never written: checked before launch, never claimed by a failure.
     ReadOnly,
+    /// Written, never read: claimed by a failure, never checked.
     WriteOnly,
+    /// Both — the aliased and accumulator cases included.
     ReadWrite,
+    /// Neither: no check on the way in, no claim on the way out.
     Dead,
 }
 
 impl BufferIOAttr {
+    /// Whether the kernel reads the buffer, so its contents have to be
+    /// trustworthy before the launch runs.
     pub fn is_readable(&self) -> bool {
         matches!(self, BufferIOAttr::ReadOnly | BufferIOAttr::ReadWrite)
     }
 
+    /// Whether the kernel writes the buffer, so a failed launch leaves it
+    /// carrying the failure.
     pub fn is_writable(&self) -> bool {
         matches!(self, BufferIOAttr::WriteOnly | BufferIOAttr::ReadWrite)
     }
 
+    /// Whether the kernel never touches the buffer at all.
     pub fn is_dead(&self) -> bool {
         matches!(self, BufferIOAttr::Dead)
     }

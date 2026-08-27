@@ -96,7 +96,7 @@ pub trait MemoryPool {
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError>;
 
     /// Retrieves the slice for the binding, mutably — the path the taint
-    /// bookkeeping takes to reach [`Slice::failure`].
+    /// bookkeeping takes to reach [`Slice::tainted`].
     fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError>;
 
     /// Try to reserve a memory slice of the given size.

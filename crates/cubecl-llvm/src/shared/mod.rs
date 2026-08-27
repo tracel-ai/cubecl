@@ -7,6 +7,7 @@ pub mod shared_memory;
 pub mod to_llvm;
 
 use core::cell::RefCell;
+use cubecl_runtime::kernel::BufferIOAttr;
 use std::rc::Rc;
 
 use cubecl_environment::backtrace::BackTrace;
@@ -62,7 +63,7 @@ impl Compiler for PlironCompiler {
 
     type CompilationOptions = PlironOptions;
 
-    fn buffer_io(repr: &Self::Representation) -> Option<Vec<cubecl_runtime::kernel::BufferIO>> {
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
         Some(repr.buffer_io().to_vec())
     }
 
