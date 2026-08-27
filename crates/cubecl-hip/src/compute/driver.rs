@@ -64,6 +64,7 @@ impl Driver for Hip {
     type Backend = HipStreamBackend;
     type Stream = Stream;
     type Context = HipContext;
+    type LaunchArgs = [GpuResource];
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,
@@ -191,8 +192,8 @@ impl Driver for Hip {
         stream: &mut Stream,
         kernel: KernelId,
         count: (u32, u32, u32),
-        resources: &[GpuResource],
+        args: &mut [GpuResource],
     ) -> Result<(), LaunchError> {
-        ctx.execute_task(stream, kernel, count, resources)
+        ctx.execute_task(stream, kernel, count, args)
     }
 }

@@ -574,7 +574,7 @@ impl HipServer {
 
         resources.push(command.resource(info_handle.binding())?);
 
-        command.kernel(kernel_id, count, &resources)?;
+        command.kernel(kernel_id, count, &mut resources)?;
 
         Ok(())
     }

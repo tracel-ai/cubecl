@@ -2,7 +2,7 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::{
     CudaCompiler,
     compute::{
-        command::Command,
+        Command,
         communication::{get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
         context::CudaContext,
         graph::CudaGraph,
@@ -52,8 +52,6 @@ use std::{
     mem::MaybeUninit,
     sync::Arc,
 };
-
-pub(crate) const MB: usize = 1024 * 1024;
 
 /// Turn a CUDA driver status into a [`ServerError`], naming the failed operation.
 fn cuda_check(op: &str, status: cudarc::driver::sys::CUresult) -> Result<(), ServerError> {
@@ -196,7 +194,7 @@ impl ComputeServer for CudaServer {
 
         Ok(sizes
             .iter()
-            .map(|size| command.reserve_cpu(*size, true, None))
+            .map(|size| command.reserve_cpu(*size, None))
             .collect())
     }
 
@@ -229,20 +227,31 @@ impl ComputeServer for CudaServer {
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
         let mut command = self.command_no_inputs(stream_id);
 
+        // Fatal rather than reported: `initialize_memory` has no error channel,
+        // and an allocation that never got its storage cannot be handed back as
+        // a taint either — nothing has a binding to it yet.
         let reserved = command
             .reserve(size)
             .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of device memory: {err}"));
-        command.bind(reserved, memory);
+        command
+            .bind(reserved, memory)
+            .unwrap_or_else(|err| panic!("failed to bind {size} bytes of device memory: {err}"));
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
+        // Each copy runs in its own scope over its destination: the copy fills
+        // it on success, which is what releases an earlier failure's hold on
+        // it — a buffer a launch left stale is recovered by writing it from
+        // the host just as much as by relaunching into it — and leaves it as
+        // it was on failure, which is what a later read of it has to fail on.
+        //
+        // Every descriptor is attempted, however the one before it went. A
+        // copy that stops early leaves the destinations it never reached
+        // holding whatever was there before and carrying no failure to say so,
+        // which is the one outcome this whole design exists to prevent — and
+        // the failure of one copy says nothing about the next, which may name
+        // a different buffer on a different stream.
         for (descriptor, data) in descriptors {
-            // Each copy runs in its own scope over its destination: the copy
-            // fills it on success, which is what releases an earlier
-            // failure's hold on it — a buffer a launch left stale is
-            // recovered by writing it from the host just as much as by
-            // relaunching into it — and leaves it as it was on failure, which
-            // is what a later read of it has to fail on.
             let mut written = self.write_set();
             written.push(descriptor.handle.clone());
             let result = self.while_writing(written, |server, _| {
@@ -251,7 +260,6 @@ impl ComputeServer for CudaServer {
             });
             if let Err(err) = result {
                 self.profile_failure(&err);
-                return;
             }
         }
     }
@@ -264,66 +272,19 @@ impl ComputeServer for CudaServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        // Compilation comes first — memoized, so a launch after the first
-        // pays a map lookup — because the write scope stages what the
-        // compiled kernel says it writes. A kernel that fails to compile has
-        // no IR and no answer, so every buffer the launch was given is left
-        // as it was and all of them carry the failure.
-        //
-        // A dry run stages none either way. It was never going to write, so a
-        // failure in it leaves nothing stale, and tainting its buffers would
-        // fail unrelated reads of memory the run deliberately left alone. It
-        // stops right after compilation, before anything that touches a
-        // buffer: resolving resources, building tensor maps, uploading
-        // metadata or reading a dynamic cube count would materialize memory a
-        // dry run exists to leave unmapped.
         let kernel_id = kernel.id();
-        if !self.ctx.is_loaded(&kernel_id) {
-            let logger = self.streams.logger.clone();
-            if let Err(err) = self.ctx.compile_kernel(&kernel_id, kernel, logger) {
-                let error = ServerError::Launch(err);
-                self.profile_failure(&error);
-                if !launch_mode.is_skipped() {
-                    let mut written = self.write_set();
-                    written.extend(bindings.buffers().cloned());
-                    self.failed_writing(written, error);
-                }
-                return;
-            }
+        if self.compile_failed(&kernel_id, kernel, &bindings, launch_mode) {
+            return;
         }
+        // A dry run stops right here, after compilation and before anything
+        // that touches a buffer: resolving resources, building tensor maps,
+        // uploading metadata or reading a dynamic cube count would materialize
+        // memory the run exists to leave unmapped.
         if launch_mode.is_skipped() {
             return;
         }
-
         let io = self.ctx.kernel_io(&kernel_id);
-
-        // Skip, do not taint: a launch whose input cannot be trusted does not
-        // run. Running it is not merely wasted device time — a buffer holding
-        // garbage can be read as a dynamic cube count or as gather indices,
-        // scattering into memory that carried no failure at all. The outputs
-        // take the failure that stopped the launch, exactly as a failed
-        // launch's would, so a read downstream fails on the root cause.
-        //
-        // Except while this stream records a graph: skipping would seal a
-        // recording missing an operation, and the replay contract has the
-        // caller write fresh inputs before each replay — clearing the very
-        // taint that would explain the hole. A tainted input dooms the
-        // capture instead, and end_capture refuses to seal it.
-        if let Some(found) = self
-            .streams
-            .read_failure(bindings.buffers_read(io.as_deref()))
-        {
-            self.profile_failure(&found.error);
-            if let Some(stream) = self.streams.try_stream_mut(&stream_id)
-                && stream.capturing.is_recording()
-            {
-                stream.capturing.fail(found.error.clone());
-            }
-            self.streams.propagate(
-                &found,
-                kernel_id.clone(),
-                bindings.buffers_written(io.as_deref()),
-            );
+        if self.skip_on_failed_input(&kernel_id, &bindings, io.as_deref(), stream_id) {
             return;
         }
 
@@ -923,8 +884,8 @@ impl ServerCommunication for CudaServer {
         // We create a new command on the destination server to reserve the necessary GPU memory.
         let mut command_dst = self.command_no_inputs(stream_id);
 
-        let memory = command_dst.reserve(handle.size()).unwrap();
-        command_dst.bind(memory, handle.memory.clone());
+        let memory = command_dst.reserve(handle.size())?;
+        command_dst.bind(memory, handle.memory.clone())?;
 
         let resource_dst = command_dst.resource(handle.binding())?;
 
@@ -1033,6 +994,80 @@ impl CudaServer {
         self.unsafe_set_current();
         let streams = self.streams.resolve(stream_id, handles);
         Command::new(&mut self.ctx, streams)
+    }
+
+    /// Compile `kernel` if this is the first launch of it, and say whether
+    /// that failed — in which case everything the launch was given now carries
+    /// the compilation error.
+    ///
+    /// Compilation comes first — memoized, so a launch after the first pays a
+    /// map lookup — because the write scope stages what the compiled kernel
+    /// says it writes. A kernel that fails to compile has no IR and no answer,
+    /// so every buffer the launch was given is left as it was and all of them
+    /// carry the failure.
+    ///
+    /// A dry run claims none. It was never going to write, so a failure in it
+    /// leaves nothing stale, and tainting its buffers would fail unrelated
+    /// reads of memory the run deliberately left alone.
+    fn compile_failed(
+        &mut self,
+        kernel_id: &KernelId,
+        kernel: <Self as ComputeServer>::Kernel,
+        bindings: &KernelArguments,
+        launch_mode: LaunchMode,
+    ) -> bool {
+        if self.ctx.is_loaded(kernel_id) {
+            return false;
+        }
+        let logger = self.streams.logger.clone();
+        let Err(err) = self.ctx.compile_kernel(kernel_id, kernel, logger) else {
+            return false;
+        };
+        let error = ServerError::Launch(err);
+        self.profile_failure(&error);
+        if !launch_mode.is_skipped() {
+            let mut written = self.write_set();
+            written.extend(bindings.buffers().cloned());
+            self.failed_writing(written, error);
+        }
+        true
+    }
+
+    /// Whether a launch reading `bindings` must be skipped because one of its
+    /// inputs carries a failure, having claimed everything it would have
+    /// written for that same failure.
+    ///
+    /// Skip, do not taint: a launch whose input cannot be trusted does not
+    /// run. Running it is not merely wasted device time — a buffer holding
+    /// garbage can be read as a dynamic cube count or as gather indices,
+    /// scattering into memory that carried no failure at all. The outputs take
+    /// the failure that stopped the launch, exactly as a failed launch's
+    /// would, so a read downstream fails on the root cause.
+    ///
+    /// Except while this stream records a graph: skipping would seal a
+    /// recording missing an operation, and the replay contract has the caller
+    /// write fresh inputs before each replay — clearing the very taint that
+    /// would explain the hole. A tainted input dooms the capture instead, and
+    /// `end_capture` refuses to seal it.
+    fn skip_on_failed_input(
+        &mut self,
+        kernel_id: &KernelId,
+        bindings: &KernelArguments,
+        io: Option<&[BufferIOAttr]>,
+        stream_id: StreamId,
+    ) -> bool {
+        let Some(found) = self.streams.read_failure(bindings.buffers_read(io)) else {
+            return false;
+        };
+        self.profile_failure(&found.error);
+        if let Some(stream) = self.streams.try_stream_mut(&stream_id)
+            && stream.capturing.is_recording()
+        {
+            stream.capturing.fail(found.error.clone());
+        }
+        self.streams
+            .propagate(&found, kernel_id.clone(), bindings.buffers_written(io));
+        true
     }
 
     /// Mark every open profile invalid: a failure inside a profiling window

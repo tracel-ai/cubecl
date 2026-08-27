@@ -420,10 +420,10 @@ impl<'a, D: Driver> Command<'a, D> {
         &mut self,
         kernel: KernelId,
         count: (u32, u32, u32),
-        resources: &[DeviceResource<D>],
+        args: &mut D::LaunchArgs,
     ) -> Result<(), LaunchError> {
         let stream = self.streams.current();
-        let result = D::launch(self.ctx, stream, kernel, count, resources);
+        let result = D::launch(self.ctx, stream, kernel, count, args);
 
         // A fenced flush during capture would abort it; defer until the capture
         // ends, when the deferred staging buffers are reclaimed.

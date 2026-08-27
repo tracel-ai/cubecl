@@ -117,6 +117,14 @@ pub trait Driver: Sized {
     /// Whatever the backend needs to launch a compiled kernel — its loaded
     /// modules, its profiling clocks.
     type Context;
+    /// What this backend hands a kernel at launch.
+    ///
+    /// Not simply the buffers: CUDA passes tensor-map descriptors alongside
+    /// them and HIP has none, so what a launch is given is the backend's to
+    /// say. The command only carries it from the server to [`launch`].
+    ///
+    /// [`launch`]: Self::launch
+    type LaunchArgs: ?Sized;
 
     /// Hand out `size` bytes of the pinned host allocation `binding` names,
     /// released back to the pool when the [`Bytes`] drop.
@@ -181,7 +189,7 @@ pub trait Driver: Sized {
         stream: &mut Self::Stream,
         kernel: KernelId,
         count: (u32, u32, u32),
-        resources: &[DeviceResource<Self>],
+        args: &mut Self::LaunchArgs,
     ) -> Result<(), LaunchError>;
 }
 

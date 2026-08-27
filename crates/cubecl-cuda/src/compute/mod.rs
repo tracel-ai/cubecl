@@ -1,6 +1,6 @@
-pub(crate) mod command;
 pub(crate) mod communication;
 pub(crate) mod context;
+pub(crate) mod driver;
 pub(crate) mod graph;
 pub(crate) mod io;
 pub(crate) mod storage;
@@ -10,6 +10,10 @@ pub(crate) mod sync;
 mod server;
 
 pub use server::*;
+
+/// One unit of work against the device — the shared
+/// [`Command`](cubecl_runtime::command::Command), driven by [`driver::Cuda`].
+pub(crate) type Command<'a> = cubecl_runtime::command::Command<'a, driver::Cuda>;
 
 /// Creates a `Vec<I>` of the given length with uninitialized elements.
 ///
