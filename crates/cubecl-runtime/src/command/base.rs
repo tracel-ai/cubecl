@@ -6,196 +6,27 @@
 //! resolving is what orders the current stream behind whichever streams own
 //! the buffers it was handed.
 //!
-//! What is here is everything that is the same whichever driver is underneath
-//! — the allocation and reclaim policy, the staging decision, the pitched
-//! copies' geometry, when the drop queue may be flushed. A backend supplies
-//! [`Driver`], which is the four calls the runtime cannot make itself, and
-//! [`DeviceStream`], which is where its stream keeps the state those calls
-//! move in step with.
+//! Everything here is the same whichever driver is underneath — the allocation
+//! and reclaim policy, when the drop queue may be flushed, what a copy stages.
+//! The four calls that are not are [`Driver`](super::Driver)'s.
 
-use crate::allocator::Pitch;
+use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
-use crate::memory_management::drop_queue::{Fence, PendingDropQueue};
+use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::{
-    InstallMemoryPoolsError, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode,
-    MemoryConfiguration, MemoryHandle, MemoryManagement, MemoryReport, MemoryUsage,
+    InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
+    MemoryHandle, MemoryReport, MemoryUsage,
 };
-use crate::metadata_cache::MetadataInfoCache;
 use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
-use crate::storage::ComputeStorage;
-use crate::stream::{EventStreamBackend, ResolvedStreams, StreamCapture};
+use crate::stream::ResolvedStreams;
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::bytes::{AllocationProperty, Bytes};
+use cubecl_common::bytes::Bytes;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_zspace::{Shape, Strides, striding::has_pitched_row_major_strides};
-
-/// A megabyte, for the staging thresholds below.
-const MB: usize = 1024 * 1024;
-
-/// Transfers up to this size go through a pinned staging buffer, which the
-/// driver can DMA from without a bounce.
-const STAGE_MAX: usize = 100 * MB;
-
-/// Above this size the drop queue is flushed after the copy, so the source
-/// buffer is released promptly rather than waiting for the next batch.
-const FLUSH_MIN: usize = 10 * MB;
-
-/// The state a backend's stream keeps beside its driver handle.
-///
-/// All of it moves in step with the work queued on that stream, which is why
-/// it is the stream's and not the device's: the deferred frees a fenced flush
-/// releases, the capture window that forbids allocating, the per-launch info
-/// buffers a capture may not evict, and the memory the stream's kernels see.
-pub trait DeviceStream {
-    /// The fence this backend records on a stream. Fencing is how the drop
-    /// queue knows the device is done with what it is holding.
-    type Fence: Fence + Send + 'static;
-    /// The storage backing the memory this stream's kernels address.
-    type DeviceStorage: ComputeStorage;
-    /// The storage backing the host buffers that stage transfers to it.
-    type HostStorage: ComputeStorage;
-
-    /// The memory this stream's kernels see. Allocations are per stream, so a
-    /// buffer resolves to the stream that created it and nowhere else.
-    fn device_memory(&mut self) -> &mut MemoryManagement<Self::DeviceStorage>;
-
-    /// The pinned host memory this stream stages transfers through.
-    fn host_memory(&mut self) -> &mut MemoryManagement<Self::HostStorage>;
-
-    /// Frees deferred until the device is known to be done with them.
-    fn drop_queue(&mut self) -> &mut PendingDropQueue<Self::Fence>;
-
-    /// Where this stream sits in the graph-capture lifecycle.
-    fn capturing(&mut self) -> &mut StreamCapture;
-
-    /// The per-launch metadata buffers this stream reuses.
-    fn info_cache(&mut self) -> &mut MetadataInfoCache<Handle>;
-
-    /// A cheap, copyable identifier for this stream.
-    ///
-    /// It exists so a fence can be recorded while the stream's own fields are
-    /// borrowed: draining the drop queue needs a fresh fence per rotation, and
-    /// the queue is reached through `&mut self`.
-    type Signal: Copy;
-
-    /// This stream's signal.
-    fn signal(&self) -> Self::Signal;
-
-    /// Record a fence on the stream `signal` names, signalled once everything
-    /// already enqueued on it has run.
-    fn fence(signal: Self::Signal) -> Self::Fence;
-}
-
-/// The layout of the device side of a copy.
-///
-/// The pitch is computed once, by the caller, because whether a buffer's rows
-/// are padded is the same question whichever driver performs the copy — and
-/// getting it wrong scrambles the rows rather than failing.
-pub struct CopyLayout<'a> {
-    /// The extent of each dimension.
-    pub shape: &'a Shape,
-    /// The stride of each dimension, in elements.
-    pub strides: &'a Strides,
-    /// The size of one element, in bytes.
-    pub elem_size: usize,
-    /// The 2D geometry when the rows are padded; `None` when the whole buffer
-    /// is one contiguous span and a linear copy is both correct and faster.
-    pub pitch: Option<Pitch>,
-}
-
-/// The device calls a [`Command`] cannot make itself.
-///
-/// Four, because everything else a command does — deciding what to stage, when
-/// to reclaim, whether a layout needs a 2D copy, when the drop queue may be
-/// flushed — is the same whichever driver is underneath.
-pub trait Driver: Sized {
-    /// The multi-stream backend whose streams this driver drives.
-    type Backend: EventStreamBackend<Stream = Self::Stream>;
-    /// The backend's stream.
-    type Stream: DeviceStream;
-    /// Whatever the backend needs to launch a compiled kernel — its loaded
-    /// modules, its profiling clocks.
-    type Context;
-
-    /// Hand out `size` bytes of the pinned host allocation `binding` names,
-    /// released back to the pool when the [`Bytes`] drop.
-    ///
-    /// # Safety
-    ///
-    /// `binding` names initialized host memory of at least `size` bytes, and
-    /// `resource` resolves it.
-    unsafe fn pinned_bytes(
-        binding: ManagedMemoryBinding,
-        resource: HostResource<Self>,
-        size: usize,
-    ) -> Bytes;
-
-    /// Enqueue a copy from device memory into `bytes` on `stream`.
-    ///
-    /// # Safety
-    ///
-    /// `resource` is a live device allocation of at least `bytes.len()`
-    /// readable bytes, `bytes` has room for the copy, and the caller
-    /// synchronizes `stream` before reading it back.
-    ///
-    /// # Errors
-    ///
-    /// The driver's refusal to copy.
-    unsafe fn copy_to_host(
-        resource: &DeviceResource<Self>,
-        layout: &CopyLayout<'_>,
-        bytes: &mut Bytes,
-        stream: &Self::Stream,
-    ) -> Result<(), IoError>;
-
-    /// Enqueue a copy of `data` into device memory on `stream`.
-    ///
-    /// # Safety
-    ///
-    /// `resource` is a live device allocation big enough for `data`, and
-    /// `data` stays alive until `stream` is synchronized — which is what the
-    /// caller's drop queue guarantees.
-    ///
-    /// # Errors
-    ///
-    /// The driver's refusal to copy.
-    unsafe fn copy_to_device(
-        resource: &DeviceResource<Self>,
-        layout: &CopyLayout<'_>,
-        data: &[u8],
-        stream: &Self::Stream,
-    ) -> Result<(), IoError>;
-
-    /// Enqueue an already-compiled kernel on `stream`.
-    ///
-    /// Always a compiled kernel: the server compiles before entering its write
-    /// scope, and a skipped launch stops there, before any resource is
-    /// resolved.
-    ///
-    /// # Errors
-    ///
-    /// The driver's refusal to enqueue the launch.
-    fn launch(
-        ctx: &mut Self::Context,
-        stream: &mut Self::Stream,
-        kernel: KernelId,
-        count: (u32, u32, u32),
-        resources: &[DeviceResource<Self>],
-    ) -> Result<(), LaunchError>;
-}
-
-/// The device allocation a driver's buffers resolve to.
-pub type DeviceResource<D> =
-    <<<D as Driver>::Stream as DeviceStream>::DeviceStorage as ComputeStorage>::Resource;
-
-/// The host allocation a driver's staging buffers resolve to.
-pub type HostResource<D> =
-    <<<D as Driver>::Stream as DeviceStream>::HostStorage as ComputeStorage>::Resource;
 
 /// One unit of work against the device: the context that holds its compiled
 /// kernels, and the streams it was resolved against.
@@ -372,9 +203,7 @@ impl<'a, D: Driver> Command<'a, D> {
         // and `resource` is what the manager just resolved it to.
         Some(unsafe { D::pinned_bytes(binding, resource, size) })
     }
-}
 
-impl<D: Driver> Command<'_, D> {
     /// Copy each descriptor's device memory back to the host, resolving once
     /// the copies have landed.
     ///
@@ -450,7 +279,7 @@ impl<D: Driver> Command<'_, D> {
             strides,
             elem_size,
         } = descriptor;
-        let layout = copy_layout(&shape, &strides, elem_size)?;
+        let layout = CopyLayout::of(&shape, &strides, elem_size)?;
 
         // Nothing to copy for an empty tensor, and `bytes` has no real backing
         // for the driver to write into — a dangling zero-size buffer.
@@ -484,7 +313,7 @@ impl<D: Driver> Command<'_, D> {
             strides,
             elem_size,
         } = descriptor;
-        let layout = copy_layout(&shape, &strides, elem_size)?;
+        let layout = CopyLayout::of(&shape, &strides, elem_size)?;
 
         let resource = self.resource(binding)?;
         let size = data.len();
@@ -497,15 +326,9 @@ impl<D: Driver> Command<'_, D> {
             return Ok(());
         }
 
-        let property = data.property();
-        // Stage file-backed data, and small host data that isn't already
-        // pinned. Re-staging already-pinned memory would be a redundant
-        // pinned-to-pinned copy.
-        let should_stage = matches!(property, AllocationProperty::File)
-            || (size < STAGE_MAX && !matches!(property, AllocationProperty::Pinned));
-        let should_flush = size > FLUSH_MIN || matches!(property, AllocationProperty::File);
+        let staging = Staging::of(size, data.property());
 
-        let data = match should_stage {
+        let data = match staging.through_pinned {
             true => {
                 // Pinned staging is a DMA optimization, not a requirement, so
                 // an exhausted pinned pool falls back to a plain heap buffer
@@ -533,7 +356,7 @@ impl<D: Driver> Command<'_, D> {
 
         // Defer fenced flushes while capturing — a host sync aborts the
         // capture, and the capture path drains the queue itself.
-        let flush = (should_flush || current.drop_queue().should_flush())
+        let flush = (staging.flush_after || current.drop_queue().should_flush())
             && !current.capturing().is_recording();
         if flush {
             let signal = current.signal();
@@ -611,29 +434,4 @@ impl<D: Driver> Command<'_, D> {
 
         result
     }
-}
-
-/// The layout of a copy, refusing anything the drivers cannot express.
-///
-/// # Errors
-///
-/// [`IoError::UnsupportedStrides`] for a layout that is not pitched row-major.
-/// A driver copies either one contiguous span or a stack of evenly-spaced
-/// rows; nothing else has a call to make.
-fn copy_layout<'a>(
-    shape: &'a Shape,
-    strides: &'a Strides,
-    elem_size: usize,
-) -> Result<CopyLayout<'a>, IoError> {
-    if !has_pitched_row_major_strides(shape, strides) {
-        return Err(IoError::UnsupportedStrides {
-            backtrace: BackTrace::capture(),
-        });
-    }
-    Ok(CopyLayout {
-        shape,
-        strides,
-        elem_size,
-        pitch: Pitch::of(shape, strides, elem_size),
-    })
 }
