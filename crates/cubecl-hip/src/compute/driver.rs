@@ -5,7 +5,6 @@
 use crate::compute::context::HipContext;
 use crate::compute::fence::Fence;
 use crate::compute::gpu::GpuResource;
-use crate::compute::io::controller::PinnedMemoryManagedAllocController;
 use crate::compute::storage::cpu::PinnedMemoryStorage;
 use crate::compute::storage::gpu::GpuStorage;
 use crate::compute::stream::{HipStreamBackend, Stream};
@@ -20,6 +19,7 @@ use cubecl_runtime::memory_management::drop_queue::PendingDropQueue;
 use cubecl_runtime::memory_management::{ManagedMemoryBinding, MemoryManagement};
 use cubecl_runtime::metadata_cache::MetadataInfoCache;
 use cubecl_runtime::server::{Handle, IoError, LaunchError};
+use cubecl_runtime::storage::PinnedMemoryAllocController;
 use cubecl_runtime::stream::StreamCapture;
 
 impl DeviceStream for Stream {
@@ -72,7 +72,7 @@ impl Driver for Hip {
         size: usize,
     ) -> Bytes {
         let controller =
-            alloc::boxed::Box::new(PinnedMemoryManagedAllocController::init(binding, resource));
+            alloc::boxed::Box::new(PinnedMemoryAllocController::init(binding, resource));
         // SAFETY: the caller guarantees `binding` names initialized memory of
         // at least `size` bytes.
         unsafe { Bytes::from_controller(controller, size) }

@@ -3,7 +3,6 @@
 //! they move in step with.
 
 use crate::compute::context::CudaContext;
-use crate::compute::io::controller::PinnedMemoryManagedAllocController;
 use crate::compute::storage::cpu::PinnedMemoryStorage;
 use crate::compute::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::stream::{CudaStreamBackend, Stream};
@@ -16,7 +15,7 @@ use cubecl_runtime::memory_management::drop_queue::PendingDropQueue;
 use cubecl_runtime::memory_management::{ManagedMemoryBinding, MemoryManagement};
 use cubecl_runtime::metadata_cache::MetadataInfoCache;
 use cubecl_runtime::server::{Handle, IoError, LaunchError};
-use cubecl_runtime::storage::ComputeStorage;
+use cubecl_runtime::storage::{ComputeStorage, PinnedMemoryAllocController};
 use cubecl_runtime::stream::StreamCapture;
 use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, cuMemcpy2DAsync_v2};
 use std::ffi::c_void;
@@ -72,7 +71,7 @@ impl Driver for Cuda {
         resource: <PinnedMemoryStorage as ComputeStorage>::Resource,
         size: usize,
     ) -> Bytes {
-        let controller = Box::new(PinnedMemoryManagedAllocController::init(binding, resource));
+        let controller = Box::new(PinnedMemoryAllocController::init(binding, resource));
         // SAFETY: the caller guarantees `binding` names initialized memory of
         // at least `size` bytes.
         unsafe { Bytes::from_controller(controller, size) }

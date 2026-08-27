@@ -1,8 +1,5 @@
 use crate::compute::{
-    storage::{
-        cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
-        gpu::GpuStorage,
-    },
+    storage::{cpu::PinnedMemoryStorage, gpu::GpuStorage},
     sync::Fence,
 };
 use cubecl_core::{
@@ -10,6 +7,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{BufferBinding, Handle, ServerError},
 };
+use cubecl_runtime::storage::PINNED_MEMORY_ALIGNMENT;
 use cubecl_runtime::{
     config::streaming::StreamPriority,
     logging::ServerLogger,

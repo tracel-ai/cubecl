@@ -11,6 +11,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{BufferBinding, Handle, ServerError},
 };
+use cubecl_runtime::storage::PINNED_MEMORY_ALIGNMENT;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
@@ -24,11 +25,7 @@ use std::sync::Arc;
 
 use cubecl_runtime::driver::checked;
 
-use crate::compute::{
-    cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
-    fence::Fence,
-    gpu::GpuStorage,
-};
+use crate::compute::{cpu::PinnedMemoryStorage, fence::Fence, gpu::GpuStorage};
 
 #[derive(Debug)]
 pub struct Stream {

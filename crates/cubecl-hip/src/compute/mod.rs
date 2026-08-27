@@ -4,7 +4,6 @@ pub(crate) mod capture;
 pub(crate) mod context;
 pub(crate) mod driver;
 pub(crate) mod fence;
-pub(crate) mod io;
 pub(crate) mod storage;
 pub(crate) mod stream;
 
