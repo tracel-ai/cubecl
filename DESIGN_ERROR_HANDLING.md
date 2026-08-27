@@ -698,6 +698,11 @@ The first step is bigger than it looks, and pretending otherwise would put the w
 
 8. **Give a capture its own pooled slot instead of sharing one.**
    Not strictly error handling, but it deletes a family of paths where a neighbour is refused, or briefly reported unhealthy, for a window it has nothing to do with.
+   Deferred past this branch, because it is not the follow-your-nose change the sentence suggests.
+   `binding.stream % max_streams` is how every taint, release, check and cross-stream alignment finds an allocation's manager, and steps 1 through 7 lean on that routing everywhere.
+   Moving a capturing stream to a dedicated slot means an id-to-slot override, and the allocations a window makes outlive the window — a graph's outputs above all — so the override cannot be scoped to it: either it is permanent for that logical stream, or handles get re-tagged, or lookups learn a second route.
+   A wrong version fails by making memory unfindable, which reads as untainted, which is the silent direction this whole design exists to close.
+   So it needs its own pass, starting from the routing question rather than from the capture code.
 
 ## Testing
 
