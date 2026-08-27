@@ -145,6 +145,11 @@ pub trait StreamErrorSink {
     /// The queue this stream records its failures in.
     fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_;
 
+    /// The queue, mutably — the path a write scope takes to queue the failure
+    /// it settled on, so the stream that caused it reports it at its next
+    /// flush.
+    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_;
+
     /// Whether the stream can accept new work from `owner`.
     ///
     /// Broken for the streams whose errors are still queued on it, not for

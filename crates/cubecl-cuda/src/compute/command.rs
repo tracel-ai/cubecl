@@ -407,14 +407,6 @@ impl<'a> Command<'a> {
         stream.errors.push(stream_id, error);
     }
 
-    /// Releases the failure on `written`: work that writes those buffers is
-    /// on its way, so a read of one is no longer reading bytes nothing wrote.
-    ///
-    /// The counterpart of [`error`](Self::error), for the paths that succeed.
-    pub fn written<'b>(&mut self, written: impl Iterator<Item = &'b BufferBinding>) {
-        self.streams.written(written);
-    }
-
     /// Writes data from the host to GPU memory as specified by the copy descriptor.
     ///
     /// # Parameters

@@ -97,6 +97,10 @@ impl StreamErrorSink for WgpuStream {
     fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
         &self.errors
     }
+
+    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
+        &mut self.errors
+    }
 }
 
 impl StreamMemory for WgpuStream {

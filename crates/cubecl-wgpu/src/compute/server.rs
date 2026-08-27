@@ -43,6 +43,7 @@ use cubecl_runtime::{
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
     storage::ManagedResource,
+    stream::WriteScoped,
     stream::scheduler::{
         SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
         SchedulerStreamBackend,
@@ -72,10 +73,6 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pub(crate) device: wgpu::Device,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
-    /// The memory the launch in flight was given, held across the calls that
-    /// consume its arguments so a failure can still name what it left
-    /// unwritten. Reused, so a launch allocates little for it.
-    written: Vec<BufferBinding>,
     /// The pipelines built so far, in front of the SPIR-V store when there is
     /// one.
     pipelines: CompilationCache<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
@@ -98,6 +95,14 @@ pub struct WgpuServer<C: WgpuCompiler> {
 
 impl<C: WgpuCompiler> ServerCommunication for WgpuServer<C> {
     const SERVER_COMM_ENABLED: bool = false;
+}
+
+impl<C: WgpuCompiler> WriteScoped for WgpuServer<C> {
+    type Streams = SchedulerMultiStream<ScheduledWgpuBackend>;
+
+    fn write_streams(&mut self) -> &mut Self::Streams {
+        &mut self.scheduler
+    }
 }
 
 impl<C: WgpuCompiler> WgpuServer<C> {
@@ -147,7 +152,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         Self {
             compilation_options,
             streams_pool: Vec::new(),
-            written: Vec::new(),
             device,
             pipelines,
             scheduler: SchedulerMultiStream::new(
@@ -409,55 +413,49 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             }
         }
         for (desc, data) in descriptors {
-            // The failures below belong to the caller, so they are queued on
-            // the caller's stream — the one that flushes them — even though the
-            // resource is resolved on the stream that owns the handle. Each
-            // taints the destination, which is what a later read of it has to
-            // fail on; the write that lands fills it, which is what releases
-            // an earlier failure's hold on it.
-            let destination = desc.handle.clone();
-            if contiguous_strides(&desc.shape) != desc.strides {
-                let error = ServerError::Io(IoError::UnsupportedStrides {
-                    backtrace: BackTrace::capture(),
-                });
-                self.scheduler
-                    .taint(error.clone(), core::iter::once(&destination));
-                self.scheduler
-                    .stream(&stream_id)
-                    .errors
-                    .push(stream_id, error);
+            // Each copy runs in its own scope over its destination: the write
+            // that lands fills it, which is what releases an earlier
+            // failure's hold on it — a caller recovers by writing from the
+            // host as much as by relaunching — and a failure leaves it as it
+            // was, which is what a later read of it has to fail on. The scope
+            // queues failures on the caller's stream, the one that flushes
+            // them, even though the resource is resolved on the stream that
+            // owns the handle.
+            let result = self.while_writing(
+                stream_id,
+                (desc, data),
+                |(desc, _), written| written.push(desc.handle.clone()),
+                |server, (desc, data), _| {
+                    if contiguous_strides(&desc.shape) != desc.strides {
+                        return Err(ServerError::Io(IoError::UnsupportedStrides {
+                            backtrace: BackTrace::capture(),
+                        }));
+                    }
+
+                    // The write is registered on the caller, so name the
+                    // stream that owns the handle as an argument: its queued
+                    // work has to land before this write overwrites the same
+                    // memory.
+                    let owner = desc.handle.stream;
+                    let handle = desc.handle.clone();
+                    let stream = server.scheduler.stream(&owner);
+                    let resource = stream
+                        .mem_manage
+                        .get_resource(desc.handle)
+                        .map_err(ServerError::Io)?;
+                    let task = ScheduleTask::Write {
+                        data,
+                        buffer: resource,
+                        handle,
+                    };
+
+                    server.scheduler.register(stream_id, task, &[owner]);
+                    Ok(())
+                },
+            );
+            if result.is_err() {
                 return;
             }
-
-            // The write is registered on the caller, so name the stream that
-            // owns the handle as an argument: its queued work has to land
-            // before this write overwrites the same memory.
-            let owner = desc.handle.stream;
-            let stream = self.scheduler.stream(&owner);
-            let resource = match stream.mem_manage.get_resource(desc.handle) {
-                Ok(r) => r,
-                Err(err) => {
-                    let error = ServerError::Io(err);
-                    self.scheduler
-                        .taint(error.clone(), core::iter::once(&destination));
-                    self.scheduler
-                        .stream(&stream_id)
-                        .errors
-                        .push(stream_id, error);
-                    return;
-                }
-            };
-            let task = ScheduleTask::Write {
-                data,
-                buffer: resource,
-                handle: destination.clone(),
-            };
-
-            self.scheduler.register(stream_id, task, &[owner]);
-            // The write is on its way, so an earlier failure that left this
-            // buffer stale has nothing left to say about it: a caller recovers
-            // by writing from the host as much as by relaunching.
-            self.scheduler.written(core::iter::once(&destination));
         }
     }
 
@@ -486,91 +484,69 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        let (pipeline, compiler_info) = match self.pipeline(kernel, &args) {
-            Ok(val) => val,
-            Err(err) => {
-                // We make the stream that would execute the kernel in error.
-                // The launch never ran, so every buffer it was given is left as
-                // it was; a read of one has to fail on this rather than copy it.
-                //
-                // A dry run taints none. It was never going to write, so a
-                // failure in it leaves nothing stale, and tainting its buffers
-                // would fail unrelated reads of memory the run deliberately
-                // left alone.
-                let error = ServerError::Launch(err);
+        // The scope taints what the launch writes until the body proves the
+        // work enqueued, so a failure — or a panic — anywhere in it leaves a
+        // read of those buffers failing on the error rather than copying
+        // bytes nothing wrote.
+        //
+        // A dry run stages none. It was never going to write, so a failure in
+        // it leaves nothing stale, and tainting its buffers would fail
+        // unrelated reads of memory the run deliberately left alone.
+        let _ = self.while_writing(
+            stream_id,
+            args,
+            |args, written| {
                 if !launch_mode.is_skipped() {
-                    self.scheduler.taint(error.clone(), args.buffers_written());
+                    written.extend(args.buffers_written().cloned());
                 }
-                self.scheduler
-                    .stream(&stream_id)
-                    .errors
-                    .push(stream_id, error);
-                return;
-            }
-        };
+            },
+            |server, args, written| {
+                let (pipeline, compiler_info) = server
+                    .pipeline(kernel, &args)
+                    .map_err(ServerError::Launch)?;
 
-        if launch_mode.is_skipped() {
-            return;
-        }
+                if launch_mode.is_skipped() {
+                    return Ok(());
+                }
 
-        self.streams_pool.clear();
-        self.written.clear();
-        // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
-        // automatically when the guard drops.
-        let mut shared_inputs = self.shared_bindings_pool.acquire();
-        // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
-        args.resources
-            .iter()
-            .enumerate()
-            .for_each(|(index, resource)| match resource {
-                KernelResource::Buffer(b) => {
-                    self.streams_pool.push(b.stream);
-                    // Only what the kernel writes: an input this launch merely
-                    // reads is left exactly as it was, so a failure has nothing
-                    // to say about it.
-                    if args.writes(index) {
-                        self.written.push(b.clone());
+                server.streams_pool.clear();
+                // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
+                // automatically when the guard drops.
+                let mut shared_inputs = server.shared_bindings_pool.acquire();
+                // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
+                args.resources.iter().for_each(|resource| match resource {
+                    KernelResource::Buffer(b) => {
+                        server.streams_pool.push(b.stream);
+                        if b.stream != stream_id {
+                            shared_inputs.push(b.memory.clone());
+                        }
                     }
-                    if b.stream != stream_id {
-                        shared_inputs.push(b.memory.clone());
+                    KernelResource::TensorMap(_) => {
+                        panic!("Tensor maps not supported in WGPU")
                     }
-                }
-                KernelResource::TensorMap(_) => {
-                    panic!("Tensor maps not supported in WGPU")
-                }
-            });
+                });
 
-        let resources = match self.prepare_bindings(args, compiler_info) {
-            Ok(val) => val,
-            Err(err) => {
-                // We make the stream that would execute the kernel in error.
-                // Nothing was dispatched, so the buffers gathered above are
-                // still unwritten.
-                let error = ServerError::Io(err);
-                self.scheduler.taint(error.clone(), self.written.iter());
-                self.scheduler
-                    .stream(&stream_id)
-                    .errors
-                    .push(stream_id, error);
-                return;
-            }
-        };
-        // A launch recorded into a graph hands its buffers to the graph, which
-        // answers for them if a replay never runs. A no-op outside a window.
-        let stream = self.scheduler.stream(&stream_id);
-        stream.capturing.record(self.written.iter().cloned());
-        // This launch is on its way, so a capture that failed to seal has
-        // nothing left to say about the buffers it is about to write.
-        self.scheduler.written(self.written.iter());
+                let resources = server
+                    .prepare_bindings(args, compiler_info)
+                    .map_err(ServerError::Io)?;
+                // A launch recorded into a graph hands its buffers to the graph, which
+                // answers for them if a replay never runs. A no-op outside a window.
+                let stream = server.scheduler.stream(&stream_id);
+                stream.capturing.record(written.iter().cloned());
 
-        let task = ScheduleTask::Execute {
-            pipeline,
-            count,
-            resources,
-            shared_inputs,
-        };
+                let task = ScheduleTask::Execute {
+                    pipeline,
+                    count,
+                    resources,
+                    shared_inputs,
+                };
 
-        self.scheduler.register(stream_id, task, &self.streams_pool);
+                server
+                    .scheduler
+                    .register(stream_id, task, &server.streams_pool);
+                Ok(())
+            },
+        );
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

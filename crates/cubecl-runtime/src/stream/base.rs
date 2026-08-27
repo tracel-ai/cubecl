@@ -1,5 +1,6 @@
 use crate::memory_management::{ErrorGraph, FailureId, ManagedMemoryBinding};
 use crate::server::{BufferBinding, ServerError};
+use crate::stream::StreamErrorSink;
 use alloc::vec::Vec;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
@@ -227,6 +228,23 @@ impl<F: StreamFactory> StreamPool<F> {
         F::Stream: StreamMemory,
     {
         let failure = failures.insert(error);
+        self.taint_with(failure, written, failures);
+        // A failure that named no buffer anything still holds has nothing to
+        // wait for.
+        failures.prune(failure);
+    }
+
+    /// [`taint`](Self::taint) with a failure the graph already holds, for the
+    /// write scope that taints on the way in and only learns the real error on
+    /// the way out.
+    pub fn taint_with<'a>(
+        &mut self,
+        failure: FailureId,
+        written: impl Iterator<Item = &'a BufferBinding>,
+        failures: &mut ErrorGraph,
+    ) where
+        F::Stream: StreamMemory,
+    {
         for handle in written {
             let index = stream_index(&handle.stream, self.max_streams);
             let Some(stream) = self.streams[index].as_mut() else {
@@ -234,9 +252,76 @@ impl<F: StreamFactory> StreamPool<F> {
             };
             stream.taint(&handle.memory, failure, failures);
         }
-        // A failure that named no buffer anything still holds has nothing to
-        // wait for.
-        failures.prune(failure);
+    }
+
+    /// Enter a write scope over `written`: taint every buffer the work is
+    /// going to write with a provisional failure, minted here because the real
+    /// one does not exist yet.
+    ///
+    /// The default this sets is tainted unless proven written — the opposite
+    /// of clearing on success and hoping every failure path remembered to
+    /// taint. A body that returns early, or panics before
+    /// [`exit_write`](Self::exit_write) runs, leaves the write set carrying
+    /// this failure, so a read of one of its buffers fails loudly instead of
+    /// returning bytes nothing wrote.
+    ///
+    /// An empty write set — a dry run, a launch writing nothing — claims
+    /// nothing and mints nothing.
+    pub fn enter_write(
+        &mut self,
+        written: &[BufferBinding],
+        failures: &mut ErrorGraph,
+    ) -> Option<FailureId>
+    where
+        F::Stream: StreamMemory,
+    {
+        if written.is_empty() {
+            return None;
+        }
+        let provisional = failures.insert(ServerError::Generic {
+            reason: "the work writing this buffer was torn down before it could say what went \
+                     wrong: its write scope never reached the exit that names the real failure, \
+                     which a panic mid-launch explains"
+                .into(),
+            backtrace: BackTrace::default(),
+        });
+        self.taint_with(provisional, written.iter(), failures);
+        Some(provisional)
+    }
+
+    /// Exit the write scope entered over `written`: release the provisional
+    /// failure when the work was enqueued, and swap the real error in for it
+    /// when the work was not.
+    ///
+    /// On failure the error is also queued on `stream_id`, the stream that
+    /// issued the work, so its next flush still reports what happened — the
+    /// taint answers reads, the queue answers attribution.
+    pub fn exit_write(
+        &mut self,
+        provisional: Option<FailureId>,
+        written: &[BufferBinding],
+        stream_id: StreamId,
+        error: Option<&ServerError>,
+        failures: &mut ErrorGraph,
+    ) where
+        F::Stream: StreamMemory + StreamErrorSink,
+    {
+        match error {
+            None => self.written(written.iter(), failures),
+            Some(error) => {
+                if let Some(provisional) = provisional {
+                    failures.replace(provisional, error.clone());
+                }
+                self.get_mut(&stream_id)
+                    .errors_mut()
+                    .push(stream_id, error.clone());
+            }
+        }
+        // Covers the failure that tainted nothing — every binding resolving to
+        // a slot no stream ever initialized — and costs one lookup otherwise.
+        if let Some(provisional) = provisional {
+            failures.prune(provisional);
+        }
     }
 
     /// Release the failure on every allocation in `written`: work that writes

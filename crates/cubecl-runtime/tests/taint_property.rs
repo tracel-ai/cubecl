@@ -5,10 +5,10 @@
 //!
 //! The harness drives the same machinery every backend server drives — a
 //! [`StreamPool`] of streams each owning a [`MemoryManagement`], the
-//! device-wide [`ErrorGraph`], and the taint calls a launch, a host write and
-//! a read make — over random sequences of allocate, launch, write, read,
-//! flush, free and cleanup across several logical streams. The model keeps
-//! its own answer per buffer and compares after every read.
+//! device-wide [`ErrorGraph`], and the write scope every launch and host
+//! write runs inside — over random sequences of allocate, launch, write,
+//! read, flush, free and cleanup across several logical streams. The model
+//! keeps its own answer per buffer and compares after every read.
 //!
 //! Two invariants ride along, checked continuously:
 //!
@@ -17,6 +17,10 @@
 //!   the program leaks memory;
 //! - once every buffer is dropped and the pools are swept, the graph is
 //!   empty.
+//!
+//! The write scope's own properties get dedicated tests below the random
+//! runs: success releases, failure names the real error, and a panic between
+//! entry and exit leaves the write set tainted.
 
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
@@ -28,7 +32,8 @@ use cubecl_runtime::memory_management::{
 use cubecl_runtime::server::{BufferBinding, Handle, ServerError};
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::stream::{
-    StreamErrorSink, StreamErrors, StreamFactory, StreamMemory, StreamPool,
+    StreamErrorSink, StreamErrors, StreamFactory, StreamMemory, StreamPool, WriteScoped,
+    WriteStreams,
 };
 use std::sync::Arc;
 
@@ -68,6 +73,10 @@ impl core::fmt::Debug for TestStream {
 impl StreamErrorSink for TestStream {
     fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
         &self.errors
+    }
+
+    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
+        &mut self.errors
     }
 }
 
@@ -113,6 +122,47 @@ impl StreamFactory for Factory {
     }
 }
 
+/// The harness's stand-in for a backend server: the streams, the failure
+/// store, and nothing else. Implementing [`WriteScoped`] on it means the
+/// harness's launches and host writes run through the very same
+/// `while_writing` the real servers use.
+struct Device {
+    pool: StreamPool<Factory>,
+    failures: ErrorGraph,
+    scratch: Vec<BufferBinding>,
+}
+
+impl WriteStreams for Device {
+    fn stage(&mut self) -> Vec<BufferBinding> {
+        core::mem::take(&mut self.scratch)
+    }
+
+    fn enter(&mut self, written: &[BufferBinding]) -> Option<FailureId> {
+        self.pool.enter_write(written, &mut self.failures)
+    }
+
+    fn exit(
+        &mut self,
+        provisional: Option<FailureId>,
+        mut written: Vec<BufferBinding>,
+        stream_id: StreamId,
+        error: Option<&ServerError>,
+    ) {
+        self.pool
+            .exit_write(provisional, &written, stream_id, error, &mut self.failures);
+        written.clear();
+        self.scratch = written;
+    }
+}
+
+impl WriteScoped for Device {
+    type Streams = Self;
+
+    fn write_streams(&mut self) -> &mut Self::Streams {
+        self
+    }
+}
+
 /// A tiny deterministic generator, so a failing seed reproduces exactly.
 struct Rng(u64);
 
@@ -136,8 +186,7 @@ impl Rng {
 }
 
 struct Harness {
-    pool: StreamPool<Factory>,
-    failures: ErrorGraph,
+    device: Device,
     buffers: Vec<Buffer>,
     rng: Rng,
 }
@@ -149,6 +198,10 @@ fn error(reason: &str) -> ServerError {
     }
 }
 
+fn reason(error: &ServerError) -> String {
+    format!("{error}")
+}
+
 impl Harness {
     fn new(config: MemoryConfiguration, seed: u64) -> Self {
         let properties = MemoryDeviceProperties {
@@ -156,16 +209,19 @@ impl Harness {
             alignment: 32,
         };
         Self {
-            pool: StreamPool::new(
-                Factory {
-                    config,
-                    properties,
-                    logger: Arc::new(ServerLogger::default()),
-                },
-                MAX_STREAMS,
-                0,
-            ),
-            failures: ErrorGraph::default(),
+            device: Device {
+                pool: StreamPool::new(
+                    Factory {
+                        config,
+                        properties,
+                        logger: Arc::new(ServerLogger::default()),
+                    },
+                    MAX_STREAMS,
+                    0,
+                ),
+                failures: ErrorGraph::default(),
+                scratch: Vec::new(),
+            },
             buffers: Vec::new(),
             rng: Rng(seed),
         }
@@ -183,14 +239,15 @@ impl Harness {
         let size = 32 * (1 + self.rng.below(64)) as u64;
         let handle = Handle::new(id, size);
 
-        let stream = self.pool.get_mut(&id);
-        let reserved = match stream.memory.reserve(size, &mut self.failures) {
+        let device = &mut self.device;
+        let stream = device.pool.get_mut(&id);
+        let reserved = match stream.memory.reserve(size, &mut device.failures) {
             Ok(reserved) => reserved,
             Err(err) => panic!("the harness never outgrows its pools: {err}"),
         };
         stream
             .memory
-            .bind(reserved, handle.memory.clone(), 0, &mut self.failures)
+            .bind(reserved, handle.memory.clone(), 0, &mut device.failures)
             .unwrap();
 
         self.buffers.push(Buffer {
@@ -201,51 +258,60 @@ impl Harness {
     }
 
     /// A launch on a random stream, writing a random subset of live buffers,
-    /// succeeding or failing. Exactly what a server's launch path does with
-    /// its write set: taint it on failure, release it on success.
+    /// succeeding or failing — through the same write scope a server's launch
+    /// path runs in: entry taints the set provisionally, exit releases it or
+    /// swaps the real failure in.
     fn launch(&mut self, fail: bool) {
         if self.buffers.is_empty() {
             return;
         }
         let id = self.stream_id();
         let count = 1 + self.rng.below(3.min(self.buffers.len()));
-        let mut written = Vec::new();
+        let mut indices = Vec::new();
         for _ in 0..count {
             let index = self.rng.below(self.buffers.len());
-            if !written.contains(&index) {
-                written.push(index);
+            if !indices.contains(&index) {
+                indices.push(index);
             }
         }
 
-        if fail {
-            let bindings: Vec<&BufferBinding> =
-                written.iter().map(|i| &self.buffers[*i].binding).collect();
-            self.pool
-                .taint(error("launch"), bindings.into_iter(), &mut self.failures);
-            let stream = self.pool.get_mut(&id);
-            stream.errors.push(id, error("launch"));
-            for index in written {
-                self.buffers[index].expect = Expect::Stale;
-            }
-        } else {
-            let bindings: Vec<&BufferBinding> =
-                written.iter().map(|i| &self.buffers[*i].binding).collect();
-            self.pool.written(bindings.into_iter(), &mut self.failures);
-            for index in written {
-                self.buffers[index].expect = Expect::Trusted;
-            }
+        let bindings: Vec<BufferBinding> = indices
+            .iter()
+            .map(|i| self.buffers[*i].binding.clone())
+            .collect();
+        let _ = self.device.while_writing(
+            id,
+            bindings,
+            |bindings, written| written.extend(bindings.iter().cloned()),
+            |_, _, _| match fail {
+                true => Err(error("launch")),
+                false => Ok(()),
+            },
+        );
+
+        for index in indices {
+            self.buffers[index].expect = match fail {
+                true => Expect::Stale,
+                false => Expect::Trusted,
+            };
         }
     }
 
-    /// A host write: fills one buffer, whatever state it was in.
+    /// A host write: fills one buffer, whatever state it was in — same scope,
+    /// destination as the write set.
     fn host_write(&mut self) {
         if self.buffers.is_empty() {
             return;
         }
         let index = self.rng.below(self.buffers.len());
         let binding = self.buffers[index].binding.clone();
-        self.pool
-            .written([&binding].into_iter(), &mut self.failures);
+        let id = binding.stream;
+        let _ = self.device.while_writing(
+            id,
+            binding,
+            |binding, written| written.push(binding.clone()),
+            |_, _, _| Ok::<(), ServerError>(()),
+        );
         self.buffers[index].expect = Expect::Trusted;
     }
 
@@ -258,8 +324,9 @@ impl Harness {
         let index = self.rng.below(self.buffers.len());
         let buffer = &self.buffers[index];
         let result = self
+            .device
             .pool
-            .ensure_written(&self.failures, [&buffer.binding].into_iter());
+            .ensure_written(&self.device.failures, [&buffer.binding].into_iter());
 
         match buffer.expect {
             Expect::Trusted => assert!(
@@ -277,7 +344,7 @@ impl Harness {
     /// buffer: reported is not written.
     fn flush(&mut self) {
         let id = self.stream_id();
-        let stream = self.pool.get_mut(&id);
+        let stream = self.device.pool.get_mut(&id);
         let _ = stream.errors.take(id);
     }
 
@@ -295,15 +362,17 @@ impl Harness {
     fn cleanup(&mut self) {
         let id = self.stream_id();
         let explicit = self.rng.chance(50);
-        let stream = self.pool.get_mut(&id);
-        stream.memory.cleanup(explicit, &mut self.failures);
+        let device = &mut self.device;
+        let stream = device.pool.get_mut(&id);
+        stream.memory.cleanup(explicit, &mut device.failures);
     }
 
     fn sweep(&mut self) {
+        let device = &mut self.device;
         for value in 0..MAX_STREAMS as u64 {
             let id = StreamId { value };
-            let stream = self.pool.get_mut(&id);
-            stream.memory.cleanup(true, &mut self.failures);
+            let stream = device.pool.get_mut(&id);
+            stream.memory.cleanup(true, &mut device.failures);
         }
     }
 }
@@ -328,8 +397,9 @@ fn run(config: MemoryConfiguration, seed: u64) {
     for index in 0..harness.buffers.len() {
         let buffer = &harness.buffers[index];
         let result = harness
+            .device
             .pool
-            .ensure_written(&harness.failures, [&buffer.binding].into_iter());
+            .ensure_written(&harness.device.failures, [&buffer.binding].into_iter());
         match buffer.expect {
             Expect::Trusted => assert!(result.is_ok(), "trusted buffer failed at rest: {result:?}"),
             Expect::Stale => assert!(result.is_err(), "stale buffer read clean at rest"),
@@ -343,9 +413,9 @@ fn run(config: MemoryConfiguration, seed: u64) {
     harness.buffers.clear();
     harness.sweep();
     assert!(
-        harness.failures.is_empty(),
+        harness.device.failures.is_empty(),
         "the graph held {} failure(s) after every buffer was dropped and every pool swept",
-        harness.failures.len()
+        harness.device.failures.len()
     );
 }
 
@@ -362,4 +432,115 @@ fn a_read_returns_bytes_iff_their_last_writer_succeeded_exclusive_pages() {
     for seed in 0..SEEDS {
         run(MemoryConfiguration::ExclusivePages, seed);
     }
+}
+
+/// A scope whose body succeeds leaves nothing behind: the provisional failure
+/// is released on exit and the graph is empty again.
+#[test]
+fn a_scope_that_succeeds_releases_the_provisional_failure() {
+    let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 7);
+    harness.alloc();
+    let binding = harness.buffers[0].binding.clone();
+
+    let result = harness.device.while_writing(
+        binding.stream,
+        binding.clone(),
+        |binding, written| written.push(binding.clone()),
+        |_, _, _| Ok::<(), ServerError>(()),
+    );
+
+    assert!(result.is_ok());
+    assert!(harness.device.failures.is_empty(), "success leaves no node");
+    harness
+        .device
+        .pool
+        .ensure_written(&harness.device.failures, [&binding].into_iter())
+        .expect("a buffer whose writer succeeded reads");
+}
+
+/// A scope whose body fails leaves the write set carrying the body's error —
+/// not the provisional one — and queues it on the issuing stream for its next
+/// flush to report.
+#[test]
+fn a_scope_that_fails_names_the_real_error_and_queues_it() {
+    let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 7);
+    harness.alloc();
+    let binding = harness.buffers[0].binding.clone();
+    let id = binding.stream;
+
+    let result = harness.device.while_writing(
+        id,
+        binding.clone(),
+        |binding, written| written.push(binding.clone()),
+        |_, _, _| Err::<(), ServerError>(error("the real failure")),
+    );
+
+    assert!(result.is_err());
+    let read = harness
+        .device
+        .pool
+        .ensure_written(&harness.device.failures, [&binding].into_iter())
+        .expect_err("a buffer whose writer failed must not read");
+    let read = reason(&read);
+    assert!(
+        read.contains("the real failure"),
+        "the read fails on the body's error, got: {read}"
+    );
+    assert!(
+        !read.contains("torn down"),
+        "the provisional error was replaced, got: {read}"
+    );
+
+    let queued = harness.device.pool.get_mut(&id).errors.take(id);
+    assert_eq!(queued.len(), 1, "the failure is queued for the next flush");
+}
+
+/// The provisional node doing its one irreplaceable job: a body that panics
+/// never reaches the exit, and the write set is left carrying the failure the
+/// scope entered with — a read fails loudly instead of returning bytes
+/// nothing wrote.
+#[test]
+fn a_mid_launch_panic_leaves_the_write_set_tainted() {
+    let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 7);
+    harness.alloc();
+    let binding = harness.buffers[0].binding.clone();
+
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = harness.device.while_writing(
+            binding.stream,
+            binding.clone(),
+            |binding, written| written.push(binding.clone()),
+            |_, _, _| -> Result<(), ServerError> {
+                panic!("mid-launch, before anything could report")
+            },
+        );
+    }));
+    assert!(panicked.is_err(), "the panic propagates");
+
+    let read = harness
+        .device
+        .pool
+        .ensure_written(&harness.device.failures, [&binding].into_iter())
+        .expect_err("the write set must be tainted after a mid-launch panic");
+    let read = reason(&read);
+    assert!(
+        read.contains("torn down"),
+        "the read fails on the provisional error, got: {read}"
+    );
+
+    // Writing the buffer again is the recovery, exactly as for an ordinary
+    // failure: the provisional node is released and the graph empties.
+    let result = harness.device.while_writing(
+        binding.stream,
+        binding.clone(),
+        |binding, written| written.push(binding.clone()),
+        |_, _, _| Ok::<(), ServerError>(()),
+    );
+    assert!(result.is_ok());
+    assert!(harness.device.failures.is_empty());
+    harness
+        .device
+        .pool
+        .ensure_written(&harness.device.failures, [&binding].into_iter())
+        .expect("a rewritten buffer reads again");
 }

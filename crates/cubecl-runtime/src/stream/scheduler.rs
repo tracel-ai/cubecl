@@ -55,6 +55,9 @@ pub struct SchedulerMultiStream<B: SchedulerStreamBackend> {
     max_tasks: usize,
     /// Server logger.
     pub logger: Arc<ServerLogger>,
+    /// The vector a write scope stages its write set in, pooled here so a
+    /// launch allocates little for it.
+    write_scratch: Vec<BufferBinding>,
 }
 
 /// Defines the scheduling strategy for task execution.
@@ -93,6 +96,10 @@ impl<B: SchedulerStreamBackend> StreamErrorSink for Stream<B> {
     fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
         self.stream.errors()
     }
+
+    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
+        self.stream.errors_mut()
+    }
 }
 
 impl<B: SchedulerStreamBackend> StreamMemory for Stream<B> {
@@ -111,6 +118,29 @@ impl<B: SchedulerStreamBackend> StreamMemory for Stream<B> {
 
     fn written(&mut self, binding: &ManagedMemoryBinding, failures: &mut ErrorGraph) {
         self.stream.written(binding, failures)
+    }
+}
+
+impl<B: SchedulerStreamBackend> super::WriteStreams for SchedulerMultiStream<B> {
+    fn stage(&mut self) -> Vec<BufferBinding> {
+        core::mem::take(&mut self.write_scratch)
+    }
+
+    fn enter(&mut self, written: &[BufferBinding]) -> Option<FailureId> {
+        self.pool.enter_write(written, &mut self.failures)
+    }
+
+    fn exit(
+        &mut self,
+        provisional: Option<FailureId>,
+        mut written: Vec<BufferBinding>,
+        stream_id: StreamId,
+        error: Option<&ServerError>,
+    ) {
+        self.pool
+            .exit_write(provisional, &written, stream_id, error, &mut self.failures);
+        written.clear();
+        self.write_scratch = written;
     }
 }
 
@@ -152,6 +182,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             max_tasks: options.max_tasks,
             strategy: options.strategy,
             logger,
+            write_scratch: Vec::new(),
         }
     }
 

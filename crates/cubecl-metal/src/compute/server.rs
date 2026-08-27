@@ -12,8 +12,8 @@ use cubecl_core::{
     MemoryConfiguration,
     prelude::*,
     server::{
-        BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, LaunchError,
-        ProfileError, ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, ProfileError,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
 };
 use cubecl_environment::future::DynFut;
@@ -26,7 +26,7 @@ use cubecl_runtime::{
     memory_management::{InstallMemoryPoolsError, ManagedMemoryHandle},
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
-    stream::{EventStreamBackend, MultiStream, ResolvedStreams},
+    stream::{EventStreamBackend, MultiStream, ResolvedStreams, WriteScoped},
     timestamp_profiler::TimestampProfiler,
 };
 use objc2::rc::Retained;
@@ -166,38 +166,18 @@ impl MetalServer {
 
         errors
     }
-
-    /// Records a launch failure on the issuing stream's error sink, tainting
-    /// the buffers the launch was going to write.
-    ///
-    /// The launch never reached the device, so every buffer it was given is
-    /// left as it was: the taint makes a later read of one fail on this error
-    /// rather than copy out bytes nothing wrote.
-    ///
-    /// A dry run taints none. It was never going to write, so a failure in it
-    /// leaves nothing stale, and tainting its buffers would fail unrelated
-    /// reads of memory the run deliberately left alone.
-    fn push_launch_error(
-        &mut self,
-        stream_id: StreamId,
-        err: LaunchError,
-        args: &KernelArguments,
-        launch_mode: LaunchMode,
-    ) {
-        let mut resolved = match self.streams.resolve(stream_id, std::iter::empty(), false) {
-            Ok(resolved) => resolved,
-            Err(err) => unreachable!("{err}"),
-        };
-        let error = ServerError::Launch(err);
-        if !launch_mode.is_skipped() {
-            resolved.taint(error.clone(), args.buffers_written());
-        }
-        resolved.current().errors.lock().push(stream_id, error);
-    }
 }
 
 impl ServerCommunication for MetalServer {
     const SERVER_COMM_ENABLED: bool = false;
+}
+
+impl WriteScoped for MetalServer {
+    type Streams = MultiStream<MetalStreamBackend>;
+
+    fn write_streams(&mut self) -> &mut Self::Streams {
+        &mut self.streams
+    }
 }
 
 impl ComputeServer for MetalServer {
@@ -282,8 +262,8 @@ impl ComputeServer for MetalServer {
             };
 
         // Flush, wait, then read.
-        let stream = resolved.current();
-        let event = MetalStreamBackend::flush(stream);
+        let (stream, failures) = resolved.current_and_failures();
+        let event = MetalStreamBackend::flush(stream, failures);
 
         if let Err(e) = MetalStreamBackend::wait_event_sync(event) {
             return Box::pin(async move { Err(e) });
@@ -333,47 +313,51 @@ impl ComputeServer for MetalServer {
                 }
             };
 
-        let stream = resolved.current();
-        let event = MetalStreamBackend::flush(stream);
+        let (stream, failures) = resolved.current_and_failures();
+        let event = MetalStreamBackend::flush(stream, failures);
         if let Err(err) = MetalStreamBackend::wait_event_sync(event) {
             log::warn!("metal write: sync failed: {err}");
             return;
         }
+        core::mem::drop(resolved);
 
         for (descriptor, data) in descriptors {
-            // The copy leaves the destination as it was on failure, which is
-            // what a later read of it has to fail on — so it is queued for the
-            // caller to surface rather than logged and forgotten, as on every
-            // other backend.
-            let destination = descriptor.handle.clone();
-            let (resource, offset) =
-                match resolve_origin_resource(&mut resolved, &descriptor.handle) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        let error = ServerError::Io(e);
-                        resolved.taint(error.clone(), [&destination].into_iter());
-                        resolved.current().errors.lock().push(stream_id, error);
-                        continue;
-                    }
-                };
+            // Each copy runs in its own scope over its destination: the copy
+            // fills it, which is what releases an earlier failure's hold on
+            // it — a caller recovers by writing from the host as much as by
+            // relaunching — and a failure leaves it as it was, which is what
+            // a later read of it has to fail on. Queued for the caller to
+            // surface rather than logged and forgotten, as on every other
+            // backend.
+            let _ = self.while_writing(
+                stream_id,
+                (descriptor, data),
+                |(descriptor, _), written| written.push(descriptor.handle.clone()),
+                |server, (descriptor, data), _| {
+                    let mut resolved = server.streams.resolve(
+                        stream_id,
+                        [&descriptor.handle].into_iter(),
+                        false,
+                    )?;
+                    let (resource, offset) =
+                        resolve_origin_resource(&mut resolved, &descriptor.handle)
+                            .map_err(ServerError::Io)?;
 
-            let buffer = resource.inner();
-            let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
-            let base_ptr = protocol_obj.contents().as_ptr() as *mut u8;
-            let dst_ptr = unsafe { base_ptr.add(offset as usize) };
+                    let buffer = resource.inner();
+                    let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
+                    let base_ptr = protocol_obj.contents().as_ptr() as *mut u8;
+                    let dst_ptr = unsafe { base_ptr.add(offset as usize) };
 
-            write_pitched(
-                dst_ptr,
-                &data,
-                &descriptor.shape,
-                &descriptor.strides,
-                descriptor.elem_size,
+                    write_pitched(
+                        dst_ptr,
+                        &data,
+                        &descriptor.shape,
+                        &descriptor.strides,
+                        descriptor.elem_size,
+                    );
+                    Ok(())
+                },
             );
-
-            // The buffer is filled, so an earlier failure that left it stale has
-            // nothing left to say about it: a caller recovers by writing from
-            // the host as much as by relaunching.
-            resolved.written([&destination].into_iter());
         }
     }
 
@@ -387,190 +371,208 @@ impl ComputeServer for MetalServer {
     ) {
         use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder, MTLDevice, MTLResourceOptions};
 
-        let kernel_id = kernel.id();
-
-        if let Err(err) =
-            cubecl_runtime::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)
-        {
-            self.push_launch_error(stream_id, err, &bindings, launch_mode);
-            return;
-        }
-        if let Err(err) =
-            cubecl_runtime::validation::validate_units(&self.utilities.properties, &kernel_id)
-        {
-            self.push_launch_error(stream_id, err, &bindings, launch_mode);
-            return;
-        }
-
-        let compiled = match self.context.compile_kernel(
-            &kernel_id,
-            kernel,
-            self.utilities.properties.hardware.max_shared_memory_size,
-            self.utilities.logger.clone(),
-        ) {
-            Ok(c) => c,
-            Err(err) => {
-                self.push_launch_error(stream_id, err, &bindings, launch_mode);
-                return;
-            }
-        };
-
-        if launch_mode.is_skipped() {
-            return;
-        }
-
-        let dispatch_info = match count {
-            CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
-            CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),
-        };
-
-        // Resolve every binding (including the dynamic count) so the current stream
-        // waits on each binding's origin stream before dispatching.
-        let mut resolved = match self.streams.resolve(
+        // The scope taints what the launch writes until the body proves the
+        // work enqueued, so a failure — or a panic — anywhere in it leaves a
+        // read of those buffers failing on the error rather than copying
+        // bytes nothing wrote. The paths that used to bail out silently now
+        // name what they left unwritten.
+        //
+        // A dry run stages none. It was never going to write, so a failure in
+        // it leaves nothing stale, and tainting its buffers would fail
+        // unrelated reads of memory the run deliberately left alone.
+        let _ = self.while_writing(
             stream_id,
-            bindings
-                .resources
-                .iter()
-                .map(|res| match res {
-                    KernelResource::Buffer(binding) => binding,
-                    KernelResource::TensorMap(_) => panic!("Tensor maps not supported on Metal"),
-                })
-                .chain(match &dispatch_info {
-                    DispatchInfo::Dynamic(binding) => Some(binding),
-                    DispatchInfo::Static(..) => None,
-                }),
-            false,
-        ) {
-            Ok(r) => r,
-            Err(_) => return,
-        };
-
-        let mut resources = Vec::with_capacity(bindings.resources.len());
-        let mut total_buffer_bytes: usize = 0;
-        for binding in bindings.resources.iter() {
-            let binding = match binding {
-                KernelResource::Buffer(binding) => binding,
-                KernelResource::TensorMap(_) => panic!("Tensor maps not supported on Metal"),
-            };
-            let (resource, offset) = match resolve_origin_resource(&mut resolved, binding) {
-                Ok(r) => r,
-                Err(_) => return,
-            };
-
-            total_buffer_bytes += binding.size_in_used() as usize;
-
-            resources.push((resource, offset));
-        }
-
-        // The indirect count buffer is read GPU-side, so it too comes from its origin stream.
-        let indirect_buffer_info = match &dispatch_info {
-            DispatchInfo::Dynamic(binding) => {
-                match resolve_origin_resource(&mut resolved, binding) {
-                    Ok(r) => Some(r),
-                    Err(_) => return,
+            bindings,
+            |bindings, written| {
+                if !launch_mode.is_skipped() {
+                    written.extend(bindings.buffers_written().cloned());
                 }
-            }
-            _ => None,
-        };
+            },
+            |server, bindings, _| {
+                let kernel_id = kernel.id();
 
-        // Work is issued on the current stream; resources above came from their origins.
-        let stream = resolved.current();
+                cubecl_runtime::validation::validate_cube_dim(
+                    &server.utilities.properties,
+                    &kernel_id,
+                )
+                .map_err(ServerError::Launch)?;
+                cubecl_runtime::validation::validate_units(
+                    &server.utilities.properties,
+                    &kernel_id,
+                )
+                .map_err(ServerError::Launch)?;
 
-        let device = stream.device.clone();
-        let active = stream.get_or_create_encoder();
-        let encoder = &active.encoder;
-
-        (*encoder).setComputePipelineState(&compiled.pipeline);
-
-        for (index, (resource, offset)) in resources.iter().enumerate() {
-            let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
-            unsafe {
-                (*encoder).setBuffer_offset_atIndex(Some(buffer), *offset as usize, index);
-            }
-        }
-
-        let buffer_index = resources.len();
-
-        if !bindings.info.data.is_empty() {
-            let info_bytes: &[u8] = bytemuck::cast_slice(&bindings.info.data);
-            if info_bytes.len() <= 4096 {
-                use std::ptr::NonNull;
-                unsafe {
-                    (*encoder).setBytes_length_atIndex(
-                        NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
-                        info_bytes.len(),
-                        buffer_index,
-                    );
-                }
-            } else {
-                use std::ptr::NonNull;
-                let info_buffer = unsafe {
-                    (*device).newBufferWithBytes_length_options(
-                        NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
-                        info_bytes.len(),
-                        MTLResourceOptions::StorageModeShared,
+                let compiled = server
+                    .context
+                    .compile_kernel(
+                        &kernel_id,
+                        kernel,
+                        server.utilities.properties.hardware.max_shared_memory_size,
+                        server.utilities.logger.clone(),
                     )
-                };
-                match info_buffer {
-                    Some(buf) => {
-                        unsafe {
-                            (*encoder).setBuffer_offset_atIndex(Some(&buf), 0, buffer_index);
-                        }
-                        active.temporaries.push(buf);
-                    }
-                    None => return,
+                    .map_err(ServerError::Launch)?;
+
+                if launch_mode.is_skipped() {
+                    return Ok(());
                 }
-            }
-        }
 
-        let cube_dim = compiled.cube_dim;
-        let threads_per_threadgroup = objc2_metal::MTLSize {
-            width: cube_dim.x as usize,
-            height: cube_dim.y as usize,
-            depth: cube_dim.z as usize,
-        };
-
-        match dispatch_info {
-            DispatchInfo::Static(grid_x, grid_y, grid_z) => {
-                let threadgroups = objc2_metal::MTLSize {
-                    width: grid_x as usize,
-                    height: grid_y as usize,
-                    depth: grid_z as usize,
+                let dispatch_info = match count {
+                    CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
+                    CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),
                 };
 
-                (*encoder).dispatchThreadgroups_threadsPerThreadgroup(
-                    threadgroups,
-                    threads_per_threadgroup,
-                );
-            }
-            DispatchInfo::Dynamic(_) => {
-                let (resource, offset) = indirect_buffer_info.unwrap();
-                let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
+                // Resolve every binding (including the dynamic count) so the current stream
+                // waits on each binding's origin stream before dispatching.
+                let mut resolved = server.streams.resolve(
+                    stream_id,
+                    bindings
+                        .resources
+                        .iter()
+                        .map(|res| match res {
+                            KernelResource::Buffer(binding) => binding,
+                            KernelResource::TensorMap(_) => {
+                                panic!("Tensor maps not supported on Metal")
+                            }
+                        })
+                        .chain(match &dispatch_info {
+                            DispatchInfo::Dynamic(binding) => Some(binding),
+                            DispatchInfo::Static(..) => None,
+                        }),
+                    false,
+                )?;
 
-                unsafe {
-                    (*encoder)
-                        .dispatchThreadgroupsWithIndirectBuffer_indirectBufferOffset_threadsPerThreadgroup(
-                            buffer,
-                            offset as usize,
+                let mut resources = Vec::with_capacity(bindings.resources.len());
+                let mut total_buffer_bytes: usize = 0;
+                for binding in bindings.resources.iter() {
+                    let binding = match binding {
+                        KernelResource::Buffer(binding) => binding,
+                        KernelResource::TensorMap(_) => {
+                            panic!("Tensor maps not supported on Metal")
+                        }
+                    };
+                    let (resource, offset) = resolve_origin_resource(&mut resolved, binding)
+                        .map_err(ServerError::Io)?;
+
+                    total_buffer_bytes += binding.size_in_used() as usize;
+
+                    resources.push((resource, offset));
+                }
+
+                // The indirect count buffer is read GPU-side, so it too comes from its origin stream.
+                let indirect_buffer_info = match &dispatch_info {
+                    DispatchInfo::Dynamic(binding) => Some(
+                        resolve_origin_resource(&mut resolved, binding).map_err(ServerError::Io)?,
+                    ),
+                    _ => None,
+                };
+
+                // Work is issued on the current stream; resources above came from their origins.
+                let (stream, failures) = resolved.current_and_failures();
+
+                let device = stream.device.clone();
+                let active = stream.get_or_create_encoder();
+                let encoder = &active.encoder;
+
+                (*encoder).setComputePipelineState(&compiled.pipeline);
+
+                for (index, (resource, offset)) in resources.iter().enumerate() {
+                    let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
+                    unsafe {
+                        (*encoder).setBuffer_offset_atIndex(Some(buffer), *offset as usize, index);
+                    }
+                }
+
+                let buffer_index = resources.len();
+
+                if !bindings.info.data.is_empty() {
+                    let info_bytes: &[u8] = bytemuck::cast_slice(&bindings.info.data);
+                    if info_bytes.len() <= 4096 {
+                        use std::ptr::NonNull;
+                        unsafe {
+                            (*encoder).setBytes_length_atIndex(
+                                NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
+                                info_bytes.len(),
+                                buffer_index,
+                            );
+                        }
+                    } else {
+                        use std::ptr::NonNull;
+                        let info_buffer = unsafe {
+                            (*device).newBufferWithBytes_length_options(
+                                NonNull::new(info_bytes.as_ptr() as *mut _).unwrap(),
+                                info_bytes.len(),
+                                MTLResourceOptions::StorageModeShared,
+                            )
+                        };
+                        match info_buffer {
+                            Some(buf) => {
+                                unsafe {
+                                    (*encoder).setBuffer_offset_atIndex(Some(&buf), 0, buffer_index);
+                                }
+                                active.temporaries.push(buf);
+                            }
+                            None => {
+                                return Err(ServerError::Generic {
+                                    reason: format!(
+                                        "failed to allocate a {} B Metal buffer for the kernel's \
+                                         metadata",
+                                        info_bytes.len()
+                                    ),
+                                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+                                });
+                            }
+                        }
+                    }
+                }
+
+                let cube_dim = compiled.cube_dim;
+                let threads_per_threadgroup = objc2_metal::MTLSize {
+                    width: cube_dim.x as usize,
+                    height: cube_dim.y as usize,
+                    depth: cube_dim.z as usize,
+                };
+
+                match dispatch_info {
+                    DispatchInfo::Static(grid_x, grid_y, grid_z) => {
+                        let threadgroups = objc2_metal::MTLSize {
+                            width: grid_x as usize,
+                            height: grid_y as usize,
+                            depth: grid_z as usize,
+                        };
+
+                        (*encoder).dispatchThreadgroups_threadsPerThreadgroup(
+                            threadgroups,
                             threads_per_threadgroup,
                         );
+                    }
+                    DispatchInfo::Dynamic(_) => {
+                        let (resource, offset) = indirect_buffer_info.unwrap();
+                        let buffer: &ProtocolObject<dyn MTLBuffer> = resource.inner().as_ref();
+
+                        unsafe {
+                            (*encoder)
+                                .dispatchThreadgroupsWithIndirectBuffer_indirectBufferOffset_threadsPerThreadgroup(
+                                    buffer,
+                                    offset as usize,
+                                    threads_per_threadgroup,
+                                );
+                        }
+                    }
                 }
-            }
-        }
 
-        stream.batch_ops += 1;
-        stream.batch_bytes += total_buffer_bytes;
+                stream.batch_ops += 1;
+                stream.batch_bytes += total_buffer_bytes;
 
-        // This launch is on its way, so an earlier failure that left these
-        // buffers stale has nothing left to say about them.
-        resolved.written(bindings.buffers_written());
+                let needs_flush = stream.batch_ops > stream.max_ops_per_batch
+                    || (stream.batch_bytes >> 20) > stream.max_mb_per_batch;
 
-        let needs_flush = stream.batch_ops > stream.max_ops_per_batch
-            || (stream.batch_bytes >> 20) > stream.max_mb_per_batch;
+                if needs_flush {
+                    MetalStreamBackend::flush(stream, failures);
+                }
 
-        if needs_flush {
-            MetalStreamBackend::flush(stream);
-        }
+                Ok(())
+            },
+        );
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
@@ -588,7 +590,8 @@ impl ComputeServer for MetalServer {
             Ok(r) => r,
             Err(e) => return Box::pin(async move { Err(e) }),
         };
-        let fence = MetalStreamBackend::flush(resolved.current());
+        let (stream, failures) = resolved.current_and_failures();
+        let fence = MetalStreamBackend::flush(stream, failures);
 
         Box::pin(async move { MetalStreamBackend::wait_event_sync(fence) })
     }
@@ -603,7 +606,8 @@ impl ComputeServer for MetalServer {
         }
 
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty(), false)?;
-        MetalStreamBackend::flush(resolved.current());
+        let (stream, failures) = resolved.current_and_failures();
+        MetalStreamBackend::flush(stream, failures);
         Ok(())
     }
 

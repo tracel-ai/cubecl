@@ -99,6 +99,19 @@ impl ErrorGraph {
         }
     }
 
+    /// Swap the error behind `failure` for `error`, leaving every carrier
+    /// pointing at the new one.
+    ///
+    /// This is the exit half of a write scope: entry taints the write set
+    /// with a provisional node, because the real failure does not exist yet,
+    /// and exit lands the real one here. A missing node is left missing — the
+    /// id outlived its carriers, so nothing can read the error either way.
+    pub fn replace(&mut self, failure: FailureId, error: ServerError) {
+        if let Some(node) = self.nodes.get_mut(&failure) {
+            node.error = error;
+        }
+    }
+
     /// Drop `failure` if nothing took its id — for a failure that turned out
     /// to taint nothing, whose node would otherwise wait forever at zero.
     pub fn prune(&mut self, failure: FailureId) {
@@ -212,6 +225,26 @@ mod tests {
         let failure = graph.insert(error("dry-run"));
 
         graph.prune(failure);
+        assert!(graph.is_empty());
+    }
+
+    /// The exit half of a write scope: the provisional error a scope entered
+    /// with is swapped for the real one, and every carrier follows.
+    #[test]
+    fn replacing_an_error_leaves_the_carriers_pointing_at_the_new_one() {
+        let mut graph = ErrorGraph::default();
+        let failure = graph.insert(error("torn down"));
+
+        let mut slot = None;
+        graph.taint(&mut slot, failure);
+        graph.replace(failure, error("launch"));
+
+        match graph.error(failure) {
+            Some(ServerError::Generic { reason, .. }) => assert_eq!(reason, "launch"),
+            other => panic!("expected the replaced error, got {other:?}"),
+        }
+
+        graph.untag(slot.take());
         assert!(graph.is_empty());
     }
 

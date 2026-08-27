@@ -30,6 +30,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
     storage::{BytesStorage, ComputeStorage, ManagedResource},
+    stream::WriteScoped,
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
 };
 use std::{collections::HashMap, sync::Arc};
@@ -41,10 +42,14 @@ pub struct CpuServer {
     compilation_cache: HashMap<KernelId, CpuKernel>,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
-    /// The buffers the launch in flight writes, held across the call that
-    /// consumes its arguments so a failure can still taint what it left
-    /// unwritten. Reused, so a launch allocates little for it.
-    written: Vec<BufferBinding>,
+}
+
+impl WriteScoped for CpuServer {
+    type Streams = SchedulerMultiStream<ScheduledCpuBackend>;
+
+    fn write_streams(&mut self) -> &mut Self::Streams {
+        &mut self.scheduler
+    }
 }
 
 impl CpuServer {
@@ -73,7 +78,6 @@ impl CpuServer {
             utilities,
             compilation_cache: HashMap::new(),
             streams_pool: Vec::new(),
-            written: Vec::new(),
         }
     }
 
@@ -270,49 +274,45 @@ impl ComputeServer for CpuServer {
         // would leave the buffer unwritten for a caller whose flush has already
         // reported and cleared that error.
         for (desc, data) in descriptors {
-            // The failures below belong to the caller, so they are queued on
-            // the caller's stream — the one that flushes them — even though the
-            // resource is resolved on the stream that owns the handle. Each
-            // taints the destination, which is what a later read of it has to
-            // fail on; the write that lands fills it, which is what releases
-            // an earlier failure's hold on it.
-            let destination = desc.handle.clone();
-            if contiguous_strides(&desc.shape) != desc.strides {
-                let error = ServerError::Io(IoError::UnsupportedStrides {
-                    backtrace: BackTrace::capture(),
-                });
-                self.scheduler
-                    .taint(error.clone(), core::iter::once(&destination));
-                self.scheduler.stream(&stream_id).error(stream_id, error);
+            // Each copy runs in its own scope over its destination: the write
+            // that lands fills it, which is what releases an earlier
+            // failure's hold on it — a caller recovers by writing from the
+            // host as much as by relaunching — and a failure leaves it as it
+            // was, which is what a later read of it has to fail on. The scope
+            // queues failures on the caller's stream, the one that flushes
+            // them, even though the resource is resolved on the stream that
+            // owns the handle.
+            let result = self.while_writing(
+                stream_id,
+                (desc, data),
+                |(desc, _), written| written.push(desc.handle.clone()),
+                |server, (desc, data), _| {
+                    if contiguous_strides(&desc.shape) != desc.strides {
+                        return Err(ServerError::Io(IoError::UnsupportedStrides {
+                            backtrace: BackTrace::capture(),
+                        }));
+                    }
+
+                    // The write is registered on the caller, so name the
+                    // stream that owns the handle as an argument: its queued
+                    // work has to land before this write overwrites the same
+                    // memory.
+                    let owner = desc.handle.stream;
+                    let memory = desc.handle.memory.clone();
+                    let stream = server.scheduler.stream(&owner);
+                    let resource = stream.get_resource(desc.handle).map_err(ServerError::Io)?;
+                    let task = ScheduleTask::Write {
+                        data,
+                        buffer: ManagedResource::new(memory, resource),
+                    };
+
+                    server.scheduler.register(stream_id, task, &[owner]);
+                    Ok(())
+                },
+            );
+            if result.is_err() {
                 return;
             }
-
-            // The write is registered on the caller, so name the stream that
-            // owns the handle as an argument: its queued work has to land
-            // before this write overwrites the same memory.
-            let owner = desc.handle.stream;
-            let stream = self.scheduler.stream(&owner);
-            let resource = match stream.get_resource(desc.handle.clone()) {
-                Ok(r) => r,
-                Err(err) => {
-                    let error = ServerError::Io(err);
-                    self.scheduler
-                        .taint(error.clone(), core::iter::once(&destination));
-                    self.scheduler.stream(&stream_id).error(stream_id, error);
-                    return;
-                }
-            };
-            let memory = desc.handle.memory.clone();
-            let task = ScheduleTask::Write {
-                data,
-                buffer: ManagedResource::new(memory, resource),
-            };
-
-            self.scheduler.register(stream_id, task, &[owner]);
-            // The write is on its way, so an earlier failure that left this
-            // buffer stale has nothing left to say about it: a caller recovers
-            // by writing from the host as much as by relaunching.
-            self.scheduler.written(core::iter::once(&destination));
         }
     }
 
@@ -346,63 +346,59 @@ impl ComputeServer for CpuServer {
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
-        // A skipped launch stops here, after compilation and before anything
-        // that touches a buffer: resolving resources or reading a dynamic
-        // cube count would materialize memory a dry run exists to leave
-        // unmapped. It registers no stream dependency either, which is
-        // correct rather than an oversight — nothing is scheduled, so there is
-        // no work for a later stream to order against.
-        if launch_mode.is_skipped() {
-            if let Err(err) = self.compile_only(kernel) {
-                // A dry run was never going to write, so it leaves no buffer
-                // stale and taints none: an ordinary queued error.
-                self.scheduler.stream(&stream_id).error(
-                    stream_id,
-                    ServerError::Launch(LaunchError::CompilationError(err)),
-                );
-            }
-            return;
-        }
-
-        self.streams_pool.clear();
-        self.written.clear();
-        bindings
-            .resources
-            .iter()
-            .enumerate()
-            .filter_map(|(index, b)| {
-                let KernelResource::Buffer(b) = b else {
-                    return None;
-                };
-                Some((index, b))
-            })
-            .for_each(|(index, b)| {
-                self.streams_pool.push(b.stream);
-                // Only what the kernel writes: an input this launch merely reads
-                // is left exactly as it was, so a failure has nothing to say
-                // about it.
-                if bindings.writes(index) {
-                    self.written.push(b.clone());
+        // The scope taints what the launch writes until the body proves the
+        // work enqueued, so a failure — or a panic — anywhere in it leaves a
+        // read of those buffers failing on the error rather than copying
+        // bytes nothing wrote.
+        //
+        // A dry run stages none. It was never going to write, so a failure in
+        // it leaves nothing stale, and tainting its buffers would fail
+        // unrelated reads of memory the run deliberately left alone.
+        let _ = self.while_writing(
+            stream_id,
+            bindings,
+            |bindings, written| {
+                if !launch_mode.is_skipped() {
+                    written.extend(bindings.buffers_written().cloned());
                 }
-            });
-        let bindings = self.prepare_bindings(bindings);
-        let task = match self.prepare_task(kernel, count, bindings, stream_id) {
-            Ok(task) => task,
-            Err(err) => {
-                // We make the stream that would execute the kernel in error.
-                // Nothing was scheduled, so every buffer the launch was given is
-                // left as it was; a read of one has to fail on this.
-                let error = ServerError::Launch(LaunchError::CompilationError(err));
-                self.scheduler.taint(error.clone(), self.written.iter());
-                self.scheduler.stream(&stream_id).error(stream_id, error);
-                return;
-            }
-        };
+            },
+            |server, bindings, _| {
+                // A skipped launch stops here, after compilation and before
+                // anything that touches a buffer: resolving resources or
+                // reading a dynamic cube count would materialize memory a dry
+                // run exists to leave unmapped. It registers no stream
+                // dependency either, which is correct rather than an
+                // oversight — nothing is scheduled, so there is no work for a
+                // later stream to order against.
+                if launch_mode.is_skipped() {
+                    return server
+                        .compile_only(kernel)
+                        .map(|_| ())
+                        .map_err(|err| ServerError::Launch(LaunchError::CompilationError(err)));
+                }
 
-        self.scheduler.register(stream_id, task, &self.streams_pool);
-        // This launch is on its way, so an earlier failure that left these
-        // buffers stale has nothing left to say about them.
-        self.scheduler.written(self.written.iter());
+                server.streams_pool.clear();
+                bindings
+                    .resources
+                    .iter()
+                    .filter_map(|b| {
+                        let KernelResource::Buffer(b) = b else {
+                            return None;
+                        };
+                        Some(b)
+                    })
+                    .for_each(|b| server.streams_pool.push(b.stream));
+                let bindings = server.prepare_bindings(bindings);
+                let task = server
+                    .prepare_task(kernel, count, bindings, stream_id)
+                    .map_err(|err| ServerError::Launch(LaunchError::CompilationError(err)))?;
+
+                server
+                    .scheduler
+                    .register(stream_id, task, &server.streams_pool);
+                Ok(())
+            },
+        );
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

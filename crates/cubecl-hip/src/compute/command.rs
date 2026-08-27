@@ -526,30 +526,6 @@ impl<'a> Command<'a> {
 
         Ok(())
     }
-
-    /// Registers an error on the stream, for the logical stream this command
-    /// runs on to surface, and taints the buffers the failed work left as
-    /// they were — so a later read of one fails on this rather than copying
-    /// out bytes nothing wrote. `written` is empty for a failure that skipped
-    /// no write.
-    pub fn error<'b>(
-        &mut self,
-        error: ServerError,
-        written: impl Iterator<Item = &'b BufferBinding>,
-    ) {
-        let stream_id = self.streams.current;
-        self.streams.taint(error.clone(), written);
-        let stream = self.streams.current();
-        stream.errors.push(stream_id, error);
-    }
-
-    /// Releases the failure on `written`: work that writes those buffers is
-    /// on its way, so a read of one is no longer reading bytes nothing wrote.
-    ///
-    /// The counterpart of [`error`](Self::error), for the paths that succeed.
-    pub fn written<'b>(&mut self, written: impl Iterator<Item = &'b BufferBinding>) {
-        self.streams.written(written);
-    }
 }
 
 /// Asynchronously copies data from GPU device memory to host memory.

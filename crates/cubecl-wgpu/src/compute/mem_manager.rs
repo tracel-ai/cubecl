@@ -16,7 +16,7 @@ use cubecl_runtime::{
 use wgpu::BufferUsages;
 
 #[derive(Debug)]
-pub(crate) struct WgpuMemManager {
+pub struct WgpuMemManager {
     memory_pool: MemoryManagement<WgpuStorage>,
     memory_uniforms: MemoryManagement<WgpuStorage>,
     memory_pool_staging: MemoryManagement<WgpuStorage>,

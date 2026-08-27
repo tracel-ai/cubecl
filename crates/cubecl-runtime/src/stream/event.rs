@@ -65,6 +65,9 @@ pub struct MultiStream<B: EventStreamBackend> {
     max_streams: usize,
     gc: GcThread<B>,
     shared_bindings_pool: Vec<(ManagedMemoryId, StreamId, u64)>,
+    /// The vector a write scope stages its write set in, pooled here so a
+    /// launch allocates little for it.
+    write_scratch: Vec<BufferBinding>,
 }
 
 /// A wrapper around a backend stream that includes synchronization metadata.
@@ -120,6 +123,10 @@ struct EventStreamBackendWrapper<B: EventStreamBackend> {
 impl<B: EventStreamBackend> StreamErrorSink for StreamWrapper<B> {
     fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
         self.stream.errors()
+    }
+
+    fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
+        self.stream.errors_mut()
     }
 }
 
@@ -277,6 +284,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
             max_streams: max_streams as usize,
             gc: GcThread::new(),
             shared_bindings_pool: Vec::new(),
+            write_scratch: Vec::new(),
         }
     }
 
@@ -473,6 +481,29 @@ impl<B: EventStreamBackend> MultiStream<B> {
         }
 
         analysis
+    }
+}
+
+impl<B: EventStreamBackend> super::WriteStreams for MultiStream<B> {
+    fn stage(&mut self) -> Vec<BufferBinding> {
+        core::mem::take(&mut self.write_scratch)
+    }
+
+    fn enter(&mut self, written: &[BufferBinding]) -> Option<crate::memory_management::FailureId> {
+        self.streams.enter_write(written, &mut self.failures)
+    }
+
+    fn exit(
+        &mut self,
+        provisional: Option<crate::memory_management::FailureId>,
+        mut written: Vec<BufferBinding>,
+        stream_id: StreamId,
+        error: Option<&ServerError>,
+    ) {
+        self.streams
+            .exit_write(provisional, &written, stream_id, error, &mut self.failures);
+        written.clear();
+        self.write_scratch = written;
     }
 }
 
@@ -757,11 +788,19 @@ mod tests {
         fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
             &self.errors
         }
+
+        fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
+            &mut self.errors
+        }
     }
 
     impl StreamErrorSink for TestStream {
         fn errors(&self) -> impl core::ops::Deref<Target = StreamErrors> + '_ {
             &self.errors
+        }
+
+        fn errors_mut(&mut self) -> impl core::ops::DerefMut<Target = StreamErrors> + '_ {
+            &mut self.errors
         }
     }
 
