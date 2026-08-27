@@ -65,9 +65,15 @@ pub trait DeviceStream {
 
 /// The layout of the device side of a copy.
 ///
-/// The pitch is computed once, by the caller, because whether a buffer's rows
-/// are padded is the same question whichever driver performs the copy — and
-/// getting it wrong scrambles the rows rather than failing.
+/// The pitch is computed once, by [`of`](Self::of), because whether a buffer's
+/// rows are padded is the same question whichever driver performs the copy —
+/// and getting it wrong scrambles the rows rather than failing.
+///
+/// Which is why a driver cannot build one. The fields are readable, since a
+/// driver needs all four, but only `of` puts them together: a hand-built
+/// layout could carry a pitch its strides do not agree with, and nothing
+/// downstream would notice.
+#[non_exhaustive]
 pub struct CopyLayout<'a> {
     /// The extent of each dimension.
     pub shape: &'a Shape,
