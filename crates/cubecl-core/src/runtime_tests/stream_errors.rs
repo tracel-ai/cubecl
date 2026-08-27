@@ -104,6 +104,79 @@ fn assert_rejected<R: Runtime>(client: &ComputeClient<R>, out: Handle, reason: &
     );
 }
 
+/// A failure travels the dataflow, not the stream it was issued on.
+///
+/// Two workflows interleaved on one stream: a failure in one reaches
+/// everything downstream *of it* and nothing else, because what carries a
+/// failure is the memory a launch would have written and the launches that
+/// then read it — the allocations are the nodes and the kernels are the
+/// edges. A stream is not an edge. Two chains that share no buffer are two
+/// disconnected subgraphs however they are interleaved.
+///
+/// This is the property that makes the whole design usable from a test: work
+/// can be issued on one stream without one failing case poisoning the others.
+/// Anything scoped to a stream rather than to memory — a per-stream error
+/// queue, a per-stream device fault — breaks it.
+pub fn test_two_workflows_on_one_stream_do_not_contaminate_each_other<R: Runtime>(
+    client: ComputeClient<R>,
+) {
+    let (producer, reader) = sharing_one_pooled_stream(1_000_013);
+    let size = core::mem::size_of::<u32>();
+
+    let launch_copy = |input: &Handle, out: &Handle| {
+        copy::launch::<R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            unsafe { BufferArg::from_raw_parts(input.clone(), 1) },
+            unsafe { BufferArg::from_raw_parts(out.clone(), 1) },
+        );
+    };
+
+    let (doomed_end, healthy_end) = producer.executes(|| {
+        // The doomed chain starts with a launch the compiler refuses.
+        let doomed_head = launch_rejected(&client, "the doomed workflow");
+        let doomed_mid = client.empty(size);
+        let doomed_end = client.empty(size);
+
+        // The healthy chain starts with a launch that runs.
+        let healthy_head = client.empty(size);
+        fill::launch::<R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            unsafe { BufferArg::from_raw_parts(healthy_head.clone(), 1) },
+            7,
+        );
+        let healthy_mid = client.empty(size);
+        let healthy_end = client.empty(size);
+
+        // Interleaved, so neither chain is merely "the batch after the other".
+        launch_copy(&doomed_head, &doomed_mid);
+        launch_copy(&healthy_head, &healthy_mid);
+        launch_copy(&doomed_mid, &doomed_end);
+        launch_copy(&healthy_mid, &healthy_end);
+
+        (doomed_end, healthy_end)
+    });
+
+    reader.executes(|| {
+        // The healthy chain ran to the end, on the same stream, while the
+        // other was failing beside it.
+        let healthy = client
+            .read_one(healthy_end)
+            .expect("a chain that shares no buffer with the failure is untouched");
+        assert_eq!(
+            u32::from_bytes(&healthy),
+            &[7],
+            "the healthy workflow's value has to survive its neighbour failing"
+        );
+
+        // And the doomed chain still names the launch that started it.
+        assert_rejected(&client, doomed_end, "the doomed workflow");
+    });
+}
+
 /// A read is only as good as the work that wrote the buffer.
 ///
 /// The rejection belongs to the stream that launched, so the reader's own flush
@@ -515,6 +588,14 @@ macro_rules! testgen_stream_errors {
             fn test_a_launch_that_never_compiled_taints_everything_it_was_given() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::stream_errors::test_a_launch_that_never_compiled_taints_everything_it_was_given::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_two_workflows_on_one_stream_do_not_contaminate_each_other() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::test_two_workflows_on_one_stream_do_not_contaminate_each_other::<
                     TestRuntime,
                 >(client);
             }
