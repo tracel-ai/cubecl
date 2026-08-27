@@ -2,7 +2,7 @@ use std::{
     collections::VecDeque,
     sync::{
         Arc,
-        atomic::{self, AtomicUsize},
+        atomic::{self, AtomicBool, AtomicUsize},
         mpsc,
     },
 };
@@ -119,22 +119,45 @@ impl Worker for DispatcherWorker {
                         self.aside.push_back(task);
                     }
                 }
-            } else if self.aside.len() < 4 {
-                let task = self.rx.try_recv();
-                if let Ok(task) = task {
-                    self.aside.push_back(task);
-                }
+            } else if self.aside.len() < 4
+                && let Ok(task) = self.rx.try_recv()
+            {
+                self.aside.push_back(task);
             }
+            let mut computed = false;
             self.aside.retain_mut(|elem| {
                 if elem.is_ready() {
                     elem.compute();
                     self.len.fetch_sub(1, atomic::Ordering::Relaxed);
+                    computed = true;
                     false
                 } else {
-                    std::hint::spin_loop();
                     true
                 }
             });
+            if !computed && !self.aside.is_empty() {
+                // Skipping the wait leaves the client dispatching while units
+                // are still going, so a worker waiting its turn holds a CPU it
+                // needs and yielding gives it back. Without it every batch
+                // drains the pool, and there is nobody left to yield to.
+                if SKIPPING_BATCH_WAIT.load(atomic::Ordering::Relaxed) {
+                    std::thread::yield_now();
+                } else {
+                    std::hint::spin_loop();
+                }
+            }
         }
     }
+}
+
+/// Whether any stream is queueing work behind a batch it did not wait for.
+///
+/// A worker cannot ask the stream directly, and the answer is not known when
+/// the pool starts: streams settle it from what their workload turns out to
+/// do. The flag is only read to choose how to wait, so a stale read costs a
+/// spin rather than correctness.
+static SKIPPING_BATCH_WAIT: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_skipping_batch_wait(skipping: bool) {
+    SKIPPING_BATCH_WAIT.store(skipping, atomic::Ordering::Relaxed);
 }
