@@ -14,6 +14,7 @@ use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 use std::{path::PathBuf, str::FromStr};
 
 use cubecl_opt::passes::{
+    alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
     simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
@@ -42,6 +43,7 @@ use pliron::{
 use crate::amdgpu::abi::KernargArgs;
 use crate::amdgpu::builtins::InsertAmdgpuBuiltinsPass;
 use crate::amdgpu::plane_dim_for;
+use crate::amdgpu::shared_memory::CtxSharedMemory;
 use crate::cpu::{
     abi::TableArgs,
     entrypoint::InsertConstantEmulationPass,
@@ -77,6 +79,8 @@ pub struct AmdGpuModule {
     pub ir: String,
     /// AMDGPU assembly, populated only when `CUBECL_DEBUG_PLIRON` is set.
     pub asm: Option<String>,
+    /// Bytes of LDS a launch must reserve, which the kernel takes as dynamic shared memory.
+    pub shared_memory_size: usize,
 }
 
 /// What [`PlironCompiler`] produces. Both targets yield something directly
@@ -256,15 +260,8 @@ impl PlironCompiler {
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
         ctx.set_target(LlvmTarget::AmdGpu);
-
-        // Checked before any pass runs: both of these would otherwise be lowered
-        // by passes that assume the CPU host, and miscompile silently.
-        if uses_cube_barrier(&ctx, module_op) {
-            unimplemented!("cube barriers are not supported on the AMDGPU target yet");
-        }
-        if declares_shared_memory(&ctx, module_op) {
-            unimplemented!("shared memory is not supported on the AMDGPU target yet");
-        }
+        // Left at zero for the kernels that never declare any.
+        ctx.set_shared_memory_size(0);
 
         #[cfg(not(feature = "pliron-dump"))]
         let ir_printing_dir = None;
@@ -284,6 +281,9 @@ impl PlironCompiler {
         func_passes.add_pass(InsertAmdgpuBuiltinsPass {
             plane_dim: plane_dim_for(arch),
         });
+        // Packs every shared memory into one block of offsets, which is what the AMDGPU
+        // lowering then gives an address in LDS. Same pass the C++ backends run.
+        func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
@@ -314,12 +314,16 @@ impl PlironCompiler {
             panic!("{}", e.disp(&ctx));
         }
 
+        // Filled in by the block's lowering, which is the last point it is known.
+        let shared_memory_size = ctx.shared_memory_size();
+
         crate::amdgpu::codegen::emit_code_object(
             &ctx,
             module,
             &kernel.settings.kernel_name,
             arch,
             kernel.settings.cube_dim.num_elems(),
+            shared_memory_size,
         )
         .unwrap_or_else(|err| {
             panic!(
@@ -358,6 +362,7 @@ mod tests {
             entrypoint: "k".to_string(),
             ir: "define void @k() { ret void }".to_string(),
             asm: None,
+            shared_memory_size: 0,
         });
         assert!(artifact.to_string().contains("@k"));
     }

@@ -1,9 +1,8 @@
 // C ABI over LLVM's bitcode linker.
 //
-// The C API links whole modules: `LLVMLinkModules2` pulls every definition of
-// the source in and leaves the rest to be dead-stripped later. ROCm's device
-// libraries are meant to be linked the way `llvm-link --only-needed` does,
-// taking only the definitions the kernel actually calls
+// `LLVMLinkModules2` links a module whole. ROCm's device libraries want the
+// `llvm-link --only-needed` behaviour instead, taking just the definitions the
+// kernel calls, and that flag lives on `llvm::Linker` with no C entry point.
 
 #include <cstddef>
 #include <cstdlib>
@@ -50,9 +49,6 @@ extern "C" char *cubecl_link_device_bitcode(LLVMModuleRef dest,
                  llvm::toString(parsed.takeError()));
   }
 
-  // The source module's triple and layout are the device libraries' own, which
-  // match the module `finalize_ir` stamped; a mismatch would only warn, so the
-  // caller checks the arch instead.
   if (llvm::Linker::linkModules(module, std::move(*parsed),
                                 llvm::Linker::Flags::LinkOnlyNeeded)) {
     return owned("linking device bitcode failed; see stderr above");

@@ -1,9 +1,7 @@
-//! What a kernel declares as shared memory, as both targets have to see it.
+//! What a kernel declares as shared memory, as both targets see it.
 //!
-//! Collecting the declarations and measuring the block each one needs is target independent.
-//! What replaces a declaration is not, and belongs to the target's
-//! [`EntryArgLayout`](super::metadata::EntryArgLayout): see
-//! [`cpu::shared_memory`](crate::cpu::shared_memory) for how the CPU host provides its blocks.
+//! Collecting the declarations and measuring each block is target independent. What replaces a
+//! declaration is not: see [`cpu::shared_memory`](crate::cpu::shared_memory).
 
 use cubecl_core::ir::AddressSpace;
 use cubecl_core::ir::dialect::memory::DeclareVariableOp;

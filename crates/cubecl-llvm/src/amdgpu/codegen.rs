@@ -59,6 +59,7 @@ pub fn emit_code_object(
     entrypoint: &str,
     arch: &str,
     cube_dim: u32,
+    shared_memory_size: usize,
 ) -> Result<AmdGpuModule, String> {
     let llvm_ctx = LLVMContext::default();
     let llvm_module =
@@ -83,6 +84,7 @@ pub fn emit_code_object(
         entrypoint: entrypoint.to_string(),
         ir,
         asm,
+        shared_memory_size,
     })
 }
 
@@ -290,11 +292,7 @@ unsafe fn run_pipeline_and_emit(
     unsafe {
         run_passes(module, tm, PASS_PIPELINE)?;
 
-        // Emission lowers the module it is given, in place: the AMDGPU control flow passes
-        // rewrite branches into `llvm.amdgcn.if` and leave it there. Asking the same module
-        // for a second file would put that already lowered IR back through the pipeline, and
-        // the second time around it no longer selects. So the assembly is taken off a copy,
-        // and the object off the module as the optimizer left it.
+        // Emission lowers the module in place, so a second file has to come off a copy.
         let asm = if want_asm {
             let copy = LLVMCloneModule(module);
             let bytes = emit(copy, tm, LLVMCodeGenFileType::LLVMAssemblyFile);
@@ -482,6 +480,53 @@ entry:
         assert!(
             !asm.contains("__ockl_printf_begin@"),
             "OCKL should be linked in, not left as a relocation:\n{asm}"
+        );
+
+        crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();
+    }
+
+    /// The shared memory block reaches the code object as LDS: the slices become `ds_`
+    /// accesses with their offset folded in, the generic pointers the rest of the pipeline
+    /// works with are inferred away, and the barrier is the hardware's own.
+    #[test]
+    fn shared_memory_becomes_lds() {
+        let ir = r#"
+@cube_lds = external addrspace(3) global [0 x i8], align 16
+declare void @llvm.amdgcn.s.barrier()
+define void @k(ptr addrspace(1) %out, i32 %tid) {
+entry:
+  %slice = getelementptr i8, ptr addrspace(3) @cube_lds, i32 64
+  %flat = addrspacecast ptr addrspace(3) %slice to ptr
+  %idx = getelementptr float, ptr %flat, i32 %tid
+  store float 1.0, ptr %idx, align 4
+  fence syncscope("workgroup") release
+  call void @llvm.amdgcn.s.barrier()
+  fence syncscope("workgroup") acquire
+  %v = load float, ptr %idx, align 4
+  store float %v, ptr addrspace(1) %out
+  ret void
+}
+"#;
+        let finalized = finalize_ir(ir, "k", "gfx1201", 64).unwrap();
+        let (object, asm) = compile_to_object(&finalized, "gfx1201", true).unwrap();
+        assert_eq!(&object[..4], b"\x7fELF");
+
+        let asm = asm.unwrap();
+        assert!(
+            asm.contains("ds_store"),
+            "the write should reach LDS:\n{asm}"
+        );
+        assert!(asm.contains("ds_load"), "the read should reach LDS:\n{asm}");
+        assert!(
+            !asm.contains("flat_store") && !asm.contains("flat_load"),
+            "the generic pointers should be inferred away:\n{asm}"
+        );
+        assert!(asm.contains("s_barrier"), "the cube barrier:\n{asm}");
+
+        // Dynamic, so the block costs the code object nothing and arrives as `sharedMemBytes`.
+        assert!(
+            asm.contains(".group_segment_fixed_size: 0"),
+            "the block should be sized at launch, not baked in:\n{asm}"
         );
 
         crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();

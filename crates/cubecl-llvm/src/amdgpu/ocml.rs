@@ -45,16 +45,14 @@ fn needs_ocml(base: &str, suffix: &str) -> bool {
 
 /// Points every call of an unsupported float intrinsic in `module` at OCML.
 ///
-/// Returns whether any call was redirected, i.e. whether the module now needs the device
-/// libraries linked into it. A kernel that only does arithmetic the hardware has needs
-/// nothing from `ROCm`, and should not fail to compile where `ROCm` is not installed.
+/// Returns whether anything was redirected, i.e. whether the device libraries have to be
+/// linked in behind it.
 ///
 /// # Safety
 /// `module` must be a live LLVM module.
 pub unsafe fn redirect_intrinsics_to_ocml(module: LLVMModuleRef) -> Result<bool, String> {
     unsafe {
-        // Collected first: the loop creates functions, and adding to a module while walking
-        // its function list is not something the iterator promises to survive.
+        // Collected first: the loop below adds functions to the module being walked.
         let mut candidates = Vec::new();
         let mut func = LLVMGetFirstFunction(module);
         while !func.is_null() {

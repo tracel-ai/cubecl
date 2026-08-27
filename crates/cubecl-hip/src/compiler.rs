@@ -72,13 +72,13 @@ impl core::fmt::Debug for HipRepresentation {
 }
 
 impl HipRepresentation {
-    /// Shared memory the launch must reserve. The LLVM backend does not support
-    /// shared memory yet, so it always reports zero.
+    /// Shared memory the launch must reserve. Both backends give their kernels one block of
+    /// dynamic shared memory, so this is what the launch passes as `sharedMemBytes`.
     pub fn shared_memory_size(&self) -> usize {
         match self {
             HipRepresentation::Cpp(kernel) => kernel.shared_memory_size,
             #[cfg(feature = "llvm")]
-            HipRepresentation::Llvm(_) => 0,
+            HipRepresentation::Llvm(module) => module.shared_memory_size,
         }
     }
 }

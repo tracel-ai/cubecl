@@ -1,9 +1,8 @@
 //! LLVM-dialect lowering of the CPU-private ops.
 //!
-//! The ops the CPU pipeline introduces for itself — the spin loop hint of
-//! [`synchronization`](super::synchronization) and the explicitly ordered atomics of
-//! [`ordered_atomic`](super::ordered_atomic) — become their `llvm` dialect counterparts here,
-//! the same way the target independent ops do in [`to_llvm`](crate::shared::to_llvm).
+//! The spin loop hint of [`synchronization`](super::synchronization) and the ordered atomics of
+//! [`ordered_atomic`](super::ordered_atomic), the way [`to_llvm`](crate::shared::to_llvm) does
+//! the target independent ones.
 
 use crate::cpu::ordered_atomic::{
     OrderedAtomicFetchAddOp, OrderedAtomicLoadOp, OrderedAtomicStoreOp,

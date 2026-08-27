@@ -1,8 +1,8 @@
 //! The CPU entry layout: one pointer table for every resource the host owns.
 //!
-//! Buffers and shared memories are collapsed behind a single `%buffer_ptrs` indirection, which is
-//! what lets the JIT host call every kernel through the one `extern "C"` signature in
-//! [`jit::engine`](super::jit::engine), whatever the kernel binds.
+//! Buffers and shared memories collapse behind a single `%buffer_ptrs` indirection, so the JIT
+//! host calls every kernel through the one `extern "C"` signature in
+//! [`jit::engine`](super::jit::engine).
 
 use core::cell::RefCell;
 use std::rc::Rc;

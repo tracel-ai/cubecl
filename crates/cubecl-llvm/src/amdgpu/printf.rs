@@ -1,10 +1,8 @@
-//! Turning `cube.printf` into something a GPU can do.
+//! Lowering of `printf` to the AMDGPU hostcall sequence.
 //!
-//! There is no `printf` on a device. What there is, is a conversation with the host: a handle
-//! from `__ockl_printf_begin`, the format string, the arguments widened to 64 bits, and a flag
-//! on the last one. LLVM owns both halves of that ABI and clang reaches it through
-//! `emitAMDGPUPrintfCall`, which `printf_shim.cpp` gives a C entry point so that this crate
-//! does not keep its own copy of it.
+//! A device talks to the host rather than calling libc: a handle from `__ockl_printf_begin`, the
+//! format string, then the arguments widened to 64 bits. `printf_shim.cpp` reaches LLVM's own
+//! emitter for it.
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::{LLVMModuleRef, LLVMValueRef};
@@ -28,9 +26,7 @@ pub unsafe fn lower_printf_to_hostcall(module: LLVMModuleRef) -> bool {
             return false;
         }
 
-        // Collected before any rewriting: each one erases a call, and the use list is what is
-        // being walked. `printf` has no other kind of user, but a `bitcast` of it or an address
-        // taken for something else would not be a call, and is left alone rather than assumed.
+        // Collected first: each rewrite erases a call out of the use list being walked.
         let mut calls = Vec::new();
         let mut use_ = LLVMGetFirstUse(printf);
         while !use_.is_null() {
@@ -46,8 +42,7 @@ pub unsafe fn lower_printf_to_hostcall(module: LLVMModuleRef) -> bool {
             cubecl_emit_amdgpu_printf(call);
         }
 
-        // The declaration is left behind with no uses. Removing it keeps the module honest
-        // about what it needs from outside, which on a GPU is not libc.
+        // The declaration is left with no uses; a GPU links no libc.
         if lowered && LLVMGetFirstUse(printf).is_null() {
             LLVMDeleteFunction(printf);
         }

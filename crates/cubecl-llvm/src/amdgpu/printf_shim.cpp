@@ -1,11 +1,9 @@
-// C ABI over LLVM's AMDGPU printf emitter.
+// C ABI over LLVM's AMDGPU printf emitter, which has no C entry point of its
+// own.
 //
-// A GPU has no `printf` to call, so the call has to become a conversation with
-// the host. LLVM knows both halves of that conversation, which is
-// `__ockl_printf_begin`, a string, some arguments widened to 64 bits, and a
-// flag on the last one and clang reaches it through `emitAMDGPUPrintfCall`. It
-// has no C entry point, so it gets one here rather than have this crate keep
-// its own copy of an ABI it does not own.
+// `isBuffered` is false: the buffered form is the OpenCL one, writing a packed
+// record for the runtime to match against an `amdhsa.printf` note. The hostcall
+// form asks the host directly, and is what HIP emits.
 
 #include <cstddef>
 
@@ -29,10 +27,7 @@ extern "C" void cubecl_emit_amdgpu_printf(LLVMValueRef call_ref) {
   llvm::Value *result =
       llvm::emitAMDGPUPrintfCall(builder, args, /*isBuffered=*/false);
 
-  // `printf` answers in `i32` and the sequence in `i64`, so the result is
-  // narrowed back before it replaces the call. Every caller so far drops it,
-  // but a truncated count is still the honest answer rather than a type the
-  // uses cannot take.
+  // `printf` answers in `i32` and the sequence in `i64`.
   if (!call->use_empty()) {
     llvm::Value *narrowed = builder.CreateTrunc(result, call->getType());
     call->replaceAllUsesWith(narrowed);

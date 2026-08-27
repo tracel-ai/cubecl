@@ -1,14 +1,9 @@
 //! Lowering of the shared `memory.declare_variable` to a pointer the host provides.
 //!
-//! Every unit of a cube runs the kernel on a thread of its own, so shared memory cannot be a
-//! stack allocation: all the units have to see the same bytes. The host reserves a block per
-//! shared memory instead (out of the stream's shared memory pool) and passes it the same way as a
-//! buffer, in the pointer table the entry ABI hands to the kernel. Declaring shared memory then
-//! costs no more than reading a kernel argument.
-//!
-//! Like the units, the cubes of a launch share those blocks, which is what a cube barrier is for:
-//! without one, a unit racing ahead to the next cube may overwrite what the units still finishing
-//! the current one are reading.
+//! Every unit of a cube runs on a thread of its own, so shared memory cannot be a stack
+//! allocation. The host reserves a block per shared memory and passes it like a buffer, in the
+//! pointer table the entry ABI hands to the kernel. The cubes of a launch share those blocks,
+//! which is what a cube barrier is for.
 
 use cubecl_core::ir::prelude::*;
 

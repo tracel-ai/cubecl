@@ -27,9 +27,13 @@ impl EntryArgLayout for KernargArgs {
         buffers: &[(usize, usize, Value)],
         shared: SharedDeclarations,
     ) {
-        if !shared.is_empty() {
-            unimplemented!("shared memory is not supported on the AMDGPU target yet");
-        }
+        // Shared memory never reaches here: the block pass turned every declaration into an
+        // offset into one LDS block long before the entry ABI is built, so there is nothing
+        // left for the kernarg layout to present.
+        debug_assert!(
+            shared.is_empty(),
+            "shared memory should have been lowered to LDS by AllocateSharedMemoryBlockPass"
+        );
 
         // Kernarg slot N must be buffer N. Holds because `KernelBuilder` assigns
         // `buffer_pos` from a monotonic counter and pushes the argument in the same

@@ -1,8 +1,7 @@
 //! Lowering of `sync.sync` to a spin barrier over the units of a cube.
 //!
-//! Every unit of a cube runs the kernel on its own thread (see the dispatcher scheduler), so a
-//! cube barrier is a plain two-phase counter barrier over a pair of `u32` counters the host
-//! allocates per launch and hands to the kernel through the [`ATTR_SYNC_CUBE_STATE`] argument.
+//! Every unit runs on its own thread, so a cube barrier is a two-phase counter barrier over the
+//! pair of `u32` the host passes through [`ATTR_SYNC_CUBE_STATE`].
 
 use cubecl_core::ir::attributes::EntrypointInterface;
 use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope};
@@ -19,7 +18,6 @@ use crate::cpu::entrypoint::runtime_arg;
 use crate::cpu::ordered_atomic::{
     atomic_fetch_add_acq_rel, atomic_load_acquire, atomic_store_release,
 };
-use crate::shared::polyfill::LowerOp;
 
 dict_key!(
     /// Marks the kernel argument pointing to the counters backing [`cube_barrier`].
@@ -81,38 +79,23 @@ fn cube_barrier(arrived: &Atomic<u32>, exited: &Atomic<u32>, #[comptime] units: 
     }
 }
 
-#[op_interface_impl]
-impl LowerOp for SyncOp {
-    fn lower(&self, scope: &Scope) -> Vec<Value> {
-        let ctx = scope.ctx();
-        // Read the scope out before lowering, holding the attribute borrowed would clash with
-        // the ops built below.
-        let sync_scope = self.scope(ctx).0;
-        match sync_scope {
-            // A plane is a single unit on the CPU, it is always in sync with itself.
-            SyncScope::Plane => {}
-            SyncScope::Cube => {
-                let func = enclosing_func(ctx, self.get_operation());
-                let units = func
-                    .get_entrypoint_abi(ctx)
-                    .expect("sync_cube must be lowered inside an entry point")
-                    .cube_dim
-                    .num_elems();
+/// The cube barrier, as a pair of counters the units spin on.
+///
+/// A cube of one unit is always in sync with itself and needs no barrier at all.
+pub fn lower_sync_cube(scope: &Scope, op: Ptr<Operation>) {
+    let ctx = scope.ctx();
+    let func = enclosing_func(ctx, op);
+    let units = func
+        .get_entrypoint_abi(ctx)
+        .expect("sync_cube must be lowered inside an entry point")
+        .cube_dim
+        .num_elems();
 
-                // Same as a plane, a cube of a single unit needs no barrier at all.
-                if units > 1 {
-                    let state = runtime_arg(ctx, func, &ATTR_SYNC_CUBE_STATE);
-                    let arrived = counter(scope, state, ARRIVED);
-                    let exited = counter(scope, state, EXITED);
-                    cube_barrier::expand(scope, &arrived.into(), &exited.into(), units);
-                }
-            }
-            SyncScope::Device => {
-                panic!("Device wide synchronization is not supported by the CPU runtime")
-            }
-            SyncScope::Unit => {}
-        }
-        vec![]
+    if units > 1 {
+        let state = runtime_arg(ctx, func, &ATTR_SYNC_CUBE_STATE);
+        let arrived = counter(scope, state, ARRIVED);
+        let exited = counter(scope, state, EXITED);
+        cube_barrier::expand(scope, &arrived.into(), &exited.into(), units);
     }
 }
 

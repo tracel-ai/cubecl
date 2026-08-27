@@ -1,8 +1,7 @@
 //! Linking `ROCm`'s device libraries into a kernel.
 //!
-//! The AMDGPU backend has hardware behind only some of the float intrinsics. Linking happens before the optimization pipeline, and takes only the definitions the
-//! kernel calls. `OCML`'s own functions are `linkonce_odr hidden`, so once inlined the
-//! pipeline strips every one of them back out again.
+//! Only the definitions the kernel calls are taken. They arrive `linkonce_odr hidden`, so the
+//! optimization pipeline inlines them and strips the rest back out.
 
 use std::collections::HashMap;
 use std::ffi::{CStr, c_char};
@@ -96,10 +95,9 @@ impl DeviceLibs {
 
 /// The device libraries a kernel for `arch` links against, in link order.
 ///
-/// Each library leaves control globals undefined, and each of those is a whole bitcode file
-/// whose only job is to define one. The two math option flags are set to the conservative side:
-/// no assumption that operands are finite, and no unsafe reassociation. The other three follow
-/// the device and the code object, so they are derived rather than chosen.
+/// Each library leaves control globals undefined, one bitcode file per global. The math options
+/// take the conservative side: operands are not assumed finite and reassociation is not assumed
+/// safe. The other three follow the device and the code object.
 fn device_libs_for(arch: &str, needs: DeviceLibs, code_object_version: u32) -> Vec<String> {
     let isa = arch.strip_prefix("gfx").unwrap_or(arch);
     let mut libs = Vec::new();
@@ -120,7 +118,7 @@ fn device_libs_for(arch: &str, needs: DeviceLibs, code_object_version: u32) -> V
         libs.push(format!("oclc_wavefrontsize64_{wave}.bc"));
     }
     if needs.any() {
-        // Wanted by both, so appended once here rather than by whichever asked first.
+        // Wanted by both, so appended once.
         libs.push(format!("oclc_isa_version_{isa}.bc"));
     }
 

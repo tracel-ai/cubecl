@@ -1,9 +1,8 @@
 //! Which machine the pliron pipeline is lowering for.
 //!
-//! The target is chosen once, from the environment, before any device is known, and is put on
-//! the [`Context`] so that the passes shared by both pipelines can ask what they are lowering
-//! for. The specific gfx architecture is *not* part of it: that is a property of the device being
-//! compiled for and arrives later, on [`PlironOptions`](crate::PlironOptions).
+//! Chosen once from the environment and put on the [`Context`], so the passes both pipelines
+//! share can ask. The gfx architecture is not part of it: that belongs to the device and
+//! arrives later, on [`PlironOptions`](crate::PlironOptions).
 
 use cubecl_core::ir::ContextExt;
 use pliron::context::Context;
