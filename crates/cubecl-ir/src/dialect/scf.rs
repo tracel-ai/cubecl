@@ -48,7 +48,6 @@ use crate::{
 
 #[pliron_op(
     name = "scf.if",
-    // format,
     format = "$0 ` : ` types(CharSpace(`,`)) ` then ` region($0) ` else ` region($1)",
     verifier = "succ"
 )]
