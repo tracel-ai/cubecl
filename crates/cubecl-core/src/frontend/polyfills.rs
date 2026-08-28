@@ -243,3 +243,94 @@ pub mod bitwise {
         select_many(low_ffs.equal(&Vector::new(0)), high_ffs, low_ffs)
     }
 }
+
+/// The plane reductions and scans, as folds over the shuffles.
+///
+/// A backend that has cross-lane shuffles but no reduction of its own gets them from here; the
+/// C++ backends and the LLVM one share these.
+pub mod plane {
+    use super::*;
+    use crate::prelude::{
+        CUBE_DIM, CubeAdd, CubeMul, CubePartialOrd, PLANE_DIM, UNIT_POS_PLANE, max, min,
+        plane_shuffle_up, plane_shuffle_xor, select,
+    };
+
+    #[cube]
+    pub trait PlaneOp<T: Scalar, N: Size> {
+        fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N>;
+    }
+
+    pub struct OpAdd;
+    pub struct OpMul;
+    pub struct OpMin;
+    pub struct OpMax;
+
+    #[cube]
+    impl<T: Scalar + CubeAdd, N: Size> PlaneOp<T, N> for OpAdd {
+        fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
+            lhs + rhs
+        }
+    }
+    #[cube]
+    impl<T: Scalar + CubeMul, N: Size> PlaneOp<T, N> for OpMul {
+        fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
+            lhs * rhs
+        }
+    }
+    #[cube]
+    impl<T: Scalar + CubePartialOrd, N: Size> PlaneOp<T, N> for OpMin {
+        fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
+            min(lhs, rhs)
+        }
+    }
+    #[cube]
+    impl<T: Scalar + CubePartialOrd, N: Size> PlaneOp<T, N> for OpMax {
+        fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
+            max(lhs, rhs)
+        }
+    }
+
+    #[cube]
+    fn plane_dim_checked() -> u32 {
+        min(PLANE_DIM, CUBE_DIM)
+    }
+
+    #[cube]
+    pub fn plane_reduce<T: Scalar, N: Size, Op: PlaneOp<T, N>>(val: Vector<T, N>) -> Vector<T, N> {
+        let plane_dim = plane_dim_checked();
+        let mut acc = val;
+        let mut offset = 1;
+        while offset < plane_dim {
+            acc = Op::apply(acc, plane_shuffle_xor(acc, offset));
+            offset *= 2;
+        }
+        acc
+    }
+
+    #[cube]
+    pub fn plane_reduce_inclusive<T: Scalar, N: Size, Op: PlaneOp<T, N>>(
+        val: Vector<T, N>,
+    ) -> Vector<T, N> {
+        let plane_dim = plane_dim_checked();
+        let mut acc = val;
+        let mut offset = 1;
+        while offset < plane_dim {
+            let tmp = Op::apply(acc, plane_shuffle_up(acc, offset));
+            if UNIT_POS_PLANE >= offset {
+                acc = tmp;
+            }
+            offset *= 2;
+        }
+        acc
+    }
+
+    #[cube]
+    pub fn plane_reduce_exclusive<T: Numeric, N: Size, Op: PlaneOp<T, N>>(
+        val: Vector<T, N>,
+        #[comptime] default: i64,
+    ) -> Vector<T, N> {
+        let inclusive = plane_reduce_inclusive::<T, N, Op>(val);
+        let shfl = plane_shuffle_up(inclusive, 1);
+        select(UNIT_POS_PLANE == 0, Vector::new(T::from_int(default)), shfl)
+    }
+}

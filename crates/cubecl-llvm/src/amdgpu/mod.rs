@@ -6,6 +6,8 @@ pub mod codegen;
 pub mod device_libs;
 pub mod lld;
 pub mod ocml;
+pub mod plane;
+pub mod plane_reduce;
 pub mod printf;
 pub mod shared_memory;
 pub mod synchronization;

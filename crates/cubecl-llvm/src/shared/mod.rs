@@ -42,6 +42,7 @@ use pliron::{
 
 use crate::amdgpu::abi::KernargArgs;
 use crate::amdgpu::builtins::InsertAmdgpuBuiltinsPass;
+use crate::amdgpu::plane::CtxPlaneDim;
 use crate::amdgpu::plane_dim_for;
 use crate::amdgpu::shared_memory::CtxSharedMemory;
 use crate::cpu::{
@@ -262,6 +263,7 @@ impl PlironCompiler {
         ctx.set_target(LlvmTarget::AmdGpu);
         // Left at zero for the kernels that never declare any.
         ctx.set_shared_memory_size(0);
+        ctx.set_plane_dim(plane_dim_for(arch));
 
         #[cfg(not(feature = "pliron-dump"))]
         let ir_printing_dir = None;
@@ -278,9 +280,6 @@ impl PlironCompiler {
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
-        func_passes.add_pass(InsertAmdgpuBuiltinsPass {
-            plane_dim: plane_dim_for(arch),
-        });
         // Packs every shared memory into one block of offsets, which is what the AMDGPU
         // lowering then gives an address in LDS. Same pass the C++ backends run.
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
@@ -292,6 +291,11 @@ impl PlironCompiler {
         func_passes.add_pass(LowerMinifloatCastPass::default());
         func_passes.add_pass(LowerMinifloatComparePass::default());
         func_passes.add_pass(LowerComplexOpPass::default());
+        // After the polyfills, which read builtins of their own: the plane folds ask for the
+        // plane's width and this unit's place in it.
+        func_passes.add_pass(InsertAmdgpuBuiltinsPass {
+            plane_dim: plane_dim_for(arch),
+        });
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(BranchToSCFPass::default());
