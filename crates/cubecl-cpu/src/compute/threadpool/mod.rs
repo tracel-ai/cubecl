@@ -1,21 +1,22 @@
-use crossbeam_utils::CachePadded;
 use cubecl_core::CubeDim;
 use cubecl_runtime::{
     memory_management::{ErrorGraph, MemoryManagement},
     storage::BytesStorage,
 };
-use std::sync::{Arc, OnceLock, atomic::AtomicU64};
+use std::sync::{Arc, OnceLock};
 
 use cubecl_llvm::{PlironData, PlironEngine, SharedMemories};
 
 use crate::compute::{
     schedule::BindingsResource,
     threadpool::{
+        completion_counter::CompletionCounter,
         compute_task::ComputeTask,
         scheduler::{Scheduler, SchedulerVariant},
     },
 };
 
+pub mod completion_counter;
 pub mod compute_task;
 pub mod scheduler;
 
@@ -55,7 +56,7 @@ impl Threadpool {
         memory: &mut MemoryManagement<BytesStorage>,
         failures: &mut ErrorGraph,
         next_counter_step: u64,
-        atomic_counter: &Arc<CachePadded<AtomicU64>>,
+        atomic_counter: &Arc<CompletionCounter>,
     ) {
         let requirements = pliron_engine.requirements().clone();
 
