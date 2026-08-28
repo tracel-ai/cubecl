@@ -58,7 +58,7 @@ pub use cubecl_runtime::dry_run;
 /// logger's levels.
 ///
 /// Re-exported because a caller attributing kernels to its own work reaches for
-/// [`observe_launches`](cubecl_runtime::logging::observe_launches) and has no
+/// [`LaunchObservation`](cubecl_runtime::logging::LaunchObservation) and has no
 /// other reason to depend on `cubecl-runtime` directly.
 pub use cubecl_runtime::logging;
 

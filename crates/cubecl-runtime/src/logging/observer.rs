@@ -13,7 +13,13 @@
 //! where host-side context still exists, so a caller that keeps a stack of what
 //! it is currently doing can pair a kernel with it.
 //!
-//! ```ignore
+//! ```
+//! use std::collections::HashMap;
+//! use std::sync::{Arc, Mutex};
+//!
+//! use cubecl_runtime::logging::{LaunchObservation, LaunchObserver};
+//!
+//! #[derive(Default)]
 //! struct CountThem(Mutex<HashMap<&'static str, usize>>);
 //!
 //! impl LaunchObserver for CountThem {
@@ -22,21 +28,40 @@
 //!     }
 //! }
 //!
-//! let _watching = observe_launches(Arc::new(CountThem::default()));
+//! let counts = Arc::new(CountThem::default());
+//! let watching = LaunchObservation::new(counts.clone());
+//! the_pass_to_attribute();
+//! drop(watching);
+//!
+//! for (kernel, count) in counts.0.lock().unwrap().iter() {
+//!     println!("{count} × {kernel}");
+//! }
+//! # fn the_pass_to_attribute() {}
 //! ```
 //!
 //! # Cost
 //!
 //! One relaxed atomic load per launch when nothing is installed, which is every
 //! ordinary run. The kernel's name is a `&'static str` the kernel already
-//! carries, so an idle hook allocates and formats nothing.
+//! carries, so an idle hook allocates and formats nothing. An observer that
+//! asks for timing is the expensive case, and pays per launch →
+//! [`wants_timing`](LaunchObserver::wants_timing).
 //!
-//! # What it is not
+//! # What it reports
 //!
-//! It reports that a launch was *issued*, not that it finished, and carries no
-//! duration — the work is asynchronous and the timing belongs to the profiling
-//! path. A caller wanting both pairs this with a profile region around the same
-//! span.
+//! A launch that was **issued**, not one that finished: [`launched`] arrives
+//! before the kernel reaches the server, and a duration — when one was asked
+//! for — arrives separately, afterwards, through [`timed`].
+//!
+//! Issued is not the same as executed. Under a
+//! [`DryRun`](crate::dry_run::DryRun) every launch is still compiled and still
+//! reported here, and is then dropped instead of reaching the device; a
+//! duration measured over one is the compile and the submit, with no kernel
+//! under it. An observer that cares about the difference checks
+//! [`dry_run`](crate::dry_run::dry_run).
+//!
+//! [`launched`]: LaunchObserver::launched
+//! [`timed`]: LaunchObserver::timed
 
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -46,8 +71,9 @@ use cubecl_environment::sync::RwLock;
 
 /// Notified of every kernel launch, on the thread that issued it.
 ///
-/// Implementations must be cheap and must not launch: this runs inside the
-/// launch path, before the kernel reaches the server.
+/// Implementations must be cheap, must not launch, and must not install or drop
+/// a [`LaunchObservation`]: this runs inside the launch path, before the kernel
+/// reaches the server, and holds the lock that guards the installed observer.
 pub trait LaunchObserver: Send + Sync {
     /// A kernel was issued, named as the kernel names itself. Pass it through
     /// [`type_name_format`](crate::config::type_name_format) to shorten it the
@@ -78,37 +104,60 @@ pub trait LaunchObserver: Send + Sync {
     /// [`System`](TimingMethod::System) where it cannot get a device
     /// timestamp — wgpu does exactly that once the timestamp-query budget is
     /// spent — and a system timing is host wall around a blocking submit,
-    /// which includes submission and sync rather than the kernel. The two are
-    /// not the same measurement and an observer reporting them as one will
-    /// show a number that moves several-fold between runs.
+    /// which includes submission, sync, and the kernel's compilation on its
+    /// first launch, rather than the kernel. The two are not the same
+    /// measurement and an observer reporting them as one will show a number
+    /// that moves several-fold between runs.
     fn timed(&self, _kernel: &'static str, _duration: Duration, _method: TimingMethod) {}
 }
 
-/// Whether anything is watching. Separate from the observer itself so the
-/// unobserved path — every ordinary run — is one relaxed load rather than a
-/// lock acquisition on the launch path.
-static OBSERVING: AtomicBool = AtomicBool::new(false);
-
-static OBSERVER: RwLock<Option<Arc<dyn LaunchObserver>>> = RwLock::new(None);
-
-/// Install `observer` for the process, returning whatever it replaced.
+/// Watches every launch the process issues for as long as it lives, then puts
+/// back whatever it replaced.
 ///
 /// Process-wide rather than per client: a caller attributing launches wants
 /// every one its work causes, and work reaches several clients on several
 /// streams. Filtering is the observer's to do, since only it knows what it is
 /// attributing to.
-pub fn observe_launches(observer: Arc<dyn LaunchObserver>) -> Option<Arc<dyn LaunchObserver>> {
-    let previous = OBSERVER.write().replace(observer);
-    OBSERVING.store(true, Ordering::Relaxed);
-    previous
+///
+/// A guard rather than an install/stop pair so the scope being attributed is
+/// the scope the observer is installed for, with no restore step a caller can
+/// skip on an early return. There is one slot, so a second observation replaces
+/// the first for its lifetime; guards dropped in the order they were taken
+/// leave the process as they found it.
+#[must_use = "an observation stops as soon as it is dropped"]
+pub struct LaunchObservation {
+    previous: Option<Arc<dyn LaunchObserver>>,
 }
 
-/// Stop watching, returning the observer that was installed.
-pub fn stop_observing_launches() -> Option<Arc<dyn LaunchObserver>> {
-    // Cleared first: a launch that reads the flag after this point takes the
-    // unobserved path rather than the lock.
-    OBSERVING.store(false, Ordering::Relaxed);
-    OBSERVER.write().take()
+impl LaunchObservation {
+    /// Installs `observer` until the guard drops.
+    pub fn new(observer: Arc<dyn LaunchObserver>) -> Self {
+        let previous = OBSERVER.write().replace(observer);
+        // Last, so the flag is never set over an empty slot.
+        OBSERVING.store(true, Ordering::Relaxed);
+        Self { previous }
+    }
+}
+
+impl Drop for LaunchObservation {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        let still_observed = previous.is_some();
+        *OBSERVER.write() = previous;
+        // Last, so the flag is never cleared while an observer is still
+        // installed: the launches this guard covers are the ones it must not
+        // miss, and a notify that reads the flag in between finds an empty
+        // slot and does nothing.
+        OBSERVING.store(still_observed, Ordering::Relaxed);
+    }
+}
+
+impl core::fmt::Debug for LaunchObservation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("LaunchObservation")
+            .field("replaced_an_observer", &self.previous.is_some())
+            .finish()
+    }
 }
 
 /// Tell the installed observer, if there is one, that `kernel` was issued.
@@ -142,11 +191,92 @@ pub(crate) fn notify_timed(kernel: &'static str, duration: Duration, method: Tim
     }
 }
 
+/// Whether anything is watching. Separate from the observer itself so the
+/// unobserved path — every ordinary run — is one relaxed load rather than a
+/// lock acquisition on the launch path.
+static OBSERVING: AtomicBool = AtomicBool::new(false);
+
+static OBSERVER: RwLock<Option<Arc<dyn LaunchObserver>>> = RwLock::new(None);
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloc::vec::Vec;
+    // `serial_test`'s macro expands to `vec!`, which a `no_std` crate has to
+    // bring in itself.
+    use alloc::vec;
     use cubecl_environment::sync::Mutex;
+
+    /// The order launches arrive in, which is what makes attribution possible:
+    /// an observer is called before the launch is submitted, so whatever the
+    /// caller was doing when it issued the kernel is still true.
+    #[test]
+    #[serial_test::serial]
+    fn launches_arrive_in_issue_order() {
+        let recorder = Arc::new(Recorder::default());
+        let watching = LaunchObservation::new(recorder.clone());
+
+        notify_launch("first");
+        notify_launch("second");
+        assert_eq!(*recorder.0.lock(), ["first", "second"]);
+
+        drop(watching);
+        notify_launch("after");
+        assert_eq!(
+            recorder.0.lock().len(),
+            2,
+            "an observation that ended must not keep receiving"
+        );
+    }
+
+    /// Timing is opt-in, and the launch path asks before paying for it: an
+    /// observer that only wants the names must not make every launch blocking.
+    #[test]
+    #[serial_test::serial]
+    fn timing_is_off_unless_an_observer_asks() {
+        assert!(!timing_wanted(), "nothing installed, nothing to time");
+
+        let names_only = LaunchObservation::new(Arc::new(Recorder::default()));
+        assert!(!timing_wanted(), "names only, by default");
+        drop(names_only);
+
+        let timed = Arc::new(Timed::default());
+        let watching = LaunchObservation::new(timed.clone());
+        assert!(timing_wanted());
+        notify_timed("a_kernel", Duration::from_micros(7), TimingMethod::Device);
+        // The method travels with the duration: a backend that fell back to
+        // the system timer measured host wall around a blocking submit, and an
+        // observer that could not tell would report it as device time.
+        assert_eq!(
+            *timed.0.lock(),
+            [("a_kernel", Duration::from_micros(7), TimingMethod::Device)]
+        );
+
+        drop(watching);
+        assert!(!timing_wanted());
+    }
+
+    /// A nested observation puts back the one it replaced, so a caller that
+    /// watches a sub-pass does not silently take the process's only slot from
+    /// whoever was already watching.
+    #[test]
+    #[serial_test::serial]
+    fn an_observation_restores_the_one_it_replaced() {
+        let outer = Arc::new(Recorder::default());
+        let inner = Arc::new(Recorder::default());
+
+        let watching_outer = LaunchObservation::new(outer.clone());
+        {
+            let _watching_inner = LaunchObservation::new(inner.clone());
+            notify_launch("during_the_inner_pass");
+        }
+        notify_launch("after_the_inner_pass");
+        drop(watching_outer);
+        notify_launch("unobserved");
+
+        assert_eq!(*inner.0.lock(), ["during_the_inner_pass"]);
+        assert_eq!(*outer.0.lock(), ["after_the_inner_pass"]);
+    }
 
     #[derive(Default)]
     struct Recorder(Mutex<Vec<&'static str>>);
@@ -168,78 +298,5 @@ mod tests {
         fn timed(&self, kernel: &'static str, duration: Duration, method: TimingMethod) {
             self.0.lock().push((kernel, duration, method));
         }
-    }
-
-    /// One test, because the registry is one process-wide resource: split
-    /// across `#[test]`s they run in parallel and each one's `stop` clears the
-    /// observer another just installed. The interference is real rather than a
-    /// test artifact — an observer is global by design, and two callers wanting
-    /// one at once is a thing the API does not support.
-    #[test]
-    fn an_observer_is_installed_then_stopped() {
-        assert!(
-            stop_observing_launches().is_none(),
-            "nothing watches until something is installed — every ordinary run"
-        );
-        notify_launch("a_kernel_nobody_asked_about");
-
-        let recorder = Arc::new(Recorder::default());
-        assert!(observe_launches(recorder.clone()).is_none());
-
-        notify_launch("first");
-        notify_launch("second");
-        // In issue order, which is what makes attribution possible: the
-        // observer is called before the launch is submitted, so whatever the
-        // caller was doing is still true.
-        assert_eq!(*recorder.0.lock(), ["first", "second"]);
-
-        assert!(
-            stop_observing_launches().is_some(),
-            "the observer is handed back"
-        );
-        notify_launch("after");
-        assert_eq!(
-            recorder.0.lock().len(),
-            2,
-            "a stopped observer must not keep receiving"
-        );
-    }
-
-    /// Timing is opt-in, and the launch path asks before paying for it: an
-    /// observer that only wants the names must not make every launch blocking.
-    #[test]
-    fn timing_is_off_unless_an_observer_asks() {
-        stop_observing_launches();
-        assert!(!timing_wanted(), "nothing installed, nothing to time");
-
-        observe_launches(Arc::new(Recorder::default()));
-        assert!(!timing_wanted(), "names only, by default");
-
-        let timed = Arc::new(Timed::default());
-        observe_launches(timed.clone());
-        assert!(timing_wanted());
-        notify_timed("a_kernel", Duration::from_micros(7), TimingMethod::Device);
-        assert_eq!(timed.0.lock().len(), 1);
-        // The method travels with the duration: a backend that fell back to
-        // the system timer measured host wall around a blocking submit, and an
-        // observer that could not tell would report it as device time.
-        assert_eq!(timed.0.lock()[0].2, TimingMethod::Device);
-
-        stop_observing_launches();
-        assert!(!timing_wanted());
-    }
-
-    /// Installing over an observer hands the old one back, so a caller can put
-    /// it back rather than silently taking the process's only slot.
-    #[test]
-    fn installing_over_one_returns_it() {
-        let first = Arc::new(Recorder::default());
-        let second = Arc::new(Recorder::default());
-        stop_observing_launches();
-
-        observe_launches(first);
-        let replaced = observe_launches(second);
-        assert!(replaced.is_some());
-        stop_observing_launches();
     }
 }
