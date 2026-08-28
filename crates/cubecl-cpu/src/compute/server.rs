@@ -285,7 +285,7 @@ impl ComputeServer for CpuServer {
             // owns the handle.
             let mut written = self.write_set();
             written.push(desc.handle.clone());
-            ExecuteScope::over(self, stream_id, written).execute(|server, _| {
+            ExecuteScope::over(self, stream_id, written).execute(|server| {
                 if contiguous_strides(&desc.shape) != desc.strides {
                     return Err(ServerError::Io(IoError::UnsupportedStrides {
                         backtrace: BackTrace::capture(),
@@ -387,14 +387,22 @@ impl ComputeServer for CpuServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io.as_deref()).cloned());
+        // A dynamic count travels outside `resources`, so `buffers_read`
+        // never names it — yet the dispatch reads it as its grid dimensions,
+        // which is exactly the garbage-as-cube-count read the skip exists to
+        // prevent.
+        let count_read = match &count {
+            CubeCount::Dynamic(binding) => Some(binding),
+            CubeCount::Static(..) => None,
+        };
         ExecuteScope::launching(
             self,
             kernel_id.clone(),
             stream_id,
-            bindings.buffers_read(io.as_deref()),
+            bindings.buffers_read(io.as_deref()).chain(count_read),
             written,
         )
-        .execute(|server, _| {
+        .execute(|server| {
             server.streams_pool.clear();
             bindings
                 .resources
