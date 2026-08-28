@@ -66,7 +66,11 @@
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use cubecl_common::profile::{Duration, TimingMethod};
+/// Re-exported because [`LaunchObserver::timed`]'s signature names them: an
+/// implementor that reached this trait through `cubecl` cannot otherwise spell
+/// its own arguments, and `Duration` is not `core::time::Duration` on every
+/// target.
+pub use cubecl_common::profile::{Duration, TimingMethod};
 use cubecl_environment::sync::RwLock;
 
 /// Notified of every kernel launch, on the thread that issued it.
