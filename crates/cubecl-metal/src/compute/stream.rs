@@ -73,8 +73,8 @@ fn install_completion_handler(
     // SAFETY: `addCompletedHandler` copies the block, so the pointer need not outlive
     // this call. The raw-pointer form bypasses block2's `Send` bound, but everything the
     // block touches on the Metal completion thread is thread-safe: `Retained` drops via
-    // atomic Obj-C `release`, `setSignaledValue` is an atomic write, and the error sink
-    // is an `Arc<Mutex<_>>`.
+    // atomic Obj-C `release`, `setSignaledValue` is an atomic write, the temporaries are
+    // behind a `Mutex`, and `log` is `Sync`.
     unsafe {
         command_buffer.addCompletedHandler(block2::RcBlock::as_ptr(&block) as *mut _);
     }
@@ -403,25 +403,5 @@ impl EventStreamBackend for MetalStreamBackend {
 
     fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
         event.wait_sync()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_stream() -> MetalStream {
-        let device = crate::device::default_device().expect("No Metal device found");
-        let mem_props = MemoryDeviceProperties {
-            max_page_size: (*device).maxBufferLength() as u64,
-            alignment: 256,
-        };
-        let backend = MetalStreamBackend::new(
-            device,
-            mem_props,
-            MemoryConfiguration::default(),
-            Arc::new(ServerLogger::default()),
-        );
-        backend.create_stream()
     }
 }

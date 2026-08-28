@@ -26,7 +26,10 @@ use cubecl_runtime::{
     memory_management::{InstallMemoryPoolsError, ManagedMemoryHandle},
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
-    stream::{EventStreamBackend, FailureStore, MultiStream, ResolvedStreams, WriteScoped},
+    stream::{
+        EventStreamBackend, ExecuteScope, FailureStore, MultiStream, ResolvedStreams, WriteScoped,
+        failed_writing,
+    },
     timestamp_profiler::TimestampProfiler,
 };
 use objc2::rc::Retained;
@@ -164,6 +167,12 @@ impl WriteScoped for MetalServer {
     fn write_streams(&mut self) -> &mut Self::Streams {
         &mut self.streams
     }
+
+    fn on_failure(&mut self, _stream: StreamId, error: &ServerError) {
+        // Measured per device on this backend, so the scope's stream does not
+        // narrow which measurement a failure invalidates.
+        self.profile_failure(error);
+    }
 }
 
 impl ComputeServer for MetalServer {
@@ -214,7 +223,7 @@ impl ComputeServer for MetalServer {
         use objc2_metal::MTLBuffer;
 
         // Buffers another stream wrote are only as good as the work that wrote
-        // them; see `StreamPool::ensure_written`.
+        // them; see `FailureStore::ensure_written`.
         if let Err(err) = self
             .streams
             .ensure_written(descriptors.iter().map(|d| &d.handle))
@@ -278,9 +287,7 @@ impl ComputeServer for MetalServer {
             // fills it, which is what releases an earlier failure's hold on
             // it — a caller recovers by writing from the host as much as by
             // relaunching — and a failure leaves it as it was, which is what
-            // a later read of it has to fail on. Queued for the caller to
-            // surface rather than logged and forgotten, as on every other
-            // backend.
+            // a later read of it has to fail on.
             let mut written = self.write_set();
             written.push(descriptor.handle.clone());
             ExecuteScope::over(self, stream_id, written).execute(|server, _| {
@@ -340,12 +347,12 @@ impl ComputeServer for MetalServer {
         let compiled = match compiled {
             Ok(compiled) => compiled,
             Err(err) => {
-                let error = ServerError::Launch(err);
-                self.profile_failure(&error);
                 if !launch_mode.is_skipped() {
                     let mut written = self.write_set();
                     written.extend(bindings.buffers().cloned());
-                    failed_writing(self, stream_id, written, error);
+                    failed_writing(self, stream_id, written, ServerError::Launch(err));
+                } else {
+                    self.profile_failure(&ServerError::Launch(err));
                 }
                 return;
             }
@@ -355,33 +362,21 @@ impl ComputeServer for MetalServer {
         }
         let io = compiled.io.clone();
 
-        // Skip, do not taint: a launch whose input cannot be trusted does not
-        // run. Running it is not merely wasted device time — a buffer holding
-        // garbage can be read as a dynamic cube count or as gather indices,
-        // scattering into memory that carried no failure at all. The outputs
-        // take the failure that stopped the launch, exactly as a failed
-        // launch's would, so a read downstream fails on the root cause.
-        if let Some(found) = self
-            .streams
-            .read_failure(bindings.buffers_read(io.as_deref()))
-        {
-            self.profile_failure(&found.error);
-            self.streams.propagate(
-                &found,
-                kernel_id.clone(),
-                bindings.buffers_written(io.as_deref()),
-            );
-            return;
-        }
-
-        // The scope taints what the launch writes until the body proves the
+        // The scope claims what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
-        // bytes nothing wrote. The paths that used to bail out silently now
-        // name what they left unwritten.
+        // bytes nothing wrote. An input that already carries a failure skips
+        // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io.as_deref()).cloned());
-        ExecuteScope::over(self, stream_id, written).execute(|server, _| {
+        ExecuteScope::launching(
+            self,
+            kernel_id,
+            stream_id,
+            bindings.buffers_read(io.as_deref()),
+            written,
+        )
+        .execute(|server, _| {
             let dispatch_info = match count {
                 CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
                 CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),
