@@ -297,7 +297,7 @@ impl ComputeServer for MetalServer {
             // a later read of it has to fail on.
             let mut written = self.write_set();
             written.push(descriptor.handle.clone());
-            ExecuteScope::over(self, stream_id, written).execute(|server, _| {
+            ExecuteScope::over(self, stream_id, written).execute(|server| {
                 let mut resolved = server
                     .streams
                     .resolve(stream_id, [&descriptor.handle].into_iter());
@@ -391,7 +391,7 @@ impl ComputeServer for MetalServer {
             bindings.buffers_read(io.as_deref()).chain(count_read),
             written,
         )
-        .execute(|server, _| {
+        .execute(|server| {
             let dispatch_info = match count {
                 CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
                 CubeCount::Dynamic(binding) => DispatchInfo::Dynamic(binding),

@@ -36,8 +36,8 @@ use cubecl_runtime::memory_management::{
 use cubecl_runtime::server::{BufferBinding, Handle, ServerError};
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::stream::{
-    ExecuteScope, FailureStore, Failures, ScopedOutcome, StreamFactory, StreamMemory, StreamPool,
-    WriteScoped,
+    ExecuteScope, FailureStore, Failures, ScopedOutcome, StreamCapture, StreamFactory,
+    StreamMemory, StreamPool, WriteScoped,
 };
 use std::sync::Arc;
 
@@ -126,6 +126,11 @@ impl StreamFactory for Factory {
 struct Device {
     pool: StreamPool<Factory>,
     failures: Failures,
+    /// One capture window for the whole harness, so the tests below can pin
+    /// the scope-to-window contract — the scope is the window's only
+    /// informant — without a driver underneath. Closed outside those tests,
+    /// where `fail` and `record` are no-ops.
+    capture: StreamCapture,
 }
 
 impl FailureStore for Device {
@@ -145,6 +150,10 @@ impl WriteScoped for Device {
 
     fn write_streams(&mut self) -> &mut Self::Streams {
         self
+    }
+
+    fn capturing(&mut self, _stream: StreamId) -> Option<&mut StreamCapture> {
+        Some(&mut self.capture)
     }
 }
 
@@ -206,6 +215,7 @@ impl Harness {
                     0,
                 ),
                 failures: Failures::new(logger),
+                capture: StreamCapture::default(),
             },
             buffers: Vec::new(),
             rng: Rng(seed),
@@ -286,13 +296,12 @@ impl Harness {
             .iter()
             .map(|(index, range)| self.buffers[*index].slice(range))
             .collect();
-        let _ =
-            ExecuteScope::over(&mut self.device, StreamId::current(), bindings).execute(|_, _| {
-                match fail {
-                    true => Err(error("launch")),
-                    false => Ok(()),
-                }
-            });
+        let _ = ExecuteScope::over(&mut self.device, StreamId::current(), bindings).execute(|_| {
+            match fail {
+                true => Err(error("launch")),
+                false => Ok(()),
+            }
+        });
 
         for (index, range) in writes {
             for byte in range.start as usize..range.end as usize {
@@ -312,7 +321,7 @@ impl Harness {
         let binding = self.buffers[index].slice(&range);
         let _id = binding.stream;
         let _ = ExecuteScope::over(&mut self.device, StreamId::current(), vec![binding])
-            .execute(|_, _| Ok::<(), ServerError>(()));
+            .execute(|_| Ok::<(), ServerError>(()));
         for byte in range.start as usize..range.end as usize {
             self.buffers[index].stale[byte] = false;
         }
@@ -440,7 +449,7 @@ fn a_scope_that_succeeds_releases_the_provisional_failure() {
         StreamId::current(),
         vec![binding.clone()],
     )
-    .execute(|_, _| Ok::<(), ServerError>(()));
+    .execute(|_| Ok::<(), ServerError>(()));
 
     assert!(matches!(result, ScopedOutcome::Executed(())));
     assert!(
@@ -468,7 +477,7 @@ fn a_scope_that_fails_names_the_real_error_and_logs_it() {
         StreamId::current(),
         vec![binding.clone()],
     )
-    .execute(|_, _| Err::<(), ServerError>(error("the real failure")));
+    .execute(|_| Err::<(), ServerError>(error("the real failure")));
 
     assert!(matches!(result, ScopedOutcome::Failed(_)));
     let read = harness
@@ -502,7 +511,7 @@ fn a_mid_launch_panic_leaves_the_write_set_tainted() {
             StreamId::current(),
             vec![binding.clone()],
         )
-        .execute(|_, _| -> Result<(), ServerError> {
+        .execute(|_| -> Result<(), ServerError> {
             panic!("mid-launch, before anything could report")
         });
     }));
@@ -525,7 +534,7 @@ fn a_mid_launch_panic_leaves_the_write_set_tainted() {
         StreamId::current(),
         vec![binding.clone()],
     )
-    .execute(|_, _| Ok::<(), ServerError>(()));
+    .execute(|_| Ok::<(), ServerError>(()));
     assert!(matches!(result, ScopedOutcome::Executed(())));
     assert!(harness.device.failures.graph().is_empty());
     harness
@@ -556,7 +565,7 @@ fn a_skipped_scope_claims_the_failure_its_input_carried_and_mints_none() {
         StreamId::current(),
         vec![input.clone()],
     )
-    .execute(|_, _| Err::<(), ServerError>(error("the launch that left these bytes")));
+    .execute(|_| Err::<(), ServerError>(error("the launch that left these bytes")));
     let carried = harness.device.failures.graph().len();
     assert_eq!(carried, 1, "one failure, on the input");
 
@@ -568,7 +577,7 @@ fn a_skipped_scope_claims_the_failure_its_input_carried_and_mints_none() {
         [&input].into_iter(),
         vec![output.clone()],
     )
-    .execute(|_, _| -> Result<(), ServerError> {
+    .execute(|_| -> Result<(), ServerError> {
         unreachable!("a skipped scope must not run its body")
     });
     assert!(matches!(outcome, ScopedOutcome::Skipped));
@@ -610,7 +619,7 @@ fn a_partial_host_write_releases_only_the_bytes_it_covers() {
         StreamId::current(),
         vec![whole.clone()],
     )
-    .execute(|_, _| Err::<(), ServerError>(error("the launch that left these bytes")));
+    .execute(|_| Err::<(), ServerError>(error("the launch that left these bytes")));
 
     // The host rewrites the middle quarter.
     let _ = ExecuteScope::over(
@@ -618,7 +627,7 @@ fn a_partial_host_write_releases_only_the_bytes_it_covers() {
         StreamId::current(),
         vec![middle.clone()],
     )
-    .execute(|_, _| Ok::<(), ServerError>(()));
+    .execute(|_| Ok::<(), ServerError>(()));
 
     // The rewritten bytes read; the rest still fails on the launch's error.
     harness
@@ -639,4 +648,144 @@ fn a_partial_host_write_releases_only_the_bytes_it_covers() {
         whole_read.is_err(),
         "a read spanning stale bytes fails however much of it was rewritten"
     );
+}
+
+/// The scope is a recording window's only informant: work that fails inside
+/// it dooms it, whatever kind of work it was.
+///
+/// Before this was the scope's job, only a *skipped* launch doomed the
+/// window, through a callback each backend wired by hand — a launch that
+/// failed host-side left the recording un-doomed, and `end_capture` sealed a
+/// graph silently missing the operation while a later replay released taint
+/// on buffers the graph never writes.
+#[test]
+fn a_failed_scope_dooms_the_recording_window() {
+    let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 7);
+    harness.alloc();
+    let binding = harness.buffers[0].binding.clone();
+
+    harness.device.capture.prepare(StreamId::current()).unwrap();
+    harness.device.capture.begin().unwrap();
+
+    let _ = ExecuteScope::over(
+        &mut harness.device,
+        StreamId::current(),
+        vec![binding.clone()],
+    )
+    .execute(|_| Err::<(), ServerError>(error("failed mid-window")));
+
+    harness.device.capture.end(StreamId::current()).unwrap();
+    let doomed = harness
+        .device
+        .capture
+        .take_failure()
+        .expect("a failure inside the window must doom the recording");
+    assert!(
+        doomed.to_string().contains("failed mid-window"),
+        "the window names the failure that doomed it, got: {doomed}"
+    );
+}
+
+/// A skipped launch dooms the window the same way — the callback that used to
+/// carry this is gone, and the scope reports both endings through one path.
+#[test]
+fn a_skipped_scope_dooms_the_recording_window() {
+    let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 11);
+    harness.alloc();
+    harness.alloc();
+    let input = harness.buffers[0].binding.clone();
+    let output = harness.buffers[1].binding.clone();
+
+    // The input's writer fails before the window opens, so the launch below
+    // reads a buffer carrying a failure.
+    let _ = ExecuteScope::over(
+        &mut harness.device,
+        StreamId::current(),
+        vec![input.clone()],
+    )
+    .execute(|_| Err::<(), ServerError>(error("the writer that never wrote")));
+
+    harness.device.capture.prepare(StreamId::current()).unwrap();
+    harness.device.capture.begin().unwrap();
+
+    let outcome = ExecuteScope::launching(
+        &mut harness.device,
+        KernelId::new::<()>(),
+        StreamId::current(),
+        [&input].into_iter(),
+        vec![output],
+    )
+    .execute(|_| -> Result<(), ServerError> {
+        unreachable!("a skipped scope must not run its body")
+    });
+    assert!(matches!(outcome, ScopedOutcome::Skipped));
+
+    harness.device.capture.end(StreamId::current()).unwrap();
+    assert!(
+        harness.device.capture.take_failure().is_some(),
+        "a skip inside the window must doom the recording"
+    );
+}
+
+/// A clean scope hands the window its write set — recording is the scope's
+/// exit, so "recorded" and "in the graph" are the same event. A scope that
+/// fails records nothing: the graph will not contain the work, so the graph
+/// must not answer for its buffers.
+#[test]
+fn a_clean_scope_hands_the_window_its_write_set() {
+    let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 13);
+    harness.alloc();
+    harness.alloc();
+    let recorded = harness.buffers[0].binding.clone();
+    let failed = harness.buffers[1].binding.clone();
+
+    harness.device.capture.prepare(StreamId::current()).unwrap();
+    harness.device.capture.begin().unwrap();
+
+    let _ = ExecuteScope::over(
+        &mut harness.device,
+        StreamId::current(),
+        vec![recorded.clone()],
+    )
+    .execute(|_| Ok::<(), ServerError>(()));
+    let _ = ExecuteScope::over(
+        &mut harness.device,
+        StreamId::current(),
+        vec![failed.clone()],
+    )
+    .execute(|_| Err::<(), ServerError>(error("enqueued nothing")));
+
+    harness.device.capture.end(StreamId::current()).unwrap();
+    let written = harness.device.capture.take_recorded();
+    assert_eq!(
+        written.len(),
+        1,
+        "the window holds exactly what clean scopes wrote"
+    );
+    assert_eq!(
+        written[0].claim_key(),
+        recorded.claim_key(),
+        "and it is the clean scope's write set, not the failed one's"
+    );
+}
+
+/// Outside a window the scope has nothing to tell: no doom, no recording —
+/// the same scopes leave the closed capture exactly as it was.
+#[test]
+fn a_scope_outside_a_window_neither_dooms_nor_records() {
+    let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 17);
+    harness.alloc();
+    let binding = harness.buffers[0].binding.clone();
+
+    let _ = ExecuteScope::over(
+        &mut harness.device,
+        StreamId::current(),
+        vec![binding.clone()],
+    )
+    .execute(|_| Ok::<(), ServerError>(()));
+    let _ = ExecuteScope::over(&mut harness.device, StreamId::current(), vec![binding])
+        .execute(|_| Err::<(), ServerError>(error("no window to doom")));
+
+    assert!(harness.device.capture.take_failure().is_none());
+    assert!(harness.device.capture.take_recorded().is_empty());
 }

@@ -31,7 +31,7 @@
 use crate::id::KernelId;
 use crate::memory_management::FailureId;
 use crate::server::{BufferBinding, ServerError};
-use crate::stream::FailureStore;
+use crate::stream::{FailureStore, StreamCapture};
 use alloc::vec::Vec;
 use cubecl_environment::stream::StreamId;
 
@@ -61,20 +61,26 @@ pub trait WriteScoped: Sized {
     #[allow(unused_variables)]
     fn on_failure(&mut self, stream: StreamId, error: &ServerError) {}
 
-    /// Told when a launch on `stream` was skipped, so a graph that stream is
-    /// recording can be doomed.
+    /// The graph capture of the pooled stream `stream` folds onto, for a
+    /// server that records captures. Defaults to `None`, for one that does
+    /// not.
     ///
-    /// A capture missing an operation must not seal, and the replay contract
-    /// has the caller write fresh inputs before each replay — clearing the
-    /// very claim that would explain the hole.
+    /// The scope is the window's only informant. Work that fails or is
+    /// skipped inside a recording window dooms it through this accessor —
+    /// the recording is missing an operation and must not seal, and the
+    /// replay contract has the caller write fresh inputs before each replay,
+    /// clearing the very claim that would explain the hole. Work that exits
+    /// clean hands the window its write set, so "recorded" and "in the
+    /// graph" are the same event and cannot disagree. A server that returns
+    /// its capture state gets all of that without wiring any of it.
     ///
-    /// The stream is the one the launch was issued on, which the server
-    /// cannot work out for itself: it runs on its own thread, so the caller's
+    /// The stream is the one the work was issued on, which the server cannot
+    /// work out for itself: it runs on its own thread, so the caller's
     /// current stream is not this one.
-    ///
-    /// Defaults to doing nothing, for a server that captures nothing.
     #[allow(unused_variables)]
-    fn on_skip(&mut self, stream: StreamId, error: &ServerError) {}
+    fn capturing(&mut self, stream: StreamId) -> Option<&mut StreamCapture> {
+        None
+    }
 
     /// An empty write set for the caller to fill with what the work it is
     /// about to run writes.
@@ -182,7 +188,11 @@ impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
             return Self::over(server, stream, written);
         };
         server.on_failure(stream, &found.error);
-        server.on_skip(stream, &found.error);
+        // A skip inside a recording window dooms it: the recording is missing
+        // this launch and must not seal. A no-op outside one.
+        if let Some(capture) = server.capturing(stream) {
+            capture.fail(found.error.clone());
+        }
         server
             .write_streams()
             .propagate(&found, kernel, written.iter());
@@ -202,12 +212,12 @@ impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
     ///
     /// A skipped scope never runs it. Otherwise the claim is released if the
     /// body succeeded and replaced with the real error if it did not, and
-    /// either way a measurement in flight hears about a failure. `body` may
-    /// return early anywhere; it also receives the write set, for the
-    /// backends that record it into a capture.
+    /// either way a measurement in flight hears about a failure, and a
+    /// recording window hears how the work ended. `body` may return early
+    /// anywhere.
     pub fn execute<R>(
         self,
-        body: impl FnOnce(&mut S, &[BufferBinding]) -> Result<R, ServerError>,
+        body: impl FnOnce(&mut S) -> Result<R, ServerError>,
     ) -> ScopedOutcome<R> {
         let Opened::Entered {
             provisional,
@@ -217,7 +227,19 @@ impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
             return ScopedOutcome::Skipped;
         };
 
-        let result = body(self.server, &written);
+        let result = body(self.server);
+        // The recording window hears the exit before the claim settles, from
+        // the one place that always knows how the work ended. A clean exit
+        // hands it the write set — what the graph will write is what a scope
+        // inside it wrote, recorded here so the two cannot disagree. A failed
+        // exit dooms it: the recording is missing this work and must not
+        // seal. Both are no-ops outside a window.
+        if let Some(capture) = self.server.capturing(self.stream) {
+            match result.as_ref() {
+                Ok(_) => capture.record(written.iter().cloned()),
+                Err(error) => capture.fail(error.clone()),
+            }
+        }
         self.server
             .write_streams()
             .exit_write(provisional, written, result.as_ref().err());
@@ -240,5 +262,5 @@ pub fn failed_writing<S: WriteScoped>(
     written: Vec<BufferBinding>,
     error: ServerError,
 ) {
-    let _ = ExecuteScope::over(server, stream, written).execute(|_, _| Err::<(), _>(error));
+    let _ = ExecuteScope::over(server, stream, written).execute(|_| Err::<(), _>(error));
 }

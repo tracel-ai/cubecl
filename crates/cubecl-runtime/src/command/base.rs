@@ -102,6 +102,23 @@ impl<'a, D: Driver> Command<'a, D> {
         stream.host_memory().cleanup(true, failures);
     }
 
+    /// Flush the current stream's drop queue, freeing what the device is
+    /// known to be done with.
+    ///
+    /// Deferred while the stream records a graph — the flush records a fence
+    /// on the capturing stream, which corrupts the recording — and the window
+    /// drains the queue itself when it closes. The rule lives here, on the one
+    /// path a server has to the queue, so no call site can rebuild the flush
+    /// without the guard.
+    pub fn flush_drops(&mut self) {
+        let stream = self.streams.current();
+        if stream.capturing().is_recording() {
+            return;
+        }
+        let signal = stream.signal();
+        stream.drop_queue().flush(|| D::Stream::fence(signal));
+    }
+
     /// Set the [`MemoryAllocationMode`] for the current stream.
     pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {
         self.streams.current().device_memory().mode(mode)
@@ -355,19 +372,23 @@ impl<'a, D: Driver> Command<'a, D> {
         let current = self.streams.current();
 
         // SAFETY: `resource` is a live device allocation, `data` is a valid
-        // host buffer, and the drop queue below keeps it alive until the stream
-        // has consumed it.
+        // host buffer, and either the drop queue or the capture window below
+        // keeps it alive for as long as the device reads it.
         unsafe { D::copy_to_device(&resource, &layout, &data, current)? };
 
-        current.drop_queue().push(data);
-
-        // Defer fenced flushes while capturing — a host sync aborts the
-        // capture, and the capture path drains the queue itself.
-        let flush = (staging.flush_after || current.drop_queue().should_flush())
-            && !current.capturing().is_recording();
-        if flush {
-            let signal = current.signal();
-            current.drop_queue().flush(|| D::Stream::fence(signal));
+        if current.capturing().is_recording() {
+            // A copy recorded into a graph is not executed now but re-read on
+            // every replay: the node keeps the raw host pointer, so the bytes
+            // ride the window onto the graph rather than the drop queue —
+            // which frees them when the window closes, exactly when the graph
+            // starts needing them.
+            current.capturing().retain_host(data);
+        } else {
+            current.drop_queue().push(data);
+            if staging.flush_after || current.drop_queue().should_flush() {
+                let signal = current.signal();
+                current.drop_queue().flush(|| D::Stream::fence(signal));
+            }
         }
 
         Ok(())

@@ -18,6 +18,7 @@ use crate::server::{BufferBinding, ServerError};
 use alloc::format;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
+use cubecl_common::bytes::Bytes;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::stream::StreamId;
@@ -42,10 +43,10 @@ pub trait GraphDriver: Driver {
 
     /// Close the recording on `stream` and instantiate what it recorded.
     ///
-    /// `doomed` is a recording already known not to become a graph — a launch
-    /// inside the window read a buffer carrying a failure, so an operation is
-    /// missing. The driver capture is closed either way: a stream left in
-    /// capture mode records every launch that follows it.
+    /// `doomed` is a recording already known not to become a graph — work
+    /// inside the window failed or was skipped, so an operation is missing.
+    /// The driver capture is closed either way: a stream left in capture mode
+    /// records every launch that follows it.
     ///
     /// A recording that allocated is refused here too. A graph owning memory
     /// nodes allocates on launch and never frees, so the driver rejects every
@@ -88,6 +89,10 @@ pub struct Graph<D: GraphDriver> {
     /// retaining the handles keeps the memory pool from reusing those slices,
     /// which would let a later allocation share memory the replay overwrites.
     _retained: Vec<ManagedMemoryHandle>,
+    /// The host memory the graph's recorded copies read from, alive for its
+    /// lifetime for the same reason: a memcpy node keeps the raw host
+    /// pointer, and every replay reads through it again.
+    _retained_host: Vec<Bytes>,
     /// The buffers the recorded launches write, deduplicated. A replay that
     /// fails to enqueue runs none of those launches, so it leaves every one of
     /// these as it was — claiming them is what makes a later read of one fail,
@@ -302,13 +307,13 @@ impl<'a, D: GraphDriver> Window<'a, D> {
                 });
             }
         };
-        // A launch inside the window read a buffer carrying a failure, so the
-        // recording is missing an operation and must not seal; the driver
-        // capture still has to be closed either way.
+        // Work inside the window failed or was skipped, so the recording is
+        // missing an operation and must not seal; the driver capture still
+        // has to be closed either way.
         let doomed = self.stream.capturing().take_failure().map(|reason| {
             ServerError::graph_state(format!(
-                "capture recorded a launch whose input carried a failure, so the recording \
-                 is missing an operation and cannot seal: {reason}"
+                "an operation inside the capture window failed or was skipped, so the \
+                 recording is missing an operation and cannot seal: {reason}"
             ))
         });
         let exec = D::instantiate(self.stream, doomed.clone());
@@ -318,6 +323,11 @@ impl<'a, D: GraphDriver> Window<'a, D> {
         // replay. On failure the handles drop with `retained`, unpinning them.
         let mut retained = self.stream.device_memory().capture_end();
         retained.extend(self.stream.host_memory().capture_end());
+        // The host bytes the recorded copies read from, whatever their kind —
+        // a pool slice, a user buffer, a heap fallback. The nodes keep their
+        // raw pointers, so they live with the graph; on a window that seals
+        // no graph they drop here, since its copies never ran and never will.
+        let retained_host = self.stream.capturing().take_retained_host();
         // Reclaim the buffers dropped while the window was open, whose fenced
         // flushes were deferred for as long as it was.
         let signal = self.stream.signal();
@@ -343,6 +353,7 @@ impl<'a, D: GraphDriver> Window<'a, D> {
                 Ok(Graph {
                     exec,
                     _retained: retained,
+                    _retained_host: retained_host,
                     written,
                 })
             }

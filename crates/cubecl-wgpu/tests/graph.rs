@@ -936,6 +936,51 @@ fn wgpu_graph_capture_refuses_a_tainted_input() {
     );
 }
 
+/// A launch that *fails* inside the window dooms the capture, exactly as a
+/// skipped one does: the scope reports both endings to the window through one
+/// path, so there is no failure a recording survives silently.
+///
+/// This is the hole the skip-only callback left: a launch failing host-side
+/// mid-window — compilation, here — left the recording un-doomed, `end_capture`
+/// sealed a graph missing the operation, and a later successful replay
+/// released taint on buffers the graph never writes.
+#[test]
+fn wgpu_graph_a_launch_that_fails_in_the_window_dooms_the_capture() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+
+    let n = 4usize;
+    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    client.graph_prepare().expect("graph_prepare");
+    client.start_capture().expect("start_capture");
+    // The launch fails inside the window — the compiler refuses it — so the
+    // recording is missing an operation.
+    unsafe {
+        poisoned::launch_unchecked::<WgpuRuntime>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(&client, n),
+            BufferArg::from_raw_parts(output.clone(), n),
+            "failed-in-window".to_string(),
+        )
+    };
+
+    let err = client
+        .stop_capture()
+        .expect_err("the recording is missing an operation and must not seal")
+        .to_string();
+    assert!(
+        err.contains("missing an operation"),
+        "the refusal names the hole in the recording, got: {err}"
+    );
+    // And the buffer the failed launch never wrote still fails to read on the
+    // refusal, not silently hand back bytes nothing wrote.
+    client
+        .read_one(output)
+        .expect_err("nothing wrote the output");
+}
+
 /// A replay settles its write set like a launch: a failed enqueue leaves the
 /// graph's buffers carrying the failure, and the next replay that lands
 /// releases the claim. Without the settle, one transient failure would leave

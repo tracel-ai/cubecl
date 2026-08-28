@@ -98,14 +98,19 @@ impl<F: Fence> PendingDropQueue<F> {
     ///
     /// The bytes are added to the current staged batch and will be freed on
     /// the flush cycle *after* the next call to [`flush`](Self::flush).
-    pub fn push(&mut self, bytes: Bytes) {
+    ///
+    /// Crate-visible, like every mutation of the queue: the only paths allowed
+    /// to move it are the shared [`Command`](crate::command::Command) and
+    /// [`Window`](crate::command::Window), which carry the capture-deferral
+    /// rule a backend touching the queue directly would have to remember.
+    pub(crate) fn push(&mut self, bytes: Bytes) {
         self.policy_state.register(&bytes);
         self.staged.push(bytes);
     }
 
     /// Returns `true` when the staged batch is large enough to justify a
     /// flush.
-    pub fn should_flush(&self) -> bool {
+    pub(crate) fn should_flush(&self) -> bool {
         self.policy_state.should_flush(&self.policy)
     }
 
@@ -116,7 +121,7 @@ impl<F: Fence> PendingDropQueue<F> {
     /// held when it returns. A caller that needs the memory *now* — an
     /// explicit cleanup, a capture window about to open onto pools that may
     /// not allocate — wants both rotations.
-    pub fn drain<Factory: Fn() -> F>(&mut self, factory: Factory) {
+    pub(crate) fn drain<Factory: Fn() -> F>(&mut self, factory: Factory) {
         self.flush(&factory);
         self.flush(&factory);
     }
@@ -126,7 +131,14 @@ impl<F: Fence> PendingDropQueue<F> {
     /// `factory` is called to produce a [`Fence`]. It should submit (or
     /// record) a device signal command so that syncing the fence guarantees all
     /// preceding device work is complete.
-    pub fn flush<Factory: Fn() -> F>(&mut self, factory: Factory) {
+    pub(crate) fn flush<Factory: Fn() -> F>(&mut self, factory: Factory) {
+        // An idle queue mints no fence. Nothing is held, so there is nothing a
+        // fence would protect — and the fence is not free: it is recorded on
+        // the stream, which an open capture window cannot tolerate.
+        if self.pending.is_empty() && self.staged.is_empty() {
+            return;
+        }
+
         // Sync the fence from the previous flush and free the bytes it was
         // protecting.
         if let Some(event) = self.fence.take() {

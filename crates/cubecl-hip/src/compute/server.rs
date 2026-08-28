@@ -9,7 +9,7 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::{Captures, Window};
 use crate::{
-    compute::{Command, context::HipContext, fence::Fence, stream::HipStreamBackend},
+    compute::{Command, context::HipContext, stream::HipStreamBackend},
     runtime::HipCompiler,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
@@ -26,7 +26,6 @@ use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::command::Refused;
-use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::metadata_cache::Lookup;
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
@@ -41,7 +40,7 @@ use cubecl_runtime::{
     },
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
-    stream::{ExecuteScope, FailureStore, MultiStream, WriteScoped, failed_writing},
+    stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
 use std::sync::Arc;
 
@@ -130,7 +129,7 @@ impl ComputeServer for HipServer {
         for (descriptor, data) in descriptors {
             let mut written = self.write_set();
             written.push(descriptor.handle.clone());
-            ExecuteScope::over(self, stream_id, written).execute(|server, _| {
+            ExecuteScope::over(self, stream_id, written).execute(|server| {
                 let mut command = server.command(stream_id, [&descriptor.handle].into_iter());
                 command.write_to_gpu(descriptor, data).map_err(Into::into)
             });
@@ -180,9 +179,7 @@ impl ComputeServer for HipServer {
             bindings.buffers_read(io.as_deref()).chain(count_read),
             written,
         )
-        .execute(|server, _| {
-            server.launch_checked(kernel_id, count, bindings, stream_id, io.as_deref())
-        });
+        .execute(|server| server.launch_checked(kernel_id, count, bindings, stream_id));
     }
 
     fn check(
@@ -197,10 +194,8 @@ impl ComputeServer for HipServer {
         // A flush reports nothing: a failure lives on the buffers the work
         // left unwritten, and a read of one of them is what surfaces it.
         let mut command = self.command_no_inputs(stream_id);
-
-        let current = command.stream();
-        current.drop_queue.flush(|| Fence::new(current.sys));
-        current.memory_management_gpu.storage().flush();
+        command.flush_drops();
+        command.stream().memory_management_gpu.storage().flush();
 
         Ok(())
     }
@@ -248,7 +243,7 @@ impl ComputeServer for HipServer {
         let mut written = self.write_set();
         self.graphs.extend_written(graph, &mut written);
         ExecuteScope::over(self, stream_id, written)
-            .execute(|server, _| {
+            .execute(|server| {
                 let mut streams = server.streams.resolve(stream_id, [].into_iter());
                 server.graphs.replay(graph, streams.current())
             })
@@ -389,13 +384,10 @@ impl WriteScoped for HipServer {
         self.profile_failure(error);
     }
 
-    fn on_skip(&mut self, stream: StreamId, error: &ServerError) {
-        // A doomed capture is refused at `end_capture`; nothing else changes.
-        if let Some(stream) = self.streams.try_stream_mut(&stream)
-            && stream.capturing.is_recording()
-        {
-            stream.capturing.fail(error.clone());
-        }
+    fn capturing(&mut self, stream: StreamId) -> Option<&mut StreamCapture> {
+        self.streams
+            .try_stream_mut(&stream)
+            .map(|stream| &mut stream.capturing)
     }
 }
 
@@ -481,22 +473,6 @@ impl HipServer {
         true
     }
 
-    /// Whether a launch reading `bindings` must be skipped because one of its
-    /// inputs carries a failure, having claimed everything it would have
-    /// written for that same failure.
-    ///
-    /// Skip, do not taint: a launch whose input cannot be trusted does not
-    /// run. Running it is not merely wasted device time — a buffer holding
-    /// garbage can be read as a dynamic cube count or as gather indices,
-    /// scattering into memory that carried no failure at all. The outputs
-    /// take the failure that stopped the launch, exactly as a failed launch's
-    /// would, so a read downstream fails on the root cause.
-    ///
-    /// Except while this stream records a graph: skipping would seal a
-    /// recording missing an operation, and the replay contract has the caller
-    /// write fresh inputs before each replay — clearing the very taint that
-    /// would explain the hole. A tainted input dooms the capture instead, and
-    /// `end_capture` refuses to seal it.
     /// Mark every open profile invalid: a failure inside a profiling window
     /// invalidates the measurement, and this is what keeps a tuning candidate
     /// that failed from benchmarking at close to zero and winning the tune. A
@@ -511,18 +487,8 @@ impl HipServer {
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        io: Option<&[BufferIOAttr]>,
     ) -> Result<(), ServerError> {
         let mut command = self.command(stream_id, bindings.buffers());
-
-        // A launch being recorded into a graph hands its buffers to the graph:
-        // a replay that fails runs none of the recorded launches, so it leaves
-        // all of them as they were. A no-op outside a capture window, and never
-        // reached by a dry run, which records nothing to answer for.
-        let stream = command.stream();
-        stream
-            .capturing
-            .record(bindings.buffers_written(io).cloned());
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),

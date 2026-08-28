@@ -5,6 +5,7 @@ use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError};
 use alloc::format;
 use alloc::vec::Vec;
+use cubecl_common::bytes::Bytes;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
 
@@ -169,12 +170,19 @@ impl CaptureEnd {
 pub struct StreamCapture {
     state: StreamCaptureState,
     recorded: Vec<BufferBinding>,
-    /// The failure that doomed the window, if one did — a launch inside it
-    /// read a buffer carrying a failure. Skipping that launch would seal a
-    /// graph missing an operation, and the replay contract has the caller
-    /// write fresh inputs before each replay, clearing the very taint that
-    /// would explain the hole — so the window is doomed instead, and
-    /// `end_capture` refuses to seal it.
+    /// The host memory the recorded copies read from, held while the window
+    /// is open and handed to the graph it seals into. A recorded memcpy node
+    /// keeps the raw host pointer, so the bytes must live exactly as long as
+    /// the graph — whatever kind of allocation they are, pinned-pool slice or
+    /// plain heap. A window that never seals drops them here: its copies
+    /// never ran and now never will.
+    retained_host: Vec<Bytes>,
+    /// The failure that doomed the window, if one did — work inside it failed
+    /// or was skipped, so the recording is missing an operation. Sealing it
+    /// would hand back a graph silently missing that work, and the replay
+    /// contract has the caller write fresh inputs before each replay,
+    /// clearing the very taint that would explain the hole — so the window is
+    /// doomed instead, and `end_capture` refuses to seal it.
     failed: Option<ServerError>,
 }
 
@@ -189,22 +197,52 @@ impl StreamCapture {
         }
     }
 
-    /// The memory of the capture that just closed, each buffer named once —
+    /// The memory of the capture that just closed, each claim named once —
     /// the same buffer comes back once per recorded launch that was given it.
+    ///
+    /// Deduplicated by [`claim_key`](BufferBinding::claim_key), because the
+    /// taint bookkeeping is range-exact and this list is what gets claimed
+    /// and released: two tensors carved from one batched allocation are two
+    /// claims, and collapsing them to their shared memory id would leave
+    /// every sibling but one unclaimed on a refusal and unreleased on a
+    /// replay.
     pub fn take_recorded(&mut self) -> Vec<BufferBinding> {
         let mut recorded = core::mem::take(&mut self.recorded);
-        recorded.sort_unstable_by_key(|binding| binding.memory.id());
-        recorded.dedup_by_key(|binding| binding.memory.id());
+        recorded.sort_unstable_by_key(|binding| binding.claim_key());
+        recorded.dedup_by_key(|binding| binding.claim_key());
         recorded
     }
 
-    /// Doom the recording: a launch inside the window read a buffer carrying
-    /// a failure — see [`Self::take_failure`]. The first failure wins, and a
-    /// stream that is not recording has no window to doom.
+    /// Doom the recording: work inside the window failed or was skipped —
+    /// see [`Self::take_failure`]. The first failure wins, and a stream that
+    /// is not recording has no window to doom.
     pub fn fail(&mut self, error: ServerError) {
         if self.state.is_recording() && self.failed.is_none() {
             self.failed = Some(error);
         }
+    }
+
+    /// Keep `bytes` alive for the graph this recording seals into: a
+    /// recorded copy holds their raw pointer and re-reads them on every
+    /// replay, so they must not return to any pool or allocator while the
+    /// graph lives. Handed to the graph by [`take_retained_host`](Self::take_retained_host).
+    ///
+    /// Only meaningful while recording — outside a window the bytes belong
+    /// in the drop queue, whose fence knows when the device is done with
+    /// them.
+    pub fn retain_host(&mut self, bytes: Bytes) {
+        debug_assert!(
+            self.state.is_recording(),
+            "host bytes are the window's to retain only while it records"
+        );
+        self.retained_host.push(bytes);
+    }
+
+    /// The host memory the window's recorded copies read from, taken as it
+    /// closes — onto the graph when it seals, or to be dropped when it does
+    /// not, since a recording that never becomes a graph never runs them.
+    pub fn take_retained_host(&mut self) -> Vec<Bytes> {
+        core::mem::take(&mut self.retained_host)
     }
 
     /// The failure that doomed this window, taken as it closes. `Some` means
@@ -252,6 +290,7 @@ impl StreamCapture {
     pub fn prepare(&mut self, owner: StreamId) -> Result<(), ServerError> {
         self.state.prepare(owner)?;
         self.recorded.clear();
+        self.retained_host.clear();
         self.failed = None;
         Ok(())
     }
@@ -278,10 +317,11 @@ impl StreamCapture {
     }
 
     /// Give up a prepared capture that never opened, restoring the stream to
-    /// no-capture. Whatever it had recorded goes with it.
+    /// no-capture. Whatever it had recorded or retained goes with it.
     pub fn abort(&mut self) {
         self.state.abort();
         self.recorded.clear();
+        self.retained_host.clear();
         self.failed = None;
     }
 }
@@ -593,6 +633,71 @@ mod tests {
         capture.end(OWNER).unwrap();
 
         assert_eq!(ids(&capture.take_recorded()), ids(&[recorded]));
+    }
+
+    /// A batched allocation is carved into sibling tensors sharing one memory
+    /// id and nothing else, and the taint bookkeeping is range-exact — so the
+    /// write set keeps every range. Collapsed to the id, a refusal would
+    /// claim (and a replay release) only whichever sibling survived the
+    /// dedup, leaving the others readable with stale bytes or unreadable with
+    /// clean ones.
+    #[test]
+    fn a_capture_names_every_range_of_a_batched_allocation() {
+        let handle = Handle::new(OWNER, 8);
+        let mut front = handle.clone().binding();
+        front.offset_end = Some(4);
+        let mut back = handle.clone().binding();
+        back.offset_start = Some(4);
+        assert_eq!(
+            front.memory.id(),
+            back.memory.id(),
+            "one allocation carved in two is the case under test"
+        );
+
+        let mut capture = StreamCapture::default();
+        capture.prepare(OWNER).unwrap();
+        capture.begin().unwrap();
+        capture.record([front.clone(), back.clone()]);
+        // The same range again, from a second launch given the same tensor:
+        // still one claim.
+        capture.record([front.clone()]);
+        capture.end(OWNER).unwrap();
+
+        let recorded = capture.take_recorded();
+        let keys: Vec<_> = recorded.iter().map(|binding| binding.claim_key()).collect();
+        assert_eq!(
+            keys,
+            alloc::vec![front.claim_key(), back.claim_key()],
+            "both siblings survive, each named once"
+        );
+    }
+
+    /// The host bytes a recorded copy reads from live with the window: taken
+    /// once as it closes — onto the graph, when one seals — and dropped with
+    /// an aborted window, whose copies never ran and now never will.
+    #[test]
+    fn a_window_owns_the_host_bytes_its_copies_read() {
+        let mut capture = StreamCapture::default();
+        capture.prepare(OWNER).unwrap();
+        capture.begin().unwrap();
+        capture.retain_host(Bytes::from_bytes_vec(alloc::vec![7u8; 4]));
+        capture.end(OWNER).unwrap();
+
+        assert_eq!(capture.take_retained_host().len(), 1);
+        assert!(
+            capture.take_retained_host().is_empty(),
+            "taken means moved onto the graph, not copied"
+        );
+
+        capture.prepare(OWNER).unwrap();
+        capture.begin().unwrap();
+        capture.retain_host(Bytes::from_bytes_vec(alloc::vec![7u8; 4]));
+        capture.abort();
+        capture.prepare(OWNER).unwrap();
+        assert!(
+            capture.take_retained_host().is_empty(),
+            "an aborted window keeps nothing alive"
+        );
     }
 
     /// A window that never sealed leaves nothing behind for the next one.

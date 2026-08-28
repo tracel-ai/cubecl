@@ -48,7 +48,7 @@ use cubecl_runtime::{
         SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
         SchedulerStreamBackend,
     },
-    stream::{ExecuteScope, FailureStore, WriteScoped, failed_writing},
+    stream::{ExecuteScope, FailureStore, StreamCapture, WriteScoped, failed_writing},
     validation::{validate_cube_dim, validate_units},
 };
 use wgpu::ComputePipeline;
@@ -121,12 +121,8 @@ impl<C: WgpuCompiler> WriteScoped for WgpuServer<C> {
         self.scheduler.stream(&stream).profile_failure(error);
     }
 
-    fn on_skip(&mut self, stream: StreamId, error: &ServerError) {
-        // A doomed capture is refused at `end_capture`; nothing else changes.
-        let stream = self.scheduler.stream(&stream);
-        if stream.capturing.is_recording() {
-            stream.capturing.fail(error.clone());
-        }
+    fn capturing(&mut self, stream: StreamId) -> Option<&mut StreamCapture> {
+        Some(&mut self.scheduler.stream(&stream).capturing)
     }
 }
 
@@ -457,7 +453,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             // owns the handle.
             let mut written = self.write_set();
             written.push(desc.handle.clone());
-            ExecuteScope::over(self, stream_id, written).execute(|server, _| {
+            ExecuteScope::over(self, stream_id, written).execute(|server| {
                 if contiguous_strides(&desc.shape) != desc.strides {
                     return Err(ServerError::Io(IoError::UnsupportedStrides {
                         backtrace: BackTrace::capture(),
@@ -585,7 +581,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             args.buffers_read(io.as_deref()).chain(count_read),
             written,
         )
-        .execute(|server, written| {
+        .execute(|server| {
             server.streams_pool.clear();
             // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
             // automatically when the guard drops.
@@ -606,10 +602,6 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             let resources = server
                 .prepare_bindings(args, compiler_info)
                 .map_err(ServerError::Io)?;
-            // A launch recorded into a graph hands its buffers to the graph, which
-            // answers for them if a replay never runs. A no-op outside a window.
-            let stream = server.scheduler.stream(&stream_id);
-            stream.capturing.record(written.iter().cloned());
 
             let task = ScheduleTask::Execute {
                 pipeline,
@@ -798,14 +790,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         let written = stream.capturing.take_recorded();
         let mut retained = stream.mem_manage.capture_end();
 
-        // A failure raised during the window (a rejected write, a failed
-        // binding) means the recording is missing an operation: reject the
-        // capture rather than hand back a graph that silently skips work. The
-        // window is doomed from the moment one lands, so what is read here
-        // arose inside it and nowhere else.
-        // A rejection inside the window — a write that cannot be recorded, a
-        // launch whose input carried a failure — doomed the recording: it is
-        // missing an operation and must not seal.
+        // A failure raised during the window — a rejected write, a failed or
+        // skipped launch — means the recording is missing an operation:
+        // reject the capture rather than hand back a graph that silently
+        // skips work. The window is doomed from the moment one lands, so what
+        // is read here arose inside it and nowhere else.
         let doomed = stream.capturing.take_failure().map(|reason| {
             ServerError::graph_state(format!(
                 "an operation inside the capture window failed, so the recording is missing \
@@ -868,7 +857,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         let mut written = self.write_set();
         written.extend(recorded);
         ExecuteScope::over(self, stream_id, written)
-            .execute(|server, _| {
+            .execute(|server| {
                 server
                     .scheduler
                     .stream(&stream_id)
