@@ -685,7 +685,7 @@ impl DataflowAnalysis for DeadCodeAnalysis {
             // Check if we can reason about the control-flow.
             if let Some(branch) = op_cast::<dyn BranchOpFoldInterface>(&*dyn_op) {
                 self.visit_branch_operation(solver, ctx, branch);
-                // Otherwise, conservatively mark all successors as exectuable.
+                // Otherwise, conservatively mark all successors as executable.
             } else {
                 for successor in op.deref(ctx).successors() {
                     let block = op.deref(ctx).get_parent_block().unwrap();
