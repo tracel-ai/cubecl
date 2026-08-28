@@ -165,11 +165,19 @@ impl ComputeServer for HipServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io.as_deref()).cloned());
+        // A dynamic count travels outside `resources`, so `buffers_read`
+        // never names it — yet the launch reads it as its grid dimensions,
+        // which is exactly the garbage-as-cube-count read the skip exists to
+        // prevent.
+        let count_read = match &count {
+            CubeCount::Dynamic(binding) => Some(binding),
+            CubeCount::Static(..) => None,
+        };
         ExecuteScope::launching(
             self,
             kernel_id.clone(),
             stream_id,
-            bindings.buffers_read(io.as_deref()),
+            bindings.buffers_read(io.as_deref()).chain(count_read),
             written,
         )
         .execute(|server, _| {

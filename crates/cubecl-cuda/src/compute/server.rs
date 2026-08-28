@@ -207,11 +207,19 @@ impl ComputeServer for CudaServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io.as_deref()).cloned());
+        // A dynamic count travels outside `resources`, so `buffers_read`
+        // never names it — yet the launch reads it as its grid dimensions,
+        // which is exactly the garbage-as-cube-count read the skip exists to
+        // prevent.
+        let count_read = match &count {
+            CubeCount::Dynamic(binding) => Some(binding),
+            CubeCount::Static(..) => None,
+        };
         ExecuteScope::launching(
             self,
             kernel_id.clone(),
             stream_id,
-            bindings.buffers_read(io.as_deref()),
+            bindings.buffers_read(io.as_deref()).chain(count_read),
             written,
         )
         .execute(|server, _| {
@@ -475,6 +483,12 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
+        // The send reads the source, so it is worth no more than the work
+        // that wrote it; see `FailureStore::ensure_written`. Skipping this
+        // hands the peer stale bytes on a handle that carries no claim over
+        // there — the failure would be laundered across the device boundary.
+        self.streams.ensure_written([&desc.handle].into_iter())?;
+
         let binding = desc.handle.clone();
 
         // A command on the source server retrieves the resource from the right
@@ -504,27 +518,25 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
-        // A command on the destination server reserves the memory the incoming
-        // data lands in.
-        let mut command_dst = self.command_no_inputs(stream_id);
-        let memory = command_dst.reserve(handle.size())?;
-        command_dst.bind(memory, handle.memory.clone())?;
-        let resource_dst = command_dst.resource(handle.binding())?;
-        drop(command_dst);
+        // Staged before the handle is consumed below.
+        let destination = handle.clone().binding();
 
-        let (peers, comm_id) = pair(self.device_id, device_id_src);
-        let comm = self.collectives.get(&comm_id)?;
-        let peer = self.collectives.peer_rank(&peers)?;
-        let (nccl_dtype, count) = Cuda::data_type(dtype, resource_dst.size)?;
-
-        Cuda::recv(
-            comm,
-            &resource_dst,
-            nccl_dtype,
-            count,
-            peer,
-            self.comm_stream,
-        )
+        // Every failure from here leaves the destination holding whatever it
+        // held, so a read of it has to fail on that rather than take those
+        // bytes for a result.
+        let received = self.recv_checked(handle, dtype, stream_id, device_id_src);
+        match received {
+            Ok(()) => {
+                // The data is on its way, so an earlier failure that left the
+                // destination stale has nothing left to say about it.
+                self.mark_written(stream_id, &destination);
+                Ok(())
+            }
+            Err(error) => {
+                self.taint_returned(stream_id, error.clone(), &destination);
+                Err(error)
+            }
+        }
     }
 }
 
@@ -707,6 +719,44 @@ impl CudaServer {
             nccl_dtype,
             count,
             op,
+            self.comm_stream,
+        )
+    }
+
+    /// The receive itself, so every way it can fail settles the destination
+    /// through one path in [`recv`](ServerCommunication::recv).
+    ///
+    /// # Errors
+    ///
+    /// A reservation the device cannot back, a group never joined, a peer
+    /// outside it, an element type NCCL has no name for, and NCCL's refusal
+    /// to enqueue.
+    fn recv_checked(
+        &mut self,
+        handle: Handle,
+        dtype: ElemType,
+        stream_id: StreamId,
+        device_id_src: DeviceId,
+    ) -> Result<(), ServerError> {
+        // A command on the destination server reserves the memory the incoming
+        // data lands in.
+        let mut command_dst = self.command_no_inputs(stream_id);
+        let memory = command_dst.reserve(handle.size())?;
+        command_dst.bind(memory, handle.memory.clone())?;
+        let resource_dst = command_dst.resource(handle.binding())?;
+        drop(command_dst);
+
+        let (peers, comm_id) = pair(self.device_id, device_id_src);
+        let comm = self.collectives.get(&comm_id)?;
+        let peer = self.collectives.peer_rank(&peers)?;
+        let (nccl_dtype, count) = Cuda::data_type(dtype, resource_dst.size)?;
+
+        Cuda::recv(
+            comm,
+            &resource_dst,
+            nccl_dtype,
+            count,
+            peer,
             self.comm_stream,
         )
     }

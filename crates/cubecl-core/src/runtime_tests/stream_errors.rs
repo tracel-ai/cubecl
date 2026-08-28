@@ -528,6 +528,40 @@ pub fn test_check_answers_without_a_read<R: Runtime>(client: ComputeClient<R>) {
     reader.executes(|| assert_rejected(&client, stale, "checked-not-read"));
 }
 
+/// A dynamic cube count is an input like any other: a launch reading its grid
+/// dimensions from a buffer a failure left unwritten is skipped, not run.
+///
+/// The count binding travels outside the kernel's resources, so it is the
+/// easiest input to forget — and the most dangerous one to run with: garbage
+/// read as (x, y, z) dispatches an absurd grid or scatters into memory that
+/// carried no failure at all. The skip never reaches a dispatch, which is
+/// what lets every backend run this test, indirect dispatch support or none.
+pub fn test_a_tainted_dynamic_cube_count_skips_the_launch<R: Runtime>(client: ComputeClient<R>) {
+    let (producer, reader) = sharing_one_pooled_stream(1_000_015);
+
+    let (count, out) = producer.executes(|| {
+        // The buffer holding (x, y, z) gets its writer refused, so the launch
+        // below would read grid dimensions nothing wrote.
+        let count = client.empty(3 * core::mem::size_of::<u32>());
+        launch_rejected_into(&client, count.clone(), "tainted-count");
+
+        let out = client.empty(core::mem::size_of::<u32>());
+        fill::launch::<R>(
+            &client,
+            CubeCount::Dynamic(count.clone().binding()),
+            CubeDim::new_1d(1),
+            unsafe { BufferArg::from_raw_parts(out.clone(), 1) },
+            9,
+        );
+        (count, out)
+    });
+
+    // The fill was skipped, so its output carries the failure that stopped it.
+    reader.executes(|| assert_rejected(&client, out, "tainted-count"));
+    // And the count buffer still carries it too: skipping wrote nothing.
+    reader.executes(|| assert_rejected(&client, count, "tainted-count"));
+}
+
 /// An output that aliases an input writes that input in place, so a failure
 /// leaves the aliased buffer unwritten however its own argument was declared.
 ///
@@ -612,6 +646,14 @@ macro_rules! testgen_stream_errors {
             fn test_check_answers_without_a_read() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::stream_errors::test_check_answers_without_a_read::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_tainted_dynamic_cube_count_skips_the_launch() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::test_a_tainted_dynamic_cube_count_skips_the_launch::<
                     TestRuntime,
                 >(client);
             }

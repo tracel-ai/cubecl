@@ -277,7 +277,14 @@ impl ComputeServer for MetalServer {
         let (stream, failures) = resolved.current_and_failures();
         let event = MetalStreamBackend::flush(stream, failures);
         if let Err(err) = MetalStreamBackend::wait_event_sync(event) {
-            log::warn!("metal write: sync failed: {err}");
+            core::mem::drop(resolved);
+            // Nothing is copied, so every destination this call was given is
+            // left as it was — taint them, or a read of one on another
+            // logical stream finds no failure to fail on and copies stale
+            // bytes.
+            let mut written = self.write_set();
+            written.extend(descriptors.iter().map(|(desc, _)| desc.handle.clone()));
+            failed_writing(self, stream_id, written, err);
             return;
         }
         core::mem::drop(resolved);
@@ -369,11 +376,19 @@ impl ComputeServer for MetalServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io.as_deref()).cloned());
+        // A dynamic count travels outside `resources`, so `buffers_read`
+        // never names it — yet the dispatch reads it as its grid dimensions,
+        // which is exactly the garbage-as-cube-count read the skip exists to
+        // prevent.
+        let count_read = match &count {
+            CubeCount::Dynamic(binding) => Some(binding),
+            CubeCount::Static(..) => None,
+        };
         ExecuteScope::launching(
             self,
             kernel_id,
             stream_id,
-            bindings.buffers_read(io.as_deref()),
+            bindings.buffers_read(io.as_deref()).chain(count_read),
             written,
         )
         .execute(|server, _| {

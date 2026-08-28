@@ -570,11 +570,19 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // bytes nothing wrote.
         let mut written = self.write_set();
         written.extend(args.buffers_written(io.as_deref()).cloned());
+        // A dynamic count travels outside `resources`, so `buffers_read`
+        // never names it — yet the indirect dispatch reads it as its grid
+        // dimensions, which is exactly the garbage-as-cube-count read the
+        // skip exists to prevent.
+        let count_read = match &count {
+            CubeCount::Dynamic(binding) => Some(binding),
+            CubeCount::Static(..) => None,
+        };
         ExecuteScope::launching(
             self,
             kernel_id,
             stream_id,
-            args.buffers_read(io.as_deref()),
+            args.buffers_read(io.as_deref()).chain(count_read),
             written,
         )
         .execute(|server, written| {
