@@ -33,6 +33,7 @@ use crate::memory_management::FailureId;
 use crate::server::{BufferBinding, ServerError};
 use crate::stream::{FailureStore, StreamCapture};
 use alloc::vec::Vec;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
 
 /// A server whose device work runs inside an [`ExecuteScope`].
@@ -111,14 +112,20 @@ impl<R> ScopedOutcome<R> {
     ///
     /// # Errors
     ///
-    /// The error it failed with. A skip answers with the failure its inputs
-    /// carried, which the caller is not otherwise owed — the claim on the
-    /// write set is the report.
+    /// The error it failed with. A skip answers with an error saying so — the
+    /// failure its inputs carried is not the caller's to receive here; the
+    /// claim on the write set is the report, and a read of one of those
+    /// buffers names the root cause.
     pub fn into_result(self) -> Result<R, ServerError> {
         match self {
             ScopedOutcome::Executed(result) => Ok(result),
             ScopedOutcome::Failed(error) => Err(error),
-            ScopedOutcome::Skipped => Err(ServerError::TornDown),
+            ScopedOutcome::Skipped => Err(ServerError::Generic {
+                reason: "the work was skipped: an input carried a failure, and the work's \
+                         outputs now claim it — a read of one of them names the root cause"
+                    .into(),
+                backtrace: BackTrace::capture(),
+            }),
         }
     }
 }
