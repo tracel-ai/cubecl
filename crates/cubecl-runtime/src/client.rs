@@ -896,8 +896,15 @@ impl<R: Runtime> ComputeClient<R> {
         // than beside the logger's aggregation.
         crate::logging::notify_launch(kernel.name());
 
+        // An observer asking for timing gets the profiled path even with the
+        // profiling logger off — the two are separate readers of the same
+        // measurement, and making one depend on the other's configuration
+        // would mean a caller could not time launches without also logging
+        // them somewhere it did not choose.
+        let observed_timing = crate::logging::timing_wanted();
+
         match level {
-            None | Some(ProfileLevel::ExecutionOnly) => {
+            None | Some(ProfileLevel::ExecutionOnly) if !observed_timing => {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
                     let name = kernel.name();
@@ -909,7 +916,7 @@ impl<R: Runtime> ComputeClient<R> {
                     }
                 });
             }
-            Some(level) => {
+            level => {
                 let name = kernel.name();
                 let kernel_id = kernel.id();
                 let context = self.device.clone();
@@ -932,13 +939,34 @@ impl<R: Runtime> ComputeClient<R> {
                         name,
                     )
                     .unwrap();
-                let info = match level {
-                    ProfileLevel::Full => {
-                        format!("{name}: {kernel_id} CubeCount {count:?}")
+                // The observer is told first, because resolving the profile
+                // consumes it: the logger's copy is the one that can be
+                // deferred, an observer's cannot be recovered afterwards.
+                let profile = match observed_timing {
+                    true => {
+                        let method = profile.timing_method();
+                        let ticks = cubecl_environment::future::block_on(profile.resolve());
+                        crate::logging::notify_timed(name, ticks.duration());
+                        // Handed on already resolved rather than measured
+                        // again: the logger and the observer are two readers
+                        // of one measurement, and a second would not be the
+                        // same launch.
+                        cubecl_common::profile::ProfileDuration::new(
+                            alloc::boxed::Box::pin(async move { ticks }),
+                            method,
+                        )
                     }
-                    _ => type_name_format(name, TypeNameFormatLevel::Balanced),
+                    false => profile,
                 };
-                self.utilities.logger.register_profiled(info, profile);
+                if let Some(level) = level {
+                    let info = match level {
+                        ProfileLevel::Full => {
+                            format!("{name}: {kernel_id} CubeCount {count:?}")
+                        }
+                        _ => type_name_format(name, TypeNameFormatLevel::Balanced),
+                    };
+                    self.utilities.logger.register_profiled(info, profile);
+                }
                 result
             }
         }
