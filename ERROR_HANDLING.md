@@ -58,7 +58,7 @@ is decided in the constructor:
 ```rust
 ExecuteScope::launching(server, kernel, stream, reads, written)   // a kernel
 ExecuteScope::over(server, stream, written)                       // everything else
-    .execute(|server, written| { /* enqueue the work */ })
+    .execute(|server| { /* enqueue the work */ })
 ```
 
 - **`over`** — work that reads nothing it must trust: a host copy, a graph
@@ -91,6 +91,25 @@ exactly as a failed launch's would.
 The skip is recorded as an edge — the kernel, the node it needed, the nodes it
 produced — so a read two hops downstream reports the root cause *and* the path
 to it.
+
+### The scope is the capture window's only informant
+
+On a stream recording a graph, the scope's exit is also what the window hears.
+A clean exit hands it the write set — what the graph will write is what a
+scope inside it wrote, recorded in one place so the two cannot disagree. A
+failed or skipped exit dooms the window: the recording is missing an
+operation, `end_capture` refuses to seal it, and the buffers the recorded
+launches were given are claimed instead. A backend exposes its capture state
+through one `WriteScoped::capturing` accessor and gets all of this without
+wiring any of it; a server that captures nothing returns `None` and the
+reports are no-ops.
+
+The window owns what its recording points at, too: a host source recorded as
+a memcpy node rides the window onto the graph rather than the drop queue,
+because every replay reads through that raw pointer again. And its write set
+is deduplicated by claim — the allocation *and* the byte range — because the
+taint bookkeeping is range-exact, and two tensors carved from one batched
+allocation are two claims, not one.
 
 ## What is deliberately absent
 
