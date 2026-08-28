@@ -67,6 +67,7 @@ pub fn emit_code_object(
 
     let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, cube_dim)?;
     let want_asm = std::env::var_os("CUBECL_DEBUG_PLIRON").is_some();
+
     let (object, asm) = compile_to_object(&ir, arch, want_asm)?;
 
     #[cfg(feature = "pliron-dump")]
@@ -530,6 +531,43 @@ entry:
         );
 
         crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();
+    }
+
+    /// The matrix instruction reaches the code object, in the shape each generation asks for:
+    /// RDNA4 splits `k` between the halves of the wave and takes half the A/B fragment RDNA3
+    /// does. Getting the fragment width wrong fails to select rather than computing the wrong
+    /// answer, so this pins both.
+    #[test]
+    fn wmma_reaches_the_code_object() {
+        for (arch, ab) in [("gfx1201", "<8 x half>"), ("gfx1100", "<16 x half>")] {
+            let width = if ab.starts_with("<8") {
+                "v8f16"
+            } else {
+                "v16f16"
+            };
+            let ir = format!(
+                r#"
+declare <8 x float> @llvm.amdgcn.wmma.f32.16x16x16.f16.v8f32.{width}({ab}, {ab}, <8 x float>)
+define void @k(ptr addrspace(1) %out, {ab} %a, {ab} %b, <8 x float> %c) {{
+entry:
+  %d = call <8 x float> @llvm.amdgcn.wmma.f32.16x16x16.f16.v8f32.{width}({ab} %a, {ab} %b, <8 x float> %c)
+  store <8 x float> %d, ptr addrspace(1) %out
+  ret void
+}}
+"#
+            );
+            let finalized = finalize_ir(&ir, "k", arch, 32).unwrap();
+            let (object, asm) = compile_to_object(&finalized, arch, true).unwrap();
+            assert_eq!(&object[..4], b"\x7fELF");
+
+            let asm = asm.unwrap();
+            assert!(
+                asm.contains("v_wmma_f32_16x16x16_f16"),
+                "{arch} should reach the matrix instruction:\n{asm}"
+            );
+
+            crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();
+        }
     }
 
     /// Codegen produces a relocatable ELF, and LLD turns it into the `ET_DYN`

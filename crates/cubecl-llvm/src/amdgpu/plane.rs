@@ -64,7 +64,7 @@ fn call(
 ///
 /// Recomputed rather than taken from the builtin, which has long since been substituted by the
 /// time the ops reach here. The optimizer folds the duplicates back together.
-fn lane_id(ctx: &mut Context, rewriter: &mut DialectConversionRewriter) -> Value {
+pub(crate) fn lane_id(ctx: &mut Context, rewriter: &mut DialectConversionRewriter) -> Value {
     let ty = i32_ty(ctx);
     let all = insert_i32_const(ctx, rewriter, -1);
     let zero = insert_i32_const(ctx, rewriter, 0);

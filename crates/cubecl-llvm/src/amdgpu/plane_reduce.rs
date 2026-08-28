@@ -2,7 +2,7 @@
 //!
 //! The wavefront has no reduction instruction of its own, so each of these is a logarithmic
 //! fold over [`plane`](super::plane)'s shuffles. The folds themselves are
-//! [`polyfills::plane`](cubecl_core::prelude::polyfills::plane), shared with the C++ backends.
+//! [`cubecl_core::prelude::polyfills::plane`], shared with the C++ backends.
 
 use cubecl_core::ir::Scope;
 use cubecl_core::ir::dialect::plane;

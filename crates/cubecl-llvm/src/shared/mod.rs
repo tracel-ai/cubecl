@@ -42,6 +42,7 @@ use pliron::{
 
 use crate::amdgpu::abi::KernargArgs;
 use crate::amdgpu::builtins::InsertAmdgpuBuiltinsPass;
+use crate::amdgpu::matrix::{CtxWmma, WmmaGeneration};
 use crate::amdgpu::plane::CtxPlaneDim;
 use crate::amdgpu::plane_dim_for;
 use crate::amdgpu::shared_memory::CtxSharedMemory;
@@ -264,6 +265,7 @@ impl PlironCompiler {
         // Left at zero for the kernels that never declare any.
         ctx.set_shared_memory_size(0);
         ctx.set_plane_dim(plane_dim_for(arch));
+        ctx.set_wmma(WmmaGeneration::of(arch));
 
         #[cfg(not(feature = "pliron-dump"))]
         let ir_printing_dir = None;
