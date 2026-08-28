@@ -217,7 +217,7 @@ pub trait RegionBranchOpInterface {
     }
 
     /// Returns all potential values across all (predecessors) for a given successor
-    /// input, modeled by its index (its position in the list of values).
+    /// input.
     fn predecessor_values(
         &self,
         ctx: &Context,
@@ -348,19 +348,17 @@ pub trait RegionBranchTerminatorOpInterface {
     verify_op_succ!();
 
     /// Returns a range of operands that are semantically "returned" by passing
-    /// them to the region successor given by `index`.  If `index` is None, this
-    /// function returns the operands that are passed as a result to the parent
-    /// operation.
+    /// them to the region successor.
     fn successor_operands(&self, ctx: &Context, successor: RegionSuccessor) -> Vec<Value>;
 
     /// Returns all potential region successors that are branched to after this
     /// terminator based on the given constant operands.
     ///
     /// This method also receives the constant operands of this op (one entry
-    /// per operand, "null" if the operand has no/unknown constant value). The
+    /// per operand, `None` if the operand has no/unknown constant value). The
     /// implementation may use this information to filter out successors.
     /// By default, it simply dispatches to the parent
-    /// `RegionBranchOpInterface`'s `getSuccessorRegions` implementation.
+    /// `RegionBranchOpInterface`'s `successor_regions` implementation.
     fn successor_regions(
         &self,
         ctx: &Context,

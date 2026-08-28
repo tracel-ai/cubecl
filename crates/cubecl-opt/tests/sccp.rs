@@ -271,9 +271,9 @@ fn sccp_is_path_sensitive_region() -> Result<()> {
           ^entry_block1v1(x_v0: builtin.integer i64) !0:
             y_v1 = builtin.constant <builtin.integer <1: i64>> : builtin.integer i64 !1;
             one_v2 = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32 !2;
-            one_b_v7 = builtin.constant <cube.bool true> : cube.bool  !3;
+            one_b_v10 = builtin.constant <cube.bool true> : cube.bool  !3;
             one_b_v3 = cmp.i_equal (one_v2, one_v2) [] []: <(builtin.integer i32, builtin.integer i32) -> (cube.bool )> !4;
-            x2_v4, y2_v5 = scf.if one_b_v7 : builtin.integer i64, builtin.integer i64 then 
+            x2_v4, y2_v5 = scf.if one_b_v10 : builtin.integer i64, builtin.integer i64 then 
             {
               ^then_block_block2v1() !5:
                 branch.yield (y_v1, y_v1) !6
@@ -282,9 +282,11 @@ fn sccp_is_path_sensitive_region() -> Result<()> {
               ^else_block_block3v1() !7:
                 branch.yield (x_v0, y_v1) !8
             } !9;
-            z_v8 = builtin.constant <builtin.integer <2: i64>> : builtin.integer i64 !10;
-            z_v6 = llvm.add x2_v4, y2_v5 <{nsw=false,nuw=false}>: builtin.integer i64 !11;
-            llvm.return z_v8 !12
+            x2_v8 = builtin.constant <builtin.integer <1: i64>> : builtin.integer i64 !10;
+            y2_v9 = builtin.constant <builtin.integer <1: i64>> : builtin.integer i64 !11;
+            z_v7 = builtin.constant <builtin.integer <2: i64>> : builtin.integer i64 !12;
+            z_v6 = llvm.add x2_v8, y2_v9 <{nsw=false,nuw=false}>: builtin.integer i64 !13;
+            llvm.return z_v7 !14
         }"#]]
     .assert_eq(&after);
     Ok(())
@@ -322,21 +324,24 @@ fn sccp_folded_condition_makes_branch_dead_region() -> Result<()> {
             y_v1 = builtin.constant <builtin.integer <1: i64>> : builtin.integer i64 !1;
             zero_i1_v2 = builtin.constant <builtin.integer <0: i32>> : builtin.integer i32 !2;
             one_i1_v3 = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32 !3;
-            one_v9 = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32 !4;
+            one_v13 = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32 !4;
             one_v4 = llvm.add zero_i1_v2, one_i1_v3 <{nsw=false,nuw=false}>: builtin.integer i32 !5;
-            one_b_v5 = cmp.i_equal (one_v9, one_i1_v3) [] []: <(builtin.integer i32, builtin.integer i32) -> (cube.bool )> !6;
-            x2_v6, y2_v7 = scf.if one_b_v5 : builtin.integer i64, builtin.integer i64 then 
+            one_b_v12 = builtin.constant <cube.bool true> : cube.bool  !6;
+            one_b_v5 = cmp.i_equal (one_v13, one_i1_v3) [] []: <(builtin.integer i32, builtin.integer i32) -> (cube.bool )> !7;
+            x2_v6, y2_v7 = scf.if one_b_v12 : builtin.integer i64, builtin.integer i64 then 
             {
-              ^then_block2v1() !7:
-                branch.yield (y_v1, y_v1) !8
+              ^then_block2v1() !8:
+                branch.yield (y_v1, y_v1) !9
             } else 
             {
-              ^else_block3v1() !9:
-                branch.yield (x_v0, y_v1) !10
-            } !11;
-            z_v10 = builtin.constant <builtin.integer <2: i64>> : builtin.integer i64 !12;
-            z_v8 = llvm.add x2_v6, y2_v7 <{nsw=false,nuw=false}>: builtin.integer i64 !13;
-            llvm.return z_v10 !14
+              ^else_block3v1() !10:
+                branch.yield (x_v0, y_v1) !11
+            } !12;
+            x2_v10 = builtin.constant <builtin.integer <1: i64>> : builtin.integer i64 !13;
+            y2_v11 = builtin.constant <builtin.integer <1: i64>> : builtin.integer i64 !14;
+            z_v9 = builtin.constant <builtin.integer <2: i64>> : builtin.integer i64 !15;
+            z_v8 = llvm.add x2_v10, y2_v11 <{nsw=false,nuw=false}>: builtin.integer i64 !16;
+            llvm.return z_v9 !17
         }"#]]
     .assert_eq(&after);
     Ok(())
@@ -385,11 +390,12 @@ fn sccp_meets_distinct_constants_from_live_predecessors_as_not_a_constant_region
                 b1_v4 = builtin.constant <builtin.integer <5: i64>> : builtin.integer i64 !7;
                 branch.yield (a1_v3, b1_v4) !8
             } !9;
-            x_plus_y_v7 = llvm.add x_v5, y_v6 <{nsw=false,nuw=false}>: builtin.integer i64 !10;
-            y_plus_y_v10 = builtin.constant <builtin.integer <10: i64>> : builtin.integer i64 !11;
-            y_plus_y_v8 = llvm.add y_v6, y_v6 <{nsw=false,nuw=false}>: builtin.integer i64 !12;
-            result_v9 = llvm.add x_plus_y_v7, y_plus_y_v10 <{nsw=false,nuw=false}>: builtin.integer i64 !13;
-            llvm.return result_v9 !14
+            y_v11 = builtin.constant <builtin.integer <5: i64>> : builtin.integer i64 !10;
+            x_plus_y_v7 = llvm.add x_v5, y_v11 <{nsw=false,nuw=false}>: builtin.integer i64 !11;
+            y_plus_y_v10 = builtin.constant <builtin.integer <10: i64>> : builtin.integer i64 !12;
+            y_plus_y_v8 = llvm.add y_v11, y_v11 <{nsw=false,nuw=false}>: builtin.integer i64 !13;
+            result_v9 = llvm.add x_plus_y_v7, y_plus_y_v10 <{nsw=false,nuw=false}>: builtin.integer i64 !14;
+            llvm.return result_v9 !15
         }"#]]
     .assert_eq(&after);
     Ok(())

@@ -44,207 +44,53 @@ impl BitOrAssign for ChangeResult {
 
 /// Nested module to ensure none of the unsafe abstractions leave this scope.
 mod solver {
-    use super::*;
+    use core::cell::{Ref, RefMut};
 
-    pub use unsafe_zone::{DataflowSolver, ReadRef};
+    use super::*;
 
     pub type SolverWorkItem = (ProgramPoint, TypeId);
 
-    /// Special care needs to be taken here to ensure invariants hold. Only functions directly using
-    /// the unsafe portions of the code should be in here.
-    ///
-    /// # Safety invariants
-    /// * State must not be removed or re-inserted through a `&self`. Only fresh insertion and
-    ///   in-place mutation are allowed.
-    /// * State must only be mutated after checking no readable references exist via `read_lock`
-    /// * Mutable references to state created via `&self` must not be leaked outside this module
-    mod unsafe_zone {
-        use core::cell::{Cell, Ref, RefMut};
+    /// Read-only ref, can read but not update state.
+    pub struct ReadRef<'a, T: PrintableState> {
+        value: Rc<RefCell<dyn PrintableState>>,
+        _ty: PhantomData<&'a T>,
+    }
 
-        use derive_more::Deref;
-
-        use super::*;
-
-        /// Read-only ref, required for soundness to ensure read-only lattices are never borrowed at the
-        /// same time as write-only lattices. Uses a pointer to store the value, because the borrow
-        /// lives as long as the solver, not as long as the reference to the map. This is safe because
-        /// an immutable borrow to the solver can only be used to insert values, never remove them. The
-        /// values are also boxed, so aren't moved when the map grows.
-        /// Removing or re-inserting values must require a mutable reference to the solver, so read refs
-        /// are forced to be dropped.
-        pub struct ReadRef<'a, T> {
-            value: *const T,
-            /// Overlap is only allowed between writes, not between reads and writes.
-            /// The lock ensures all readable borrows are dropped before a writing ref is created.
-            read_lock: Rc<Cell<usize>>,
-            _solver: PhantomData<&'a ()>,
-        }
-
-        impl<T> ReadRef<'_, T> {
-            pub fn deref(&self) -> BorrowGuard<'_, T> {
-                self.read_lock.update(|it| it + 1);
-                BorrowGuard {
-                    value: unsafe { &*self.value },
-                    read_lock: &self.read_lock,
-                }
-            }
-        }
-
-        #[derive(Deref)]
-        pub struct BorrowGuard<'a, T> {
-            #[deref]
-            value: &'a T,
-            read_lock: &'a Cell<usize>,
-        }
-
-        impl<T> Drop for BorrowGuard<'_, T> {
-            fn drop(&mut self) {
-                self.read_lock.update(|it| it - 1);
-            }
-        }
-
-        pub(super) struct StateEntry {
-            read_lock: Rc<Cell<usize>>,
-            value: Box<dyn PrintableState>,
-        }
-
-        impl StateEntry {
-            pub fn new(value: impl PrintableState) -> Self {
-                StateEntry {
-                    read_lock: Default::default(),
-                    value: Box::new(value),
-                }
-            }
-
-            fn read<'a, T: PrintableState>(&self) -> ReadRef<'a, T> {
-                ReadRef {
-                    value: self.value.downcast_ref().unwrap(),
-                    read_lock: self.read_lock.clone(),
-                    _solver: PhantomData,
-                }
-            }
-
-            pub(super) unsafe fn inner(&self) -> &dyn PrintableState {
-                &*self.value
-            }
-
-            fn borrow_mut<T: PrintableState>(&mut self) -> &mut T {
-                if self.read_lock.get() > 0 {
-                    panic!("Can't update state while it's immutably borrowed");
-                }
-                self.value.downcast_mut().unwrap()
-            }
-        }
-
-        type AnalysisStates = HashMap<u64, States>;
-        type States = HashMap<TypeId, StateEntry>;
-
-        pub struct DataflowSolver {
-            pub(super) child_analyses: HashMap<TypeId, Box<dyn DataflowAnalysis>>,
-            pub(super) worklist: RefCell<VecDeque<SolverWorkItem>>,
-            pub(super) anchor_hash: FxBuildHasher,
-            /// Pre-hashed anchor to typed state. Allows arbitrary anchor types.
-            /// Removing or re-inserting elements *must* be done through a mutable reference to ensure
-            /// no dangling read refs exist.
-            analysis_states: RefCell<AnalysisStates>,
-            pub(super) config: SolverConfig,
-        }
-
-        impl DataflowSolver {
-            pub fn new(config: SolverConfig) -> Self {
-                Self {
-                    child_analyses: Default::default(),
-                    worklist: Default::default(),
-                    anchor_hash: Default::default(),
-                    analysis_states: Default::default(),
-                    config,
-                }
-            }
-
-            pub fn update_state<A: AnalysisState>(
-                &self,
-                ctx: &Context,
-                state: &WriteRef<A>,
-                update: impl FnOnce(&mut A) -> ChangeResult,
-            ) {
-                let mut states = self.analysis_states.borrow_mut();
-                let states = states.get_mut(&state.anchor).unwrap();
-                let state = states.get_mut(&TypeId::of::<A>()).unwrap().borrow_mut();
-                let changed = update(state);
-                if changed == ChangeResult::Changed {
-                    state.on_update(ctx, self);
-                }
-            }
-
-            pub fn get_or_create<T: AnalysisState>(&self, anchor: T::Anchor) -> ReadRef<'_, T> {
-                let anchor_hash = self.hash_anchor(&anchor);
-                let mut states = self.analysis_states.borrow_mut();
-                let state = states.entry(anchor_hash).or_default();
-                let id = TypeId::of::<T>();
-                state
-                    .entry(id)
-                    .or_insert_with(|| StateEntry::new(T::create(anchor)))
-                    .read()
-            }
-
-            pub fn get_or_create_mut<T: AnalysisState>(
-                &self,
-                anchor: T::Anchor,
-            ) -> WriteRef<'_, T> {
-                let anchor_hash = self.hash_anchor(&anchor);
-                let mut states = self.analysis_states.borrow_mut();
-                let state = states.entry(anchor_hash).or_default();
-                let id = TypeId::of::<T>();
-                if !state.contains_key(&id) {
-                    state.insert(id, StateEntry::new(T::create(anchor)));
-                }
-                WriteRef {
-                    anchor: anchor_hash,
-                    _ty: PhantomData,
-                    _solver: PhantomData,
-                }
-            }
-
-            pub fn get_or_create_for<A: 'static, T: AnalysisState>(
-                &self,
-                dependent: ProgramPoint,
-                anchor: T::Anchor,
-            ) -> ReadRef<'_, T> {
-                let is_equivalent = self.is_equivalent::<T>(&anchor, dependent);
-                let state = self.get_or_create::<T>(anchor);
-                if !is_equivalent {
-                    state.deref().add_dependency::<A>(dependent);
-                }
-                state
-            }
-
-            pub fn lookup_state<T: AnalysisState>(
-                &self,
-                anchor: T::Anchor,
-            ) -> Option<ReadRef<'_, T>> {
-                let anchor_hash = self.hash_anchor(&anchor);
-                let states = self.analysis_states.borrow();
-                Some(states.get(&anchor_hash)?.get(&TypeId::of::<T>())?.read())
-            }
-
-            pub(super) fn states(&self) -> Ref<'_, AnalysisStates> {
-                self.analysis_states.borrow()
-            }
-
-            /// Anything not inside this module must not get a mutable borrow from an immutable ref
-            #[expect(unused, reason = "For clarity in case it's needed in the future")]
-            pub(super) fn states_mut(&mut self) -> RefMut<'_, AnalysisStates> {
-                self.analysis_states.borrow_mut()
-            }
+    impl<T: PrintableState> ReadRef<'_, T> {
+        #[track_caller]
+        pub fn deref(&self) -> Ref<'_, T> {
+            Ref::map(self.value.borrow(), |value| {
+                value.downcast_ref::<T>().unwrap()
+            })
         }
     }
 
     /// Write-only ref, required for soundness in cases where multiple aliasing lattice elements are
     /// referenced at the same time. Mutation is only allowed through `update_state`.
-    pub struct WriteRef<'a, T> {
-        anchor: u64,
-        _ty: PhantomData<T>,
-        _solver: PhantomData<&'a ()>,
+    pub struct WriteRef<'a, T: PrintableState> {
+        value: Rc<RefCell<dyn PrintableState>>,
+        _ty: PhantomData<&'a T>,
+    }
+
+    impl<T: PrintableState> WriteRef<'_, T> {
+        #[track_caller]
+        fn deref(&self) -> RefMut<'_, T> {
+            RefMut::map(self.value.borrow_mut(), |value| {
+                value.downcast_mut::<T>().unwrap()
+            })
+        }
+    }
+
+    impl<T: PrintableState> PartialEq<WriteRef<'_, T>> for ReadRef<'_, T> {
+        fn eq(&self, other: &WriteRef<'_, T>) -> bool {
+            Rc::ptr_eq(&self.value, &other.value)
+        }
+    }
+
+    impl<T: PrintableState> PartialEq<ReadRef<'_, T>> for WriteRef<'_, T> {
+        fn eq(&self, other: &ReadRef<'_, T>) -> bool {
+            Rc::ptr_eq(&self.value, &other.value)
+        }
     }
 
     pub struct SolverConfig {
@@ -256,6 +102,107 @@ mod solver {
             Self {
                 is_interprocedural: true,
             }
+        }
+    }
+
+    type AnalysisStates = HashMap<u64, States>;
+    type States = HashMap<TypeId, StateEntry>;
+    type StateEntry = Rc<RefCell<dyn PrintableState>>;
+
+    pub struct DataflowSolver {
+        child_analyses: HashMap<TypeId, Box<dyn DataflowAnalysis>>,
+        worklist: RefCell<VecDeque<SolverWorkItem>>,
+        anchor_hash: FxBuildHasher,
+        analysis_states: RefCell<AnalysisStates>,
+        config: SolverConfig,
+    }
+
+    impl DataflowSolver {
+        pub fn new(config: SolverConfig) -> Self {
+            Self {
+                child_analyses: Default::default(),
+                worklist: Default::default(),
+                anchor_hash: Default::default(),
+                analysis_states: Default::default(),
+                config,
+            }
+        }
+
+        #[track_caller]
+        pub fn update_state<A: AnalysisState>(
+            &self,
+            ctx: &Context,
+            state: &WriteRef<A>,
+            update: impl FnOnce(&mut A) -> ChangeResult,
+        ) {
+            let mut state = state.deref();
+            let changed = update(&mut state);
+            if changed == ChangeResult::Changed {
+                state.on_update(ctx, self);
+            }
+        }
+
+        pub fn get_or_create<T: AnalysisState>(&self, anchor: T::Anchor) -> ReadRef<'_, T> {
+            let anchor_hash = self.hash_anchor(&anchor);
+            let mut states = self.analysis_states.borrow_mut();
+            let state = states.entry(anchor_hash).or_default();
+            let id = TypeId::of::<T>();
+            let state = state
+                .entry(id)
+                .or_insert_with(|| Rc::new(RefCell::new(T::create(anchor))))
+                .clone();
+            ReadRef {
+                value: state,
+                _ty: PhantomData,
+            }
+        }
+
+        pub fn get_or_create_mut<T: AnalysisState>(&self, anchor: T::Anchor) -> WriteRef<'_, T> {
+            let anchor_hash = self.hash_anchor(&anchor);
+            let mut states = self.analysis_states.borrow_mut();
+            let state = states.entry(anchor_hash).or_default();
+            let id = TypeId::of::<T>();
+            let state = state
+                .entry(id)
+                .or_insert_with(|| Rc::new(RefCell::new(T::create(anchor))))
+                .clone();
+            WriteRef {
+                value: state,
+                _ty: PhantomData,
+            }
+        }
+
+        pub fn get_or_create_for<A: 'static, T: AnalysisState>(
+            &self,
+            dependent: ProgramPoint,
+            anchor: T::Anchor,
+        ) -> ReadRef<'_, T> {
+            let is_equivalent = self.is_equivalent::<T>(&anchor, dependent);
+            let state = self.get_or_create::<T>(anchor);
+            if !is_equivalent {
+                state.deref().add_dependency::<A>(dependent);
+            }
+            state
+        }
+
+        pub fn lookup_state<T: AnalysisState>(&self, anchor: T::Anchor) -> Option<ReadRef<'_, T>> {
+            let anchor_hash = self.hash_anchor(&anchor);
+            let states = self.analysis_states.borrow();
+            let state = states.get(&anchor_hash)?.get(&TypeId::of::<T>())?.clone();
+            Some(ReadRef {
+                value: state,
+                _ty: PhantomData,
+            })
+        }
+
+        pub(super) fn states(&self) -> Ref<'_, AnalysisStates> {
+            self.analysis_states.borrow()
+        }
+
+        /// Anything not inside this module must not get a mutable borrow from an immutable ref
+        #[expect(unused, reason = "For clarity in case it's needed in the future")]
+        pub(super) fn states_mut(&mut self) -> RefMut<'_, AnalysisStates> {
+            self.analysis_states.borrow_mut()
         }
     }
 
@@ -363,7 +310,7 @@ mod solver {
             entries.sort_by_key(|it| it.0);
 
             for (_, state) in entries {
-                writeln!(f, "    {},", unsafe { state.inner() }.disp(ctx))?;
+                writeln!(f, "    {},", state.borrow().disp(ctx))?;
             }
             writeln!(f, "}}")
         }

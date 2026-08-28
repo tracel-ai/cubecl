@@ -28,24 +28,6 @@ use crate::{
     prelude::*,
 };
 
-/// Equivalent of `Use` but for `Def`s. Allows fetching the index in the declaring op or block.
-#[derive(new, Clone, Copy, Deref)]
-pub struct Def<T: Copy> {
-    #[deref]
-    value: T,
-    index: usize,
-}
-
-impl<T: Copy> Def<T> {
-    pub fn value(&self) -> T {
-        self.value
-    }
-
-    pub fn index(&self) -> usize {
-        self.index
-    }
-}
-
 /// A preset config when order doesn't matter
 pub const WALKCONFIG_ANY: WalkConfig = WALKCONFIG_PREORDER_FORWARD;
 

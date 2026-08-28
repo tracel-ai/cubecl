@@ -50,4 +50,3 @@ env_logger = { workspace = true }
 expect-test = { workspace = true }
 pliron-llvm = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
-tracel-llvm-bundler = { workspace = true }

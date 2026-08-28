@@ -5,6 +5,7 @@ use pliron::{
     irbuild::match_rewrite::apply_match_rewrite,
     linked_list::ContainsLinkedList,
     opts::constants::ConstFoldInterface,
+    printable::Printable,
     region::Region,
 };
 use smallvec::SmallVec;
@@ -65,7 +66,7 @@ fn rewrite(
     add_to_worklist(ctx, &mut worklist, initial_regions);
     while let Some(block) = worklist.pop() {
         let ops = block.deref(ctx).iter(ctx).collect::<Vec<_>>();
-        for op in ops {
+        for op in ops.into_iter().rev() {
             if let Some(const_fold) = op_cast::<dyn ConstFoldInterface>(&*op.dyn_op(ctx)) {
                 rewriter.set_insertion_point_before_operation(op);
                 let operands = const_operands(solver, ctx, op);
@@ -105,10 +106,12 @@ fn rewrite(
 }
 
 pub fn sccp(root_op: Ptr<Operation>, ctx: &mut Context) -> Result<IRStatus> {
+    std::println!("IR before SCCP: {}", root_op.disp(ctx));
     let mut solver = DataflowSolver::new(SolverConfig::default());
     solver.load(DeadCodeAnalysis::default());
     solver.load(SparseConstantPropagationAnalysis::default());
     solver.initialize_and_run(ctx, root_op)?;
+    std::println!("State: {}", solver.disp(ctx));
     rewrite(&solver, ctx, &root_op.regions(ctx))
 }
 

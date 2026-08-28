@@ -1052,7 +1052,6 @@ dependencies = [
  "stable-vec",
  "test-log",
  "thiserror",
- "tracel-llvm-bundler",
  "tynm",
  "type-map",
 ]

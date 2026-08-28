@@ -83,7 +83,9 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
         lhs: &WriteRef<SparseLattice<T::LatticeValue>>,
         rhs: &ReadRef<SparseLattice<T::LatticeValue>>,
     ) {
-        solver.update_state(ctx, lhs, |it| it.join(rhs.deref().value()));
+        if lhs != rhs {
+            solver.update_state(ctx, lhs, |it| it.join(rhs.deref().value()));
+        }
     }
 
     fn initialize_recursively(
@@ -361,7 +363,8 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
                 return self.set_all_to_entry_states(solver, ctx, lattices);
             };
 
-            let inputs = predecessors.deref().successor_inputs(op);
+            let predecessors = predecessors.deref();
+            let inputs = predecessors.successor_inputs(op);
             assert_eq!(
                 inputs.len(),
                 operands.len(),
