@@ -890,6 +890,12 @@ impl<R: Runtime> ComputeClient<R> {
 
         let level = self.utilities.logger.profile_level();
 
+        // Before the submit, on the issuing thread: this is the last point at
+        // which the caller's own context still exists, and attributing a
+        // launch to what caused it is the whole reason the hook is here rather
+        // than beside the logger's aggregation.
+        crate::logging::notify_launch(kernel.name());
+
         match level {
             None | Some(ProfileLevel::ExecutionOnly) => {
                 let utilities = self.utilities.clone();
