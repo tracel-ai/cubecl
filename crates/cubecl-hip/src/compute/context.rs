@@ -191,7 +191,6 @@ impl HipContext {
 
         // Already a linked ET_DYN code object, so no `hiprtc*` call belongs here.
         // The bytes go straight to `load_compiled_binary`, as a cache hit would.
-        #[cfg(feature = "llvm")]
         if let Some(HipRepresentation::Llvm(module)) = &jitc_kernel.repr {
             if logger.compilation_source_activated() {
                 jitc_kernel.debug_info = Some(DebugInformation::new("ll", kernel_id.clone()));

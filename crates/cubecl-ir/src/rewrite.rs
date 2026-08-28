@@ -5,8 +5,10 @@ use derive_more::{Deref, DerefMut, From};
 use derive_new::new;
 use pliron::{
     attribute::AttrObj,
-    builtin::ops::ConstantOp,
-    debug_info::{self, set_operation_result_name},
+    builtin::{
+        given_names::{get_operation_result_name, set_operation_result_name},
+        ops::ConstantOp,
+    },
     graph::walkers::{
         WalkConfig,
         uninterruptible::{
@@ -311,7 +313,7 @@ pub fn transfer_result_name(ctx: &Context, old_op: Ptr<Operation>, value: Value,
             ctx,
             new_op,
             idx,
-            debug_info::get_operation_result_name(ctx, old_op, idx),
+            get_operation_result_name(ctx, old_op, idx),
         );
     }
 }

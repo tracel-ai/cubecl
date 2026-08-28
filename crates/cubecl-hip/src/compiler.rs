@@ -18,24 +18,15 @@ pub const COMPILER_ENV: &str = "CUBECL_HIP_COMPILER";
 #[derive(Clone, Debug)]
 pub enum HipCompiler {
     Cpp(CppCompiler<Hip>),
-    #[cfg(feature = "llvm")]
     Llvm(cubecl_llvm::PlironCompiler),
 }
 
 impl Default for HipCompiler {
     fn default() -> Self {
         match std::env::var(COMPILER_ENV).as_deref() {
-            #[cfg(feature = "llvm")]
             Ok("llvm") => HipCompiler::Llvm(cubecl_llvm::PlironCompiler {
                 target: cubecl_llvm::LlvmTarget::AmdGpu,
             }),
-            #[cfg(not(feature = "llvm"))]
-            Ok("llvm") => {
-                log::warn!(
-                    "{COMPILER_ENV}=llvm ignored: cubecl-hip was built without the `llvm` feature"
-                );
-                HipCompiler::Cpp(CppCompiler::default())
-            }
             _ => HipCompiler::Cpp(CppCompiler::default()),
         }
     }
@@ -52,7 +43,6 @@ pub struct HipCompilationOptions {
 
 pub enum HipRepresentation {
     Cpp(ComputeKernel),
-    #[cfg(feature = "llvm")]
     Llvm(cubecl_llvm::AmdGpuModule),
 }
 
@@ -62,7 +52,6 @@ impl core::fmt::Debug for HipRepresentation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             HipRepresentation::Cpp(_) => f.write_str("HipRepresentation::Cpp"),
-            #[cfg(feature = "llvm")]
             HipRepresentation::Llvm(module) => f
                 .debug_tuple("HipRepresentation::Llvm")
                 .field(module)
@@ -77,7 +66,6 @@ impl HipRepresentation {
     pub fn shared_memory_size(&self) -> usize {
         match self {
             HipRepresentation::Cpp(kernel) => kernel.shared_memory_size,
-            #[cfg(feature = "llvm")]
             HipRepresentation::Llvm(module) => module.shared_memory_size,
         }
     }
@@ -87,7 +75,6 @@ impl core::fmt::Display for HipRepresentation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             HipRepresentation::Cpp(kernel) => write!(f, "{kernel}"),
-            #[cfg(feature = "llvm")]
             HipRepresentation::Llvm(module) => write!(f, "{}", module.ir),
         }
     }
@@ -121,7 +108,6 @@ impl Compiler for HipCompiler {
             HipCompiler::Cpp(compiler) => Ok(HipRepresentation::Cpp(
                 compiler.compile(kernel, &options.cpp)?,
             )),
-            #[cfg(feature = "llvm")]
             HipCompiler::Llvm(compiler) => {
                 let pliron_options = cubecl_llvm::PlironOptions {
                     arch: options.arch.clone(),
@@ -141,7 +127,6 @@ impl Compiler for HipCompiler {
     fn extension(&self) -> &'static str {
         match self {
             HipCompiler::Cpp(compiler) => compiler.extension(),
-            #[cfg(feature = "llvm")]
             HipCompiler::Llvm(_) => "ll",
         }
     }

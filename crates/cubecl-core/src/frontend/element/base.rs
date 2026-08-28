@@ -10,14 +10,12 @@ use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 use cubecl_ir::{
     VectorSize, ident,
     interfaces::TypedExt,
-    pliron::{
-        debug_info::set_operation_result_name, printable::Printable, r#type::Typed, value::Value,
-    },
+    pliron::{printable::Printable, r#type::Typed, value::Value},
     types::PointerType,
 };
 use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
-use pliron::r#type::TypeHandle;
+use pliron::{builtin::given_names::set_operation_result_name, r#type::TypeHandle};
 use variadics_please::{all_tuples, all_tuples_enumerated};
 
 /// Types used in a cube function must implement this trait
