@@ -429,14 +429,9 @@ impl ComputeServer for CpuServer {
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.flush(stream_id)?;
-        // The device fault is the only thing left that nobody else can tell
-        // the caller — a launch failure lives on the buffers it left
-        // unwritten.
-        match self.scheduler.take_fault() {
-            Some(fault) => Err(fault),
-            None => Ok(()),
-        }
+        // Nothing beyond that is the flush's to report: a launch failure
+        // lives on the buffers it left unwritten.
+        stream.flush(stream_id)
     }
 
     fn sync(
@@ -450,11 +445,6 @@ impl ComputeServer for CpuServer {
         // The claim check a read would have made, without the read.
         if result.is_ok() {
             result = self.scheduler.ensure_written(handles.iter());
-        }
-        if result.is_ok()
-            && let Some(fault) = self.scheduler.take_fault()
-        {
-            result = Err(fault);
         }
 
         Box::pin(async move { result })

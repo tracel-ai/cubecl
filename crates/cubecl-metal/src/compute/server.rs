@@ -147,23 +147,6 @@ fn write_pitched(dst: *mut u8, data: &[u8], shape: &[usize], strides: &[usize], 
 }
 
 impl MetalServer {
-    /// Collects synchronous launch failures and asynchronous GPU faults from the stream's
-    /// error sink. Draining the sink clears the poison so a recovered stream can serve
-    /// new work.
-    /// The device fault, if the completion handlers recorded one — and mark
-    /// open profiles invalid when they did, since the measurement is wrong.
-    fn take_fault(&mut self, stream_id: StreamId) -> Option<ServerError> {
-        let fault = self
-            .streams
-            .resolve(stream_id, std::iter::empty())
-            .current()
-            .take_fault();
-        if let Some(fault) = &fault {
-            self.timestamps.failure(fault);
-        }
-        fault
-    }
-
     /// Mark every open profile invalid: a failure inside a profiling window
     /// invalidates the measurement. A no-op with no profile open.
     fn profile_failure(&mut self, error: &ServerError) {
@@ -239,11 +222,6 @@ impl ComputeServer for MetalServer {
             return Box::pin(async move { Err(err) });
         }
 
-        // The one failure no buffer can report: the context itself.
-        if let Some(fault) = self.take_fault(stream_id) {
-            return Box::pin(async move { Err(fault) });
-        }
-
         let mut resolved = self
             .streams
             .resolve(stream_id, descriptors.iter().map(|d| &d.handle));
@@ -253,11 +231,6 @@ impl ComputeServer for MetalServer {
         let event = MetalStreamBackend::flush(stream, failures);
 
         if let Err(e) = MetalStreamBackend::wait_event_sync(event) {
-            return Box::pin(async move { Err(e) });
-        }
-
-        // A faulted command buffer still signals completion, so surface any recorded fault.
-        if let Some(e) = resolved.current().take_fault() {
             return Box::pin(async move { Err(e) });
         }
 
@@ -576,10 +549,6 @@ impl ComputeServer for MetalServer {
         if let Err(err) = self.streams.ensure_written(handles.iter()) {
             return Box::pin(async move { Err(err) });
         }
-        if let Some(fault) = self.take_fault(stream_id) {
-            return Box::pin(async move { Err(fault) });
-        }
-
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         let (stream, failures) = resolved.current_and_failures();
         let fence = MetalStreamBackend::flush(stream, failures);
@@ -596,13 +565,8 @@ impl ComputeServer for MetalServer {
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        // A launch failure is not the flush's to report — it lives on the
-        // buffers the launch left unwritten. The device fault is: the context
-        // itself is broken, and no buffer can say so.
-        if let Some(fault) = self.take_fault(stream_id) {
-            return Err(fault);
-        }
-
+        // A flush reports nothing: a failure lives on the buffers the work
+        // left unwritten, and a read of one of them is what surfaces it.
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         let (stream, failures) = resolved.current_and_failures();
         MetalStreamBackend::flush(stream, failures);

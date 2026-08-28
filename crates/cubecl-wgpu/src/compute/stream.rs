@@ -56,11 +56,6 @@ enum Timings {
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
     pub device: wgpu::Device,
-    /// The one failure that is the device's rather than any buffer's: a
-    /// validation canary, a fault the driver reports against the context.
-    /// Reported by the next flush or sync, which is the only thing left that
-    /// nobody else can tell the caller.
-    fault: Option<ServerError>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -162,7 +157,6 @@ impl WgpuStream {
             mem_manage,
             compute_pass: None,
             timings,
-            fault: None,
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -226,23 +220,11 @@ impl WgpuStream {
     fn capture_error(&mut self, error: ServerError) {
         match self.capturing.is_recording() {
             true => self.capturing.fail(error),
-            false => self.fault(error),
+            // Outside a window there is nothing to doom and nothing to claim
+            // that the raise site has not claimed already, so the log is the
+            // whole report.
+            false => log::warn!("{error}"),
         }
-    }
-
-    /// Record a device fault — see the field. The first fault wins: it is the
-    /// one that broke the context, and it is logged either way.
-    pub fn fault(&mut self, error: ServerError) {
-        log::warn!("{error}");
-        if self.fault.is_none() {
-            self.fault = Some(error);
-        }
-    }
-
-    /// The device fault owed to the next flush or sync, taken — reported
-    /// once, like the queue it replaces.
-    pub fn take_fault(&mut self) -> Option<ServerError> {
-        self.fault.take()
     }
 
     /// Mark every open profile invalid: a failure inside a profiling window
@@ -710,11 +692,7 @@ impl WgpuStream {
         failures: &mut ErrorGraph,
     ) -> Result<(), ServerError> {
         self.submit(failures);
-
-        match self.take_fault() {
-            Some(fault) => Err(fault),
-            None => Ok(()),
-        }
+        Ok(())
     }
 
     fn submit_tasks(&mut self, failures: &mut ErrorGraph) {
@@ -768,19 +746,18 @@ impl WgpuStream {
         self.pending_write_count = 0;
     }
 
-    /// Drain the driver's validation canary into the device fault.
+    /// Drain the driver's validation canary into the log.
     ///
-    /// The driver reports these against the device, not the launch that
-    /// caused them, which is exactly what the fault slot is for.
+    /// The driver reports these against the device and not against the launch
+    /// that caused them, so there is no buffer to claim: whatever the rejected
+    /// work was going to write was claimed at the raise site, and this is the
+    /// diagnostic for the cases that reach nobody else.
     fn collect_validation_errors(&mut self) {
         #[cfg(feature = "deny-validation-errors")]
         {
             let validation_errors = wgpu_hal::VALIDATION_CANARY.get_and_reset();
             for err in validation_errors.into_iter() {
-                self.fault(ServerError::Validation {
-                    message: err,
-                    backtrace: BackTrace::capture(),
-                });
+                log::warn!("wgpu validation: {err}");
             }
         }
     }

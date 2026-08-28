@@ -130,11 +130,10 @@ impl ComputeServer for CudaServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
-        // The bytes are only as good as the work that wrote them, and the
-        // context that would have written them has to still work.
+        // The bytes are only as good as the work that wrote them.
         if let Err(err) = self
             .streams
-            .ensure_readable(descriptors.iter().map(|d| &d.handle))
+            .ensure_written(descriptors.iter().map(|d| &d.handle))
         {
             return Box::pin(async move { Err(err) });
         }
@@ -225,19 +224,12 @@ impl ComputeServer for CudaServer {
         handles: Vec<BufferBinding>,
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
-        // `ensure_written`, not `ensure_readable`: a check answers a question
-        // about buffers without reading them, and the device fault is owed to
-        // exactly one reporter — taking it here would silence the next flush.
         self.streams.ensure_written(handles.iter())
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        // A launch failure is not the flush's to report — it lives on the
-        // buffers the launch left unwritten. The device fault is: the context
-        // itself is broken, and no buffer can say so.
-        if let Some(fault) = self.streams.take_fault() {
-            return Err(fault);
-        }
+        // A flush reports nothing: a failure lives on the buffers the work
+        // left unwritten, and a read of one of them is what surfaces it.
         let mut command = self.command_no_inputs(stream_id);
 
         let current = command.stream();
@@ -303,20 +295,30 @@ impl ComputeServer for CudaServer {
         if !self.graphs.contains(graph) {
             return;
         }
+        // What this graph's replays write, taken before the graph goes: if the
+        // wait below fails, these are the buffers a replay may not have
+        // finished writing, and the failure belongs to them.
+        let mut written = Vec::new();
+        self.graphs.extend_written(graph, &mut written);
+
         // Wait for in-flight replays before dropping the executable: `replay`
         // returns at enqueue time, so one may still be running against it. A
-        // failed sync means the stream already faulted — so no replay is still
-        // running and destroying is safe — but don't silently swallow the
-        // error: surface it on the stream so the next op reports it.
+        // failed wait means no replay is still running, so destroying is safe.
         let synced = cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id));
         let mut streams = self.streams.resolve(stream_id, [].into_iter());
         self.graphs.destroy(graph, streams.current());
         drop(streams);
         if let Err(err) = synced {
-            // The synchronize itself failed, leaving a context every logical
-            // stream sharing it keeps hitting: a device fault, not any
-            // buffer's failure.
-            self.streams.fault(err);
+            // Claimed rather than reported at large: work on this stream that
+            // shares no buffer with the graph has nothing to do with this and
+            // must not be failed for it.
+            //
+            // The wait was over the whole stream and not only this graph's
+            // replays, so anything else in flight on it is equally unfinished
+            // and goes unclaimed. That is deliberate: whatever else was
+            // enqueued reports through its own read, and widening this to the
+            // stream is exactly the contamination the claim exists to avoid.
+            failed_writing(self, stream_id, written, err);
         }
     }
 
@@ -328,7 +330,7 @@ impl ComputeServer for CudaServer {
         // The claim check a read would have made, without the read; claims
         // are set at enqueue time, so they are already in place. A fault the
         // barrier itself reveals comes back through the fence below.
-        if let Err(err) = self.streams.ensure_readable(handles.iter()) {
+        if let Err(err) = self.streams.ensure_written(handles.iter()) {
             return Box::pin(async move { Err(err) });
         }
         self.command_no_inputs(stream_id).sync()
@@ -359,8 +361,7 @@ impl ComputeServer for CudaServer {
     ) -> Result<ManagedResource<GpuResource>, ServerError> {
         // The same claim check a read makes: a buffer a failed launch never
         // filled reports the failure rather than handing back a pointer to
-        // whatever was there before. Not the fault, though — that is owed to
-        // the next flush or sync, and one reporter only.
+        // whatever was there before.
         self.streams.ensure_written([&binding].into_iter())?;
         let mut command = self.command(stream_id, [&binding].into_iter());
         let memory = binding.memory.clone();

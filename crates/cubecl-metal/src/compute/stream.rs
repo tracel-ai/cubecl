@@ -26,13 +26,13 @@ pub struct ActiveEncoder {
     pub temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
 }
 
-/// Installs a completion handler that drops `temporaries` and, on fault, records the
-/// Metal error into `errors` (poisoning the stream). `signal_event` is `Some` when the
-/// buffer signals an event; it is forced on fault so dependent waiters fail fast.
+/// Installs a completion handler that drops `temporaries` and, on a failed
+/// command buffer, logs what Metal said. `signal_event` is `Some` when the
+/// buffer signals an event; it is forced on failure so dependent waiters fail
+/// fast, which is what carries the failure to anything that needed this work.
 fn install_completion_handler(
     command_buffer: &ProtocolObject<dyn MTLCommandBuffer>,
     temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
-    fault: Arc<Mutex<Option<ServerError>>>,
     signal_event: Option<(Retained<ProtocolObject<dyn MTLSharedEvent>>, u64)>,
 ) {
     if temporaries.is_empty() && signal_event.is_none() {
@@ -53,16 +53,13 @@ fn install_completion_handler(
                     ),
                     None => "Metal command buffer failed with an unknown error".to_string(),
                 };
-                // A completed command buffer carries no logical stream: it
-                // is the device's fault, reported by the next flush or sync.
-                // The first fault wins — it is the one that broke the context.
-                let mut fault = fault.lock();
-                if fault.is_none() {
-                    *fault = Some(ServerError::Generic {
-                        reason,
-                        backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-                    });
-                }
+                // A completed command buffer carries no logical stream and
+                // no record of what its kernels wrote, so there is nothing
+                // here to claim. What the work would have written was claimed
+                // when it was enqueued and released when the enqueue
+                // succeeded; the event forced below is what makes every
+                // dependent waiter fail, and this is the diagnostic.
+                log::warn!("{reason}");
 
                 // Metal leaves encoded events unsignaled on fault; signal manually
                 // so a dependent `wait_sync` fails fast.
@@ -104,11 +101,6 @@ pub struct MetalStream {
     pub max_submitted_ops: usize,
     /// Last committed command buffer, kept alive for back-pressure waits.
     pub last_command_buffer: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
-    /// The device fault, recorded asynchronously by command-buffer completion
-    /// handlers on the driver's own threads — hence the lock. Reported by the
-    /// next flush or sync, which is the only thing left that nobody else can
-    /// tell the caller.
-    pub fault: Arc<Mutex<Option<ServerError>>>,
     /// When `Some`, device profiling is active on this stream: each work-bearing command
     /// buffer committed during the window is collected here so its GPU timestamps
     /// (`GPUStartTime`/`GPUEndTime`) can be read after completion.
@@ -163,12 +155,6 @@ impl MetalStream {
         }
 
         self.active_encoder.as_mut().unwrap()
-    }
-
-    /// The device fault owed to the next flush or sync, taken — reported
-    /// once, like the queue it replaces.
-    pub fn take_fault(&self) -> Option<ServerError> {
-        self.fault.lock().take()
     }
 
     /// Waits on a previously submitted command buffer if total queued ops
@@ -236,12 +222,7 @@ impl MetalEvent {
 
         if let Some(active) = stream.active_encoder.take() {
             (*active.encoder).endEncoding();
-            install_completion_handler(
-                &active.command_buffer,
-                active.temporaries,
-                stream.fault.clone(),
-                None,
-            );
+            install_completion_handler(&active.command_buffer, active.temporaries, None);
             (*active.command_buffer).commit();
         }
 
@@ -351,7 +332,6 @@ impl EventStreamBackend for MetalStreamBackend {
             submitted_ops: 0,
             max_submitted_ops,
             last_command_buffer: None,
-            fault: Arc::new(Mutex::new(None)),
             profiling: None,
         }
     }
@@ -371,12 +351,7 @@ impl EventStreamBackend for MetalStreamBackend {
                 ProtocolObject::from_ref(&*stream.shared_event);
             (*active.command_buffer).encodeSignalEvent_value(event_ref, signal_value);
 
-            install_completion_handler(
-                &active.command_buffer,
-                active.temporaries,
-                stream.fault.clone(),
-                signal,
-            );
+            install_completion_handler(&active.command_buffer, active.temporaries, signal);
             (*active.command_buffer).commit();
             active.command_buffer
         } else {
@@ -387,7 +362,7 @@ impl EventStreamBackend for MetalStreamBackend {
             let event_ref: &ProtocolObject<dyn MTLEvent> =
                 ProtocolObject::from_ref(&*stream.shared_event);
             (*signal_buffer).encodeSignalEvent_value(event_ref, signal_value);
-            install_completion_handler(&signal_buffer, Vec::new(), stream.fault.clone(), signal);
+            install_completion_handler(&signal_buffer, Vec::new(), signal);
             (*signal_buffer).commit();
             signal_buffer
         };
@@ -448,20 +423,5 @@ mod tests {
             Arc::new(ServerLogger::default()),
         );
         backend.create_stream()
-    }
-
-    /// The device fault is reported once: taking it clears the slot, and the
-    /// first fault wins over any later one.
-    #[test]
-    fn a_device_fault_is_reported_once() {
-        let stream = test_stream();
-        assert!(stream.take_fault().is_none());
-
-        *stream.fault.lock() = Some(ServerError::Generic {
-            reason: "injected fault".to_string(),
-            backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-        });
-        assert!(stream.take_fault().is_some());
-        assert!(stream.take_fault().is_none(), "reported once");
     }
 }

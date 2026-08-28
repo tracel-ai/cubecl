@@ -20,20 +20,19 @@ use alloc::vec::Vec;
 /// needs around them.
 ///
 /// One store per device rather than per stream, because a launch failing on
-/// one stream can taint a slice owned by another and both have to point at
+/// one stream can claim a slice owned by another and both have to point at
 /// the same thing.
+///
+/// There is no device-wide failure beside the graph. A failure belongs to the
+/// memory it left unwritten, and work that shares no buffer with it is
+/// unaffected — which is the whole point, and a slot that failed the next
+/// flush regardless of what it was flushing was the one thing that broke it.
 #[derive(Debug)]
 pub struct Failures {
     graph: ErrorGraph,
     /// The vector a write scope stages its write set in, pooled here so a
     /// launch allocates nothing for it.
     scratch: Vec<BufferBinding>,
-    /// The one failure that is a device's rather than any buffer's: a fault
-    /// the driver reports against the context — a failed command buffer, a
-    /// validation canary, a synchronize that failed on a path with no caller
-    /// to hand it to. Reported by the next flush or sync, which is the only
-    /// thing left that nobody else can tell the caller.
-    fault: Option<ServerError>,
     logger: Arc<ServerLogger>,
 }
 
@@ -43,7 +42,6 @@ impl Failures {
         Self {
             graph: ErrorGraph::default(),
             scratch: Vec::new(),
-            fault: None,
             logger,
         }
     }
@@ -103,34 +101,6 @@ pub trait FailureStore {
             let failure = pool.try_get(&handle.stream)?.failure(handle)?;
             Some((failure, handle.memory.id()))
         }))
-    }
-
-    /// Fails when the buffers `handles` name cannot be trusted, or when the
-    /// device itself has faulted.
-    ///
-    /// The check every path that hands bytes back to a caller makes, and the
-    /// two questions are different: a buffer has no writer, or the context
-    /// that would have produced one is broken and no buffer can say so.
-    ///
-    /// This takes the fault, so it belongs only to the paths that *report*
-    /// one — a read, a sync, a flush. A path that merely answers a question
-    /// about a buffer uses [`ensure_written`](Self::ensure_written) instead:
-    /// the fault is owed to exactly one reporter, and taking it to answer a
-    /// question would silence the next flush.
-    ///
-    /// # Errors
-    ///
-    /// The failures those buffers carry, or the device fault, whichever came
-    /// first.
-    fn ensure_readable<'a>(
-        &mut self,
-        handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Result<(), ServerError> {
-        self.ensure_written(handles)?;
-        match self.take_fault() {
-            Some(fault) => Err(fault),
-            None => Ok(()),
-        }
     }
 
     /// The failure claiming bytes any of `reads` names, with its error — the
@@ -207,24 +177,6 @@ pub trait FailureStore {
         base::taint_with(pool, found.failure, staged.iter(), &mut failures.graph);
         staged.clear();
         failures.scratch = staged;
-    }
-
-    /// Record a device fault — the failure that is the context's rather than
-    /// any buffer's. The first fault wins: it is the one that broke the
-    /// context, and it is logged either way.
-    fn fault(&mut self, error: ServerError) {
-        let (_, failures) = self.split();
-        failures.logger.log_failure(&error);
-        if failures.fault.is_none() {
-            failures.fault = Some(error);
-        }
-    }
-
-    /// The device fault owed to the next flush or sync, taken — reported
-    /// once, like the queue it replaces.
-    fn take_fault(&mut self) -> Option<ServerError> {
-        let (_, failures) = self.split();
-        failures.fault.take()
     }
 
     /// An empty write set, pooled here so a launch allocates nothing for it.
