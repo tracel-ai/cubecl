@@ -946,7 +946,7 @@ impl<R: Runtime> ComputeClient<R> {
                     true => {
                         let method = profile.timing_method();
                         let ticks = cubecl_environment::future::block_on(profile.resolve());
-                        crate::logging::notify_timed(name, ticks.duration());
+                        crate::logging::notify_timed(name, ticks.duration(), method);
                         // Handed on already resolved rather than measured
                         // again: the logger and the observer are two readers
                         // of one measurement, and a second would not be the

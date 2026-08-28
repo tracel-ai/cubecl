@@ -41,7 +41,7 @@
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use cubecl_common::profile::Duration;
+use cubecl_common::profile::{Duration, TimingMethod};
 use cubecl_environment::sync::RwLock;
 
 /// Notified of every kernel launch, on the thread that issued it.
@@ -67,13 +67,21 @@ pub trait LaunchObserver: Send + Sync {
         false
     }
 
-    /// A kernel finished, and took this long on the device.
+    /// A kernel finished, and took this long.
     ///
     /// Only called when [`wants_timing`](Self::wants_timing) is true. It
     /// arrives *after* the launch rather than before it, so an observer
     /// pairing kernels with its own state should do that in
     /// [`launched`](Self::launched) and use this only for the duration.
-    fn timed(&self, _kernel: &'static str, _duration: Duration) {}
+    ///
+    /// **`method` is not a detail.** A backend falls back to
+    /// [`System`](TimingMethod::System) where it cannot get a device
+    /// timestamp — wgpu does exactly that once the timestamp-query budget is
+    /// spent — and a system timing is host wall around a blocking submit,
+    /// which includes submission and sync rather than the kernel. The two are
+    /// not the same measurement and an observer reporting them as one will
+    /// show a number that moves several-fold between runs.
+    fn timed(&self, _kernel: &'static str, _duration: Duration, _method: TimingMethod) {}
 }
 
 /// Whether anything is watching. Separate from the observer itself so the
@@ -124,13 +132,13 @@ pub(crate) fn timing_wanted() -> bool {
         .is_some_and(|observer| observer.wants_timing())
 }
 
-/// Report what a launch took.
-pub(crate) fn notify_timed(kernel: &'static str, duration: Duration) {
+/// Report what a launch took, and how it was measured.
+pub(crate) fn notify_timed(kernel: &'static str, duration: Duration, method: TimingMethod) {
     if !OBSERVING.load(Ordering::Relaxed) {
         return;
     }
     if let Some(observer) = OBSERVER.read().as_ref() {
-        observer.timed(kernel, duration);
+        observer.timed(kernel, duration, method);
     }
 }
 
@@ -150,15 +158,15 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct Timed(Mutex<Vec<(&'static str, Duration)>>);
+    struct Timed(Mutex<Vec<(&'static str, Duration, TimingMethod)>>);
 
     impl LaunchObserver for Timed {
         fn launched(&self, _kernel: &'static str) {}
         fn wants_timing(&self) -> bool {
             true
         }
-        fn timed(&self, kernel: &'static str, duration: Duration) {
-            self.0.lock().push((kernel, duration));
+        fn timed(&self, kernel: &'static str, duration: Duration, method: TimingMethod) {
+            self.0.lock().push((kernel, duration, method));
         }
     }
 
@@ -210,8 +218,12 @@ mod tests {
         let timed = Arc::new(Timed::default());
         observe_launches(timed.clone());
         assert!(timing_wanted());
-        notify_timed("a_kernel", Duration::from_micros(7));
+        notify_timed("a_kernel", Duration::from_micros(7), TimingMethod::Device);
         assert_eq!(timed.0.lock().len(), 1);
+        // The method travels with the duration: a backend that fell back to
+        // the system timer measured host wall around a blocking submit, and an
+        // observer that could not tell would report it as device time.
+        assert_eq!(timed.0.lock()[0].2, TimingMethod::Device);
 
         stop_observing_launches();
         assert!(!timing_wanted());
