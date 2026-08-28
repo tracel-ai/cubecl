@@ -942,30 +942,38 @@ impl<R: Runtime> ComputeClient<R> {
                 // The observer is told first, because resolving the profile
                 // consumes it: the logger's copy is the one that can be
                 // deferred, an observer's cannot be recovered afterwards.
-                let profile = match observed_timing {
-                    true => {
-                        let method = profile.timing_method();
-                        let ticks = cubecl_environment::future::block_on(profile.resolve());
-                        crate::logging::notify_timed(name, ticks.duration(), method);
-                        // Handed on already resolved rather than measured
-                        // again: the logger and the observer are two readers
-                        // of one measurement, and a second would not be the
-                        // same launch.
-                        cubecl_common::profile::ProfileDuration::new(
-                            alloc::boxed::Box::pin(async move { ticks }),
-                            method,
-                        )
-                    }
-                    false => profile,
+                let profile = if observed_timing {
+                    let method = profile.timing_method();
+                    let ticks = cubecl_environment::future::block_on(profile.resolve());
+                    crate::logging::notify_timed(name, ticks.duration(), method);
+                    // Handed on already resolved rather than measured again:
+                    // the logger and the observer are two readers of one
+                    // measurement, and a second would not be the same launch.
+                    ProfileDuration::new(alloc::boxed::Box::pin(async move { ticks }), method)
+                } else {
+                    profile
                 };
-                if let Some(level) = level {
-                    let info = match level {
-                        ProfileLevel::Full => {
-                            format!("{name}: {kernel_id} CubeCount {count:?}")
-                        }
-                        _ => type_name_format(name, TypeNameFormatLevel::Balanced),
-                    };
-                    self.utilities.logger.register_profiled(info, profile);
+                match level {
+                    // An observer does not change what the logger writes.
+                    // `ExecutionOnly` is documented as the kernels that ran
+                    // without their timings, and it reaches here only because
+                    // an observer asked for the profiled path — registering
+                    // the profile would turn a log the caller configured into
+                    // one it did not.
+                    Some(ProfileLevel::ExecutionOnly) => {
+                        let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                        self.utilities.logger.register_execution(info);
+                    }
+                    Some(level) => {
+                        let info = match level {
+                            ProfileLevel::Full => {
+                                format!("{name}: {kernel_id} CubeCount {count:?}")
+                            }
+                            _ => type_name_format(name, TypeNameFormatLevel::Balanced),
+                        };
+                        self.utilities.logger.register_profiled(info, profile);
+                    }
+                    None => {}
                 }
                 result
             }
