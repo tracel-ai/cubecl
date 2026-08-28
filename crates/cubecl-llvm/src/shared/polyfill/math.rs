@@ -2,8 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::ir::dialect::bitwise::{BitwiseNotOp, FindFirstSetOp};
 use cubecl_core::ir::dialect::cmp::{FClampOp, SClampOp, UClampOp};
 use cubecl_core::ir::dialect::math::{
-    ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, FModFloorOp, HypotOp, Log1pOp,
-    PowiOp, RadiansOp, RecipOp, RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp, UMulHiOp,
+    ArcCoshOp, ArcSinhOp, ArcTanhOp, CosOp, DegreesOp, ErfOp, ExpOp, Expm1Op, FModFloorOp, HypotOp,
+    Log1pOp, LogOp, PowiOp, RadiansOp, RecipOp, RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp,
+    SinOp, TanhOp, UMulHiOp,
 };
 use cubecl_core::ir::dialect::vector::{FDotOp, MagnitudeOp, NormalizeOp, SDotOp, UDotOp};
 use cubecl_core::ir::interfaces::TypedExt;
@@ -15,12 +16,20 @@ use cubecl_core::prelude::polyfills::{
 use cubecl_core::prelude::*;
 
 use crate::shared::polyfill::LowerOp;
+use crate::shared::polyfill::transcendental::{cos, exp, ln, sin, tanh};
 use cubecl_core::ir::Scope;
 
+/// Lower a unary op to `$polyfill`, unconditionally or only where `$gate` accepts the input.
 macro_rules! lower_unary_math_arith {
-    ($cube_op:ty => $polyfill:ident) => {
+    ($cube_op:ty => $polyfill:ident $(, $gate:path)?) => {
         #[op_interface_impl]
         impl LowerOp for $cube_op {
+            $(
+                fn should_lower(&self, ctx: &Context) -> bool {
+                    $gate(self.input(ctx), ctx)
+                }
+            )?
+
             fn lower(&self, scope: &Scope) -> Vec<Value> {
                 define_scalar!(T);
                 define_size!(S);
@@ -31,6 +40,21 @@ macro_rules! lower_unary_math_arith {
         }
     };
 }
+
+/// Where the polynomials beat the library call they replace, which is not everywhere.
+///
+/// A scalar keeps the target's own routine, since a table-driven libm wins one lane at a
+/// time: ungated it cost a quarter of a scalar `cos` kernel and half of an FFT. Double
+/// precision keeps it too, for want of a second set of coefficients.
+fn is_narrow_float_line(input: Value, ctx: &Context) -> bool {
+    input.vector_size(ctx) > 1 && !input.scalar_ty(ctx).is_float64(ctx)
+}
+
+lower_unary_math_arith!(ExpOp => exp, is_narrow_float_line);
+lower_unary_math_arith!(LogOp => ln, is_narrow_float_line);
+lower_unary_math_arith!(SinOp => sin, is_narrow_float_line);
+lower_unary_math_arith!(CosOp => cos, is_narrow_float_line);
+lower_unary_math_arith!(TanhOp => tanh, is_narrow_float_line);
 
 macro_rules! lower_binary_math_arith {
     ($cube_op:ty => $polyfill:ident) => {

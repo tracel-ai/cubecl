@@ -1,6 +1,7 @@
 pub mod math;
 pub mod ordered_atomic;
 pub mod synchronization;
+mod transcendental;
 
 use cubecl_core::ir::{NamedRewrite, prelude::*};
 
