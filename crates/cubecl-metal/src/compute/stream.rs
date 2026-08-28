@@ -27,18 +27,16 @@ pub struct ActiveEncoder {
 }
 
 /// Installs a completion handler that drops `temporaries` and, on a failed
-/// command buffer, logs what Metal said. `signal_event` is `Some` when the
-/// buffer signals an event; it is forced on failure so dependent waiters fail
-/// fast, which is what carries the failure to anything that needed this work.
+/// command buffer, records the fault on the stream's sticky slot. `signal_event`
+/// is `Some` when the buffer signals an event; it is forced on failure so
+/// dependent waiters return promptly — and fail, because every wait checks the
+/// fault slot after its event lands.
 fn install_completion_handler(
     command_buffer: &ProtocolObject<dyn MTLCommandBuffer>,
     temporaries: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
     signal_event: Option<(Retained<ProtocolObject<dyn MTLSharedEvent>>, u64)>,
+    fault: Arc<Mutex<Option<String>>>,
 ) {
-    if temporaries.is_empty() && signal_event.is_none() {
-        return;
-    }
-
     let temporaries = Mutex::new(Some(temporaries));
     let block = block2::RcBlock::new(
         move |cmd_buf: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
@@ -53,16 +51,25 @@ fn install_completion_handler(
                     ),
                     None => "Metal command buffer failed with an unknown error".to_string(),
                 };
-                // A completed command buffer carries no logical stream and
-                // no record of what its kernels wrote, so there is nothing
-                // here to claim. What the work would have written was claimed
-                // when it was enqueued and released when the enqueue
-                // succeeded; the event forced below is what makes every
-                // dependent waiter fail, and this is the diagnostic.
                 log::warn!("{reason}");
 
-                // Metal leaves encoded events unsignaled on fault; signal manually
-                // so a dependent `wait_sync` fails fast.
+                // A fault at execution time can name no buffer: the work's
+                // claims were released at enqueue — a claim covers enqueue,
+                // not execution — and this handler holds only the event and
+                // the staging temporaries. So the fault is recorded on the
+                // stream instead, sticky, and every later wait on it fails:
+                // reads report the fault instead of returning garbage, and
+                // writes taint their destinations with it. First fault wins,
+                // and none is ever cleared — clearing is exactly how stale
+                // bytes would start reading clean again.
+                let mut slot = fault.lock();
+                if slot.is_none() {
+                    *slot = Some(reason);
+                }
+
+                // Metal leaves encoded events unsignaled on fault; signal
+                // manually so a dependent wait returns promptly — with the
+                // fault recorded above.
                 if let Some((event, value)) = &signal_event {
                     event.setSignaledValue(*value);
                 }
@@ -105,6 +112,12 @@ pub struct MetalStream {
     /// buffer committed during the window is collected here so its GPU timestamps
     /// (`GPUStartTime`/`GPUEndTime`) can be read after completion.
     pub profiling: Option<Vec<Retained<ProtocolObject<dyn MTLCommandBuffer>>>>,
+    /// The first GPU-time fault a completed command buffer reported, sticky
+    /// for the stream's life. Shared with every completion handler and every
+    /// [`MetalEvent`], whose waits fail on it — see
+    /// [`install_completion_handler`] for why the fault lives here and not on
+    /// a buffer.
+    pub fault: Arc<Mutex<Option<String>>>,
 }
 
 impl std::fmt::Debug for MetalStream {
@@ -178,16 +191,24 @@ impl MetalStream {
 pub struct MetalEvent {
     shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
     pub value: u64,
+    /// The stream's sticky fault slot, checked after every wait: a forced
+    /// event completes the wait, and this is what fails it.
+    fault: Arc<Mutex<Option<String>>>,
 }
 
 // SAFETY: MTLSharedEvent's signaledValue is atomically updated by the GPU.
 unsafe impl Send for MetalEvent {}
 
 impl MetalEvent {
-    pub fn new(shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>, value: u64) -> Self {
+    pub fn new(
+        shared_event: Retained<ProtocolObject<dyn MTLSharedEvent>>,
+        value: u64,
+        fault: Arc<Mutex<Option<String>>>,
+    ) -> Self {
         Self {
             shared_event,
             value,
+            fault,
         }
     }
 
@@ -197,6 +218,14 @@ impl MetalEvent {
     }
 
     /// Block until the event is signaled.
+    ///
+    /// # Errors
+    ///
+    /// A timeout, and the stream's recorded GPU-time fault: a faulted command
+    /// buffer force-signals its event so the wait itself returns, and this
+    /// check is what turns that into the failure every dependent caller has
+    /// to hear — a read reports it instead of returning garbage, a write
+    /// taints its destinations with it.
     pub fn wait_sync(self) -> Result<(), ServerError> {
         let timeout_ms = 60_000;
         let result = (*self.shared_event).waitUntilSignaledValue_timeoutMS(self.value, timeout_ms);
@@ -207,6 +236,12 @@ impl MetalEvent {
             });
         }
         std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
+        if let Some(reason) = self.fault.lock().clone() {
+            return Err(ServerError::Generic {
+                reason: format!("the Metal stream faulted at execution time: {reason}"),
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+            });
+        }
         Ok(())
     }
 
@@ -222,7 +257,12 @@ impl MetalEvent {
 
         if let Some(active) = stream.active_encoder.take() {
             (*active.encoder).endEncoding();
-            install_completion_handler(&active.command_buffer, active.temporaries, None);
+            install_completion_handler(
+                &active.command_buffer,
+                active.temporaries,
+                None,
+                stream.fault.clone(),
+            );
             (*active.command_buffer).commit();
         }
 
@@ -333,6 +373,7 @@ impl EventStreamBackend for MetalStreamBackend {
             max_submitted_ops,
             last_command_buffer: None,
             profiling: None,
+            fault: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -351,7 +392,12 @@ impl EventStreamBackend for MetalStreamBackend {
                 ProtocolObject::from_ref(&*stream.shared_event);
             (*active.command_buffer).encodeSignalEvent_value(event_ref, signal_value);
 
-            install_completion_handler(&active.command_buffer, active.temporaries, signal);
+            install_completion_handler(
+                &active.command_buffer,
+                active.temporaries,
+                signal,
+                stream.fault.clone(),
+            );
             (*active.command_buffer).commit();
             active.command_buffer
         } else {
@@ -362,7 +408,7 @@ impl EventStreamBackend for MetalStreamBackend {
             let event_ref: &ProtocolObject<dyn MTLEvent> =
                 ProtocolObject::from_ref(&*stream.shared_event);
             (*signal_buffer).encodeSignalEvent_value(event_ref, signal_value);
-            install_completion_handler(&signal_buffer, Vec::new(), signal);
+            install_completion_handler(&signal_buffer, Vec::new(), signal, stream.fault.clone());
             (*signal_buffer).commit();
             signal_buffer
         };
@@ -384,7 +430,11 @@ impl EventStreamBackend for MetalStreamBackend {
 
         stream.regulate(ops_in_batch, failures);
 
-        MetalEvent::new(stream.shared_event.clone(), signal_value)
+        MetalEvent::new(
+            stream.shared_event.clone(),
+            signal_value,
+            stream.fault.clone(),
+        )
     }
 
     fn handle_cursor(stream: &Self::Stream, handle: &BufferBinding) -> u64 {

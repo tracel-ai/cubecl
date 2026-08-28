@@ -135,9 +135,12 @@ runs. So a claim answers *"was this work accepted by the driver"*. An
 asynchronous failure arrives after every related claim is gone.
 
 **Asynchronous failures reach the caller by other means.** A read awaits a
-fence and propagates its error; Metal forces its event on a failed command
-buffer so dependent waiters fail. Paths that hand back device data *without*
-awaiting a fence — `get_resource` returns a pointer — do not have this cover.
+fence and propagates its error; a faulted Metal command buffer records the
+fault on its stream's sticky slot and forces its event, so every dependent
+wait returns promptly and fails on the slot — sticky rather than
+report-once, because clearing it is exactly how stale bytes would start
+reading clean again. Paths that hand back device data *without* awaiting a
+fence — `get_resource` returns a pointer — do not have this cover.
 
 **A stream survives the errors it reports.** Measured for allocation failure
 on gfx1151: the device serves the next request normally. **Not** measured for
@@ -147,8 +150,9 @@ the display. If that assumption is wrong, the honest state after such an error
 is every allocation on the device flagged, which nothing currently does.
 
 **Some failures cannot be attributed.** A Metal command-buffer completion
-handler knows the staging temporaries and the event, never the outputs. Those
-are logged.
+handler knows the staging temporaries and the event, never the outputs — so
+its fault claims no buffer and fails the whole stream's waits instead,
+coarse by necessity.
 
 ## Where it is enforced
 

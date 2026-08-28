@@ -611,10 +611,10 @@ impl ComputeServer for MetalServer {
             self.timestamps.failure(&err);
         }
 
-        // Clear the token (propagates any recorded profiling error). Its system-time result
-        // is discarded in favor of GPU timestamps below.
-        self.timestamps.stop(token)?;
-
+        // The collector disarms whatever the token says below: left armed, it
+        // would retain every later flush's command buffer until the next
+        // start_profile — and a failed profile is exactly when the token
+        // errors, since a failure anywhere in the window lands in it.
         let buffers = self
             .streams
             .resolve(stream_id, std::iter::empty())
@@ -622,6 +622,10 @@ impl ComputeServer for MetalServer {
             .profiling
             .take()
             .unwrap_or_default();
+
+        // Clear the token (propagates any recorded profiling error). Its system-time result
+        // is discarded in favor of GPU timestamps below.
+        self.timestamps.stop(token)?;
 
         // `sync()` waits on the stream's shared event, which can be signaled slightly before
         // a command buffer reaches `Completed` status. `GPUStartTime`/`GPUEndTime` are only
