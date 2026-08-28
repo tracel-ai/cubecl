@@ -126,8 +126,22 @@ impl Driver for Cuda {
         stream: &Stream,
     ) -> Result<(), IoError> {
         let Some(pitch) = layout.pitch else {
-            // SAFETY: the destination is contiguous, and `data` is a live host
-            // slice the caller keeps alive until the stream is synchronized.
+            // The one write the taint bookkeeping cannot record: an oversized
+            // copy corrupts whatever pool slice sits past the target, memory
+            // no failure ever claimed. Same check as the HIP twin.
+            if resource.size < data.len() as u64 {
+                return Err(IoError::Unknown {
+                    description: alloc::format!(
+                        "write of {} bytes exceeds the target buffer of {} bytes",
+                        data.len(),
+                        resource.size
+                    ),
+                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+                });
+            }
+            // SAFETY: the destination is contiguous, the bound check above
+            // covers it, and `data` is a live host slice the caller keeps
+            // alive until the stream is synchronized.
             return unsafe {
                 cudarc::driver::result::memcpy_htod_async(resource.ptr, data, stream.sys)
                     .map_err(|err| copy_failed("memcpy_htod_async", err, layout))

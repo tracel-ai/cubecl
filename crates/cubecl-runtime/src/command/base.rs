@@ -265,7 +265,22 @@ impl<'a, D: Driver> Command<'a, D> {
         let mut result = Vec::with_capacity(descriptors.len());
 
         for descriptor in descriptors {
-            result.push(self.copy_to_bytes(descriptor, None)?);
+            match self.copy_to_bytes(descriptor, None) {
+                Ok(bytes) => result.push(bytes),
+                Err(err) => {
+                    // The buffers collected so far are the destinations of
+                    // copies already enqueued: dropping them hands their
+                    // pinned slices back to a pool whose reuse is gated on
+                    // the refcount alone, while the device is still writing
+                    // them. The fence `read_async` records to cover exactly
+                    // this does not exist yet on the error path, so record
+                    // one here and wait it out before the partial set drops.
+                    if !result.is_empty() {
+                        D::Stream::fence(self.streams.current().signal()).sync();
+                    }
+                    return Err(err);
+                }
+            }
         }
 
         Ok(result)

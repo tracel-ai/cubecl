@@ -1,9 +1,9 @@
 //! One scope around a unit of device work.
 //!
-//! Every backend used to keep the same bookkeeping by hand: decide whether an
-//! input can be trusted, gather what the work writes, claim it on every
-//! failure path, release it on the success path, and hope no early return
-//! forgot. The scope makes forgetting loud instead of silent.
+//! Without the scope, every backend keeps the same bookkeeping by hand:
+//! decide whether an input can be trusted, gather what the work writes, claim
+//! it on every failure path, release it on the success path, and hope no
+//! early return forgot. The scope makes forgetting loud instead of silent.
 //!
 //! A scope is opened one of two ways and the choice is made once, in the
 //! constructor, which is why the two can never interleave:

@@ -442,10 +442,10 @@ pub fn test_a_relaunch_makes_a_stale_buffer_readable_again<R: Runtime>(client: C
 /// the failure that stopped it — so a read anywhere downstream fails on the
 /// root cause instead of copying out bytes nothing computed.
 ///
-/// This is the case the whole model exists for. Every backend used to clear
-/// its outputs on a successful launch without looking at its inputs, so the
-/// direct read of a buffer nothing wrote was caught and everything computed
-/// *from* one was missed — in a fused stack, nearly everything that matters.
+/// This is the case the whole model exists for. A backend that clears its
+/// outputs on a successful launch without looking at its inputs catches the
+/// direct read of a buffer nothing wrote and misses everything computed
+/// *from* one — in a fused stack, nearly everything that matters.
 pub fn test_a_read_downstream_of_a_failure_fails_on_the_root_cause<R: Runtime>(
     client: ComputeClient<R>,
 ) {
