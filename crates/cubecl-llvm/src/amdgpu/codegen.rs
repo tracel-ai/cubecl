@@ -17,6 +17,9 @@ use crate::shared::AmdGpuModule;
 /// The HSA target triple; the specific device is the `-mcpu`, not the triple.
 const TRIPLE: &CStr = c"amdgcn-amd-amdhsa";
 
+/// AMDGPU's private stack address space used by `alloca` instructions.
+const DATA_LAYOUT: &str = "A5";
+
 /// Code object version. v5 is what gfx1201's HSA loader accepts.
 const CODE_OBJECT_VERSION: u32 = 500;
 
@@ -62,8 +65,13 @@ pub fn emit_code_object(
     shared_memory_size: usize,
 ) -> Result<AmdGpuModule, String> {
     let llvm_ctx = LLVMContext::default();
-    let llvm_module =
-        to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
+    let llvm_module = to_llvm_ir::convert_module_with_data_layout(
+        ctx,
+        &llvm_ctx,
+        module,
+        Some(DATA_LAYOUT),
+    )
+    .map_err(|err| err.to_string())?;
 
     let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, cube_dim)?;
     let want_asm = std::env::var_os("CUBECL_DEBUG_PLIRON").is_some();

@@ -457,18 +457,22 @@ impl ToLLVMDialect for CastOp {
         let value = load_fragment(ctx, rw, input, in_frag_ty);
 
         // Both fragments hold the same elements, so this is one widening or narrowing over the
-        // whole vector rather than anything lane-wise.
-        let narrower = in_ty.elem_ty.size_bits(ctx) > out_ty.elem_ty.size_bits(ctx);
-        let cast = if narrower {
+        // whole vector rather than anything lane-wise. Equal-width casts do not need an LLVM
+        // instruction.
+        let in_bits = in_ty.elem_ty.size_bits(ctx);
+        let out_bits = out_ty.elem_ty.size_bits(ctx);
+        let cast = if in_bits > out_bits {
             let op = llvm::FPTruncOp::new(ctx, value, out_frag_ty);
             op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
             rw.insert_op(ctx, &op);
             op.get_result(ctx)
-        } else {
+        } else if in_bits < out_bits {
             let op = llvm::FPExtOp::new(ctx, value, out_frag_ty);
             op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
             rw.insert_op(ctx, &op);
             op.get_result(ctx)
+        } else {
+            value
         };
         store_fragment(ctx, rw, output, cast);
 
