@@ -157,6 +157,30 @@ impl ComputeServer for HipServer {
         }
         let io = self.ctx.kernel_io(&kernel_id);
 
+        // The count resolves before the scope opens, because entering the
+        // scope replaces whatever claim the outputs carry — and a count that
+        // resolves to zero enqueues nothing, so those claims must be left
+        // exactly as they were, which no exit can restore once entry took
+        // them.
+        let count = match self.resolve_cube_count(count, stream_id) {
+            Ok(count) => count,
+            Err(err) => {
+                // The launch cannot run, so its outputs take the failure
+                // exactly as a failed launch's would: a tainted or unreadable
+                // count buffer travels to everything downstream of it.
+                let mut written = self.write_set();
+                written.extend(bindings.buffers_written(io.as_deref()).cloned());
+                failed_writing(self, stream_id, written, err);
+                return;
+            }
+        };
+        // Zero threads: the driver rejects a zero grid dim, and a launch of
+        // zero threads writes nothing — no scope opens, so a claim an earlier
+        // failure holds on the outputs stays exactly where it was.
+        if count.0 == 0 || count.1 == 0 || count.2 == 0 {
+            return;
+        }
+
         // The scope claims what the launch writes until the body proves the
         // work enqueued, so a failure — or a panic — anywhere in it leaves a
         // read of those buffers failing on the error rather than copying
@@ -164,19 +188,11 @@ impl ComputeServer for HipServer {
         // the launch instead, and the scope settles that too.
         let mut written = self.write_set();
         written.extend(bindings.buffers_written(io.as_deref()).cloned());
-        // A dynamic count travels outside `resources`, so `buffers_read`
-        // never names it — yet the launch reads it as its grid dimensions,
-        // which is exactly the garbage-as-cube-count read the skip exists to
-        // prevent.
-        let count_read = match &count {
-            CubeCount::Dynamic(binding) => Some(binding),
-            CubeCount::Static(..) => None,
-        };
         ExecuteScope::launching(
             self,
             kernel_id.clone(),
             stream_id,
-            bindings.buffers_read(io.as_deref()).chain(count_read),
+            bindings.buffers_read(io.as_deref()),
             written,
         )
         .execute(|server| server.launch_checked(kernel_id, count, bindings, stream_id));
@@ -481,23 +497,31 @@ impl HipServer {
         self.ctx.timestamps.failure(error);
     }
 
-    fn launch_checked(
+    /// The grid dimensions this launch runs with, host-read from the count
+    /// buffer when the count is dynamic.
+    ///
+    /// Resolved before the launch's scope opens — see the call site — so the
+    /// count buffer is checked here the way the scope checks every other
+    /// read: grid dimensions taken from bytes a failure left unwritten
+    /// dispatch an absurd grid or scatter into memory that carried no
+    /// failure at all.
+    ///
+    /// # Errors
+    ///
+    /// The failure the count buffer carries, and the readback's own.
+    fn resolve_cube_count(
         &mut self,
-        kernel_id: KernelId,
         count: CubeCount,
-        bindings: KernelArguments,
         stream_id: StreamId,
-    ) -> Result<(), ServerError> {
-        let mut command = self.command(stream_id, bindings.buffers());
-
-        let count = match count {
-            CubeCount::Static(x, y, z) => (x, y, z),
+    ) -> Result<(u32, u32, u32), ServerError> {
+        match count {
+            CubeCount::Static(x, y, z) => Ok((x, y, z)),
             // TODO: HIP doesn't have an exact equivalent of dynamic dispatch. Instead, kernels are free to launch other kernels.
             // One option is to create a dummy kernel with 1 thread that launches the real kernel with the dynamic dispatch settings.
             // For now, just read the dispatch settings from the buffer.
             CubeCount::Dynamic(binding) => {
-                // Inside the write scope, so a failed readback claims what the
-                // launch would have written rather than aborting the process.
+                self.streams.ensure_written([&binding].into_iter())?;
+                let mut command = self.command(stream_id, [&binding].into_iter());
                 let data = future::block_on(command.read_async(vec![CopyDescriptor::new(
                     binding,
                     [3].into(),
@@ -509,14 +533,19 @@ impl HipServer {
                     data.len() == 3,
                     "Dynamic cube count should contain 3 values"
                 );
-                (data[0], data[1], data[2])
+                Ok((data[0], data[1], data[2]))
             }
-        };
-
-        // A dynamic count can resolve to zero, which the driver rejects.
-        if count.0 == 0 || count.1 == 0 || count.2 == 0 {
-            return Ok(());
         }
+    }
+
+    fn launch_checked(
+        &mut self,
+        kernel_id: KernelId,
+        count: (u32, u32, u32),
+        bindings: KernelArguments,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        let mut command = self.command(stream_id, bindings.buffers());
 
         let KernelArguments {
             resources, info, ..

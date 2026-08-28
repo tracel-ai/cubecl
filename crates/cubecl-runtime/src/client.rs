@@ -790,7 +790,12 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
 
         self.device.submit(move |server| {
-            server.sync_collective(stream_id).unwrap();
+            // Logged rather than unwrapped: a panic on the server thread is
+            // reduced to a log line by the channel's catch_unwind anyway, so
+            // report deliberately instead of through a swallowed unwind.
+            if let Err(err) = server.sync_collective(stream_id) {
+                log::error!("sync_collective failed: {err}");
+            }
         });
 
         // We don't actually need or want to sync the server here, but we need to make sure any
@@ -822,9 +827,14 @@ impl<R: Runtime> ComputeClient<R> {
         self.ensure_init_collective(device_ids.clone());
 
         self.device.submit(move |server| {
-            server
-                .all_reduce(src, dst, dtype, stream_id, op, device_ids)
-                .unwrap();
+            // The report lives on the buffers: a refused or failed reduce has
+            // tainted the destination, so the read that consumes it fails on
+            // the root cause. The log is the eager half of that report — an
+            // unwrap here would only be reduced to a warn by the channel's
+            // catch_unwind, with the taint doing the real work either way.
+            if let Err(err) = server.all_reduce(src, dst, dtype, stream_id, op, device_ids) {
+                log::error!("all_reduce failed; the destination carries the failure: {err}");
+            }
         });
     }
 
@@ -856,16 +866,31 @@ impl<R: Runtime> ComputeClient<R> {
         dst_server.ensure_init_collective(device_ids);
 
         self.device.submit(move |server_src| {
-            server_src
-                .send(src_descriptor, dtype, stream_id_src, device_id_dst)
-                .unwrap()
+            // A refused send has no local buffer to answer for, so the log is
+            // the whole local report. The peer's posted recv is left waiting
+            // on its communication stream — the recv cannot be recalled from
+            // here, and cross-device failure propagation needs a design pass
+            // of its own — so the wedge is named loudly rather than hidden
+            // behind a swallowed unwrap.
+            if let Err(err) = server_src.send(src_descriptor, dtype, stream_id_src, device_id_dst) {
+                log::error!(
+                    "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
+                );
+            }
         });
 
         dst_server.device.submit(move |server_dst| {
-            server_dst
-                .recv(handle_cloned, dtype, stream_id_dst, device_id_src)
-                .unwrap();
-            server_dst.sync_collective(stream_id_dst).unwrap();
+            // A failed recv taints the destination handle, so the read that
+            // consumes this transfer fails on the cause.
+            if let Err(err) = server_dst.recv(handle_cloned, dtype, stream_id_dst, device_id_src) {
+                log::error!(
+                    "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
+                );
+                return;
+            }
+            if let Err(err) = server_dst.sync_collective(stream_id_dst) {
+                log::error!("sync_collective failed: {err}");
+            }
         });
 
         // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send

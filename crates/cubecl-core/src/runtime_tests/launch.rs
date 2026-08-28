@@ -440,6 +440,14 @@ macro_rules! testgen_launch_dynamic_count {
                     TestRuntime,
                 >(client);
             }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_zero_cube_count_launch_does_not_untaint_its_outputs() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::test_a_zero_cube_count_launch_does_not_untaint_its_outputs::<
+                    TestRuntime,
+                >(client);
+            }
         }
     };
 }

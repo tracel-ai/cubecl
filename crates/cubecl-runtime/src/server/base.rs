@@ -772,6 +772,16 @@ pub trait ServerCommunication {
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
+    ///
+    /// # Known limitation
+    ///
+    /// Send and recv are posted fire-and-forget on two devices and block for
+    /// each other, so a send that refuses — a source whose writer failed,
+    /// above all — leaves the peer's already-posted recv waiting on its
+    /// communication stream with no way to recall it from here. The refusal
+    /// is still right: completing the send would launder stale bytes onto a
+    /// handle that carries no claim on the other device. Cross-device
+    /// failure propagation needs a design pass of its own.
     #[allow(unused_variables)]
     fn send(
         &mut self,

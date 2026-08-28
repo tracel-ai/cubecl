@@ -562,6 +562,42 @@ pub fn test_a_tainted_dynamic_cube_count_skips_the_launch<R: Runtime>(client: Co
     reader.executes(|| assert_rejected(&client, count, "tainted-count"));
 }
 
+/// A launch whose dynamic count resolves to zero enqueues nothing and writes
+/// nothing, so a claim an earlier failure holds on its outputs must survive
+/// it — un-tainting on a zero-thread "success" would hand out the garbage
+/// the original failure left, with no error anywhere.
+///
+/// Host-readback backends only (CUDA, HIP), registered through
+/// `testgen_launch_dynamic_count`: an indirect-dispatch backend never learns
+/// the count on the host.
+pub fn test_a_zero_cube_count_launch_does_not_untaint_its_outputs<R: Runtime>(
+    client: ComputeClient<R>,
+) {
+    let (producer, reader) = sharing_one_pooled_stream(1_000_017);
+
+    let (out, count) = producer.executes(|| {
+        // The output's writer is refused, so its bytes were never written.
+        let out = client.empty(core::mem::size_of::<u32>());
+        launch_rejected_into(&client, out.clone(), "zero-count-survivor");
+        // A perfectly clean zero count: an empty tail batch, not a failure.
+        let count = client.create_from_slice(u32::as_bytes(&[0, 0, 0]));
+        fill::launch::<R>(
+            &client,
+            CubeCount::Dynamic(count.clone().binding()),
+            CubeDim::new_1d(1),
+            unsafe { BufferArg::from_raw_parts(out.clone(), 1) },
+            9,
+        );
+        (out, count)
+    });
+
+    // Zero threads wrote nothing: the original failure still owns the bytes.
+    reader.executes(|| assert_rejected(&client, out, "zero-count-survivor"));
+    // And the clean count buffer stays clean.
+    let read = reader.executes(|| client.read_one(count).expect("the count was written"));
+    assert_eq!(u32::from_bytes(&read), &[0, 0, 0]);
+}
+
 /// An output that aliases an input writes that input in place, so a failure
 /// leaves the aliased buffer unwritten however its own argument was declared.
 ///
