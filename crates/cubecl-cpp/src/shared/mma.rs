@@ -84,12 +84,13 @@ pub mod wmma_api_base {
             MatrixIdent::Accumulator => format!("{ns}::accumulator"),
         };
         let MatrixShape { m, n, k } = ty.shape;
-        let layout = match ty.layout {
-            MatrixLayout::ColMajor => format!("{ns}::col_major"),
-            MatrixLayout::RowMajor => format!("{ns}::row_major"),
-            MatrixLayout::Undefined => {
+        // An accumulator fragment naming a layout is a type that does not exist.
+        let layout = match (ty.ident, ty.layout) {
+            (MatrixIdent::Accumulator, _) | (_, MatrixLayout::Undefined) => {
                 return format!("{ns}::fragment<{ident}, {m}, {n}, {k}, {elem}>");
             }
+            (_, MatrixLayout::ColMajor) => format!("{ns}::col_major"),
+            (_, MatrixLayout::RowMajor) => format!("{ns}::row_major"),
         };
         format!("{ns}::fragment<{ident}, {m}, {n}, {k}, {elem}, {layout}>")
     }
