@@ -782,7 +782,24 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // a window nobody is coming back to close. Only its owner gets a graph
         // out of it, and the errors raised inside belong to that owner rather
         // than to whoever happens to be flushing.
-        let outcome = stream.capturing.end(stream_id)?;
+        let outcome = match stream.capturing.end(stream_id) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                // A capture prepared but never opened still armed persistent
+                // routing and priming retention, and a `graph_prepare` retry
+                // is refused while the state holds. Closing is the only call
+                // the caller has left — a warmup that failed never reaches
+                // `start_capture` — so a close from `Prepare` disarms, the
+                // same unwinding `begin_capture` does when the warmup flush
+                // fails, instead of leaving the stream armed forever.
+                if stream.capturing.is_active() {
+                    stream.mem_manage.capture_end();
+                    stream.info_cache.capture_discard();
+                    stream.capturing.abort();
+                }
+                return Err(err);
+            }
+        };
         let recording = stream.take_recording();
         // The memory the recorded launches write. A graph that seals answers
         // for it on a failed replay; one that does not is answered for here,

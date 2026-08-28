@@ -936,6 +936,50 @@ fn wgpu_graph_capture_refuses_a_tainted_input() {
     );
 }
 
+/// A capture prepared but never opened is disarmed by the close that refuses
+/// it. `graph_prepare` armed persistent-pool routing and priming retention; a
+/// warmup that fails never reaches `start_capture`, and `stop_capture` is the
+/// only call the caller has left — so it unwinds the arming instead of
+/// leaving every later allocation persistent and the stream un-capturable.
+#[test]
+fn wgpu_graph_a_prepared_capture_that_never_opened_is_disarmed_by_end() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+
+    client.graph_prepare().expect("graph_prepare");
+    // The warmup failed; closing without opening is the caller's only move.
+    client
+        .stop_capture()
+        .expect_err("nothing is recording, so there is no graph to seal");
+
+    // The stream is fully usable and re-capturable: a whole cycle lands.
+    let n = 4usize;
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    let output = client.empty(n * core::mem::size_of::<f32>());
+    let launch = |client: &ComputeClient<WgpuRuntime>| {
+        add_one::launch::<WgpuRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    client
+        .graph_prepare()
+        .expect("the disarmed stream is re-capturable");
+    launch(&client);
+    let _ = client.read_one(output.clone()).unwrap();
+    client.start_capture().expect("start_capture");
+    launch(&client);
+    let graph = client.stop_capture().expect("stop_capture");
+
+    unsafe { graph.replay() }.expect("replay enqueues");
+    let out = client.read_one(output).unwrap();
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+}
+
 /// A launch that *fails* inside the window dooms the capture, exactly as a
 /// skipped one does: the scope reports both endings to the window through one
 /// path, so there is no failure a recording survives silently.

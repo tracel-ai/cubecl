@@ -301,10 +301,22 @@ impl<'a, D: GraphDriver> Window<'a, D> {
             // is empty — drained rather than assumed so the claim is right
             // even if that ever stops being true.
             Err(error) => {
-                return Err(Refused {
-                    error,
-                    written: self.stream.capturing().take_recorded(),
-                });
+                let written = self.stream.capturing().take_recorded();
+                // A capture prepared but never opened still armed the pools:
+                // every allocation since `prepare` routes to the persistent
+                // pool and is retained by priming, and a `graph_prepare`
+                // retry is refused while the state holds. Closing is the only
+                // call the caller has left — a warmup that failed never
+                // reaches `begin` — so a close from `Prepare` disarms, the
+                // same unwinding `begin` does when the driver refuses to
+                // open, instead of leaving the stream armed forever.
+                if self.stream.capturing().is_active() {
+                    drop(self.stream.device_memory().capture_end());
+                    drop(self.stream.host_memory().capture_end());
+                    self.stream.info_cache().capture_discard();
+                    self.stream.capturing().abort();
+                }
+                return Err(Refused { error, written });
             }
         };
         // Work inside the window failed or was skipped, so the recording is
