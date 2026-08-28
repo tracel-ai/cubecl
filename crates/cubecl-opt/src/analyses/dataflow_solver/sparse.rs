@@ -16,10 +16,9 @@ use pliron::{
     symbol_table::SymbolTableCollection,
     utils::table::{ISet, SmallSet},
 };
-use smallvec::SmallVec;
 
 use crate::analyses::dataflow_solver::{
-    AnalysisState, ChangeResult, DataflowSolver, ReadRef, SolverWorkItem, WriteRef,
+    AnalysisState, ChangeResult, DataflowSolver, ReadRef, SmallPtrVec, SolverWorkItem, WriteRef,
     dead_code::{CFGEdge, Executable, PredecessorState},
 };
 
@@ -132,8 +131,7 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
             return Ok(());
         }
 
-        let mut result_lattices =
-            SmallVec::<[_; 8]>::with_capacity(op.deref(ctx).get_num_results());
+        let mut result_lattices = SmallPtrVec::with_capacity(op.deref(ctx).get_num_results());
         for result in op.deref(ctx).results() {
             result_lattices.push(self.get_lattice_element_mut(solver, result));
         }
@@ -151,8 +149,7 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
             return Ok(());
         }
 
-        let mut operand_lattices =
-            SmallVec::<[_; 8]>::with_capacity(op.deref(ctx).get_num_operands());
+        let mut operand_lattices = SmallPtrVec::with_capacity(op.deref(ctx).get_num_operands());
         for operand in op.deref(ctx).operands() {
             let operand_lattice = self.get_lattice_element(solver, operand);
             operand_lattice.deref().use_def_subscribe::<Self>();
@@ -187,8 +184,7 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
             return;
         }
 
-        let mut arg_lattices =
-            SmallVec::<[_; 8]>::with_capacity(block.deref(ctx).get_num_arguments());
+        let mut arg_lattices = SmallPtrVec::with_capacity(block.deref(ctx).get_num_arguments());
         for argument in block.deref(ctx).arguments() {
             arg_lattices.push(self.get_lattice_element_mut(solver, argument));
         }

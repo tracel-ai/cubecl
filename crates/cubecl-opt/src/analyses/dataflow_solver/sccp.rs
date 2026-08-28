@@ -10,10 +10,10 @@ use crate::analyses::dataflow_solver::{
 
 #[derive(PartialEq, Eq, Clone, Default)]
 pub enum ConstantValue {
-    Unknown,
     #[default]
     Uninitialized,
     Initialized(AttrObj),
+    Unknown,
 }
 
 impl Printable for ConstantValue {
@@ -24,9 +24,9 @@ impl Printable for ConstantValue {
         f: &mut core::fmt::Formatter<'_>,
     ) -> core::fmt::Result {
         match self {
-            ConstantValue::Unknown => f.write_str("Unknown"),
             ConstantValue::Uninitialized => f.write_str("Uninitialized"),
             ConstantValue::Initialized(attr) => write!(f, "Constant({})", attr.disp(ctx)),
+            ConstantValue::Unknown => f.write_str("Unknown"),
         }
     }
 }

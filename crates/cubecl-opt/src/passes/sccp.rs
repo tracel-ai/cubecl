@@ -10,7 +10,7 @@ use pliron::{
 use smallvec::SmallVec;
 
 use crate::analyses::dataflow_solver::{
-    DataflowSolver, SolverConfig,
+    DataflowSolver, SmallPtrVec, SolverConfig,
     dead_code::DeadCodeAnalysis,
     sccp::{ConstantLattice, SparseConstantPropagationAnalysis},
 };
@@ -24,7 +24,7 @@ fn const_operands(
     solver: &DataflowSolver,
     ctx: &Context,
     op: Ptr<Operation>,
-) -> SmallVec<[Option<AttrObj>; 8]> {
+) -> SmallPtrVec<Option<AttrObj>> {
     let mut out = SmallVec::with_capacity(op.deref(ctx).get_num_operands());
     for operand in op.deref(ctx).operands() {
         out.push(const_value(solver, operand));

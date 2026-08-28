@@ -194,16 +194,6 @@ mod solver {
                 _ty: PhantomData,
             })
         }
-
-        pub(super) fn states(&self) -> Ref<'_, AnalysisStates> {
-            self.analysis_states.borrow()
-        }
-
-        /// Anything not inside this module must not get a mutable borrow from an immutable ref
-        #[expect(unused, reason = "For clarity in case it's needed in the future")]
-        pub(super) fn states_mut(&mut self) -> RefMut<'_, AnalysisStates> {
-            self.analysis_states.borrow_mut()
-        }
     }
 
     impl DataflowSolver {
@@ -302,7 +292,7 @@ mod solver {
             f: &mut core::fmt::Formatter<'_>,
         ) -> core::fmt::Result {
             writeln!(f, "DataflowSolver {{")?;
-            let states = self.states();
+            let states = self.analysis_states.borrow();
             let mut entries = states
                 .values()
                 .flat_map(|states| states.iter())
