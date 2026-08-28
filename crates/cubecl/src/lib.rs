@@ -54,6 +54,14 @@ pub use cubecl_environment::environment;
 /// ```
 pub use cubecl_runtime::dry_run;
 
+/// Watching what the runtime runs: the launch observer, and the profiling
+/// logger's levels.
+///
+/// Re-exported because a caller attributing kernels to its own work reaches for
+/// [`observe_launches`](cubecl_runtime::logging::observe_launches) and has no
+/// other reason to depend on `cubecl-runtime` directly.
+pub use cubecl_runtime::logging;
+
 #[cfg(feature = "wgpu")]
 pub use cubecl_wgpu as wgpu;
 
