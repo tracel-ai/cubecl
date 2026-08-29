@@ -54,6 +54,71 @@ fn execute_elementwise_addition() {
     assert_eq!(obtained_resource, Vec::from([4, 5, 6]))
 }
 
+/// A profile the server refuses — as one is inside a graph capture window —
+/// must cost the observer its timing and nothing else: the kernel still runs,
+/// [`launched`](cubecl_runtime::logging::LaunchObserver::launched) still
+/// arrives, and `timed` is skipped. `serial` because the observer slot, the
+/// refusal toggle, and dry runs are all process-wide.
+#[test_log::test]
+#[serial_test::serial]
+fn a_refused_profile_degrades_to_an_untimed_launch() {
+    use cubecl_runtime::logging::{Duration, LaunchObservation, LaunchObserver, TimingMethod};
+
+    #[derive(Default)]
+    struct WantsTiming {
+        launched: std::sync::Mutex<Vec<&'static str>>,
+        timed: std::sync::Mutex<Vec<&'static str>>,
+    }
+    impl LaunchObserver for WantsTiming {
+        fn launched(&self, kernel: &'static str) {
+            self.launched.lock().unwrap().push(kernel);
+        }
+        fn wants_timing(&self) -> bool {
+            true
+        }
+        fn timed(&self, kernel: &'static str, _duration: Duration, _method: TimingMethod) {
+            self.timed.lock().unwrap().push(kernel);
+        }
+    }
+
+    let observer = std::sync::Arc::new(WantsTiming::default());
+    let watching = LaunchObservation::new(observer.clone());
+    REFUSE_PROFILES.store(true, core::sync::atomic::Ordering::Relaxed);
+
+    let client = test_client(&DummyDevice);
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    client.launch(
+        Box::new(KernelTask::new(DummyElementwiseAddition)),
+        CubeCount::Static(1, 1, 1),
+        KernelArguments::new().with_buffers(vec![
+            lhs.binding(),
+            rhs.binding(),
+            out.clone().binding(),
+        ]),
+    );
+    let obtained_resource = client.read_one(out).unwrap().to_vec();
+
+    REFUSE_PROFILES.store(false, core::sync::atomic::Ordering::Relaxed);
+    drop(watching);
+
+    assert_eq!(
+        obtained_resource,
+        Vec::from([4, 5, 6]),
+        "the refused profile must not cost the launch"
+    );
+    assert_eq!(
+        observer.launched.lock().unwrap().len(),
+        1,
+        "the launch is still reported"
+    );
+    assert!(
+        observer.timed.lock().unwrap().is_empty(),
+        "nothing was measured, so nothing is reported as measured"
+    );
+}
+
 #[test_log::test]
 #[cfg(feature = "std")]
 #[serial_test::serial]

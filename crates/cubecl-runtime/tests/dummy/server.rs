@@ -1,6 +1,7 @@
 use super::DummyKernel;
 use crate::dummy::DummyCompiler;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
@@ -29,6 +30,12 @@ use cubecl_runtime::{
 };
 use cubecl_zspace::{Shape, Strides};
 use std::sync::Arc;
+
+/// Makes `start_profile` fail while set, the way a real server refuses one
+/// inside a graph capture window. Process-wide, so tests that flip it run
+/// `serial`.
+pub static REFUSE_PROFILES: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.
 /// It uses simple memory management with a bytes storage on CPU, without asynchronous tasks.
@@ -338,6 +345,12 @@ impl ComputeServer for DummyServer {
     }
 
     fn start_profile(&mut self, _stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        if REFUSE_PROFILES.load(core::sync::atomic::Ordering::Relaxed) {
+            return Err(ServerError::Generic {
+                reason: "this test server was told to refuse profiles".into(),
+                backtrace: BackTrace::capture(),
+            });
+        }
         Ok(self.timestamps.start())
     }
 
