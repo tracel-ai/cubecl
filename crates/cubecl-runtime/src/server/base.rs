@@ -383,6 +383,33 @@ impl Debug for ServerError {
 }
 
 impl ServerError {
+    /// Whether this is the kernel being refused before it ran, rather than
+    /// something going wrong while running it.
+    ///
+    /// The distinction a test harness or an autotuner needs: a kernel a
+    /// backend cannot build at this configuration is a candidate to drop or a
+    /// case to skip, while a fault, an out-of-memory or an IO failure is a
+    /// defect that has to be reported. Answering it by reading the message is
+    /// how a harness ends up accepting the second as the first.
+    ///
+    /// Walks [`Several`](Self::Several) and [`Unwritten`](Self::Unwritten) to
+    /// the roots, because a read of an unwritten buffer reports the failure
+    /// that stopped its writer and that is where the distinction lives. A
+    /// group answers yes only when every root does: one real failure among
+    /// refusals is still a real failure, and an empty group refuses nothing.
+    pub fn is_refusal(&self) -> bool {
+        match self {
+            Self::Launch(
+                LaunchError::CompilationError(_) | LaunchError::TooManyResources(_),
+            ) => true,
+            Self::Unwritten { root, .. } => root.is_refusal(),
+            Self::Several { errors, .. } => {
+                !errors.is_empty() && errors.iter().all(Self::is_refusal)
+            }
+            _ => false,
+        }
+    }
+
     /// A graph-capture call the stream's lifecycle does not allow — a
     /// `begin_capture` without `graph_prepare`, a second overlapping capture, a
     /// replay of an unknown graph, or an operation a capture window cannot
@@ -1591,6 +1618,61 @@ mod tests {
         assert_eq!(read.len(), 2, "ReadOnly and ReadWrite are read");
         assert!(core::ptr::eq(read[0], args.buffers().next().unwrap()));
         assert!(core::ptr::eq(read[1], args.buffers().nth(2).unwrap()));
+    }
+
+    /// A refusal is the kernel being turned down, and nothing else is.
+    ///
+    /// The direction that matters is the false positive: a harness that takes
+    /// a device fault for a refusal reports a broken run as a skipped one, and
+    /// the test goes green. So a group answers yes only when every root does.
+    #[test_log::test]
+    fn only_a_refused_kernel_reads_as_a_refusal() {
+        use crate::server::{LaunchError, ResourceLimitError};
+
+        let refused = ServerError::Launch(LaunchError::CompilationError(
+            CompilationError::Generic {
+                reason: "no such intrinsic on this target".into(),
+                backtrace: Default::default(),
+            },
+        ));
+        let over_budget = ServerError::Launch(LaunchError::TooManyResources(
+            ResourceLimitError::SharedMemory {
+                requested: 1 << 20,
+                max: 1 << 15,
+                backtrace: Default::default(),
+            },
+        ));
+        let fault = ServerError::Generic {
+            reason: "the device faulted".into(),
+            backtrace: Default::default(),
+        };
+
+        assert!(refused.is_refusal());
+        assert!(over_budget.is_refusal());
+        assert!(!fault.is_refusal(), "a fault is not a refusal");
+
+        // A read reports the failure that stopped the buffer's writer, so the
+        // question has to reach through the report to the root.
+        let unwritten = |root: &ServerError| ServerError::Unwritten {
+            failure: 1,
+            claimed: 1,
+            chain: Vec::new(),
+            root: alloc::boxed::Box::new(root.clone()),
+            backtrace: Default::default(),
+        };
+        assert!(unwritten(&refused).is_refusal());
+        assert!(!unwritten(&fault).is_refusal());
+
+        let group = |errors: Vec<ServerError>| ServerError::Several {
+            errors,
+            backtrace: Default::default(),
+        };
+        assert!(group(vec![unwritten(&refused), unwritten(&over_budget)]).is_refusal());
+        assert!(
+            !group(vec![unwritten(&refused), unwritten(&fault)]).is_refusal(),
+            "one real failure among refusals is still a real failure"
+        );
+        assert!(!group(Vec::new()).is_refusal(), "an empty group refuses nothing");
     }
 
     /// Every fallback over-names: a kernel the compiler kept no answer for,
