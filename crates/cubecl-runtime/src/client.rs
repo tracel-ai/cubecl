@@ -964,7 +964,13 @@ impl<R: Runtime> ComputeClient<R> {
                                 let utilities = self.utilities.clone();
                                 self.device.submit(move |state| {
                                     unsafe {
-                                        state.launch(kernel, count, bindings, stream_id, launch_mode)
+                                        state.launch(
+                                            kernel,
+                                            count,
+                                            bindings,
+                                            stream_id,
+                                            launch_mode,
+                                        )
                                     };
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                                         let info =
