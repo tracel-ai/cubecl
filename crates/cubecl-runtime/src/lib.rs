@@ -58,6 +58,7 @@ pub mod logging;
 /// TMA-related runtime types
 pub mod tma;
 
+#[cfg(multi_threading)]
 pub mod command;
 
 pub mod driver;

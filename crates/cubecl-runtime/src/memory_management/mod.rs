@@ -5,6 +5,7 @@ mod error_graph;
 mod taint;
 
 /// Export utilities to keep track of CPU buffers when performing async data copies.
+#[cfg(multi_threading)]
 pub mod drop_queue;
 
 pub use base::*;
