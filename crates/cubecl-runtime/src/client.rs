@@ -109,15 +109,12 @@ impl<R: Runtime> Graph<R> {
     /// carrying it, so a read of those buffers keeps failing until a replay
     /// lands.
     ///
-    /// The wait is a move, not a cost. Measured with `graph_bench` on wgpu
-    /// against a fire-and-forget replay, end-to-end time per kernel is
-    /// unchanged (within a few percent at every size from 150 to 5000
-    /// dispatches) and replay still beats the ordinary launch path by the same
-    /// margin: the device-thread work happens either way, and blocking here
-    /// only stops deferring the wait to the next sync. What does change is the
-    /// enqueue measurement itself — it goes from ~0.2µs, the cost of posting
-    /// to a channel, to the real cost of enqueuing the pass — so read that
-    /// column as caller-visible latency rather than as a regression.
+    /// The wait costs end-to-end throughput nothing: the device-thread work
+    /// happens either way, and blocking here only stops deferring it to the
+    /// next sync. What it does move is the caller-visible latency of this
+    /// call, from the cost of posting to a channel to the real cost of
+    /// enqueuing the pass — so a benchmark reading this column is reading
+    /// latency, not throughput.
     ///
     /// # Safety
     ///
@@ -990,20 +987,29 @@ impl<R: Runtime> ComputeClient<R> {
         unsafe { self.launch_inner(kernel, count, bindings, self.stream_id()) }
     }
 
-    /// Whether the bytes behind `handle` can be trusted, right now and with
-    /// no barrier: the claim check a read makes, without the read. One
-    /// lookup, so a fusion layer or an autotuner can recover per tensor
+    /// Whether the bytes behind `handles` can be trusted, right now and with
+    /// no barrier: the claim check a read makes, without the read. One lookup
+    /// per handle, so a fusion layer or an autotuner can recover per tensor
     /// instead of tearing down a device.
     ///
     /// Instant means enqueue-time failures only — a compile or binding
     /// failure is visible here immediately, a device fault is not until the
-    /// queue drains. [`sync`](Self::sync) with the handle is the complete
+    /// queue drains. [`sync_buffers`](Self::sync_buffers) is the complete
     /// answer; [`read_one`](Self::read_one) is that plus the copy.
-    pub fn check(&self, handle: &Handle) -> Result<(), ServerError> {
-        let binding = handle.clone().binding();
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::Several`] naming every failure these buffers carry, each
+    /// once however many carry it. The bytes are gone, so there is nothing to
+    /// retry: this is the answer, not a hint.
+    pub fn check<'a>(
+        &self,
+        handles: impl IntoIterator<Item = &'a Handle>,
+    ) -> Result<(), ServerError> {
+        let bindings = Self::bindings(handles);
         let stream_id = self.stream_id();
         self.device
-            .submit_blocking(move |server| server.check(vec![binding], stream_id))
+            .submit_blocking(move |server| server.check(bindings, stream_id))
             .unwrap_or_resume()
     }
 
@@ -1067,26 +1073,34 @@ impl<R: Runtime> ComputeClient<R> {
         })
     }
 
-    /// Wait for the completion of every task in the server, then answer for
-    /// `handles`: the barrier first, so device faults count, and then the
+    /// Wait for the completion of every task in the server.
+    ///
+    /// The barrier alone, which also reports a device fault — the only failure
+    /// left that no buffer can report. A launch failure is not this sync's to
+    /// report: it lives on the buffers the launch never wrote and surfaces on
+    /// any read, [`check`](Self::check) or
+    /// [`sync_buffers`](Self::sync_buffers) of those.
+    pub fn sync(&self) -> DynFut<Result<(), ServerError>> {
+        self.sync_buffers([])
+    }
+
+    /// The barrier, and then an answer for `handles`.
+    ///
+    /// [`sync`](Self::sync) first, so a device fault counts, and then the
     /// claim check a read would have made — a read without the read, for the
     /// caller that needs to know its work produced something trustworthy and
     /// does not want to pull it to the host to find out.
     ///
-    /// The common barrier stays `client.sync([])`, which also reports the
-    /// device fault — the only failure left that no buffer can report. A
-    /// launch failure is not the sync's to report unless a handle names one
-    /// of the buffers it left unwritten; it surfaces on any read, sync or
-    /// check of those.
-    pub fn sync<'a>(
+    /// # Errors
+    ///
+    /// The device fault the barrier found, or [`ServerError::Several`] naming
+    /// every failure these buffers carry.
+    pub fn sync_buffers<'a>(
         &self,
         handles: impl IntoIterator<Item = &'a Handle>,
     ) -> DynFut<Result<(), ServerError>> {
         let stream_id = self.stream_id();
-        let bindings: Vec<BufferBinding> = handles
-            .into_iter()
-            .map(|handle| handle.clone().binding())
-            .collect();
+        let bindings = Self::bindings(handles);
 
         let fut = self
             .device
@@ -1096,6 +1110,16 @@ impl<R: Runtime> ComputeClient<R> {
         self.utilities.logger.profile_summary();
 
         fut
+    }
+
+    /// The bindings `handles` name, which is what crosses to the device
+    /// thread: a `Handle` borrows, and the closure that answers for it runs
+    /// somewhere else.
+    fn bindings<'a>(handles: impl IntoIterator<Item = &'a Handle>) -> Vec<BufferBinding> {
+        handles
+            .into_iter()
+            .map(|handle| handle.clone().binding())
+            .collect()
     }
 
     /// Get the features supported by the compute server.

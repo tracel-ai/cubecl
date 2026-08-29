@@ -116,8 +116,20 @@ allocation are two claims, not one.
 **No queue.** A failure is not owed to a later flush. It is on the buffers, and
 a read of one of them is the report.
 
-**No per-stream error state.** A stream is not an edge. Anything scoped to one
-breaks the isolation above.
+**No per-stream error state, with one exception.** A stream is not an edge, so
+anything scoped to one breaks the isolation above. Metal keeps the exception:
+a command-buffer fault arrives in a completion handler that can name no buffer,
+so it is recorded on the stream and every later wait on that stream fails on
+it. The consequence is the one this rule exists to prevent — after a Metal
+fault, two workflows sharing that stream do contaminate each other — so on
+Metal the isolation property holds for enqueue-time failures and not for
+execution-time ones. The slot is sticky rather than report-once because
+clearing it is exactly how stale bytes would start reading clean again.
+
+**No answer for a failed allocation.** `initialize_memory` has no error
+channel and nothing to taint — a reservation that never got its storage has no
+binding for a claim to sit on — so every backend panics there. Device OOM is
+the one failure this model cannot carry.
 
 **No device-wide fault.** There was one, and it made the next flush or sync
 fail whatever it was flushing, including work sharing no buffer with whatever
@@ -156,8 +168,9 @@ coarse by necessity.
 
 ## Where it is enforced
 
-- `crates/cubecl-core/src/runtime_tests/stream_errors.rs` — twelve properties
-  every backend runs, including that two workflows interleaved on one stream do
+- `crates/cubecl-core/src/runtime_tests/stream_errors.rs` — thirteen properties
+  every backend runs, plus one more for the backends that resolve a dynamic
+  cube count on the host, including that two workflows interleaved on one stream do
   not contaminate each other, that a read reports the root cause two hops down,
   and that a rewrite makes a stale buffer readable again.
 - `crates/cubecl-runtime/tests/taint_property.rs` — a randomised model check

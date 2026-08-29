@@ -18,18 +18,27 @@ use crate::memory_management::ManagedMemoryId;
 use crate::server::ServerError;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::num::NonZeroU32;
+use core::num::NonZeroU64;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 
 /// The id a tainted allocation carries, naming the failure that left its
 /// bytes unwritten.
 ///
-/// Opaque on purpose: a slice gains four bytes and nothing else. It does not
+/// Opaque on purpose: a carrier gains a word and nothing else. It does not
 /// learn what an error is, it cannot report one, and it has no opinion about
-/// streams. `NonZeroU32` so `Option<FailureId>` costs the slice a single word.
+/// streams. `NonZero` so `Option<FailureId>` is that one word rather than two.
+///
+/// Wide because ids are never reused: one is minted for every write scope
+/// that claims anything, which is every launch and every host copy, and a
+/// narrower counter would run out. Reuse is what a 32-bit id would need, and
+/// reuse is unsound here — [`prune`](ErrorGraph::prune) drops a node whose tag
+/// count is zero, which a freshly minted node also has, so a recycled id lets
+/// one scope's prune delete another's failure. Free in the carrier either way:
+/// [`Tainted`](super::Taint) pads a `u32` out to eight bytes before its
+/// ranges, which `a_failure_id_is_free_in_the_carrier` pins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FailureId(NonZeroU32);
+pub struct FailureId(NonZeroU64);
 
 impl core::fmt::Display for FailureId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -43,8 +52,8 @@ impl core::fmt::Display for FailureId {
 pub struct ErrorGraph {
     nodes: HashMap<FailureId, Failure>,
     /// Ids handed out so far; the next one is `minted + 1`, which is never
-    /// zero.
-    minted: u32,
+    /// zero and, being 64 bits wide, never wraps.
+    minted: u64,
 }
 
 #[derive(Debug)]
@@ -100,8 +109,8 @@ impl ErrorGraph {
         self.minted = self
             .minted
             .checked_add(1)
-            .expect("a failure id was minted for every u32");
-        let id = FailureId(NonZeroU32::new(self.minted).expect("minted starts above zero"));
+            .expect("a failure id was minted for every u64");
+        let id = FailureId(NonZeroU64::new(self.minted).expect("minted starts above zero"));
         self.nodes.insert(
             id,
             Failure {
@@ -229,7 +238,14 @@ impl ErrorGraph {
             return;
         };
         let node = self.node_mut(failure);
-        node.tagged -= 1;
+        // Saturating rather than `-= 1`: an unbalanced shed would wrap the
+        // count in release and pin the node — and the error it holds — for the
+        // life of the device, with every read of that allocation failing
+        // forever. The floor drops the node instead, and the assertion makes
+        // the shedding path that lost count loud in a test rather than silent
+        // in production.
+        debug_assert!(node.tagged > 0, "{failure} was shed more often than tagged");
+        node.tagged = node.tagged.saturating_sub(1);
         if node.tagged == 0 {
             self.nodes.remove(&failure);
         }

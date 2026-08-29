@@ -512,10 +512,10 @@ pub fn test_check_answers_without_a_read<R: Runtime>(client: ComputeClient<R>) {
 
     reader.executes(|| {
         client
-            .check(&clean)
+            .check([&clean])
             .expect("a buffer whose writer succeeded checks clean");
         let err = client
-            .check(&stale)
+            .check([&stale])
             .expect_err("the rejected launch never wrote this one")
             .to_string();
         assert!(

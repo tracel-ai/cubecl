@@ -34,7 +34,7 @@ pub fn build_kernel<R: Runtime>(
                 cmma_config.accumulator_type,
             )
         };
-        let _ = cubecl_core::future::block_on(client.sync([]));
+        let _ = cubecl_core::future::block_on(client.sync());
         start.elapsed()
     });
 

@@ -33,7 +33,6 @@ use crate::memory_management::FailureId;
 use crate::server::{BufferBinding, ServerError};
 use crate::stream::{FailureStore, StreamCapture};
 use alloc::vec::Vec;
-use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
 
 /// A server whose device work runs inside an [`ExecuteScope`].
@@ -120,12 +119,7 @@ impl<R> ScopedOutcome<R> {
         match self {
             ScopedOutcome::Executed(result) => Ok(result),
             ScopedOutcome::Failed(error) => Err(error),
-            ScopedOutcome::Skipped => Err(ServerError::Generic {
-                reason: "the work was skipped: an input carried a failure, and the work's \
-                         outputs now claim it — a read of one of them names the root cause"
-                    .into(),
-                backtrace: BackTrace::capture(),
-            }),
+            ScopedOutcome::Skipped => Err(ServerError::Skipped),
         }
     }
 }
@@ -149,8 +143,14 @@ enum Opened {
 ///
 /// Built by [`over`](Self::over) for work that reads nothing it must trust, or
 /// [`launching`](Self::launching) for a kernel, which is the only kind that
-/// can be skipped. See the [module docs](self) for why the choice is the
-/// constructor's.
+/// can be skipped.
+///
+/// Which of the two it is is settled by the constructor and cannot change
+/// afterwards. Entering on a skip would be wrong rather than merely wasteful:
+/// the provisional failure would be minted, overwritten by the propagated one,
+/// and never pruned, because the exit that prunes it is on the path that does
+/// not run. Nothing has to remember that, because a scope is one or the other
+/// before it exists.
 pub struct ExecuteScope<'a, S: WriteScoped> {
     server: &'a mut S,
     /// The stream this work is for, which is what a failure has to name.
@@ -200,9 +200,7 @@ impl<'a, S: WriteScoped> ExecuteScope<'a, S> {
         if let Some(capture) = server.capturing(stream) {
             capture.fail(found.error.clone());
         }
-        server
-            .write_streams()
-            .propagate(&found, kernel, written.iter());
+        server.write_streams().propagate(&found, kernel, written);
         Self {
             server,
             stream,

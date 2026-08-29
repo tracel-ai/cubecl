@@ -551,6 +551,60 @@ fn a_mid_launch_panic_leaves_the_write_set_tainted() {
 /// provisional failure, have it overwritten by the propagated one, and then
 /// leave it in the graph forever: the exit that prunes it is on the path that
 /// does not run.
+/// A skip hands the pooled write set back, so the loop that skips on every
+/// iteration allocates nothing.
+///
+/// A tainted buffer carried forward through a loop skips every launch that
+/// reads it — the most frequent event in this design — and a skip path that
+/// dropped its write set instead of returning it would allocate and free one
+/// vector per iteration. The pool's buffer is identified by its address:
+/// the same allocation must come back out.
+#[test]
+fn a_skip_returns_the_pooled_write_set() {
+    let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 23);
+    harness.alloc();
+    harness.alloc();
+    let input = harness.buffers[0].binding.clone();
+    let output = harness.buffers[1].binding.clone();
+
+    // Prime the pool so it holds a real allocation, sized for what follows.
+    let mut primed = FailureStore::write_set(&mut harness.device);
+    primed.push(input.clone());
+    primed.push(output.clone());
+    let pooled = primed.as_ptr();
+    ExecuteScope::over(&mut harness.device, StreamId::current(), primed)
+        .execute(|_| Ok::<(), ServerError>(()));
+
+    // The input carries a failure, so the next launch reading it skips.
+    let mut failing = FailureStore::write_set(&mut harness.device);
+    assert_eq!(failing.as_ptr(), pooled, "the clean exit returned the buffer");
+    failing.push(input.clone());
+    ExecuteScope::over(&mut harness.device, StreamId::current(), failing)
+        .execute(|_| Err::<(), ServerError>(error("the launch that left these bytes")));
+
+    let mut skipping = FailureStore::write_set(&mut harness.device);
+    assert_eq!(skipping.as_ptr(), pooled, "the failed exit returned it too");
+    skipping.push(output.clone());
+    let outcome = ExecuteScope::launching(
+        &mut harness.device,
+        KernelId::new::<()>(),
+        StreamId::current(),
+        [&input].into_iter(),
+        skipping,
+    )
+    .execute(|_| -> Result<(), ServerError> {
+        unreachable!("a skipped scope must not run its body")
+    });
+    assert!(matches!(outcome, ScopedOutcome::Skipped));
+
+    let returned = FailureStore::write_set(&mut harness.device);
+    assert_eq!(
+        returned.as_ptr(),
+        pooled,
+        "the skip path must hand the write set back, not drop it and allocate a new one"
+    );
+}
+
 #[test]
 fn a_skipped_scope_claims_the_failure_its_input_carried_and_mints_none() {
     let mut harness = Harness::new(MemoryConfiguration::ExclusivePages, 11);

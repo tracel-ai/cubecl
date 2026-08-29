@@ -215,7 +215,13 @@ impl ComputeServer for CpuServer {
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        let reserved = stream.empty(size, failures).unwrap();
+        // Fatal rather than reported, as on every other backend:
+        // `initialize_memory` has no error channel, and an allocation that
+        // never got its storage cannot be handed back as a taint either —
+        // nothing has a binding to it yet.
+        let reserved = stream
+            .empty(size, failures)
+            .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of host memory: {err}"));
         stream.bind(reserved, memory, failures);
     }
 

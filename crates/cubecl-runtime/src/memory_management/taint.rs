@@ -208,6 +208,27 @@ mod tests {
         }
     }
 
+    /// A wider [`FailureId`] costs the carrier nothing: the id is followed by
+    /// padding out to the ranges' alignment either way.
+    ///
+    /// The id has to be wide, because ids are never reused and one is minted
+    /// per write scope — and this is what makes that free. A carrier that grew
+    /// would be a real cost on every slice in the pools, so the claim is
+    /// pinned rather than asserted in a doc.
+    #[test]
+    fn a_failure_id_is_free_in_the_carrier() {
+        struct Narrow {
+            _failure: core::num::NonZeroU32,
+            _ranges: Ranges,
+        }
+
+        assert_eq!(
+            core::mem::size_of::<Tainted>(),
+            core::mem::size_of::<Narrow>(),
+            "a 64-bit failure id must fit in the padding a 32-bit one leaves"
+        );
+    }
+
     /// The precision this type exists for: a write covering part of a buffer
     /// releases the claim on those bytes and only those bytes.
     #[test]
@@ -338,3 +359,4 @@ mod tests {
         assert_eq!(taint.failure(&(50..50)), None);
     }
 }
+

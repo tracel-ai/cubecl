@@ -336,7 +336,7 @@ pub enum ServerError {
     Unwritten {
         /// The failure's id in the device's error store, as printed by every
         /// other read that trips over the same failure.
-        failure: u32,
+        failure: u64,
         /// How many buffers the failure still claims.
         claimed: u32,
         /// The skip chain from the buffer asked about back toward the root.
@@ -348,6 +348,20 @@ pub enum ServerError {
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
+
+    /// The work did not run, because an input it needed carried a failure.
+    ///
+    /// The report is on the buffers: the work's outputs claim the failure its
+    /// inputs did, so a read of one of them names the root cause and the path
+    /// back to it. This variant says only *that* the caller's work was
+    /// skipped, which is why it carries no payload — the failure the inputs
+    /// held is not the caller's to receive here, and minting a formatted
+    /// message per skip would cost the loop that skips on every iteration.
+    #[error(
+        "The work was skipped: an input carried a failure, and the work's outputs claim it now \
+         — a read of one of them names the root cause"
+    )]
+    Skipped,
 
     /// More than one thing went wrong at once, and the caller is owed all of
     /// them: a read naming buffers that several distinct failures claim, or a

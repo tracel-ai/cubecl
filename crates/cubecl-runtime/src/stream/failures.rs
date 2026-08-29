@@ -113,19 +113,17 @@ pub trait FailureStore {
     /// because the inputs have to be read either way to decide anything.
     fn read_failure<'a>(
         &self,
-        reads: impl Iterator<Item = &'a BufferBinding>,
+        mut reads: impl Iterator<Item = &'a BufferBinding>,
     ) -> Option<ReadFailure> {
         let (pool, failures) = self.parts();
-        reads
-            .filter_map(|handle| {
-                let failure = pool.try_get(&handle.stream)?.failure(handle)?;
-                Some(ReadFailure {
-                    failure,
-                    needed: handle.memory.id(),
-                    error: failures.graph.error(failure)?.clone(),
-                })
+        reads.find_map(|handle| {
+            let failure = pool.try_get(&handle.stream)?.failure(handle)?;
+            Some(ReadFailure {
+                failure,
+                needed: handle.memory.id(),
+                error: failures.graph.error(failure)?.clone(),
             })
-            .next()
+        })
     }
 
     /// Taint every allocation in `written` with `error`: the work that was
@@ -154,29 +152,24 @@ pub trait FailureStore {
     /// the failure, so a read of anything downstream can name the path back
     /// to the root.
     ///
-    /// The write set is staged in the pooled scratch vector, because a loop
-    /// carrying a tainted buffer forward skips on every iteration — the most
-    /// frequent event in this whole design.
-    fn propagate<'a>(
-        &mut self,
-        found: &ReadFailure,
-        kernel: KernelId,
-        written: impl Iterator<Item = &'a BufferBinding>,
-    ) {
+    /// Takes the write set by value and hands it back to the pool, the same
+    /// contract [`exit_write`](Self::exit_write) has, because a skip is the
+    /// other way a scope ends: a loop carrying a tainted buffer forward skips
+    /// on every iteration — the most frequent event in this whole design — and
+    /// a set the skip path dropped would allocate a fresh one every time.
+    fn propagate(&mut self, found: &ReadFailure, kernel: KernelId, mut written: Vec<BufferBinding>) {
         let (pool, failures) = self.split();
-        let mut staged = core::mem::take(&mut failures.scratch);
-        staged.extend(written.cloned());
         failures.graph.skipped(
             found.failure,
             Skipped {
                 kernel,
                 needed: found.needed,
-                produced: staged.iter().map(|handle| handle.memory.id()).collect(),
+                produced: written.iter().map(|handle| handle.memory.id()).collect(),
             },
         );
-        base::taint_with(pool, found.failure, staged.iter(), &mut failures.graph);
-        staged.clear();
-        failures.scratch = staged;
+        base::taint_with(pool, found.failure, written.iter(), &mut failures.graph);
+        written.clear();
+        failures.scratch = written;
     }
 
     /// An empty write set, pooled here so a launch allocates nothing for it.
