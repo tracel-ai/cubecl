@@ -577,7 +577,11 @@ fn a_skip_returns_the_pooled_write_set() {
 
     // The input carries a failure, so the next launch reading it skips.
     let mut failing = FailureStore::write_set(&mut harness.device);
-    assert_eq!(failing.as_ptr(), pooled, "the clean exit returned the buffer");
+    assert_eq!(
+        failing.as_ptr(),
+        pooled,
+        "the clean exit returned the buffer"
+    );
     failing.push(input.clone());
     ExecuteScope::over(&mut harness.device, StreamId::current(), failing)
         .execute(|_| Err::<(), ServerError>(error("the launch that left these bytes")));

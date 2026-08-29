@@ -359,4 +359,3 @@ mod tests {
         assert_eq!(taint.failure(&(50..50)), None);
     }
 }
-

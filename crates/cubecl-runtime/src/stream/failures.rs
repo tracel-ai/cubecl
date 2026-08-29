@@ -157,7 +157,12 @@ pub trait FailureStore {
     /// other way a scope ends: a loop carrying a tainted buffer forward skips
     /// on every iteration — the most frequent event in this whole design — and
     /// a set the skip path dropped would allocate a fresh one every time.
-    fn propagate(&mut self, found: &ReadFailure, kernel: KernelId, mut written: Vec<BufferBinding>) {
+    fn propagate(
+        &mut self,
+        found: &ReadFailure,
+        kernel: KernelId,
+        mut written: Vec<BufferBinding>,
+    ) {
         let (pool, failures) = self.split();
         failures.graph.skipped(
             found.failure,

@@ -399,9 +399,9 @@ impl ServerError {
     /// refusals is still a real failure, and an empty group refuses nothing.
     pub fn is_refusal(&self) -> bool {
         match self {
-            Self::Launch(
-                LaunchError::CompilationError(_) | LaunchError::TooManyResources(_),
-            ) => true,
+            Self::Launch(LaunchError::CompilationError(_) | LaunchError::TooManyResources(_)) => {
+                true
+            }
             Self::Unwritten { root, .. } => root.is_refusal(),
             Self::Several { errors, .. } => {
                 !errors.is_empty() && errors.iter().all(Self::is_refusal)
@@ -1629,12 +1629,11 @@ mod tests {
     fn only_a_refused_kernel_reads_as_a_refusal() {
         use crate::server::{LaunchError, ResourceLimitError};
 
-        let refused = ServerError::Launch(LaunchError::CompilationError(
-            CompilationError::Generic {
+        let refused =
+            ServerError::Launch(LaunchError::CompilationError(CompilationError::Generic {
                 reason: "no such intrinsic on this target".into(),
                 backtrace: Default::default(),
-            },
-        ));
+            }));
         let over_budget = ServerError::Launch(LaunchError::TooManyResources(
             ResourceLimitError::SharedMemory {
                 requested: 1 << 20,
@@ -1672,7 +1671,10 @@ mod tests {
             !group(vec![unwritten(&refused), unwritten(&fault)]).is_refusal(),
             "one real failure among refusals is still a real failure"
         );
-        assert!(!group(Vec::new()).is_refusal(), "an empty group refuses nothing");
+        assert!(
+            !group(Vec::new()).is_refusal(),
+            "an empty group refuses nothing"
+        );
     }
 
     /// Every fallback over-names: a kernel the compiler kept no answer for,
