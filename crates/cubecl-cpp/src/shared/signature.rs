@@ -324,9 +324,7 @@ pub fn shared_memory_size(ctx: &Context, module: Ptr<Operation>) -> usize {
 /// [`buffer_io_by_position`].
 pub fn buffer_io(ctx: &Context, entry_func: FuncOp) -> Vec<BufferIOAttr> {
     buffer_io_by_position(ctx, entry_func)
-        .into_iter()
-        .map(Into::into)
-        .collect()
+        .into_iter().collect()
 }
 
 pub fn buffers(ctx: &Context, entry_func: FuncOp) -> Vec<Visibility> {

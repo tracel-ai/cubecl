@@ -260,9 +260,7 @@ impl SpirvCompiler {
         // The four-state answer, by buffer position, before anything widens
         // or collapses it: what the launch path's taint bookkeeping consumes.
         let io = cubecl_core::ir::attributes::buffer_io_by_position(ctx, entry_func)
-            .into_iter()
-            .map(Into::into)
-            .collect::<Vec<BufferIOAttr>>();
+            .into_iter().collect::<Vec<BufferIOAttr>>();
 
         verify_operation(module_op, ctx)?;
 

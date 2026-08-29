@@ -173,9 +173,7 @@ impl WgslCompiler {
         // Before `rewrite_args` erases the arguments and widens their
         // visibility for the shader.
         let io = cubecl_core::ir::attributes::buffer_io_by_position(&ctx, entry_func)
-            .into_iter()
-            .map(Into::into)
-            .collect();
+            .into_iter().collect();
         let buffers = rewrite_args(&mut ctx, entry_func);
         declare_info(&mut ctx, entry_func, buffers.len());
         let shared_memory_size = shared_memory_size(&ctx, module_op);

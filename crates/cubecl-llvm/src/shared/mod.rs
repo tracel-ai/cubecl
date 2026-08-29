@@ -158,9 +158,7 @@ impl PlironCompiler {
         // buffer arguments behind a pointer table and erases them, attributes
         // included.
         let io = cubecl_core::ir::attributes::buffer_io_by_position(&ctx, entry_func)
-            .into_iter()
-            .map(Into::into)
-            .collect();
+            .into_iter().collect();
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         passes.add_pass(NestedOpsPass::new(lowering_passes));
