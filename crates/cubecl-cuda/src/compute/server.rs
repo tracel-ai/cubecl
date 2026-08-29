@@ -631,14 +631,16 @@ impl CudaServer {
     }
 
     /// Compile `kernel` if this is the first launch of it, and say whether
-    /// that failed — in which case everything the launch was given now carries
+    /// that failed — in which case the outputs the launch was given now carry
     /// the compilation error.
     ///
     /// Compilation comes first — memoized, so a launch after the first pays a
     /// map lookup — because the write scope stages what the compiled kernel
-    /// says it writes. A kernel that fails to compile has no IR and no answer,
-    /// so every buffer the launch was given is left as it was and all of them
-    /// carry the failure.
+    /// says it writes. A kernel that fails to compile has no IR and no
+    /// compiled answer, so the caller's declared IO decides: only the
+    /// declared outputs are left carrying the failure, never the buffers the
+    /// kernel was only going to read — tainting those would refuse every
+    /// later launch that shares them, an autotune sweep above all.
     ///
     /// A dry run claims none. It was never going to write, so a failure in it
     /// leaves nothing stale, and tainting its buffers would fail unrelated
@@ -659,8 +661,13 @@ impl CudaServer {
             return false;
         };
         if !launch_mode.is_skipped() {
+            // No compiled answer exists for a kernel that never compiled, so
+            // the caller's declared IO decides what the failure claims: only
+            // the outputs, never the buffers the kernel was only going to
+            // read — tainting those would refuse every later launch that
+            // shares them, an autotune sweep above all.
             let mut written = self.write_set();
-            written.extend(bindings.buffers().cloned());
+            written.extend(bindings.buffers_written(None).cloned());
             failed_writing(self, stream_id, written, ServerError::Launch(err));
         } else {
             self.profile_failure(&ServerError::Launch(err));

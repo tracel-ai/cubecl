@@ -7,6 +7,7 @@ use crate::{InfoBuilder, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
 use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
+use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::server::{BufferBinding, CubeCount, KernelResource, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
@@ -24,6 +25,11 @@ std::thread_local! {
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
     resources: Vec<KernelResource>,
+    /// What the caller declared each resource is for, indexed like
+    /// `resources` — see [`declare_io`](Self::declare_io).
+    declared_io: Vec<BufferIOAttr>,
+    /// The declaration the next registered resources fall under.
+    declaring: BufferIOAttr,
     address_type: AddressType,
     pub settings: KernelSettings,
     #[cfg(not(feature = "std"))]
@@ -93,6 +99,7 @@ impl<R: Runtime> KernelLauncher<R> {
         let info = self.with_info(|info| info.finish(address_type));
 
         bindings.resources = self.resources;
+        bindings.declared_io = self.declared_io;
         bindings.info = info;
 
         bindings
@@ -101,8 +108,48 @@ impl<R: Runtime> KernelLauncher<R> {
 
 // Tensors/arrays
 impl<R: Runtime> KernelLauncher<R> {
+    /// Declare what the kernel does with the buffers registered from here on,
+    /// until the next declaration.
+    ///
+    /// The generated launch functions call this before each argument with
+    /// what the signature proves — `&Tensor` cannot be written, `&mut Tensor`
+    /// may be read — so a launch that fails before running, a kernel that
+    /// does not compile above all, taints only the buffers the kernel could
+    /// have written. The compiled kernel's own answer still wins once it
+    /// exists; this one is the answer that survives compilation failing. A
+    /// launcher that never declares leaves every resource
+    /// [`ReadWrite`](BufferIOAttr::ReadWrite), the loud fallback.
+    pub fn declare_io(&mut self, io: BufferIOAttr) {
+        self.declaring = io;
+    }
+
+    /// An aliasing argument writes the buffer it aliases in place, however
+    /// that buffer's own argument was declared — the aliased buffer usually
+    /// arrives through a `&Tensor`, and it is the one buffer an in-place
+    /// kernel exists to produce. The alias registers no resource of its own,
+    /// so its declaration lands on the buffer at `input_pos` instead: a
+    /// declaration built from each signature position alone would call that
+    /// buffer read-only and leave the in-place output unnamed by a failure,
+    /// which is silent garbage on a read.
+    fn alias_io(&mut self, input_pos: usize) {
+        if self.declaring.is_writable()
+            && let Some(io) = self.declared_io.get_mut(input_pos)
+        {
+            *io = BufferIOAttr::ReadWrite;
+        }
+    }
+
     /// Record a resource.
     fn push_resource(&mut self, resource: KernelResource) {
+        let io = match &resource {
+            // A tensor map's global side is written through TMA operations no
+            // signature shows — a map registered from a `&TensorMap` can
+            // still be a store's destination — so the declaration is clamped
+            // to the same answer the visibility analysis gives it.
+            KernelResource::TensorMap(_) => BufferIOAttr::ReadWrite,
+            KernelResource::Buffer(_) => self.declaring,
+        };
+        self.declared_io.push(io);
         self.resources.push(resource);
     }
 
@@ -117,7 +164,7 @@ impl<R: Runtime> KernelLauncher<R> {
         let tensor = match tensor {
             TensorArg::Handle { handle, .. } => handle,
             TensorArg::Alias { input_pos, .. } => {
-                let _ = input_pos;
+                self.alias_io(input_pos);
                 return None;
             }
         };
@@ -147,7 +194,7 @@ impl<R: Runtime> KernelLauncher<R> {
         let array = match array {
             BufferArg::Handle { handle, .. } => handle,
             BufferArg::Alias { input_pos, .. } => {
-                let _ = input_pos;
+                self.alias_io(input_pos);
                 return None;
             }
         };
@@ -179,6 +226,8 @@ impl<R: Runtime> KernelLauncher<R> {
             address_type: settings.address_type,
             settings,
             resources: Vec::new(),
+            declared_io: Vec::new(),
+            declaring: BufferIOAttr::ReadWrite,
             _runtime: PhantomData,
             #[cfg(not(feature = "std"))]
             info: InfoBuilder::default(),

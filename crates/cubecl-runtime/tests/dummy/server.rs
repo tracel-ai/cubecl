@@ -150,6 +150,12 @@ impl ComputeServer for DummyServer {
         descriptors: Vec<CopyDescriptor>,
         _stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        // The claim check every real server's read makes: a buffer a failed
+        // launch never filled reports the failure rather than handing back
+        // whatever bytes were there before.
+        if let Err(err) = self.ensure_written(descriptors.iter().map(|d| &d.handle)) {
+            return Box::pin(async move { Err(err) });
+        }
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
@@ -225,13 +231,15 @@ impl ComputeServer for DummyServer {
         let kernel = match kernel.compile(kernel.define(), &mut DummyCompiler, &()) {
             Ok(kernel) => kernel,
             Err(err) => {
-                // No IR, so no answer about what the kernel writes: every buffer
-                // the launch was given is left as it was and carries the failure,
-                // exactly as on a real server.
+                // No IR, so no compiled answer about what the kernel writes:
+                // the caller's declared IO decides, exactly as on a real
+                // server — only the declared outputs carry the failure, and
+                // the buffers the kernel was only going to read stay
+                // readable for whatever launches next on them.
                 let error = ServerError::from(cubecl_runtime::server::LaunchError::from(err));
                 self.timestamps.failure(&error);
                 if !launch_mode.is_skipped() {
-                    let written: Vec<_> = bindings.buffers().cloned().collect();
+                    let written: Vec<_> = bindings.buffers_written(None).cloned().collect();
                     self.taint(error, written.iter());
                 }
                 return;
@@ -244,6 +252,18 @@ impl ComputeServer for DummyServer {
         if launch_mode.is_skipped() {
             return;
         }
+
+        // The check a real server's write scope makes on the way in: an input
+        // that carries a failure skips the launch, and the outputs take that
+        // failure so a read downstream names the root cause.
+        if let Err(error) = self.ensure_written(bindings.buffers_read(None)) {
+            self.timestamps.failure(&error);
+            let written: Vec<_> = bindings.buffers_written(None).cloned().collect();
+            self.taint(error, written.iter());
+            return;
+        }
+
+        let written: Vec<_> = bindings.buffers_written(None).cloned().collect();
 
         let mut resources: Vec<_> = bindings
             .resources
@@ -275,6 +295,16 @@ impl ComputeServer for DummyServer {
         let mut resources: Vec<_> = resources.iter_mut().collect();
 
         kernel.repr.unwrap().compute(resources.as_mut_slice());
+
+        // The work ran: its write set has a writer again, which is what
+        // releases an earlier failure's claim on those buffers — a relaunch
+        // into a tainted buffer is exactly how the buffer gets repaired. A
+        // panic in `compute` never reaches this, so an earlier failure's
+        // claim survives a launch that blew up instead of writing.
+        for handle in &written {
+            self.memory_management
+                .written(&handle.memory, handle.range(), &mut self.failures);
+        }
     }
 
     fn flush(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {

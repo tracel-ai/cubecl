@@ -288,24 +288,21 @@ pub fn test_a_write_lands_after_the_work_queued_on_its_buffers_stream<R: Runtime
 /// it would only have read included.
 ///
 /// The read set and the write set are the compiled kernel's own answer, and a
-/// kernel that failed to compile never gave one — there is no IR to ask. So
-/// every buffer the launch was handed is claimed by the failure: naming the
-/// input fails a read that would have been fine, loudly, where guessing from
-/// the signature would be the write mask this design deleted.
+/// kernel that failed to compile never gave one — there is no IR to ask. What
+/// survives compilation failing is the launch site's declaration: `&Tensor`
+/// cannot be written, so the failure claims only the buffers the kernel could
+/// have written, and the inputs stay readable.
 ///
-/// The cost of that choice is real and accepted here rather than hidden: the
-/// launch wrote nothing, so a tainted input is a false positive, and because
-/// skipping propagates, one compile error can make every tensor downstream of
-/// those inputs unreadable until they are written again. The trade is against
-/// the other direction, where a buffer the kernel would have written reads
-/// back clean and nothing ever says so. A loud false failure is recoverable —
-/// write the buffer, relaunch — and silent garbage is not.
-///
-/// A launch that fails *after* compilation stages only what the kernel writes,
-/// so its read-only inputs stay readable — the property the write scope's own
-/// tests pin, since no portable kernel fails between compilation and enqueue
-/// on every backend.
-pub fn test_a_launch_that_never_compiled_taints_everything_it_was_given<R: Runtime>(
+/// The direction matters because a launch that never ran left its inputs
+/// exactly as they were: tainting them is a false positive that propagates —
+/// every launch sharing those inputs skips on it, so one candidate missing a
+/// feature would poison a whole autotune sweep, and the inputs would stay
+/// unreadable long after it. The declaration is proof, not a guess: the write
+/// mask danger lives in aliasing, where the written buffer arrives through a
+/// read-only parameter, and the launcher upgrades the aliased buffer's
+/// declaration at registration —
+/// [`test_a_failed_in_place_launch_names_the_buffer_it_aliased`] pins that.
+pub fn test_a_launch_that_never_compiled_taints_only_its_outputs<R: Runtime>(
     client: ComputeClient<R>,
 ) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_005);
@@ -327,23 +324,25 @@ pub fn test_a_launch_that_never_compiled_taints_everything_it_was_given<R: Runti
     });
 
     // The output is what the launch was going to write, so it is unreadable.
-    reader.executes(|| assert_rejected(&client, out, "read-only-input"));
-    // With no compiled kernel to say otherwise, the input is claimed too.
-    reader.executes(|| assert_rejected(&client, input.clone(), "read-only-input"));
-
-    // And writing it again is the recovery, exactly as for an output.
-    producer.executes(|| {
-        client.write(
-            &input,
-            Bytes::from_bytes_vec(u32::as_bytes(&[7u32]).to_vec()),
-        )
-    });
+    reader.executes(|| assert_rejected(&client, out.clone(), "read-only-input"));
+    // The input was only going to be read by a launch that never ran: it
+    // carries no failure, and whatever shares it keeps running.
     let read = reader.executes(|| {
         client
             .read_one(input)
-            .expect("a rewritten buffer reads again")
+            .expect("a launch that never compiled leaves its inputs readable")
     });
     assert_eq!(u32::from_bytes(&read), &[7]);
+
+    // Writing the output is the recovery, exactly as for a failed launch.
+    producer
+        .executes(|| client.write(&out, Bytes::from_bytes_vec(u32::as_bytes(&[9u32]).to_vec())));
+    let read = reader.executes(|| {
+        client
+            .read_one(out)
+            .expect("a rewritten buffer reads again")
+    });
+    assert_eq!(u32::from_bytes(&read), &[9]);
 }
 
 /// Reporting a failure is not writing the bytes.
@@ -601,11 +600,14 @@ pub fn test_a_zero_cube_count_launch_does_not_untaint_its_outputs<R: Runtime>(
 /// An output that aliases an input writes that input in place, so a failure
 /// leaves the aliased buffer unwritten however its own argument was declared.
 ///
-/// This is the case that makes narrowing dangerous rather than merely wrong:
-/// the aliased buffer arrives through a `&[T]` parameter, so a mask built from
-/// the signature alone calls it read-only and leaves it unnamed — and a read of
-/// the one buffer an in-place kernel exists to produce hands back the bytes
-/// that were there before, with no error anywhere.
+/// This is the case that makes a signature-only declaration dangerous rather
+/// than merely wrong: the aliased buffer arrives through a `&[T]` parameter,
+/// so each position taken alone calls it read-only and leaves it unnamed — and
+/// a read of the one buffer an in-place kernel exists to produce hands back
+/// the bytes that were there before, with no error anywhere. The launcher sees
+/// the alias at registration and upgrades the aliased buffer's declaration,
+/// which is what this pins: the kernel below fails to compile, so the
+/// declaration is the only answer there is.
 pub fn test_a_failed_in_place_launch_names_the_buffer_it_aliased<R: Runtime>(
     client: ComputeClient<R>,
 ) {
@@ -655,9 +657,9 @@ macro_rules! testgen_stream_errors {
             }
 
             #[$crate::runtime_tests::test_log::test]
-            fn test_a_launch_that_never_compiled_taints_everything_it_was_given() {
+            fn test_a_launch_that_never_compiled_taints_only_its_outputs() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::stream_errors::test_a_launch_that_never_compiled_taints_everything_it_was_given::<
+                cubecl_core::runtime_tests::stream_errors::test_a_launch_that_never_compiled_taints_only_its_outputs::<
                     TestRuntime,
                 >(client);
             }

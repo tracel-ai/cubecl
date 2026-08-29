@@ -92,6 +92,22 @@ The skip is recorded as an edge — the kernel, the node it needed, the nodes it
 produced — so a read two hops downstream reports the root cause *and* the path
 to it.
 
+### Where the sets come from
+
+The read set and the write set are the compiled kernel's own answer — the
+visibility analysis can prove a buffer write-only or dead, which nothing else
+can. A kernel that never compiled kept no answer, so the launch site's
+declaration stands in: the generated launch functions declare what each
+signature proves — `&Tensor` cannot be written, `&mut Tensor` may be read —
+and an argument that aliases another writes it in place, so its declaration
+lands on the aliased buffer. A launch with neither answer over-names:
+everything is checked and everything is claimed, because a spurious loud
+failure is recoverable and a stale buffer reading clean is not.
+
+The declaration is what keeps one candidate that fails to compile from
+poisoning an autotune sweep: the failure claims the outputs the candidate
+declared, never the inputs every other candidate still has to read.
+
 ### The scope is the capture window's only informant
 
 On a stream recording a graph, the scope's exit is also what the window hears.

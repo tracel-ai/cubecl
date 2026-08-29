@@ -1156,6 +1156,19 @@ impl core::fmt::Debug for IoError {
 pub struct KernelArguments {
     /// Kernel bindings
     pub resources: Vec<KernelResource>,
+    /// What the caller declared each resource is for, indexed like
+    /// `resources`.
+    ///
+    /// The compiled kernel's own answer is better when it exists — the
+    /// visibility analysis can prove a buffer write-only or dead, which a
+    /// caller cannot — but it only exists once the kernel compiles. This one
+    /// is stamped at the launch site from what the caller can see (a launch
+    /// generated from `&Tensor` versus `&mut Tensor` knows it statically), so
+    /// it survives the compile failing, which is exactly when it is needed: a
+    /// launch that never ran must not taint the buffers it was only going to
+    /// read. Missing entries read as [`ReadWrite`](BufferIOAttr::ReadWrite),
+    /// so a caller that declares nothing keeps the loud fallback.
+    pub declared_io: Vec<BufferIOAttr>,
     /// Packed scalars and metadata. First scalars sorted by type, then static metadata,
     /// then dynamic metadata.
     pub info: MetadataBindingInfo,
@@ -1181,6 +1194,22 @@ impl KernelArguments {
     /// Add a buffer binding
     pub fn with_buffer(mut self, binding: BufferBinding) -> Self {
         self.resources.push(KernelResource::Buffer(binding));
+        self
+    }
+
+    /// Add a buffer binding, declaring what the kernel does with it.
+    ///
+    /// The declaration is what a launch that fails before running — a kernel
+    /// that does not compile above all — falls back on: only declared-writable
+    /// buffers take the failure, so the ones the kernel was only going to read
+    /// stay readable. Resources added without a declaration read as
+    /// [`ReadWrite`](BufferIOAttr::ReadWrite), and mixing the two keeps every
+    /// declaration on the resource it was made for.
+    pub fn with_buffer_io(mut self, binding: BufferBinding, io: BufferIOAttr) -> Self {
+        self.declared_io
+            .resize(self.resources.len(), BufferIOAttr::ReadWrite);
+        self.resources.push(KernelResource::Buffer(binding));
+        self.declared_io.push(io);
         self
     }
 
@@ -1223,11 +1252,13 @@ impl KernelArguments {
     ///
     /// `io` is what the compiler recorded from its visibility analysis,
     /// indexed like `resources` (see
-    /// [`BufferIOAttr`](crate::kernel::BufferIOAttr)). `None`, or a vector shorter
-    /// than the resources, reads as written: naming a buffer the kernel only
-    /// read fails a read that would have been fine, loudly; missing one it
-    /// writes hands back the bytes that were there before, silently — so
-    /// every fallback over-names.
+    /// [`BufferIOAttr`](crate::kernel::BufferIOAttr)). An index it has no
+    /// answer for falls back to the caller's declaration in `declared_io` —
+    /// which is how a kernel that never compiled still taints only its
+    /// outputs — and an index neither answers reads as written: naming a
+    /// buffer the kernel only read fails a read that would have been fine,
+    /// loudly; missing one it writes hands back the bytes that were there
+    /// before, silently — so the last-resort fallback over-names.
     pub fn buffers_written<'a>(
         &'a self,
         io: Option<&'a [BufferIOAttr]>,
@@ -1235,8 +1266,8 @@ impl KernelArguments {
         self.buffers()
             .enumerate()
             .filter_map(move |(index, binding)| {
-                let written = io
-                    .and_then(|io| io.get(index))
+                let written = self
+                    .io_attr(io, index)
                     .map(|io| io.is_writable())
                     .unwrap_or(true);
                 written.then_some(binding)
@@ -1248,9 +1279,10 @@ impl KernelArguments {
     /// only ones checked: a pure output is not read, so a relaunch into a
     /// tainted buffer is exactly how the buffer gets repaired.
     ///
-    /// The same fallback direction as [`buffers_written`](Self::buffers_written):
-    /// no answer reads as read, so a kernel the compiler kept no answer for is
-    /// checked on everything rather than checked on nothing.
+    /// The same fallback chain as [`buffers_written`](Self::buffers_written):
+    /// compiled answer, then the caller's declaration, then read — so a
+    /// kernel nobody kept an answer for is checked on everything rather than
+    /// checked on nothing.
     pub fn buffers_read<'a>(
         &'a self,
         io: Option<&'a [BufferIOAttr]>,
@@ -1258,12 +1290,21 @@ impl KernelArguments {
         self.buffers()
             .enumerate()
             .filter_map(move |(index, binding)| {
-                let read = io
-                    .and_then(|io| io.get(index))
+                let read = self
+                    .io_attr(io, index)
                     .map(|io| io.is_readable())
                     .unwrap_or(true);
                 read.then_some(binding)
             })
+    }
+
+    /// The answer for one resource: the compiled kernel's when it kept one,
+    /// the caller's declaration otherwise, `None` when neither answered.
+    fn io_attr(&self, compiled: Option<&[BufferIOAttr]>, index: usize) -> Option<BufferIOAttr> {
+        compiled
+            .and_then(|io| io.get(index))
+            .or_else(|| self.declared_io.get(index))
+            .copied()
     }
 }
 
@@ -1703,5 +1744,56 @@ mod tests {
             "the uncovered resource reads as written"
         );
         assert_eq!(args.buffers_read(Some(&short)).count(), 1);
+    }
+
+    /// The caller's declaration answers when the compiled kernel kept none —
+    /// which is what a launch that fails to compile falls back on, so it
+    /// taints only its declared outputs — and the compiled answer still wins
+    /// where it exists, since only the visibility analysis can prove a buffer
+    /// write-only or dead.
+    #[test_log::test]
+    fn declared_io_answers_when_the_compiled_kernel_kept_none() {
+        use crate::kernel::BufferIOAttr;
+        use cubecl_environment::stream::StreamId;
+
+        let stream = StreamId { value: 0 };
+        let args = KernelArguments::new()
+            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::ReadOnly)
+            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::ReadOnly)
+            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::WriteOnly);
+
+        // No compiled answer: the declaration decides. The inputs are not
+        // written, so a failed compile leaves them readable.
+        let written: Vec<_> = args.buffers_written(None).collect();
+        assert_eq!(written.len(), 1, "only the declared output is written");
+        assert!(core::ptr::eq(written[0], args.buffers().nth(2).unwrap()));
+        assert_eq!(args.buffers_read(None).count(), 2);
+
+        // A compiled answer overrides the declaration where it has one and
+        // falls back to it where it does not.
+        let compiled = [BufferIOAttr::ReadWrite];
+        let written: Vec<_> = args.buffers_written(Some(&compiled)).collect();
+        assert_eq!(written.len(), 2, "compiled ReadWrite plus declared output");
+        assert!(core::ptr::eq(written[0], args.buffers().next().unwrap()));
+        assert!(core::ptr::eq(written[1], args.buffers().nth(2).unwrap()));
+    }
+
+    /// Declarations stay on the resource they were made for when declared and
+    /// undeclared resources mix, and the undeclared ones keep the loud
+    /// fallback.
+    #[test_log::test]
+    fn an_undeclared_resource_among_declared_ones_over_names() {
+        use crate::kernel::BufferIOAttr;
+        use cubecl_environment::stream::StreamId;
+
+        let stream = StreamId { value: 0 };
+        let args = KernelArguments::new()
+            .with_buffer(Handle::new(stream, 8).binding())
+            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::ReadOnly);
+
+        let written: Vec<_> = args.buffers_written(None).collect();
+        assert_eq!(written.len(), 1, "the undeclared resource reads as written");
+        assert!(core::ptr::eq(written[0], args.buffers().next().unwrap()));
+        assert_eq!(args.buffers_read(None).count(), 2);
     }
 }

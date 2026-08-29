@@ -248,3 +248,35 @@ pub fn addition_set_with_failing_compilation(
         op_broken.run(inputs)
     }))
 }
+
+/// Addition set whose *first* candidate uses a kernel that fails to compile, with the
+/// working `add` behind it — the poisoning order. The broken launch never runs, so it
+/// must taint only the output it declared it would write: were it to claim the shared
+/// inputs too, every candidate after it would skip on those inputs' failure, the tune
+/// would end with no survivor, and the inputs would stay unreadable long after the
+/// tune — one missing feature poisoning the whole operation.
+///
+/// `uid` keeps the key a cache miss, as in [`addition_set_with_failing_compilation`].
+pub fn addition_set_with_failing_compilation_first(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    uid: String,
+) -> TestSet {
+    let op_broken = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionBrokenCompilation),
+        client.clone(),
+    );
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| {
+            format!("no_compile_first-{uid}-{}", log_shape_input_key(&shapes))
+        },
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add_no_compile", move |inputs| {
+        op_broken.run(inputs)
+    }))
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+}

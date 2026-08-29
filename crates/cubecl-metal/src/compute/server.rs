@@ -334,8 +334,11 @@ impl ComputeServer for MetalServer {
         // Compilation comes first — memoized, so a launch after the first
         // pays a map lookup — because the write scope stages what the
         // compiled kernel says it writes. A kernel that fails to compile has
-        // no IR and no answer, so every buffer the launch was given is left
-        // as it was and all of them carry the failure.
+        // no IR and no compiled answer, so the caller's declared IO decides:
+        // only the declared outputs are left carrying the failure, never the
+        // buffers the kernel was only going to read — tainting those would
+        // refuse every later launch that shares them, an autotune sweep
+        // above all.
         //
         // A dry run stages none either way. It was never going to write, so a
         // failure in it leaves nothing stale, and tainting its buffers would
@@ -356,7 +359,7 @@ impl ComputeServer for MetalServer {
             Err(err) => {
                 if !launch_mode.is_skipped() {
                     let mut written = self.write_set();
-                    written.extend(bindings.buffers().cloned());
+                    written.extend(bindings.buffers_written(None).cloned());
                     failed_writing(self, stream_id, written, ServerError::Launch(err));
                 } else {
                     self.profile_failure(&ServerError::Launch(err));
