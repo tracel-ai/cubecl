@@ -60,6 +60,12 @@
 //! under it. An observer that cares about the difference checks
 //! [`dry_run`](crate::dry_run::dry_run).
 //!
+//! A replayed [`Graph`](crate::client::Graph) is the other direction: its
+//! kernels were observed once, when the capture window recorded them, and a
+//! replay re-executes the whole graph without issuing them again — so an
+//! observed benchmark of a graph-replayed pass reports the capture run and
+//! nothing per replay.
+//!
 //! [`launched`]: LaunchObserver::launched
 //! [`timed`]: LaunchObserver::timed
 
@@ -93,6 +99,18 @@ pub trait LaunchObserver: Send + Sync {
     /// observer that only wants to know *which* kernels ran should leave this
     /// alone; one measuring where a pass spends its time is paying for the
     /// answer either way.
+    ///
+    /// Two situations refuse the measurement without refusing the launch:
+    ///
+    /// * A profile the server cannot take — a graph capture window refuses
+    ///   them on the spot. The kernel is still launched, still reported to
+    ///   [`launched`](Self::launched), and [`timed`](Self::timed) is skipped
+    ///   for it, with a warning in the log.
+    /// * Don't ask for timing around **collective** kernels. Resolving a
+    ///   launch blocks the issuing thread until the kernel completes, and a
+    ///   collective kernel completes only when its peers launch — a thread
+    ///   that issues more than one side of a collective deadlocks waiting for
+    ///   the first.
     fn wants_timing(&self) -> bool {
         false
     }

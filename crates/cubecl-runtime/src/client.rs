@@ -920,25 +920,75 @@ impl<R: Runtime> ComputeClient<R> {
                 let name = kernel.name();
                 let kernel_id = kernel.id();
                 let context = self.device.clone();
-                let count_moved = count.clone();
-                let (result, profile) = self
-                    .profile(
-                        move || {
-                            context
-                                .submit_blocking(move |state| unsafe {
-                                    state.launch(
-                                        kernel,
-                                        count_moved,
-                                        bindings,
-                                        stream_id,
-                                        launch_mode,
-                                    )
-                                })
-                                .unwrap_or_resume()
-                        },
-                        name,
-                    )
-                    .unwrap();
+                // The arguments travel through a slot the profiled closure
+                // empties, because a profile can be refused — a graph capture
+                // window refuses one on the spot — and a refusal must hand the
+                // launch back: dropping a kernel because its measurement could
+                // not start would turn a missing timing into a missing
+                // computation.
+                let slot = Arc::new(cubecl_environment::sync::Mutex::new(Some((
+                    kernel,
+                    count.clone(),
+                    bindings,
+                ))));
+                let to_launch = slot.clone();
+                let profiled = self.profile(
+                    move || {
+                        let (kernel, count, bindings) = to_launch
+                            .lock()
+                            .take()
+                            .expect("filled right above, emptied only here");
+                        context
+                            .submit_blocking(move |state| unsafe {
+                                state.launch(kernel, count, bindings, stream_id, launch_mode)
+                            })
+                            .unwrap_or_resume()
+                    },
+                    name,
+                );
+                let profile = match profiled {
+                    Ok(((), profile)) => profile,
+                    Err(err) => {
+                        // The logger's timing levels opted into profiling and
+                        // keep their loud failure. Only the observer's timing
+                        // degrades: it asked for a measurement, and a refused
+                        // measurement must not take the launch down with it.
+                        if !matches!(level, None | Some(ProfileLevel::ExecutionOnly)) {
+                            panic!("{err:?}");
+                        }
+                        match slot.lock().take() {
+                            // The refusal came before the closure ran, so the
+                            // kernel was never submitted. Launch it the way an
+                            // unobserved run would have.
+                            Some((kernel, count, bindings)) => {
+                                let utilities = self.utilities.clone();
+                                self.device.submit(move |state| {
+                                    unsafe {
+                                        state.launch(kernel, count, bindings, stream_id, launch_mode)
+                                    };
+                                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                                        let info =
+                                            type_name_format(name, TypeNameFormatLevel::Balanced);
+                                        utilities.logger.register_execution(info);
+                                    }
+                                });
+                            }
+                            // The closure ran, so the kernel was submitted;
+                            // only its measurement was lost.
+                            None => {
+                                if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                                    let info =
+                                        type_name_format(name, TypeNameFormatLevel::Balanced);
+                                    self.utilities.logger.register_execution(info);
+                                }
+                            }
+                        }
+                        log::warn!(
+                            "Skipped timing a launch of `{name}` for its observer: the profile was refused ({err:?})"
+                        );
+                        return;
+                    }
+                };
                 // The observer is told first, because resolving the profile
                 // consumes it: the logger's copy is the one that can be
                 // deferred, an observer's cannot be recovered afterwards.
@@ -975,7 +1025,6 @@ impl<R: Runtime> ComputeClient<R> {
                     }
                     None => {}
                 }
-                result
             }
         }
     }
