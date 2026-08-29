@@ -1,12 +1,11 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryId, SharedMemoryBindings},
+    memory_management::{ErrorGraph, FailureId, ManagedMemoryId, SharedMemoryBindings},
     server::{BufferBinding, ServerError},
-    stream::{StreamFactory, StreamPool},
+    stream::{FailureStore, Failures, StreamFactory, StreamMemory, StreamPool, base},
 };
 use core::any::Any;
-use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::stream::StreamId;
 use std::{
@@ -21,8 +20,9 @@ use std::{
 /// This trait provides the necessary methods for initializing streams, flushing them to create events,
 /// and waiting on events for synchronization purposes.
 pub trait EventStreamBackend: 'static {
-    /// The type representing a stream in this backend.
-    type Stream: core::fmt::Debug;
+    /// The type representing a stream in this backend, which exposes the
+    /// memory its kernels see through [`StreamMemory`].
+    type Stream: core::fmt::Debug + StreamMemory;
     /// The type representing an event in this backend.
     type Event: Send + 'static;
 
@@ -30,25 +30,13 @@ pub trait EventStreamBackend: 'static {
     fn create_stream(&self) -> Self::Stream;
     /// Returns the cursor of the given handle on the given stream.
     fn handle_cursor(stream: &Self::Stream, handle: &BufferBinding) -> u64;
-    /// Returns whether the stream can accept new tasks from `stream_id`.
-    ///
-    /// Errors are queued per logical stream (see
-    /// [`StreamErrors`](super::StreamErrors)), so a backend stream is broken
-    /// for the streams whose errors are still queued on it, not for every
-    /// stream sharing it.
-    fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool;
-
-    /// The errors `owner` alone caused on this stream, left queued for it to
-    /// surface — see [`StreamErrors::peek_owned`](super::StreamErrors::peek_owned).
-    ///
-    /// Answers what another stream needs to know about `owner`: did the work
-    /// that wrote the buffer it is about to consume actually run? See
-    /// [`MultiStream::producer_errors`].
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError>;
-
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event
     /// that can be used for synchronization.
-    fn flush(stream: &mut Self::Stream) -> Self::Event;
+    ///
+    /// `failures` is the device's failure store, handed down because a flush
+    /// may drive the stream's periodic memory cleanup, and cleaning up is
+    /// where a pool sheds the failures its slices carry.
+    fn flush(stream: &mut Self::Stream, failures: &mut ErrorGraph) -> Self::Event;
     /// Makes the stream wait for the specified event to complete before proceeding with further operations.
     fn wait_event(stream: &mut Self::Stream, event: Self::Event);
     /// Wait for the given event synching the CPU.
@@ -63,6 +51,9 @@ pub trait EventStreamBackend: 'static {
 pub struct MultiStream<B: EventStreamBackend> {
     /// The map of stream IDs to their corresponding stream wrappers.
     streams: StreamPool<EventStreamBackendWrapper<B>>,
+    /// Every failure the device is still holding, and the write scope's
+    /// scratch — see [`Failures`].
+    failures: Failures,
     /// The logger used by the server.
     pub logger: Arc<ServerLogger>,
     max_streams: usize,
@@ -74,7 +65,10 @@ pub struct MultiStream<B: EventStreamBackend> {
 ///
 /// This includes the stream itself, a map of last synchronized cursors from other streams,
 /// and the current cursor position for this stream.
-pub(crate) struct StreamWrapper<B: EventStreamBackend> {
+/// A backend stream plus the synchronization metadata the pool keeps beside
+/// it. Public only because it is the pool's stream type in
+/// [`FailureStore::Factory`]; backends reach the stream itself, not this.
+pub struct StreamWrapper<B: EventStreamBackend> {
     /// The underlying backend stream.
     stream: B::Stream,
     /// The current cursor position, representing the logical progress or version of operations on this stream.
@@ -90,6 +84,7 @@ pub struct ResolvedStreams<'a, B: EventStreamBackend> {
     /// This cursor should be use for new allocations happening on the current stream.
     pub cursor: u64,
     streams: &'a mut StreamPool<EventStreamBackendWrapper<B>>,
+    failures: &'a mut ErrorGraph,
     analysis: SharedBindingAnalysis,
     gc: &'a GcThread<B>,
     /// The current stream where new tasks can be sent safely.
@@ -115,8 +110,24 @@ impl<B: EventStreamBackend> GcTask<B> {
 }
 
 #[derive(Debug)]
-struct EventStreamBackendWrapper<B: EventStreamBackend> {
+/// The factory a [`MultiStream`]'s pool is built from. Public only because it
+/// names the pool in [`FailureStore::Factory`]; it has no surface of its own.
+pub struct EventStreamBackendWrapper<B: EventStreamBackend> {
     backend: B,
+}
+
+impl<B: EventStreamBackend> StreamMemory for StreamWrapper<B> {
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
+        self.stream.failure(binding)
+    }
+
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
+        self.stream.taint(binding, failure, failures)
+    }
+
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
+        self.stream.written(binding, failures)
+    }
 }
 
 impl<B: EventStreamBackend> StreamFactory for EventStreamBackendWrapper<B> {
@@ -171,6 +182,38 @@ impl<'a, B: EventStreamBackend> ResolvedStreams<'a, B> {
         &mut stream.stream
     }
 
+    /// The current stream and the device's failure store together, for the
+    /// paths that hand the store to the stream's memory manager — every
+    /// reserve, bind and cleanup, since those are where slices shed the
+    /// failures they carry.
+    pub fn current_and_failures(&mut self) -> (&mut B::Stream, &mut ErrorGraph) {
+        let stream = self.streams.get_mut(&self.current);
+        (&mut stream.stream, self.failures)
+    }
+
+    /// [`current_and_failures`](Self::current_and_failures) for the stream at
+    /// `stream_id`.
+    pub fn get_and_failures(&mut self, stream_id: &StreamId) -> (&mut B::Stream, &mut ErrorGraph) {
+        let stream = self.streams.get_mut(stream_id);
+        (&mut stream.stream, self.failures)
+    }
+
+    /// Taint every allocation in `written` with `error` — see
+    /// [`base::taint`].
+    pub fn taint<'b>(
+        &mut self,
+        error: ServerError,
+        written: impl Iterator<Item = &'b BufferBinding>,
+    ) {
+        base::taint(self.streams, error, written, self.failures);
+    }
+
+    /// Release the failure on every allocation in `written` — see
+    /// [`base::written`].
+    pub fn written<'b>(&mut self, written: impl Iterator<Item = &'b BufferBinding>) {
+        base::written(self.streams, written, self.failures);
+    }
+
     /// Enqueue a task to be cleaned.
     pub fn gc(&mut self, gc: GcTask<B>) {
         self.gc.sender.send(gc).unwrap();
@@ -184,11 +227,11 @@ impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
         }
 
         let stream = self.streams.get_mut(&self.current);
-        let event_origin = B::flush(&mut stream.stream);
+        let event_origin = B::flush(&mut stream.stream, self.failures);
 
         let stream_gc = &mut unsafe { self.streams.get_special(0) }.stream;
         B::wait_event(stream_gc, event_origin);
-        let event = B::flush(stream_gc);
+        let event = B::flush(stream_gc, self.failures);
 
         let pinned = core::mem::take(&mut self.analysis.pinned);
         self.gc.register(GcTask::new(pinned, event));
@@ -208,6 +251,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         let wrapper = EventStreamBackendWrapper { backend };
         Self {
             streams: StreamPool::new(wrapper, max_streams, 1),
+            failures: Failures::new(logger.clone()),
             logger,
             max_streams: max_streams as usize,
             gc: GcThread::new(),
@@ -225,17 +269,13 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.gc.sender.send(gc).unwrap();
     }
 
-    /// The errors owned by the streams that wrote `handles` — see
-    /// [`StreamPool::producer_errors`].
-    pub fn producer_errors<'a>(
-        &mut self,
-        reader: StreamId,
-        handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Vec<ServerError> {
+    /// The backend stream on `stream_id`'s slot when that slot was ever
+    /// initialized, mutably — a lookup that must not create a stream (see
+    /// [`StreamPool::try_get_mut`]).
+    pub fn try_stream_mut(&mut self, stream_id: &StreamId) -> Option<&mut B::Stream> {
         self.streams
-            .producer_errors(reader, handles, |stream, owner| {
-                B::errors_owned(&stream.stream, owner)
-            })
+            .try_get_mut(stream_id)
+            .map(|wrapper| &mut wrapper.stream)
     }
 
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary
@@ -247,27 +287,20 @@ impl<B: EventStreamBackend> MultiStream<B> {
         &mut self,
         stream_id: StreamId,
         handles: impl Iterator<Item = &'a BufferBinding>,
-        enforce_healthy: bool,
-    ) -> Result<ResolvedStreams<'_, B>, ServerError> {
+    ) -> ResolvedStreams<'_, B> {
         let analysis = self.align_streams(stream_id, handles);
 
         let stream = self.streams.get_mut(&stream_id);
         stream.cursor += 1;
 
-        if enforce_healthy && !B::is_healthy(&stream.stream, stream_id) {
-            return Err(ServerError::Generic {
-                reason: "Can't resolve the stream since it is currently in an error state".into(),
-                backtrace: BackTrace::capture(),
-            });
-        }
-
-        Ok(ResolvedStreams {
+        ResolvedStreams {
             cursor: stream.cursor,
             streams: &mut self.streams,
+            failures: self.failures.graph_mut(),
             current: stream_id,
             analysis,
             gc: &self.gc,
-        })
+        }
     }
 
     /// Aligns the target stream with other streams based on shared bindings.
@@ -365,7 +398,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         unsafe {
             for origin in analysis.slices.keys() {
                 let stream = self.streams.get_mut_index(*origin);
-                let event = B::flush(&mut stream.stream);
+                let event = B::flush(&mut stream.stream, self.failures.graph_mut());
 
                 events.push(((origin, stream.cursor), event));
             }
@@ -385,6 +418,18 @@ impl<B: EventStreamBackend> MultiStream<B> {
         }
 
         analysis
+    }
+}
+
+impl<B: EventStreamBackend> FailureStore for MultiStream<B> {
+    type Factory = EventStreamBackendWrapper<B>;
+
+    fn split(&mut self) -> (&mut StreamPool<Self::Factory>, &mut Failures) {
+        (&mut self.streams, &mut self.failures)
+    }
+
+    fn parts(&self) -> (&StreamPool<Self::Factory>, &Failures) {
+        (&self.streams, &self.failures)
     }
 }
 
@@ -453,8 +498,8 @@ mod tests {
         let binding_2 = handle(stream_2);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter(), false).unwrap();
-        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         let analysis = ms.update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter());
 
@@ -478,8 +523,8 @@ mod tests {
         let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, 4);
-        ms.resolve(stream_1, [].into_iter(), false).unwrap();
-        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         let analysis =
             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
@@ -504,8 +549,8 @@ mod tests {
         let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter(), false).unwrap();
-        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         let analysis =
             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
@@ -526,15 +571,10 @@ mod tests {
         let binding_3 = handle(stream_1);
 
         let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter(), false).unwrap();
-        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
-        ms.resolve(
-            stream_1,
-            [&binding_1, &binding_2, &binding_3].into_iter(),
-            false,
-        )
-        .unwrap();
+        ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
 
         let stream1 = ms.streams.get_mut(&stream_1);
         let index_2 = stream_index(&stream_2, MAX_STREAMS as usize);
@@ -554,14 +594,14 @@ mod tests {
 
         let gate = Arc::new(AtomicBool::new(false));
         let mut ms = MultiStream::new(logger, GatedBackend { gate: gate.clone() }, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter(), false).unwrap();
-        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         let handle = Handle::new(stream_1, 10);
         let observer = handle.memory.clone();
         let binding = handle.binding();
 
-        drop(ms.resolve(stream_2, [&binding].into_iter(), false).unwrap());
+        drop(ms.resolve(stream_2, [&binding].into_iter()));
         drop(binding);
 
         // The GC thread is blocked on the (gated) consumer event, so the pinned
@@ -584,16 +624,13 @@ mod tests {
 
         let gate = Arc::new(AtomicBool::new(true));
         let mut ms = MultiStream::new(logger, GatedBackend { gate: gate.clone() }, MAX_STREAMS);
-        ms.resolve(stream_1, [].into_iter(), false).unwrap();
-        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         // First resolve records stream_1 as synced on stream_2.
         let handle_1 = Handle::new(stream_1, 10);
         let binding_1 = handle_1.binding();
-        drop(
-            ms.resolve(stream_2, [&binding_1].into_iter(), false)
-                .unwrap(),
-        );
+        drop(ms.resolve(stream_2, [&binding_1].into_iter()));
         drop(binding_1);
 
         // Close the gate for the second round.
@@ -607,9 +644,7 @@ mod tests {
         // analysis is empty — but the binding must still be pinned: the origin
         // stream could otherwise free/reuse the memory under the in-flight
         // consumer.
-        let resolved = ms
-            .resolve(stream_2, [&binding_2].into_iter(), false)
-            .unwrap();
+        let resolved = ms.resolve(stream_2, [&binding_2].into_iter());
         assert!(resolved.analysis.slices.is_empty());
         drop(resolved);
         drop(binding_2);
@@ -640,8 +675,8 @@ mod tests {
 
     struct TestBackend;
 
-    #[derive(Debug)]
-    struct TestStream {}
+    #[derive(Debug, Default)]
+    struct TestStream;
 
     #[derive(Debug)]
     struct TestEvent {}
@@ -652,7 +687,7 @@ mod tests {
         gate: Arc<AtomicBool>,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     struct GatedStream {
         gate: Arc<AtomicBool>,
     }
@@ -660,6 +695,39 @@ mod tests {
     #[derive(Debug)]
     struct GatedEvent {
         gate: Arc<AtomicBool>,
+    }
+
+    /// The test streams manage no memory, so nothing carries a failure.
+    impl StreamMemory for GatedStream {
+        fn failure(&self, _binding: &BufferBinding) -> Option<FailureId> {
+            None
+        }
+
+        fn taint(
+            &mut self,
+            _binding: &BufferBinding,
+            _failure: FailureId,
+            _failures: &mut ErrorGraph,
+        ) {
+        }
+
+        fn written(&mut self, _binding: &BufferBinding, _failures: &mut ErrorGraph) {}
+    }
+
+    impl StreamMemory for TestStream {
+        fn failure(&self, _binding: &BufferBinding) -> Option<FailureId> {
+            None
+        }
+
+        fn taint(
+            &mut self,
+            _binding: &BufferBinding,
+            _failure: FailureId,
+            _failures: &mut ErrorGraph,
+        ) {
+        }
+
+        fn written(&mut self, _binding: &BufferBinding, _failures: &mut ErrorGraph) {}
     }
 
     impl EventStreamBackend for GatedBackend {
@@ -672,7 +740,7 @@ mod tests {
             }
         }
 
-        fn flush(stream: &mut Self::Stream) -> Self::Event {
+        fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
             GatedEvent {
                 gate: stream.gate.clone(),
             }
@@ -690,14 +758,6 @@ mod tests {
         fn handle_cursor(_stream: &Self::Stream, _handle: &BufferBinding) -> u64 {
             0
         }
-
-        fn is_healthy(_stream: &Self::Stream, _stream_id: StreamId) -> bool {
-            true
-        }
-
-        fn errors_owned(_stream: &Self::Stream, _owner: StreamId) -> Vec<ServerError> {
-            Vec::new()
-        }
     }
 
     impl EventStreamBackend for TestBackend {
@@ -705,10 +765,10 @@ mod tests {
         type Event = TestEvent;
 
         fn create_stream(&self) -> Self::Stream {
-            TestStream {}
+            TestStream
         }
 
-        fn flush(_stream: &mut Self::Stream) -> Self::Event {
+        fn flush(_stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
             TestEvent {}
         }
 
@@ -720,14 +780,6 @@ mod tests {
 
         fn handle_cursor(_stream: &Self::Stream, _handle: &BufferBinding) -> u64 {
             0
-        }
-
-        fn is_healthy(_stream: &Self::Stream, _stream_id: StreamId) -> bool {
-            true
-        }
-
-        fn errors_owned(_stream: &Self::Stream, _owner: StreamId) -> Vec<ServerError> {
-            Vec::new()
         }
     }
 }

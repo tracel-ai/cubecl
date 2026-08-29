@@ -141,14 +141,17 @@ fn bench(client: &ComputeClient<WgpuRuntime>, config: &Config) {
     let capture_start = Instant::now();
     let graph = client.stop_capture().expect("stop_capture");
     let capture = capture_start.elapsed();
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     sync(client, &a);
 
     let mut normal = Measure::default();
     let mut replay = Measure::default();
     for _ in 0..config.rounds {
         normal.round(|| run_pass(client, &a, &b, config), || sync(client, &a));
-        replay.round(|| unsafe { graph.replay() }, || sync(client, &a));
+        replay.round(
+            || unsafe { graph.replay() }.expect("replay enqueues"),
+            || sync(client, &a),
+        );
     }
 
     let launches = (config.rounds * config.kernels) as f64;

@@ -537,11 +537,15 @@ pub fn test_unsupported_fragment<R: Runtime>(client: ComputeClient<R>, cube_dime
         &client,
         CubeCount::Static(1, 1, 1),
         cube_dimensions,
-        unsafe { BufferArg::from_raw_parts(out, 16) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), 16) },
     );
 
-    let result = client.flush();
-    let error = result.expect_err("a fragment shape no device advertises must fail compilation");
+    // The compile failure claims the buffer the launch was given; reading it
+    // is what reports the error — a launch failure is not the flush's to
+    // report any more.
+    let error = client
+        .read_one(out)
+        .expect_err("a fragment shape no device advertises must fail compilation");
     let message = alloc::format!("{error:?}");
     assert!(
         message.contains("cooperative matrix fragment"),

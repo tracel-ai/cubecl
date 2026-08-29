@@ -1,51 +1,73 @@
+//! One backend stream, and everything that hangs off it.
+//!
+//! A stream owns its own memory: allocations are per stream, not per device,
+//! so a buffer resolves to the stream that created it and nowhere else. What
+//! it carries beside the driver handle is the state that has to move in step
+//! with the work queued on it — the deferred frees, the capture window, and
+//! the per-launch info buffers a capture may not allocate inside.
+
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
     server::{BufferBinding, Handle, ServerError},
 };
-use cubecl_environment::stream::StreamId;
-use cubecl_hip_sys::HIP_SUCCESS;
+use cubecl_runtime::storage::PINNED_MEMORY_ALIGNMENT;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        ErrorGraph, FailureId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
         drop_queue::{self, FlushingPolicy, PendingDropQueue},
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{EventStreamBackend, StreamCaptureState, StreamErrors},
+    stream::{EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::sync::Arc;
 
-use crate::compute::{
-    cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
-    fence::Fence,
-    gpu::GpuStorage,
-};
+use cubecl_runtime::driver::checked;
+
+use crate::compute::{cpu::PinnedMemoryStorage, fence::Fence, gpu::GpuStorage};
 
 #[derive(Debug)]
 pub struct Stream {
     pub(crate) sys: cubecl_hip_sys::hipStream_t,
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
-    pub errors: StreamErrors,
     pub drop_queue: drop_queue::PendingDropQueue<Fence>,
-    /// This stream's position in the graph-capture lifecycle (see
-    /// [`StreamCaptureState`]). Enforces the ordered `graph_prepare` →
-    /// `begin_capture` → `end_capture` transitions and gates the deferral of
-    /// fenced drop-queue flushes while a capture is actively recording.
-    pub capturing: StreamCaptureState,
+    /// This stream's graph capture (see [`StreamCapture`]): its position in
+    /// the lifecycle, and the memory its recorded launches were given. Enforces
+    /// the ordered `graph_prepare` → `begin_capture` → `end_capture`
+    /// transitions and gates the deferral of fenced drop-queue flushes while a
+    /// capture is actively recording.
+    pub capturing: StreamCapture,
     /// Reusable per-launch info buffers (kernel shapes/strides/scalars), keyed
     /// by kernel and the exact info bytes. Admission and least-recently-used
     /// eviction are decided by the cache's [`MetadataCachePolicy`]; the launch
     /// path sets its [`CacheMode`] from the capture lifecycle, so during graph
     /// capture every buffer is cached and none is evicted mid-capture. See
-    /// [`StreamCaptureState::cache_mode`].
+    /// [`StreamCapture::cache_mode`].
     pub info_cache: MetadataInfoCache<Handle>,
 }
 
+impl StreamMemory for Stream {
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
+        self.memory_management_gpu
+            .failure(&binding.memory, binding.range())
+    }
+
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
+        self.memory_management_gpu
+            .taint(&binding.memory, binding.range(), failure, failures)
+    }
+
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
+        self.memory_management_gpu
+            .written(&binding.memory, binding.range(), failures)
+    }
+}
+
 impl drop_queue::Fence for Fence {
-    fn sync(self) {
-        let _ = self.wait_sync().ok();
+    fn wait(self) -> Result<(), ServerError> {
+        self.wait_sync()
     }
 }
 
@@ -95,7 +117,9 @@ impl EventStreamBackend for HipStreamBackend {
                 &mut stream,
                 cubecl_hip_sys::hipStreamNonBlocking,
             );
-            assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
+            // Fatal: the pool hands out streams by value and every operation
+            // on this backend is issued against one.
+            checked("hipStreamCreateWithFlags", stream_status).expect("the pool needs a stream");
             stream
         };
         let storage = GpuStorage::new(self.mem_alignment);
@@ -129,8 +153,7 @@ impl EventStreamBackend for HipStreamBackend {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
-            errors: StreamErrors::default(),
-            capturing: StreamCaptureState::NoCapture,
+            capturing: StreamCapture::default(),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
                 max_bytes_count: match self.is_integrated {
@@ -152,7 +175,7 @@ impl EventStreamBackend for HipStreamBackend {
         }
     }
 
-    fn flush(stream: &mut Self::Stream) -> Self::Event {
+    fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
         Fence::new(stream.sys)
     }
 
@@ -172,13 +195,5 @@ impl EventStreamBackend for HipStreamBackend {
             .memory_management_gpu
             .get_cursor(binding.memory.clone())
             .unwrap_or(u64::MAX)
-    }
-
-    fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool {
-        !stream.errors.any(stream_id)
-    }
-
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
-        stream.errors.peek_owned(owner)
     }
 }

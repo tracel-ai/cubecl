@@ -1,3 +1,4 @@
+use cubecl_runtime::kernel::BufferIOAttr;
 use std::fmt::Display;
 
 use cubecl_core::{
@@ -145,6 +146,16 @@ impl Compiler for AutoCompiler {
         };
 
         Ok(kernel)
+    }
+
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
+        match repr {
+            AutoRepresentation::Wgsl(shader) => WgslCompiler::buffer_io(shader),
+            #[cfg(feature = "spirv")]
+            AutoRepresentation::SpirV(kernel) => cubecl_spirv::SpirvCompiler::buffer_io(kernel),
+            #[cfg(feature = "msl")]
+            AutoRepresentation::Msl(kernel) => MslCompiler::buffer_io(kernel),
+        }
     }
 
     fn extension(&self) -> &'static str {

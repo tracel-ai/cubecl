@@ -1,3 +1,11 @@
+//! The device context: its compiled kernels, and its open profiles.
+//!
+//! Compilation is memoized here rather than per stream, because a module is
+//! loaded into the context and every stream sharing it can launch from the
+//! same one. What a compiled kernel answers for beyond its entry point is
+//! which of its bindings it writes, which is what a launch stages its write
+//! scope from.
+
 use super::storage::gpu::GpuResource;
 use crate::runtime::HipCompiler;
 use crate::{compute::stream::Stream, runtime::HipComputeKernel};
@@ -11,10 +19,12 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::Store;
-use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
+use cubecl_hip_sys::get_hip_include_path;
 use cubecl_runtime::compiler::{
     CompilationCache, build_id_hash, compilation_store, store_compiled,
 };
+use cubecl_runtime::driver::checked;
+use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     compiler::CompilationError,
@@ -54,6 +64,12 @@ pub struct HipCompiledKernel {
     func: cubecl_hip_sys::hipFunction_t,
     cube_dim: CubeDim,
     shared_mem_bytes: usize,
+    /// What the kernel does with each buffer binding, by buffer position --
+    /// the compiler's answer, carried here because on a cache hit nothing
+    /// else of the compilation survives. `None` for entries persisted before
+    /// the answer existed, which the launch path reads as every buffer both
+    /// read and written.
+    io: Option<Arc<[BufferIOAttr]>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -61,6 +77,10 @@ pub struct CompilationCacheEntry {
     entrypoint_name: String,
     shared_mem_bytes: usize,
     binary: Vec<i8>,
+    /// See [`HipCompiledKernel::io`]; defaulted for entries persisted before
+    /// the field existed.
+    #[serde(default)]
+    io: Option<Vec<BufferIOAttr>>,
 }
 
 impl HipContext {
@@ -118,6 +138,7 @@ impl HipContext {
                     entry.entrypoint_name,
                     kernel_id.cube_dim.into(),
                     entry.shared_mem_bytes,
+                    entry.io.map(Arc::from),
                 )?;
                 return Ok(Ok(()));
             }
@@ -183,127 +204,9 @@ impl HipContext {
             None
         };
 
-        // Create HIP Program
-        // SAFETY: Calling HIP RTC FFI to create a program from source. The `CString` ensures
-        // the source is null-terminated. The returned `program` handle is valid on success.
-        let program = unsafe {
-            let source = CString::new(jitc_kernel.source.clone()).unwrap();
-            let mut program: cubecl_hip_sys::hiprtcProgram = std::ptr::null_mut();
+        let code = compile_to_binary(&jitc_kernel.source)?;
 
-            let status = cubecl_hip_sys::hiprtcCreateProgram(
-                &mut program,
-                source.as_ptr(),
-                std::ptr::null(), // program name seems unnecessary
-                0,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            );
-
-            if status != hiprtcResult_HIPRTC_SUCCESS {
-                Err(CompilationError::Generic {
-                    reason: format!(
-                        "Unable to create the program from the source: HIP STATUS: {status}"
-                    ),
-                    backtrace: BackTrace::capture(),
-                })?;
-            }
-
-            program
-        };
-        // Compile HIP program
-        // options
-        let include_path = get_hip_include_path().unwrap();
-        let include_option = format!("-I{include_path}");
-        let include_option_cstr = CString::new(include_option).unwrap();
-        // needed for rocWMMA extension to compile
-        let cpp_std_option_cstr = CString::new("--std=c++17").unwrap();
-        let optimization_level = CString::new("-O3").unwrap();
-        let mut options = vec![
-            cpp_std_option_cstr.as_ptr(),
-            include_option_cstr.as_ptr(),
-            optimization_level.as_ptr(),
-        ];
-        // SAFETY: `program` is a valid RTC program handle created above. The `options` vector
-        // contains valid null-terminated `CString` pointers that outlive this call. On failure,
-        // we retrieve and report the compilation log before returning an error.
-        unsafe {
-            let options_ptr = options.as_mut_ptr();
-            let status =
-                cubecl_hip_sys::hiprtcCompileProgram(program, options.len() as i32, options_ptr);
-
-            if status != hiprtcResult_HIPRTC_SUCCESS {
-                let mut log_size: usize = 0;
-                let status =
-                    cubecl_hip_sys::hiprtcGetProgramLogSize(program, &mut log_size as *mut usize);
-
-                if status != hiprtcResult_HIPRTC_SUCCESS {
-                    Err(CompilationError::Generic {
-                        reason: format!(
-                            "An error during compilation happened, but we're unable to fetch the error log size. STATUS: {status}"
-                        ),
-                        backtrace: BackTrace::capture(),
-                    })?;
-                }
-
-                let mut log_buffer = vec![0; log_size];
-                let status = cubecl_hip_sys::hiprtcGetProgramLog(program, log_buffer.as_mut_ptr());
-
-                if status != hiprtcResult_HIPRTC_SUCCESS {
-                    Err(CompilationError::Generic {
-                        reason: format!(
-                            "An error during compilation happened, but we're unable to fetch the error log content. STATUS: {status}"
-                        ),
-                        backtrace: BackTrace::capture(),
-                    })?;
-                }
-
-                let log = CStr::from_ptr(log_buffer.as_ptr());
-                let mut message = "[Compilation Error] ".to_string();
-                if log_size > 0 {
-                    for line in log.to_string_lossy().split('\n') {
-                        if !line.is_empty() {
-                            message += format!("\n    {line}").as_str();
-                        }
-                    }
-                } else {
-                    message += "\n No compilation logs found!";
-                }
-                Err(CompilationError::Generic {
-                    reason: format!("{message}\n[Source]  \n{}", jitc_kernel.source),
-                    backtrace: BackTrace::capture(),
-                })?;
-            }
-        };
-
-        // Get HIP compiled code from program
-        let mut code_size: usize = 0;
-        // SAFETY: `program` was successfully compiled above. `code_size` is a valid mutable
-        // pointer to receive the size of the compiled binary.
-        unsafe {
-            let status = cubecl_hip_sys::hiprtcGetCodeSize(program, &mut code_size);
-            if status != hiprtcResult_HIPRTC_SUCCESS {
-                Err(CompilationError::Generic {
-                    reason: format!(
-                        "Unable to get the size of the compiled code. STATUS: {status}"
-                    ),
-                    backtrace: BackTrace::capture(),
-                })?;
-            }
-        }
-        let mut code = vec![0; code_size];
-        // SAFETY: `code` is allocated with `code_size` bytes as reported by `hiprtcGetCodeSize`.
-        // `program` is a valid compiled program handle.
-        unsafe {
-            let status = cubecl_hip_sys::hiprtcGetCode(program, code.as_mut_ptr());
-
-            if status != hiprtcResult_HIPRTC_SUCCESS {
-                Err(CompilationError::Generic {
-                    reason: format!("Unable to get the compiled code. STATUS: {status}"),
-                    backtrace: BackTrace::capture(),
-                })?;
-            }
-        }
-
+        let io = jitc_kernel.io.take();
         let repr = jitc_kernel.repr.unwrap();
 
         if let Some(cache) = self.compilation_cache.as_mut() {
@@ -316,6 +219,7 @@ impl HipContext {
                     entrypoint_name: jitc_kernel.entrypoint_name.clone(),
                     shared_mem_bytes: repr.shared_memory_size,
                     binary: code.clone(),
+                    io: io.clone(),
                 },
             );
             store_compiled(second_line_cache, cpp_hash.unwrap(), key);
@@ -327,6 +231,7 @@ impl HipContext {
             jitc_kernel.entrypoint_name,
             jitc_kernel.cube_dim,
             repr.shared_memory_size,
+            io.map(Arc::from),
         )?;
         Ok(())
     }
@@ -338,6 +243,7 @@ impl HipContext {
         entrypoint_name: String,
         cube_dim: CubeDim,
         shared_mem_bytes: usize,
+        io: Option<Arc<[BufferIOAttr]>>,
     ) -> Result<(), CompilationError> {
         let func_name = CString::new(entrypoint_name.clone()).unwrap();
 
@@ -348,12 +254,7 @@ impl HipContext {
         unsafe {
             let codeptr = code.as_ptr();
             let status = cubecl_hip_sys::hipModuleLoadData(&mut module, codeptr as *const _);
-            if status != hiprtcResult_HIPRTC_SUCCESS {
-                return Err(CompilationError::Generic {
-                    reason: format!("Unable to load the compiled module. STATUS: {status}"),
-                    backtrace: BackTrace::capture(),
-                });
-            }
+            checked("hipModuleLoadData", status)?;
         }
         // Retrieve the HIP module function
         let mut func: cubecl_hip_sys::hipFunction_t = std::ptr::null_mut();
@@ -362,14 +263,7 @@ impl HipContext {
         unsafe {
             let status =
                 cubecl_hip_sys::hipModuleGetFunction(&mut func, module, func_name.as_ptr());
-            if status != hiprtcResult_HIPRTC_SUCCESS {
-                return Err(CompilationError::Generic {
-                    reason: format!(
-                        "Unable to load the function in the compiled module. STATUS: {status}"
-                    ),
-                    backtrace: BackTrace::capture(),
-                });
-            }
+            checked("hipModuleGetFunction", status)?;
         }
 
         // register module
@@ -380,10 +274,21 @@ impl HipContext {
                 func,
                 cube_dim,
                 shared_mem_bytes,
+                io,
             },
         );
 
         Ok(())
+    }
+
+    /// What the compiled kernel does with each buffer binding, by buffer
+    /// position — `None` when the kernel is not loaded or predates the
+    /// answer, which the launch path reads as every buffer both read and
+    /// written.
+    pub fn kernel_io(&mut self, kernel_id: &KernelId) -> Option<Arc<[BufferIOAttr]>> {
+        self.modules
+            .get(kernel_id)
+            .and_then(|kernel| kernel.io.clone())
     }
 
     /// Executes a task on the given stream.
@@ -423,18 +328,21 @@ impl HipContext {
                 std::ptr::null_mut(),
             );
 
-            if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory {
-                Err(LaunchError::OutOfMemory {
-                    reason: format!("Out of memory when launching kernel: {kernel_id:?}"),
+            // Out of memory is told apart from the rest because the caller
+            // can act on it — reclaim and relaunch — where nothing else here
+            // is worth retrying.
+            match checked("hipModuleLaunchKernel", status) {
+                Ok(()) => Ok(()),
+                Err(_) if status == cubecl_hip_sys::hipError_t_hipErrorOutOfMemory => {
+                    Err(LaunchError::OutOfMemory {
+                        reason: format!("out of memory launching kernel {kernel_id:?}"),
+                        backtrace: BackTrace::capture(),
+                    })
+                }
+                Err(err) => Err(LaunchError::Unknown {
+                    reason: format!("{err}, launching kernel {kernel_id:?}"),
                     backtrace: BackTrace::capture(),
-                })
-            } else if status != HIP_SUCCESS {
-                Err(LaunchError::Unknown {
-                    reason: format!("Unable to launch kernel {kernel_id:?} with status {status:?}"),
-                    backtrace: BackTrace::capture(),
-                })
-            } else {
-                Ok(())
+                }),
             }
         }
     }
@@ -455,4 +363,132 @@ impl HipContext {
             Ok(())
         }
     }
+}
+
+/// A HIP RTC program, destroyed on drop.
+///
+/// The handle owns the source, the compilation log and the compiled code
+/// inside the RTC runtime, none of which the caller needs once the binary has
+/// been copied out. A guard rather than a call at the end because every step
+/// of the compilation below returns early on failure, and each one of those
+/// paths used to leak the program.
+struct RtcProgram(cubecl_hip_sys::hiprtcProgram);
+
+impl Drop for RtcProgram {
+    fn drop(&mut self) {
+        // SAFETY: created by `hiprtcCreateProgram` below and destroyed exactly
+        // once here, after the compiled code has been copied out.
+        unsafe {
+            cubecl_hip_sys::hiprtcDestroyProgram(&mut self.0 as *mut _);
+        }
+    }
+}
+
+/// Compile `source` to a device binary with HIP RTC.
+///
+/// # Errors
+///
+/// [`CompilationError::Generic`] carrying the compiler's own log, and the
+/// source that produced it, so a kernel the driver refuses says why.
+fn compile_to_binary(source: &str) -> Result<Vec<i8>, CompilationError> {
+    let source = CString::new(source).map_err(|err| CompilationError::Generic {
+        reason: format!("The generated source is not a valid C string: {err}"),
+        backtrace: BackTrace::capture(),
+    })?;
+
+    // SAFETY: `source` is null-terminated and outlives the call. The returned
+    // handle is valid on success and owned by the guard from here on.
+    let program = unsafe {
+        let mut program: cubecl_hip_sys::hiprtcProgram = std::ptr::null_mut();
+        let status = cubecl_hip_sys::hiprtcCreateProgram(
+            &mut program,
+            source.as_ptr(),
+            std::ptr::null(), // program name seems unnecessary
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        checked("hiprtcCreateProgram", status)?;
+        RtcProgram(program)
+    };
+
+    let include_path = get_hip_include_path().map_err(|err| CompilationError::Generic {
+        reason: format!("Unable to locate the HIP headers to compile against: {err}"),
+        backtrace: BackTrace::capture(),
+    })?;
+    let include_option =
+        CString::new(format!("-I{include_path}")).map_err(|err| CompilationError::Generic {
+            reason: format!("The HIP include path is not a valid C string: {err}"),
+            backtrace: BackTrace::capture(),
+        })?;
+    // needed for rocWMMA extension to compile
+    let cpp_std_option = c"--std=c++17";
+    let optimization_level = c"-O3";
+    let mut options = [
+        cpp_std_option.as_ptr(),
+        include_option.as_ptr(),
+        optimization_level.as_ptr(),
+    ];
+
+    // SAFETY: `program.0` is the handle created above, and `options` holds
+    // null-terminated pointers that outlive the call.
+    let status = unsafe {
+        cubecl_hip_sys::hiprtcCompileProgram(program.0, options.len() as i32, options.as_mut_ptr())
+    };
+    if checked("hiprtcCompileProgram", status).is_err() {
+        return Err(CompilationError::Generic {
+            reason: format!(
+                "{}\n[Source]  \n{}",
+                compilation_log(&program),
+                source.to_string_lossy()
+            ),
+            backtrace: BackTrace::capture(),
+        });
+    }
+
+    // SAFETY: `program.0` compiled successfully above, so it has code to
+    // report the size of and to copy out into a buffer of exactly that size.
+    unsafe {
+        let mut code_size: usize = 0;
+        let status = cubecl_hip_sys::hiprtcGetCodeSize(program.0, &mut code_size);
+        checked("hiprtcGetCodeSize", status)?;
+        let mut code = vec![0; code_size];
+        let status = cubecl_hip_sys::hiprtcGetCode(program.0, code.as_mut_ptr());
+        checked("hiprtcGetCode", status)?;
+        Ok(code)
+    }
+}
+
+/// The compiler's log for a program it refused, indented under a heading.
+///
+/// Reports why the log itself is missing rather than failing on it: this runs
+/// on a path that already has an error to report, and losing that error to a
+/// second one would leave the caller with nothing.
+fn compilation_log(program: &RtcProgram) -> String {
+    let mut message = "[Compilation Error] ".to_string();
+    // SAFETY: `program.0` is a valid handle; the log buffer is sized by the
+    // call that reports its length, and read back as a C string.
+    let log = unsafe {
+        let mut log_size: usize = 0;
+        let status =
+            cubecl_hip_sys::hiprtcGetProgramLogSize(program.0, &mut log_size as *mut usize);
+        if let Err(err) = checked("hiprtcGetProgramLogSize", status) {
+            return message + &format!("\n the log's length is unavailable: {err}");
+        }
+        if log_size == 0 {
+            return message + "\n No compilation logs found!";
+        }
+        let mut log_buffer = vec![0; log_size];
+        let status = cubecl_hip_sys::hiprtcGetProgramLog(program.0, log_buffer.as_mut_ptr());
+        if let Err(err) = checked("hiprtcGetProgramLog", status) {
+            return message + &format!("\n the log itself is unavailable: {err}");
+        }
+        CStr::from_ptr(log_buffer.as_ptr())
+            .to_string_lossy()
+            .into_owned()
+    };
+    for line in log.split('\n').filter(|line| !line.is_empty()) {
+        message += format!("\n    {line}").as_str();
+    }
+    message
 }

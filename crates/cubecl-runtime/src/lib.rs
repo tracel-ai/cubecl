@@ -2,6 +2,15 @@
 #![warn(missing_docs)]
 
 //! `CubeCL` runtime crate that helps creating high performance async runtimes.
+//!
+//! # Error handling
+//!
+//! A failure belongs to the memory that work left unwritten and travels the
+//! dataflow from there: nothing here holds error state beside the buffers.
+//! [`memory_management::Taint`], [`memory_management::ErrorGraph`],
+//! [`stream::Failures`] and [`stream::ExecuteScope`] are the four pieces, and
+//! `ERROR_HANDLING.md` at the repository root is the argument for why they are
+//! shaped that way — read it before changing any of them.
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -48,6 +57,11 @@ pub mod logging;
 
 /// TMA-related runtime types
 pub mod tma;
+
+#[cfg(multi_threading)]
+pub mod command;
+
+pub mod driver;
 
 /// Compiler trait and related types
 pub mod compiler;

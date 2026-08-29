@@ -1,10 +1,10 @@
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use cubecl_runtime::storage::{
+    ComputeStorage, PINNED_MEMORY_ALIGNMENT, PinnedMemoryResource, StorageHandle, StorageId,
+    StorageUtilization,
+};
 use std::{collections::HashMap, ffi::c_void};
-
-/// Memory alignment for pinned host memory, set to the size of `u128` for optimal performance.
-pub const PINNED_MEMORY_ALIGNMENT: usize = core::mem::size_of::<u128>();
 
 /// Manages pinned host memory for CUDA operations.
 ///
@@ -13,15 +13,6 @@ pub const PINNED_MEMORY_ALIGNMENT: usize = core::mem::size_of::<u128>();
 pub struct PinnedMemoryStorage {
     memory: HashMap<StorageId, PinnedMemory>,
     mem_alignment: usize,
-}
-
-/// A pinned memory resource allocated on the host.
-#[derive(Debug)]
-pub struct PinnedMemoryResource {
-    /// Pointer to the pinned memory buffer.
-    pub ptr: *mut u8,
-    /// Size of the memory resource in bytes.
-    pub size: usize,
 }
 
 /// Internal representation of pinned memory with associated pointers.
@@ -47,10 +38,6 @@ impl PinnedMemoryStorage {
     }
 }
 
-// SAFETY: `PinnedMemoryResource` contains a raw pointer to page-locked host memory.
-// It is safe to send between threads because the memory remains valid and pinned
-// regardless of which thread accesses it, and access is serialized by the `DeviceHandle`.
-unsafe impl Send for PinnedMemoryResource {}
 // SAFETY: `PinnedMemoryStorage` is only accessed from one thread at a time via the
 // `DeviceHandle`, which serializes all server access. The pinned memory it manages
 // is never shared across threads without synchronization.

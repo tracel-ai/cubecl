@@ -1,8 +1,5 @@
 use crate::compute::{
-    storage::{
-        cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
-        gpu::GpuStorage,
-    },
+    storage::{cpu::PinnedMemoryStorage, gpu::GpuStorage},
     sync::Fence,
 };
 use cubecl_core::{
@@ -10,15 +7,16 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{BufferBinding, Handle, ServerError},
 };
-use cubecl_environment::stream::StreamId;
+use cubecl_runtime::storage::PINNED_MEMORY_ALIGNMENT;
 use cubecl_runtime::{
     config::streaming::StreamPriority,
     logging::ServerLogger,
     memory_management::{
-        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, drop_queue,
+        ErrorGraph, FailureId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{EventStreamBackend, StreamCaptureState, StreamErrors},
+    stream::{EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -27,25 +25,42 @@ pub struct Stream {
     pub sys: cudarc::driver::sys::CUstream,
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
-    pub errors: StreamErrors,
     pub drop_queue: drop_queue::PendingDropQueue<Fence>,
-    /// This stream's position in the graph-capture lifecycle (see
-    /// [`StreamCaptureState`]). Enforces the ordered `graph_prepare` →
-    /// `begin_capture` → `end_capture` transitions and gates the deferral of
-    /// fenced drop-queue flushes while a capture is recording.
-    pub capturing: StreamCaptureState,
+    /// This stream's graph capture (see [`StreamCapture`]): its position in
+    /// the lifecycle, and the memory its recorded launches were given. Enforces
+    /// the ordered `graph_prepare` → `begin_capture` → `end_capture`
+    /// transitions and gates the deferral of fenced drop-queue flushes while a
+    /// capture is recording.
+    pub capturing: StreamCapture,
     /// Reusable per-launch info buffers (kernel shapes/strides/scalars), keyed
     /// by the exact info words they were built from. Admission and
     /// least-recently-used eviction are decided by the cache's
     /// [`MetadataCachePolicy`]; the launch path sets its [`CacheMode`] from
     /// the capture lifecycle, so during graph capture every buffer is cached
-    /// and none is evicted mid-capture. See [`StreamCaptureState::cache_mode`].
+    /// and none is evicted mid-capture. See [`StreamCapture::cache_mode`].
     pub info_cache: MetadataInfoCache<Handle>,
 }
 
+impl StreamMemory for Stream {
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
+        self.memory_management_gpu
+            .failure(&binding.memory, binding.range())
+    }
+
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
+        self.memory_management_gpu
+            .taint(&binding.memory, binding.range(), failure, failures)
+    }
+
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
+        self.memory_management_gpu
+            .written(&binding.memory, binding.range(), failures)
+    }
+}
+
 impl drop_queue::Fence for Fence {
-    fn sync(self) {
-        let _ = self.wait_sync().ok();
+    fn wait(self) -> Result<(), ServerError> {
+        self.wait_sync()
     }
 }
 
@@ -173,14 +188,13 @@ impl EventStreamBackend for CudaStreamBackend {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
-            errors: StreamErrors::default(),
             drop_queue: Default::default(),
-            capturing: StreamCaptureState::NoCapture,
+            capturing: StreamCapture::default(),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
         }
     }
 
-    fn flush(stream: &mut Self::Stream) -> Self::Event {
+    fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
         Fence::new(stream.sys)
     }
 
@@ -200,13 +214,5 @@ impl EventStreamBackend for CudaStreamBackend {
             .memory_management_gpu
             .get_cursor(binding.memory.clone())
             .unwrap_or(u64::MAX)
-    }
-
-    fn is_healthy(stream: &Self::Stream, stream_id: StreamId) -> bool {
-        !stream.errors.any(stream_id)
-    }
-
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
-        stream.errors.peek_owned(owner)
     }
 }

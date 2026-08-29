@@ -7,6 +7,7 @@ pub mod shared_memory;
 pub mod to_llvm;
 
 use core::cell::RefCell;
+use cubecl_runtime::kernel::BufferIOAttr;
 use std::rc::Rc;
 
 use cubecl_environment::backtrace::BackTrace;
@@ -15,7 +16,8 @@ use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 use std::{path::PathBuf, str::FromStr};
 
 use cubecl_opt::passes::{
-    inst_combine::InstCombinePass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
+    simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::CompilationError;
 
@@ -61,6 +63,10 @@ impl Compiler for PlironCompiler {
 
     type CompilationOptions = PlironOptions;
 
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
+        Some(repr.buffer_io().to_vec())
+    }
+
     fn compile(
         &mut self,
         kernel: KernelDefinition,
@@ -91,6 +97,7 @@ impl Compiler for PlironCompiler {
 impl PlironCompiler {
     fn compile_ir(self, kernel: KernelDefinition) -> PlironEngine {
         let module = kernel.body.state().module;
+        let entry_func = kernel.body.state().entry_func;
         let module_op = module.get_operation();
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
@@ -126,20 +133,37 @@ impl PlironCompiler {
         func_passes.add_pass(LowerComplexOpPass::default());
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
-        func_passes.add_pass(BranchToSCFPass::default());
-        func_passes.add_pass(SCFToLlvmCf::default());
-        func_passes.add_pass(LowerEntryAbiPass::new(
+
+        let mut lowering_passes = OpPass::<FuncOp, Passes>::default();
+        lowering_passes.add_pass(BranchToSCFPass::default());
+        lowering_passes.add_pass(SCFToLlvmCf::default());
+        lowering_passes.add_pass(LowerEntryAbiPass::new(
             kernel.info.clone(),
             shared_memories.clone(),
         ));
-        func_passes.add_pass(CubeToLLVMPass::default());
-        func_passes.add_pass(SimplifyCFGPass);
-        func_passes.add_pass(DCEPass);
-        func_passes.add_pass(Mem2RegPass);
+        lowering_passes.add_pass(CubeToLLVMPass::default());
+        lowering_passes.add_pass(SimplifyCFGPass);
+        lowering_passes.add_pass(DCEPass);
+        lowering_passes.add_pass(Mem2RegPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
-        passes.add_pass(builtin_to_llvm_pass());
+        // Reads cube-dialect memory effects, so it has to run after the
+        // optimizations that shape them and before the lowering group erases
+        // the cube ops — the same post-optimization point the other backends
+        // annotate at.
+        passes.add_pass(AnnotateGlobalVisibilityPass);
+        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
+        // Read the stamped answer now: the entry ABI lowering below folds the
+        // buffer arguments behind a pointer table and erases them, attributes
+        // included.
+        let io = cubecl_core::ir::attributes::buffer_io_by_position(&ctx, entry_func)
+            .into_iter()
+            .collect();
+
+        let mut passes = OpPass::<ModuleOp, Passes>::default();
+        passes.add_pass(NestedOpsPass::new(lowering_passes));
+        passes.add_pass(builtin_to_llvm_pass());
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
         if let Err(e) = verify_operation(module_op, &ctx) {
@@ -151,7 +175,7 @@ impl PlironCompiler {
             shared_memories: shared_memories.take(),
         };
 
-        PlironEngine::compile(&ctx, module, &kernel.settings.kernel_name, requirements)
+        PlironEngine::compile(&ctx, module, &kernel.settings.kernel_name, requirements, io)
             .expect("Failed to convert to LLVM IR")
     }
 }

@@ -2,7 +2,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_zspace::{Shape, Strides};
 
 use crate::{
-    memory_management::{ManagedMemoryBinding, ManagedMemoryHandle},
+    memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId},
     server::{CopyDescriptor, TensorMapBinding},
 };
 
@@ -162,6 +162,27 @@ impl BufferBinding {
     /// Get the size of the handle, in bytes, accounting for offsets
     pub fn size_in_used(&self) -> u64 {
         self.size - self.offset_start.unwrap_or(0) - self.offset_end.unwrap_or(0)
+    }
+
+    /// The byte range of the allocation this binding names: what the offsets
+    /// leave of the buffer. This is the region the taint bookkeeping claims
+    /// when work writing through this binding fails, and releases when work
+    /// writing through it lands.
+    pub fn range(&self) -> core::ops::Range<u64> {
+        self.offset_start.unwrap_or(0)..self.size - self.offset_end.unwrap_or(0)
+    }
+
+    /// The identity a claim on this binding is stored under: the allocation
+    /// and the byte range of it, exactly as [`range`](Self::range) computes
+    /// it.
+    ///
+    /// Anything that deduplicates or compares claims — a capture's write set,
+    /// above all — must key by this and nothing coarser. Two tensors carved
+    /// from one batched allocation share a memory id and nothing else; keyed
+    /// by the id alone, one sibling's claim swallows the others'.
+    pub fn claim_key(&self) -> (ManagedMemoryId, u64, u64) {
+        let range = self.range();
+        (self.memory.id(), range.start, range.end)
     }
     /// Get the total size of the handle, in bytes.
     pub fn size(&self) -> u64 {

@@ -64,7 +64,7 @@ impl core::fmt::Debug for ManagedMemoryDescriptor {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 /// Managed memory unique identifier.
 pub struct ManagedMemoryId {
     pub(crate) value: usize,
@@ -199,6 +199,12 @@ impl ManagedMemoryBinding {
     /// Retrieves the descriptor for the current binding.
     pub(crate) fn descriptor(&self) -> &ManagedMemoryDescriptor {
         &self.descriptor
+    }
+
+    /// The id of the memory this binding is bound to, stable for as long as the
+    /// allocation lives and never reused by a later one.
+    pub fn id(&self) -> ManagedMemoryId {
+        self.descriptor.id
     }
 }
 

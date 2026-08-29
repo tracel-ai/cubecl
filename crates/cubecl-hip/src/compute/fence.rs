@@ -1,6 +1,12 @@
+//! Waiting on a stream from outside the server.
+//!
+//! The server is behind a mutex or a channel, so a synchronize that blocked
+//! while holding it would stop every other logical stream too. A [`Fence`] is
+//! an event recorded on the stream and handed out: the server records it and
+//! returns, and whoever holds it waits on its own time.
+
 use cubecl_core::server::ServerError;
-use cubecl_environment::backtrace::BackTrace;
-use cubecl_hip_sys::HIP_SUCCESS;
+use cubecl_runtime::driver::checked;
 
 /// A fence is simply an [event](hipEvent_t) created on a [stream](hipStream_t) that you can wait
 /// until completion.
@@ -35,9 +41,11 @@ impl Fence {
                 &mut event,
                 cubecl_hip_sys::hipEventDefault,
             );
-            assert_eq!(status, HIP_SUCCESS, "Should create the stream event");
+            // Fatal: a fence that never recorded cannot be waited on, and
+            // every caller of this takes one by value expecting to be able to.
+            checked("hipEventCreateWithFlags", status).expect("the fence needs an event");
             let status = cubecl_hip_sys::hipEventRecord(event, stream);
-            assert_eq!(status, HIP_SUCCESS, "Should record the stream event");
+            checked("hipEventRecord", status).expect("the fence needs its event recorded");
 
             Self {
                 event: event as *mut _,
@@ -58,12 +66,9 @@ impl Fence {
         // so the event cannot be used again.
         unsafe {
             let status = cubecl_hip_sys::hipStreamWaitEvent(stream, self.event, 0);
-            assert_eq!(
-                status, HIP_SUCCESS,
-                "Should successfully wait for stream event"
-            );
+            checked("hipStreamWaitEvent", status).expect("the stream has to wait on the fence");
             let status = cubecl_hip_sys::hipEventDestroy(self.event);
-            assert_eq!(status, HIP_SUCCESS, "Should destroy the stream eventt");
+            checked("hipEventDestroy", status).expect("the waited-on event has to be released");
         }
     }
 
@@ -76,20 +81,10 @@ impl Fence {
         unsafe {
             let status = cubecl_hip_sys::hipEventSynchronize(self.event);
 
-            if status != HIP_SUCCESS {
-                return Err(ServerError::Generic {
-                    reason: format!("Should successfully wait for stream event: {status}"),
-                    backtrace: BackTrace::capture(),
-                });
-            }
+            checked("hipEventSynchronize", status)?;
             let status = cubecl_hip_sys::hipEventDestroy(self.event);
 
-            if status != HIP_SUCCESS {
-                return Err(ServerError::Generic {
-                    reason: format!("Should destroy the stream event: {status}"),
-                    backtrace: BackTrace::capture(),
-                });
-            }
+            checked("hipEventDestroy", status)?;
         }
 
         Ok(())

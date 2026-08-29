@@ -1,8 +1,9 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    server::{BufferBinding, ServerError},
-    stream::{StreamFactory, StreamPool},
+    memory_management::{ErrorGraph, FailureId},
+    server::BufferBinding,
+    stream::{FailureStore, Failures, StreamFactory, StreamMemory, StreamPool},
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
 use cubecl_environment::stream::StreamId;
@@ -11,22 +12,20 @@ use cubecl_environment::stream::StreamId;
 pub trait SchedulerStreamBackend {
     /// Type representing a task.
     type Task: core::fmt::Debug;
-    /// Type representing a stream.
-    type Stream: core::fmt::Debug;
+    /// Type representing a stream, which exposes the memory its kernels see
+    /// through [`StreamMemory`].
+    type Stream: core::fmt::Debug + StreamMemory;
     /// Type for the stream factory, which creates streams of type `Self::Stream`.
     type Factory: StreamFactory<Stream = Self::Stream>;
 
     /// Enqueues a task onto a given stream for execution.
-    fn enqueue(task: Self::Task, stream: &mut Self::Stream);
-    /// Flush the inner stream queue to ensure ordering between different streams.
-    fn flush(stream: &mut Self::Stream);
-    /// The errors `owner` alone caused on this stream, left queued for it to
-    /// surface — see [`StreamErrors::peek_owned`](crate::stream::StreamErrors::peek_owned).
     ///
-    /// Answers what another stream needs to know about `owner`: did the work
-    /// that wrote the buffer it is about to consume actually run? See
-    /// [`SchedulerMultiStream::producer_errors`].
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError>;
+    /// `failures` is the device's failure store, handed down because running
+    /// a task reserves memory (staging, uniforms), and reserving is where a
+    /// pool sheds the failures its slices carry.
+    fn enqueue(task: Self::Task, stream: &mut Self::Stream, failures: &mut ErrorGraph);
+    /// Flush the inner stream queue to ensure ordering between different streams.
+    fn flush(stream: &mut Self::Stream, failures: &mut ErrorGraph);
     /// Returns a mutable reference to the stream factory.
     fn factory(&mut self) -> &mut Self::Factory;
     /// Whether this stream currently requires its own tasks to execute on
@@ -45,6 +44,9 @@ pub trait SchedulerStreamBackend {
 pub struct SchedulerMultiStream<B: SchedulerStreamBackend> {
     /// Pool of streams managed by the scheduler.
     pool: StreamPool<SchedulerPoolMarker<B>>,
+    /// Every failure the device is still holding, and the write scope's
+    /// scratch — see [`Failures`].
+    failures: Failures,
     /// Strategy for scheduling tasks (e.g., Interleave or Sequential).
     strategy: SchedulerStrategy,
     /// Maximum number of tasks allowed per stream before execution is triggered.
@@ -81,8 +83,37 @@ impl<B: SchedulerStreamBackend> Stream<B> {
 }
 
 #[derive(Debug)]
-struct SchedulerPoolMarker<B: SchedulerStreamBackend> {
+/// The factory a [`SchedulerMultiStream`]'s pool is built from. Public only
+/// because it names the pool in [`FailureStore::Factory`]; it has no surface
+/// of its own.
+pub struct SchedulerPoolMarker<B: SchedulerStreamBackend> {
     backend: B,
+}
+
+impl<B: SchedulerStreamBackend> StreamMemory for Stream<B> {
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
+        self.stream.failure(binding)
+    }
+
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
+        self.stream.taint(binding, failure, failures)
+    }
+
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
+        self.stream.written(binding, failures)
+    }
+}
+
+impl<B: SchedulerStreamBackend> FailureStore for SchedulerMultiStream<B> {
+    type Factory = SchedulerPoolMarker<B>;
+
+    fn split(&mut self) -> (&mut StreamPool<Self::Factory>, &mut Failures) {
+        (&mut self.pool, &mut self.failures)
+    }
+
+    fn parts(&self) -> (&StreamPool<Self::Factory>, &Failures) {
+        (&self.pool, &self.failures)
+    }
 }
 
 impl<B: SchedulerStreamBackend> StreamFactory for SchedulerPoolMarker<B> {
@@ -119,6 +150,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     ) -> Self {
         Self {
             pool: StreamPool::new(SchedulerPoolMarker { backend }, options.max_streams, 0),
+            failures: Failures::new(logger.clone()),
             max_tasks: options.max_tasks,
             strategy: options.strategy,
             logger,
@@ -131,23 +163,23 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         &mut stream.stream
     }
 
+    /// The stream at `stream_id` and the device's failure store together, for
+    /// the paths that hand the store to the stream's memory manager — every
+    /// reserve, bind and cleanup, since those are where slices shed the
+    /// failures they carry.
+    pub fn stream_and_failures(
+        &mut self,
+        stream_id: &StreamId,
+    ) -> (&mut B::Stream, &mut ErrorGraph) {
+        let stream = self.pool.get_mut(stream_id);
+        (&mut stream.stream, self.failures.graph_mut())
+    }
+
     /// Mutable access to the scheduling backend, e.g. to change the
     /// configuration new streams are created with. Already-created streams are
     /// unaffected.
     pub fn backend_mut(&mut self) -> &mut B {
         &mut self.pool.factory_mut().backend
-    }
-
-    /// The errors owned by the streams that wrote `handles` — see
-    /// [`StreamPool::producer_errors`].
-    pub fn producer_errors<'a>(
-        &mut self,
-        reader: StreamId,
-        handles: impl Iterator<Item = &'a BufferBinding>,
-    ) -> Vec<ServerError> {
-        self.pool.producer_errors(reader, handles, |stream, owner| {
-            B::errors_owned(&stream.stream, owner)
-        })
     }
 
     /// Read-only iterator over initialized backend streams.
@@ -263,11 +295,11 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) }; // Note: `unsafe` usage assumes valid index.
             for task in schedule.tasks {
                 // Enqueue each task on the stream.
-                B::enqueue(task, &mut stream.stream);
+                B::enqueue(task, &mut stream.stream, self.failures.graph_mut());
             }
 
             // Makes sure the tasks are ordered on the compute queue.
-            B::flush(&mut stream.stream);
+            B::flush(&mut stream.stream, self.failures.graph_mut());
         }
     }
 
@@ -281,7 +313,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         // Makes sure the tasks are ordered on the compute queue.
         for schedule in schedules.iter_mut().skip(1) {
             let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) };
-            B::flush(&mut stream.stream);
+            B::flush(&mut stream.stream, self.failures.graph_mut());
         }
 
         let execution_index = schedules.first().expect("At least one stream").stream_index;
@@ -299,13 +331,13 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             for schedule in schedules.iter_mut() {
                 // If there are tasks remaining in the schedule, enqueue the next one.
                 if let Some(task) = schedule.tasks.next() {
-                    B::enqueue(task, &mut stream.stream);
+                    B::enqueue(task, &mut stream.stream, self.failures.graph_mut());
                 }
             }
         }
 
         // Making sure all tasks are registered to the queue.
-        B::flush(&mut stream.stream);
+        B::flush(&mut stream.stream, self.failures.graph_mut());
     }
 }
 

@@ -3,6 +3,7 @@ use crate::compiler::wgsl::{
     self, EnableFeaturesPass, builtin::LowerBuiltinsPass, lower::LowerOpsWgslPass,
     metadata::declare_info, rewrite_args, shared_memory_size, types,
 };
+use cubecl_runtime::kernel::BufferIOAttr;
 
 use cubecl_core::{
     WgpuCompilationOptions,
@@ -55,6 +56,10 @@ impl core::fmt::Debug for WgslCompiler {
 impl cubecl_core::Compiler for WgslCompiler {
     type Representation = ComputeShader;
     type CompilationOptions = WgpuCompilationOptions;
+
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
+        Some(repr.io.clone())
+    }
 
     fn compile(
         &mut self,
@@ -165,6 +170,11 @@ impl WgslCompiler {
 
         passes.run(module_op, &mut ctx, &mut analyses)?;
 
+        // Before `rewrite_args` erases the arguments and widens their
+        // visibility for the shader.
+        let io = cubecl_core::ir::attributes::buffer_io_by_position(&ctx, entry_func)
+            .into_iter()
+            .collect();
         let buffers = rewrite_args(&mut ctx, entry_func);
         declare_info(&mut ctx, entry_func, buffers.len());
         let shared_memory_size = shared_memory_size(&ctx, module_op);
@@ -173,6 +183,7 @@ impl WgslCompiler {
 
         Ok(ComputeShader {
             buffers,
+            io,
             shared_memory_size,
             ctx,
         })

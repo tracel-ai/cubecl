@@ -1,6 +1,6 @@
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_hip_sys::HIP_SUCCESS;
+use cubecl_runtime::driver::checked;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use std::collections::HashMap;
 
@@ -53,8 +53,10 @@ impl GpuStorage {
                 // has not been freed yet. `hipFree` synchronizes the device, so
                 // in-flight work never sees the page disappear.
                 let status = unsafe { cubecl_hip_sys::hipFree(ptr) };
-                if status != HIP_SUCCESS {
-                    eprintln!("HIP free error: {status}");
+                // Logged, not reported: this runs on a deallocation path with
+                // no caller left to hand an error to.
+                if let Err(err) = checked("hipFree", status) {
+                    log::warn!("releasing a device page failed: {err}");
                 }
             }
         }
@@ -149,15 +151,7 @@ impl ComputeStorage for GpuStorage {
             let mut ptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
             let status = cubecl_hip_sys::hipMalloc(&mut ptr, size as usize);
 
-            match status {
-                HIP_SUCCESS => {}
-                other => {
-                    return Err(IoError::Unknown {
-                        description: format!("HIP allocation error: {other}"),
-                        backtrace: BackTrace::capture(),
-                    });
-                }
-            }
+            checked("hipMalloc", status)?;
 
             self.memory.insert(id, ptr);
         };

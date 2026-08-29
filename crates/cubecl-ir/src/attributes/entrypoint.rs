@@ -32,24 +32,45 @@ dict_key!(
 dict_key!(ATTR_BUFFER_BINDING, "buffer_binding");
 dict_key!(ATTR_TENSOR_MAP_BINDING, "tensor_map_binding");
 
+/// What a compiled kernel does with one buffer binding, stamped on the entry
+/// function's arguments by the visibility analysis and carried to the launch
+/// site, where the write scope stages exactly what the kernel writes and
+/// checks exactly what it reads.
+///
+/// Four states because the launch path asks two independent questions.
+/// Writable decides what a failure taints; readable decides what is checked
+/// before launching. An aliased or accumulating argument answers yes to both,
+/// a pure output answers only the first — which is what lets a relaunch
+/// repair a tainted buffer — and a buffer the kernel never touches answers
+/// neither.
 #[pliron_attr(name = "cube.buffer_io", format, verifier = "succ")]
-#[derive(new, PartialEq, Clone, Copy, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(new, PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub enum BufferIOAttr {
+    /// Read, never written: checked before launch, never claimed by a failure.
     ReadOnly,
+    /// Written, never read: claimed by a failure, never checked.
     WriteOnly,
+    /// Both — the aliased and accumulator cases included.
     ReadWrite,
+    /// Neither: no check on the way in, no claim on the way out.
     Dead,
 }
 
 impl BufferIOAttr {
+    /// Whether the kernel reads the buffer, so its contents have to be
+    /// trustworthy before the launch runs.
     pub fn is_readable(&self) -> bool {
         matches!(self, BufferIOAttr::ReadOnly | BufferIOAttr::ReadWrite)
     }
 
+    /// Whether the kernel writes the buffer, so a failed launch leaves it
+    /// carrying the failure.
     pub fn is_writable(&self) -> bool {
         matches!(self, BufferIOAttr::WriteOnly | BufferIOAttr::ReadWrite)
     }
 
+    /// Whether the kernel never touches the buffer at all.
     pub fn is_dead(&self) -> bool {
         matches!(self, BufferIOAttr::Dead)
     }
@@ -211,6 +232,38 @@ pub trait FuncInterface: Op {
         self.get_res_attrs_mut(ctx, res_idx)
             .insert(key, Box::new(UnitAttr::new()));
     }
+}
+
+/// The per-buffer IO the visibility pass stamped on `func`'s arguments,
+/// indexed by buffer position — the vector a compiled kernel carries to the
+/// launch site.
+///
+/// Every argument with a [`BufferBindingAttr`] contributes. One without a
+/// stamped [`BufferIOAttr`] answers `ReadWrite`: that covers a tensor map,
+/// whose global side the visibility analysis cannot see, and any argument the
+/// pass never reached — the conservative direction for the launch path, since
+/// over-claiming costs a spurious loud failure and under-claiming costs a
+/// silent clean read of garbage.
+pub fn buffer_io_by_position(ctx: &Context, func: FuncOp) -> alloc::vec::Vec<BufferIOAttr> {
+    let num_args = func.get_entry_block(ctx).deref(ctx).get_num_arguments();
+    let mut io = alloc::vec::Vec::new();
+    for arg in 0..num_args {
+        let binding = func
+            .get_arg_attr::<BufferBindingAttr>(ctx, arg, &ATTR_BUFFER_BINDING)
+            .map(|it| *it);
+        let Some(binding) = binding else {
+            continue;
+        };
+        let stamped = func
+            .get_arg_attr::<BufferIOAttr>(ctx, arg, &ATTR_BUFFER_IO)
+            .map(|it| *it)
+            .unwrap_or(BufferIOAttr::ReadWrite);
+        if io.len() <= binding.buffer_pos {
+            io.resize(binding.buffer_pos + 1, BufferIOAttr::ReadWrite);
+        }
+        io[binding.buffer_pos] = stamped;
+    }
+    io
 }
 
 fn get_arg_or_init_mut(dict: &mut AttributeDict, arg_idx: usize) -> &mut DictAttr {

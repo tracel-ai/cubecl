@@ -485,6 +485,51 @@ fn autotune_skips_a_candidate_that_fails_compilation() {
     assert_eq!(after, 42);
 }
 
+/// The poisoning order: the candidate that fails to compile goes *first*, and every
+/// candidate after it shares its inputs and output. The failed launch never ran, so it
+/// must claim only the output it declared it would write — the shared inputs stay
+/// clean, the candidates behind it still run, and the winner's write releases the
+/// failed candidate's claim on the output.
+///
+/// This is what the declared IO on the launch arguments exists for. Without it the
+/// compile failure would taint every binding it was given, inputs included: each later
+/// candidate would skip on the inputs' failure, the tune would end with no survivor,
+/// and the operation's real inputs would stay unreadable long after the tune.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn autotune_survives_a_failing_candidate_ahead_of_the_winner() {
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_failing_compilation_first");
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs.clone(), rhs.clone(), out.clone()];
+
+    let uid = fresh_tune_key_uid();
+
+    let test_set = TUNER.init(move || {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::addition_set_with_failing_compilation_first(client, shapes, uid.clone())
+    });
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    client
+        .flush()
+        .expect("the launch failure must not survive the profile it happened in");
+
+    // The inputs the broken candidate was only going to read carry no failure.
+    assert_eq!(client.read_one(lhs).unwrap().to_vec(), vec![0, 1, 2]);
+    assert_eq!(client.read_one(rhs).unwrap().to_vec(), vec![4, 4, 4]);
+
+    // The surviving `add` ran on those inputs, won the tune, and its write released the
+    // broken candidate's claim on the shared output.
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+}
+
 /// The round robin end to end, which the unit tests around it cannot reach: a candidate far
 /// enough behind has to stop being sampled partway through, while the ones still in contention
 /// keep going and the fastest of them wins.
@@ -700,7 +745,7 @@ fn a_dry_run_reserves_without_mapping() {
         ]),
     );
 
-    let report = client.memory_report().unwrap();
+    let report = client.memory_report();
     let pool = arena(&report);
     assert_eq!(
         pool.pages_unmapped, pool.pages,
@@ -711,7 +756,7 @@ fn a_dry_run_reserves_without_mapping() {
     // Reading is a resolution: the backing appears exactly there.
     let data = client.read_one(out).unwrap();
     assert_eq!(data.len(), SIZE as usize);
-    let report = client.memory_report().unwrap();
+    let report = client.memory_report();
     assert_eq!(
         arena(&report).pages_unmapped,
         0,

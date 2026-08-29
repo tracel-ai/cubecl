@@ -9,13 +9,14 @@ use crate::{
         lowering::{LowerOpsAfterUnrollCppPass, LowerOpsCppPass},
         metadata::LowerInfoPass,
         signature::{
-            CollectIncludesPass, DeclareInfoTypeOp, DeclareVectorTypesPass, buffers,
+            CollectIncludesPass, DeclareInfoTypeOp, DeclareVectorTypesPass, buffer_io, buffers,
             shared_memory_size,
         },
         unroll::CppUnrollPass,
     },
     target::{CppTarget, Shared, Target},
 };
+use cubecl_runtime::kernel::BufferIOAttr;
 
 use super::ComputeKernel;
 use core::marker::PhantomData;
@@ -119,6 +120,10 @@ where
 {
     type Representation = ComputeKernel;
     type CompilationOptions = CompilationOptions;
+
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
+        Some(repr.io.clone())
+    }
 
     fn compile(
         &mut self,
@@ -270,6 +275,7 @@ where
 
         let shared_memory_size = shared_memory_size(&ctx, module_op);
         let buffers = buffers(&ctx, entry_func);
+        let io = buffer_io(&ctx, entry_func);
 
         // Emit here rather than lazily from `Display`, so an op that survives lowering with no
         // `OpToCPP` impl fails the compilation instead of panicking on the compiler thread.
@@ -299,6 +305,7 @@ where
         let compute_kernel = ComputeKernel {
             shared_memory_size,
             buffers,
+            io,
             source,
         };
 

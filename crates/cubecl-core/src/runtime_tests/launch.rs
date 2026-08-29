@@ -4,7 +4,7 @@ use alloc::string::{String, ToString};
 
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
-use cubecl_runtime::server::{ResourceLimitError, ServerError};
+use cubecl_runtime::server::{Handle, LaunchError, ResourceLimitError, ServerError};
 
 #[derive(CubeLaunch, CubeType)]
 pub struct ComptimeTag {
@@ -223,8 +223,33 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(actual, &[1, 9, 9, 9, 9, 9, 9, 1]);
 }
 
+/// The resource-limit error a launch was refused with, taken from the buffer
+/// the launch was going to write.
+///
+/// A refused launch is not the flush's to report — it left the output
+/// unwritten, and the claim on those bytes is what carries the reason. So the
+/// read is the assertion: it must fail, and it must fail on the limit that
+/// stopped the launch rather than on anything the runtime invented.
+fn resource_error<R: Runtime>(client: &ComputeClient<R>, out: Handle) -> ResourceLimitError {
+    let err = client
+        .read_one(out)
+        .expect_err("a refused launch never wrote the buffer, so the read must fail");
+
+    let ServerError::Several { mut errors, .. } = err else {
+        panic!("a read of an unwritten buffer reports its failures, got: {err}");
+    };
+    match errors.remove(0) {
+        ServerError::Unwritten { root, .. } => match *root {
+            ServerError::Launch(LaunchError::TooManyResources(inner)) => inner,
+            other => panic!("should be a resource error, is {other:?}"),
+        },
+        other => panic!("should be an unwritten-bytes report, is {other:?}"),
+    }
+}
+
 pub fn test_shared_memory_error<R: Runtime>(client: ComputeClient<R>) {
-    // No real limit on CPU, so ignore
+    // A CPU runtime emulates the cube model rather than dispatching it, so it
+    // enforces none of these limits and refuses nothing.
     if client.properties().hardware.num_cpu_cores.is_some() {
         return;
     }
@@ -243,31 +268,28 @@ pub fn test_shared_memory_error<R: Runtime>(client: ComputeClient<R>) {
         shared_size,
     );
 
-    let result = client.flush();
-
-    if let Err(ServerError::ServerUnhealthy { mut errors, .. }) = result {
-        let error = errors.remove(0);
-
-        match error {
-            ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
-                ResourceLimitError::SharedMemory { requested, max, .. } => {
-                    assert_eq!(
-                        requested_bytes, requested,
-                        "Requested should be equal to requested size"
-                    );
-                    assert_eq!(
-                        max_shared_size, max,
-                        "Max should be equal to max shared size"
-                    );
-                }
-                other => panic!("Should be shared memory resource error, is {other:?}"),
-            },
-            other => panic!("Should be resource error, is {other:?}"),
+    match resource_error(&client, handle) {
+        ResourceLimitError::SharedMemory { requested, max, .. } => {
+            assert_eq!(
+                requested_bytes, requested,
+                "Requested should be equal to requested size"
+            );
+            assert_eq!(
+                max_shared_size, max,
+                "Max should be equal to max shared size"
+            );
         }
+        other => panic!("should be a shared-memory limit, is {other:?}"),
     }
 }
 
 pub fn test_cube_dim_error<R: Runtime>(client: ComputeClient<R>) {
+    // A CPU runtime emulates the cube model rather than dispatching it, so it
+    // enforces none of these limits and refuses nothing. Same reason the
+    // shared-memory case skips it.
+    if client.properties().hardware.num_cpu_cores.is_some() {
+        return;
+    }
     let max_cube_dim = client.properties().hardware.max_cube_dim;
     let max_units = client.properties().hardware.max_units_per_cube;
 
@@ -285,29 +307,27 @@ pub fn test_cube_dim_error<R: Runtime>(client: ComputeClient<R>) {
         unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
         1,
     );
-    let result = client.flush();
-
-    if let Err(ServerError::ServerUnhealthy { mut errors, .. }) = result {
-        let error = errors.remove(0);
-        match error {
-            ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
-                ResourceLimitError::CubeDim { requested, max, .. } => {
-                    assert_eq!((1, 1, max_cube_dim.2 + 1), requested);
-                    assert_eq!(max_cube_dim, max);
-                }
-                // Could also be valid
-                ResourceLimitError::Units { requested, max, .. } if max_cube_dim.2 >= max_units => {
-                    assert_eq!(max_cube_dim.2 + 1, requested);
-                    assert_eq!(max_units, max);
-                }
-                other => panic!("Should be shared memory resource error, is {other:?}"),
-            },
-            other => panic!("Should be resource error, is {other:?}"),
+    match resource_error(&client, handle) {
+        ResourceLimitError::CubeDim { requested, max, .. } => {
+            assert_eq!((1, 1, max_cube_dim.2 + 1), requested);
+            assert_eq!(max_cube_dim, max);
         }
+        // Could also be valid
+        ResourceLimitError::Units { requested, max, .. } if max_cube_dim.2 >= max_units => {
+            assert_eq!(max_cube_dim.2 + 1, requested);
+            assert_eq!(max_units, max);
+        }
+        other => panic!("should be a cube-dim limit, is {other:?}"),
     }
 }
 
 pub fn test_max_units_error<R: Runtime>(client: ComputeClient<R>) {
+    // A CPU runtime emulates the cube model rather than dispatching it, so it
+    // enforces none of these limits and refuses nothing. Same reason the
+    // shared-memory case skips it.
+    if client.properties().hardware.num_cpu_cores.is_some() {
+        return;
+    }
     let max_cube_dim = client.properties().hardware.max_cube_dim;
     // CPU has no limit, and num_elems will overflow
     if max_cube_dim.2 == u32::MAX {
@@ -328,21 +348,12 @@ pub fn test_max_units_error<R: Runtime>(client: ComputeClient<R>) {
         1,
     );
 
-    let result = client.flush();
-
-    if let Err(ServerError::ServerUnhealthy { mut errors, .. }) = result {
-        let error = errors.remove(0);
-
-        match error {
-            ServerError::Launch(LaunchError::TooManyResources(inner)) => match inner {
-                ResourceLimitError::Units { requested, max, .. } => {
-                    assert_eq!(requested_units, requested);
-                    assert_eq!(max_units, max);
-                }
-                other => panic!("Should be shared memory resource error, is {other:?}"),
-            },
-            other => panic!("Should be resource error, is {other:?}"),
+    match resource_error(&client, handle) {
+        ResourceLimitError::Units { requested, max, .. } => {
+            assert_eq!(requested_units, requested);
+            assert_eq!(max_units, max);
         }
+        other => panic!("should be a units limit, is {other:?}"),
     }
 }
 
@@ -429,6 +440,14 @@ macro_rules! testgen_launch_dynamic_count {
                     TestRuntime,
                 >(client);
             }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_a_zero_cube_count_launch_does_not_untaint_its_outputs() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::stream_errors::test_a_zero_cube_count_launch_does_not_untaint_its_outputs::<
+                    TestRuntime,
+                >(client);
+            }
         }
     };
 }
@@ -455,21 +474,18 @@ macro_rules! testgen_launch_untyped {
         }
 
         #[test]
-        #[ignore = "Broken by channel refactor"]
         fn test_launch_shared_memory_error() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_shared_memory_error::<TestRuntime>(client);
         }
 
         #[test]
-        #[ignore = "Broken by channel refactor"]
         fn test_launch_cube_dim_error() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_cube_dim_error::<TestRuntime>(client);
         }
 
         #[test]
-        #[ignore = "Broken by channel refactor"]
         fn test_launch_units_error() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_max_units_error::<TestRuntime>(client);
