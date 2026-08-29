@@ -90,12 +90,27 @@ impl IfOp {
 
 #[op_interface_impl]
 impl ConstFoldInterface for IfOp {
+    /// One entry per *result*, and an `IfOp`'s results are what its taken branch yields — never
+    /// its condition. Returning the operands verbatim mapped the condition onto result 0, so
+    /// `if true { yield x } else { yield false }` published "result 0 is constant true" into the
+    /// lattice. Nothing checks that claim against the branch, so the next `IfOp` down a guard
+    /// chain saw a constant-true condition and [`fold_in_place`](Self::fold_in_place) inlined its
+    /// `then` block unconditionally, dropping its own guard — and the one after that, for as long
+    /// as the chain ran. A bounds test written as an accumulating chain (`in_bounds = in_bounds
+    /// && this_axis_in_bounds`) collapsed to its innermost term, which is how a padded
+    /// convolution came to read outside its input.
+    ///
+    /// The yielded values' constness is not knowable from `operand_attrs` — those are the
+    /// operands, and the yields live in the regions — so nothing is claimed here. A constant
+    /// condition still folds, in `fold_in_place`, which SCCP calls off the operand lattice rather
+    /// than off this; the yielded value then reaches its uses as an ordinary SSA forward and
+    /// carries whatever constness it actually has.
     fn check_fold(
         &self,
-        _ctx: &Context,
-        operand_attrs: &[Option<AttrObj>],
+        ctx: &Context,
+        _operand_attrs: &[Option<AttrObj>],
     ) -> Vec<Option<AttrObj>> {
-        operand_attrs.to_vec()
+        vec![None; self.results(ctx).len()]
     }
 
     fn fold_in_place(
