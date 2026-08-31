@@ -3,7 +3,10 @@
 //! Contains custom optimization passes.
 
 #![no_std]
-#![allow(unknown_lints, unnecessary_transmutes)]
+#![allow(
+    clippy::result_unit_err,
+    reason = "semantically useful for optimization passes"
+)]
 
 extern crate alloc;
 

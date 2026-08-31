@@ -1,10 +1,14 @@
 use core::fmt;
 
-use alloc::vec::Vec;
+use alloc::{format, string::ToString, vec::Vec};
 
 use cubecl_macros_internal::{NamedRewrite, cube_op};
 use pliron::{
-    builtin::attributes::IdentifierAttr,
+    builtin::{
+        attributes::IdentifierAttr,
+        ops::FuncOp,
+        types::{FunctionType, IntegerType, Signedness},
+    },
     combine::{Parser, parser::char::char},
     identifier::Identifier,
     input_err,
@@ -13,11 +17,14 @@ use pliron::{
     op::OpObj,
     parsable::{self, IntoParseResult, Parsable, ParseResult},
     printable::{self, Printable},
+    symbol_table::SymbolTableCollection,
+    verify_err,
 };
 
 use crate::{
     CanMaterialize,
     dialect::{
+        general::SymbolUserOpVerifyErr,
         matrix::{self, MatrixLayoutAttr, parse_closure, print_closure},
         memory,
         synchronization::SyncScope,
@@ -266,6 +273,59 @@ impl Parsable for ElementwiseOp {
         let op = ElementwiseOp::new(ctx, mat_in, closure, captures);
         process_parsed_ssa_defs(input, &arg, op.get_operation())?;
         Ok(OpObj::new(op)).into_parse_result()
+    }
+}
+
+impl ElementwiseOp {
+    /// Callee type, including implicit args
+    fn callee_type(&self, ctx: &Context) -> TypeHandle {
+        let u32 = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle();
+        let elem_ty = self.matrix_in(ctx).element_ty(ctx).scalar_ty(ctx);
+        let mut args = vec![u32, u32, elem_ty];
+        args.extend(self.closure_captures(ctx).iter().map(|it| it.get_type(ctx)));
+        FunctionType::get(ctx, args, vec![elem_ty]).to_handle()
+    }
+}
+
+#[op_interface_impl]
+impl SymbolUserOpInterface for ElementwiseOp {
+    fn verify_symbol_uses(
+        &self,
+        ctx: &Context,
+        symbol_tables: &mut SymbolTableCollection,
+    ) -> Result<()> {
+        let callee_sym = self.closure(ctx);
+        let Some(callee) =
+            symbol_tables.lookup_symbol_in_nearest_table(ctx, self.get_operation(), &callee_sym)
+        else {
+            return verify_err!(
+                self.loc(ctx),
+                SymbolUserOpVerifyErr::SymbolNotFound(callee_sym.to_string())
+            );
+        };
+        let Some(func_op) = (&*callee as &dyn Op).downcast_ref::<FuncOp>() else {
+            return verify_err!(
+                self.loc(ctx),
+                SymbolUserOpVerifyErr::NotFunc(callee_sym.to_string())
+            );
+        };
+        let func_op_ty = func_op.get_type(ctx);
+
+        if func_op_ty != self.callee_type(ctx) {
+            return verify_err!(
+                self.loc(ctx),
+                SymbolUserOpVerifyErr::FuncTypeErr(format!(
+                    "expected {}, got {}",
+                    func_op_ty.disp(ctx),
+                    self.callee_type(ctx).disp(ctx)
+                ))
+            );
+        }
+        Ok(())
+    }
+
+    fn used_symbols(&self, ctx: &Context) -> Vec<Identifier> {
+        vec![self.closure(ctx)]
     }
 }
 

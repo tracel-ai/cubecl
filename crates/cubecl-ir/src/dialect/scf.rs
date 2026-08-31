@@ -6,28 +6,49 @@
 //! All terminators are reused from `branch`.
 
 use cubecl_macros_internal::NamedRewrite;
+use itertools::Itertools;
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
     builtin::attributes::{IntegerAttr, VecAttr},
+    combine::{
+        Parser, optional,
+        parser::char::{self, spaces},
+    },
+    identifier::Identifier,
+    input_err,
     irbuild::inserter::OpInsertionPoint,
+    irfmt::parsers::{delimited_list_parser, process_parsed_ssa_defs, spaced, ssa_opd_parser},
     linked_list::ContainsLinkedList,
-    opts::{constants::ConstFoldInterface, dce::SideEffects, mem2reg::AllocInfo},
+    location::Location,
+    op::{OpBox, OpObj},
+    opts::{dce::SideEffects, mem2reg::AllocInfo},
+    parsable::{IntoParseResult, Parsable, ParseResult, StateStream},
+    printable::Printable,
     region::Region,
     utils::table::{HMap, SmallMap},
 };
 
 use crate::{
     attributes::{BoolAttr, ZeroAttr},
-    dialect::branch::{self, ConditionOp, DeadRegionOp, YieldOp, block_side_effects},
-    interfaces::{CanonicalizeInterface, memory_slot::PromotableRegionOpInterface},
+    dialect::{
+        BlockPtrExt,
+        branch::{self, ConditionOp, YieldOp, block_side_effects},
+    },
+    interfaces::{
+        CanonicalizeInterface,
+        control_flow::{
+            InvocationBounds, RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
+        },
+        memory_slot::PromotableRegionOpInterface,
+    },
     prelude::*,
     types::scalar::BoolType,
 };
 
 #[pliron_op(
     name = "scf.if",
-    format = "$0 ` then ` region($0) ` else ` region($1)",
+    format = "$0 ` : ` types(CharSpace(`,`)) ` then ` region($0) ` else ` region($1)",
     verifier = "succ"
 )]
 #[op_interfaces(NOpdsInterface<1>, NRegionsInterface<2>, SingleBlockRegionInterface, OperandNOfType<0, BoolType>)]
@@ -85,91 +106,6 @@ impl IfOp {
 
     pub fn result_types(&self, ctx: &Context) -> Vec<TypeHandle> {
         self.get_operation().result_types(ctx)
-    }
-}
-
-#[op_interface_impl]
-impl ConstFoldInterface for IfOp {
-    /// One entry per *result*, and an `IfOp`'s results are what its taken branch yields — never
-    /// its condition. Returning the operands verbatim mapped the condition onto result 0, so
-    /// `if true { yield x } else { yield false }` published "result 0 is constant true" into the
-    /// lattice. Nothing checks that claim against the branch, so the next `IfOp` down a guard
-    /// chain saw a constant-true condition and [`fold_in_place`](Self::fold_in_place) inlined its
-    /// `then` block unconditionally, dropping its own guard — and the one after that, for as long
-    /// as the chain ran. A bounds test written as an accumulating chain (`in_bounds = in_bounds
-    /// && this_axis_in_bounds`) collapsed to its innermost term, which is how a padded
-    /// convolution came to read outside its input.
-    ///
-    /// The yielded values' constness is not knowable from `operand_attrs` — those are the
-    /// operands, and the yields live in the regions — so nothing is claimed here. A constant
-    /// condition still folds, in `fold_in_place`, which SCCP calls off the operand lattice rather
-    /// than off this; the yielded value then reaches its uses as an ordinary SSA forward and
-    /// carries whatever constness it actually has.
-    fn check_fold(
-        &self,
-        ctx: &Context,
-        _operand_attrs: &[Option<AttrObj>],
-    ) -> Vec<Option<AttrObj>> {
-        vec![None; self.results(ctx).len()]
-    }
-
-    fn fold_in_place(
-        &self,
-        ctx: &mut Context,
-        operand_attrs: &[Option<AttrObj>],
-        rewriter: &mut dyn Rewriter,
-    ) -> IRStatus {
-        let op = self.get_operation();
-        let Some(attr) = operand_attrs[0].as_ref() else {
-            return IRStatus::Unchanged;
-        };
-        let zero = attr.downcast_ref::<ZeroAttr>().map(|_| false);
-        let bool = attr.downcast_ref::<BoolAttr>().map(|it| it.0);
-        let Some(const_cond) = zero.or(bool) else {
-            return IRStatus::Unchanged;
-        };
-        let (taken, not_taken) = match const_cond {
-            true => (self.then_block(ctx), self.else_block(ctx)),
-            false => (self.else_block(ctx), self.then_block(ctx)),
-        };
-
-        let not_taken_op = DeadRegionOp::new(ctx);
-        let dead_block = not_taken_op.get_body(ctx, 0);
-        rewriter.append_op(ctx, &not_taken_op);
-
-        let term = taken.deref(ctx).get_terminator(ctx);
-
-        if let Some(term) = term
-            && term.is_op::<YieldOp>(ctx)
-        {
-            let results = self.results(ctx);
-            let yielded = term.operands(ctx);
-            assert_eq!(results.len(), yielded.len(), "Yield doesn't match results");
-            for (res, yielded) in results.into_iter().zip(yielded) {
-                rewriter.replace_value_uses_with(ctx, res, yielded);
-                Operation::pop_operand(term, ctx);
-            }
-        }
-
-        let term = not_taken.deref(ctx).get_terminator(ctx);
-        if let Some(term) = term
-            && term.is_op::<YieldOp>(ctx)
-        {
-            let num_yield = term.deref(ctx).get_num_operands();
-            for _ in 0..num_yield {
-                Operation::pop_operand(term, ctx);
-            }
-        }
-
-        inline_block(ctx, rewriter, taken, OpInsertionPoint::BeforeOperation(op));
-        inline_block(
-            ctx,
-            rewriter,
-            not_taken,
-            OpInsertionPoint::AtBlockStart(dead_block),
-        );
-
-        IRStatus::Changed
     }
 }
 
@@ -268,8 +204,65 @@ impl PromotableRegionOpInterface for IfOp {
 }
 
 #[op_interface_impl]
-impl CanonicalizeInterface for IfOp {
-    fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
+impl RegionBranchOpInterface for IfOp {
+    fn entry_successor_regions(
+        &self,
+        ctx: &Context,
+        operands: &[Option<AttrObj>],
+    ) -> Vec<RegionSuccessor> {
+        let Some(attr) = operands[0].as_ref() else {
+            return self.successor_regions(ctx, RegionPredecessor::Parent);
+        };
+        let zero = attr.downcast_ref::<ZeroAttr>().map(|_| false);
+        let bool = attr.downcast_ref::<BoolAttr>().map(|it| it.0);
+        let Some(const_cond) = zero.or(bool) else {
+            return self.successor_regions(ctx, RegionPredecessor::Parent);
+        };
+        match const_cond {
+            true => vec![self.then_region(ctx).into()],
+            false => vec![self.else_region(ctx).into()],
+        }
+    }
+
+    fn successor_regions(&self, ctx: &Context, pred: RegionPredecessor) -> Vec<RegionSuccessor> {
+        match pred {
+            RegionPredecessor::Parent => {
+                vec![self.then_region(ctx).into(), self.else_region(ctx).into()]
+            }
+            RegionPredecessor::Terminator(_) => {
+                vec![RegionSuccessor::AfterOp]
+            }
+        }
+    }
+
+    fn successor_inputs(&self, ctx: &Context, successor: RegionSuccessor) -> Vec<Value> {
+        match successor {
+            RegionSuccessor::Region(_) => vec![],
+            RegionSuccessor::AfterOp => self.results(ctx),
+        }
+    }
+
+    fn region_invocation_bounds(
+        &self,
+        _ctx: &Context,
+        operands: &[Option<AttrObj>],
+    ) -> Vec<InvocationBounds> {
+        if let Some(cond) = operands[0]
+            .as_ref()
+            .and_then(|it| it.downcast_ref::<BoolAttr>())
+        {
+            match cond.0 {
+                true => vec![InvocationBounds::once(), InvocationBounds::never()],
+                false => vec![InvocationBounds::never(), InvocationBounds::once()],
+            }
+        } else {
+            vec![InvocationBounds::zero_or_one(); 2]
+        }
+    }
+}
+
+impl IfOp {
+    fn remove_unused_carried(&self, ctx: &mut Context) -> Result<()> {
         let results = self.get_operation().results(ctx);
         for (idx, res) in results.into_iter().enumerate().rev() {
             if !res.is_used(ctx) {
@@ -278,6 +271,43 @@ impl CanonicalizeInterface for IfOp {
                 Operation::remove_result(self.get_operation(), ctx, idx);
             }
         }
+        Ok(())
+    }
+
+    fn fold(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()> {
+        let op = self.get_operation();
+        let operands = const_operands(ctx, op);
+        let valid_branches = self.entry_successor_regions(ctx, &operands);
+        let &[RegionSuccessor::Region(taken)] = valid_branches.as_slice() else {
+            return Ok(());
+        };
+        let taken = taken.deref(ctx).get_entry_block().unwrap();
+
+        let term = taken.deref(ctx).get_terminator(ctx);
+        if let Some(term) = term
+            && term.is_op::<YieldOp>(ctx)
+        {
+            let results = self.results(ctx);
+            let yielded = term.operands(ctx);
+            assert_eq!(results.len(), yielded.len(), "Yield doesn't match results");
+            for (res, yielded) in results.into_iter().zip(yielded) {
+                rewriter.replace_value_uses_with(ctx, res, yielded);
+                Operation::pop_operand(term, ctx);
+            }
+        }
+
+        inline_block(ctx, rewriter, taken, OpInsertionPoint::BeforeOperation(op));
+        rewriter.erase_operation(ctx, op);
+
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl CanonicalizeInterface for IfOp {
+    fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()> {
+        self.remove_unused_carried(ctx)?;
+        self.fold(ctx, rewriter)?;
         Ok(())
     }
 }
@@ -347,6 +377,25 @@ impl SwitchOp {
             (value, block)
         });
         out.collect()
+    }
+
+    pub fn cases_regions(&self, ctx: &Context) -> Vec<(IntegerAttr, Ptr<Region>)> {
+        let cases = self.get_attr_scf_switch_cases(ctx).unwrap().clone().0;
+        let out = (0..cases.len()).map(|i| {
+            let value = cases[i].downcast_ref::<IntegerAttr>().unwrap().clone();
+            let block = self.get_operation().deref(ctx).get_region(i + 1);
+            (value, block)
+        });
+        out.collect()
+    }
+
+    pub fn cases_values(&self, ctx: &Context) -> Vec<IntegerAttr> {
+        self.get_attr_scf_switch_cases(ctx)
+            .unwrap()
+            .0
+            .iter()
+            .map(|it| it.downcast_ref::<IntegerAttr>().unwrap().clone())
+            .collect()
     }
 
     pub fn get_case_destinations(&self, ctx: &Context) -> Vec<Ptr<BasicBlock>> {
@@ -442,8 +491,67 @@ impl PromotableRegionOpInterface for SwitchOp {
 }
 
 #[op_interface_impl]
-impl CanonicalizeInterface for SwitchOp {
-    fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
+impl RegionBranchOpInterface for SwitchOp {
+    fn entry_successor_regions(
+        &self,
+        ctx: &Context,
+        operands: &[Option<AttrObj>],
+    ) -> Vec<RegionSuccessor> {
+        let Some(attr) = &operands[0] else {
+            return self.successor_regions(ctx, RegionPredecessor::Parent);
+        };
+        let Some(attr) = attr.downcast_ref::<IntegerAttr>() else {
+            return self.successor_regions(ctx, RegionPredecessor::Parent);
+        };
+        if let Some(&(_, case)) = self.cases_regions(ctx).iter().find(|(val, _)| val == attr) {
+            vec![case.into()]
+        } else {
+            vec![self.default_region(ctx).into()]
+        }
+    }
+
+    fn successor_regions(&self, ctx: &Context, pred: RegionPredecessor) -> Vec<RegionSuccessor> {
+        match pred {
+            RegionPredecessor::Parent => {
+                let op = self.get_operation().deref(ctx);
+                op.regions().map(Into::into).collect()
+            }
+            RegionPredecessor::Terminator(_) => {
+                vec![RegionSuccessor::AfterOp]
+            }
+        }
+    }
+
+    fn successor_inputs(&self, ctx: &Context, successor: RegionSuccessor) -> Vec<Value> {
+        match successor {
+            RegionSuccessor::Region(_) => vec![],
+            RegionSuccessor::AfterOp => self.results(ctx),
+        }
+    }
+
+    fn region_invocation_bounds(
+        &self,
+        ctx: &Context,
+        operands: &[Option<AttrObj>],
+    ) -> Vec<InvocationBounds> {
+        let num_regions = self.get_operation().deref(ctx).num_regions();
+        let Some(attr) = operands[0].as_ref() else {
+            return vec![InvocationBounds::zero_or_one(); num_regions];
+        };
+        let Some(attr) = attr.downcast_ref::<IntegerAttr>() else {
+            return vec![InvocationBounds::zero_or_one(); num_regions];
+        };
+
+        let case_idx = self.cases_values(ctx).iter().position(|it| it == attr);
+        let executed_idx = case_idx.map(|i| i + 1).unwrap_or(0);
+        let mut bounds = vec![InvocationBounds::never(); num_regions];
+        bounds[executed_idx] = InvocationBounds::once();
+        bounds
+    }
+}
+
+impl SwitchOp {
+    fn remove_unused_carried(&self, ctx: &mut Context) -> Result<()> {
         let results = self.get_operation().results(ctx);
         for (idx, res) in results.into_iter().enumerate().rev() {
             if !res.is_used(ctx) {
@@ -456,9 +564,46 @@ impl CanonicalizeInterface for SwitchOp {
         }
         Ok(())
     }
+
+    fn fold(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()> {
+        let op = self.get_operation();
+        let operands = const_operands(ctx, op);
+        let valid_branches = self.entry_successor_regions(ctx, &operands);
+        let &[RegionSuccessor::Region(taken)] = valid_branches.as_slice() else {
+            return Ok(());
+        };
+        let taken = taken.deref(ctx).get_entry_block().unwrap();
+
+        let term = taken.deref(ctx).get_terminator(ctx);
+        if let Some(term) = term
+            && term.is_op::<YieldOp>(ctx)
+        {
+            let results = self.results(ctx);
+            let yielded = term.operands(ctx);
+            assert_eq!(results.len(), yielded.len(), "Yield doesn't match results");
+            for (res, yielded) in results.into_iter().zip(yielded) {
+                rewriter.replace_value_uses_with(ctx, res, yielded);
+                Operation::pop_operand(term, ctx);
+            }
+        }
+
+        inline_block(ctx, rewriter, taken, OpInsertionPoint::BeforeOperation(op));
+        rewriter.erase_operation(ctx, op);
+
+        Ok(())
+    }
 }
 
-#[pliron_op(name = "scf.range_loop", format, verifier = "succ")]
+#[op_interface_impl]
+impl CanonicalizeInterface for SwitchOp {
+    fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()> {
+        self.remove_unused_carried(ctx)?;
+        self.fold(ctx, rewriter)?;
+        Ok(())
+    }
+}
+
+#[pliron_op(name = "scf.for", verifier = "succ")]
 #[op_interfaces(
     OneRegionInterface,
     SingleBlockRegionInterface,
@@ -518,7 +663,7 @@ impl RangeLoopOp {
         self.get_operation().deref(ctx).get_operand(2)
     }
 
-    pub fn initial_carried_values(&self, ctx: &mut Context) -> Vec<Value> {
+    pub fn initial_carried_values(&self, ctx: &Context) -> Vec<Value> {
         self.get_segment(ctx, 1)
     }
 
@@ -528,6 +673,10 @@ impl RangeLoopOp {
 
     pub fn remove_initial_carried_value(&self, ctx: &mut Context, opd_idx: usize) -> Value {
         self.remove_from_segment(ctx, 1, opd_idx)
+    }
+
+    pub fn carried_values(&self, ctx: &Context) -> Vec<Value> {
+        self.loop_body(ctx).deref(ctx).arguments().skip(1).collect()
     }
 
     pub fn get_carried_value(&self, ctx: &Context, arg_idx: usize) -> Value {
@@ -556,6 +705,92 @@ impl RangeLoopOp {
 
     pub fn result_types(&self, ctx: &Context) -> Vec<TypeHandle> {
         self.get_operation().result_types(ctx)
+    }
+}
+
+impl Printable for RangeLoopOp {
+    fn fmt(
+        &self,
+        ctx: &Context,
+        state: &pliron::printable::State,
+        f: &mut core::fmt::Formatter<'_>,
+    ) -> core::fmt::Result {
+        let results = self.results(ctx);
+        if !results.is_empty() {
+            let results = results.iter().map(|it| it.disp(ctx)).join(", ");
+            write!(f, "{results} = ")?;
+        }
+        let args = self.initial_carried_values(ctx);
+        write!(
+            f,
+            "{} {} to {} step {} ",
+            self.get_opid(),
+            self.start(ctx).disp(ctx),
+            self.end(ctx).disp(ctx),
+            self.step(ctx).disp(ctx),
+        )?;
+
+        if !args.is_empty() {
+            let args = args.iter().map(|it| it.disp(ctx)).join(", ");
+            write!(f, "iter_args({args})")?;
+        }
+
+        self.loop_region(ctx).fmt(ctx, state, f)
+    }
+}
+
+impl Parsable for RangeLoopOp {
+    type Arg = Vec<(Identifier, Location)>;
+    type Parsed = OpObj;
+
+    fn parse<'a>(
+        state_stream: &mut StateStream<'a>,
+        results: Self::Arg,
+    ) -> ParseResult<'a, Self::Parsed> {
+        let cur_loc = state_stream.loc();
+        let iter_args = delimited_list_parser('(', ')', ',', ssa_opd_parser());
+        let mut iter_args_parser =
+            optional(spaced(char::string("iter_args").with(iter_args))).skip(spaces());
+        let mut range_parser = (
+            ssa_opd_parser().skip(spaced(char::string("to"))),
+            ssa_opd_parser().skip(spaced(char::string("step"))),
+            ssa_opd_parser(),
+        );
+
+        let (start, end, step) = range_parser.parse_stream(state_stream).into_result()?.0;
+        let args = iter_args_parser.parse_stream(state_stream).into_result()?.0;
+        let args = args.unwrap_or_default();
+
+        if args.len() != results.len() {
+            input_err!(
+                cur_loc,
+                "expected {} results based on iter vars, got {} during parsing",
+                args.len(),
+                results.len()
+            )?;
+        }
+
+        let result_types = args
+            .iter()
+            .map(|it| it.get_type(state_stream.state.ctx))
+            .collect();
+        let (operands, segments) = Self::compute_segment_sizes(vec![vec![start, end, step], args]);
+
+        let op = Operation::new(
+            state_stream.state.ctx,
+            Self::get_concrete_op_info(),
+            result_types,
+            operands,
+            vec![],
+            0,
+        );
+        process_parsed_ssa_defs(state_stream, &results, op)?;
+
+        Region::parse(state_stream, op)?;
+        let op = RangeLoopOp { op };
+        op.set_operand_segment_sizes(state_stream.state.ctx, segments);
+
+        Ok(OpBox::new(op)).into_parse_result()
     }
 }
 
@@ -638,6 +873,25 @@ impl PromotableRegionOpInterface for RangeLoopOp {
 }
 
 #[op_interface_impl]
+impl RegionBranchOpInterface for RangeLoopOp {
+    fn entry_successor_operands(&self, ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
+        self.initial_carried_values(ctx)
+    }
+
+    fn successor_regions(&self, ctx: &Context, _pred: RegionPredecessor) -> Vec<RegionSuccessor> {
+        // TODO: Loop interface for constant trip count
+        vec![self.loop_region(ctx).into(), RegionSuccessor::AfterOp]
+    }
+
+    fn successor_inputs(&self, ctx: &Context, successor: RegionSuccessor) -> Vec<Value> {
+        match successor {
+            RegionSuccessor::Region(_) => self.carried_values(ctx),
+            RegionSuccessor::AfterOp => self.results(ctx),
+        }
+    }
+}
+
+#[op_interface_impl]
 impl CanonicalizeInterface for RangeLoopOp {
     fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
         let results = self.get_operation().results(ctx);
@@ -656,7 +910,11 @@ impl CanonicalizeInterface for RangeLoopOp {
     }
 }
 
-#[pliron_op(name = "scf.while", format, verifier = "succ")]
+#[pliron_op(
+    name = "scf.while",
+    format = "operands(CharSpace(`,`)) ` : ` types(CharSpace(`,`)) region($0) ` do ` region($1)",
+    verifier = "succ"
+)]
 #[op_interfaces(NRegionsInterface<2>, SingleBlockRegionInterface)]
 pub struct WhileOp;
 
@@ -695,7 +953,7 @@ impl WhileOp {
         Self { op }
     }
 
-    pub fn initial_carried_values(&self, ctx: &mut Context) -> Vec<Value> {
+    pub fn initial_carried_values(&self, ctx: &Context) -> Vec<Value> {
         self.get_operation().operands(ctx)
     }
 
@@ -835,6 +1093,38 @@ impl PromotableRegionOpInterface for WhileOp {
 
         let idx = Operation::push_result(self.get_operation(), ctx, alloc.ty);
         self.get_operation().deref(ctx).get_result(idx)
+    }
+}
+
+#[op_interface_impl]
+impl RegionBranchOpInterface for WhileOp {
+    fn entry_successor_operands(&self, ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
+        self.initial_carried_values(ctx)
+    }
+
+    fn successor_regions(&self, ctx: &Context, pred: RegionPredecessor) -> Vec<RegionSuccessor> {
+        match pred {
+            RegionPredecessor::Parent => vec![self.before_region(ctx).into()],
+            RegionPredecessor::Terminator(term) => {
+                let op = term.deref(ctx).get_operation();
+                let parent = op.deref(ctx).get_parent_region(ctx).unwrap();
+                if parent == self.after_region(ctx) {
+                    vec![self.before_region(ctx).into()]
+                } else {
+                    vec![RegionSuccessor::AfterOp, self.after_region(ctx).into()]
+                }
+            }
+        }
+    }
+
+    fn successor_inputs(&self, ctx: &Context, successor: RegionSuccessor) -> Vec<Value> {
+        match successor {
+            RegionSuccessor::Region(region) if region == self.before_region(ctx) => {
+                self.before_block(ctx).arguments(ctx)
+            }
+            RegionSuccessor::Region(_) => self.after_block(ctx).arguments(ctx),
+            RegionSuccessor::AfterOp => self.results(ctx),
+        }
     }
 }
 

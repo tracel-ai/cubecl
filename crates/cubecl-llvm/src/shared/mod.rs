@@ -17,7 +17,7 @@ use std::{path::PathBuf, str::FromStr};
 
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    simple_cse::SimpleCSEPass, sroa::SROAPass,
+    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::CompilationError;
 
@@ -33,10 +33,7 @@ use pliron::{
     builtin::ops::{FuncOp, ModuleOp},
     op::Op,
     operation::verify_operation,
-    opts::{
-        constants::sccp::SCCPPass, dce::DCEPass, mem2reg::Mem2RegPass,
-        simplify_cfg::SimplifyCFGPass,
-    },
+    opts::{dce::DCEPass, mem2reg::Mem2RegPass, simplify_cfg::SimplifyCFGPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
     printable::Printable,
 };
