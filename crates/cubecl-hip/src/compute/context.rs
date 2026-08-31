@@ -7,7 +7,7 @@
 //! scope from.
 
 use super::storage::gpu::GpuResource;
-use crate::compiler::{HipCompilationOptions, HipCompiler, HipRepresentation};
+use crate::compiler::{HipBackend, HipCompilationOptions, HipCompiler, HipRepresentation};
 use crate::compute::stream::Stream;
 use cubecl_core::hash::StableHasher;
 use cubecl_core::{hash::StableHash, ir::DeviceProperties, prelude::*, server::ResourceLimitError};
@@ -87,7 +87,11 @@ pub struct CompilationCacheEntry {
 /// Both backends emit AMD code objects, so without the backend in the key a stale
 /// artifact from one would load and run happily under the other — tests passing
 /// while measuring nothing.
-fn cache_namespace(fingerprint: &str, backend: &str) -> String {
+fn cache_namespace(fingerprint: &str, backend: HipBackend) -> String {
+    let backend = match backend {
+        HipBackend::Cpp => "cpp",
+        HipBackend::Llvm => "llvm",
+    };
     format!("{fingerprint}-{backend}")
 }
 
@@ -98,14 +102,12 @@ impl HipContext {
     /// with have to be the same string, and the only way to guarantee that is
     /// for there to be one string.
     ///
-    /// `backend` is `"cpp"` or `"ll"`, from
-    /// [`HipCompiler::extension`](crate::compiler::HipCompiler::extension); see
-    /// [`cache_namespace`].
+    /// `backend` is which one compiles here; see [`cache_namespace`].
     pub fn new(
         compilation_options: HipCompilationOptions,
         properties: DeviceProperties,
         fingerprint: String,
-        backend: &str,
+        backend: HipBackend,
     ) -> Self {
         let fingerprint = cache_namespace(&fingerprint, backend);
         let compilation_cache = compilation_store("hip", &fingerprint);
@@ -252,8 +254,8 @@ impl HipContext {
 
         // Cached after the load, so a code object the driver rejects is not handed back on
         // the next run, and the bytes move rather than being copied a third time.
-        if let Some(cache) = self.compilation_cache.as_mut() {
-            let key = key.unwrap();
+        // `try_load_cached` hands back a key exactly when there is a cache to put it in.
+        if let Some((cache, key)) = self.compilation_cache.as_mut().zip(key) {
             store_compiled(
                 cache,
                 key,
@@ -286,8 +288,11 @@ impl HipContext {
         }
         logger.log_compilation(&jitc_kernel);
 
-        let cpp_hash = if let Some(cache) = self.compilation_cache.as_mut() {
-            let key = key.unwrap();
+        // `try_load_cached` hands back a key exactly when there is a cache to put it in, and
+        // both stores are opened together in `HipContext::new`.
+        let cpp_hash = if let Some(key) = key.clone()
+            && let Some(cache) = self.compilation_cache.as_mut()
+        {
             let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
             let cpp_hash = StableHasher::hash_one(&jitc_kernel.source);
 
@@ -324,9 +329,8 @@ impl HipContext {
 
         // Cached after the load, so a binary the driver rejects is not handed back on the
         // next run, and the bytes move rather than being copied.
-        if let Some(cache) = self.compilation_cache.as_mut() {
+        if let Some((cache, key)) = self.compilation_cache.as_mut().zip(key) {
             let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
-            let key = key.unwrap();
             store_compiled(
                 cache,
                 key,
@@ -599,22 +603,22 @@ fn compilation_log(program: &RtcProgram) -> String {
     message
 }
 
-#[cfg(test)]
-mod tests {
-    /// See [`super::cache_namespace`] for why this must hold.
-    #[test]
-    fn cache_namespace_separates_backends() {
-        assert_ne!(
-            super::cache_namespace("gfx1201-abc", "cpp"),
-            super::cache_namespace("gfx1201-abc", "ll"),
-        );
-    }
-}
-
 /// A code object as the `c_char` slice the cache and `hipModuleLoadData` are written in.
 ///
 /// `i8` and `u8` have the same layout, so this is the copy out of the compiler's buffer and
 /// nothing more.
 fn to_signed(bytes: &[u8]) -> Vec<i8> {
     bytes.iter().map(|byte| *byte as i8).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    /// See [`super::cache_namespace`] for why this must hold.
+    #[test]
+    fn cache_namespace_separates_backends() {
+        assert_ne!(
+            super::cache_namespace("gfx1201-abc", crate::compiler::HipBackend::Cpp),
+            super::cache_namespace("gfx1201-abc", crate::compiler::HipBackend::Llvm),
+        );
+    }
 }

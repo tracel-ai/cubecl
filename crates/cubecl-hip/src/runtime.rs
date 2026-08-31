@@ -1,5 +1,5 @@
 use crate::{
-    compiler::{HipCompilationOptions, HipCompiler},
+    compiler::{HipBackend, HipCompilationOptions, HipCompiler},
     compute::{HipServer, context::HipContext},
     device::AmdDevice,
 };
@@ -39,8 +39,8 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, compiler::Compiler,
-    driver::checked, logging::ServerLogger,
+    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, driver::checked,
+    logging::ServerLogger,
 };
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
@@ -193,7 +193,7 @@ impl DeviceService for HipServer {
             comp_opts,
             device_props.clone(),
             fingerprint,
-            HipCompiler::default().extension(),
+            HipBackend::default(),
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);

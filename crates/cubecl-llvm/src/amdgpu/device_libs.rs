@@ -37,21 +37,28 @@ fn bitcode_dir() -> Result<&'static PathBuf, String> {
     static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
     DIR.get_or_init(|| {
-        let direct = DEVICE_LIB_PATH_VARS.iter().filter_map(std::env::var_os).map(PathBuf::from);
+        let direct = DEVICE_LIB_PATH_VARS
+            .iter()
+            .filter_map(std::env::var_os)
+            .map(PathBuf::from);
         let roots = (ROCM_ROOT_VARS.iter())
             .filter_map(std::env::var_os)
             .map(PathBuf::from)
             .chain(DEFAULT_ROCM_ROOTS.iter().map(PathBuf::from))
             .map(|root| root.join("amdgcn").join("bitcode"));
 
-        direct.chain(roots).find(|dir| dir.join("ocml.bc").is_file())
+        direct
+            .chain(roots)
+            .find(|dir| dir.join("ocml.bc").is_file())
     })
     .as_ref()
     .ok_or_else(|| {
         format!(
-            "no ROCm device libraries found: looked for amdgcn/bitcode/ocml.bc via {} and under {}. \
+            "no ROCm device libraries found: looked for ocml.bc via {}, and for \
+             amdgcn/bitcode/ocml.bc under {} and {}. \
              Set CUBECL_ROCM_DEVICE_LIB_PATH to the directory holding ocml.bc",
             DEVICE_LIB_PATH_VARS.join(", "),
+            ROCM_ROOT_VARS.join(", "),
             DEFAULT_ROCM_ROOTS.join(", "),
         )
     })

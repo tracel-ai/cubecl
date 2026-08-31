@@ -53,7 +53,11 @@ fn parent_module(ctx: &Context, op: Ptr<Operation>) -> Option<ModuleOp> {
     None
 }
 
-/// The LDS block, declared on first use.
+/// The LDS block, declared on first use and widened to `alignment` on any later one.
+///
+/// `AllocateSharedMemoryBlockPass` packs a kernel's shared memories into one block, so in
+/// practice there is one allocation per module. Taking the strictest alignment anyway costs
+/// nothing and means a second one cannot land on a block aligned for the first.
 ///
 /// `[0 x i8]` and `external` make it dynamically sized: the code object asks for no group
 /// segment of its own and the host gives it one at launch.
@@ -65,11 +69,14 @@ fn lookup_or_insert_block(
     let name: Identifier = LDS_BLOCK.try_into().expect("valid identifier");
 
     let mut symbol_tables = SymbolTableCollection::new();
-    if symbol_tables
+    let existing = symbol_tables
         .get_symbol_table(ctx, Box::new(module))
-        .lookup(&name)
-        .is_some()
-    {
+        .lookup(&name);
+    if let Some(existing) = existing {
+        let existing = Operation::get_op::<llvm::GlobalOp>(existing.get_operation(), ctx)
+            .expect("the LDS block is a global");
+        let widened = existing.alignment(ctx).unwrap_or(0).max(alignment as u32);
+        existing.set_alignment(ctx, widened);
         return Ok(name);
     }
 
@@ -98,7 +105,8 @@ impl ToLLVMDialect for AllocSharedOp {
         let module = parent_module(ctx, old_op).expect("alloc_shared must be inside a module");
         let alignment = self.alignment(ctx).0 as u64;
 
-        // Taken here: the rewrite below is what removes the op.
+        // Taken here: the rewrite below is what removes the op. One block per kernel, so
+        // the last one written is the one the launch reserves.
         let size = self.size(ctx).0;
         ctx.set_shared_memory_size(size);
 
