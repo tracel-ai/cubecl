@@ -50,7 +50,7 @@ const MBCNT_HI: &str = "llvm.amdgcn.mbcnt.hi";
 /// packet that `llvm.amdgcn.dispatch.ptr` points to.
 const CONSTANT_ADDRESS_SPACE: u32 = 4;
 
-/// Byte offsets of the `grid_size_{x,y,z}` fields within `hsa_kernel_dispatch_packet_t`
+/// Byte offsets of the `grid_size_{x,y,z}` fields within `has_kernel_dispatch_packet_t`
 /// (verified against `rocm-runtime`'s `hsa/hsa.h`). These fields count work-items launched
 /// along each axis, not workgroups.
 const GRID_SIZE_X_OFFSET: u32 = 12;
