@@ -3,31 +3,53 @@
 use cubecl_core::ir::amd::GfxArch;
 use cubecl_core::prelude::KernelDefinition;
 use cubecl_cpp::shared::CompilationOptions;
-#[cfg(feature = "cpp")]
 use cubecl_cpp::{ComputeKernel, shared::CppCompiler, target::Hip};
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use cubecl_runtime::kernel::BufferIOAttr;
 
+/// Which backend turns a `KernelDefinition` into something the HIP driver can load.
+///
+/// Both are always compiled. The `cpp` feature selects which one a default [`HipCompiler`]
+/// runs, rather than which one exists, so a crate elsewhere in the graph enabling it changes
+/// the default and cannot take the other away.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HipBackend {
+    /// Transpile to HIP C++ and hand the source to HIP RTC.
+    Cpp,
+    /// Lower through pliron and LLVM to a linked AMD code object.
+    Llvm,
+}
+
+impl Default for HipBackend {
+    fn default() -> Self {
+        if cfg!(feature = "cpp") {
+            HipBackend::Cpp
+        } else {
+            HipBackend::Llvm
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum HipCompiler {
-    #[cfg(feature = "cpp")]
     Cpp(CppCompiler<Hip>),
-    #[cfg(not(feature = "cpp"))]
     Llvm(cubecl_llvm::PlironCompiler),
+}
+
+impl HipCompiler {
+    pub fn new(backend: HipBackend) -> Self {
+        match backend {
+            HipBackend::Cpp => HipCompiler::Cpp(CppCompiler::default()),
+            HipBackend::Llvm => HipCompiler::Llvm(cubecl_llvm::PlironCompiler {
+                target: cubecl_llvm::LlvmTarget::AmdGpu,
+            }),
+        }
+    }
 }
 
 impl Default for HipCompiler {
     fn default() -> Self {
-        #[cfg(feature = "cpp")]
-        {
-            HipCompiler::Cpp(CppCompiler::default())
-        }
-        #[cfg(not(feature = "cpp"))]
-        {
-            HipCompiler::Llvm(cubecl_llvm::PlironCompiler {
-                target: cubecl_llvm::LlvmTarget::AmdGpu,
-            })
-        }
+        Self::new(HipBackend::default())
     }
 }
 
@@ -41,9 +63,7 @@ pub struct HipCompilationOptions {
 }
 
 pub enum HipRepresentation {
-    #[cfg(feature = "cpp")]
     Cpp(ComputeKernel),
-    #[cfg(not(feature = "cpp"))]
     Llvm(cubecl_llvm::AmdGpuModule),
 }
 
@@ -52,9 +72,7 @@ pub enum HipRepresentation {
 impl core::fmt::Debug for HipRepresentation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            #[cfg(feature = "cpp")]
             HipRepresentation::Cpp(_) => f.write_str("HipRepresentation::Cpp"),
-            #[cfg(not(feature = "cpp"))]
             HipRepresentation::Llvm(module) => f
                 .debug_tuple("HipRepresentation::Llvm")
                 .field(module)
@@ -68,9 +86,7 @@ impl HipRepresentation {
     /// dynamic shared memory, so this is what the launch passes as `sharedMemBytes`.
     pub fn shared_memory_size(&self) -> usize {
         match self {
-            #[cfg(feature = "cpp")]
             HipRepresentation::Cpp(kernel) => kernel.shared_memory_size,
-            #[cfg(not(feature = "cpp"))]
             HipRepresentation::Llvm(module) => module.shared_memory_size,
         }
     }
@@ -79,9 +95,7 @@ impl HipRepresentation {
 impl core::fmt::Display for HipRepresentation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            #[cfg(feature = "cpp")]
             HipRepresentation::Cpp(kernel) => write!(f, "{kernel}"),
-            #[cfg(not(feature = "cpp"))]
             HipRepresentation::Llvm(module) => write!(f, "{}", module.ir),
         }
     }
@@ -97,9 +111,7 @@ impl Compiler for HipCompiler {
     /// buffer would be skipped for reading what it only writes.
     fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
         match repr {
-            #[cfg(feature = "cpp")]
             HipRepresentation::Cpp(kernel) => <CppCompiler<Hip> as Compiler>::buffer_io(kernel),
-            #[cfg(not(feature = "cpp"))]
             HipRepresentation::Llvm(module) => Some(module.io.clone()),
         }
     }
@@ -110,11 +122,9 @@ impl Compiler for HipCompiler {
         options: &Self::CompilationOptions,
     ) -> Result<Self::Representation, CompilationError> {
         match self {
-            #[cfg(feature = "cpp")]
             HipCompiler::Cpp(compiler) => Ok(HipRepresentation::Cpp(
                 compiler.compile(kernel, &options.cpp)?,
             )),
-            #[cfg(not(feature = "cpp"))]
             HipCompiler::Llvm(compiler) => {
                 let pliron_options = cubecl_llvm::PlironOptions {
                     arch: options.arch.clone(),
@@ -133,9 +143,7 @@ impl Compiler for HipCompiler {
 
     fn extension(&self) -> &'static str {
         match self {
-            #[cfg(feature = "cpp")]
             HipCompiler::Cpp(compiler) => compiler.extension(),
-            #[cfg(not(feature = "cpp"))]
             HipCompiler::Llvm(_) => "ll",
         }
     }
