@@ -134,9 +134,10 @@ impl ThroughputBenchmarker {
             "iterations must be positive to avoid division by zero"
         );
 
-        const MIN_SAMPLES: usize = 20;
         const MAX_SAMPLES: usize = 200;
         const REL_TOL: f64 = 0.01;
+        // Also the floor on samples, since the first always improves on
+        // infinity and only the ones after it can go stale.
         const PATIENCE: usize = 12;
         // A sample count prices them all the same, and a probe filling the
         // duration target costs forty times one whose pass is microseconds.
@@ -148,7 +149,7 @@ impl ThroughputBenchmarker {
         // timer reads zero would otherwise never spend any of the budget.
         let start = Instant::now();
 
-        for i in 0..MAX_SAMPLES {
+        for _ in 0..MAX_SAMPLES {
             let s = sample_once(iterations).as_secs_f64();
             if s < best * (1.0 - REL_TOL) {
                 best = s;
@@ -157,7 +158,7 @@ impl ThroughputBenchmarker {
                 best = best.min(s);
                 stale += 1;
             }
-            if (i > MIN_SAMPLES && stale >= PATIENCE) || start.elapsed() >= SAMPLE_BUDGET {
+            if stale >= PATIENCE || start.elapsed() >= SAMPLE_BUDGET {
                 break;
             }
         }
