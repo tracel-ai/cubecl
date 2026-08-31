@@ -58,6 +58,4 @@ impl PlironData {
         self.builtins[4] = unit_pos[1];
         self.builtins[5] = unit_pos[2];
     }
-
-    pub fn complete_unit(&self) {}
 }

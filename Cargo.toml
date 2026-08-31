@@ -174,7 +174,8 @@ llvm-sys = { version = "221", features = [
     "no-llvm-linking",
     "disable-alltargets-init",
 ] }
-tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "24e3361a3969d28cb5aaea9981cbc323c2a67f89" }
+# tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "24e3361a3969d28cb5aaea9981cbc323c2a67f89" }
+tracel-llvm-bundler = { path = "/home/marcantoinem/Tracel/tracel-llvm/crates/tracel-llvm-bundler" }
 
 cudarc = { version = "0.19.6", features = [
     "std",

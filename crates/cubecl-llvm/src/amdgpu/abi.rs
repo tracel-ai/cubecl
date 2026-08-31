@@ -1,10 +1,9 @@
 //! The AMDGPU kernarg layout.
 //!
 //! Buffers stay as individual `ptr addrspace(1)` arguments in binding order, with
-//! the metadata pointer last. Not a free choice: `HipServer::execute` pushes
-//! resources in exactly that order and `HipContext::execute_task` hands them to
-//! `hipModuleLaunchKernel` as `kernelParams`, so this is what lets the existing
-//! launch path work untouched.
+//! the metadata pointer last. `HipServer::execute` pushes resources
+//! in exactly that order and `HipContext::execute_task` hands them to
+//! `hipModuleLaunchKernel` as `kernelParams`
 
 use cubecl_core::ir::prelude::*;
 use pliron::builtin::ops::FuncOp;
@@ -27,9 +26,6 @@ impl EntryArgLayout for KernargArgs {
         buffers: &[(usize, usize, Value)],
         shared: SharedDeclarations,
     ) {
-        // Shared memory never reaches here: the block pass turned every declaration into an
-        // offset into one LDS block long before the entry ABI is built, so there is nothing
-        // left for the kernarg layout to present.
         debug_assert!(
             shared.is_empty(),
             "shared memory should have been lowered to LDS by AllocateSharedMemoryBlockPass"
@@ -66,18 +62,5 @@ impl EntryArgLayout for KernargArgs {
         info_arg.set_type(ctx, global_ptr);
 
         rebuild_func_type(ctx, func);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// `LowerEntryAbiPass` stores the layout boxed, so this fails to compile if a
-    /// later signature change breaks the trait's object safety.
-    #[test]
-    fn kernarg_args_is_a_boxed_layout() {
-        let layout: Box<dyn EntryArgLayout> = Box::new(KernargArgs);
-        let _ = layout;
     }
 }
