@@ -112,6 +112,8 @@ mod tests {
             assert_rejected(&client, out);
         }
     }
+
+    cubecl_core::testgen_complex_validation!();
 }
 
 #[cfg(all(test, feature = "spirv"))]
