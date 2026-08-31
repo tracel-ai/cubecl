@@ -69,7 +69,7 @@ pub fn policy() -> StreamPolicy {
 /// wins over configuration.
 #[doc(hidden)]
 pub fn set_policy_from_config(policy: StreamPolicy) {
-    let _ = POLICY.try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+    let _ = POLICY.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
         if current & SET_BY_USER != 0 {
             None
         } else {
