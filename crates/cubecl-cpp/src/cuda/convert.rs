@@ -128,15 +128,38 @@ fn vectorized(ctx: &Context, scalar: TypeHandle, vector_size: usize) -> TypeHand
 
 cuda_op_with_out!(CastOp, |op, ctx| {
     let input = op.input(ctx);
+    let input_name = input.name(ctx);
     let out_ty = op.get_result(ctx).get_type(ctx);
-    if input.is_fp8_fp6_fp4(ctx) || input.is_packed_fp6_fp8_fp4(ctx) {
+    let out_scalar = out_ty.scalar_ty(ctx).deref(ctx);
+
+    if out_scalar.is::<Complex32Type>() {
+        if input.is_complex(ctx) {
+            format!("make_cuFloatComplex({input_name}.x, {input_name}.y)")
+        } else {
+            format!("make_cuFloatComplex({input_name}, 0.0f)")
+        }
+    } else if out_scalar.is::<Complex64Type>() {
+        if input.is_complex(ctx) {
+            format!("make_cuDoubleComplex({input_name}.x, {input_name}.y)")
+        } else {
+            format!("make_cuDoubleComplex({input_name}, 0.0)")
+        }
+    } else if input.is_complex(ctx) {
+        if out_ty.is_tfloat32(ctx) {
+            format!("nvcuda::wmma::__float_to_tf32({input_name}.x)")
+        } else if out_ty.is_bool(ctx) {
+            format!("({input_name}.x != 0 || {input_name}.y != 0)")
+        } else {
+            format!("{}({input_name}.x)", out_ty.to_cpp(ctx))
+        }
+    } else if input.is_fp8_fp6_fp4(ctx) || input.is_packed_fp6_fp8_fp4(ctx) {
         cast_minifloat_to_half(ctx, input)
     } else if out_ty.is_fp8_fp6_fp4(ctx) || out_ty.is_packed_fp6_fp8_fp4(ctx) {
         cast_half_to_minifloat(ctx, input, out_ty)
     } else if out_ty.is_tfloat32(ctx) {
-        format!("nvcuda::wmma::__float_to_tf32({})", input.name(ctx))
+        format!("nvcuda::wmma::__float_to_tf32({input_name})")
     } else {
-        format!("{}({})", out_ty.to_cpp(ctx), input.name(ctx))
+        format!("{}({input_name})", out_ty.to_cpp(ctx))
     }
 });
 
@@ -202,4 +225,82 @@ fn fp8_source_prefix(ctx: &Context, input: Value) -> &'static str {
         Float64Type => "double",;
         _ => unsupported()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        shared::operation::OpToCPP,
+        target::{CtxTarget, Target},
+    };
+    use cubecl_core::ir::{ComplexKind, ConstantValue, ElemType, FloatKind, UIntKind};
+    use pliron::builtin::ops::ConstantOp;
+
+    fn cast(input: ConstantValue, input_ty: ElemType, output_ty: ElemType) -> String {
+        let mut ctx = Context::new();
+        ctx.set_target(Target::Cuda);
+        let input_attr = input.as_attribute(&ctx, input_ty);
+        let input = ConstantOp::new(&mut ctx, input_attr).get_result(&ctx);
+        let input_name = input.name(&ctx).to_string();
+        let output_ty = output_ty.to_type(&ctx);
+        let op = CastOp::new(&mut ctx, output_ty, input);
+        let cpp = OpToCPP::<Cuda>::to_cpp(&op, &ctx);
+        cpp.split_once(" = ")
+            .unwrap()
+            .1
+            .replace(&input_name, "input")
+    }
+
+    #[test]
+    fn complex_casts_use_cucomplex_components_and_constructors() {
+        assert_eq!(
+            cast(
+                ConstantValue::UInt(0),
+                UIntKind::U32.into(),
+                ComplexKind::C64.into()
+            ),
+            "make_cuDoubleComplex(input, 0.0);\n"
+        );
+        assert_eq!(
+            cast(
+                ConstantValue::Float(1.0),
+                FloatKind::F64.into(),
+                ComplexKind::C32.into()
+            ),
+            "make_cuFloatComplex(input, 0.0f);\n"
+        );
+        assert_eq!(
+            cast(
+                ConstantValue::Complex(1.0, 2.0),
+                ComplexKind::C64.into(),
+                ComplexKind::C32.into()
+            ),
+            "make_cuFloatComplex(input.x, input.y);\n"
+        );
+        assert_eq!(
+            cast(
+                ConstantValue::Complex(1.0, 2.0),
+                ComplexKind::C32.into(),
+                ComplexKind::C64.into()
+            ),
+            "make_cuDoubleComplex(input.x, input.y);\n"
+        );
+        assert_eq!(
+            cast(
+                ConstantValue::Complex(1.0, 2.0),
+                ComplexKind::C32.into(),
+                FloatKind::F64.into()
+            ),
+            "double(input.x);\n"
+        );
+        assert_eq!(
+            cast(
+                ConstantValue::Complex(0.0, 1.0),
+                ComplexKind::C32.into(),
+                ElemType::Bool
+            ),
+            "(input.x != 0 || input.y != 0);\n"
+        );
+    }
 }
