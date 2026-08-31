@@ -179,25 +179,71 @@ struct LanePosition {
     half: Value,
 }
 
-/// This lane's position within its wavefront.
-fn lane_position(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> LanePosition {
-    let lane = lane_id(ctx, rw);
-    let width = insert_i32_const(ctx, rw, LANES_PER_ROW as i32);
+impl LanePosition {
+    /// Split `lane`, an index within the wavefront, into the two halves the fragment
+    /// layouts are written in terms of.
+    fn of(ctx: &mut Context, rw: &mut DialectConversionRewriter, lane: Value) -> Self {
+        let width = insert_i32_const(ctx, rw, LANES_PER_ROW as i32);
 
-    let in_row = llvm::URemOp::new(ctx, lane, width);
-    let half = llvm::UDivOp::new(ctx, lane, width);
+        let in_row = llvm::URemOp::new(ctx, lane, width);
+        let half = llvm::UDivOp::new(ctx, lane, width);
 
-    LanePosition {
-        in_row: insert(ctx, rw, &in_row),
-        half: insert(ctx, rw, &half),
+        LanePosition {
+            in_row: insert(ctx, rw, &in_row),
+            half: insert(ctx, rw, &half),
+        }
+    }
+
+    /// This lane's position within its own wavefront.
+    fn current(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Self {
+        let lane = lane_id(ctx, rw);
+        Self::of(ctx, rw, lane)
+    }
+}
+
+/// How far along the fragment's own axis this lane's `i`th element sits: the `k` range for
+/// A and B, the rows of the output for the accumulator.
+///
+/// This is the only place the fragment layout is written down. [`element_index`] walks it
+/// with a constant `i` to place a load or a store, and [`axis_index`] with a runtime one to
+/// answer `row_index` and `col_index`. A second copy that drifted would have a kernel
+/// addressing its own fragment at coordinates the loads never wrote.
+fn along(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    matrix: &MatrixType,
+    i: Value,
+    lane: LanePosition,
+) -> Value {
+    let half = lane.half;
+    match (matrix.ident, ctx.wmma()) {
+        // Every lane holds the whole `k` range, duplicated across the halves of the wave.
+        (MatrixIdent::A | MatrixIdent::B, WmmaGeneration::Rdna3) => i,
+        // Each half holds its own part of the `k` range.
+        (MatrixIdent::A | MatrixIdent::B, WmmaGeneration::Rdna4) => {
+            let per_half = insert_i32_const(ctx, rw, matrix.shape.k as i32 / 2);
+            let offset = mul(ctx, rw, half, per_half);
+            add(ctx, rw, i, offset)
+        }
+        // The halves interleave row by row.
+        (MatrixIdent::Accumulator, WmmaGeneration::Rdna3) => {
+            let two = insert_i32_const(ctx, rw, 2);
+            let row = mul(ctx, rw, i, two);
+            add(ctx, rw, row, half)
+        }
+        // Each half gets a contiguous block of eight rows.
+        (MatrixIdent::Accumulator, WmmaGeneration::Rdna4) => {
+            let block = insert_i32_const(ctx, rw, ACCUMULATOR_REGISTERS as i32);
+            let offset = mul(ctx, rw, half, block);
+            add(ctx, rw, i, offset)
+        }
     }
 }
 
 /// The index into the backing memory of this lane's `i`th element of `matrix`.
 ///
-/// A and B walk the `k` range of one row or column; RDNA4 splits that range between the halves
-/// of the wave, so the half selects which part this lane holds. The accumulator instead walks
-/// eight rows two apart, the half choosing between them.
+/// The element sits at [`along`] on the fragment's own axis and at the lane's place in the
+/// row on the other; `layout` decides which of the two the stride multiplies.
 fn element_index(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -207,40 +253,9 @@ fn element_index(
     lane: LanePosition,
     stride: Value,
 ) -> Value {
-    let LanePosition { in_row, half } = lane;
-    let generation = ctx.wmma();
-
-    let (along, across) = match matrix.ident {
-        MatrixIdent::A | MatrixIdent::B => {
-            let step = insert_i32_const(ctx, rw, i as i32);
-            let along = match generation {
-                WmmaGeneration::Rdna3 => step,
-                WmmaGeneration::Rdna4 => {
-                    let per_half = insert_i32_const(ctx, rw, matrix.shape.k as i32 / 2);
-                    let offset = mul(ctx, rw, half, per_half);
-                    add(ctx, rw, step, offset)
-                }
-            };
-            (along, in_row)
-        }
-        MatrixIdent::Accumulator => {
-            // RDNA3 interleaves the halves row by row, RDNA4 gives each half a contiguous
-            // block of eight.
-            let along = match generation {
-                WmmaGeneration::Rdna3 => {
-                    let row = insert_i32_const(ctx, rw, (i * 2) as i32);
-                    add(ctx, rw, row, half)
-                }
-                WmmaGeneration::Rdna4 => {
-                    let row = insert_i32_const(ctx, rw, i as i32);
-                    let block = insert_i32_const(ctx, rw, ACCUMULATOR_REGISTERS as i32);
-                    let offset = mul(ctx, rw, half, block);
-                    add(ctx, rw, row, offset)
-                }
-            };
-            (along, in_row)
-        }
-    };
+    let step = insert_i32_const(ctx, rw, i as i32);
+    let along = along(ctx, rw, matrix, step, lane);
+    let across = lane.in_row;
 
     if is_strided(matrix.ident, layout) {
         let scaled = mul(ctx, rw, along, stride);
@@ -401,7 +416,7 @@ impl ToLLVMDialect for LoadOp {
         let frag_ty = fragment_ty(ctx, &ty);
         let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
         let align = scalar_alignment(ctx, ty.elem_ty);
-        let lane = lane_position(ctx, rw);
+        let lane = LanePosition::current(ctx, rw);
 
         // One vector load where the elements are consecutive, at the element's alignment
         // like the element-wise path below. The base of a tile is aligned far past that --
@@ -458,7 +473,7 @@ impl ToLLVMDialect for StoreOp {
         let frag_ty = fragment_ty(ctx, &ty);
         let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
         let align = scalar_alignment(ctx, ty.elem_ty);
-        let lane = lane_position(ctx, rw);
+        let lane = LanePosition::current(ctx, rw);
 
         let frag = load_fragment(ctx, rw, matrix, frag_ty);
 
@@ -808,42 +823,13 @@ fn axis_index(
     lane: Value,
     i: Value,
 ) -> Value {
-    let generation = ctx.wmma();
-    let width = insert_i32_const(ctx, rw, LANES_PER_ROW as i32);
-
-    let in_row = llvm::URemOp::new(ctx, lane, width);
-    rw.insert_op(ctx, &in_row);
-    let half_op = llvm::UDivOp::new(ctx, lane, width);
-    rw.insert_op(ctx, &half_op);
-    let (in_row, half) = (in_row.get_result(ctx), half_op.get_result(ctx));
-
-    let along = match matrix.ident {
-        MatrixIdent::A | MatrixIdent::B => match generation {
-            WmmaGeneration::Rdna3 => i,
-            WmmaGeneration::Rdna4 => {
-                let per_half = insert_i32_const(ctx, rw, matrix.shape.k as i32 / 2);
-                let offset = mul(ctx, rw, half, per_half);
-                add(ctx, rw, i, offset)
-            }
-        },
-        MatrixIdent::Accumulator => match generation {
-            WmmaGeneration::Rdna3 => {
-                let two = insert_i32_const(ctx, rw, 2);
-                let row = mul(ctx, rw, i, two);
-                add(ctx, rw, row, half)
-            }
-            WmmaGeneration::Rdna4 => {
-                let block = insert_i32_const(ctx, rw, ACCUMULATOR_REGISTERS as i32);
-                let offset = mul(ctx, rw, half, block);
-                add(ctx, rw, i, offset)
-            }
-        },
-    };
+    let lane = LanePosition::of(ctx, rw, lane);
+    let along = along(ctx, rw, matrix, i, lane);
 
     // A is indexed by its row and walks `k`; B and the accumulator are the other way round.
     let lane_names_row = matrix.ident == MatrixIdent::A;
     match (axis, lane_names_row) {
-        (Axis::Row, true) | (Axis::Col, false) => in_row,
+        (Axis::Row, true) | (Axis::Col, false) => lane.in_row,
         (Axis::Row, false) | (Axis::Col, true) => along,
     }
 }
