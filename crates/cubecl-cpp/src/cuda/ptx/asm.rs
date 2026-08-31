@@ -3,8 +3,8 @@ use core::{cell::Ref, fmt::Display};
 use cubecl_core::{
     frontend::InputKind,
     ir::{
-        AddressSpaceVecAttr, AddressType, Scope,
-        dialect::{InlineAsmOp, InputSpecVecAttr},
+        AddressType, Scope,
+        dialect::{InlineAsmOp, InputSpecVecAttr, MemoryClobbers, MemoryClobbersAttr},
         interfaces::{MemoryEffect, MemoryEffects, TypedExt},
         prelude::*,
         types::VectorType,
@@ -35,18 +35,13 @@ use crate::{
     attr($cuda_inline_ptx_ptx, $StringAttr) ` : ` types(CharSpace(`,`)) ` : ` operands(CharSpace(`,`))
     opt_attr($cuda_inline_ptx_clobbers, $VecAttr)
     opt_attr($cuda_inline_ptx_in_spec, $InputSpecVecAttr, label($in_spec))
-    opt_attr($cuda_inline_ptx_reads_spaces, $AddressSpaceVecAttr, label($reads_spaces))
-    opt_attr($cuda_inline_ptx_writes_spaces, $AddressSpaceVecAttr, label($writes_spaces))",
+    opt_attr($cuda_inline_ptx_memory_clobbers, $MemoryClobbersAttr, label($memory_clobbers))",
     attributes = (
         cuda_inline_ptx_ptx: StringAttr,
         cuda_inline_ptx_volatile: UnitAttr,
         cuda_inline_ptx_clobbers: VecAttr,
-        cuda_inline_ptx_nomem: UnitAttr,
-        cuda_inline_ptx_explicit_mem: UnitAttr,
-        cuda_inline_ptx_readonly: UnitAttr,
+        cuda_inline_ptx_memory_clobbers: MemoryClobbersAttr,
         cuda_inline_ptx_in_spec: InputSpecVecAttr,
-        cuda_inline_ptx_reads_spaces: AddressSpaceVecAttr,
-        cuda_inline_ptx_writes_spaces: AddressSpaceVecAttr,
     ),
     verifier = "succ"
 )]
@@ -69,6 +64,7 @@ impl InlinePtxOp {
         );
         let op = Self { op };
         op.set_attr_cuda_inline_ptx_ptx(ctx, ptx.to_string().into());
+        op.set_attr_cuda_inline_ptx_memory_clobbers(ctx, MemoryClobbers::Nomem.into());
         op
     }
 
@@ -80,6 +76,7 @@ impl InlinePtxOp {
     ) -> Self {
         let op = Self::new(ctx, result_ty, ptx, inputs);
         op.set_attr_cuda_inline_ptx_volatile(ctx, UnitAttr::new());
+        op.set_attr_cuda_inline_ptx_memory_clobbers(ctx, MemoryClobbers::Nomem.into());
         op
     }
 
@@ -133,48 +130,43 @@ impl SideEffects for InlinePtxOp {
 #[op_interface_impl]
 impl MemoryEffects for InlinePtxOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
-        if self.get_attr_cuda_inline_ptx_nomem(ctx).is_some() {
-            vec![]
-        } else if self.get_attr_cuda_inline_ptx_readonly(ctx).is_some() {
-            vec![MemoryEffect::ReadAll]
-        } else if self.get_attr_cuda_inline_ptx_explicit_mem(ctx).is_some() {
-            let mut out = vec![];
-            for space in self
-                .get_attr_cuda_inline_ptx_reads_spaces(ctx)
-                .map(|it| it.0.clone())
-                .unwrap_or_default()
-            {
-                out.push(MemoryEffect::ReadAllInSpace(space));
-            }
-            for space in self
-                .get_attr_cuda_inline_ptx_writes_spaces(ctx)
-                .map(|it| it.0.clone())
-                .unwrap_or_default()
-            {
-                out.push(MemoryEffect::WriteAllInSpace(space));
-            }
-            let in_specs = self
-                .get_attr_cuda_inline_ptx_in_spec(ctx)
-                .map(|it| it.0.clone())
-                .unwrap_or_default();
-            for (value, spec) in self.inputs(ctx).into_iter().zip(in_specs) {
-                match spec.kind {
-                    InputKind::MemIn => {
-                        out.push(MemoryEffect::Read(value));
-                    }
-                    InputKind::MemOut => {
-                        out.push(MemoryEffect::Write(value));
-                    }
-                    InputKind::MemInout => {
-                        out.push(MemoryEffect::Read(value));
-                        out.push(MemoryEffect::Write(value));
-                    }
-                    InputKind::In => {}
+        match &self
+            .get_attr_cuda_inline_ptx_memory_clobbers(ctx)
+            .unwrap()
+            .0
+        {
+            MemoryClobbers::Nomem => vec![],
+            MemoryClobbers::Readonly => vec![MemoryEffect::ReadAll],
+            MemoryClobbers::Explicit {
+                reads_spaces,
+                writes_spaces,
+            } => {
+                let mut out = vec![];
+                for space in reads_spaces.0.iter() {
+                    out.push(MemoryEffect::ReadAllInSpace(*space));
                 }
+                for space in writes_spaces.0.iter() {
+                    out.push(MemoryEffect::WriteAllInSpace(*space));
+                }
+                let specs = self.get_attr_cuda_inline_ptx_in_spec(ctx).unwrap();
+                for (value, spec) in self.inputs(ctx).into_iter().zip(specs.0.iter()) {
+                    match spec.kind {
+                        InputKind::MemIn => {
+                            out.push(MemoryEffect::Read(value));
+                        }
+                        InputKind::MemOut => {
+                            out.push(MemoryEffect::Write(value));
+                        }
+                        InputKind::MemInout => {
+                            out.push(MemoryEffect::Read(value));
+                            out.push(MemoryEffect::Write(value));
+                        }
+                        InputKind::In => {}
+                    }
+                }
+                out
             }
-            out
-        } else {
-            vec![MemoryEffect::ReadAll, MemoryEffect::WriteAll]
+            MemoryClobbers::ReadWrite => vec![MemoryEffect::ReadAll, MemoryEffect::WriteAll],
         }
     }
 }
@@ -337,31 +329,23 @@ impl LowerOp<Cuda> for InlineAsmOp {
             .opt_result(ctx)
             .map(|res| res.get_type(ctx));
         let inline_ptx = InlinePtxOp::new(ctx, results, ptx, inputs);
+        let mem_clobbers = self.memory_clobbers(ctx).clone();
         if !self.pure(ctx) {
             inline_ptx.set_attr_cuda_inline_ptx_volatile(ctx, UnitAttr::new());
         }
-        if self.readonly(ctx) {
-            inline_ptx.set_attr_cuda_inline_ptx_readonly(ctx, UnitAttr::new());
+        match &mem_clobbers {
+            MemoryClobbers::Nomem => {}
+            MemoryClobbers::Readonly
+            | MemoryClobbers::Explicit { .. }
+            | MemoryClobbers::ReadWrite => {
+                inline_ptx.set_attr_cuda_inline_ptx_clobbers(
+                    ctx,
+                    VecAttr(vec![Box::new(StringAttr::new("memory".into()))]),
+                );
+            }
         }
-        if self.nomem(ctx) {
-            inline_ptx.set_attr_cuda_inline_ptx_nomem(ctx, UnitAttr::new());
-        } else {
-            inline_ptx.set_attr_cuda_inline_ptx_clobbers(
-                ctx,
-                VecAttr(vec![Box::new(StringAttr::new("memory".into()))]),
-            );
-        }
-        if self.explicit_mem(ctx) {
-            inline_ptx.set_attr_cuda_inline_ptx_explicit_mem(ctx, UnitAttr::new());
-            inline_ptx.set_attr_cuda_inline_ptx_clobbers(
-                ctx,
-                VecAttr(vec![Box::new(StringAttr::new("memory".into()))]),
-            );
-        }
-
+        inline_ptx.set_attr_cuda_inline_ptx_memory_clobbers(ctx, mem_clobbers.into());
         inline_ptx.set_attr_cuda_inline_ptx_in_spec(ctx, self.in_specs(ctx).into());
-        inline_ptx.set_attr_cuda_inline_ptx_reads_spaces(ctx, self.reads_spaces(ctx).into());
-        inline_ptx.set_attr_cuda_inline_ptx_writes_spaces(ctx, self.writes_spaces(ctx).into());
 
         inline_ptx
             .get_operation()

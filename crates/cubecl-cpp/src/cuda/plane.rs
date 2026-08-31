@@ -4,10 +4,7 @@ use cubecl_core::{
     prelude::*,
 };
 use pliron::{
-    builtin::{
-        attributes::UnitAttr,
-        types::{IntegerType, Signedness},
-    },
+    builtin::types::{IntegerType, Signedness},
     derive::op_interface_impl,
     value::Value,
 };
@@ -80,7 +77,6 @@ impl LowerOp<Cuda> for ElectOp {
                 "selp.b32 $0, 1, 0, %%px;"
             };
             let op = InlinePtxOp::new_volatile(ctx, Some(u32), ptx, vec![]);
-            op.set_attr_cuda_inline_ptx_nomem(ctx, UnitAttr::new());
             scope.register(&op);
             let cast = cast_value(scope, op.result(ctx).unwrap(), BoolType::get(ctx).into());
             vec![cast]

@@ -2,7 +2,7 @@ use alloc::{string::String, vec::Vec};
 
 use cubecl_ir::{
     AddressSpace, Scope,
-    dialect::{InlineAsmOp, OperationPtrExt},
+    dialect::{InlineAsmOp, MemoryClobbers, OperationPtrExt},
     interfaces::TypeExt,
 };
 use pliron::{op::Op, r#type::Typed, value::Value};
@@ -114,25 +114,29 @@ impl BuildAsmExpand {
             .iter()
             .map(|it| it.get_type(ctx).as_ptr(ctx).inner)
             .collect();
+        let memory_clobbers = if self.nomem {
+            MemoryClobbers::Nomem
+        } else if self.readonly {
+            MemoryClobbers::Readonly
+        } else if self.explicit_mem {
+            MemoryClobbers::Explicit {
+                reads_spaces: self.reads_spaces.into(),
+                writes_spaces: self.writes_spaces.into(),
+            }
+        } else {
+            MemoryClobbers::ReadWrite
+        };
         let op = InlineAsmOp::new(
             ctx,
             result_types,
             self.out_specs,
             self.asm,
+            memory_clobbers,
             self.in_values,
             self.in_specs,
         );
         if self.pure {
             op.set_pure(ctx);
-        }
-        if self.nomem {
-            op.set_nomem(ctx);
-        }
-        if self.explicit_mem {
-            op.set_explicit_mem(ctx);
-        }
-        if self.readonly {
-            op.set_readonly(ctx);
         }
         scope.register(&op);
         // Store results back to out expand values
