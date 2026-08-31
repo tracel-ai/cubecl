@@ -74,7 +74,8 @@ fn nccl_dtype_count(
             | FloatKind::TF32,
         )
         | ElemType::Int(IntKind::I16)
-        | ElemType::UInt(UIntKind::U16) => {
+        | ElemType::UInt(UIntKind::U16)
+        | ElemType::Complex(_) => {
             return Err(ServerError::Generic {
                 reason: format!("NCCL has no data type for {dtype:?}, so no collective over it"),
                 backtrace: BackTrace::capture(),

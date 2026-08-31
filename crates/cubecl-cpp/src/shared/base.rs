@@ -9,8 +9,8 @@ use crate::{
         lowering::{LowerOpsAfterUnrollCppPass, LowerOpsCppPass},
         metadata::LowerInfoPass,
         signature::{
-            CollectIncludesPass, DeclareInfoTypeOp, DeclareVectorTypesPass, buffer_io, buffers,
-            shared_memory_size,
+            CollectIncludesPass, DeclareComplexHelpersOp, DeclareInfoTypeOp,
+            DeclareVectorTypesPass, buffer_io, buffers, shared_memory_size,
         },
         unroll::CppUnrollPass,
     },
@@ -24,9 +24,11 @@ use cubecl_core::{
     ir::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
         features::{AtomicUsage, EnumSet, TypeUsage},
+        interfaces::TypedExt,
         metadata::Info,
-        rewrite::SimplifyOpsPass,
+        rewrite::{SimplifyOpsPass, visit_all_values},
         settings::Dim3,
+        types::scalar::{Complex32Type, Complex64Type},
     },
     post_processing::{
         bitwise::PromoteBitwisePass,
@@ -187,6 +189,24 @@ where
         decl_types
             .get_operation()
             .insert_before(&ctx, entry_func.get_operation());
+
+        let mut has_complex = false;
+        visit_all_values(
+            &ctx,
+            &mut has_complex,
+            module_op,
+            |ctx, has_complex, value| {
+                if let Some(ty) = value.try_get_scalar_elem_ty(ctx) {
+                    let ty = ty.deref(ctx);
+                    *has_complex |= ty.is::<Complex32Type>() || ty.is::<Complex64Type>();
+                }
+            },
+        );
+        if has_complex && T::target() == Target::Cuda {
+            DeclareComplexHelpersOp::new(&mut ctx)
+                .get_operation()
+                .insert_before(&ctx, entry_func.get_operation());
+        }
 
         #[cfg(feature = "pliron-dump")]
         let dump_dir = kernel_dir_name(&kernel.settings.kernel_name);
