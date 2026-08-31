@@ -91,6 +91,12 @@ impl<A: EventApi> EventProfiler<A> {
     /// Returns at enqueue time. The duration is read from the device by the
     /// returned future, which is where the wait for the window's work lives.
     ///
+    /// That future blocks the thread that polls it: the device APIs offer no
+    /// way to be woken when an event is reached, only a synchronize that parks
+    /// the caller, so the first poll returns once the device has reached both
+    /// events. Await it from a thread that can afford to wait — the same place
+    /// a synchronize would have gone.
+    ///
     /// # Errors
     ///
     /// [`ProfileError::NotRegistered`] for a token this profiler never issued
@@ -150,8 +156,8 @@ impl<A: EventApi> EventProfiler<A> {
 
         let error = ProfileError::from(error);
         self.open
-            .iter_mut()
-            .for_each(|(_, state)| *state = Err(error.clone()));
+            .values_mut()
+            .for_each(|state| *state = Err(error.clone()));
     }
 
     /// The anchor a window opening now measures against, refreshed when the

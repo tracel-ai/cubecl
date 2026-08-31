@@ -13,6 +13,12 @@ use crate::server::ServerError;
 /// Named for the trait it is not: [`drop_queue::Fence`] is the contract, and
 /// this is the implementation of it that a device event gives you. Backends
 /// alias it back to `Fence` for their own call sites.
+///
+/// Its event is created and destroyed outright rather than recycled through the
+/// pool an [`EventProfiler`](super::EventProfiler) keeps: a fence is raised from
+/// `StreamBackend::flush`, which is handed a stream and nothing else, so there
+/// is no pool in reach without threading one through that trait. Pool these too
+/// once something else needs the same argument.
 pub struct EventFence<A: EventApi> {
     event: Event<A>,
 }
