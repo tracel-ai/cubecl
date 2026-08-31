@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{KernelConfig, MemoryAccess, ThroughputKey};
+use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputKey};
 
 use crate::throughput::{
     LaunchConfig,
@@ -26,13 +26,13 @@ pub fn build_kernel<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
     config: LaunchConfig,
-    working_set: usize,
+    spec: MemorySpec,
 ) -> KernelConfig {
     let client = client.clone();
     let dtype = key.dtype();
 
     let line_bytes = config.vector_size * dtype.size();
-    let probe = MemoryProbe::new(&client, config, line_bytes, MemoryAccess::Read, working_set);
+    let probe = MemoryProbe::new(&client, config, line_bytes, spec);
 
     let in_handle = client.empty(probe.buffer_bytes);
     memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);
@@ -62,7 +62,11 @@ pub fn build_kernel<R: Runtime>(
     // Reads only — no `2 *`. That factor is the whole difference from the copy.
     let ops_count = probe.window_lines * config.vector_size;
 
-    KernelConfig { sample, ops_count }
+    KernelConfig {
+        sample,
+        ops_count,
+        min_iterations: probe.min_iterations(),
+    }
 }
 
 #[cube(launch_unchecked)]
@@ -134,10 +138,8 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
         }
 
         start += window;
-        // Back to the beginning, one line further along each time round, so a
-        // window that fills the whole buffer still moves between passes. The
-        // test is whether the window starts past the end, not whether it
-        // reaches past: the index wraps, so the last position of a cycle
+        // One line further along each round, so a window filling the whole
+        // buffer still moves. The index wraps, so a cycle's last position
         // straddles the end rather than being skipped.
         if start >= len {
             wrap += 1;

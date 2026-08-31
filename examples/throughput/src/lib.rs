@@ -82,22 +82,20 @@ pub fn memory_curve<R: Runtime>(device: &R::Device) {
     println!("Memory curve — {}", R::name(&client));
 
     for access in [MemoryAccess::Read, MemoryAccess::Write, MemoryAccess::Copy] {
-        let curve = measure_memory_curve::<R>(&client, access);
-        print_curve(access, &curve);
+        print_curve(access, &measure_memory_curve::<R>(&client, access));
     }
 }
 
 fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
-    println!("\n  {access:?}");
+    println!("\n  {:<8}{:>18}", format!("{access:?}"), "peak");
 
     for point in curve.points() {
-        let bytes_per_s = curve.ceiling_at(point.bytes).unwrap_or(f64::NAN);
+        let rate = match curve.ceiling_at(point.bytes) {
+            Some(bytes_per_s) => format!("{:.1} GB/s", bytes_per_s / 1e9),
+            None => String::from("N/A"),
+        };
 
-        println!(
-            "    {:>10}{:>14}",
-            bytes_label(point.bytes),
-            format!("{:.1} GB/s", bytes_per_s / 1e9),
-        );
+        println!("    {:>10}{:>14}", bytes_label(point.bytes), rate);
     }
 }
 
@@ -162,11 +160,8 @@ fn describe(key: &ThroughputKey) -> String {
             input_dtype, cfg.accumulator_type, cfg.cmma_dims.m, cfg.cmma_dims.n, cfg.cmma_dims.k,
         ),
         ThroughputMode::ComputeDirect { .. } => key.dtype().to_string(),
-        ThroughputMode::MemoryWorkingSet { bytes, .. } => bytes_label(bytes),
-        ThroughputMode::Memory
-        | ThroughputMode::MemoryRead
-        | ThroughputMode::MemoryWrite
-        | ThroughputMode::Launch => String::new(),
+        ThroughputMode::Memory(spec) => bytes_label(spec.bytes),
+        ThroughputMode::Launch => String::new(),
     }
 }
 
@@ -174,21 +169,11 @@ fn mode_label(mode: &ThroughputMode) -> &'static str {
     match mode {
         ThroughputMode::ComputeDirect { .. } => "compute-direct",
         ThroughputMode::ComputeCmma { .. } => "compute-cmma",
-        ThroughputMode::Memory
-        | ThroughputMode::MemoryWorkingSet {
-            access: MemoryAccess::Copy,
-            ..
-        } => "memory",
-        ThroughputMode::MemoryRead
-        | ThroughputMode::MemoryWorkingSet {
-            access: MemoryAccess::Read,
-            ..
-        } => "memory-read",
-        ThroughputMode::MemoryWrite
-        | ThroughputMode::MemoryWorkingSet {
-            access: MemoryAccess::Write,
-            ..
-        } => "memory-write",
+        ThroughputMode::Memory(spec) => match spec.access {
+            MemoryAccess::Copy => "memory",
+            MemoryAccess::Read => "memory-read",
+            MemoryAccess::Write => "memory-write",
+        },
         ThroughputMode::Launch => "launch",
     }
 }
@@ -219,19 +204,19 @@ fn compute_cmma_key() -> ThroughputKey {
 
 fn memory_key() -> ThroughputKey {
     ThroughputKey {
-        mode: ThroughputMode::Memory,
+        mode: ThroughputMode::memory(MemoryAccess::Copy),
     }
 }
 
 fn memory_read_key() -> ThroughputKey {
     ThroughputKey {
-        mode: ThroughputMode::MemoryRead,
+        mode: ThroughputMode::memory(MemoryAccess::Read),
     }
 }
 
 fn memory_write_key() -> ThroughputKey {
     ThroughputKey {
-        mode: ThroughputMode::MemoryWrite,
+        mode: ThroughputMode::memory(MemoryAccess::Write),
     }
 }
 

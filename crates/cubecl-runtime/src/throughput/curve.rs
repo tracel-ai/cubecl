@@ -13,15 +13,12 @@
 
 use alloc::vec::Vec;
 
-use crate::throughput::{MemoryAccess, ThroughputKey, ThroughputMode, ThroughputValue};
+use crate::throughput::{MemoryAccess, MemorySpec, ThroughputKey, ThroughputMode, ThroughputValue};
 
 /// The smallest working set a curve is measured at, in bytes moved per pass.
 ///
-/// Low enough to catch the bottom of the ramp, which is further down than it
-/// looks: on an M2 Pro the curve is already within 12% of the bus figure at
-/// 256 KiB and only falls away below that — 146 GB/s at 128 KiB, 94 at 64 KiB,
-/// 11 at 8 KiB. A sweep starting a few hundred kilobytes up would report an
-/// almost flat curve and miss the effect it exists to measure.
+/// The ramp bottoms out further down than it looks: an Arc iGPU reads 102 GB/s
+/// at 64 KiB, 66 at 32 KiB and 17 at 8 KiB, against 110 sustained.
 pub const MIN_WORKING_SET: u64 = 8 * 1024;
 
 /// The working sets a curve is measured at: powers of two from
@@ -50,6 +47,19 @@ pub fn working_set_sweep(cap: u64) -> Vec<u64> {
     }
 
     sizes
+}
+
+/// The sweep size a working set of `bytes` is probed at: the power of two at or
+/// below it, never below [`MIN_WORKING_SET`].
+///
+/// One cache entry an octave, rather than one per distinct byte count. Down, so
+/// the ceiling a consumer reads is one the working set can reach: the rate
+/// climbs steeply per octave along the ramp, and the size above would report
+/// close to twice what these bytes move.
+pub fn sweep_size(bytes: u64) -> u64 {
+    let bytes = bytes.max(MIN_WORKING_SET);
+
+    1 << (u64::BITS - 1 - bytes.leading_zeros())
 }
 
 /// One measured point of a [`MemoryCurve`].
@@ -137,12 +147,9 @@ impl MemoryCurve {
 
     /// What a point measured, in bytes moved per second.
     fn rate(&self, point: &MemoryPoint) -> f64 {
-        point.value.bytes_per_s(&ThroughputKey {
-            mode: ThroughputMode::MemoryWorkingSet {
-                access: self.access,
-                bytes: point.bytes,
-            },
-        })
+        let mode = ThroughputMode::Memory(MemorySpec::new(self.access, point.bytes));
+
+        point.value.bytes_per_s(&ThroughputKey { mode })
     }
 }
 
@@ -163,6 +170,40 @@ fn log2(bytes: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sweep_size_is_the_octave_at_or_below_the_working_set() {
+        assert_eq!(sweep_size(16 * 1024), 16 * 1024);
+        assert_eq!(sweep_size(16 * 1024 + 1), 16 * 1024);
+        assert_eq!(sweep_size(32 * 1024 - 1), 16 * 1024);
+    }
+
+    /// Reading a ceiling from the octave above would credit a kernel with a
+    /// rate its own working set cannot reach.
+    #[test]
+    fn a_sweep_size_never_rounds_up() {
+        for bytes in [MIN_WORKING_SET, 9 * 1024, 100_000, 1 << 30] {
+            assert!(sweep_size(bytes) <= bytes, "at {bytes}");
+        }
+    }
+
+    /// Every size lands on the grid the curve is measured at, so a probe is
+    /// shared rather than added.
+    #[test]
+    fn a_sweep_size_lands_on_the_measured_grid() {
+        let grid = working_set_sweep(1 << 30);
+
+        for bytes in [1, 9 * 1024, 100_000, 1 << 20, 1 << 30] {
+            assert!(grid.contains(&sweep_size(bytes)), "at {bytes}");
+        }
+    }
+
+    /// Below the smallest measured point there is nothing to round down to.
+    #[test]
+    fn a_working_set_under_the_floor_gets_the_floor() {
+        assert_eq!(sweep_size(0), MIN_WORKING_SET);
+        assert_eq!(sweep_size(1), MIN_WORKING_SET);
+    }
     use core::time::Duration;
 
     const MB: u64 = 1024 * 1024;
