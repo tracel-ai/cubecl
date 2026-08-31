@@ -29,10 +29,22 @@ pub trait OperationPtrExt: Sized {
     fn opt_result(self, ctx: &Context) -> Option<Value>;
     fn set_attr<T: Attribute>(self, ctx: &Context, key: &Identifier, value: T);
     fn parent_module(self, ctx: &Context) -> ModuleOp;
+
+    fn is_ancestor_of(self, ctx: &Context, other: Ptr<Operation>) -> bool;
 }
 
 pub trait BlockPtrExt: Sized {
-    fn arguments(&self, ctx: &Context) -> Vec<Value>;
+    fn arguments(self, ctx: &Context) -> Vec<Value>;
+    fn is_entry_block(&self, ctx: &Context) -> bool;
+    fn ops_with_interface<T: OpInterfaceMarker + ?Sized + 'static>(
+        &self,
+        ctx: &Context,
+    ) -> impl Iterator<Item = TraitOp<T>>;
+}
+
+pub trait RegionPtrExt: Sized {
+    fn arguments(self, ctx: &Context) -> Vec<Value>;
+    fn is_empty(&self, ctx: &Context) -> bool;
 }
 
 impl OperationPtrExt for Ptr<Operation> {
@@ -91,11 +103,49 @@ impl OperationPtrExt for Ptr<Operation> {
         }
         panic!("Op is not contained in any module")
     }
+
+    fn is_ancestor_of(self, ctx: &Context, mut child: Ptr<Operation>) -> bool {
+        while let Some(parent) = child.deref(ctx).get_parent_op(ctx) {
+            if parent == self {
+                return true;
+            }
+            child = parent;
+        }
+        false
+    }
 }
 
 impl BlockPtrExt for Ptr<BasicBlock> {
-    fn arguments(&self, ctx: &Context) -> Vec<Value> {
+    fn arguments(self, ctx: &Context) -> Vec<Value> {
         self.deref(ctx).arguments().collect()
+    }
+
+    fn is_entry_block(&self, ctx: &Context) -> bool {
+        self.deref(ctx)
+            .get_parent_region()
+            .is_some_and(|region| region.deref(ctx).get_entry_block() == Some(*self))
+    }
+
+    fn ops_with_interface<T: OpInterfaceMarker + ?Sized + 'static>(
+        &self,
+        ctx: &Context,
+    ) -> impl Iterator<Item = TraitOp<T>> {
+        self.deref(ctx)
+            .iter(ctx)
+            .filter_map(|op| TraitOp::try_from_op(op, ctx))
+    }
+}
+
+impl RegionPtrExt for Ptr<Region> {
+    fn arguments(self, ctx: &Context) -> Vec<Value> {
+        match self.entry_node(ctx) {
+            Some(entry) => entry.arguments(ctx),
+            None => vec![],
+        }
+    }
+
+    fn is_empty(&self, ctx: &Context) -> bool {
+        self.entry_node(ctx).is_none()
     }
 }
 
@@ -119,7 +169,9 @@ use pliron::{
     basic_block::BasicBlock,
     builtin::ops::ModuleOp,
     common_traits::Named,
+    graph::ControlFlowGraph,
     identifier::Identifier,
+    linked_list::ContainsLinkedList,
     op::{OpInterfaceMarker, OpObj, op_impls},
     region::Region,
     r#type::TypeHandle,

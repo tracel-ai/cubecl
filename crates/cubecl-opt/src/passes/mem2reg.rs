@@ -2,6 +2,7 @@ use core::cmp::Ordering;
 
 use alloc::{collections::VecDeque, vec::Vec};
 use cubecl_ir::{
+    dialect::RegionPtrExt,
     interfaces::{
         aliasing::PointerExt,
         memory_slot::{LogicalResult, PromotableRegionOpInterface},
@@ -156,7 +157,7 @@ impl AllocPromotionAnalyzer<'_> {
         defining_blocks: &SmallSet<Ptr<BasicBlock>, 16>,
         merge_points: &mut ISet<Ptr<BasicBlock>>,
     ) {
-        if region.deref(ctx).iter(ctx).count() == 1 {
+        if region.is_empty(ctx) {
             return;
         }
 
@@ -379,7 +380,7 @@ impl<'a> AllocPromoter<'a> {
         region: Ptr<Region>,
         reaching_def: Option<Value>,
     ) {
-        if region.deref(ctx).iter(ctx).count() == 1 {
+        if region.is_empty(ctx) {
             let entry = region.entry_node(ctx).unwrap();
             self.promote_in_block(ctx, entry, reaching_def);
             return;
@@ -583,7 +584,7 @@ fn dominance_sort(
     dom_info: &mut DomInfo,
     block_index_cache: &mut BlockIndexCache,
 ) {
-    if region.deref(ctx).iter(ctx).count() == 0 {
+    if region.is_empty(ctx) {
         return;
     }
 

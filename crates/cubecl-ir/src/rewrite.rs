@@ -124,7 +124,7 @@ impl MatchRewrite for SimplifyOps {
     }
 }
 
-fn const_operands(ctx: &Context, op: Ptr<Operation>) -> Vec<Option<AttrObj>> {
+pub fn const_operands(ctx: &Context, op: Ptr<Operation>) -> Vec<Option<AttrObj>> {
     op.deref(ctx)
         .operands()
         .map(|opd| Some(opd.defining_op()?.as_op::<ConstantOp>(ctx)?.get_value(ctx)))
@@ -323,6 +323,12 @@ pub struct TraitOp<T: OpInterfaceMarker + ?Sized> {
     _marker: PhantomData<T>,
 }
 
+impl<T: OpInterfaceMarker + ?Sized> TraitOp<T> {
+    pub fn dyn_op(&self) -> &dyn Op {
+        &*self.obj
+    }
+}
+
 impl<T: OpInterfaceMarker + 'static + ?Sized> TraitOp<T> {
     pub fn try_from_op(op: Ptr<Operation>, ctx: &Context) -> Option<Self> {
         let op = op.dyn_op(ctx);
@@ -386,5 +392,56 @@ impl<T: OpInterfaceMarker + 'static + ?Sized> Debug for TraitOp<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let op = self.obj.get_operation();
         Debug::fmt(&op, f)
+    }
+}
+
+pub struct TraitOpPtr<T: OpInterfaceMarker + ?Sized> {
+    op: Ptr<Operation>,
+    _marker: PhantomData<T>,
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> TraitOpPtr<T> {
+    pub fn try_from_op(op: Ptr<Operation>, ctx: &Context) -> Option<Self> {
+        if !op.impls::<T>(ctx) {
+            None
+        } else {
+            Some(TraitOpPtr {
+                op,
+                _marker: PhantomData,
+            })
+        }
+    }
+
+    pub fn deref(&self, ctx: &Context) -> TraitOp<T> {
+        TraitOp {
+            obj: self.op.dyn_op(ctx),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> Eq for TraitOpPtr<T> {}
+impl<T: OpInterfaceMarker + 'static + ?Sized> PartialEq for TraitOpPtr<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.op == other.op
+    }
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> Hash for TraitOpPtr<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.op.hash(state);
+    }
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> Copy for TraitOpPtr<T> {}
+impl<T: OpInterfaceMarker + 'static + ?Sized> Clone for TraitOpPtr<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: OpInterfaceMarker + 'static + ?Sized> Debug for TraitOpPtr<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        Debug::fmt(&self.op, f)
     }
 }

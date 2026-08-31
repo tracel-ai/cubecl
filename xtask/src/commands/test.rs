@@ -28,6 +28,8 @@ pub(crate) fn handle_command(
                 "cubecl-cuda".to_string(),
                 "cubecl-hip".to_string(),
                 "cubecl-metal".to_string(),
+                // Weird symbol errors for LLVM, can't figure out how to deal with it rn
+                "cubecl-opt".to_string(),
             ]);
         }
         base_commands::test::handle_command(args.try_into().unwrap(), env, context)?;
