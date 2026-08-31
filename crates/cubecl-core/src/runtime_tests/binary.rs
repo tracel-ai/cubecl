@@ -1,7 +1,5 @@
 #![allow(clippy::approx_constant)]
 
-use core::f32;
-
 use core::fmt::Display;
 
 use crate::{self as cubecl, as_type};
@@ -10,6 +8,9 @@ use cubecl_environment::sync::LazyLock;
 use cubecl::prelude::*;
 use cubecl_runtime::server::Handle;
 use enumset::EnumSet;
+
+/// Set by reductions: they round twice per term against a reference `f16` cannot hold.
+const ULPS_ALLOWED: f32 = 32.0;
 
 #[track_caller]
 pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElement + Display>(
@@ -21,8 +22,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElemen
     let actual = client.read_one_unchecked(output);
     let actual = F::from_bytes(&actual);
 
-    // normalize to type epsilon
-    let epsilon = (epsilon / f32::EPSILON * F::epsilon().to_f32().unwrap()).max(epsilon);
+    let epsilon = epsilon.max(F::epsilon().to_f32().unwrap() * ULPS_ALLOWED);
 
     for (i, (a, e)) in actual[0..expected.len()]
         .iter()
