@@ -32,7 +32,8 @@ pub mod prelude {
     pub use pliron::utils::apint::{APInt, bw};
 
     pub use pliron_llvm::attributes::{
-        FCmpPredicateAttr, FastmathFlagsAttr, ICmpPredicateAttr, IntegerOverflowFlagsAttr,
+        FCmpPredicateAttr, FastmathFlags, FastmathFlagsAttr, ICmpPredicateAttr,
+        IntegerOverflowFlagsAttr,
     };
     pub use pliron_llvm::op_interfaces::{
         AlignableOpInterface, BinArithOp, CastOpInterface, CastOpWithNNegInterface, FastMathFlags,

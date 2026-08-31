@@ -347,7 +347,12 @@ macro_rules! lower_float_bin_arith {
                     ctx,
                     lhs,
                     rhs,
-                    FastmathFlagsAttr::default(),
+                    // `contract` alone: it lets a multiply feeding an add fuse into
+                    // an FMA, which is what a matmul inner loop is made of, and is
+                    // the only flag needed for that. The rest of `fast` -- assuming
+                    // no NaNs or infinities, allowing reassociation -- changes what
+                    // the kernel computes, so it is not ours to turn on.
+                    FastmathFlagsAttr(FastmathFlags::CONTRACT),
                 );
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(
