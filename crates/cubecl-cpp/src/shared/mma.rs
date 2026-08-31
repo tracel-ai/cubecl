@@ -84,13 +84,16 @@ pub mod wmma_api_base {
             MatrixIdent::Accumulator => format!("{ns}::accumulator"),
         };
         let MatrixShape { m, n, k } = ty.shape;
-        // An accumulator fragment naming a layout is a type that does not exist.
+        // The layout-free fragment specialization exists for the accumulator and for nothing else.
         let layout = match (ty.ident, ty.layout) {
-            (MatrixIdent::Accumulator, _) | (_, MatrixLayout::Undefined) => {
+            (MatrixIdent::Accumulator, _) => {
                 return format!("{ns}::fragment<{ident}, {m}, {n}, {k}, {elem}>");
             }
             (_, MatrixLayout::ColMajor) => format!("{ns}::col_major"),
             (_, MatrixLayout::RowMajor) => format!("{ns}::row_major"),
+            (_, MatrixLayout::Undefined) => {
+                panic!("An A or B fragment names the layout of the data it is loaded from.")
+            }
         };
         format!("{ns}::fragment<{ident}, {m}, {n}, {k}, {elem}, {layout}>")
     }

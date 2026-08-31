@@ -483,8 +483,8 @@ pub fn test_simple_1_vectorized_offset<R: Runtime>(
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T with the accumulator declaring a layout.
 ///
-/// Every other kernel here leaves it [`Undefined`](cmma::MatrixLayout::Undefined),
-/// which is the only value the C++ backends used to emit correctly.
+/// An accumulator's layout is its own and never reaches the product, so declaring
+/// one must compile and change nothing.
 pub fn kernel_accumulator_row_major(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
     let a = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::A,
@@ -552,8 +552,6 @@ pub fn test_accumulator_row_major<R: Runtime>(client: ComputeClient<R>, cube_dim
     let actual = client.read_one_unchecked(out);
     let actual = f32::from_bytes(&actual);
 
-    // The layout is the accumulator's own, not the operands', so stating it
-    // changes nothing about the product.
     assert_eq!(test_simple_1_expected(), actual);
 }
 
