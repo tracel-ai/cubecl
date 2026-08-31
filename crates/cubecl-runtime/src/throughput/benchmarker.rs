@@ -10,6 +10,11 @@ use cubecl_environment::sync::Mutex;
 
 type Cache = Arc<Mutex<ThroughputCache>>;
 
+/// Wall clock a warmup may spend growing its iteration count. Generous next to
+/// the tens of milliseconds a converging one needs, and the only thing bounding
+/// a probe whose timer is too coarse to ever reach the target.
+const WARMUP_BUDGET: Duration = Duration::from_secs(2);
+
 /// Configuration and payload for a benchmarkable compute kernel.
 pub struct KernelConfig {
     /// A closure that executes the kernel for the given number of iterations and returns the duration.
@@ -49,7 +54,7 @@ impl ThroughputBenchmarker {
 
         let sample = kernel_config.sample;
 
-        let iterations = Self::warmup(kernel_config.min_iterations, &sample);
+        let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
         let duration = Self::sample_peak_duration(iterations, &sample);
 
         let value = ThroughputValue {
@@ -69,7 +74,15 @@ impl ThroughputBenchmarker {
     ///
     /// Never returns fewer than `min_iterations`, which the kernel needs to be
     /// measuring what it claims rather than merely to be timed accurately.
-    fn warmup(min_iterations: usize, sample: impl Fn(usize) -> Duration) -> usize {
+    ///
+    /// `budget` bounds the growing, not the sampling: a timer too coarse to
+    /// ever reach the target reports the same reading at every count, which
+    /// asks for a larger one each round without converging.
+    fn warmup(
+        min_iterations: usize,
+        budget: Duration,
+        sample: impl Fn(usize) -> Duration,
+    ) -> usize {
         const MAX_WARMUP: usize = 50;
         const MAX_ITERATIONS: usize = 1 << 24;
         // A timer reading zero says nothing about the pass, so doubling against
@@ -83,6 +96,7 @@ impl ThroughputBenchmarker {
         let mut best = f64::INFINITY;
         let mut stable = 0;
         let mut iterations = min_iterations.max(1);
+        let start = Instant::now();
 
         for _ in 0..MAX_WARMUP {
             let duration = sample(iterations).as_secs_f64() * 1000.0;
@@ -98,7 +112,7 @@ impl ThroughputBenchmarker {
                 };
 
                 let ceiling = ceiling.max(min_iterations);
-                if iterations >= ceiling {
+                if iterations >= ceiling || start.elapsed() >= budget {
                     break;
                 }
                 iterations = (iterations + extra_iters.max(1)).min(ceiling);
@@ -177,7 +191,7 @@ mod tests {
     /// duration target drives.
     #[test]
     fn a_timer_reading_zero_does_not_climb_to_the_duration_ceiling() {
-        let iterations = ThroughputBenchmarker::warmup(1, |_| Duration::ZERO);
+        let iterations = ThroughputBenchmarker::warmup(1, WARMUP_BUDGET, |_| Duration::ZERO);
 
         assert!(iterations <= 1 << 10, "climbed to {iterations}");
     }
@@ -188,7 +202,23 @@ mod tests {
     fn a_blind_timer_never_cuts_below_the_passes_a_probe_needs() {
         let needed = 1 << 20;
 
-        assert!(ThroughputBenchmarker::warmup(needed, |_| Duration::ZERO) >= needed);
+        assert!(ThroughputBenchmarker::warmup(needed, WARMUP_BUDGET, |_| Duration::ZERO) >= needed);
+    }
+
+    /// A timer too coarse to resolve the target reports the same reading at
+    /// every count, so each round divides it by a larger number and asks for a
+    /// larger one still. The iteration ceiling alone stops that only after the
+    /// rounds it takes to reach it, which the probe pays for in real launches.
+    #[test]
+    fn a_timer_that_never_reaches_the_target_stops_growing_on_the_budget() {
+        let iterations = ThroughputBenchmarker::warmup(1, Duration::from_millis(12), |_| {
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_millis(5) {}
+
+            Duration::from_millis(1)
+        });
+
+        assert!(iterations < 1 << 20, "climbed to {iterations}");
     }
 
     #[test]
@@ -205,8 +235,9 @@ mod tests {
     /// A working timer still drives the count to the duration target.
     #[test]
     fn a_pass_far_under_the_target_grows_until_it_reaches_it() {
-        let iterations =
-            ThroughputBenchmarker::warmup(1, |iterations| Duration::from_micros(iterations as u64));
+        let iterations = ThroughputBenchmarker::warmup(1, WARMUP_BUDGET, |iterations| {
+            Duration::from_micros(iterations as u64)
+        });
 
         assert_eq!(iterations, 20_000);
     }
