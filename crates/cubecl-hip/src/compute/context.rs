@@ -9,15 +9,14 @@
 use super::storage::gpu::GpuResource;
 use crate::compiler::{HipCompilationOptions, HipCompiler, HipRepresentation};
 use crate::compute::stream::Stream;
-use cubecl_core::{
-    hash::{StableHash, StableHasher},
-    ir::DeviceProperties,
-    prelude::*,
-    server::ResourceLimitError,
-};
+#[cfg(feature = "cpp")]
+use cubecl_core::hash::StableHasher;
+use cubecl_core::{hash::StableHash, ir::DeviceProperties, prelude::*, server::ResourceLimitError};
+#[cfg(feature = "cpp")]
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::Store;
+#[cfg(feature = "cpp")]
 use cubecl_hip_sys::get_hip_include_path;
 use cubecl_runtime::compiler::{
     CompilationCache, build_id_hash, compilation_store, store_compiled,
@@ -31,10 +30,12 @@ use cubecl_runtime::{
 };
 use cubecl_runtime::{
     compiler::{CubeTask, KernelCacheKey},
+    kernel::CompiledKernel,
     logging::ServerLogger,
 };
 use serde::Deserialize;
 use serde::Serialize;
+#[cfg(feature = "cpp")]
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::sync::Arc;
@@ -53,6 +54,10 @@ pub(crate) struct HipContext {
     pub compilation_cache: Option<Store<KernelCacheKey, CompilationCacheEntry>>,
     /// Cache mapping C++ code hashes to the key that first compiled them. We can skip the slow HIP
     /// compiler if we already have a compiled artifact for the same code.
+    ///
+    /// C++ only: the LLVM backend emits a code object directly, so there is no
+    /// intermediate source to key a second line on.
+    #[cfg(feature = "cpp")]
     pub second_line_compilation_cache: Option<Store<StableHash, KernelCacheKey>>,
     build_id: StableHash,
 }
@@ -109,6 +114,7 @@ impl HipContext {
     ) -> Self {
         let fingerprint = cache_namespace(&fingerprint, backend);
         let compilation_cache = compilation_store("hip", &fingerprint);
+        #[cfg(feature = "cpp")]
         let second_line_compilation_cache = compilation_store("hip-second-line", fingerprint);
 
         Self {
@@ -116,6 +122,7 @@ impl HipContext {
             timestamps: TimestampProfiler::default(),
             compilation_options,
             compilation_cache,
+            #[cfg(feature = "cpp")]
             second_line_compilation_cache,
             properties,
             build_id: build_id_hash(),
@@ -181,7 +188,7 @@ impl HipContext {
         // CubeCL compilation
         // jitc = just-in-time compiled
         let definition = cube_kernel.define();
-        let mut jitc_kernel = cube_kernel.compile(
+        let jitc_kernel = cube_kernel.compile(
             definition,
             &mut Default::default(),
             &self.compilation_options,
@@ -189,47 +196,78 @@ impl HipContext {
 
         self.validate_shared(&jitc_kernel.repr)?;
 
-        // Already a linked ET_DYN code object, so no `hiprtc*` call belongs here.
-        // The bytes go straight to `load_compiled_binary`, as a cache hit would.
-        if let Some(HipRepresentation::Llvm(module)) = &jitc_kernel.repr {
-            if logger.compilation_source_activated() {
-                jitc_kernel.debug_info = Some(DebugInformation::new("ll", kernel_id.clone()));
+        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)
+    }
+
+    /// Turns a kernel the LLVM backend just compiled into a loaded module.
+    ///
+    /// What it hands back is already a linked `ET_DYN` code object, so no `hiprtc*`
+    /// call belongs here: the bytes go straight to [`Self::load_compiled_binary`],
+    /// exactly as a cache hit would.
+    #[cfg(not(feature = "cpp"))]
+    fn load_jit_kernel(
+        &mut self,
+        kernel_id: &KernelId,
+        key: Option<KernelCacheKey>,
+        mut jitc_kernel: CompiledKernel<HipCompiler>,
+        logger: Arc<ServerLogger>,
+    ) -> Result<(), LaunchError> {
+        let Some(HipRepresentation::Llvm(module)) = &jitc_kernel.repr else {
+            return Err(CompilationError::Generic {
+                reason: "The LLVM backend returned no code object to load".to_string(),
+                backtrace: BackTrace::capture(),
             }
-            logger.log_compilation(&jitc_kernel);
+            .into());
+        };
 
-            let code = module
-                .code_object
-                .iter()
-                .map(|b| *b as i8)
-                .collect::<Vec<i8>>();
-            let shared_mem_bytes = jitc_kernel.repr.as_ref().unwrap().shared_memory_size();
-            let io = jitc_kernel.io.take();
+        if logger.compilation_source_activated() {
+            jitc_kernel.debug_info = Some(DebugInformation::new("ll", kernel_id.clone()));
+        }
+        logger.log_compilation(&jitc_kernel);
 
-            if let Some(cache) = self.compilation_cache.as_mut() {
-                let key = key.unwrap();
-                store_compiled(
-                    cache,
-                    key,
-                    CompilationCacheEntry {
-                        entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                        shared_mem_bytes,
-                        binary: code.clone(),
-                        io: io.clone(),
-                    },
-                );
-            }
+        let code = module
+            .code_object
+            .iter()
+            .map(|b| *b as i8)
+            .collect::<Vec<i8>>();
+        let shared_mem_bytes = jitc_kernel.repr.as_ref().unwrap().shared_memory_size();
+        let io = jitc_kernel.io.take();
 
-            self.load_compiled_binary(
-                code,
-                kernel_id.clone(),
-                jitc_kernel.entrypoint_name,
-                jitc_kernel.cube_dim,
-                shared_mem_bytes,
-                io.map(Arc::from),
-            )?;
-            return Ok(());
+        if let Some(cache) = self.compilation_cache.as_mut() {
+            let key = key.unwrap();
+            store_compiled(
+                cache,
+                key,
+                CompilationCacheEntry {
+                    entrypoint_name: jitc_kernel.entrypoint_name.clone(),
+                    shared_mem_bytes,
+                    binary: code.clone(),
+                    io: io.clone(),
+                },
+            );
         }
 
+        self.load_compiled_binary(
+            code,
+            kernel_id.clone(),
+            jitc_kernel.entrypoint_name,
+            jitc_kernel.cube_dim,
+            shared_mem_bytes,
+            io.map(Arc::from),
+        )?;
+        Ok(())
+    }
+
+    /// Turns a kernel the C++ backend just transpiled into a loaded module, by
+    /// running its source through HIP RTC first.
+    #[cfg(feature = "cpp")]
+    fn load_jit_kernel(
+        &mut self,
+        kernel_id: &KernelId,
+        key: Option<KernelCacheKey>,
+        mut jitc_kernel: CompiledKernel<HipCompiler>,
+        logger: Arc<ServerLogger>,
+    ) -> Result<(), LaunchError> {
         if logger.compilation_source_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
@@ -427,8 +465,10 @@ impl HipContext {
 /// been copied out. A guard rather than a call at the end because every step
 /// of the compilation below returns early on failure, and each one of those
 /// paths used to leak the program.
+#[cfg(feature = "cpp")]
 struct RtcProgram(cubecl_hip_sys::hiprtcProgram);
 
+#[cfg(feature = "cpp")]
 impl Drop for RtcProgram {
     fn drop(&mut self) {
         // SAFETY: created by `hiprtcCreateProgram` below and destroyed exactly
@@ -445,6 +485,7 @@ impl Drop for RtcProgram {
 ///
 /// [`CompilationError::Generic`] carrying the compiler's own log, and the
 /// source that produced it, so a kernel the driver refuses says why.
+#[cfg(feature = "cpp")]
 fn compile_to_binary(source: &str) -> Result<Vec<i8>, CompilationError> {
     let source = CString::new(source).map_err(|err| CompilationError::Generic {
         reason: format!("The generated source is not a valid C string: {err}"),
@@ -519,6 +560,7 @@ fn compile_to_binary(source: &str) -> Result<Vec<i8>, CompilationError> {
 /// Reports why the log itself is missing rather than failing on it: this runs
 /// on a path that already has an error to report, and losing that error to a
 /// second one would leave the caller with nothing.
+#[cfg(feature = "cpp")]
 fn compilation_log(program: &RtcProgram) -> String {
     let mut message = "[Compilation Error] ".to_string();
     // SAFETY: `program.0` is a valid handle; the log buffer is sized by the

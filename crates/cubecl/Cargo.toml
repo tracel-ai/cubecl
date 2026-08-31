@@ -49,6 +49,8 @@ cpu = ["cubecl-cpu"]
 cuda = ["cubecl-cuda"]
 cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
 hip = ["cubecl-hip"]
+# Compile HIP kernels with the C++ backend instead of the default LLVM one.
+hip-cpp = ["cubecl-hip?/cpp"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
 metal = ["wgpu-msl"]
 metal-native = ["cubecl-metal"]

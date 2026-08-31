@@ -30,7 +30,9 @@ std = [
     "cubecl-cpp/std",
 ]
 
-pliron-dump = ["cubecl-cpp/pliron-dump"]
+cpp = []
+
+pliron-dump = ["cubecl-cpp/pliron-dump", "cubecl-llvm/pliron-dump"]
 rocwmma = []
 
 tracing = [
