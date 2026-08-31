@@ -476,6 +476,18 @@ fn fragment_slice(
     op.get_result(ctx)
 }
 
+/// `fragment` re-indexed by `mask`, which may reorder, narrow or widen it.
+fn shuffle(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    fragment: Value,
+    mask: Vec<i32>,
+) -> Value {
+    let op = llvm::ShuffleVectorOp::new(ctx, fragment, fragment, mask);
+    rw.insert_op(ctx, &op);
+    op.get_result(ctx)
+}
+
 /// What one WMMA lowering needs that is not the operand values.
 struct WmmaCall {
     /// `m`, `n` and the depth of the *tile*, which may be several instructions.
@@ -607,29 +619,65 @@ impl ToLLVMDialect for CastOp {
         let in_ty = matrix_of(ctx, operands_info, input);
         let out_ty = matrix_of(ctx, operands_info, output);
         let in_frag_ty = fragment_ty(ctx, &in_ty);
-        let out_frag_ty = fragment_ty(ctx, &out_ty);
 
         let value = load_fragment(ctx, rw, input, in_frag_ty);
 
-        // Both fragments hold the same elements, so this is one widening or narrowing over the
-        // whole vector rather than anything lane-wise. Equal-width casts do not need an LLVM
-        // instruction.
+        // The two fragments hold the same *elements*, but not necessarily the same number of
+        // vector slots: an RDNA3 accumulator pads a 16 bit element out to one per 32 bit
+        // register, so it has two slots per element where a 32 bit one has a single slot.
+        // Casting the raw vectors would hand `fptrunc` an <8 x float> and a <16 x half>, whose
+        // shapes do not match and which it rejects. Gather to the dense elements, cast those,
+        // and re-pad for the destination.
+        let (elems, in_step) = fragment_layout(ctx, &in_ty);
+        let (out_elems, out_step) = fragment_layout(ctx, &out_ty);
+        debug_assert_eq!(
+            elems, out_elems,
+            "a cast keeps the element count and changes only their width"
+        );
+
+        let dense = if in_step == 1 {
+            value
+        } else {
+            shuffle(ctx, rw, value, (0..elems).map(|i| (i * in_step) as i32).collect())
+        };
+
         let in_bits = in_ty.elem_ty.size_bits(ctx);
         let out_bits = out_ty.elem_ty.size_bits(ctx);
+        let dense_out_ty: TypeHandle = LlvmVectorType::get(
+            ctx,
+            cube_type_to_llvm(ctx, out_ty.elem_ty),
+            elems as u32,
+            VectorTypeKind::Fixed,
+        )
+        .into();
         let cast = if in_bits > out_bits {
-            let op = llvm::FPTruncOp::new(ctx, value, out_frag_ty);
+            let op = llvm::FPTruncOp::new(ctx, dense, dense_out_ty);
             op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
             rw.insert_op(ctx, &op);
             op.get_result(ctx)
         } else if in_bits < out_bits {
-            let op = llvm::FPExtOp::new(ctx, value, out_frag_ty);
+            let op = llvm::FPExtOp::new(ctx, dense, dense_out_ty);
             op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
             rw.insert_op(ctx, &op);
             op.get_result(ctx)
         } else {
-            value
+            dense
         };
-        store_fragment(ctx, rw, output, cast);
+
+        // Repeating each element across its slots rather than leaving the padding undefined:
+        // only the low half of each register is ever read back, so the value there is free,
+        // and a defined one keeps the fragment printable and comparable.
+        let result = if out_step == 1 {
+            cast
+        } else {
+            shuffle(
+                ctx,
+                rw,
+                cast,
+                (0..elems * out_step).map(|i| (i / out_step) as i32).collect(),
+            )
+        };
+        store_fragment(ctx, rw, output, result);
 
         rw.erase_operation(ctx, old_op);
         Ok(())
