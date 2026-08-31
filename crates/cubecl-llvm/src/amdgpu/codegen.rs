@@ -14,6 +14,7 @@ use crate::amdgpu::ocml::redirect_intrinsics_to_ocml;
 use crate::amdgpu::plane_dim_for;
 use crate::amdgpu::printf::lower_printf_to_hostcall;
 use crate::shared::AmdGpuModule;
+use cubecl_core::ir::attributes::BufferIOAttr;
 
 /// The HSA target triple; the specific device is the `-mcpu`, not the triple.
 const TRIPLE: &CStr = c"amdgcn-amd-amdhsa";
@@ -64,6 +65,7 @@ pub fn emit_code_object(
     arch: &str,
     cube_dim: u32,
     shared_memory_size: usize,
+    io: Vec<BufferIOAttr>,
 ) -> Result<AmdGpuModule, String> {
     let llvm_ctx = LLVMContext::default();
 
@@ -92,6 +94,7 @@ pub fn emit_code_object(
         ir,
         asm,
         shared_memory_size,
+        io,
     })
 }
 

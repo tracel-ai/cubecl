@@ -83,6 +83,10 @@ pub struct AmdGpuModule {
     pub asm: Option<String>,
     /// Bytes of LDS a launch must reserve, which the kernel takes as dynamic shared memory.
     pub shared_memory_size: usize,
+    /// What the kernel does with each buffer binding, by buffer position, as
+    /// stamped by `AnnotateGlobalVisibilityPass` before the entry ABI lowering
+    /// folded the buffer arguments away.
+    pub io: Vec<BufferIOAttr>,
 }
 
 /// What [`PlironCompiler`] produces. Both targets yield something directly
@@ -122,10 +126,7 @@ impl Compiler for PlironCompiler {
     fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
         match repr {
             PlironArtifact::Jit(engine) => Some(engine.buffer_io().to_vec()),
-            // The AMDGPU pipeline does not run `AnnotateGlobalVisibilityPass`, so
-            // there is no stamped answer to report; `None` is the conservative
-            // reading of every buffer as both read and written.
-            PlironArtifact::AmdGpuCode(_) => None,
+            PlironArtifact::AmdGpuCode(module) => Some(module.io.clone()),
         }
     }
 
@@ -258,6 +259,7 @@ impl PlironCompiler {
     /// Lowers `kernel` for `arch` and compiles it into a linked AMD code object.
     fn compile_amdgpu(self, kernel: KernelDefinition, arch: &str) -> AmdGpuModule {
         let module = kernel.body.state().module;
+        let entry_func = kernel.body.state().entry_func;
         let module_op = module.get_operation();
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
@@ -300,20 +302,35 @@ impl PlironCompiler {
         });
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
-        func_passes.add_pass(BranchToSCFPass::default());
-        func_passes.add_pass(SCFToLlvmCf::default());
-        func_passes.add_pass(LowerEntryAbiPass::new(
+
+        let mut lowering_passes = OpPass::<FuncOp, Passes>::default();
+        lowering_passes.add_pass(BranchToSCFPass::default());
+        lowering_passes.add_pass(SCFToLlvmCf::default());
+        lowering_passes.add_pass(LowerEntryAbiPass::new(
             kernel.info.clone(),
             Box::new(KernargArgs),
         ));
-        func_passes.add_pass(CubeToLLVMPass::default());
-        func_passes.add_pass(SimplifyCFGPass);
-        func_passes.add_pass(DCEPass);
-        func_passes.add_pass(Mem2RegPass);
+        lowering_passes.add_pass(CubeToLLVMPass::default());
+        lowering_passes.add_pass(SimplifyCFGPass);
+        lowering_passes.add_pass(DCEPass);
+        lowering_passes.add_pass(Mem2RegPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
-        passes.add_pass(builtin_to_llvm_pass());
+        // Reads cube-dialect memory effects, so it has to run after the
+        // optimizations that shape them and before the lowering group erases
+        // the cube ops -- the same post-optimization point the other backends
+        // annotate at.
+        passes.add_pass(AnnotateGlobalVisibilityPass);
+        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
+        // Read the stamped answer now: the entry ABI lowering below folds the
+        // buffer arguments behind the kernarg segment and erases them,
+        // attributes included.
+        let io = cubecl_core::ir::attributes::buffer_io_by_position(&ctx, entry_func);
+
+        let mut passes = OpPass::<ModuleOp, Passes>::default();
+        passes.add_pass(NestedOpsPass::new(lowering_passes));
+        passes.add_pass(builtin_to_llvm_pass());
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
         if let Err(e) = verify_operation(module_op, &ctx) {
@@ -330,6 +347,7 @@ impl PlironCompiler {
             arch,
             kernel.settings.cube_dim.num_elems(),
             shared_memory_size,
+            io,
         )
         .unwrap_or_else(|err| {
             panic!(
@@ -369,6 +387,7 @@ mod tests {
             ir: "define void @k() { ret void }".to_string(),
             asm: None,
             shared_memory_size: 0,
+            io: Vec::new(),
         });
         assert!(artifact.to_string().contains("@k"));
     }

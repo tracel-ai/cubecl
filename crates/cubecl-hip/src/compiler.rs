@@ -98,10 +98,8 @@ impl Compiler for HipCompiler {
         match repr {
             #[cfg(feature = "cpp")]
             HipRepresentation::Cpp(kernel) => <CppCompiler<Hip> as Compiler>::buffer_io(kernel),
-            // The AMDGPU pipeline does not run `AnnotateGlobalVisibilityPass`,
-            // so it has no stamped answer to forward.
             #[cfg(not(feature = "cpp"))]
-            HipRepresentation::Llvm(_) => None,
+            HipRepresentation::Llvm(module) => Some(module.io.clone()),
         }
     }
 
