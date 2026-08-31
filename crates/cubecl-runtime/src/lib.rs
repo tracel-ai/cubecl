@@ -63,6 +63,9 @@ pub mod command;
 
 pub mod driver;
 
+/// Device events: a fence and a device-clock profiler over a backend's event API.
+pub mod device_events;
+
 /// Compiler trait and related types
 pub mod compiler;
 /// Running a workload for the compilation and tuning it provokes, without
