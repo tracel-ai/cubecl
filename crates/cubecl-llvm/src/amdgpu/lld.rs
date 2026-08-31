@@ -1,6 +1,6 @@
 //! Linking AMDGPU objects with LLD.
 //!
-//! LLD exposes no C API, so `lld_shim.cpp` wraps `lld::elf::link` in an
+//! LLD exposes no C API, so `cpp_shims/lld.cpp` wraps `lld::elf::link` in an
 //! `extern "C"` entry point that `build.rs` compiles and links in.
 
 use std::ffi::{CString, c_char};
@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 unsafe extern "C" {
-    /// See `lld_shim.cpp`. Returns `true` when the link succeeded.
+    /// See `cpp_shims/lld.cpp`. Returns `true` when the link succeeded.
     fn cubecl_lld_elf_link(argv: *const *const c_char, argc: usize) -> bool;
 }
 

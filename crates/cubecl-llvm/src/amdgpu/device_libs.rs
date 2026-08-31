@@ -13,7 +13,7 @@ use llvm_sys::prelude::LLVMModuleRef;
 use crate::amdgpu::plane_dim_for;
 
 unsafe extern "C" {
-    /// See `device_libs_shim.cpp`. Returns null on success, else an owned message.
+    /// See `cpp_shims/device_libs.cpp`. Returns null on success, else an owned message.
     fn cubecl_link_device_bitcode(
         dest: LLVMModuleRef,
         data: *const c_char,
