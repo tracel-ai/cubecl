@@ -512,7 +512,12 @@ fn fragment_slice(
     step: usize,
     width: usize,
 ) -> Value {
-    shuffle(ctx, rw, fragment, (0..width).map(|i| (step * width + i) as i32).collect())
+    shuffle(
+        ctx,
+        rw,
+        fragment,
+        (0..width).map(|i| (step * width + i) as i32).collect(),
+    )
 }
 
 /// `fragment` re-indexed by `mask`, which may reorder, narrow or widen it.

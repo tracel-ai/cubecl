@@ -14,15 +14,12 @@ use cubecl_core::ir::dialect::plane::{
     ShuffleXorOp,
 };
 
+use crate::amdgpu::intrinsic::{call_op, i32_ty, lane_id_ops};
 use crate::shared::to_llvm::prelude::*;
 
 /// Routes a 32-bit word between the lanes of a wavefront. The address is a byte address, so a
 /// lane index has to be scaled by four.
 const DS_BPERMUTE: &str = "llvm.amdgcn.ds.bpermute";
-
-/// Counts the exec mask bits below this lane, which under a full mask is its own index.
-const MBCNT_LO: &str = "llvm.amdgcn.mbcnt.lo";
-const MBCNT_HI: &str = "llvm.amdgcn.mbcnt.hi";
 
 /// Wavefront width of the device, which the shuffles need to know where a plane ends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,11 +37,6 @@ pub trait CtxPlaneDim: ContextExt {
     }
 }
 
-/// Signless `i32`, which is what every cross-lane intrinsic takes and returns.
-fn i32_ty(ctx: &mut Context) -> TypeHandle {
-    IntegerType::get(ctx, 32, Signedness::Signless).into()
-}
-
 /// Emits a call to the intrinsic `name` over `args`.
 fn call(
     ctx: &mut Context,
@@ -53,9 +45,7 @@ fn call(
     ret_ty: TypeHandle,
     args: Vec<Value>,
 ) -> Value {
-    let arg_tys = args.iter().map(|a| a.get_type(ctx)).collect();
-    let fn_ty = FuncType::get(ctx, ret_ty, arg_tys, false);
-    let op = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
+    let op = call_op(ctx, name, ret_ty, args);
     insert(ctx, rewriter, &op)
 }
 
@@ -64,11 +54,11 @@ fn call(
 /// Recomputed rather than taken from the builtin, which has long since been substituted by the
 /// time the ops reach here. The optimizer folds the duplicates back together.
 pub(crate) fn lane_id(ctx: &mut Context, rewriter: &mut DialectConversionRewriter) -> Value {
-    let ty = i32_ty(ctx);
-    let all = insert_i32_const(ctx, rewriter, -1);
-    let zero = insert_i32_const(ctx, rewriter, 0);
-    let lo = call(ctx, rewriter, MBCNT_LO, ty, vec![all, zero]);
-    call(ctx, rewriter, MBCNT_HI, ty, vec![all, lo])
+    let (ops, lane) = lane_id_ops(ctx);
+    for op in ops {
+        rewriter.insert_operation(ctx, op);
+    }
+    lane
 }
 
 /// Emits a bitwise `llvm` op over two `i32`.
