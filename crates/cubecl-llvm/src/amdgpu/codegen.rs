@@ -15,6 +15,7 @@ use crate::amdgpu::printf::lower_printf_to_hostcall;
 use crate::shared::AmdGpuModule;
 use cubecl_core::ir::amd::GfxArch;
 use cubecl_core::ir::attributes::BufferIOAttr;
+use cubecl_environment::bytes::Bytes;
 
 /// The HSA target triple; the specific device is the `-mcpu`, not the triple.
 const TRIPLE: &CStr = c"amdgcn-amd-amdhsa";
@@ -86,7 +87,7 @@ pub fn emit_code_object(
         }
     }
 
-    let code_object = link_relocatable(&object, entrypoint)?;
+    let code_object = Bytes::from_bytes_vec(link_relocatable(&object, entrypoint)?);
 
     Ok(AmdGpuModule {
         code_object,

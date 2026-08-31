@@ -147,7 +147,7 @@ impl HipContext {
                 log::trace!("Using compilation cache");
 
                 self.load_compiled_binary(
-                    entry.binary,
+                    &entry.binary,
                     kernel_id.clone(),
                     entry.entrypoint_name,
                     kernel_id.cube_dim.into(),
@@ -236,36 +236,35 @@ impl HipContext {
         }
         logger.log_compilation(&jitc_kernel);
 
-        let code = module
-            .code_object
-            .iter()
-            .map(|b| *b as i8)
-            .collect::<Vec<i8>>();
-        let shared_mem_bytes = jitc_kernel.repr.as_ref().unwrap().shared_memory_size();
+        let code = to_signed(&module.code_object);
+        let shared_mem_bytes = module.shared_memory_size;
         let io = jitc_kernel.io.take();
+        let entrypoint_name = jitc_kernel.entrypoint_name.clone();
 
+        self.load_compiled_binary(
+            &code,
+            kernel_id.clone(),
+            jitc_kernel.entrypoint_name,
+            jitc_kernel.cube_dim,
+            shared_mem_bytes,
+            io.clone().map(Arc::from),
+        )?;
+
+        // Cached after the load, so a code object the driver rejects is not handed back on
+        // the next run, and the bytes move rather than being copied a third time.
         if let Some(cache) = self.compilation_cache.as_mut() {
             let key = key.unwrap();
             store_compiled(
                 cache,
                 key,
                 CompilationCacheEntry {
-                    entrypoint_name: jitc_kernel.entrypoint_name.clone(),
+                    entrypoint_name,
                     shared_mem_bytes,
-                    binary: code.clone(),
-                    io: io.clone(),
+                    binary: code,
+                    io,
                 },
             );
         }
-
-        self.load_compiled_binary(
-            code,
-            kernel_id.clone(),
-            jitc_kernel.entrypoint_name,
-            jitc_kernel.cube_dim,
-            shared_mem_bytes,
-            io.map(Arc::from),
-        )?;
         Ok(())
     }
 
@@ -311,7 +310,20 @@ impl HipContext {
 
         let io = jitc_kernel.io.take();
         let repr = jitc_kernel.repr.unwrap();
+        let shared_mem_bytes = repr.shared_memory_size();
+        let entrypoint_name = jitc_kernel.entrypoint_name.clone();
 
+        self.load_compiled_binary(
+            &code,
+            kernel_id.clone(),
+            jitc_kernel.entrypoint_name,
+            jitc_kernel.cube_dim,
+            shared_mem_bytes,
+            io.clone().map(Arc::from),
+        )?;
+
+        // Cached after the load, so a binary the driver rejects is not handed back on the
+        // next run, and the bytes move rather than being copied.
         if let Some(cache) = self.compilation_cache.as_mut() {
             let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
             let key = key.unwrap();
@@ -319,29 +331,20 @@ impl HipContext {
                 cache,
                 key,
                 CompilationCacheEntry {
-                    entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                    shared_mem_bytes: repr.shared_memory_size(),
-                    binary: code.clone(),
-                    io: io.clone(),
+                    entrypoint_name,
+                    shared_mem_bytes,
+                    binary: code,
+                    io,
                 },
             );
             store_compiled(second_line_cache, cpp_hash.unwrap(), key);
         }
-
-        self.load_compiled_binary(
-            code,
-            kernel_id.clone(),
-            jitc_kernel.entrypoint_name,
-            jitc_kernel.cube_dim,
-            repr.shared_memory_size(),
-            io.map(Arc::from),
-        )?;
         Ok(())
     }
 
     fn load_compiled_binary(
         &mut self,
-        code: Vec<i8>,
+        code: &[i8],
         kernel_id: KernelId,
         entrypoint_name: String,
         cube_dim: CubeDim,
@@ -606,4 +609,12 @@ mod tests {
             super::cache_namespace("gfx1201-abc", "ll"),
         );
     }
+}
+
+/// A code object as the `c_char` slice the cache and `hipModuleLoadData` are written in.
+///
+/// `i8` and `u8` have the same layout, so this is the copy out of the compiler's buffer and
+/// nothing more.
+fn to_signed(bytes: &[u8]) -> Vec<i8> {
+    bytes.iter().map(|byte| *byte as i8).collect()
 }

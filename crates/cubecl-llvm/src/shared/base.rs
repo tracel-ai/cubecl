@@ -3,6 +3,7 @@ use cubecl_runtime::kernel::BufferIOAttr;
 use std::rc::Rc;
 
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::bytes::Bytes;
 use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 #[cfg(feature = "pliron-dump")]
 use std::{path::PathBuf, str::FromStr};
@@ -66,7 +67,7 @@ pub struct PlironOptions {
 #[derive(Clone, Debug)]
 pub struct AmdGpuModule {
     /// A linked `ET_DYN` code object, ready for `hipModuleLoadData`.
-    pub code_object: Vec<u8>,
+    pub code_object: Bytes,
     /// Symbol name of the `amdgpu_kernel` entry point.
     pub entrypoint: String,
     /// Textual IR, kept for logging and for hashing into the compilation cache.
@@ -395,7 +396,7 @@ mod tests {
     #[test]
     fn amdgpu_artifact_displays_its_ir() {
         let artifact = PlironArtifact::AmdGpuCode(AmdGpuModule {
-            code_object: vec![0x7f, 0x45, 0x4c, 0x46],
+            code_object: Bytes::from_bytes_vec(vec![0x7f, 0x45, 0x4c, 0x46]),
             entrypoint: "k".to_string(),
             ir: "define void @k() { ret void }".to_string(),
             asm: None,
