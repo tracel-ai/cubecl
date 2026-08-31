@@ -1,10 +1,8 @@
 //! Atomics carrying an explicit memory ordering.
 //!
-//! The `atomic` cube dialect ops are lowered with monotonic ordering, which is all a counter
-//! needs but not what a barrier needs: [`sync_cube`](super::synchronization) has to publish the
-//! writes made before it and to acquire the ones made by the other units of the cube. These
-//! CPU-private ops carry the ordering they must be lowered with, and become their `llvm` dialect
-//! counterpart in [`to_llvm::atomic`](super::to_llvm::atomic).
+//! The `atomic` cube dialect ops lower with monotonic ordering, which is enough for a counter
+//! but not for [`sync_cube`](super::synchronization), which has to publish and acquire the
+//! writes of the other units. These carry the ordering instead.
 
 use cubecl_core::ir::dialect::atomic::AtomicLoadOp;
 use cubecl_core::ir::dialect::memory::LoadOp;

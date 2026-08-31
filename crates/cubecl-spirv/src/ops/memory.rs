@@ -8,9 +8,11 @@ use cubecl_ir::{
 };
 use cubecl_opt::passes::alloc_shared_memory::SliceSharedOp;
 use pliron::{
-    builtin::ops::{ConstantOp, FuncOp},
+    builtin::{
+        given_names::set_operation_result_name,
+        ops::{ConstantOp, FuncOp},
+    },
     common_traits::Named,
-    debug_info::set_operation_result_name,
     identifier::Identifier,
     irbuild::listener::DummyListener,
     opts::dce::dce,

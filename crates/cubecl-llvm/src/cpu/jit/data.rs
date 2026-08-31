@@ -2,7 +2,7 @@ use std::ffi::c_void;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 
-use crate::shared::polyfill::synchronization::SYNC_CUBE_STATE_LEN;
+use crate::cpu::synchronization::SYNC_CUBE_STATE_LEN;
 
 /// Data shared by every unit of a launch: the pointer table (the buffer data pointers indexed by
 /// binding position, then the shared memory blocks), the metadata array and the cube barrier
@@ -58,6 +58,4 @@ impl PlironData {
         self.builtins[4] = unit_pos[1];
         self.builtins[5] = unit_pos[2];
     }
-
-    pub fn complete_unit(&self) {}
 }

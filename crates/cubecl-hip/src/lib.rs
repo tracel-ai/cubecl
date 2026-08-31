@@ -3,9 +3,11 @@
 extern crate derive_new;
 extern crate alloc;
 
+pub mod compiler;
 pub mod compute;
 pub mod device;
 pub mod runtime;
+pub use compiler::{HipCompilationOptions, HipCompiler, HipRepresentation};
 pub use device::*;
 pub use runtime::HipRuntime;
 

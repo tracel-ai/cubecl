@@ -61,11 +61,12 @@ use cubecl_ir::{
     },
     ident,
     interfaces::TypedExt,
-    pliron::{debug_info::set_operation_result_name, value::Value},
+    pliron::value::Value,
     types,
 };
 
 pub use cubecl_ir::types::matrix::{MatrixIdent, MatrixLayout, MatrixShape, MatrixType};
+use pliron::builtin::given_names::set_operation_result_name;
 use pliron::r#type::TypeHandle;
 
 #[derive(Clone, Copy)]

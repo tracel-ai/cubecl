@@ -4,7 +4,6 @@ pub mod constant;
 pub mod general;
 pub mod math;
 pub mod memory;
-pub mod synchronization;
 pub mod ty;
 pub mod vector;
 

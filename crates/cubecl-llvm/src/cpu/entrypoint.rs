@@ -13,7 +13,7 @@ use pliron::identifier::Identifier;
 use pliron::linked_list::ContainsLinkedList;
 use pliron_llvm::types::PointerType as LlvmPointerType;
 
-use crate::shared::polyfill::synchronization::ATTR_SYNC_CUBE_STATE;
+use crate::cpu::synchronization::ATTR_SYNC_CUBE_STATE;
 use crate::shared::shared_memory::declares_shared_memory;
 
 pub const CPU_RUNTIME_BUILTINS: [Builtin; 6] = [
@@ -30,18 +30,18 @@ const NB_BUILTIN: usize = 31;
 /// Every builtin the skeleton knows how to provide, whether it comes from a function argument, a
 /// compile time constant, or a value computed by the emulation loop.
 #[derive(Default)]
-struct BuiltinValues([Option<Value>; NB_BUILTIN]);
+pub(crate) struct BuiltinValues([Option<Value>; NB_BUILTIN]);
 
 impl BuiltinValues {
-    fn set(&mut self, builtin: Builtin, value: Value) {
+    pub(crate) fn set(&mut self, builtin: Builtin, value: Value) {
         self.0[builtin as usize] = Some(value);
     }
 
-    fn get(&self, builtin: Builtin) -> Option<Value> {
+    pub(crate) fn get(&self, builtin: Builtin) -> Option<Value> {
         self.0[builtin as usize]
     }
 
-    fn expect(&self, builtin: Builtin) -> Value {
+    pub(crate) fn expect(&self, builtin: Builtin) -> Value {
         self.get(builtin)
             .unwrap_or_else(|| panic!("Builtin {builtin:?} should have been computed already"))
     }
@@ -49,18 +49,18 @@ impl BuiltinValues {
 
 /// Pending `cube.read_builtin` replacements, gathered during the IR walk so they can be applied
 /// afterwards, once the walker no longer holds the ops borrowed.
-struct Replacer<'a> {
-    builtins: &'a BuiltinValues,
-    replacements: Vec<(Value, Value)>,
+pub(crate) struct Replacer<'a> {
+    pub(crate) builtins: &'a BuiltinValues,
+    pub(crate) replacements: Vec<(Value, Value)>,
 }
 
 #[cube]
-fn constant(#[comptime] value: u32) -> u32 {
+pub(crate) fn constant(#[comptime] value: u32) -> u32 {
     value
 }
 
 #[cube]
-fn unit_pos(
+pub(crate) fn unit_pos(
     unit_pos_x: u32,
     unit_pos_y: u32,
     unit_pos_z: u32,
@@ -71,22 +71,22 @@ fn unit_pos(
 }
 
 #[cube]
-fn absolute_pos_x(cube_pos_x: u32, unit_pos_x: u32, #[comptime] cube_dim_x: u32) -> u32 {
+pub(crate) fn absolute_pos_x(cube_pos_x: u32, unit_pos_x: u32, #[comptime] cube_dim_x: u32) -> u32 {
     cube_pos_x * cube_dim_x + unit_pos_x
 }
 
 #[cube]
-fn absolute_pos_y(cube_pos_y: u32, unit_pos_y: u32, #[comptime] cube_dim_y: u32) -> u32 {
+pub(crate) fn absolute_pos_y(cube_pos_y: u32, unit_pos_y: u32, #[comptime] cube_dim_y: u32) -> u32 {
     cube_pos_y * cube_dim_y + unit_pos_y
 }
 
 #[cube]
-fn absolute_pos_z(cube_pos_z: u32, unit_pos_z: u32, #[comptime] cube_dim_z: u32) -> u32 {
+pub(crate) fn absolute_pos_z(cube_pos_z: u32, unit_pos_z: u32, #[comptime] cube_dim_z: u32) -> u32 {
     cube_pos_z * cube_dim_z + unit_pos_z
 }
 
 #[cube]
-fn absolute_pos(
+pub(crate) fn absolute_pos(
     absolute_pos_x: u32,
     absolute_pos_y: u32,
     absolute_pos_z: u32,
@@ -103,7 +103,7 @@ fn absolute_pos(
 }
 
 #[cube]
-fn cube_pos(
+pub(crate) fn cube_pos(
     cube_pos_x: u32,
     cube_pos_y: u32,
     cube_pos_z: u32,
@@ -116,7 +116,7 @@ fn cube_pos(
 }
 
 #[cube]
-fn cube_count(cube_count_x: u32, cube_count_y: u32, cube_count_z: u32) -> usize {
+pub(crate) fn cube_count(cube_count_x: u32, cube_count_y: u32, cube_count_z: u32) -> usize {
     cube_count_x as usize * cube_count_y as usize * cube_count_z as usize
 }
 
@@ -229,12 +229,17 @@ pub fn runtime_arg(ctx: &Context, func: FuncOp, key: &Identifier) -> Value {
         .unwrap_or_else(|| panic!("entry point must carry the '{key}' argument"))
 }
 
-fn insert_skeleton(
+/// Sets the builtins that are the same fixed-at-launch shape on every target: the cube and
+/// cluster dimensions, plus the cluster position (always the origin, since clusters aren't
+/// modelled on either the CPU or the AMDGPU target yet). Shared between
+/// [`InsertConstantEmulationPass`] and `amdgpu::builtins::InsertAmdgpuBuiltinsPass`; each caller
+/// sets its own `PlaneDim`/`UnitPosPlane` afterward, since those differ per target.
+pub(crate) fn set_dim_and_cluster_constants(
     scope: &Scope,
     builtins: &mut BuiltinValues,
     cube_dim: Dim3,
     cluster_dim: Dim3,
-) -> Ptr<BasicBlock> {
+) {
     let mut set_const = |builtin: Builtin, value: u32| {
         builtins.set(builtin, constant::expand(scope, value).value(scope));
     };
@@ -249,11 +254,25 @@ fn insert_skeleton(
     set_const(Builtin::CubeClusterDimZ, cluster_dim.z);
     set_const(Builtin::CubeClusterDim, cluster_dim.num_elems());
 
-    // A CPU has no cluster, so a cube always sits at position 0 of its cluster.
+    // Clusters are not modelled on this target yet, so a cube always sits
+    // at position 0 of its cluster.
     set_const(Builtin::CubePosCluster, 0);
     set_const(Builtin::CubePosClusterX, 0);
     set_const(Builtin::CubePosClusterY, 0);
     set_const(Builtin::CubePosClusterZ, 0);
+}
+
+fn insert_skeleton(
+    scope: &Scope,
+    builtins: &mut BuiltinValues,
+    cube_dim: Dim3,
+    cluster_dim: Dim3,
+) -> Ptr<BasicBlock> {
+    set_dim_and_cluster_constants(scope, builtins, cube_dim, cluster_dim);
+
+    let mut set_const = |builtin: Builtin, value: u32| {
+        builtins.set(builtin, constant::expand(scope, value).value(scope));
+    };
 
     // A unit is a scalar thread on the CPU, so a plane holds exactly one unit.
     set_const(Builtin::PlaneDim, 1);

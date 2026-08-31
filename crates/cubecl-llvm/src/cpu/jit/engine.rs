@@ -1,7 +1,6 @@
 use cubecl_runtime::kernel::BufferIOAttr;
 use std::ffi::c_void;
 use std::fmt::Display;
-use std::rc::Rc;
 use std::sync::{Arc, Once};
 
 use pliron::builtin::ops::ModuleOp;
@@ -12,7 +11,7 @@ use pliron_llvm::llvm_sys::target::initialize_native;
 use pliron_llvm::to_llvm_ir;
 
 use super::data::PlironData;
-use crate::shared::shared_memory::SharedMemories;
+use crate::cpu::shared_memory::SharedMemories;
 
 /// Host ABI of a JIT'd kernel: `(buffer_ptrs, cube_count_x/y/z, unit_pos_x/y/z, sync_cube_state,
 /// metadata)`. The variable-count pointers — the buffers and then the shared memories — are
@@ -29,8 +28,11 @@ pub struct KernelRequirements {
     pub shared_memories: SharedMemories,
 }
 
-/// A JIT-compiled kernel. Fields drop in declaration order, so the JIT is torn down before the
-/// `LLVMContext` it was built in is disposed.
+/// A JIT-compiled kernel.
+///
+/// The `LLVMContext` the module was built in is not held here: `LLVMLLJIT::add_module`
+/// takes it by value and transfers it to the JIT's thread-safe context, so the JIT is
+/// what keeps it alive for as long as the compiled code exists.
 #[repr(C)]
 struct JitKernel {
     func: KernelFn,
@@ -40,7 +42,6 @@ struct JitKernel {
     /// for the launch path's taint bookkeeping.
     io: Vec<BufferIOAttr>,
     _lljit: LLVMLLJIT,
-    _llvm_ctx: Rc<LLVMContext>,
 }
 
 /// Safety: The kernel is immutable machine code plus the JIT/context that keep it alive.
@@ -66,7 +67,7 @@ impl PlironEngine {
             initialize_native().expect("failed to initialize native target");
         });
 
-        let llvm_ctx = Rc::new(LLVMContext::default());
+        let llvm_ctx = LLVMContext::default();
         let llvm_module = to_llvm_ir::convert_module(ctx, &llvm_ctx, module)?;
         #[cfg(feature = "pliron-dump")]
         if let Some(dir) = ir_dump_path(kernel_name) {
@@ -81,8 +82,10 @@ impl PlironEngine {
         }
 
         let lljit = LLVMLLJIT::new_with_default_builder().expect("failed to create LLJIT");
+        // Consumes the context: `optimize` re-parsed the module into `llvm_ctx`, which is
+        // what `add_module` asserts, and ownership passes to the JIT from here.
         lljit
-            .add_module(llvm_module)
+            .add_module(llvm_ctx, llvm_module)
             .expect("failed to add module to JIT");
         let addr = lljit
             .lookup_symbol(kernel_name)
@@ -95,7 +98,6 @@ impl PlironEngine {
             requirements,
             io,
             _lljit: lljit,
-            _llvm_ctx: llvm_ctx,
         })))
     }
 
@@ -137,7 +139,7 @@ impl Display for PlironEngine {
 #[cfg(feature = "pliron-dump")]
 /// The kernel's dump directory when `CUBECL_DEBUG_PLIRON` is set: the LLVM IR
 /// stages land beside the pliron pass dumps.
-fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
+pub(crate) fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
     let dir = std::env::var("CUBECL_DEBUG_PLIRON").ok()?;
     let path = std::path::Path::new(&dir).join(kernel_name);
     std::fs::create_dir_all(&path).ok()?;

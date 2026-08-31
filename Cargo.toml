@@ -174,16 +174,16 @@ winapi = { version = "^0.3.9", features = [
 inflections = "1"
 
 # Crates.io
-pliron = { version = "0.17", default-features = false }
-pliron-llvm = { version = "0.17", default-features = false }
+# pliron = { version = "0.17", default-features = false }
+# pliron-llvm = { version = "0.17", default-features = false }
 
 # Path
 # pliron = { path = "../pliron", default-features = false }
 # pliron-llvm = { path = "../pliron/pliron-llvm", default-features = false }
 
 # Git
-# pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
-# pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "4035fde349a97096dc5ef4a040cc14ca9c451ae9", default-features = false }
+pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "6f4e739266c037a69488031a81f4381e62db9ac3", default-features = false }
+pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "6f4e739266c037a69488031a81f4381e62db9ac3", default-features = false }
 
 # These features stop llvm-sys from resolving LLVM itself; cubecl-llvm's build.rs
 # links the bundled toolchain instead.
@@ -191,7 +191,7 @@ llvm-sys = { version = "221", features = [
     "no-llvm-linking",
     "disable-alltargets-init",
 ] }
-tracel-llvm-bundler = { version = "22.1.4-6" }
+tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "7932ee9e52044e298dacbfd04b1e0476544bb185" }
 
 cudarc = { version = "0.19.6", features = [
     "std",
@@ -204,12 +204,12 @@ cudarc = { version = "0.19.6", features = [
 ], default-features = false } # CubeCL-CUDA
 
 # CubeCL-SPIR-V
-pliron-spirv = "0.14.1"
-rspirv = { version = "0.14.1", package = "tracel-rspirv" }
+# pliron-spirv = "0.14.1"
+# rspirv = { version = "0.14.1", package = "tracel-rspirv" }
 # pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
 # rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
-# pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "7c59c46f4248ba92e3b06d411c0a2e8cce379025" }
-# rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "7c59c46f4248ba92e3b06d411c0a2e8cce379025", package = "tracel-rspirv" }
+pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "e52c4c918585bc02fa413eb6ee4f0b34e1109ae0" }
+rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "e52c4c918585bc02fa413eb6ee4f0b34e1109ae0", package = "tracel-rspirv" }
 rustc_apfloat = "0.2"
 
 # CubeCL-WGPU
@@ -225,6 +225,7 @@ wgpu-hal = "^30.0.0"
 renderdoc = "0.12"
 
 # Build deps
+cc = "1.2"
 cfg_aliases = "0.2.2"
 
 

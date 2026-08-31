@@ -1,6 +1,5 @@
-//! Rewrites the kernel entry ABI to what the JIT host calls.
+//! Rewrites the kernel entry ABI to what the host calls.
 
-use core::cell::RefCell;
 use cubecl_core::ir::attributes::{
     ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface, IndexAttr,
 };
@@ -18,9 +17,8 @@ use pliron::basic_block::BasicBlock;
 use pliron::builtin::attributes::TypeAttr;
 use pliron::builtin::ops::{ConstantOp, FuncOp};
 use pliron::builtin::types::FunctionType;
-use std::rc::Rc;
 
-use crate::shared::shared_memory::{SharedDeclarations, SharedMemories};
+use crate::shared::shared_memory::SharedDeclarations;
 use crate::shared::to_llvm::ty::cube_type_to_llvm;
 
 /// `(op, buffer_idx, result)` for each `cube.buffer_len`, gathered during the walk so the ops
@@ -39,22 +37,29 @@ struct ReadScalars(Vec<(Ptr<Operation>, TypeHandle, usize, Value)>);
 #[derive(Default)]
 struct DynMetaReads(Vec<(Ptr<Operation>, usize, Value, Value)>);
 
-/// Collapses buffer args and shared memories behind `%buffer_ptrs`, lowers `cube.buffer_len`,
-/// `cube.read_scalar`, `cube.shape` and `cube.stride` against `%metadata`. The info buffer is
-/// laid out as `[scalars | static meta | dynamic meta]`, so scalar reads index straight from its
-/// front while metadata reads must skip the scalar prefix.
+/// How the kernel entry presents its buffers to the host.
+pub trait EntryArgLayout {
+    fn present_args(
+        &self,
+        ctx: &mut Context,
+        func: FuncOp,
+        buffers: &[(usize, usize, Value)],
+        shared: SharedDeclarations,
+    );
+}
+
+/// Lowers `cube.buffer_len`, `cube.read_scalar`, `cube.shape` and `cube.stride` against
+/// `%metadata`, then hands the buffers and shared memories off to `layout` to present to the
+/// host. The info buffer is laid out as `[scalars | static meta | dynamic meta]`, so scalar reads
+/// index straight from its front while metadata reads must skip the scalar prefix.
 pub struct LowerEntryAbiPass {
     info: Info,
-    /// Filled in with the shared memory the host must reserve, see [`SharedMemories`].
-    shared_memories: Rc<RefCell<SharedMemories>>,
+    layout: Box<dyn EntryArgLayout>,
 }
 
 impl LowerEntryAbiPass {
-    pub fn new(info: Info, shared_memories: Rc<RefCell<SharedMemories>>) -> Self {
-        Self {
-            info,
-            shared_memories,
-        }
+    pub fn new(info: Info, layout: Box<dyn EntryArgLayout>) -> Self {
+        Self { info, layout }
     }
 }
 
@@ -191,57 +196,31 @@ impl Pass for LowerEntryAbiPass {
             Operation::erase(*rs_op, ctx);
         }
 
-        let shared_base = (buffers.iter())
-            .map(|(_, buffer_pos, _)| buffer_pos + 1)
-            .max()
-            .unwrap_or(0);
-        if !buffers.is_empty() || !shared.is_empty() {
-            let table_ty = table_ty(ctx);
-            BasicBlock::insert_argument(entry, ctx, 0, table_ty);
-            let buffer_ptrs = entry.deref(ctx).get_argument(0);
-            let terminator = entry
-                .deref(ctx)
-                .get_terminator(ctx)
-                .expect("entry block must be terminated");
-
-            for (_idx, buffer_pos, old_val) in &buffers {
-                let buffer_ty = old_val.get_type(ctx);
-                let buffer = load_table(ctx, buffer_ptrs, *buffer_pos, buffer_ty, terminator);
-                old_val.replace_all_uses_with(ctx, &buffer);
-            }
-
-            let blocks = shared.lower(ctx, buffer_ptrs, shared_base, terminator);
-            if !blocks.is_empty() {
-                *self.shared_memories.borrow_mut() = SharedMemories {
-                    base: shared_base,
-                    blocks,
-                };
-            }
-
-            let mut removed: Vec<usize> = buffers.iter().map(|(i, _, _)| i + 1).collect();
-            removed.sort_unstable();
-            for idx in removed.into_iter().rev() {
-                BasicBlock::remove_argument(entry, ctx, idx);
-            }
-        }
-
-        let arg_values: Vec<Value> = entry.deref(ctx).arguments().collect();
-        let arg_types: Vec<TypeHandle> = arg_values
-            .iter()
-            .map(|arg| cube_type_to_llvm(ctx, arg.get_type(ctx)))
-            .collect();
-        let res_types = func
-            .get_type(ctx)
-            .deref(ctx)
-            .downcast_ref::<FunctionType>()
-            .expect("FuncOp must have a function type")
-            .res_types();
-        let new_ty = FunctionType::get(ctx, arg_types, res_types);
-        func.set_attr_func_type(ctx, TypeAttr::new(new_ty.into()));
+        self.layout.present_args(ctx, func, &buffers, shared);
 
         res.ir_changed = IRStatus::Changed;
         Ok(res)
     }
+}
+
+/// Rebuilds `func`'s `FunctionType` from its entry block's current argument types. Called once
+/// [`EntryArgLayout::present_args`] has finished changing the arguments, since that is target
+/// specific but this reconciliation of the declared signature is not.
+pub(crate) fn rebuild_func_type(ctx: &mut Context, func: FuncOp) {
+    let entry = func.get_entry_block(ctx);
+    let arg_values: Vec<Value> = entry.deref(ctx).arguments().collect();
+    let arg_types: Vec<TypeHandle> = arg_values
+        .iter()
+        .map(|arg| cube_type_to_llvm(ctx, arg.get_type(ctx)))
+        .collect();
+    let res_types = func
+        .get_type(ctx)
+        .deref(ctx)
+        .downcast_ref::<FunctionType>()
+        .expect("FuncOp must have a function type")
+        .res_types();
+    let new_ty = FunctionType::get(ctx, arg_types, res_types);
+    func.set_attr_func_type(ctx, TypeAttr::new(new_ty.into()));
 }
 
 /// `cube.ptr<inner>` into the memory the host owns.
@@ -256,7 +235,7 @@ fn array_ptr_to(ctx: &Context, elem: TypeHandle) -> TypeHandle {
 
 /// Type of `%buffer_ptrs`, the table holding one pointer per buffer and then per shared memory.
 /// What each of them points at is up to the slot's owner, so the table holds them opaquely.
-fn table_ty(ctx: &Context) -> TypeHandle {
+pub(crate) fn table_ty(ctx: &Context) -> TypeHandle {
     array_ptr_to(ctx, ptr_to(ctx, BytesType::get(ctx).into()))
 }
 

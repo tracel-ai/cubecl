@@ -150,7 +150,11 @@ impl CpuServer {
             return Ok(());
         }
         let definition = kernel.define();
-        let compiled = kernel.compile(definition, &mut Default::default(), &PlironOptions)?;
+        let compiled = kernel.compile(
+            definition,
+            &mut Default::default(),
+            &PlironOptions::default(),
+        )?;
         self.compilation_cache
             .insert(kernel_id, CpuKernel::new(compiled));
         Ok(())
@@ -170,7 +174,7 @@ impl CpuServer {
 
         let cube_dim = kernel.mlir.cube_dim;
 
-        let mlir_engine = kernel.mlir.repr.clone().unwrap();
+        let mlir_engine = kernel.mlir.repr.clone().unwrap().expect_jit();
 
         let task = ScheduleTask::Execute {
             stream_id,
