@@ -1,12 +1,9 @@
-//! Calling the `llvm.amdgcn` intrinsics, and the lane index the cross-lane lowerings
-//! start from.
+//! Calls to the `llvm.amdgcn` intrinsics, and the lane index the cross-lane lowerings build on.
 //!
-//! Two stages reach for these: [`builtins`](super::builtins) substitutes
-//! `cube.read_builtin` while the cube dialect is still live, and the lowerings in
-//! [`plane`](super::plane) and [`matrix`](super::matrix) run during the dialect
-//! conversion. The two insert differently -- a [`Scope`](cubecl_core::ir::Scope) appends
-//! to the block it is building, a rewriter inserts before the op it is replacing -- so
-//! what is shared here is the ops themselves, and each caller inserts them its own way.
+//! Everything here builds ops and hands them back without inserting them, because the callers
+//! insert differently: [`builtins`](super::builtins) appends to a
+//! [`Scope`](cubecl_core::ir::Scope), while the [`plane`](super::plane) and
+//! [`matrix`](super::matrix) lowerings insert before the op they replace.
 
 use pliron_llvm::ops::CallIntrinsicOp;
 
@@ -49,11 +46,8 @@ pub fn i32_const_op(ctx: &mut Context, value: i32) -> llvm::ConstantOp {
     llvm::ConstantOp::new(ctx, attr.into())
 }
 
-/// This lane's index within its wavefront: the operations that compute it, in the order
-/// they must be inserted, and the value they produce.
-///
-/// A result is readable as soon as its operation is built, so the whole chain is built
-/// here and the caller decides where it lands.
+/// This lane's index within its wavefront: the operations that compute it, in the order they
+/// must be inserted, and the value they produce.
 pub fn lane_id_ops(ctx: &mut Context) -> (Vec<Ptr<Operation>>, Value) {
     let ty = i32_ty(ctx);
     let all_lanes = i32_const_op(ctx, -1);
