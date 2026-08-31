@@ -162,16 +162,14 @@ fn matrix_of(ctx: &Context, info: &OperandsInfo, value: Value) -> MatrixType {
 fn mul(ctx: &mut Context, rw: &mut DialectConversionRewriter, lhs: Value, rhs: Value) -> Value {
     let op =
         llvm::MulOp::new_with_overflow_flag(ctx, lhs, rhs, IntegerOverflowFlagsAttr::default());
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// `lhs + rhs` over `i32`.
 fn add(ctx: &mut Context, rw: &mut DialectConversionRewriter, lhs: Value, rhs: Value) -> Value {
     let op =
         llvm::AddOp::new_with_overflow_flag(ctx, lhs, rhs, IntegerOverflowFlagsAttr::default());
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// Where in the fragment's row or column a lane sits, and which half of the wave it is in.
@@ -187,13 +185,11 @@ fn lane_position(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> LaneP
     let width = insert_i32_const(ctx, rw, LANES_PER_ROW as i32);
 
     let in_row = llvm::URemOp::new(ctx, lane, width);
-    rw.insert_op(ctx, &in_row);
     let half = llvm::UDivOp::new(ctx, lane, width);
-    rw.insert_op(ctx, &half);
 
     LanePosition {
-        in_row: in_row.get_result(ctx),
-        half: half.get_result(ctx),
+        in_row: insert(ctx, rw, &in_row),
+        half: insert(ctx, rw, &half),
     }
 }
 
@@ -301,8 +297,7 @@ fn element_ptr(
     elem_ty: TypeHandle,
 ) -> Value {
     let gep = llvm::GetElementPtrOp::new(ctx, base, vec![llvm::GepIndex::Value(index)], elem_ty);
-    rw.insert_op(ctx, &gep);
-    gep.get_result(ctx)
+    insert(ctx, rw, &gep)
 }
 
 /// Loads the fragment `matrix` points at.
@@ -313,8 +308,7 @@ fn load_fragment(
     ty: TypeHandle,
 ) -> Value {
     let op = llvm::LoadOp::new(ctx, matrix, ty);
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// Stores `value` into the fragment `matrix` points at.
@@ -346,8 +340,7 @@ fn load_tile(
 ) -> Value {
     let op = llvm::LoadOp::new(ctx, ptr, ty);
     op.set_alignment(ctx, align);
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// Stores `value` into the tile `ptr` points into. The counterpart of [`load_tile`], and
@@ -428,8 +421,7 @@ impl ToLLVMDialect for LoadOp {
         }
 
         let poison = llvm::PoisonOp::new(ctx, frag_ty);
-        rw.insert_op(ctx, &poison);
-        let mut frag = poison.get_result(ctx);
+        let mut frag = insert(ctx, rw, &poison);
 
         for i in 0..elems {
             let index = element_index(ctx, rw, &ty, layout, i, lane, stride);
@@ -437,9 +429,8 @@ impl ToLLVMDialect for LoadOp {
             let value = load_tile(ctx, rw, ptr, elem_ty, align);
 
             let slot = insert_i32_const(ctx, rw, (i * step) as i32);
-            let insert = llvm::InsertElementOp::new(ctx, frag, value, slot);
-            rw.insert_op(ctx, &insert);
-            frag = insert.get_result(ctx);
+            let op = llvm::InsertElementOp::new(ctx, frag, value, slot);
+            frag = insert(ctx, rw, &op);
         }
 
         store_fragment(ctx, rw, matrix, frag);
@@ -484,11 +475,11 @@ impl ToLLVMDialect for StoreOp {
         for i in 0..elems {
             let slot = insert_i32_const(ctx, rw, (i * step) as i32);
             let extract = llvm::ExtractElementOp::new(ctx, frag, slot);
-            rw.insert_op(ctx, &extract);
+            let element = insert(ctx, rw, &extract);
 
             let index = element_index(ctx, rw, &ty, layout, i, lane, stride);
             let ptr = element_ptr(ctx, rw, destination, index, elem_ty);
-            store_tile(ctx, rw, ptr, extract.get_result(ctx), align);
+            store_tile(ctx, rw, ptr, element, align);
         }
 
         rw.erase_operation(ctx, old_op);
@@ -521,10 +512,7 @@ fn fragment_slice(
     step: usize,
     width: usize,
 ) -> Value {
-    let mask = (0..width).map(|i| (step * width + i) as i32).collect();
-    let op = llvm::ShuffleVectorOp::new(ctx, fragment, fragment, mask);
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    shuffle(ctx, rw, fragment, (0..width).map(|i| (step * width + i) as i32).collect())
 }
 
 /// `fragment` re-indexed by `mask`, which may reorder, narrow or widen it.
@@ -535,8 +523,7 @@ fn shuffle(
     mask: Vec<i32>,
 ) -> Value {
     let op = llvm::ShuffleVectorOp::new(ctx, fragment, fragment, mask);
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// What one WMMA lowering needs that is not the operand values.
@@ -603,8 +590,7 @@ fn emit_wmma(
 
         let fn_ty = FuncType::get(ctx, cd_ty, arg_tys, false);
         let op = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
-        rw.insert_op(ctx, &op);
-        acc = op.get_result(ctx);
+        acc = insert(ctx, rw, &op);
     }
     acc
 }
@@ -784,8 +770,7 @@ fn fpext(
 ) -> Value {
     let op = llvm::FPExtOp::new(ctx, value, ty);
     op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// Narrows every element of `value` to `ty`.
@@ -797,8 +782,7 @@ fn fptrunc(
 ) -> Value {
     let op = llvm::FPTruncOp::new(ctx, value, ty);
     op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// Which of the two matrix axes an element sits on.
@@ -954,28 +938,24 @@ fn registers_value(
     };
 
     let poison = llvm::PoisonOp::new(ctx, vector_ty);
-    rw.insert_op(ctx, &poison);
-    let mut acc = poison.get_result(ctx);
+    let mut acc = insert(ctx, rw, &poison);
 
     for register in 0..count {
-        let element = llvm::ExtractValueOp::new(ctx, value, vec![register as u32])
+        let op = llvm::ExtractValueOp::new(ctx, value, vec![register as u32])
             .expect("a constant index into the register array");
-        rw.insert_op(ctx, &element);
-        let element = element.get_result(ctx);
+        let element = insert(ctx, rw, &op);
 
         for lane in 0..per_register {
             let value = if per_register == 1 {
                 element
             } else {
                 let from = insert_i32_const(ctx, rw, lane as i32);
-                let extract = llvm::ExtractElementOp::new(ctx, element, from);
-                rw.insert_op(ctx, &extract);
-                extract.get_result(ctx)
+                let op = llvm::ExtractElementOp::new(ctx, element, from);
+                insert(ctx, rw, &op)
             };
             let to = insert_i32_const(ctx, rw, (register * per_register + lane) as i32);
-            let insert = llvm::InsertElementOp::new(ctx, acc, value, to);
-            rw.insert_op(ctx, &insert);
-            acc = insert.get_result(ctx);
+            let op = llvm::InsertElementOp::new(ctx, acc, value, to);
+            acc = insert(ctx, rw, &op);
         }
     }
     acc

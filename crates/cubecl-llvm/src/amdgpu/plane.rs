@@ -56,8 +56,7 @@ fn call(
     let arg_tys = args.iter().map(|a| a.get_type(ctx)).collect();
     let fn_ty = FuncType::get(ctx, ret_ty, arg_tys, false);
     let op = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
-    rewriter.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rewriter, &op)
 }
 
 /// This lane's index within its wavefront.
@@ -76,8 +75,7 @@ pub(crate) fn lane_id(ctx: &mut Context, rewriter: &mut DialectConversionRewrite
 macro_rules! bitwise {
     ($ctx:expr, $rewriter:expr, $op:path, $lhs:expr, $rhs:expr) => {{
         let op = <$op>::new($ctx, $lhs, $rhs);
-        $rewriter.insert_op($ctx, &op);
-        op.get_result($ctx)
+        insert($ctx, $rewriter, &op)
     }};
 }
 
@@ -87,8 +85,7 @@ macro_rules! arith {
     ($ctx:expr, $rewriter:expr, $op:path, $lhs:expr, $rhs:expr) => {{
         let op =
             <$op>::new_with_overflow_flag($ctx, $lhs, $rhs, IntegerOverflowFlagsAttr::default());
-        $rewriter.insert_op($ctx, &op);
-        op.get_result($ctx)
+        insert($ctx, $rewriter, &op)
     }};
 }
 
@@ -123,22 +120,14 @@ fn shuffle(
     let as_words = bitcast(ctx, rewriter, value, words_ty);
 
     let poison = llvm::PoisonOp::new(ctx, words_ty);
-    rewriter.insert_op(ctx, &poison);
-    let mut acc = poison.get_result(ctx);
+    let mut acc = insert(ctx, rewriter, &poison);
     for word in 0..words {
         let index = insert_i32_const(ctx, rewriter, word as i32);
         let extract = llvm::ExtractElementOp::new(ctx, as_words, index);
-        rewriter.insert_op(ctx, &extract);
-        let one = call(
-            ctx,
-            rewriter,
-            DS_BPERMUTE,
-            i32_ty,
-            vec![addr, extract.get_result(ctx)],
-        );
-        let insert = llvm::InsertElementOp::new(ctx, acc, one, index);
-        rewriter.insert_op(ctx, &insert);
-        acc = insert.get_result(ctx);
+        let word_value = insert(ctx, rewriter, &extract);
+        let one = call(ctx, rewriter, DS_BPERMUTE, i32_ty, vec![addr, word_value]);
+        let op = llvm::InsertElementOp::new(ctx, acc, one, index);
+        acc = insert(ctx, rewriter, &op);
     }
     bitcast(ctx, rewriter, acc, llvm_ty)
 }
@@ -157,8 +146,7 @@ fn widen_to_i32(
     let narrow_ty = IntegerType::get(ctx, bits, Signedness::Signless).into();
     let as_int = bitcast(ctx, rewriter, value, narrow_ty);
     let zext = llvm::ZExtOp::new_with_nneg(ctx, as_int, i32_ty, false);
-    rewriter.insert_op(ctx, &zext);
-    zext.get_result(ctx)
+    insert(ctx, rewriter, &zext)
 }
 
 /// The inverse of [`widen_to_i32`].
@@ -174,8 +162,8 @@ fn narrow_from_i32(
     }
     let narrow_ty = IntegerType::get(ctx, bits, Signedness::Signless).into();
     let trunc = llvm::TruncOp::new(ctx, value, narrow_ty);
-    rewriter.insert_op(ctx, &trunc);
-    bitcast(ctx, rewriter, trunc.get_result(ctx), result_ty)
+    let narrowed = insert(ctx, rewriter, &trunc);
+    bitcast(ctx, rewriter, narrowed, result_ty)
 }
 
 /// A bitcast, skipped when it would be to the type the value already has.
@@ -189,8 +177,7 @@ fn bitcast(
         return value;
     }
     let op = llvm::BitcastOp::new(ctx, value, to);
-    rewriter.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rewriter, &op)
 }
 
 /// The type an operand carries at this point in the conversion.
@@ -288,8 +275,7 @@ fn icmp(
     rhs: Value,
 ) -> Value {
     let op = llvm::ICmpOp::new(ctx, predicate, lhs, rhs);
-    rewriter.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rewriter, &op)
 }
 
 /// `condition ? on_true : on_false`.
@@ -301,8 +287,7 @@ fn select(
     on_false: Value,
 ) -> Value {
     let op = llvm::SelectOp::new(ctx, condition, on_true, on_false);
-    rewriter.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rewriter, &op)
 }
 
 /// The exec mask of a predicate: one bit per lane of the wavefront, set where it holds.
@@ -435,13 +420,11 @@ impl ToLLVMDialect for BallotOp {
                 shifted
             } else {
                 let trunc = llvm::TruncOp::new(ctx, shifted, i32_ty);
-                rewriter.insert_op(ctx, &trunc);
-                trunc.get_result(ctx)
+                insert(ctx, rewriter, &trunc)
             };
             let index = insert_i32_const(ctx, rewriter, word as i32);
-            let insert = llvm::InsertElementOp::new(ctx, acc, low, index);
-            rewriter.insert_op(ctx, &insert);
-            acc = insert.get_result(ctx);
+            let op = llvm::InsertElementOp::new(ctx, acc, low, index);
+            acc = insert(ctx, rewriter, &op);
         }
 
         rewriter.replace_operation_with_values(ctx, old_op, vec![acc]);
@@ -460,6 +443,5 @@ fn extend_to_mask(
     }
     let ty = mask_ty(ctx);
     let op = llvm::ZExtOp::new_with_nneg(ctx, lane, ty, false);
-    rewriter.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rewriter, &op)
 }

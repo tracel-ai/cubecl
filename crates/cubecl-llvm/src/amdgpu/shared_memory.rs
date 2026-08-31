@@ -105,8 +105,8 @@ impl ToLLVMDialect for AllocSharedOp {
         let name = lookup_or_insert_block(ctx, module, alignment)?;
 
         let block = llvm::AddressOfOp::new(ctx, name, LDS_ADDRESS_SPACE);
-        rewriter.insert_op(ctx, &block);
-        rewriter.replace_operation_with_values(ctx, old_op, vec![block.get_result(ctx)]);
+        let address = insert(ctx, rewriter, &block);
+        rewriter.replace_operation_with_values(ctx, old_op, vec![address]);
         Ok(())
     }
 }
@@ -124,16 +124,16 @@ impl ToLLVMDialect for SliceSharedOp {
         let offset = self.offset(ctx).0 as u32;
 
         let byte_ty = IntegerType::get(ctx, 8, Signedness::Signless).into();
-        let slice =
+        let gep =
             llvm::GetElementPtrOp::new(ctx, block, vec![llvm::GepIndex::Constant(offset)], byte_ty);
-        rewriter.insert_op(ctx, &slice);
+        let slice = insert(ctx, rewriter, &gep);
 
         // Back to the generic address space every load and store downstream expects.
         // `InferAddressSpaces` folds it away.
         let generic_ty = LlvmPointerType::get(ctx, 0).into();
-        let cast = llvm::AddrSpaceCastOp::new(ctx, slice.get_result(ctx), generic_ty);
-        rewriter.insert_op(ctx, &cast);
-        rewriter.replace_operation_with_values(ctx, old_op, vec![cast.get_result(ctx)]);
+        let op = llvm::AddrSpaceCastOp::new(ctx, slice, generic_ty);
+        let generic = insert(ctx, rewriter, &op);
+        rewriter.replace_operation_with_values(ctx, old_op, vec![generic]);
         Ok(())
     }
 }

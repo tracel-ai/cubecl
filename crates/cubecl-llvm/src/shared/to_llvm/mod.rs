@@ -2,6 +2,7 @@ pub mod atomic;
 pub mod cmp;
 pub mod constant;
 pub mod general;
+pub mod insert;
 pub mod math;
 pub mod memory;
 pub mod ty;
@@ -15,6 +16,7 @@ pub mod prelude {
         I32_WIDTH, convert_attr, float_attr, insert_bool_const, insert_i32_const, insert_int_const,
         int_attr,
     };
+    pub use super::insert::insert;
     pub use super::ty::{INDEX_WIDTH, cube_type_to_llvm, llvm_mangled_ty};
     pub use super::vector::insert_splat;
     pub use super::{CubeToLLVMType, ToLLVMDialect};
