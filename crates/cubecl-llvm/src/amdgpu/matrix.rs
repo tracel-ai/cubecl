@@ -54,7 +54,7 @@ impl WmmaGeneration {
             WmmaGeneration::Rdna4 => k,
         };
         assert!(
-            instruction_k > 0 && k % instruction_k == 0,
+            instruction_k > 0 && k.is_multiple_of(instruction_k),
             "a k of {k} does not divide into {instruction_k}-deep WMMA instructions"
         );
         (instruction_k, k / instruction_k)
