@@ -68,7 +68,7 @@ fn register_supported_types(props: &mut DeviceProperties) {
         props.register_type_usage(ty, TypeUsage::all());
     }
 
-    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
+    for ty in [FloatKind::E4M3, FloatKind::E5M2, FloatKind::UE8M0] {
         props.register_type_usage(
             ElemType::Float(ty),
             TypeUsage::Conversion | TypeUsage::Buffer,
