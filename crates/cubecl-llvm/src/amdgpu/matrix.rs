@@ -15,6 +15,7 @@ use cubecl_core::ir::types::matrix::MatrixType;
 use cubecl_core::ir::types::{MatrixIdent, MatrixLayout, MatrixShape};
 
 use pliron::input_err;
+use pliron::printable::Printable;
 use thiserror::Error;
 
 use crate::amdgpu::plane::lane_id;
@@ -29,6 +30,16 @@ use crate::shared::to_llvm::ty::scalar_alignment;
 )]
 pub struct MatrixRelayoutUnsupported(MatrixIdent, MatrixIdent);
 
+/// A tile whose depth is not a whole number of hardware instructions.
+#[derive(Debug, Error)]
+#[error("a k of {0} does not divide into {1}-deep WMMA instructions")]
+pub struct MatrixDepthUnsupported(usize, usize);
+
+/// A fragment element type no WMMA instruction takes.
+#[derive(Debug, Error)]
+#[error("no WMMA instruction takes a {0} fragment element")]
+pub struct MatrixElemUnsupported(String);
+
 /// Whether a 16 bit accumulator is padded to one element per 32 bit register.
 fn pads_half_accumulator(generation: AmdWmma) -> bool {
     generation == AmdWmma::Rdna3
@@ -42,16 +53,13 @@ fn pads_half_accumulator(generation: AmdWmma) -> bool {
 /// callers take it up. A tile deeper than the instruction is therefore not an error: it is
 /// several instructions over consecutive slices of the `k` range, chained through the
 /// accumulator. gfx12 has the wider instruction and always runs in one step.
-fn instruction_steps(generation: AmdWmma, k: usize) -> (usize, usize) {
+fn instruction_steps(generation: AmdWmma, k: usize) -> Option<(usize, usize)> {
     let instruction_k = match generation {
         AmdWmma::Rdna3 => 16.min(k),
         AmdWmma::Rdna4 => k,
     };
-    assert!(
-        instruction_k > 0 && k.is_multiple_of(instruction_k),
-        "a k of {k} does not divide into {instruction_k}-deep WMMA instructions"
-    );
-    (instruction_k, k / instruction_k)
+    (instruction_k > 0 && k.is_multiple_of(instruction_k))
+        .then(|| (instruction_k, k / instruction_k))
 }
 
 impl CtxWmma for Context {}
@@ -472,16 +480,35 @@ impl ToLLVMDialect for StoreOp {
     }
 }
 
-/// The WMMA format name of a fragment element type.
-fn wmma_format(ctx: &Context, elem: TypeHandle) -> &'static str {
-    if elem.is_float32(ctx) {
-        "f32"
-    } else if elem.is_bfloat16(ctx) {
-        "bf16"
-    } else if elem.is_float16(ctx) {
-        "f16"
+/// The `k` one instruction of this device's WMMA covers, for reporting a tile that does not
+/// divide into whole ones.
+fn instruction_k(ctx: &Context) -> usize {
+    match ctx.wmma() {
+        AmdWmma::Rdna3 => 16,
+        AmdWmma::Rdna4 => 32,
+    }
+}
+
+/// Names whichever of the two element types has no WMMA format.
+fn unsupported_elem(ctx: &Context, ab: TypeHandle, cd: TypeHandle) -> MatrixElemUnsupported {
+    let culprit = if wmma_format(ctx, ab).is_none() {
+        ab
     } else {
-        panic!("no WMMA takes this element type")
+        cd
+    };
+    MatrixElemUnsupported(culprit.disp(ctx).to_string())
+}
+
+/// The WMMA format name of a fragment element type, or `None` for one no instruction takes.
+fn wmma_format(ctx: &Context, elem: TypeHandle) -> Option<&'static str> {
+    if elem.is_float32(ctx) {
+        Some("f32")
+    } else if elem.is_bfloat16(ctx) {
+        Some("bf16")
+    } else if elem.is_float16(ctx) {
+        Some("f16")
+    } else {
+        None
     }
 }
 
@@ -539,7 +566,7 @@ fn emit_wmma(
     (a_val, b_val, c_val): (Value, Value, Value),
     ab_ty: TypeHandle,
     cd_ty: TypeHandle,
-) -> Value {
+) -> Option<Value> {
     let WmmaCall {
         shape: MatrixShape { m, n, k },
         ab,
@@ -547,7 +574,7 @@ fn emit_wmma(
         cd_is_half,
     } = call;
     let generation = ctx.wmma();
-    let (instruction_k, steps) = instruction_steps(generation, k);
+    let (instruction_k, steps) = instruction_steps(generation, k)?;
     let pads_half = pads_half_accumulator(generation) && cd_is_half;
 
     let mut acc = c_val;
@@ -582,7 +609,7 @@ fn emit_wmma(
         let op = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
         acc = insert(ctx, rw, &op);
     }
-    acc
+    Some(acc)
 }
 
 #[op_interface_impl]
@@ -610,13 +637,26 @@ impl ToLLVMDialect for MultiplyAccumulateOp {
         let b_val = load_fragment(ctx, rw, b, ab_frag_ty);
         let c_val = load_fragment(ctx, rw, c, cd_frag_ty);
 
+        let (Some(ab), Some(cd)) = (
+            wmma_format(ctx, a_ty.elem_ty),
+            wmma_format(ctx, c_ty.elem_ty),
+        ) else {
+            return input_err!(
+                self.loc(ctx),
+                unsupported_elem(ctx, a_ty.elem_ty, c_ty.elem_ty)
+            );
+        };
+        let k = a_ty.shape.k;
         let call = WmmaCall {
             shape: a_ty.shape,
-            ab: wmma_format(ctx, a_ty.elem_ty),
-            cd: wmma_format(ctx, c_ty.elem_ty),
+            ab,
+            cd,
             cd_is_half: is_half(ctx, c_ty.elem_ty),
         };
-        let result = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_frag_ty, cd_frag_ty);
+        let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_frag_ty, cd_frag_ty)
+        else {
+            return input_err!(self.loc(ctx), MatrixDepthUnsupported(k, instruction_k(ctx)));
+        };
         store_fragment(ctx, rw, d, result);
 
         rw.erase_operation(ctx, old_op);
@@ -945,13 +985,22 @@ impl ToLLVMDialect for MmaManualOp {
         let b_val = registers_value(ctx, rw, b, ab_ty);
         let c_val = registers_value(ctx, rw, c, cd_ty);
 
+        let (Some(ab), Some(cd)) = (wmma_format(ctx, ab_elem), wmma_format(ctx, cd_elem)) else {
+            return input_err!(self.loc(ctx), unsupported_elem(ctx, ab_elem, cd_elem));
+        };
+        let shape = *self.shape(ctx).clone();
         let call = WmmaCall {
-            shape: *self.shape(ctx).clone(),
-            ab: wmma_format(ctx, ab_elem),
-            cd: wmma_format(ctx, cd_elem),
+            shape,
+            ab,
+            cd,
             cd_is_half: is_half(ctx, cd_elem),
         };
-        let result = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_ty, cd_ty);
+        let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_ty, cd_ty) else {
+            return input_err!(
+                self.loc(ctx),
+                MatrixDepthUnsupported(shape.k, instruction_k(ctx))
+            );
+        };
         store_fragment(ctx, rw, d, result);
 
         rw.erase_operation(ctx, old_op);

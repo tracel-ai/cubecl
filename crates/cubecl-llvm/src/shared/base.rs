@@ -141,7 +141,7 @@ impl Compiler for PlironCompiler {
             });
         }
 
-        Ok(self.clone().compile_ir(kernel, compilation_options))
+        self.clone().compile_ir(kernel, compilation_options)
     }
 
     fn extension(&self) -> &'static str {
@@ -153,20 +153,25 @@ impl Compiler for PlironCompiler {
 }
 
 impl PlironCompiler {
-    fn compile_ir(self, kernel: KernelDefinition, options: &PlironOptions) -> PlironArtifact {
+    fn compile_ir(
+        self,
+        kernel: KernelDefinition,
+        options: &PlironOptions,
+    ) -> Result<PlironArtifact, CompilationError> {
         match self.target {
-            LlvmTarget::Cpu => PlironArtifact::Jit(self.compile_cpu(kernel)),
+            LlvmTarget::Cpu => Ok(PlironArtifact::Jit(self.compile_cpu(kernel)?)),
             LlvmTarget::AmdGpu => {
-                let arch = options
-                    .arch
-                    .as_ref()
-                    .expect("the AMDGPU target is configured with the device it compiles for");
-                PlironArtifact::AmdGpuCode(self.compile_amdgpu(kernel, arch))
+                let arch = options.arch.as_ref().ok_or_else(|| {
+                    generic("the AMDGPU target needs the device it compiles for".to_string())
+                })?;
+                Ok(PlironArtifact::AmdGpuCode(
+                    self.compile_amdgpu(kernel, arch)?,
+                ))
             }
         }
     }
 
-    fn compile_cpu(self, kernel: KernelDefinition) -> PlironEngine {
+    fn compile_cpu(self, kernel: KernelDefinition) -> Result<PlironEngine, CompilationError> {
         let module = kernel.body.state().module;
         let module_op = module.get_operation();
         let ir = KernelIr::of(&kernel);
@@ -179,7 +184,7 @@ impl PlironCompiler {
         // Filled in by the entry ABI pass, which is where the shared memories get their slot.
         let shared_memories = Rc::new(RefCell::new(SharedMemories::default()));
 
-        let io = lower(&mut ctx, &ir, &CpuLowering::new(shared_memories.clone()));
+        let io = lower(&mut ctx, &ir, &CpuLowering::new(shared_memories.clone()))?;
 
         let requirements = KernelRequirements {
             needs_parallelism,
@@ -187,20 +192,27 @@ impl PlironCompiler {
         };
 
         PlironEngine::compile(&ctx, module, &kernel.settings.kernel_name, requirements, io)
-            .expect("Failed to convert to LLVM IR")
+            .map_err(|err| generic(format!("converting to LLVM IR: {err}")))
     }
 
     /// Lowers `kernel` for `arch` and compiles it into a linked AMD code object.
-    fn compile_amdgpu(self, kernel: KernelDefinition, arch: &GfxArch) -> AmdGpuModule {
+    fn compile_amdgpu(
+        self,
+        kernel: KernelDefinition,
+        arch: &GfxArch,
+    ) -> Result<AmdGpuModule, CompilationError> {
         let module = kernel.body.state().module;
         let ir = KernelIr::of(&kernel);
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
         // The runtime checks this against what the driver reports before it compiles
-        // anything, so an architecture with no known width never reaches here.
-        let plane_dim = arch
-            .plane_dim()
-            .unwrap_or_else(|| panic!("no known wavefront width for '{}'", arch.name()));
+        // anything, so an architecture with no known width should not reach here.
+        let plane_dim = arch.plane_dim().ok_or_else(|| {
+            generic(format!(
+                "no known wavefront width for '{}', so a kernel cannot be generated for it",
+                arch.name()
+            ))
+        })?;
 
         ctx.set_target(LlvmTarget::AmdGpu);
         // Left at zero for the kernels that never declare any.
@@ -208,7 +220,7 @@ impl PlironCompiler {
         ctx.set_plane_dim(plane_dim);
         ctx.set_wmma(arch.wmma());
 
-        let io = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim });
+        let io = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim })?;
 
         // Filled in by the block's lowering, which is the last point it is known.
         let shared_memory_size = ctx.shared_memory_size();
@@ -222,12 +234,12 @@ impl PlironCompiler {
             shared_memory_size,
             io,
         )
-        .unwrap_or_else(|err| {
-            panic!(
-                "Failed to compile '{}' for {}: {err}",
+        .map_err(|err| {
+            generic(format!(
+                "compiling '{}' for {}: {err}",
                 kernel.settings.kernel_name,
                 arch.name()
-            )
+            ))
         })
     }
 }
@@ -260,7 +272,11 @@ impl KernelIr {
 ///
 /// The context is left holding a verified LLVM-dialect module, which each target then takes
 /// to machine code its own way.
-fn lower(ctx: &mut Context, kernel: &KernelIr, target: &dyn TargetLowering) -> Vec<BufferIOAttr> {
+fn lower(
+    ctx: &mut Context,
+    kernel: &KernelIr,
+    target: &dyn TargetLowering,
+) -> Result<Vec<BufferIOAttr>, CompilationError> {
     let (module_op, entry_func) = (kernel.module_op, kernel.entry_func);
 
     #[cfg(not(feature = "pliron-dump"))]
@@ -309,7 +325,7 @@ fn lower(ctx: &mut Context, kernel: &KernelIr, target: &dyn TargetLowering) -> V
     // them and before the lowering group erases the cube ops, which is the same
     // post-optimization point the other backends annotate at.
     passes.add_pass(AnnotateGlobalVisibilityPass);
-    passes.run(module_op, ctx, &mut analyses).unwrap();
+    run(&mut passes, module_op, ctx, &mut analyses)?;
 
     // Read the stamped answer now: the entry ABI lowering below folds the buffer arguments
     // behind the target's own layout and erases them, attributes included.
@@ -318,13 +334,41 @@ fn lower(ctx: &mut Context, kernel: &KernelIr, target: &dyn TargetLowering) -> V
     let mut passes = OpPass::<ModuleOp, Passes>::default();
     passes.add_pass(NestedOpsPass::new(lowering_passes));
     passes.add_pass(builtin_to_llvm_pass());
-    passes.run(module_op, ctx, &mut analyses).unwrap();
+    run(&mut passes, module_op, ctx, &mut analyses)?;
 
-    if let Err(e) = verify_operation(module_op, ctx) {
-        panic!("{}", e.disp(ctx));
+    verify_operation(module_op, ctx).map_err(|err| {
+        generic(format!(
+            "the lowered module does not verify: {}",
+            err.disp(ctx)
+        ))
+    })?;
+
+    Ok(io)
+}
+
+/// Runs `passes`, reporting a failure as a compilation error rather than unwinding.
+fn run(
+    passes: &mut OpPass<ModuleOp, Passes>,
+    module_op: Ptr<Operation>,
+    ctx: &mut Context,
+    analyses: &mut AnalysisManager,
+) -> Result<(), CompilationError> {
+    passes
+        .run(module_op, ctx, analyses)
+        .map(|_| ())
+        .map_err(|err| generic(format!("{}", err.disp(ctx))))
+}
+
+/// A compilation error carrying `reason`.
+///
+/// Everything below the `Compiler` impl reports with a `String`, and this is where those
+/// become the error the server enqueues: a kernel the backend cannot compile is a failed
+/// launch to report, not a process to take down.
+fn generic(reason: String) -> CompilationError {
+    CompilationError::Generic {
+        reason,
+        backtrace: BackTrace::capture(),
     }
-
-    io
 }
 
 #[cfg(feature = "pliron-dump")]
