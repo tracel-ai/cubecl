@@ -974,6 +974,7 @@ dependencies = [
  "llvm-sys",
  "pliron",
  "pliron-llvm",
+ "thiserror",
  "tracel-llvm-bundler",
 ]
 

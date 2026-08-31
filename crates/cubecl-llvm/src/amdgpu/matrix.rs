@@ -13,9 +13,20 @@ use cubecl_core::ir::dialect::matrix::{
 use cubecl_core::ir::types::matrix::MatrixType;
 use cubecl_core::ir::types::{MatrixIdent, MatrixLayout, MatrixShape};
 
+use pliron::input_err;
+use thiserror::Error;
+
 use crate::amdgpu::plane::lane_id;
 use crate::shared::to_llvm::prelude::*;
 use crate::shared::to_llvm::ty::scalar_alignment;
+
+/// A cast that would have to move elements between lanes, which this lowering cannot do.
+#[derive(Debug, Error)]
+#[error(
+    "casting a {0} fragment to a {1} one needs a cross-lane relayout the AMDGPU lowering does \
+     not implement: an accumulator spreads several rows over each lane, an A or B fragment one"
+)]
+pub struct MatrixRelayoutUnsupported(MatrixIdent, MatrixIdent);
 
 /// Which WMMA the device has. The instructions are the same shape; the fragments are not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -671,12 +682,12 @@ impl ToLLVMDialect for CastOp {
         // cross-lane relayout this lowering does not do. `cmma::cast_with_ident` can ask for
         // one, and the counts sometimes even agree (RDNA4, `k` of 16), so it is refused here
         // rather than left to write elements into the wrong positions.
-        assert_eq!(
-            in_ty.ident == MatrixIdent::Accumulator,
-            out_ty.ident == MatrixIdent::Accumulator,
-            "casting between an accumulator and an A or B fragment needs a relayout the \
-             AMDGPU lowering does not implement"
-        );
+        if (in_ty.ident == MatrixIdent::Accumulator) != (out_ty.ident == MatrixIdent::Accumulator) {
+            return input_err!(
+                self.loc(ctx),
+                MatrixRelayoutUnsupported(in_ty.ident, out_ty.ident)
+            );
+        }
         assert_eq!(
             elems, out_elems,
             "a cast keeps the element count and changes only their width"
@@ -710,11 +721,11 @@ impl ToLLVMDialect for CastOp {
             // Nothing to convert. The frontend folds this away, but the lowering does not
             // depend on it having done so.
             dense
-        } else {
-            // Same width, different type: f16 and bf16 split their 16 bits between exponent
-            // and mantissa differently, so neither `fptrunc` nor `fpext` applies and keeping
-            // the bits would change the value they stand for. f32 holds either exactly, so
-            // the conversion goes through it.
+        } else if is_half(ctx, in_ty.elem_ty) && is_half(ctx, out_ty.elem_ty) {
+            // The one pair of the same width that LLVM holds in two different types: f16 and
+            // bf16 split their 16 bits between exponent and mantissa differently, so neither
+            // `fptrunc` nor `fpext` applies and keeping the bits would change the value they
+            // stand for. f32 holds either exactly, so the conversion goes through it.
             let wide_ty: TypeHandle = LlvmVectorType::get(
                 ctx,
                 FP32Type::get(ctx).into(),
@@ -724,6 +735,22 @@ impl ToLLVMDialect for CastOp {
             .into();
             let wide = fpext(ctx, rw, dense, wide_ty);
             fptrunc(ctx, rw, wide, dense_out_ty)
+        } else {
+            // Any other pair of the same width is two cubecl names for one LLVM type -- f32,
+            // flex32 and tf32 are all `float` -- so there is nothing to emit. Nothing could
+            // be, either: `fpext` and `fptrunc` each want a change of width, and handing one
+            // a source and a destination of the same type is invalid IR rather than a no-op.
+            // Reaching here at all takes a fragment type the device advertises, which
+            // `Matrix::uninitialized` checks before this lowering runs, so today only f16 and
+            // bf16 share a width. The arm is what keeps a future third one from silently
+            // taking the conversion above.
+            debug_assert_eq!(
+                cube_type_to_llvm(ctx, in_ty.elem_ty),
+                cube_type_to_llvm(ctx, out_ty.elem_ty),
+                "a cast of the same width between two distinct LLVM types needs a conversion, \
+                 and neither `fpext` nor `fptrunc` is one"
+            );
+            dense
         };
 
         // Repeating each element across its slots rather than leaving the padding undefined:
