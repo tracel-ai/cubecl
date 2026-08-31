@@ -3,10 +3,10 @@
 //! they move in step with.
 
 use crate::compute::context::CudaContext;
+use crate::compute::events::Fence;
 use crate::compute::storage::cpu::PinnedMemoryStorage;
 use crate::compute::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::stream::{CudaStreamBackend, Stream};
-use crate::compute::sync::Fence;
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_runtime::command::{CopyLayout, DeviceStream, Driver};

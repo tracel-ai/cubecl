@@ -185,7 +185,7 @@ impl DeviceService for CudaServer {
             Default::default(),
             mem_properties.clone(),
             hardware_props,
-            TimingMethod::System,
+            TimingMethod::Device,
             DeviceIdentity {
                 name: device_name,
                 fingerprint: fingerprint.clone(),

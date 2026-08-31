@@ -76,4 +76,6 @@ mod tests {
     cubecl_core::testgen_complex_compare!();
     cubecl_core::testgen_complex_math!();
     cubecl_core::testgen_complex_validation!();
+    cubecl_core::testgen_profiling!();
+    cubecl_core::testgen_profiling_nested!();
 }

@@ -27,6 +27,17 @@ pub struct DriverError {
 }
 
 impl DriverError {
+    /// A failure a binding already turned into an error type of its own, named
+    /// by the entry point that produced it.
+    ///
+    /// [`checked`] is the answer wherever the status is still a number. A
+    /// binding that returns a typed result — cudarc's `CUresult` wrapper — has
+    /// already consumed the number, and this is how the entry point's name is
+    /// put back on it.
+    pub fn new(op: &'static str, status: u32) -> Self {
+        Self { op, status }
+    }
+
     /// The entry point that failed.
     pub fn op(&self) -> &'static str {
         self.op
@@ -94,6 +105,6 @@ impl From<DriverError> for LaunchError {
 pub fn checked(op: &'static str, status: u32) -> Result<(), DriverError> {
     match status {
         0 => Ok(()),
-        status => Err(DriverError { op, status }),
+        status => Err(DriverError::new(op, status)),
     }
 }

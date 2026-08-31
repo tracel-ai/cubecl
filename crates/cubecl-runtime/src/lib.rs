@@ -63,6 +63,8 @@ pub mod command;
 
 pub mod driver;
 
+pub mod device_events;
+
 /// Compiler trait and related types
 pub mod compiler;
 /// Running a workload for the compilation and tuning it provokes, without
