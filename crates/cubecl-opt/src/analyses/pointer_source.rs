@@ -182,11 +182,12 @@ impl Analysis for GlobalVisibility {
                     if let Some(effects) = op_cast::<dyn MemoryEffects>(op_dyn.as_ref()) {
                         for effect in effects.memory_effects(ctx) {
                             match effect {
-                                MemoryEffect::Read(affects) => state.check_read(affects),
-                                MemoryEffect::Write(affects) => state.check_write(affects),
-                                MemoryEffect::ReadAll | MemoryEffect::WriteAll => {
-                                    // Technically need to handle it, but let's leave it for now
-                                }
+                                MemoryEffect::Read(affects) => state.check_read(ctx, affects),
+                                MemoryEffect::Write(affects) => state.check_write(ctx, affects),
+                                // Inline asm: it names no pointer, so it can
+                                // touch any buffer the kernel holds.
+                                MemoryEffect::ReadAll => state.read_all(),
+                                MemoryEffect::WriteAll => state.write_all(),
                             }
                         }
                     }
@@ -197,21 +198,65 @@ impl Analysis for GlobalVisibility {
     }
 }
 
+/// What an effect through a value can touch. Because this analysis feeds
+/// correctness downstream — a buffer stamped `Dead` gets no write tracking —
+/// the failure direction matters: an access nobody can attribute must widen
+/// visibility, never drop out of it.
+enum Touches {
+    /// One global buffer, by binding index.
+    Global(usize),
+    /// No global buffer: the value provably lives elsewhere — a shared or
+    /// local pointer, or a register value like a matrix fragment.
+    Nothing,
+}
+
 impl GlobalVisibilityState<'_> {
-    fn check_read(&mut self, ptr: Value) {
-        if let Some(resource) = self.ptr_source.get(&ptr)
-            && let AddressSpace::Global(idx) = resource.address_space
+    /// Attribute the effect's value: by traced source when the chain is
+    /// known, and by the value's own type otherwise. A pointer's type carries
+    /// its address space — and for globals, the binding index — so an access
+    /// through a pointer [`PointerSource`] could not follow is still pinned
+    /// to the one buffer its type names instead of being dropped.
+    fn touches(&self, ctx: &Context, value: Value) -> Touches {
+        if let Some(resource) = self.ptr_source.get(&value) {
+            return match resource.address_space {
+                AddressSpace::Global(idx) => Touches::Global(idx),
+                _ => Touches::Nothing,
+            };
+        }
+        let ty = value.get_type(ctx);
+        match ty.deref(ctx).downcast_ref::<PointerType>() {
+            Some(PointerType {
+                address_space: AddressSpace::Global(idx),
+                ..
+            }) => Touches::Global(*idx),
+            _ => Touches::Nothing,
+        }
+    }
+
+    fn check_read(&mut self, ctx: &Context, value: Value) {
+        if let Touches::Global(idx) = self.touches(ctx, value)
             && let Some(visibility) = self.visibility.get_mut(&idx)
         {
             visibility.readable = true;
         }
     }
 
-    fn check_write(&mut self, ptr: Value) {
-        if let Some(resource) = self.ptr_source.get(&ptr)
-            && let AddressSpace::Global(idx) = resource.address_space
+    fn check_write(&mut self, ctx: &Context, value: Value) {
+        if let Touches::Global(idx) = self.touches(ctx, value)
             && let Some(visibility) = self.visibility.get_mut(&idx)
         {
+            visibility.writable = true;
+        }
+    }
+
+    fn read_all(&mut self) {
+        for visibility in self.visibility.values_mut() {
+            visibility.readable = true;
+        }
+    }
+
+    fn write_all(&mut self) {
+        for visibility in self.visibility.values_mut() {
             visibility.writable = true;
         }
     }

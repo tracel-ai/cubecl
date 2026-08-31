@@ -1,5 +1,6 @@
 #![allow(unknown_lints, unnecessary_transmutes)]
 
+use cubecl_runtime::kernel::BufferIOAttr;
 use std::{
     fmt::{Debug, Display},
     sync::Arc,
@@ -26,6 +27,13 @@ pub struct SpirvKernel {
 
     pub assembled_module: Vec<u32>,
     pub bindings: Vec<Visibility>,
+    /// What the kernel does with each buffer binding, by buffer position --
+    /// the four-state answer the launch path's taint bookkeeping consumes,
+    /// never collapsed the way [`bindings`](Self::bindings) is. Defaulted for
+    /// entries persisted before the field existed, which reads as no answer:
+    /// every buffer both read and written.
+    #[serde(default)]
+    pub io: Option<Vec<BufferIOAttr>>,
     pub shared_size: usize,
     pub immediate_size: Option<usize>,
     pub info_visibility: Visibility,

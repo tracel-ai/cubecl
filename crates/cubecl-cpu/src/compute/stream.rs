@@ -8,15 +8,15 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
 };
-use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{
-        ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
+        ErrorGraph, FailureId, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
+        MemoryManagementOptions,
     },
     storage::{BytesResource, BytesStorage},
-    stream::StreamErrors,
+    stream::StreamMemory,
     timestamp_profiler::TimestampProfiler,
 };
 use std::sync::{Arc, atomic::AtomicU64};
@@ -31,10 +31,26 @@ pub struct CpuStream {
     /// slice to shared memory, aliasing an input and corrupting it in place.
     pub(crate) shared_memory_management: MemoryManagement<BytesStorage>,
     pub(crate) timestamps: TimestampProfiler,
-    errors: StreamErrors,
     threadpool: &'static spin::Mutex<Threadpool>,
     next_counter_step: u64,
     atomic_counter: Arc<CachePadded<AtomicU64>>,
+}
+
+impl StreamMemory for CpuStream {
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId> {
+        self.memory_management
+            .failure(&binding.memory, binding.range())
+    }
+
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph) {
+        self.memory_management
+            .taint(&binding.memory, binding.range(), failure, failures)
+    }
+
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
+        self.memory_management
+            .written(&binding.memory, binding.range(), failures)
+    }
 }
 
 impl core::fmt::Debug for CpuStream {
@@ -75,14 +91,13 @@ impl CpuStream {
             memory_management,
             shared_memory_management,
             timestamps: TimestampProfiler::default(),
-            errors: StreamErrors::default(),
             threadpool,
             next_counter_step,
             atomic_counter,
         }
     }
 
-    pub fn enqueue_task(&mut self, task: ScheduleTask) {
+    pub fn enqueue_task(&mut self, task: ScheduleTask, failures: &mut ErrorGraph) {
         // Launches pipeline: `ComputeTask::is_ready` orders tasks and the
         // launch's resources ride in `SharedData::keepalive`, so the client
         // only drains where that protocol does not cover:
@@ -119,6 +134,7 @@ impl CpuStream {
                     cube_dim,
                     cube_count,
                     &mut self.shared_memory_management,
+                    failures,
                     self.next_counter_step,
                     &self.atomic_counter,
                 );
@@ -132,7 +148,7 @@ impl CpuStream {
     /// For the pooled paths that flush the stream without any logical stream
     /// asking — a full task queue, the ordering barrier before a write, the
     /// scheduler aligning streams. Whatever is queued stays queued, for the
-    /// flush of the stream that owns it (see [`StreamErrors`]).
+    /// flush of the stream that owns it.
     pub fn submit(&mut self) {
         // Spin briefly, then yield between polls: the client is not pinned,
         // and a pure spin parked on a worker's logical CPU keeps that worker
@@ -153,59 +169,39 @@ impl CpuStream {
         }
     }
 
-    /// Wait for the queued work, then surface the errors `owner` owns.
-    ///
-    /// # Errors
-    ///
-    /// [`ServerError::ServerUnhealthy`] carrying everything `owner` had queued,
-    /// which this call takes: the stream is usable again afterwards, and the
-    /// other streams sharing it keep their own errors.
-    pub fn flush(&mut self, owner: StreamId) -> Result<(), ServerError> {
+    /// Wait for the queued work. A launch failure is not the flush's to
+    /// report: it lives on the buffers the launch left unwritten, and
+    /// surfaces on any read, sync or check of them.
+    pub fn flush(&mut self, _owner: StreamId) -> Result<(), ServerError> {
         self.submit();
-
-        let errors = self.flush_errors_queue(owner);
-        if errors.is_empty() {
-            return Ok(());
-        }
-
-        Err(ServerError::ServerUnhealthy {
-            errors,
-            backtrace: BackTrace::capture(),
-        })
+        Ok(())
     }
 
-    pub(crate) fn flush_errors_queue(&mut self, owner: StreamId) -> Vec<ServerError> {
-        let errors = self.errors.take(owner);
-
-        if !errors.is_empty() {
-            self.timestamps.error(ProfileError::Unknown {
-                reason: alloc::format!("{:?}", errors),
-                backtrace: BackTrace::capture(),
-            });
-        }
-
-        errors
-    }
-
-    /// Registers a new error into the error sink, for `stream_id` to surface.
-    pub fn error(&mut self, stream_id: StreamId, error: ServerError) {
-        self.errors.push(stream_id, error);
-    }
-
-    /// The errors `owner` alone caused, left queued for it to surface — see
-    /// [`StreamErrors::peek_owned`].
-    pub fn errors_owned(&self, owner: StreamId) -> Vec<ServerError> {
-        self.errors.peek_owned(owner)
+    /// Mark every open profile invalid: a failure inside a profiling window
+    /// invalidates the measurement. A no-op with no profile open.
+    pub fn profile_failure(&mut self, error: &ServerError) {
+        self.timestamps.failure(error);
     }
 
     /// Allocates a new empty buffer using the main memory pool.
-    pub fn empty(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
-        self.memory_management.reserve(size)
+    pub fn empty(
+        &mut self,
+        size: u64,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        self.memory_management.reserve(size, failures)
     }
 
     /// Maps handles to their corresponding buffers.
-    pub fn bind(&mut self, reserved: ManagedMemoryHandle, new: ManagedMemoryHandle) {
-        self.memory_management.bind(reserved, new, 0).unwrap();
+    pub fn bind(
+        &mut self,
+        reserved: ManagedMemoryHandle,
+        new: ManagedMemoryHandle,
+        failures: &mut ErrorGraph,
+    ) {
+        self.memory_management
+            .bind(reserved, new, 0, failures)
+            .unwrap();
     }
 
     pub fn read_async(

@@ -11,6 +11,7 @@ pub mod cluster;
 pub mod cmma;
 pub mod cmma2;
 pub mod comparison;
+pub mod complex;
 pub mod const_match;
 pub mod debug;
 pub mod different_rank;
@@ -29,6 +30,7 @@ pub mod sequence;
 pub mod short_circuit;
 pub mod slice;
 pub mod stream;
+pub mod stream_errors;
 pub mod synchronization;
 pub mod tensor;
 pub mod tensormap;
@@ -161,6 +163,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_all_reduce!();
 
         cubecl_core::testgen_short_circuit!();
+        cubecl_core::testgen_stream_errors!();
     };
 }
 

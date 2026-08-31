@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 
 use cubecl_core::ir::{
     ContextExt,
-    attributes::{ATTR_BUFFER_IO, BufferIOAttr, FuncInterface},
+    attributes::{ATTR_BUFFER_IO, BufferIOAttr, FuncInterface, buffer_io_by_position},
     cube_op,
     dialect::OperationPtrExt,
     interfaces::{AlignedType, HasElementType},
@@ -42,6 +42,14 @@ shared_op!(DeclareInfoTypeOp, |_, ctx| {
     let mut out = String::new();
     type_info_definition_sized(&mut out, ctx, &state.info).unwrap();
     out
+});
+
+#[cube_op(name = "cpp.declare_complex_helpers")]
+#[result_ty(none)]
+pub struct DeclareComplexHelpersOp {}
+
+shared_op!(DeclareComplexHelpersOp, |_, _| {
+    crate::cuda::dialect::COMPLEX_HELPERS.into()
 });
 
 #[cube_op(name = "cpp.load_info")]
@@ -318,6 +326,12 @@ pub fn shared_memory_size(ctx: &Context, module: Ptr<Operation>) -> usize {
         *size += op.size(ctx).0;
     });
     size
+}
+
+/// The four-state per-buffer IO, by buffer position — see
+/// [`buffer_io_by_position`].
+pub fn buffer_io(ctx: &Context, entry_func: FuncOp) -> Vec<BufferIOAttr> {
+    buffer_io_by_position(ctx, entry_func).into_iter().collect()
 }
 
 pub fn buffers(ctx: &Context, entry_func: FuncOp) -> Vec<Visibility> {

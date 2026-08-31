@@ -17,8 +17,8 @@ use cubecl_runtime::config::size::MemorySize;
 use cubecl_runtime::dry_run::{DryRun, RealRun};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
-    InstallMemoryPoolsError, MemoryAllocationMode, MemoryConfiguration, MemoryManagement,
-    MemoryManagementOptions, MemoryPoolKind,
+    ErrorGraph, InstallMemoryPoolsError, MemoryAllocationMode, MemoryConfiguration,
+    MemoryManagement, MemoryManagementOptions, MemoryPoolKind,
 };
 use cubecl_runtime::storage::BytesStorage;
 
@@ -72,15 +72,27 @@ fn programmatic_pools_override_runtime_default() {
 
     // Vastly different sizes share the same arena instead of landing in
     // size-bucketed pools with separate reservations.
-    let small = memory_management.reserve(4096).unwrap();
+    let small = memory_management
+        .reserve(4096, &mut ErrorGraph::default())
+        .unwrap();
     drop(small);
-    let _large = memory_management.reserve(512 * 1024).unwrap();
+    let _large = memory_management
+        .reserve(512 * 1024, &mut ErrorGraph::default())
+        .unwrap();
     assert_eq!(memory_management.memory_usage().bytes_reserved, MIB);
 
     // The budget is a hard cap.
-    let _fill_1 = memory_management.reserve(MIB).unwrap();
-    let _fill_2 = memory_management.reserve(500 * 1024).unwrap();
-    assert!(memory_management.reserve(MIB).is_err());
+    let _fill_1 = memory_management
+        .reserve(MIB, &mut ErrorGraph::default())
+        .unwrap();
+    let _fill_2 = memory_management
+        .reserve(500 * 1024, &mut ErrorGraph::default())
+        .unwrap();
+    assert!(
+        memory_management
+            .reserve(MIB, &mut ErrorGraph::default())
+            .is_err()
+    );
     assert_eq!(memory_management.memory_usage().bytes_reserved, 2 * MIB);
 }
 
@@ -120,7 +132,11 @@ fn capped_pool_respects_max_slice_size() {
     // Page-sized allocations in the small pool's range go to the arena: even
     // many of them (more than the small pool's whole budget) must succeed.
     let strays: Vec<_> = (0..4)
-        .map(|_| memory_management.reserve(MIB).unwrap())
+        .map(|_| {
+            memory_management
+                .reserve(MIB, &mut ErrorGraph::default())
+                .unwrap()
+        })
         .collect();
     // Nothing landed in the small pool — its pages were never allocated.
     assert_eq!(
@@ -130,7 +146,9 @@ fn capped_pool_respects_max_slice_size() {
     );
 
     // Small allocations still route to the small pool.
-    let _tiny = memory_management.reserve(4096).unwrap();
+    let _tiny = memory_management
+        .reserve(4096, &mut ErrorGraph::default())
+        .unwrap();
     assert_eq!(memory_management.memory_usage().bytes_reserved, 17 * MIB);
     drop(strays);
 }
@@ -150,24 +168,34 @@ fn configure_rebuilds_pools_in_place() {
 
     // While an allocation is live, the rebuild is refused and the old layout
     // (2 × 1 MiB cap) stays in force.
-    let live = memory_management.reserve(MIB).unwrap();
+    let live = memory_management
+        .reserve(MIB, &mut ErrorGraph::default())
+        .unwrap();
     let bigger = MemoryConfiguration::default()
         .resolve(Some(&sliced(4 * MIB, 2)), &props())
         .unwrap();
     assert!(
         matches!(
-            memory_management.install_pools(bigger.clone(), &props()),
+            memory_management.install_pools(bigger.clone(), &props(), &mut ErrorGraph::default()),
             Err(InstallMemoryPoolsError::PoolsInUse { bytes_in_use }) if bytes_in_use > 0
         ),
         "the refusal names the live bytes that caused it"
     );
-    assert!(memory_management.reserve(2 * MIB).is_err());
+    assert!(
+        memory_management
+            .reserve(2 * MIB, &mut ErrorGraph::default())
+            .is_err()
+    );
 
     // At a quiescent point the rebuild goes through, and the new layout
     // serves what the old cap refused.
     drop(live);
-    memory_management.install_pools(bigger, &props()).unwrap();
-    let _large = memory_management.reserve(2 * MIB).unwrap();
+    memory_management
+        .install_pools(bigger, &props(), &mut ErrorGraph::default())
+        .unwrap();
+    let _large = memory_management
+        .reserve(2 * MIB, &mut ErrorGraph::default())
+        .unwrap();
 }
 
 /// A plan measured from one run of a stream fits that stream when it is
@@ -194,10 +222,16 @@ fn measured_plan_cycle() {
     // with a reuse (the 900 KiB fits where the dropped 600 KiB was, after
     // coalescing with the page remainder).
     let workload = |memory_management: &mut MemoryManagement<BytesStorage>| {
-        let a = memory_management.reserve(600 * 1024).unwrap();
-        let b = memory_management.reserve(600 * 1024).unwrap();
+        let a = memory_management
+            .reserve(600 * 1024, &mut ErrorGraph::default())
+            .unwrap();
+        let b = memory_management
+            .reserve(600 * 1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(a);
-        let c = memory_management.reserve(900 * 1024).unwrap();
+        let c = memory_management
+            .reserve(900 * 1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(b);
         drop(c);
     };
@@ -221,8 +255,10 @@ fn measured_plan_cycle() {
     let resolved = MemoryConfiguration::default()
         .resolve(Some(&capped), &props())
         .unwrap();
-    memory_management.cleanup(true);
-    memory_management.install_pools(resolved, &props()).unwrap();
+    memory_management.cleanup(true, &mut ErrorGraph::default());
+    memory_management
+        .install_pools(resolved, &props(), &mut ErrorGraph::default())
+        .unwrap();
 
     // The replayed stream fits the cap without growing past the plan.
     workload(&mut memory_management);
@@ -256,8 +292,12 @@ fn full_capped_pool_spills_to_tail() {
     ]);
     let mut memory_management = manage(&pools);
 
-    let _planned = memory_management.reserve(MIB).unwrap();
-    let _off_plan = memory_management.reserve(MIB).unwrap();
+    let _planned = memory_management
+        .reserve(MIB, &mut ErrorGraph::default())
+        .unwrap();
+    let _off_plan = memory_management
+        .reserve(MIB, &mut ErrorGraph::default())
+        .unwrap();
 
     let report = memory_management.memory_report();
     assert_eq!(report.dynamic[0].pages_peak, 1, "the arena stayed capped");
@@ -286,10 +326,14 @@ fn a_measurement_maps_only_what_it_resolves() {
 
     // A workload reservation, and a measurement's scratch beside it. At
     // 600 KiB each they cannot share a 1 MiB page, so the two are separable.
-    let workload = memory_management.reserve(600 * 1024).unwrap();
+    let workload = memory_management
+        .reserve(600 * 1024, &mut ErrorGraph::default())
+        .unwrap();
     let scratch = {
         let _measurement = RealRun::new();
-        memory_management.reserve(600 * 1024).unwrap()
+        memory_management
+            .reserve(600 * 1024, &mut ErrorGraph::default())
+            .unwrap()
     };
 
     let report = memory_management.memory_report();
@@ -332,7 +376,9 @@ fn dry_run_reservations_stay_unmapped_until_resolved() {
     let mut memory_management = manage(&growable);
 
     let dry_run = DryRun::new();
-    let reserved = memory_management.reserve(600 * 1024).unwrap();
+    let reserved = memory_management
+        .reserve(600 * 1024, &mut ErrorGraph::default())
+        .unwrap();
 
     let report = memory_management.memory_report();
     assert_eq!(report.dynamic[0].pages, 1, "the page was carved");
@@ -361,7 +407,7 @@ fn dry_run_reservations_stay_unmapped_until_resolved() {
     drop(dry_run);
 
     // Unmapped or mapped, cleanup must not corrupt anything.
-    memory_management.cleanup(true);
+    memory_management.cleanup(true, &mut ErrorGraph::default());
     assert_eq!(memory_management.memory_report().dynamic[0].pages, 0);
 }
 
@@ -381,7 +427,9 @@ fn dry_run_persistent_reservations_stay_unmapped() {
     memory_management.mode(MemoryAllocationMode::Persistent);
 
     let dry_run = DryRun::new();
-    let kv = memory_management.reserve(512 * 1024).unwrap();
+    let kv = memory_management
+        .reserve(512 * 1024, &mut ErrorGraph::default())
+        .unwrap();
 
     let report = memory_management.memory_report();
     assert_eq!(report.persistent.pages, 1);
@@ -424,10 +472,14 @@ fn a_warm_second_pass_measures_the_workload_alone() {
 
     // Pass 1: the workload, with a tuning pass allocating scratch while a
     // workload buffer is live — which is when tuning actually happens.
-    let live = memory_management.reserve(600 * 1024).unwrap();
+    let live = memory_management
+        .reserve(600 * 1024, &mut ErrorGraph::default())
+        .unwrap();
     {
         let _measurement = RealRun::new();
-        let scratch = memory_management.reserve(600 * 1024).unwrap();
+        let scratch = memory_management
+            .reserve(600 * 1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(scratch);
     }
     drop(live);
@@ -442,10 +494,14 @@ fn a_warm_second_pass_measures_the_workload_alone() {
     let resolved = MemoryConfiguration::default()
         .resolve(Some(&growable), &props())
         .unwrap();
-    memory_management.install_pools(resolved, &props()).unwrap();
+    memory_management
+        .install_pools(resolved, &props(), &mut ErrorGraph::default())
+        .unwrap();
 
     // Pass 2: the same workload, no tuning.
-    let live = memory_management.reserve(600 * 1024).unwrap();
+    let live = memory_management
+        .reserve(600 * 1024, &mut ErrorGraph::default())
+        .unwrap();
     drop(live);
 
     let report = memory_management.memory_report();
@@ -472,7 +528,9 @@ fn direct_pool_pads_only_to_alignment() {
     // A size that is neither page- nor bucket-shaped: a sliced pool would
     // reserve a whole page for it.
     let odd = 700 * 1024 + 17;
-    let _live = memory_management.reserve(odd).unwrap();
+    let _live = memory_management
+        .reserve(odd, &mut ErrorGraph::default())
+        .unwrap();
 
     let report = memory_management.memory_report();
     assert!(matches!(report.dynamic[0].kind, MemoryPoolKind::Direct));
@@ -500,7 +558,9 @@ fn direct_pool_reuses_below_the_ceiling() {
     ]));
 
     for _ in 0..4 {
-        let scratch = memory_management.reserve(300 * 1024).unwrap();
+        let scratch = memory_management
+            .reserve(300 * 1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(scratch);
     }
 
@@ -527,7 +587,9 @@ fn direct_pool_reclaims_at_the_ceiling() {
     // 1 + 2 + 3 MiB, all freed and all distinct sizes, so none is reusable for
     // a fourth: 6 MiB held under a 7 MiB ceiling.
     for size in [MIB, 2 * MIB, 3 * MIB] {
-        let held = memory_management.reserve(size).unwrap();
+        let held = memory_management
+            .reserve(size, &mut ErrorGraph::default())
+            .unwrap();
         drop(held);
     }
     let report = memory_management.memory_report();
@@ -538,7 +600,9 @@ fn direct_pool_reclaims_at_the_ceiling() {
 
     // A 4 MiB allocation needs 3 MiB back. Visiting in index order, releasing
     // the 1 MiB and 2 MiB slices is enough — the 3 MiB one stays reusable.
-    let _crossed = memory_management.reserve(4 * MIB).unwrap();
+    let _crossed = memory_management
+        .reserve(4 * MIB, &mut ErrorGraph::default())
+        .unwrap();
     let report = memory_management.memory_report();
     assert_eq!(
         report.dynamic[0].pages, 2,
@@ -561,11 +625,15 @@ fn direct_pool_cleanup_releases_everything_free() {
         },
     ]));
 
-    let live = memory_management.reserve(MIB).unwrap();
-    let freed = memory_management.reserve(2 * MIB).unwrap();
+    let live = memory_management
+        .reserve(MIB, &mut ErrorGraph::default())
+        .unwrap();
+    let freed = memory_management
+        .reserve(2 * MIB, &mut ErrorGraph::default())
+        .unwrap();
     drop(freed);
 
-    memory_management.cleanup(true);
+    memory_management.cleanup(true, &mut ErrorGraph::default());
     let report = memory_management.memory_report();
     assert_eq!(
         report.dynamic[0].pages, 1,

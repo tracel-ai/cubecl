@@ -1,6 +1,9 @@
 use crossbeam_utils::CachePadded;
 use cubecl_core::CubeDim;
-use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
+use cubecl_runtime::{
+    memory_management::{ErrorGraph, MemoryManagement},
+    storage::BytesStorage,
+};
 use std::sync::{Arc, OnceLock, atomic::AtomicU64};
 
 use cubecl_llvm::{PlironData, PlironEngine, shared::shared_memory::SharedMemories};
@@ -50,6 +53,7 @@ impl Threadpool {
         cube_dim: CubeDim,
         cube_count: [u32; 3],
         memory: &mut MemoryManagement<BytesStorage>,
+        failures: &mut ErrorGraph,
         next_counter_step: u64,
         atomic_counter: &Arc<CachePadded<AtomicU64>>,
     ) {
@@ -62,7 +66,12 @@ impl Threadpool {
                 resource.resource().get_write_ptr_and_length().0 as *mut std::ffi::c_void
             })
             .collect();
-        reserve_shared_memories(memory, &requirements.shared_memories, &mut buffer_ptrs);
+        reserve_shared_memories(
+            memory,
+            failures,
+            &requirements.shared_memories,
+            &mut buffer_ptrs,
+        );
         // Pin the resources for the launch's lifetime (see
         // `SharedData::keepalive`).
         let keepalive: Vec<Box<dyn std::any::Any + Send>> = resources
@@ -111,6 +120,7 @@ impl Threadpool {
 /// drains before enqueuing one (see `CpuStream::enqueue_task`).
 fn reserve_shared_memories(
     memory: &mut MemoryManagement<BytesStorage>,
+    failures: &mut ErrorGraph,
     shared_memories: &SharedMemories,
     table: &mut Vec<*mut std::ffi::c_void>,
 ) {
@@ -125,7 +135,7 @@ fn reserve_shared_memories(
 
     for (slot, block) in shared_memories.blocks.iter().enumerate() {
         let handle = memory
-            .reserve((block.size + block.align - 1) as u64)
+            .reserve((block.size + block.align - 1) as u64, failures)
             .expect("Failed to reserve the shared memory of the launch");
         let reserved = memory
             .get_resource(handle.clone().binding(), None, None)

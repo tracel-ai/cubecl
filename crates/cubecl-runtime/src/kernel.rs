@@ -73,6 +73,14 @@ pub enum Visibility {
     ReadWrite,
 }
 
+/// What a compiled kernel does with each buffer binding, by buffer position.
+///
+/// The IR owns this concept — the visibility analysis stamps it on the entry
+/// function's arguments — so the launch path reads that enum rather than a
+/// copy of it that could drift. Re-exported here because a backend reaching
+/// for it is holding a [`CompiledKernel`], not an IR context.
+pub use cubecl_ir::attributes::BufferIOAttr;
+
 /// A kernel, compiled in the target language
 pub struct CompiledKernel<C: Compiler> {
     /// The name of the kernel entrypoint.
@@ -111,6 +119,12 @@ pub struct CompiledKernel<C: Compiler> {
     pub repr: Option<C::Representation>,
     /// Size of a cube for the compiled kernel
     pub cube_dim: CubeDim,
+    /// What the kernel does with each buffer binding, by buffer position —
+    /// see [`BufferIOAttr`]. `None` when the compiler kept no answer, which the
+    /// launch path reads as every buffer both read and written: the
+    /// conservative direction, since over-claiming costs a spurious loud
+    /// failure and under-claiming costs a silent clean read of garbage.
+    pub io: Option<alloc::vec::Vec<BufferIOAttr>>,
     /// Extra debugging information about the compiled kernel.
     pub debug_info: Option<DebugInformation>,
 }
@@ -171,6 +185,7 @@ impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
             entrypoint_name,
             debug_name: Some(core::any::type_name::<K>()),
             source: lower_level_ir.to_string(),
+            io: C::buffer_io(&lower_level_ir),
             repr: Some(lower_level_ir),
             cube_dim,
             debug_info: None,

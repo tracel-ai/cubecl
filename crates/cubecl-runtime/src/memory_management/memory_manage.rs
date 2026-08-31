@@ -13,7 +13,7 @@ use crate::{
         },
     },
     logging::ServerLogger,
-    memory_management::{BytesFormat, memory_pool::Slice},
+    memory_management::{BytesFormat, ErrorGraph, FailureId, memory_pool::Slice},
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
@@ -23,6 +23,7 @@ use alloc::string::{String, ToString};
 #[cfg(not(exclusive_memory_only))]
 use alloc::vec;
 use alloc::vec::Vec;
+use core::ops::Range;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashSet;
 use cubecl_environment::sync::Arc;
@@ -56,29 +57,35 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    fn try_reserve(&mut self, size: u64) -> Option<ManagedMemoryHandle> {
+    fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
         match self {
-            DynamicPool::Sliced(m) => m.try_reserve(size),
-            DynamicPool::Exclusive(m) => m.try_reserve(size),
-            DynamicPool::Direct(m) => m.try_reserve(size),
+            DynamicPool::Sliced(m) => m.find_mut(binding),
+            DynamicPool::Exclusive(m) => m.find_mut(binding),
+            DynamicPool::Direct(m) => m.find_mut(binding),
         }
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, storage))
-    )]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
+    fn try_reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle> {
+        match self {
+            DynamicPool::Sliced(m) => m.try_reserve(size, failures),
+            DynamicPool::Exclusive(m) => m.try_reserve(size, failures),
+            DynamicPool::Direct(m) => m.try_reserve(size, failures),
+        }
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn alloc<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
+        failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
-            DynamicPool::Sliced(m) => m.alloc(storage, size, mapping),
-            DynamicPool::Exclusive(m) => m.alloc(storage, size, mapping),
-            DynamicPool::Direct(m) => m.alloc(storage, size, mapping),
+            DynamicPool::Sliced(m) => m.alloc(storage, size, mapping, failures),
+            DynamicPool::Exclusive(m) => m.alloc(storage, size, mapping, failures),
+            DynamicPool::Direct(m) => m.alloc(storage, size, mapping, failures),
         }
     }
 
@@ -107,11 +114,12 @@ impl MemoryPool for DynamicPool {
         storage: &mut Storage,
         alloc_nr: u64,
         explicit: bool,
+        failures: &mut ErrorGraph,
     ) {
         match self {
-            DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit),
-            DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit),
-            DynamicPool::Direct(m) => m.cleanup(storage, alloc_nr, explicit),
+            DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit, failures),
+            DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit, failures),
+            DynamicPool::Direct(m) => m.cleanup(storage, alloc_nr, explicit, failures),
         };
         storage.flush();
     }
@@ -121,11 +129,12 @@ impl MemoryPool for DynamicPool {
         reserved: ManagedMemoryHandle,
         assigned: ManagedMemoryHandle,
         cursor: u64,
+        failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         match self {
-            DynamicPool::Sliced(m) => m.bind(reserved, assigned, cursor),
-            DynamicPool::Exclusive(m) => m.bind(reserved, assigned, cursor),
-            DynamicPool::Direct(m) => m.bind(reserved, assigned, cursor),
+            DynamicPool::Sliced(m) => m.bind(reserved, assigned, cursor, failures),
+            DynamicPool::Exclusive(m) => m.bind(reserved, assigned, cursor, failures),
+            DynamicPool::Direct(m) => m.bind(reserved, assigned, cursor, failures),
         }
     }
 }
@@ -381,10 +390,6 @@ pub enum InstallMemoryPoolsError {
         /// Bytes still live in the dynamic pools.
         bytes_in_use: u64,
     },
-    /// The calling stream could not be resolved because it is already in an
-    /// error state. The layout still applies to streams created afterwards;
-    /// the underlying failure surfaces at the next flush or sync, as usual.
-    StreamUnavailable,
     /// This server has no configurable dynamic pools. Permanent — unlike
     /// [`PoolsInUse`](Self::PoolsInUse), retrying will never succeed.
     Unsupported,
@@ -396,10 +401,6 @@ impl core::fmt::Display for InstallMemoryPoolsError {
             InstallMemoryPoolsError::PoolsInUse { bytes_in_use } => write!(
                 f,
                 "the dynamic pools kept their layout: {bytes_in_use} bytes are still live in them"
-            ),
-            InstallMemoryPoolsError::StreamUnavailable => write!(
-                f,
-                "the calling stream kept its layout: it is already in an error state"
             ),
             InstallMemoryPoolsError::Unsupported => {
                 write!(f, "this server has no configurable dynamic memory pools")
@@ -806,8 +807,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         &mut self,
         config: MemoryConfiguration,
         properties: &MemoryDeviceProperties,
+        failures: &mut ErrorGraph,
     ) -> Result<(), InstallMemoryPoolsError> {
-        self.cleanup(true);
+        self.cleanup(true, failures);
 
         // Only the dynamic pools are rebuilt, so only their live slices block
         // (persistent usage — weights of another workload — doesn't).
@@ -935,7 +937,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Cleanup allocations in pools that are deemed unnecessary.
-    pub fn cleanup(&mut self, explicit: bool) {
+    pub fn cleanup(&mut self, explicit: bool, failures: &mut ErrorGraph) {
         self.logger.log_memory(
             |level| !matches!(level, MemoryLogLevel::Disabled) && explicit,
             || "Manual memory cleanup ...".to_string(),
@@ -951,11 +953,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             return;
         }
 
-        self.persistent
-            .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
+        self.persistent.cleanup(
+            &mut self.storage,
+            self.alloc_reserve_count,
+            explicit,
+            failures,
+        );
 
         for pool in self.pools.iter_mut() {
-            pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
+            pool.cleanup(
+                &mut self.storage,
+                self.alloc_reserve_count,
+                explicit,
+                failures,
+            );
         }
 
         // The pools only queue their page deallocations in the storage; an
@@ -968,12 +979,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Returns the storage from the specified binding
     pub fn get_cursor(&self, binding: ManagedMemoryBinding) -> Result<u64, IoError> {
-        let slice = self.find(binding)?;
+        let slice = self.find(&binding)?;
         Ok(slice.cursor)
     }
 
     /// Returns the storage from the specified binding
-    fn find(&self, binding: ManagedMemoryBinding) -> Result<&Slice, IoError> {
+    fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
         let id = binding.descriptor();
 
         if id.location().init == 0 {
@@ -984,7 +995,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
 
         let slice = if id.location().pool == PERSISTENT_POOL_POS {
-            self.persistent.find(&binding)?
+            self.persistent.find(binding)?
         } else {
             let pool =
                 self.pools
@@ -994,12 +1005,49 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         reason: format!("Pool {} doesn't exist", id.location().pool).into(),
                     })?;
 
-            pool.find(&binding)?
+            pool.find(binding)?
         };
 
         // A stale location (e.g. a page that was deallocated and whose index a
         // later cleanup reassigned) must surface as `NotFound`, never as another
         // allocation's slice.
+        if slice.handle.descriptor() != binding.descriptor() {
+            return Err(IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: "Memory location points to a different allocation".into(),
+            });
+        }
+
+        Ok(slice)
+    }
+
+    /// [`find`](Self::find), mutably — the path [`taint`](Self::taint) and
+    /// [`written`](Self::written) take to reach the slice.
+    fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
+        let id = binding.descriptor();
+
+        if id.location().init == 0 {
+            return Err(IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: "Memory location was never initialized".into(),
+            });
+        }
+
+        let slice = if id.location().pool == PERSISTENT_POOL_POS {
+            self.persistent.find_mut(binding)?
+        } else {
+            let pool = self
+                .pools
+                .get_mut(id.location().pool as usize)
+                .ok_or_else(|| IoError::NotFound {
+                    backtrace: BackTrace::capture(),
+                    reason: format!("Pool {} doesn't exist", id.location().pool).into(),
+                })?;
+
+            pool.find_mut(binding)?
+        };
+
+        // The same stale-location rule as `find`.
         if slice.handle.descriptor() != binding.descriptor() {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
@@ -1018,7 +1066,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// returned always refers to mapped memory.
     pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Result<StorageHandle, IoError> {
         self.materialize(&binding)?;
-        let slice = self.find(binding)?;
+        let slice = self.find(&binding)?;
         Ok(slice.storage.clone())
     }
 
@@ -1080,8 +1128,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
+    pub fn reserve(
+        &mut self,
+        size: u64,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
         self.alloc_reserve_count += 1;
@@ -1091,7 +1143,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // comparisons per reservation — without it, pages freed long ago are
         // never returned to the driver until an explicit cleanup, which on
         // long-running processes lets every stream's pools grow monotonically.
-        self.cleanup(false);
+        self.cleanup(false, failures);
 
         let mapping = PageMapping::current();
 
@@ -1105,7 +1157,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         let size_match = matches!(self.config, PersistentMemory::SizeMatch);
 
         if (persistent_mode || size_match)
-            && let Some(val) = self.persistent.try_reserve(size)
+            && let Some(val) = self.persistent.try_reserve(size, failures)
         {
             self.logger.log_memory(
                 |level| matches!(level, MemoryLogLevel::Full),
@@ -1121,7 +1173,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
 
         if persistent_mode || (size_match && self.persistent.has_size(size)) {
-            let allocated = self.persistent.alloc(&mut self.storage, size, mapping);
+            let allocated = self
+                .persistent
+                .alloc(&mut self.storage, size, mapping, failures);
 
             self.logger.log_memory(
                 |level| !matches!(level, MemoryLogLevel::Disabled),
@@ -1166,11 +1220,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             .enumerate()
             .filter(|(_, pool)| pool.accept(size))
         {
-            if let Some(slice) = pool.try_reserve(size) {
+            if let Some(slice) = pool.try_reserve(size, failures) {
                 return Ok(slice);
             }
 
-            match pool.alloc(&mut self.storage, size, mapping) {
+            match pool.alloc(&mut self.storage, size, mapping, failures) {
                 Ok(handle) => {
                     reserved = Some(handle);
                     break;
@@ -1272,6 +1326,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         reserved: ManagedMemoryHandle,
         assigned: ManagedMemoryHandle,
         cursor: u64,
+        failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         let descriptor = reserved.descriptor();
 
@@ -1288,16 +1343,59 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             // throwaway reserved handle), so this — not the earlier `reserve` — is
             // the id a capture must track for a bound persistent buffer.
             self.capture_touch(&assigned);
-            return self.persistent.bind(reserved, assigned, cursor);
+            return self.persistent.bind(reserved, assigned, cursor, failures);
         }
 
         self.pools
             .get_mut(pool_index)
-            .map(|p| p.bind(reserved, assigned, cursor))
+            .map(|p| p.bind(reserved, assigned, cursor, failures))
             .ok_or_else(|| IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: format!("Memory pool {} doesn't exist", pool_index).into(),
             })?
+    }
+
+    /// The failure claiming any byte of `range` in the allocation behind
+    /// `binding`, if one does.
+    ///
+    /// This is the read path's whole check: a field on a slice the resolution
+    /// walks anyway. A binding this manager does not hold answers `None` —
+    /// lookup errors are [`find`](Self::find)'s to report, and a failed lookup
+    /// carries no failure to name.
+    pub fn failure(&self, binding: &ManagedMemoryBinding, range: Range<u64>) -> Option<FailureId> {
+        self.find(binding)
+            .ok()
+            .and_then(|slice| slice.tainted.failure(&range))
+    }
+
+    /// Point `range` of the allocation behind `binding` at `failure`.
+    ///
+    /// A binding this manager does not hold is left alone, for the same
+    /// reason [`failure`](Self::failure) answers `None` for one.
+    pub fn taint(
+        &mut self,
+        binding: &ManagedMemoryBinding,
+        range: Range<u64>,
+        failure: FailureId,
+        failures: &mut ErrorGraph,
+    ) {
+        if let Ok(slice) = self.find_mut(binding) {
+            slice.tainted.taint(range, failure, failures);
+        }
+    }
+
+    /// `range` of the allocation behind `binding` has a writer again: release
+    /// every claim on those bytes — and only those bytes, since a partial
+    /// write says nothing about the rest of the buffer.
+    pub fn written(
+        &mut self,
+        binding: &ManagedMemoryBinding,
+        range: Range<u64>,
+        failures: &mut ErrorGraph,
+    ) {
+        if let Ok(slice) = self.find_mut(binding) {
+            slice.tainted.written(range, failures);
+        }
     }
 }
 
@@ -1359,7 +1457,9 @@ mod tests {
             Arc::new(ServerLogger::default()),
             options(),
         );
-        let handle = memory_management.reserve(10).unwrap();
+        let handle = memory_management
+            .reserve(10, &mut ErrorGraph::default())
+            .unwrap();
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
         drop(other_ref);
@@ -1386,7 +1486,7 @@ mod tests {
             Arc::new(ServerLogger::default()),
             options(),
         );
-        let handle = memory_management.reserve(100);
+        let handle = memory_management.reserve(100, &mut ErrorGraph::default());
         let usage = memory_management.memory_usage();
 
         assert_eq!(usage.bytes_in_use, 100);
@@ -1394,7 +1494,7 @@ mod tests {
 
         // Drop and re-alloc.
         drop(handle);
-        let _handle = memory_management.reserve(100);
+        let _handle = memory_management.reserve(100, &mut ErrorGraph::default());
         let usage_new = memory_management.memory_usage();
         assert_eq!(usage, usage_new);
     }
@@ -1420,7 +1520,9 @@ mod tests {
 
         // Even with a live page at index 0, a never-initialized descriptor must
         // not resolve to it.
-        let _live = memory_management.reserve(512).unwrap();
+        let _live = memory_management
+            .reserve(512, &mut ErrorGraph::default())
+            .unwrap();
 
         let binding = ManagedMemoryHandle::new().binding();
         assert!(matches!(
@@ -1448,12 +1550,16 @@ mod tests {
             options(),
         );
 
-        let reserved = memory_management.reserve(512).unwrap();
+        let reserved = memory_management
+            .reserve(512, &mut ErrorGraph::default())
+            .unwrap();
         let stale = reserved.clone();
         let assigned = ManagedMemoryHandle::new();
         let assigned_binding = assigned.clone().binding();
 
-        memory_management.bind(reserved, assigned, 0).unwrap();
+        memory_management
+            .bind(reserved, assigned, 0, &mut ErrorGraph::default())
+            .unwrap();
 
         // The slice's identity is now `assigned`; the stale reserved descriptor
         // must surface as `NotFound`, not as the new allocation's data.
@@ -1481,16 +1587,22 @@ mod tests {
             options(),
         );
 
-        let handle_a = memory_management.reserve(1024).unwrap();
-        let handle_b = memory_management.reserve(1024).unwrap();
-        let handle_c = memory_management.reserve(1024).unwrap();
+        let handle_a = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
+        let handle_b = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
+        let handle_c = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
 
         let binding_b = handle_b.binding();
         drop(handle_a);
         drop(handle_c);
 
         // Deallocates the two free pages and renumbers the surviving one.
-        memory_management.cleanup(true);
+        memory_management.cleanup(true, &mut ErrorGraph::default());
 
         assert!(memory_management.get_cursor(binding_b.clone()).is_ok());
         assert!(memory_management.get_storage(binding_b).is_ok());
@@ -1520,10 +1632,14 @@ mod tests {
             options(),
         );
 
-        let _a = memory_management.reserve(1024).unwrap();
-        let _b = memory_management.reserve(1024).unwrap();
+        let _a = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
+        let _b = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
 
-        let result = memory_management.reserve(1024);
+        let result = memory_management.reserve(1024, &mut ErrorGraph::default());
         assert!(matches!(
             result,
             Err(IoError::PoolCapacityExceeded { capacity: 2048, .. })
@@ -1545,13 +1661,19 @@ mod tests {
             options(),
         );
 
-        let handle_a = memory_management.reserve(1024).unwrap();
-        let _b = memory_management.reserve(1024).unwrap();
+        let handle_a = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
+        let _b = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(handle_a);
 
         // The capacity error is transient: freeing makes the reservation fit
         // again without growing the pool.
-        let _c = memory_management.reserve(1024).unwrap();
+        let _c = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         assert_eq!(memory_management.memory_usage().bytes_reserved, 2048);
     }
 
@@ -1565,18 +1687,26 @@ mod tests {
             options(),
         );
 
-        let handle_a = memory_management.reserve(1024).unwrap();
-        let handle_b = memory_management.reserve(1024).unwrap();
+        let handle_a = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
+        let handle_b = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(handle_a);
         drop(handle_b);
-        memory_management.cleanup(true);
+        memory_management.cleanup(true, &mut ErrorGraph::default());
         assert_eq!(memory_management.memory_usage().bytes_reserved, 0);
 
         // The cap is still enforced after the pool shrank and regrew.
-        let _a = memory_management.reserve(1024).unwrap();
-        let _b = memory_management.reserve(1024).unwrap();
+        let _a = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
+        let _b = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         assert!(matches!(
-            memory_management.reserve(1024),
+            memory_management.reserve(1024, &mut ErrorGraph::default()),
             Err(IoError::PoolCapacityExceeded { .. })
         ));
     }
@@ -1591,11 +1721,17 @@ mod tests {
             options(),
         );
 
-        let _small = memory_management.reserve(256).unwrap();
+        let _small = memory_management
+            .reserve(256, &mut ErrorGraph::default())
+            .unwrap();
         assert!(memory_management.memory_usage().bytes_reserved <= 512);
 
         // Larger than the (shrunk) page: rejected without growing the footprint.
-        assert!(memory_management.reserve(1024).is_err());
+        assert!(
+            memory_management
+                .reserve(1024, &mut ErrorGraph::default())
+                .is_err()
+        );
         assert!(memory_management.memory_usage().bytes_reserved <= 512);
     }
 
@@ -1613,7 +1749,7 @@ mod tests {
         );
 
         assert!(matches!(
-            memory_management.reserve(8),
+            memory_management.reserve(8, &mut ErrorGraph::default()),
             Err(IoError::PoolCapacityExceeded { .. })
         ));
         assert_eq!(memory_management.memory_usage().bytes_reserved, 0);
@@ -1648,7 +1784,9 @@ mod tests {
         memory_management.mode(MemoryAllocationMode::Auto); // that parameter is done
 
         // Still inside the load's window: the allocation must be persistent.
-        let weight = memory_management.reserve(1024).unwrap();
+        let weight = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         let report = memory_management.memory_report();
         assert_eq!(
             report.persistent.usage.bytes_in_use, 1024,
@@ -1661,7 +1799,9 @@ mod tests {
 
         // The outer window closes; ordinary allocations are dynamic again.
         memory_management.mode(MemoryAllocationMode::Auto);
-        let _transient = memory_management.reserve(1024).unwrap();
+        let _transient = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         assert_eq!(memory_management.memory_report().dynamic[0].pages_peak, 1);
 
         drop(weight);
@@ -1704,8 +1844,12 @@ mod tests {
             options(),
         );
 
-        let _fill = memory_management.reserve(1024).unwrap();
-        let _overflow = memory_management.reserve(1024).unwrap();
+        let _fill = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
+        let _overflow = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         assert_eq!(
             memory_management.memory_usage().bytes_reserved,
             2048,
@@ -1739,8 +1883,8 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size);
-        let _new_handle = memory_management.reserve(alloc_size);
+        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
@@ -1771,9 +1915,9 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size);
+        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
         drop(_handle);
-        let _new_handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 1);
@@ -1803,8 +1947,8 @@ mod tests {
         );
 
         let alloc_size = 768;
-        let _handle = memory_management.reserve(alloc_size);
-        let _new_handle = memory_management.reserve(alloc_size);
+        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
@@ -1835,8 +1979,8 @@ mod tests {
             options(),
         );
         let alloc_size = 40;
-        let _handle = memory_management.reserve(alloc_size);
-        let _new_handle = memory_management.reserve(alloc_size);
+        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
         let usage = memory_management.memory_usage();
         // Each slice should be aligned to 50 bytes, so 20 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
@@ -1871,7 +2015,8 @@ mod tests {
         );
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
-        let _handles = alloc_sizes.map(|s| memory_management.reserve(s));
+        let _handles =
+            alloc_sizes.map(|s| memory_management.reserve(s, &mut ErrorGraph::default()));
 
         let usage = memory_management.memory_usage();
 
@@ -2078,10 +2223,14 @@ mod tests {
         );
 
         // A "small seq" allocation, then freed.
-        let small = memory_management.reserve(4 * 1024).unwrap();
+        let small = memory_management
+            .reserve(4 * 1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(small);
         // A "large seq" allocation must reuse the same arena page.
-        let large = memory_management.reserve(512 * 1024).unwrap();
+        let large = memory_management
+            .reserve(512 * 1024, &mut ErrorGraph::default())
+            .unwrap();
 
         let usage = memory_management.memory_usage();
         assert_eq!(
@@ -2107,14 +2256,14 @@ mod tests {
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1)))
+            .map(|i| memory_management.reserve(1000 * (i + 1), &mut ErrorGraph::default()))
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1)))
+            .map(|i| memory_management.reserve(1000 * (i + 1), &mut ErrorGraph::default()))
             .collect();
         let usage_after = memory_management.memory_usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
@@ -2140,7 +2289,11 @@ mod tests {
         let sizes = [50, 1000, 100, 5000, 200, 10000, 300];
         let handles: Vec<_> = sizes
             .iter()
-            .map(|&size| memory_management.reserve(size).unwrap())
+            .map(|&size| {
+                memory_management
+                    .reserve(size, &mut ErrorGraph::default())
+                    .unwrap()
+            })
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate every other allocation
@@ -2149,7 +2302,9 @@ mod tests {
         }
         // Reallocate similar sizes
         for &size in &sizes[0..sizes.len() / 2] {
-            memory_management.reserve(size).unwrap();
+            memory_management
+                .reserve(size, &mut ErrorGraph::default())
+                .unwrap();
         }
         let usage_after = memory_management.memory_usage();
         // Check that we haven't increased our memory usage significantly
@@ -2169,7 +2324,9 @@ mod tests {
             Arc::new(ServerLogger::default()),
             options(),
         );
-        let handle = memory_management.reserve(10).unwrap();
+        let handle = memory_management
+            .reserve(10, &mut ErrorGraph::default())
+            .unwrap();
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
         drop(other_ref);
@@ -2194,8 +2351,8 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size);
-        let _new_handle = memory_management.reserve(alloc_size);
+        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
@@ -2222,9 +2379,9 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size);
+        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
         drop(_handle);
-        let _new_handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 1);
@@ -2250,8 +2407,8 @@ mod tests {
         );
 
         let alloc_size = 768;
-        let _handle = memory_management.reserve(alloc_size);
-        let _new_handle = memory_management.reserve(alloc_size);
+        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
@@ -2278,8 +2435,8 @@ mod tests {
             options(),
         );
         let alloc_size = 40;
-        let _handle = memory_management.reserve(alloc_size);
-        let _new_handle = memory_management.reserve(alloc_size);
+        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
         let usage = memory_management.memory_usage();
         // Each slice should be aligned to 60 bytes, so 20 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
@@ -2312,7 +2469,8 @@ mod tests {
         );
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
-        let _handles = alloc_sizes.map(|s| memory_management.reserve(s));
+        let _handles =
+            alloc_sizes.map(|s| memory_management.reserve(s, &mut ErrorGraph::default()));
         let usage = memory_management.memory_usage();
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
@@ -2330,21 +2488,27 @@ mod tests {
 
         // First capture allocates a persistent slice, then everything is freed.
         memory_management.capture_begin();
-        let first = memory_management.reserve(1024).unwrap();
+        let first = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(first);
         drop(memory_management.capture_end());
 
         // A second capture reuses that now-free slice: the reuse must be pinned
         // even though the slice predates the capture.
         memory_management.capture_begin();
-        let second = memory_management.reserve(1024).unwrap();
+        let second = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(second);
         let pins = memory_management.capture_end();
         assert_eq!(pins.len(), 1, "the reused slice must be retained");
 
         // While pinned, the pool must not hand the slice to a later allocation.
         let before = memory_management.memory_usage();
-        let _other = memory_management.reserve(1024).unwrap();
+        let _other = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         let after = memory_management.memory_usage();
         assert!(
             after.bytes_reserved > before.bytes_reserved,
@@ -2364,7 +2528,9 @@ mod tests {
 
         // A persistent slice that is live (in use) when the next window opens.
         memory_management.capture_begin();
-        let live = memory_management.reserve(1024).unwrap();
+        let live = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(memory_management.capture_end()); // release the pin; `live` still holds the slice.
 
         // The window opens with `live`'s slice in use, then frees it mid-window
@@ -2374,7 +2540,9 @@ mod tests {
         // it — the whole point of the redesign.
         memory_management.capture_begin();
         drop(live);
-        let reused = memory_management.reserve(1024).unwrap();
+        let reused = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(reused);
         let pins = memory_management.capture_end();
         assert_eq!(
@@ -2396,7 +2564,9 @@ mod tests {
 
         // Leave an idle free slice in the pool from an earlier capture.
         memory_management.capture_begin();
-        let earlier = memory_management.reserve(1024).unwrap();
+        let earlier = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(earlier);
         drop(memory_management.capture_end());
 
@@ -2404,7 +2574,9 @@ mod tests {
         // that leftover idle slice — reservation-tracking pins exactly what the
         // window used, so no free-slice cleanup at `capture_begin` is needed.
         memory_management.capture_begin();
-        let window = memory_management.reserve(2048).unwrap();
+        let window = memory_management
+            .reserve(2048, &mut ErrorGraph::default())
+            .unwrap();
         drop(window);
         let pins = memory_management.capture_end();
         assert_eq!(
@@ -2425,11 +2597,13 @@ mod tests {
         );
 
         memory_management.capture_begin();
-        let handle = memory_management.reserve(1024).unwrap();
+        let handle = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(handle);
         // An explicit cleanup mid-capture compacts the persistent pool; the
         // capture must keep its pins through the rebuild.
-        memory_management.cleanup(true);
+        memory_management.cleanup(true, &mut ErrorGraph::default());
         let pins = memory_management.capture_end();
         assert_eq!(pins.len(), 1, "pin lost across an explicit cleanup");
     }
@@ -2445,11 +2619,15 @@ mod tests {
         );
 
         memory_management.capture_begin();
-        let first = memory_management.reserve(1024).unwrap();
+        let first = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         // A second begin (defensive: callers arm a capture exactly once) must
         // not discard the pins or the saved mode of the capture already in flight.
         memory_management.capture_begin();
-        let second = memory_management.reserve(2048).unwrap();
+        let second = memory_management
+            .reserve(2048, &mut ErrorGraph::default())
+            .unwrap();
         drop(first);
         drop(second);
         let pins = memory_management.capture_end();
@@ -2473,11 +2651,15 @@ mod tests {
         // A persistent buffer that predates the capture and stays alive
         // through it (weights, a graph input created earlier).
         memory_management.capture_begin();
-        let preexisting = memory_management.reserve(1024).unwrap();
+        let preexisting = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(memory_management.capture_end());
 
         memory_management.capture_begin();
-        let window = memory_management.reserve(2048).unwrap();
+        let window = memory_management
+            .reserve(2048, &mut ErrorGraph::default())
+            .unwrap();
         drop(window);
         let pins = memory_management.capture_end();
 
@@ -2525,7 +2707,9 @@ mod tests {
         // it, leaving a one-slice pool.
         memory_management.capture_begin();
         for _ in 0..3 {
-            let scratch = memory_management.reserve(1024).unwrap();
+            let scratch = memory_management
+                .reserve(1024, &mut ErrorGraph::default())
+                .unwrap();
             drop(scratch);
         }
         // Warmup is over: release the retained slices. They stay in the pool,
@@ -2537,7 +2721,11 @@ mod tests {
         // more than warmup's instantaneous peak of one. Every one of them must
         // come from the pool.
         let recorded: Vec<_> = (0..3)
-            .map(|_| memory_management.reserve(1024).unwrap())
+            .map(|_| {
+                memory_management
+                    .reserve(1024, &mut ErrorGraph::default())
+                    .unwrap()
+            })
             .collect();
         let after_window = memory_management.memory_usage();
 
@@ -2566,13 +2754,17 @@ mod tests {
         );
 
         memory_management.capture_begin();
-        let first = memory_management.reserve(1024).unwrap();
+        let first = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(first);
 
         // Still priming: the dropped slice is retained, so this reserve cannot
         // recycle it and the pool has to grow.
         let before_second = memory_management.memory_usage();
-        let second = memory_management.reserve(1024).unwrap();
+        let second = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         let after_second = memory_management.memory_usage();
         assert!(
             after_second.bytes_reserved > before_second.bytes_reserved,
@@ -2583,7 +2775,9 @@ mod tests {
         // Priming over: both slices are free again and must now be reused.
         memory_management.capture_priming_end();
         let before_reuse = memory_management.memory_usage();
-        let reused = memory_management.reserve(1024).unwrap();
+        let reused = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         let after_reuse = memory_management.memory_usage();
         assert_eq!(
             after_reuse.bytes_reserved, before_reuse.bytes_reserved,
@@ -2607,7 +2801,9 @@ mod tests {
         );
 
         memory_management.capture_begin();
-        let scratch = memory_management.reserve(1024).unwrap();
+        let scratch = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
         drop(scratch);
         // The caller let its handle go, but priming is still holding the slice.
         assert!(
@@ -2639,14 +2835,14 @@ mod tests {
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1)))
+            .map(|i| memory_management.reserve(1000 * (i + 1), &mut ErrorGraph::default()))
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1)))
+            .map(|i| memory_management.reserve(1000 * (i + 1), &mut ErrorGraph::default()))
             .collect();
         let usage_after = memory_management.memory_usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);

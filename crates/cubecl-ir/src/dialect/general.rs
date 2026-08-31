@@ -10,6 +10,7 @@ use pliron::{
     derive::pliron_attr,
     r#type::type_cast,
 };
+use thiserror::Error;
 
 use crate::{
     Builtin, CanMaterialize, ConstantValue, Pure,
@@ -22,6 +23,16 @@ use crate::{
     prelude::*,
     types::scalar::IndexType,
 };
+
+#[derive(Error, Debug)]
+pub enum SymbolUserOpVerifyErr {
+    #[error("Symbol {0} not found")]
+    SymbolNotFound(String),
+    #[error("Function {0} should have been builtin.func type")]
+    NotFunc(String),
+    #[error("Function call has incorrect type: {0}")]
+    FuncTypeErr(String),
+}
 
 #[cube_op(name = "cube.copy")]
 #[result_ty(same_as = value)]

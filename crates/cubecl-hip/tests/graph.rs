@@ -62,12 +62,12 @@ fn hip_graph_capture_replay() {
     let graph = client.stop_capture().expect("stop_capture");
 
     // Replay executes the recorded launch; the output is input + 1.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output.clone()).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
     // Replaying again re-runs it deterministically.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
@@ -151,7 +151,7 @@ fn hip_graph_input_rewrite() {
     launch(&client);
     let graph = client.stop_capture().expect("stop_capture");
 
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output.clone()).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
@@ -161,7 +161,7 @@ fn hip_graph_input_rewrite() {
         &input,
         Bytes::from_bytes_vec(f32::as_bytes(&[10.0, 20.0, 30.0, 40.0]).to_vec()),
     );
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[11.0, 21.0, 31.0, 41.0]);
 }
@@ -234,7 +234,7 @@ fn hip_graph_intermediate_recycling() {
     // Replay. The graph's own OUTPUT is correct regardless: its first kernel
     // rewrites `tmp` before the second reads it (write-before-read), so
     // external reuse cannot corrupt the graph's result.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out_bytes = client.read_one(output).unwrap();
     let out = f32::from_bytes(&out_bytes);
     println!("graph output: {out:?} (want [4, 6, 8, 10])");
@@ -336,8 +336,8 @@ fn hip_graph_many_launches_dynamic_metadata() {
     let graph = client.stop_capture().expect("stop_capture");
 
     // Warmup + 2 replays = 3 executed passes (the recorded pass ran 0 times).
-    unsafe { graph.replay() };
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
+    unsafe { graph.replay() }.expect("replay enqueues");
     let (exp_a, exp_b) = simulate(0.0, 3);
     assert_eq!(
         f32::from_bytes(&client.read_one(a.clone()).unwrap()),
@@ -353,7 +353,7 @@ fn hip_graph_many_launches_dynamic_metadata() {
     let fresh = f32::as_bytes(&[100.0f32; N]).to_vec();
     client.write(&a, Bytes::from_bytes_vec(fresh.clone()));
     client.write(&b, Bytes::from_bytes_vec(fresh));
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let (exp_a, exp_b) = simulate(100.0, 1);
     assert_eq!(
         f32::from_bytes(&client.read_one(a.clone()).unwrap()),

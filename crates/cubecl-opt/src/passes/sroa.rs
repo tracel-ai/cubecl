@@ -30,6 +30,7 @@
 use alloc::vec::Vec;
 use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
+    dialect::RegionPtrExt,
     interfaces::memory_slot::{
         DeletionKind, DestructurableAccessorOpInterface, DestructurableConstructorOpInterface,
         DestructurableValueSlot, SafeMemorySlotAccessOpInterface,
@@ -40,7 +41,6 @@ use cubecl_ir::{
 use pliron::{
     attribute::AttrObj,
     graph::walkers::uninterruptible::immutable::walk_region,
-    linked_list::ContainsLinkedList,
     utils::{
         table::{ISet, SmallSet},
         vec_exns::VecExtns,
@@ -227,7 +227,7 @@ impl Pass for SROAPass {
         let mut res = PassResult::default();
 
         for region in op.regions(ctx) {
-            if region.deref(ctx).iter(ctx).count() == 0 {
+            if region.is_empty(ctx) {
                 continue;
             }
 

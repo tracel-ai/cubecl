@@ -17,7 +17,7 @@ use pliron::{
 use rustc_apfloat::ieee::{self, IeeeFloat, NonfiniteBehavior};
 
 use crate::{
-    ContextExt, ElemType, FloatKind, IntKind, UIntKind, aligned,
+    ComplexKind, ContextExt, ElemType, FloatKind, IntKind, UIntKind, aligned,
     apfloat::{APFloat, APFloatType, apfloat_type},
     interfaces::{AlignedType, MaybePackedType, ScalarType, SizedType, not_packed},
     scalar, sized,
@@ -141,6 +141,28 @@ macro_rules! float_semantics {
         }
     };
 }
+
+macro_rules! complex_type {
+    ($name: literal, $ty: ident, $kind: ident, $size: literal) => {
+        #[pliron_type(name = $name, format = "", generate_get = true, verifier = "succ")]
+        #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+        pub struct $ty;
+        scalar!($ty);
+        not_packed!($ty);
+        aligned!($ty, $size / 2);
+        sized!($ty, $size);
+
+        #[type_interface_impl]
+        impl ScalarType for $ty {
+            fn elem_type(&self, _ctx: &Context) -> ElemType {
+                ElemType::Complex(ComplexKind::$kind)
+            }
+        }
+    };
+}
+
+complex_type!("cube.c32", Complex32Type, C32, 8);
+complex_type!("cube.c64", Complex64Type, C64, 16);
 
 float_type!("cube.f64", Float64Type, F64, 8);
 float_semantics!(Float64Type, apfloat::Double);

@@ -3,6 +3,7 @@ use cubecl_common::hash::StableHash;
 use cubecl_core::prelude::*;
 use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::{
     compiler::{CubeTask, KernelCacheKey, build_id_hash},
     logging::ServerLogger,
@@ -25,6 +26,12 @@ pub struct CompiledKernel {
     pub(crate) cube_dim: CubeDim,
     /// Shared memory usage in bytes, validated against the device limit.
     pub(crate) shared_memory_bytes: usize,
+    /// What the kernel does with each buffer binding, by buffer position --
+    /// the compiler's answer, carried here because on a cache hit nothing
+    /// else of the compilation survives. `None` for entries persisted before
+    /// the answer existed, which the launch path reads as every buffer both
+    /// read and written.
+    pub(crate) io: Option<std::sync::Arc<[BufferIOAttr]>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
@@ -32,6 +39,10 @@ pub struct MslCacheEntry {
     entrypoint_name: String,
     cube_dim: (u32, u32, u32),
     source: String,
+    /// See [`CompiledKernel::io`]; defaulted for entries persisted before the
+    /// field existed.
+    #[serde(default)]
+    io: Option<Vec<BufferIOAttr>>,
 }
 
 /// Compiles `CubeCL` IR to MSL and on to `MTLComputePipelineState`, caching results.
@@ -98,11 +109,12 @@ impl MetalContext {
         {
             log::trace!("Using MSL cache");
 
-            let compiled = self.create_pipeline_from_source(
+            let mut compiled = self.create_pipeline_from_source(
                 &entry.source,
                 &entry.entrypoint_name,
                 entry.cube_dim.into(),
             )?;
+            compiled.io = entry.io.map(std::sync::Arc::from);
 
             self.compiled_kernels
                 .insert(kernel_id.clone(), compiled.clone());
@@ -127,6 +139,7 @@ impl MetalContext {
         let entrypoint_name = kernel_compiled.entrypoint_name.clone();
         let cube_dim = kernel_compiled.cube_dim;
         let source = kernel_compiled.source.clone();
+        let io = kernel_compiled.io.take();
         let shared_memory_bytes = kernel_compiled
             .repr
             .as_ref()
@@ -147,6 +160,7 @@ impl MetalContext {
 
         let mut compiled = self.create_pipeline_from_source(&source, &entrypoint_name, cube_dim)?;
         compiled.shared_memory_bytes = shared_memory_bytes;
+        compiled.io = io.clone().map(std::sync::Arc::from);
 
         if let Some(cache) = &mut self.msl_cache {
             store_compiled(
@@ -156,6 +170,7 @@ impl MetalContext {
                     entrypoint_name,
                     cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
                     source,
+                    io,
                 },
             );
         }
@@ -222,6 +237,7 @@ impl MetalContext {
             pipeline,
             cube_dim,
             shared_memory_bytes: 0,
+            io: None,
         })
     }
 

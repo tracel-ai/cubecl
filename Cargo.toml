@@ -26,7 +26,17 @@ invalid_html_tags = "warn"
 [workspace.dependencies]
 bitflags = { version = "2.13.1", features = ["serde"] }
 derive-new = { version = "0.7.0", default-features = false }
-derive_more = { version = "2", default-features = false }
+derive_more = { version = "2", default-features = false, features = [
+    "not",
+    "add",
+    "mul",
+    "add_assign",
+    "mul_assign",
+    "display",
+    "debug",
+    "from",
+    "into",
+] }
 num = "0.4"
 oneshot = { version = "0.2.1", default-features = false }
 tynm = { version = "0.2" }
@@ -93,6 +103,8 @@ web-time = "1.1.0"
 
 # Testing
 criterion = { version = "0.8", features = ["html_reports"] }
+env_logger = "0.11"
+expect-test = "1"
 rstest = "0.26"
 serial_test = "4"
 tempfile = "3.20"
@@ -107,6 +119,9 @@ half = { version = "2.5", features = [
     "num-traits",
     "serde",
 ], default-features = false }
+num-complex = { version = "0.4", default-features = false, features = [
+    "bytemuck",
+] }
 num-integer = { version = "0.1", default-features = false }
 num-traits = { version = "0.2.19", default-features = false, features = [
     "libm",
@@ -115,6 +130,7 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 buildid = "1.0.5" # 1.0.5 is the min required for a fix
 bumpalo = "3"
 cfg-if = "1.0.0"
+downcast-rs = "1"
 enumset = { version = "1.1", default-features = false }
 ident_case = "1"
 internment = "0.8"
@@ -122,6 +138,7 @@ itertools = { version = "0.15", default-features = false, features = [
     "use_alloc",
 ] }
 paste = "1"
+rustc-hash = "2"
 thiserror = { version = "2", default-features = false }
 tracy-client = { version = "0.18.0" }
 

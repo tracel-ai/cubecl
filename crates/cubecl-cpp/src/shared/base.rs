@@ -9,13 +9,14 @@ use crate::{
         lowering::{LowerOpsAfterUnrollCppPass, LowerOpsCppPass},
         metadata::LowerInfoPass,
         signature::{
-            CollectIncludesPass, DeclareInfoTypeOp, DeclareVectorTypesPass, buffers,
-            shared_memory_size,
+            CollectIncludesPass, DeclareComplexHelpersOp, DeclareInfoTypeOp,
+            DeclareVectorTypesPass, buffer_io, buffers, shared_memory_size,
         },
         unroll::CppUnrollPass,
     },
     target::{CppTarget, Shared, Target},
 };
+use cubecl_runtime::kernel::BufferIOAttr;
 
 use super::ComputeKernel;
 use core::marker::PhantomData;
@@ -23,9 +24,11 @@ use cubecl_core::{
     ir::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
         features::{AtomicUsage, EnumSet, TypeUsage},
+        interfaces::TypedExt,
         metadata::Info,
-        rewrite::SimplifyOpsPass,
+        rewrite::{SimplifyOpsPass, visit_all_values},
         settings::Dim3,
+        types::scalar::{Complex32Type, Complex64Type},
     },
     post_processing::{
         bitwise::PromoteBitwisePass,
@@ -39,7 +42,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    simple_cse::SimpleCSEPass, sroa::SROAPass,
+    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -48,7 +51,7 @@ use pliron::{
     irbuild::match_rewrite::MatchRewrite,
     op::Op,
     operation::verify_operation,
-    opts::{constants::sccp::SCCPPass, dce::DCEPass, mem2reg::Mem2RegPass},
+    opts::{dce::DCEPass, mem2reg::Mem2RegPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
 };
 use std::fmt::Debug;
@@ -120,6 +123,10 @@ where
     type Representation = ComputeKernel;
     type CompilationOptions = CompilationOptions;
 
+    fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
+        Some(repr.io.clone())
+    }
+
     fn compile(
         &mut self,
         kernel: KernelDefinition,
@@ -182,6 +189,24 @@ where
         decl_types
             .get_operation()
             .insert_before(&ctx, entry_func.get_operation());
+
+        let mut has_complex = false;
+        visit_all_values(
+            &ctx,
+            &mut has_complex,
+            module_op,
+            |ctx, has_complex, value| {
+                if let Some(ty) = value.try_get_scalar_elem_ty(ctx) {
+                    let ty = ty.deref(ctx);
+                    *has_complex |= ty.is::<Complex32Type>() || ty.is::<Complex64Type>();
+                }
+            },
+        );
+        if has_complex && T::target() == Target::Cuda {
+            DeclareComplexHelpersOp::new(&mut ctx)
+                .get_operation()
+                .insert_before(&ctx, entry_func.get_operation());
+        }
 
         #[cfg(feature = "pliron-dump")]
         let dump_dir = kernel_dir_name(&kernel.settings.kernel_name);
@@ -270,6 +295,7 @@ where
 
         let shared_memory_size = shared_memory_size(&ctx, module_op);
         let buffers = buffers(&ctx, entry_func);
+        let io = buffer_io(&ctx, entry_func);
 
         // Emit here rather than lazily from `Display`, so an op that survives lowering with no
         // `OpToCPP` impl fails the compilation instead of panicking on the compiler thread.
@@ -299,6 +325,7 @@ where
         let compute_kernel = ComputeKernel {
             shared_memory_size,
             buffers,
+            io,
             source,
         };
 

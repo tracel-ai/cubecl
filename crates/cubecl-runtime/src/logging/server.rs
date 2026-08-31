@@ -161,6 +161,18 @@ impl ServerLogger {
         }
     }
 
+    /// Log a failure at the moment it happens — the backstop of the lazy
+    /// model, for the failure nobody ever observes through a side effect.
+    ///
+    /// Always on, unlike the opt-in channels above: a kernel that will not
+    /// compile is a programming error, and a line at the failure site beats a
+    /// `Result` handed over some arbitrary distance later. Reads, syncs and
+    /// profiles still fail loudly on the buffers a failure claimed; this line
+    /// is for the launch whose output nobody ever asks about.
+    pub fn log_failure(&self, error: &impl Display) {
+        log::warn!("{error}");
+    }
+
     /// Register a profiled task without timing.
     pub fn register_execution(&self, name: impl Display) {
         if let Some(channel) = &self.log_channel

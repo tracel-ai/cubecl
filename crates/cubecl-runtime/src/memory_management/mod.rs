@@ -1,11 +1,16 @@
 pub(crate) mod memory_pool;
 
 mod base;
+mod error_graph;
+mod taint;
 
 /// Export utilities to keep track of CPU buffers when performing async data copies.
+#[cfg(multi_threading)]
 pub mod drop_queue;
 
 pub use base::*;
+pub use error_graph::*;
+pub use taint::*;
 
 /// Dynamic memory management strategy.
 mod memory_manage;

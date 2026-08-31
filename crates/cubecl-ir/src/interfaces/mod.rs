@@ -16,7 +16,9 @@ use pliron::{
 };
 
 pub mod aliasing;
+pub mod control_flow;
 pub mod memory_slot;
+pub mod traits;
 
 #[macro_export]
 macro_rules! verify_op_succ {
@@ -61,6 +63,12 @@ macro_rules! verify_attr_succ {
             Ok(())
         }
     };
+}
+
+// Pure marker
+#[op_interface]
+pub trait ReturnLike: IsTerminatorInterface + NResultsInterface<0> {
+    verify_op_succ!();
 }
 
 #[macro_export]

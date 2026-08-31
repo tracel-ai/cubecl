@@ -56,7 +56,7 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.3", defaul
 ] }
 cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.3", default-features = false }
 
-
+bytemuck = { workspace = true }
 crossbeam-utils = "0.8.21"
 derive-new = { workspace = true }
 log = { workspace = true }

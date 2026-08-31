@@ -10,7 +10,7 @@ use crate::{
     },
     runtime::Runtime,
     server::{
-        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle, IoError,
+        BufferBinding, CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle,
         KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
         MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities,
@@ -102,11 +102,19 @@ impl<R: Runtime> Graph<R> {
     /// Either way pipeline lookup, binding resolution and metadata upload
     /// happened once, at capture.
     ///
-    /// Non-blocking, like a kernel launch: this enqueues the dispatch and returns
-    /// immediately. A replay failure is not reported here — it lands in the
-    /// stream's error queue and surfaces on the next
-    /// [`sync`](ComputeClient::sync)/[`flush`](ComputeClient::flush) (e.g. when
-    /// reading the output back).
+    /// Blocking only on the enqueue: [`replay`](Self::replay) waits for the
+    /// device thread to accept the dispatch and hands back what that enqueue
+    /// said — an unknown or destroyed graph, a refusal — then returns without
+    /// waiting for the device. A failure also leaves the graph's write set
+    /// carrying it, so a read of those buffers keeps failing until a replay
+    /// lands.
+    ///
+    /// The wait costs end-to-end throughput nothing: the device-thread work
+    /// happens either way, and blocking here only stops deferring it to the
+    /// next sync. What it does move is the caller-visible latency of this
+    /// call, from the cost of posting to a channel to the real cost of
+    /// enqueuing the pass — so a benchmark reading this column is reading
+    /// latency, not throughput.
     ///
     /// # Safety
     ///
@@ -126,12 +134,13 @@ impl<R: Runtime> Graph<R> {
     ///   the capture stream (keep the client pinned to it via
     ///   [`set_stream`](ComputeClient::set_stream), or do everything from the
     ///   one client), so they order against the replay instead of racing it.
-    pub unsafe fn replay(&self) {
+    pub unsafe fn replay(&self) -> Result<(), ServerError> {
         let id = self.inner.id;
         let stream_id = self.inner.stream_id;
         self.inner
             .device
-            .submit(move |server| server.replay(id, stream_id));
+            .submit_blocking(move |server| server.replay(id, stream_id))
+            .unwrap_or_resume()
     }
 }
 
@@ -380,7 +389,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,
         slices: Vec<Vec<u8>>,
-    ) -> Result<Vec<MemoryLayout>, IoError> {
+    ) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
 
@@ -407,14 +416,14 @@ impl<R: Runtime> ComputeClient<R> {
             server.write(descriptors, stream_id);
         });
 
-        Ok(layouts)
+        layouts
     }
 
     fn do_create(
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,
         data: Vec<Bytes>,
-    ) -> Result<Vec<MemoryLayout>, IoError> {
+    ) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
 
@@ -441,7 +450,7 @@ impl<R: Runtime> ComputeClient<R> {
             server.write(descriptors, stream_id);
         });
 
-        Ok(layouts)
+        layouts
     }
 
     /// Returns a resource handle containing the given data.
@@ -460,12 +469,17 @@ impl<R: Runtime> ComputeClient<R> {
             )],
             vec![slice.to_vec()],
         )
-        .unwrap()
         .remove(0)
         .memory
     }
 
-    /// todo: docs
+    /// Run `task` with this device to itself, so nothing else is scheduled
+    /// against it for the duration.
+    ///
+    /// # Errors
+    ///
+    /// The device could not be taken exclusively — another holder has it, or
+    /// its runner is gone. Nothing ran, so the caller may retry.
     pub fn exclusive<'a, Re: Send + 'static, F: FnOnce() -> Re + Send + 'a>(
         &'a self,
         task: F,
@@ -479,7 +493,12 @@ impl<R: Runtime> ComputeClient<R> {
             })
     }
 
-    /// dodo: Docs
+    /// Run `task` with every allocation it makes routed to the persistent
+    /// pool, then restore the previous mode.
+    ///
+    /// Persistent slices are exact-fit and are not reclaimed by the ordinary
+    /// sweep, which is what weights want: allocated once, alive for the
+    /// process, and stable enough for a graph capture to record against.
     pub fn memory_persistent_allocation<
         'a,
         Re: Send,
@@ -489,7 +508,7 @@ impl<R: Runtime> ComputeClient<R> {
         &'a self,
         input: Input,
         task: F,
-    ) -> Result<Re, ServerError> {
+    ) -> Re {
         let stream_id = StreamId::current();
 
         self.device.submit(move |server| {
@@ -503,7 +522,7 @@ impl<R: Runtime> ComputeClient<R> {
             server.allocation_mode(MemoryAllocationMode::Auto, stream_id);
         });
 
-        Ok(output)
+        output
     }
 
     /// Write `data` into an existing allocation, in place (same device pointer).
@@ -536,7 +555,6 @@ impl<R: Runtime> ComputeClient<R> {
             )],
             vec![data],
         )
-        .unwrap()
         .remove(0)
         .memory
     }
@@ -572,7 +590,6 @@ impl<R: Runtime> ComputeClient<R> {
             )],
             vec![slice.to_vec()],
         )
-        .unwrap()
         .remove(0)
     }
 
@@ -598,7 +615,6 @@ impl<R: Runtime> ComputeClient<R> {
             )],
             vec![bytes],
         )
-        .unwrap()
         .remove(0)
     }
 
@@ -620,7 +636,7 @@ impl<R: Runtime> ComputeClient<R> {
             descriptors_.push(a);
         }
 
-        self.do_create_from_slices(descriptors_, data).unwrap()
+        self.do_create_from_slices(descriptors_, data)
     }
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
@@ -632,13 +648,10 @@ impl<R: Runtime> ComputeClient<R> {
     ) -> Vec<MemoryLayout> {
         let (descriptors, data) = descriptors.into_iter().unzip();
 
-        self.do_create(descriptors, data).unwrap()
+        self.do_create(descriptors, data)
     }
 
-    fn do_empty(
-        &self,
-        descriptors: Vec<MemoryLayoutDescriptor>,
-    ) -> Result<Vec<MemoryLayout>, IoError> {
+    fn do_empty(&self, descriptors: Vec<MemoryLayoutDescriptor>) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
 
@@ -647,14 +660,14 @@ impl<R: Runtime> ComputeClient<R> {
             server.initialize_memory(memory, size, stream_id);
         });
 
-        Ok(layouts)
+        layouts
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     pub fn empty(&self, size: usize) -> Handle {
         let shape: Shape = [size].into();
         let descriptor = MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Contiguous, shape, 1);
-        self.do_empty(vec![descriptor]).unwrap().remove(0).memory
+        self.do_empty(vec![descriptor]).remove(0).memory
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
@@ -662,13 +675,13 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn empty_tensor(&self, shape: Shape, elem_size: usize) -> MemoryLayout {
         let descriptor =
             MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Optimized, shape, elem_size);
-        self.do_empty(vec![descriptor]).unwrap().remove(0)
+        self.do_empty(vec![descriptor]).remove(0)
     }
 
     /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
     /// See [`ComputeClient::create_tensor`]
     pub fn empty_tensors(&self, descriptors: Vec<MemoryLayoutDescriptor>) -> Vec<MemoryLayout> {
-        self.do_empty(descriptors).unwrap()
+        self.do_empty(descriptors)
     }
 
     /// Marks the given [Bytes] as being a staging buffer, maybe transferring it to pinned memory
@@ -774,7 +787,12 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
 
         self.device.submit(move |server| {
-            server.sync_collective(stream_id).unwrap();
+            // Logged rather than unwrapped: a panic on the server thread is
+            // reduced to a log line by the channel's catch_unwind anyway, so
+            // report deliberately instead of through a swallowed unwind.
+            if let Err(err) = server.sync_collective(stream_id) {
+                log::error!("sync_collective failed: {err}");
+            }
         });
 
         // We don't actually need or want to sync the server here, but we need to make sure any
@@ -806,9 +824,14 @@ impl<R: Runtime> ComputeClient<R> {
         self.ensure_init_collective(device_ids.clone());
 
         self.device.submit(move |server| {
-            server
-                .all_reduce(src, dst, dtype, stream_id, op, device_ids)
-                .unwrap();
+            // The report lives on the buffers: a refused or failed reduce has
+            // tainted the destination, so the read that consumes it fails on
+            // the root cause. The log is the eager half of that report — an
+            // unwrap here would only be reduced to a warn by the channel's
+            // catch_unwind, with the taint doing the real work either way.
+            if let Err(err) = server.all_reduce(src, dst, dtype, stream_id, op, device_ids) {
+                log::error!("all_reduce failed; the destination carries the failure: {err}");
+            }
         });
     }
 
@@ -840,16 +863,31 @@ impl<R: Runtime> ComputeClient<R> {
         dst_server.ensure_init_collective(device_ids);
 
         self.device.submit(move |server_src| {
-            server_src
-                .send(src_descriptor, dtype, stream_id_src, device_id_dst)
-                .unwrap()
+            // A refused send has no local buffer to answer for, so the log is
+            // the whole local report. The peer's posted recv is left waiting
+            // on its communication stream — the recv cannot be recalled from
+            // here, and cross-device failure propagation needs a design pass
+            // of its own — so the wedge is named loudly rather than hidden
+            // behind a swallowed unwrap.
+            if let Err(err) = server_src.send(src_descriptor, dtype, stream_id_src, device_id_dst) {
+                log::error!(
+                    "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
+                );
+            }
         });
 
         dst_server.device.submit(move |server_dst| {
-            server_dst
-                .recv(handle_cloned, dtype, stream_id_dst, device_id_src)
-                .unwrap();
-            server_dst.sync_collective(stream_id_dst).unwrap();
+            // A failed recv taints the destination handle, so the read that
+            // consumes this transfer fails on the cause.
+            if let Err(err) = server_dst.recv(handle_cloned, dtype, stream_id_dst, device_id_src) {
+                log::error!(
+                    "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
+                );
+                return;
+            }
+            if let Err(err) = server_dst.sync_collective(stream_id_dst) {
+                log::error!("sync_collective failed: {err}");
+            }
         });
 
         // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
@@ -890,8 +928,21 @@ impl<R: Runtime> ComputeClient<R> {
 
         let level = self.utilities.logger.profile_level();
 
+        // Before the submit, on the issuing thread: this is the last point at
+        // which the caller's own context still exists, and attributing a
+        // launch to what caused it is the whole reason the hook is here rather
+        // than beside the logger's aggregation.
+        crate::logging::notify_launch(kernel.name());
+
+        // An observer asking for timing gets the profiled path even with the
+        // profiling logger off — the two are separate readers of the same
+        // measurement, and making one depend on the other's configuration
+        // would mean a caller could not time launches without also logging
+        // them somewhere it did not choose.
+        let observed_timing = crate::logging::timing_wanted();
+
         match level {
-            None | Some(ProfileLevel::ExecutionOnly) => {
+            None | Some(ProfileLevel::ExecutionOnly) if !observed_timing => {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
                     let name = kernel.name();
@@ -903,37 +954,121 @@ impl<R: Runtime> ComputeClient<R> {
                     }
                 });
             }
-            Some(level) => {
+            level => {
                 let name = kernel.name();
                 let kernel_id = kernel.id();
                 let context = self.device.clone();
-                let count_moved = count.clone();
-                let (result, profile) = self
-                    .profile(
-                        move || {
-                            context
-                                .submit_blocking(move |state| unsafe {
-                                    state.launch(
-                                        kernel,
-                                        count_moved,
-                                        bindings,
-                                        stream_id,
-                                        launch_mode,
-                                    )
-                                })
-                                .unwrap_or_resume()
-                        },
-                        name,
-                    )
-                    .unwrap();
-                let info = match level {
-                    ProfileLevel::Full => {
-                        format!("{name}: {kernel_id} CubeCount {count:?}")
+                // The arguments travel through a slot the profiled closure
+                // empties, because a profile can be refused — a graph capture
+                // window refuses one on the spot — and a refusal must hand the
+                // launch back: dropping a kernel because its measurement could
+                // not start would turn a missing timing into a missing
+                // computation.
+                let slot = Arc::new(cubecl_environment::sync::Mutex::new(Some((
+                    kernel,
+                    count.clone(),
+                    bindings,
+                ))));
+                let to_launch = slot.clone();
+                let profiled = self.profile(
+                    move || {
+                        let (kernel, count, bindings) = to_launch
+                            .lock()
+                            .take()
+                            .expect("filled right above, emptied only here");
+                        context
+                            .submit_blocking(move |state| unsafe {
+                                state.launch(kernel, count, bindings, stream_id, launch_mode)
+                            })
+                            .unwrap_or_resume()
+                    },
+                    name,
+                );
+                let profile = match profiled {
+                    Ok(((), profile)) => profile,
+                    Err(err) => {
+                        // The logger's timing levels opted into profiling and
+                        // keep their loud failure. Only the observer's timing
+                        // degrades: it asked for a measurement, and a refused
+                        // measurement must not take the launch down with it.
+                        if !matches!(level, None | Some(ProfileLevel::ExecutionOnly)) {
+                            panic!("{err:?}");
+                        }
+                        match slot.lock().take() {
+                            // The refusal came before the closure ran, so the
+                            // kernel was never submitted. Launch it the way an
+                            // unobserved run would have.
+                            Some((kernel, count, bindings)) => {
+                                let utilities = self.utilities.clone();
+                                self.device.submit(move |state| {
+                                    unsafe {
+                                        state.launch(
+                                            kernel,
+                                            count,
+                                            bindings,
+                                            stream_id,
+                                            launch_mode,
+                                        )
+                                    };
+                                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                                        let info =
+                                            type_name_format(name, TypeNameFormatLevel::Balanced);
+                                        utilities.logger.register_execution(info);
+                                    }
+                                });
+                            }
+                            // The closure ran, so the kernel was submitted;
+                            // only its measurement was lost.
+                            None => {
+                                if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                                    let info =
+                                        type_name_format(name, TypeNameFormatLevel::Balanced);
+                                    self.utilities.logger.register_execution(info);
+                                }
+                            }
+                        }
+                        log::warn!(
+                            "Skipped timing a launch of `{name}` for its observer: the profile was refused ({err:?})"
+                        );
+                        return;
                     }
-                    _ => type_name_format(name, TypeNameFormatLevel::Balanced),
                 };
-                self.utilities.logger.register_profiled(info, profile);
-                result
+                // The observer is told first, because resolving the profile
+                // consumes it: the logger's copy is the one that can be
+                // deferred, an observer's cannot be recovered afterwards.
+                let profile = if observed_timing {
+                    let method = profile.timing_method();
+                    let ticks = cubecl_environment::future::block_on(profile.resolve());
+                    crate::logging::notify_timed(name, ticks.duration(), method);
+                    // Handed on already resolved rather than measured again:
+                    // the logger and the observer are two readers of one
+                    // measurement, and a second would not be the same launch.
+                    ProfileDuration::new(alloc::boxed::Box::pin(async move { ticks }), method)
+                } else {
+                    profile
+                };
+                match level {
+                    // An observer does not change what the logger writes.
+                    // `ExecutionOnly` is documented as the kernels that ran
+                    // without their timings, and it reaches here only because
+                    // an observer asked for the profiled path — registering
+                    // the profile would turn a log the caller configured into
+                    // one it did not.
+                    Some(ProfileLevel::ExecutionOnly) => {
+                        let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                        self.utilities.logger.register_execution(info);
+                    }
+                    Some(level) => {
+                        let info = match level {
+                            ProfileLevel::Full => {
+                                format!("{name}: {kernel_id} CubeCount {count:?}")
+                            }
+                            _ => type_name_format(name, TypeNameFormatLevel::Balanced),
+                        };
+                        self.utilities.logger.register_profiled(info, profile);
+                    }
+                    None => {}
+                }
             }
         }
     }
@@ -947,6 +1082,32 @@ impl<R: Runtime> ComputeClient<R> {
         bindings: KernelArguments,
     ) {
         unsafe { self.launch_inner(kernel, count, bindings, self.stream_id()) }
+    }
+
+    /// Whether the bytes behind `handles` can be trusted, right now and with
+    /// no barrier: the claim check a read makes, without the read. One lookup
+    /// per handle, so a fusion layer or an autotuner can recover per tensor
+    /// instead of tearing down a device.
+    ///
+    /// Instant means enqueue-time failures only — a compile or binding
+    /// failure is visible here immediately, a device fault is not until the
+    /// queue drains. [`sync_buffers`](Self::sync_buffers) is the complete
+    /// answer; [`read_one`](Self::read_one) is that plus the copy.
+    ///
+    /// # Errors
+    ///
+    /// [`ServerError::Several`] naming every failure these buffers carry, each
+    /// once however many carry it. The bytes are gone, so there is nothing to
+    /// retry: this is the answer, not a hint.
+    pub fn check<'a>(
+        &self,
+        handles: impl IntoIterator<Item = &'a Handle>,
+    ) -> Result<(), ServerError> {
+        let bindings = Self::bindings(handles);
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.check(bindings, stream_id))
+            .unwrap_or_resume()
     }
 
     /// Flush all outstanding commands.
@@ -1010,17 +1171,52 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Wait for the completion of every task in the server.
+    ///
+    /// The barrier alone, which also reports a device fault — the only failure
+    /// left that no buffer can report. A launch failure is not this sync's to
+    /// report: it lives on the buffers the launch never wrote and surfaces on
+    /// any read, [`check`](Self::check) or
+    /// [`sync_buffers`](Self::sync_buffers) of those.
     pub fn sync(&self) -> DynFut<Result<(), ServerError>> {
+        self.sync_buffers([])
+    }
+
+    /// The barrier, and then an answer for `handles`.
+    ///
+    /// [`sync`](Self::sync) first, so a device fault counts, and then the
+    /// claim check a read would have made — a read without the read, for the
+    /// caller that needs to know its work produced something trustworthy and
+    /// does not want to pull it to the host to find out.
+    ///
+    /// # Errors
+    ///
+    /// The device fault the barrier found, or [`ServerError::Several`] naming
+    /// every failure these buffers carry.
+    pub fn sync_buffers<'a>(
+        &self,
+        handles: impl IntoIterator<Item = &'a Handle>,
+    ) -> DynFut<Result<(), ServerError>> {
         let stream_id = self.stream_id();
+        let bindings = Self::bindings(handles);
 
         let fut = self
             .device
-            .submit_blocking(move |server| server.sync(stream_id))
+            .submit_blocking(move |server| server.sync(bindings, stream_id))
             .unwrap_or_resume();
 
         self.utilities.logger.profile_summary();
 
         fut
+    }
+
+    /// The bindings `handles` name, which is what crosses to the device
+    /// thread: a `Handle` borrows, and the closure that answers for it runs
+    /// somewhere else.
+    fn bindings<'a>(handles: impl IntoIterator<Item = &'a Handle>) -> Vec<BufferBinding> {
+        handles
+            .into_iter()
+            .map(|handle| handle.clone().binding())
+            .collect()
     }
 
     /// Get the features supported by the compute server.
@@ -1045,14 +1241,14 @@ impl<R: Runtime> ComputeClient<R> {
     /// The closure iterates the server's `stream_ids()` and folds each
     /// per-stream `memory_usage(id)` with `MemoryUsage::combine`, so the
     /// result is correct regardless of which thread queries it.
-    pub fn memory_usage(&self) -> Result<MemoryUsage, ServerError> {
+    pub fn memory_usage(&self) -> MemoryUsage {
         self.device
             .submit_blocking(move |server| {
                 server
                     .stream_ids()
                     .into_iter()
-                    .try_fold(MemoryUsage::default(), |acc, id| {
-                        Ok(acc.combine(server.memory_usage(id)?))
+                    .fold(MemoryUsage::default(), |acc, id| {
+                        acc.combine(server.memory_usage(id))
                     })
             })
             .unwrap_or_resume()
@@ -1070,7 +1266,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// Unlike [`memory_usage`](Self::memory_usage), which aggregates across
     /// streams, this reads one stream: pools are per stream, and a plan is
     /// measured and installed on the stream that runs the workload.
-    pub fn memory_report(&self) -> Result<MemoryReport, ServerError> {
+    pub fn memory_report(&self) -> MemoryReport {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.memory_report(stream_id))
@@ -1149,10 +1345,6 @@ impl<R: Runtime> ComputeClient<R> {
     /// [`memory_cleanup`](Self::memory_cleanup). Nothing is disturbed, the
     /// layout still applies to streams created afterwards, and retrying after
     /// the remaining work drains rebuilds the current stream too.
-    ///
-    /// [`StreamUnavailable`](InstallMemoryPoolsError::StreamUnavailable) when
-    /// the current stream is already in an error state; that failure surfaces
-    /// at the next flush or sync, as usual.
     ///
     /// [`Unsupported`](InstallMemoryPoolsError::Unsupported) from a runtime
     /// with no configurable pools, where retrying will never succeed.
@@ -1256,10 +1448,7 @@ impl<R: Runtime> ComputeClient<R> {
                 Ok(result)
             })
             .unwrap_or_resume()
-            .map_err(|err| ProfileError::Unknown {
-                reason: alloc::format!("{err}"),
-                backtrace: BackTrace::capture(),
-            })?;
+            .map_err(|err| ProfileError::from(&err))?;
 
         #[cfg(feature = "profile-tracy")]
         if let Some(mut gpu_span) = gpu_span {

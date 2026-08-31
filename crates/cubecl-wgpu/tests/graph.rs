@@ -9,6 +9,8 @@ use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
+use cubecl_environment::stream::StreamId;
+use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
 use cubecl_wgpu::WgpuRuntime;
 use std::sync::Mutex;
 
@@ -17,6 +19,20 @@ use std::sync::Mutex;
 /// concurrent captures would reject each other. One capture at a time, as in
 /// real use.
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
+
+/// Two logical streams that fold onto one pooled stream, since indexing is
+/// `id % max_streams`. The seed is far above the ids [`StreamId::current`]
+/// hands out per thread, which are small and sequential, so neither collides
+/// with a sibling test's thread.
+fn sharing_one_pooled_stream(seed: u64) -> (StreamId, StreamId) {
+    let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
+    (
+        StreamId { value: seed },
+        StreamId {
+            value: seed + max_streams,
+        },
+    )
+}
 
 #[cube(launch)]
 fn add_one(input: &[f32], output: &mut [f32]) {
@@ -67,12 +83,12 @@ fn wgpu_graph_capture_replay() {
     let graph = client.stop_capture().expect("stop_capture");
 
     // Replay executes the recorded launch; the output is input + 1.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output.clone()).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
     // Replaying again re-runs it deterministically.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
@@ -117,7 +133,7 @@ fn wgpu_graph_mid_capture_allocation_is_allowed() {
         "a mid-capture allocation is legal on wgpu: the fresh slice is pinned to the graph",
     );
 
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
@@ -155,7 +171,7 @@ fn wgpu_graph_input_rewrite() {
     launch(&client);
     let graph = client.stop_capture().expect("stop_capture");
 
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output.clone()).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
@@ -165,7 +181,7 @@ fn wgpu_graph_input_rewrite() {
         &input,
         Bytes::from_bytes_vec(f32::as_bytes(&[10.0, 20.0, 30.0, 40.0]).to_vec()),
     );
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[11.0, 21.0, 31.0, 41.0]);
 }
@@ -238,7 +254,7 @@ fn wgpu_graph_intermediate_recycling() {
     // Replay. The graph's own OUTPUT is correct regardless: its first kernel
     // rewrites `tmp` before the second reads it (write-before-read), so
     // external reuse cannot corrupt the graph's result.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out_bytes = client.read_one(output).unwrap();
     let out = f32::from_bytes(&out_bytes);
     assert_eq!(
@@ -342,8 +358,8 @@ fn wgpu_graph_many_launches_dynamic_metadata() {
     let graph = client.stop_capture().expect("stop_capture");
 
     // Warmup + 2 replays = 3 executed passes (the recorded pass ran 0 times).
-    unsafe { graph.replay() };
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
+    unsafe { graph.replay() }.expect("replay enqueues");
     let (exp_a, exp_b) = simulate(0.0, 3);
     assert_eq!(
         f32::from_bytes(&client.read_one(a.clone()).unwrap()),
@@ -359,7 +375,7 @@ fn wgpu_graph_many_launches_dynamic_metadata() {
     let fresh = f32::as_bytes(&[100.0f32; N]).to_vec();
     client.write(&a, Bytes::from_bytes_vec(fresh.clone()));
     client.write(&b, Bytes::from_bytes_vec(fresh));
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let (exp_a, exp_b) = simulate(100.0, 1);
     assert_eq!(
         f32::from_bytes(&client.read_one(a.clone()).unwrap()),
@@ -413,7 +429,7 @@ fn wgpu_graph_lifecycle_state_errors() {
     client.start_capture().expect("start_capture");
     launch(&client);
     let graph = client.stop_capture().expect("stop_capture");
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
@@ -452,7 +468,7 @@ fn wgpu_graph_read_rejected_while_recording() {
 
     // The rejection did not poison the capture: it completes and replays.
     let graph = client.stop_capture().expect("stop_capture");
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
@@ -494,9 +510,88 @@ fn wgpu_graph_write_rejected_while_recording() {
          is missing that operation"
     );
 
-    // The failed capture left the stream usable.
+    // The failed capture left the stream usable — after the input is
+    // rewritten. The rejected write left it carrying the rejection: its
+    // intended contents never arrived, so a launch reading it is skipped
+    // until something writes it for real. Outside the window the write lands.
+    client.write(
+        &input,
+        Bytes::from_bytes_vec(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]).to_vec()),
+    );
     launch(&client);
     let out = client.read_one(output).unwrap();
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+}
+
+/// A write rejected inside a recording window leaves its destination as it
+/// was, so a read of that destination from another stream fails on the
+/// rejection instead of copying out the stale bytes.
+///
+/// The rejection is queued for the capturing stream and surfaces there at
+/// `stop_capture` — but the buffer it was meant to fill lives on, and any
+/// stream may read it in the meantime. Only naming the destination connects
+/// that read to the write that never happened: the handle names the stream the
+/// buffer was *created* on, which here is the reader itself, and the reader has
+/// nothing queued.
+#[test]
+fn wgpu_graph_write_rejected_while_recording_is_not_read_as_written() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+    // Two logical streams one apart, so they land on different pooled streams:
+    // the reader must be free to read while the other is recording.
+    let capturing = StreamId { value: 3_000_001 };
+    let reader = StreamId { value: 3_000_002 };
+
+    let n = 4usize;
+    // Created on the reader, which is what makes the handle name a stream with
+    // nothing to answer for.
+    let target = reader.executes(|| client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])));
+    let (input, output) = capturing.executes(|| {
+        (
+            client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
+            client.empty(n * core::mem::size_of::<f32>()),
+        )
+    });
+    let launch = |client: &ComputeClient<WgpuRuntime>| {
+        add_one::launch::<WgpuRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    capturing.executes(|| {
+        client.graph_prepare().expect("graph_prepare");
+        launch(&client);
+        let _ = client.read_one(output.clone()).unwrap();
+        client.start_capture().expect("start_capture");
+        launch(&client);
+        // Unsupported inside the window: queued as an error, and `target` is
+        // never written.
+        client.write(
+            &target,
+            Bytes::from_bytes_vec(f32::as_bytes(&[9.0, 9.0, 9.0, 9.0]).to_vec()),
+        );
+    });
+
+    assert!(
+        reader.executes(|| client.read_one(target.clone())).is_err(),
+        "reading a buffer whose write was rejected must fail, not hand back \
+         the bytes that were there before it"
+    );
+
+    // The capture still reports the rejection to the stream that caused it,
+    // and the streams are left usable.
+    assert!(
+        capturing.executes(|| client.stop_capture()).is_err(),
+        "a capture window containing a write must be rejected"
+    );
+    let out = capturing.executes(|| {
+        launch(&client);
+        client.read_one(output.clone()).unwrap()
+    });
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
 
@@ -558,7 +653,7 @@ fn wgpu_graph_destroy_leaves_an_enqueued_replay_intact() {
 
     // Encode the replay, then destroy without reading: the submit that makes
     // the replay real has to come from `graph_destroy`.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     drop(graph);
 
     // Reallocate over the just-released memory. Each of these writes would
@@ -574,6 +669,153 @@ fn wgpu_graph_destroy_leaves_an_enqueued_replay_intact() {
         "the enqueued replay read sentinel bytes: destroying the graph let a \
          later write reach its memory first"
     );
+}
+
+/// A capture that never seals leaves its recorded launches unrun, so a read of
+/// what they were given fails rather than handing back the bytes from before.
+///
+/// A recorded launch does not execute — it goes into the graph — so when the
+/// graph is thrown away the launch is thrown away with it. The stream that
+/// called `stop_capture` is told; every other stream is told nothing, and the
+/// buffers look exactly as they did before the window opened. Only naming them
+/// connects a neighbour's read to the launches that never ran.
+///
+/// The record lasts precisely until something writes those buffers again: the
+/// owner recovers by relaunching, and the reads after that are sound.
+#[test]
+fn wgpu_graph_a_capture_that_never_sealed_is_not_read_as_run() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+    // Two pooled streams: the reader must be a stream the failure was never
+    // reported to, which is every stream but the one that ended the capture.
+    let capturing = StreamId { value: 4_000_001 };
+    let reader = StreamId { value: 4_000_002 };
+
+    let n = 4usize;
+    let (input, output, target) = capturing.executes(|| {
+        (
+            client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
+            client.empty(n * core::mem::size_of::<f32>()),
+            client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
+        )
+    });
+    let launch = |client: &ComputeClient<WgpuRuntime>| {
+        add_one::launch::<WgpuRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    capturing.executes(|| {
+        client.graph_prepare().expect("graph_prepare");
+        launch(&client);
+        let _ = client.read_one(output.clone()).unwrap();
+        client.start_capture().expect("start_capture");
+        launch(&client);
+        // Unsupported inside the window, so the capture cannot seal: the launch
+        // above stays recorded in a graph nobody will ever hold.
+        client.write(
+            &target,
+            Bytes::from_bytes_vec(f32::as_bytes(&[9.0, 9.0, 9.0, 9.0]).to_vec()),
+        );
+    });
+
+    assert!(
+        capturing.executes(|| client.stop_capture()).is_err(),
+        "a capture window containing a write must be rejected"
+    );
+
+    assert!(
+        reader.executes(|| client.read_one(output.clone())).is_err(),
+        "the recorded launch never ran, so reading its output must fail rather \
+         than hand back what the warmup left there"
+    );
+
+    // The owner recovers the ordinary way, and the record ends with the write
+    // that supersedes it — for the reader too, which never heard about either.
+    let out = capturing.executes(|| {
+        launch(&client);
+        client.read_one(output.clone()).unwrap()
+    });
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+    let out = reader.executes(|| client.read_one(output.clone()).unwrap());
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+}
+
+/// A capture window is sealed into a graph by the stream that opened it and by
+/// no other — and a window some other stream ends is discarded, not left
+/// recording.
+///
+/// The errors raised inside the window — a rejected write, a failed binding —
+/// are queued for the stream that opened it, and `end_capture` drains them to
+/// decide whether the recording is complete. A neighbour sealing the window
+/// would hand back a graph while those errors stay queued for an owner it
+/// cannot name: a graph silently missing whatever they rejected.
+///
+/// Refusing the neighbour and leaving the window open is worse than discarding
+/// it. The pooled stream is shared, so a window whose owner never comes back —
+/// a thread that exited, a task resumed elsewhere — would reject every read,
+/// write and sync landing on that slot for the life of the process.
+#[test]
+fn wgpu_graph_capture_is_sealed_by_the_stream_that_opened_it() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+    let (owner, neighbour) = sharing_one_pooled_stream(2_000_001);
+    let n = 4usize;
+
+    let (input, output) = owner.executes(|| {
+        (
+            client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
+            client.empty(n * core::mem::size_of::<f32>()),
+        )
+    });
+
+    let launch = |client: &ComputeClient<WgpuRuntime>| {
+        add_one::launch::<WgpuRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    owner.executes(|| {
+        client.graph_prepare().expect("graph_prepare");
+        launch(&client);
+        let _ = client.read_one(output.clone()).unwrap();
+        client.start_capture().expect("start_capture");
+        launch(&client);
+    });
+
+    // The neighbour shares the pooled stream, but not the window on it.
+    let refused = neighbour
+        .executes(|| client.stop_capture())
+        .expect_err("a stream that did not open the window must not seal it into a graph")
+        .to_string();
+    assert!(
+        refused.contains("the capture belongs to logical stream"),
+        "the neighbour has to reach the owner's window to be refused it, got: {refused}"
+    );
+
+    // The window went with it, rather than staying open for an owner the
+    // neighbour's call is evidence may never come back.
+    assert!(
+        owner.executes(|| client.stop_capture()).is_err(),
+        "the discarded window must not still be recording"
+    );
+
+    // And the pooled stream serves ordinary work again instead of rejecting
+    // it: the launch below runs rather than being recorded into a graph nobody
+    // holds.
+    let out = owner.executes(|| {
+        launch(&client);
+        client.read_one(output.clone()).unwrap()
+    });
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
 
 /// A graph captured on one stream keeps replaying correctly while a second
@@ -636,7 +878,201 @@ fn wgpu_graph_capture_is_isolated_from_another_stream() {
     let graph = client.stop_capture().expect("stop_capture");
 
     // The recorded pass is exactly this stream's one launch: replaying adds one.
-    unsafe { graph.replay() };
+    unsafe { graph.replay() }.expect("replay enqueues");
     let out = client.read_one(output).unwrap();
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+}
+
+/// A kernel the compiler refuses, for tainting a buffer on demand.
+#[cube(launch_unchecked)]
+fn poisoned(out: &mut [f32], #[comptime] reason: String) {
+    push_validation_error(reason);
+    out[0] = 1f32;
+}
+
+/// A tainted input inside a capture window dooms the capture instead of
+/// skipping the launch: a graph missing an operation is worse than a late
+/// diagnostic, and the replay contract has the caller write fresh inputs
+/// before each replay — clearing the very taint that would explain the hole.
+#[test]
+fn wgpu_graph_capture_refuses_a_tainted_input() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+
+    let n = 4usize;
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    // Taint the input: the rejected launch was going to write it and never
+    // did. Drain the queued report so the capture path is otherwise clean.
+    unsafe {
+        poisoned::launch_unchecked::<WgpuRuntime>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(&client, n),
+            BufferArg::from_raw_parts(input.clone(), n),
+            "doomed-window".to_string(),
+        )
+    };
+    let _ = client.flush();
+
+    client.graph_prepare().expect("graph_prepare");
+    client.start_capture().expect("start_capture");
+    add_one::launch::<WgpuRuntime>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, n),
+        unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+        unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+    );
+
+    let err = client
+        .stop_capture()
+        .expect_err("the recording is missing an operation and must not seal")
+        .to_string();
+    assert!(
+        err.contains("missing an operation"),
+        "the refusal names the hole in the recording, got: {err}"
+    );
+}
+
+/// A capture prepared but never opened is disarmed by the close that refuses
+/// it. `graph_prepare` armed persistent-pool routing and priming retention; a
+/// warmup that fails never reaches `start_capture`, and `stop_capture` is the
+/// only call the caller has left — so it unwinds the arming instead of
+/// leaving every later allocation persistent and the stream un-capturable.
+#[test]
+fn wgpu_graph_a_prepared_capture_that_never_opened_is_disarmed_by_end() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+
+    client.graph_prepare().expect("graph_prepare");
+    // The warmup failed; closing without opening is the caller's only move.
+    client
+        .stop_capture()
+        .expect_err("nothing is recording, so there is no graph to seal");
+
+    // The stream is fully usable and re-capturable: a whole cycle lands.
+    let n = 4usize;
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    let output = client.empty(n * core::mem::size_of::<f32>());
+    let launch = |client: &ComputeClient<WgpuRuntime>| {
+        add_one::launch::<WgpuRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    client
+        .graph_prepare()
+        .expect("the disarmed stream is re-capturable");
+    launch(&client);
+    let _ = client.read_one(output.clone()).unwrap();
+    client.start_capture().expect("start_capture");
+    launch(&client);
+    let graph = client.stop_capture().expect("stop_capture");
+
+    unsafe { graph.replay() }.expect("replay enqueues");
+    let out = client.read_one(output).unwrap();
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+}
+
+/// A launch that *fails* inside the window dooms the capture, exactly as a
+/// skipped one does: the scope reports both endings to the window through one
+/// path, so there is no failure a recording survives silently.
+///
+/// This is the hole the skip-only callback left: a launch failing host-side
+/// mid-window — compilation, here — left the recording un-doomed, `end_capture`
+/// sealed a graph missing the operation, and a later successful replay
+/// released taint on buffers the graph never writes.
+#[test]
+fn wgpu_graph_a_launch_that_fails_in_the_window_dooms_the_capture() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+
+    let n = 4usize;
+    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    client.graph_prepare().expect("graph_prepare");
+    client.start_capture().expect("start_capture");
+    // The launch fails inside the window — the compiler refuses it — so the
+    // recording is missing an operation.
+    unsafe {
+        poisoned::launch_unchecked::<WgpuRuntime>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(&client, n),
+            BufferArg::from_raw_parts(output.clone(), n),
+            "failed-in-window".to_string(),
+        )
+    };
+
+    let err = client
+        .stop_capture()
+        .expect_err("the recording is missing an operation and must not seal")
+        .to_string();
+    assert!(
+        err.contains("missing an operation"),
+        "the refusal names the hole in the recording, got: {err}"
+    );
+    // And the buffer the failed launch never wrote still fails to read on the
+    // refusal, not silently hand back bytes nothing wrote.
+    client
+        .read_one(output)
+        .expect_err("nothing wrote the output");
+}
+
+/// A replay settles its write set like a launch: a failed enqueue leaves the
+/// graph's buffers carrying the failure, and the next replay that lands
+/// releases the claim. Without the settle, one transient failure would leave
+/// them unreadable forever — the graph retains their handles, so no shedding
+/// path can ever fire for them, and the graph itself is the only writer.
+#[test]
+fn wgpu_graph_replay_settles_after_a_failed_enqueue() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let client = WgpuRuntime::client(&Default::default());
+
+    let n = 4usize;
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    let launch = |client: &ComputeClient<WgpuRuntime>| {
+        add_one::launch::<WgpuRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    client.graph_prepare().expect("graph_prepare");
+    launch(&client);
+    let _ = client.read_one(output.clone()).unwrap();
+    client.start_capture().expect("start_capture");
+    launch(&client);
+    let graph = client.stop_capture().expect("stop_capture");
+
+    // A replay into a recording window is refused, which is the one enqueue
+    // failure every backend can produce on demand — the graph's write set is
+    // left carrying it.
+    client.graph_prepare().expect("graph_prepare");
+    client.start_capture().expect("start_capture");
+    unsafe { graph.replay() }.expect_err("a replay cannot be recorded into a capture");
+    let _ = client.stop_capture();
+
+    client
+        .read_one(output.clone())
+        .expect_err("the failed replay never wrote the graph's output");
+
+    // The next replay lands, and the claim is released: recovery, not a
+    // permanently unreadable graph.
+    unsafe { graph.replay() }.expect("replay enqueues");
+    let out = client
+        .read_one(output)
+        .expect("a replay that lands settles the write set");
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }

@@ -159,10 +159,23 @@ impl Launch {
 
     pub fn arg_registers(&self) -> (TokenStream, TokenStream) {
         let launch_arg = prelude_type("LaunchArg");
+        let io_attr = prelude_type("BufferIOAttr");
         let mut defined = quote! {};
         let mut args = quote! {};
 
         self.runtime_params().enumerate().for_each(|(i, input)| {
+            // What the signature proves about the argument's buffers: `&T`
+            // cannot be written, so a launch that fails before running leaves
+            // it alone; anything else may be, so it takes the failure. The
+            // compiled kernel's visibility analysis overrides this once the
+            // kernel compiles — this declaration is the answer that survives
+            // compilation failing.
+            let declared = match &input.ty {
+                syn::Type::Reference(r) if r.mutability.is_none() => {
+                    quote![#io_attr::ReadOnly]
+                }
+                _ => quote![#io_attr::ReadWrite],
+            };
             let ty = strip_ref(input.ty.clone());
             let ty = anon_lifetime_to_static(ty);
             let ident = &input.name;
@@ -170,6 +183,7 @@ impl Launch {
 
             args.extend(quote! {#var,});
             defined.extend(quote! {
+                launcher.declare_io(#declared);
                 let #var = <#ty as #launch_arg>::register(#ident, &mut launcher);
             });
         });

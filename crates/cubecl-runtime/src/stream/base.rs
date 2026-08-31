@@ -1,6 +1,30 @@
+//! The pool of backend streams, and the primitives that record on their
+//! memory what a unit of work did or did not write.
+//!
+//! The pool answers one question — which stream sits in a slot — and the
+//! free functions below answer the other: which stream allocated a binding,
+//! so the claim lands on the memory rather than on whoever failed. They are
+//! free because the pool and the failure graph are held apart by every
+//! caller; the surface a driver actually uses is
+//! [`FailureStore`](super::FailureStore).
+
+use crate::memory_management::{ErrorGraph, FailureId, ManagedMemoryId};
 use crate::server::{BufferBinding, ServerError};
 use alloc::vec::Vec;
 use cubecl_environment::stream::StreamId;
+
+/// What a launch's read-set check found: the failure claiming an input, the
+/// input it claims, and the error — everything the skip needs to record and
+/// a capture needs to fail with.
+pub struct ReadFailure {
+    /// The failure claiming the input.
+    pub failure: FailureId,
+    /// The claimed input, which the skip record names as what the launch
+    /// needed.
+    pub needed: ManagedMemoryId,
+    /// The failure's error, cloned for the paths that report it directly.
+    pub error: ServerError,
+}
 
 /// Trait for creating streams, used by the stream pool to generate streams as needed.
 pub trait StreamFactory {
@@ -8,6 +32,30 @@ pub trait StreamFactory {
     type Stream;
     /// Creates a new stream instance.
     fn create(&mut self) -> Self::Stream;
+}
+
+/// The memory a stream's kernels see, for the taint bookkeeping.
+///
+/// Whether a buffer can be trusted lives on its allocation, inside one of the
+/// stream's memory managers. A backend supplies only which manager that is —
+/// the one whose allocations back [`BufferBinding`]s, never the auxiliary
+/// staging or uniform managers — and everything the drivers do with the
+/// answer lives on the shared wrappers.
+///
+/// The whole binding is passed rather than its memory handle because a
+/// binding names a byte range of its allocation ([`BufferBinding::range`]),
+/// and the claim is exactly that range: a launch that failed writing one
+/// region of a buffer says nothing about the rest of it.
+pub trait StreamMemory {
+    /// The failure claiming any byte the binding names, if one does.
+    fn failure(&self, binding: &BufferBinding) -> Option<FailureId>;
+
+    /// Point the bytes `binding` names at `failure`.
+    fn taint(&mut self, binding: &BufferBinding, failure: FailureId, failures: &mut ErrorGraph);
+
+    /// The bytes `binding` names have a writer again: release every claim on
+    /// them, and only on them.
+    fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph);
 }
 
 /// Represents a pool of streams, managing a collection of streams created by a factory.
@@ -115,36 +163,20 @@ impl<F: StreamFactory> StreamPool<F> {
         stream_index(id, self.max_streams)
     }
 
-    /// The errors owned by the distinct logical streams that wrote `handles`,
-    /// other than `reader`'s own, as reported by `errors_owned`.
+    /// The stream on `id`'s slot, when that slot was ever initialized.
     ///
-    /// A read is only as good as the work that wrote the buffer: a launch that
-    /// failed never wrote it, so copying its bytes out hands back whatever was
-    /// in memory before. The reader's own errors are surfaced by the flush on
-    /// its way in, but a producer's are queued on the producer — on another
-    /// pooled stream, or on the same one under another id — so a read asks
-    /// each of them here, before it submits or copies anything.
-    ///
-    /// The errors are read, never taken: the stream that caused each one still
-    /// surfaces it on its own flush.
-    pub fn producer_errors<'a>(
-        &mut self,
-        reader: StreamId,
-        handles: impl Iterator<Item = &'a BufferBinding>,
-        errors_owned: impl Fn(&F::Stream, StreamId) -> Vec<ServerError>,
-    ) -> Vec<ServerError> {
-        let mut producers = Vec::new();
-        let mut errors = Vec::new();
+    /// Never creates one: resolving a buffer's owning slot must not bring a
+    /// backend stream into existence, which on CUDA and HIP would bind it to
+    /// whichever context happens to be current. A buffer's slot was
+    /// initialized by the allocation itself, so `None` here means the binding
+    /// is not this pool's to answer for.
+    pub fn try_get(&self, id: &StreamId) -> Option<&F::Stream> {
+        self.streams[stream_index(id, self.max_streams)].as_ref()
+    }
 
-        for handle in handles.filter(|handle| handle.stream != reader) {
-            if producers.contains(&handle.stream) {
-                continue;
-            }
-            producers.push(handle.stream);
-            errors.extend(errors_owned(self.get_mut(&handle.stream), handle.stream));
-        }
-
-        errors
+    /// [`try_get`](Self::try_get), mutably.
+    pub fn try_get_mut(&mut self, id: &StreamId) -> Option<&mut F::Stream> {
+        self.streams[stream_index(id, self.max_streams)].as_mut()
     }
 
     /// Mutable access to the factory, e.g. to change the configuration new
@@ -157,4 +189,60 @@ impl<F: StreamFactory> StreamPool<F> {
 /// Maps a stream ID to an index within the pool's capacity using modulo arithmetic.
 pub fn stream_index(stream_id: &StreamId, max_streams: usize) -> usize {
     stream_id.value as usize % max_streams
+}
+
+/// Point the bytes every binding in `written` names at `failure`.
+///
+/// Each binding is resolved to the stream that allocated it, which may not be
+/// the stream that failed — that is the point: the fact lands on the memory,
+/// wherever it lives. A binding whose slot no stream ever initialized is
+/// skipped; it is not this pool's to answer for.
+///
+/// Free rather than a method because the pool and the graph are held apart by
+/// every caller: a driver owns both, a resolved borrow holds both mutably.
+pub fn taint_with<'a, F>(
+    pool: &mut StreamPool<F>,
+    failure: FailureId,
+    written: impl Iterator<Item = &'a BufferBinding>,
+    graph: &mut ErrorGraph,
+) where
+    F: StreamFactory<Stream: StreamMemory>,
+{
+    for handle in written {
+        if let Some(stream) = pool.try_get_mut(&handle.stream) {
+            stream.taint(handle, failure, graph);
+        }
+    }
+}
+
+/// [`taint_with`] under a failure minted for `error`, dropped again when it
+/// claimed nothing: a failure no buffer still holds has nothing to wait for.
+pub fn taint<'a, F>(
+    pool: &mut StreamPool<F>,
+    error: ServerError,
+    written: impl Iterator<Item = &'a BufferBinding>,
+    graph: &mut ErrorGraph,
+) where
+    F: StreamFactory<Stream: StreamMemory>,
+{
+    let failure = graph.insert(error);
+    taint_with(pool, failure, written, graph);
+    graph.prune(failure);
+}
+
+/// Release the failure on every allocation in `written`: work that writes
+/// them has been enqueued, so a read of one is no longer reading bytes
+/// nothing wrote.
+pub fn written<'a, F>(
+    pool: &mut StreamPool<F>,
+    written: impl Iterator<Item = &'a BufferBinding>,
+    graph: &mut ErrorGraph,
+) where
+    F: StreamFactory<Stream: StreamMemory>,
+{
+    for handle in written {
+        if let Some(stream) = pool.try_get_mut(&handle.stream) {
+            stream.written(handle, graph);
+        }
+    }
 }

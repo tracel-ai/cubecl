@@ -1,14 +1,13 @@
 use crate::compute::stream::CpuStream;
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{
-    CubeDim, MemoryConfiguration,
-    ir::MemoryDeviceProperties,
-    server::{MetadataBindingInfo, ServerError},
+    CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, server::MetadataBindingInfo,
 };
 use cubecl_environment::stream::StreamId;
 use cubecl_llvm::PlironEngine;
 use cubecl_runtime::{
     logging::ServerLogger,
+    memory_management::ErrorGraph,
     storage::{BytesResource, ManagedResource},
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
@@ -113,16 +112,12 @@ impl SchedulerStreamBackend for ScheduledCpuBackend {
     type Stream = CpuStream;
     type Factory = CpuStreamFactory;
 
-    fn enqueue(task: Self::Task, stream: &mut Self::Stream) {
-        stream.enqueue_task(task);
+    fn enqueue(task: Self::Task, stream: &mut Self::Stream, failures: &mut ErrorGraph) {
+        stream.enqueue_task(task, failures);
     }
 
-    fn flush(stream: &mut Self::Stream) {
+    fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) {
         stream.submit();
-    }
-
-    fn errors_owned(stream: &Self::Stream, owner: StreamId) -> Vec<ServerError> {
-        stream.errors_owned(owner)
     }
 
     fn factory(&mut self) -> &mut Self::Factory {

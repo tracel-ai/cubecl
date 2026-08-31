@@ -143,6 +143,13 @@ impl Display for KernelId {
 }
 
 impl KernelId {
+    /// The kernel's type name, trimmed to its last path segment — the short
+    /// name a report can print without drowning the reader in type paths.
+    pub fn short_name(&self) -> &'static str {
+        let name = self.type_name.split('<').next().unwrap_or(self.type_name);
+        name.rsplit("::").next().unwrap_or(name)
+    }
+
     /// Create a new [kernel id](KernelId) for a type.
     pub fn new<T: 'static>() -> Self {
         Self {

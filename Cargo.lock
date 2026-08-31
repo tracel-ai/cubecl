@@ -770,6 +770,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "itertools 0.15.0",
  "log",
+ "num-complex",
  "num-integer",
  "num-traits",
  "paste",
@@ -810,6 +811,7 @@ dependencies = [
 name = "cubecl-cpu"
 version = "0.11.0-pre.3"
 dependencies = [
+ "bytemuck",
  "crossbeam-utils",
  "cubecl-common",
  "cubecl-core",
@@ -945,12 +947,14 @@ dependencies = [
  "internment",
  "itertools 0.15.0",
  "num",
+ "num-complex",
  "num-traits",
  "pliron",
  "pliron-spirv",
  "portable-atomic",
  "rustc_apfloat",
  "serde",
+ "smallvec",
  "spin",
  "thiserror",
  "variadics_please",
@@ -1034,16 +1038,23 @@ dependencies = [
  "cubecl-environment",
  "cubecl-ir",
  "derive-new",
+ "derive_more",
+ "downcast-rs 1.2.1",
+ "env_logger",
+ "expect-test",
  "float-ord",
  "hashbrown 0.17.1",
  "itertools 0.15.0",
  "log",
  "num",
  "pliron",
+ "pliron-llvm",
+ "rustc-hash 2.1.3",
  "smallvec",
  "stable-vec",
  "test-log",
  "thiserror",
+ "tynm",
  "type-map",
 ]
 
@@ -1073,6 +1084,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "smallvec",
  "tempfile",
  "test-log",
  "thiserror",
@@ -1402,6 +1414,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dissimilar"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aeda16ab4059c5fd2a83f2b9c9e9c981327b18aa8e3b313f7e6563799d4f093e"
+
+[[package]]
 name = "dlib"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1424,6 +1442,12 @@ name = "dotenvy"
 version = "0.15.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
+
+[[package]]
+name = "downcast-rs"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
 name = "downcast-rs"
@@ -1590,6 +1614,16 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
+]
+
+[[package]]
+name = "expect-test"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63af43ff4431e848fb47472a920f14fa71c24de13255a5692e93d4e90302acb0"
+dependencies = [
+ "dissimilar",
+ "once_cell",
 ]
 
 [[package]]
@@ -2770,6 +2804,7 @@ version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495"
 dependencies = [
+ "bytemuck",
  "num-traits",
 ]
 
@@ -3160,7 +3195,7 @@ checksum = "9e51eb8628227038376c81dcb1752db90a90af24a1e38b27582c7dab235149d7"
 dependencies = [
  "awint",
  "combine",
- "downcast-rs",
+ "downcast-rs 2.0.2",
  "dyn-clone",
  "hashbrown 0.17.1",
  "hi_sparse_bitset",

@@ -330,6 +330,86 @@ impl FloatAttr {
     }
 }
 
+#[pliron_attr(name = "cube.complex", verifier = "succ")]
+#[derive(new, PartialEq, Eq, Clone, Copy, Debug, Hash)]
+pub struct ComplexAttr {
+    pub ty: TypeHandle,
+    pub re: APFloat,
+    pub im: APFloat,
+}
+materialize_const!(ComplexAttr);
+
+impl Printable for ComplexAttr {
+    fn fmt(
+        &self,
+        ctx: &Context,
+        state: &printable::State,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        write!(f, "{}, ", self.ty.disp(ctx))?;
+        let float_ty = self.float_type(ctx);
+        float_ty.disp_value(self.re, ctx, state, f)?;
+        write!(f, ", ")?;
+        float_ty.disp_value(self.im, ctx, state, f)
+    }
+}
+
+impl Parsable for ComplexAttr {
+    type Arg = ();
+    type Parsed = Self;
+
+    fn parse<'a>(input: &mut StateStream<'a>, _: Self::Arg) -> ParseResult<'a, Self::Parsed> {
+        let ty = type_parse(input)?.0;
+        spaced(char::char(',')).parse_stream(input).into_result()?;
+        let ctx = dupe_ref(input.state.ctx);
+        let float_ty = Self::float_type_for(ctx, ty);
+        let re = float_ty.parse_value(input)?.0;
+        spaced(char::char(',')).parse_stream(input).into_result()?;
+        let im = float_ty.parse_value(input)?.0;
+        Ok(Self::new(ty, re, im)).into_parse_result()
+    }
+}
+
+impl ComplexAttr {
+    pub fn from_f64(ctx: &Context, ty: TypeHandle, re: f64, im: f64) -> Self {
+        let float_ty = Self::float_type_for(ctx, ty);
+        Self::new(ty, float_ty.value_from_f64(re), float_ty.value_from_f64(im))
+    }
+
+    fn float_type_for(ctx: &Context, ty: TypeHandle) -> Ref<'_, dyn APFloatType> {
+        let ty: TypeHandle = if ty.deref(ctx).is::<Complex32Type>() {
+            Float32Type::get(ctx).into()
+        } else if ty.deref(ctx).is::<Complex64Type>() {
+            Float64Type::get(ctx).into()
+        } else {
+            panic!("expected complex type")
+        };
+        Ref::map(ty.deref(ctx), |ty| try_cast_ty!(ty, ctx, dyn APFloatType))
+    }
+
+    pub fn float_type<'a>(&self, ctx: &'a Context) -> Ref<'a, dyn APFloatType> {
+        Self::float_type_for(ctx, self.ty)
+    }
+}
+
+#[attr_interface_impl]
+impl TypedAttrInterface for ComplexAttr {
+    fn get_type(&self, _ctx: &Context) -> TypeHandle {
+        self.ty
+    }
+}
+
+#[attr_interface_impl]
+impl ConstantAttr for ComplexAttr {
+    fn as_const_val(&self, ctx: &Context) -> ConstantValue {
+        let float_ty = self.float_type(ctx);
+        ConstantValue::Complex(
+            float_ty.value_to_f64(self.re),
+            float_ty.value_to_f64(self.im),
+        )
+    }
+}
+
 #[pliron_attr(name = "cube.dim3", format, verifier = "succ")]
 #[derive(new, From, PartialEq, Clone, Debug, Hash)]
 pub struct Dim3Attr(pub Dim3);

@@ -42,8 +42,7 @@ pub trait FunctionFmt {
         format!("{prefix}{}", Self::base_function_name())
     }
     fn format_unary(ctx: &Context, input: Value) -> String {
-        let in_name = input.name(ctx);
-        format!("{}({in_name})", Self::function_name(ctx, input))
+        format!("{}({})", Self::function_name(ctx, input), input.name(ctx))
     }
 }
 
@@ -109,6 +108,37 @@ unrolling!(SAbsOp);
 promotes_int!(SAbsOp);
 
 shared_op!(FreeOp, |_, _| String::new());
+
+shared_op_with_out!(CAbsOp, |op, ctx| {
+    format!("abs({})", op.input(ctx).name(ctx))
+});
+shared_op_with_out!(CConjOp, |op, ctx| {
+    let input = op.input(ctx);
+    let function = if input.size(ctx) == 8 {
+        "cuConjf"
+    } else {
+        "cuConj"
+    };
+    format!("{function}({})", input.name(ctx))
+});
+shared_op_with_out!(CRealOp, |op, ctx| {
+    let input = op.input(ctx);
+    let function = if input.size(ctx) == 8 {
+        "cuCrealf"
+    } else {
+        "cuCreal"
+    };
+    format!("{function}({})", input.name(ctx))
+});
+shared_op_with_out!(CImagOp, |op, ctx| {
+    let input = op.input(ctx);
+    let function = if input.size(ctx) == 8 {
+        "cuCimagf"
+    } else {
+        "cuCimag"
+    };
+    format!("{function}({})", input.name(ctx))
+});
 
 shared_op_with_out!(FAbsOp, |op, ctx| {
     let input = op.input(ctx);
