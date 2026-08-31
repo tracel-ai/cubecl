@@ -397,6 +397,19 @@ unsafe fn parse_ir(
 mod tests {
     use super::*;
 
+    /// The wave32 subtarget feature goes on the RDNA parts and nothing else. It is passed
+    /// both as a function attribute and to the target machine, so a wrong answer here has
+    /// every cross-lane lowering generating for the wrong wavefront width.
+    #[test]
+    fn only_the_rdna_parts_ask_for_wave32() {
+        for name in ["gfx1201", "gfx1100", "gfx1030"] {
+            assert_eq!(features_for(&GfxArch::parse(name)), WAVE32, "{name}");
+        }
+        for name in ["gfx90a", "gfx942", "gfx908"] {
+            assert_eq!(features_for(&GfxArch::parse(name)), "", "{name}");
+        }
+    }
+
     /// The finalized module carries everything the AMDGPU backend needs.
     #[test]
     fn finalize_sets_triple_callconv_and_arch() {

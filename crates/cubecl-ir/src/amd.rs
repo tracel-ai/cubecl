@@ -99,7 +99,11 @@ pub struct GfxArch {
 impl GfxArch {
     /// Parse `gcnArchName` as the driver reports it, suffix included.
     pub fn parse(reported: &str) -> Self {
-        let name = reported.split(':').next().unwrap_or(reported).to_lowercase();
+        let name = reported
+            .split(':')
+            .next()
+            .unwrap_or(reported)
+            .to_lowercase();
         let family = AMDArchitecture::parse(&name).unwrap_or(AMDArchitecture::Other);
         Self { name, family }
     }

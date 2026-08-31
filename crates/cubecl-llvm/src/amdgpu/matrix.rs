@@ -1007,3 +1007,144 @@ impl ToLLVMDialect for MmaManualOp {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_core::ir::types::MatrixScope;
+    use cubecl_core::ir::types::scalar::{Float16Type, Float32Type};
+
+    fn matrix(ident: MatrixIdent, elem_ty: TypeHandle, k: usize) -> MatrixType {
+        MatrixType {
+            ident,
+            shape: MatrixShape { m: 16, n: 16, k },
+            elem_ty,
+            layout: MatrixLayout::RowMajor,
+            scope: MatrixScope::Plane,
+        }
+    }
+
+    fn f16(ctx: &mut Context) -> TypeHandle {
+        Float16Type::get(ctx).into()
+    }
+
+    fn f32(ctx: &mut Context) -> TypeHandle {
+        Float32Type::get(ctx).into()
+    }
+
+    /// The A/B fragment width is what selects the WMMA intrinsic, and getting it wrong fails
+    /// to select rather than computing a wrong answer. RDNA3 hands every lane the whole `k`
+    /// range; RDNA4 splits it between the halves of the wave.
+    #[test]
+    fn each_generation_holds_its_own_share_of_k() {
+        let mut ctx = Context::default();
+        let f16 = f16(&mut ctx);
+
+        for (generation, elems) in [(AmdWmma::Rdna3, 16), (AmdWmma::Rdna4, 8)] {
+            ctx.set_wmma(Some(generation));
+            let a = matrix(MatrixIdent::A, f16, 16);
+            assert_eq!(fragment_layout(&ctx, &a), (elems, 1), "{generation:?}");
+        }
+    }
+
+    /// RDNA3 writes a 16 bit accumulator into the low half of each register and leaves the
+    /// other half alone, so its elements sit every second slot. A 32 bit one is dense, and so
+    /// is every RDNA4 accumulator.
+    #[test]
+    fn only_a_half_accumulator_on_rdna3_is_padded() {
+        let mut ctx = Context::default();
+        let (f16, f32) = (f16(&mut ctx), f32(&mut ctx));
+
+        for (generation, elem, step) in [
+            (AmdWmma::Rdna3, f16, 2),
+            (AmdWmma::Rdna3, f32, 1),
+            (AmdWmma::Rdna4, f16, 1),
+            (AmdWmma::Rdna4, f32, 1),
+        ] {
+            ctx.set_wmma(Some(generation));
+            let acc = matrix(MatrixIdent::Accumulator, elem, 16);
+            assert_eq!(
+                fragment_layout(&ctx, &acc),
+                (ACCUMULATOR_REGISTERS, step),
+                "{generation:?}"
+            );
+        }
+    }
+
+    /// gfx11 has only the 16-deep instruction, but the device properties advertise a 32-deep
+    /// tile because rocWMMA implements one as two instructions. A deeper tile is therefore
+    /// several instructions chained through the accumulator, not an error.
+    #[test]
+    fn a_tile_deeper_than_the_instruction_is_several_of_them() {
+        assert_eq!(instruction_steps(AmdWmma::Rdna3, 16), Some((16, 1)));
+        assert_eq!(instruction_steps(AmdWmma::Rdna3, 32), Some((16, 2)));
+        assert_eq!(instruction_steps(AmdWmma::Rdna4, 32), Some((32, 1)));
+    }
+
+    /// A depth that is not a whole number of instructions has no lowering, and says so
+    /// rather than emitting one that covers part of the tile.
+    #[test]
+    fn a_tile_that_does_not_divide_has_no_lowering() {
+        assert_eq!(instruction_steps(AmdWmma::Rdna3, 24), None);
+        assert_eq!(instruction_steps(AmdWmma::Rdna4, 0), None);
+    }
+
+    /// Whichever axis the layout makes contiguous is the one the stride does not multiply.
+    /// A and B disagree about which that is, and the accumulator follows B.
+    #[test]
+    fn the_layout_decides_which_axis_carries_the_stride() {
+        use MatrixIdent::{A, Accumulator, B};
+        use MatrixLayout::{ColMajor, RowMajor};
+
+        assert!(is_strided(A, ColMajor) && !is_strided(A, RowMajor));
+        assert!(is_strided(B, RowMajor) && !is_strided(B, ColMajor));
+        assert!(is_strided(Accumulator, RowMajor) && !is_strided(Accumulator, ColMajor));
+    }
+
+    /// A fragment loads as one wide access only when both its memory side and its register
+    /// side step by one. An RDNA3 accumulator walks two rows at a time because the halves of
+    /// the wave interleave, and a padded one leaves every second register slot alone, so
+    /// neither can be filled by a contiguous load.
+    #[test]
+    fn only_a_fragment_dense_on_both_sides_loads_as_one_access() {
+        let mut ctx = Context::default();
+        let (f16, f32) = (f16(&mut ctx), f32(&mut ctx));
+        let a = matrix(MatrixIdent::A, f16, 16);
+        let acc16 = matrix(MatrixIdent::Accumulator, f16, 16);
+        let acc32 = matrix(MatrixIdent::Accumulator, f32, 16);
+
+        // A is contiguous whenever the layout leaves it unstrided.
+        assert!(fragment_is_contiguous(
+            AmdWmma::Rdna3,
+            &a,
+            MatrixLayout::RowMajor,
+            1
+        ));
+        assert!(!fragment_is_contiguous(
+            AmdWmma::Rdna3,
+            &a,
+            MatrixLayout::ColMajor,
+            1
+        ));
+
+        // An RDNA3 accumulator never is, padded or not; an RDNA4 one is when it is dense.
+        assert!(!fragment_is_contiguous(
+            AmdWmma::Rdna3,
+            &acc32,
+            MatrixLayout::ColMajor,
+            1
+        ));
+        assert!(fragment_is_contiguous(
+            AmdWmma::Rdna4,
+            &acc32,
+            MatrixLayout::ColMajor,
+            1
+        ));
+        assert!(!fragment_is_contiguous(
+            AmdWmma::Rdna4,
+            &acc16,
+            MatrixLayout::ColMajor,
+            2
+        ));
+    }
+}
