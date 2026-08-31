@@ -290,7 +290,7 @@ impl HipContext {
 
         // `try_load_cached` hands back a key exactly when there is a cache to put it in, and
         // both stores are opened together in `HipContext::new`.
-        let cpp_hash = if let Some(key) = key.clone()
+        let cpp_hash = if let Some(key) = key
             && let Some(cache) = self.compilation_cache.as_mut()
         {
             let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();

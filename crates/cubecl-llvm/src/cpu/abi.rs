@@ -78,19 +78,6 @@ impl EntryArgLayout for TableArgs {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// `LowerEntryAbiPass` stores the layout boxed, so this fails to compile if a later signature
-    /// change breaks the trait's object safety.
-    #[test]
-    fn table_args_is_a_boxed_layout() {
-        let layout: Box<dyn EntryArgLayout> = Box::new(TableArgs::new(Rc::default()));
-        let _ = layout;
-    }
-}
-
 /// The CPU target's contribution to the pipeline.
 ///
 /// A CPU has no launch grid, so the whole of it is emulated: the entry point becomes a loop
@@ -112,5 +99,18 @@ impl TargetLowering for CpuLowering {
 
     fn arg_layout(&self) -> Box<dyn EntryArgLayout> {
         Box::new(TableArgs::new(self.shared_memories.clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `LowerEntryAbiPass` stores the layout boxed, so this fails to compile if a later signature
+    /// change breaks the trait's object safety.
+    #[test]
+    fn table_args_is_a_boxed_layout() {
+        let layout: Box<dyn EntryArgLayout> = Box::new(TableArgs::new(Rc::default()));
+        let _ = layout;
     }
 }
