@@ -11,7 +11,11 @@ use cubecl_core::ir::prelude::*;
 use pliron::basic_block::BasicBlock;
 use pliron::builtin::ops::FuncOp;
 
+use pliron::pass::{OpPass, Passes};
+
+use crate::cpu::entrypoint::InsertConstantEmulationPass;
 use crate::cpu::shared_memory::SharedMemories;
+use crate::shared::lowering::TargetLowering;
 use crate::shared::metadata::{EntryArgLayout, load_table, rebuild_func_type, table_ty};
 use crate::shared::shared_memory::SharedDeclarations;
 
@@ -84,5 +88,29 @@ mod tests {
     fn table_args_is_a_boxed_layout() {
         let layout: Box<dyn EntryArgLayout> = Box::new(TableArgs::new(Rc::default()));
         let _ = layout;
+    }
+}
+
+/// The CPU target's contribution to the pipeline.
+///
+/// A CPU has no launch grid, so the whole of it is emulated: the entry point becomes a loop
+/// nest over the cube, and the shared memories become slots in the pointer table above.
+pub struct CpuLowering {
+    shared_memories: Rc<RefCell<SharedMemories>>,
+}
+
+impl CpuLowering {
+    pub fn new(shared_memories: Rc<RefCell<SharedMemories>>) -> Self {
+        Self { shared_memories }
+    }
+}
+
+impl TargetLowering for CpuLowering {
+    fn prologue(&self, passes: &mut OpPass<FuncOp, Passes>) {
+        passes.add_pass(InsertConstantEmulationPass);
+    }
+
+    fn arg_layout(&self) -> Box<dyn EntryArgLayout> {
+        Box::new(TableArgs::new(self.shared_memories.clone()))
     }
 }

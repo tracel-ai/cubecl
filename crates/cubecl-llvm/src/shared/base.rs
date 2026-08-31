@@ -8,7 +8,6 @@ use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 use std::{path::PathBuf, str::FromStr};
 
 use cubecl_opt::passes::{
-    alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
     sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
@@ -18,6 +17,7 @@ use cubecl_core::{
     Compiler,
     ir::amd::GfxArch,
     ir::dialect::scf::BranchToSCFPass,
+    ir::metadata::Info,
     ir::rewrite::SimplifyOpsPass,
     post_processing::bitwise::PromoteBitwisePass,
     post_processing::minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
@@ -25,28 +25,28 @@ use cubecl_core::{
 };
 use pliron::{
     builtin::ops::{FuncOp, ModuleOp},
+    context::{Context, Ptr},
     op::Op,
+    operation::Operation,
     operation::verify_operation,
     opts::{dce::DCEPass, mem2reg::Mem2RegPass, simplify_cfg::SimplifyCFGPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
     printable::Printable,
 };
 
-use crate::amdgpu::abi::KernargArgs;
-use crate::amdgpu::builtins::InsertAmdgpuBuiltinsPass;
+use crate::amdgpu::abi::AmdGpuLowering;
 use crate::amdgpu::matrix::CtxWmma;
 use crate::amdgpu::plane::CtxPlaneDim;
 use crate::amdgpu::shared_memory::CtxSharedMemory;
 use crate::cpu::{
-    abi::TableArgs,
-    entrypoint::InsertConstantEmulationPass,
+    abi::CpuLowering,
     jit::engine::{KernelRequirements, PlironEngine},
     shared_memory::SharedMemories,
     synchronization::uses_cube_barrier,
 };
 use crate::shared::{
-    branch::SCFToLlvmCf, metadata::LowerEntryAbiPass, polyfill::LowerComplexOpPass,
-    shared_memory::declares_shared_memory, to_llvm::CubeToLLVMPass,
+    branch::SCFToLlvmCf, lowering::TargetLowering, metadata::LowerEntryAbiPass,
+    polyfill::LowerComplexOpPass, shared_memory::declares_shared_memory, to_llvm::CubeToLLVMPass,
 };
 use crate::target::{CtxTarget, LlvmTarget};
 
@@ -168,8 +168,8 @@ impl PlironCompiler {
 
     fn compile_cpu(self, kernel: KernelDefinition) -> PlironEngine {
         let module = kernel.body.state().module;
-        let entry_func = kernel.body.state().entry_func;
         let module_op = module.get_operation();
+        let ir = KernelIr::of(&kernel);
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
         ctx.set_target(LlvmTarget::Cpu);
@@ -179,69 +179,7 @@ impl PlironCompiler {
         // Filled in by the entry ABI pass, which is where the shared memories get their slot.
         let shared_memories = Rc::new(RefCell::new(SharedMemories::default()));
 
-        #[cfg(not(feature = "pliron-dump"))]
-        let ir_printing_dir = None;
-        #[cfg(feature = "pliron-dump")]
-        let ir_printing_dir = pliron_path(&kernel.settings.kernel_name);
-        let config = PMConfig {
-            print_after_all: true,
-            ir_printing_dir,
-            ..Default::default()
-        };
-
-        let mut analyses = AnalysisManager::default();
-        analyses.set_config(config);
-
-        let mut passes = OpPass::<ModuleOp, Passes>::default();
-        let mut func_passes = OpPass::<FuncOp, Passes>::default();
-        func_passes.add_pass(InsertConstantEmulationPass);
-        func_passes.add_pass(SROAPass);
-        func_passes.add_pass(SCCPPass);
-        func_passes.add_pass(SimpleCSEPass);
-        func_passes.add_pass(SimplifyOpsPass::default());
-        func_passes.add_pass(PromoteBitwisePass);
-        func_passes.add_pass(InstCombinePass::default());
-        func_passes.add_pass(LowerMinifloatCastPass::default());
-        func_passes.add_pass(LowerMinifloatComparePass::default());
-        func_passes.add_pass(LowerComplexOpPass::default());
-        func_passes.add_pass(DCEPass);
-        func_passes.add_pass(SROAPass);
-
-        let mut lowering_passes = OpPass::<FuncOp, Passes>::default();
-        lowering_passes.add_pass(BranchToSCFPass::default());
-        lowering_passes.add_pass(SCFToLlvmCf::default());
-        lowering_passes.add_pass(LowerEntryAbiPass::new(
-            kernel.info.clone(),
-            Box::new(TableArgs::new(shared_memories.clone())),
-        ));
-        lowering_passes.add_pass(CubeToLLVMPass::default());
-        lowering_passes.add_pass(SimplifyCFGPass);
-        lowering_passes.add_pass(DCEPass);
-        lowering_passes.add_pass(Mem2RegPass);
-
-        passes.add_pass(NestedOpsPass::new(func_passes));
-        // Reads cube-dialect memory effects, so it has to run after the
-        // optimizations that shape them and before the lowering group erases
-        // the cube ops — the same post-optimization point the other backends
-        // annotate at.
-        passes.add_pass(AnnotateGlobalVisibilityPass);
-        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
-
-        // Read the stamped answer now: the entry ABI lowering below folds the
-        // buffer arguments behind a pointer table and erases them, attributes
-        // included.
-        let io = cubecl_core::ir::attributes::buffer_io_by_position(&ctx, entry_func)
-            .into_iter()
-            .collect();
-
-        let mut passes = OpPass::<ModuleOp, Passes>::default();
-        passes.add_pass(NestedOpsPass::new(lowering_passes));
-        passes.add_pass(builtin_to_llvm_pass());
-        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
-
-        if let Err(e) = verify_operation(module_op, &ctx) {
-            panic!("{}", e.disp(&ctx));
-        }
+        let io = lower(&mut ctx, &ir, &CpuLowering::new(shared_memories.clone()));
 
         let requirements = KernelRequirements {
             needs_parallelism,
@@ -255,8 +193,7 @@ impl PlironCompiler {
     /// Lowers `kernel` for `arch` and compiles it into a linked AMD code object.
     fn compile_amdgpu(self, kernel: KernelDefinition, arch: &GfxArch) -> AmdGpuModule {
         let module = kernel.body.state().module;
-        let entry_func = kernel.body.state().entry_func;
-        let module_op = module.get_operation();
+        let ir = KernelIr::of(&kernel);
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
         // The runtime checks this against what the driver reports before it compiles
@@ -271,71 +208,7 @@ impl PlironCompiler {
         ctx.set_plane_dim(plane_dim);
         ctx.set_wmma(arch.wmma());
 
-        #[cfg(not(feature = "pliron-dump"))]
-        let ir_printing_dir = None;
-        #[cfg(feature = "pliron-dump")]
-        let ir_printing_dir = pliron_path(&kernel.settings.kernel_name);
-        let config = PMConfig {
-            print_after_all: true,
-            ir_printing_dir,
-            ..Default::default()
-        };
-
-        let mut analyses = AnalysisManager::default();
-        analyses.set_config(config);
-
-        let mut passes = OpPass::<ModuleOp, Passes>::default();
-        let mut func_passes = OpPass::<FuncOp, Passes>::default();
-        // Packs every shared memory into one block of offsets, which is what the AMDGPU
-        // lowering then gives an address in LDS. Same pass the C++ backends run.
-        func_passes.add_pass(AllocateSharedMemoryBlockPass);
-        func_passes.add_pass(SROAPass);
-        func_passes.add_pass(SCCPPass);
-        func_passes.add_pass(SimpleCSEPass);
-        func_passes.add_pass(SimplifyOpsPass::default());
-        func_passes.add_pass(PromoteBitwisePass);
-        func_passes.add_pass(LowerMinifloatCastPass::default());
-        func_passes.add_pass(LowerMinifloatComparePass::default());
-        func_passes.add_pass(LowerComplexOpPass::default());
-        // After the polyfills, which read builtins of their own: the plane folds ask for the
-        // plane's width and this unit's place in it.
-        func_passes.add_pass(InsertAmdgpuBuiltinsPass { plane_dim });
-        func_passes.add_pass(DCEPass);
-        func_passes.add_pass(SROAPass);
-
-        let mut lowering_passes = OpPass::<FuncOp, Passes>::default();
-        lowering_passes.add_pass(BranchToSCFPass::default());
-        lowering_passes.add_pass(SCFToLlvmCf::default());
-        lowering_passes.add_pass(LowerEntryAbiPass::new(
-            kernel.info.clone(),
-            Box::new(KernargArgs),
-        ));
-        lowering_passes.add_pass(CubeToLLVMPass::default());
-        lowering_passes.add_pass(SimplifyCFGPass);
-        lowering_passes.add_pass(DCEPass);
-        lowering_passes.add_pass(Mem2RegPass);
-
-        passes.add_pass(NestedOpsPass::new(func_passes));
-        // Reads cube-dialect memory effects, so it has to run after the
-        // optimizations that shape them and before the lowering group erases
-        // the cube ops -- the same post-optimization point the other backends
-        // annotate at.
-        passes.add_pass(AnnotateGlobalVisibilityPass);
-        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
-
-        // Read the stamped answer now: the entry ABI lowering below folds the
-        // buffer arguments behind the kernarg segment and erases them,
-        // attributes included.
-        let io = cubecl_core::ir::attributes::buffer_io_by_position(&ctx, entry_func);
-
-        let mut passes = OpPass::<ModuleOp, Passes>::default();
-        passes.add_pass(NestedOpsPass::new(lowering_passes));
-        passes.add_pass(builtin_to_llvm_pass());
-        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
-
-        if let Err(e) = verify_operation(module_op, &ctx) {
-            panic!("{}", e.disp(&ctx));
-        }
+        let io = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim });
 
         // Filled in by the block's lowering, which is the last point it is known.
         let shared_memory_size = ctx.shared_memory_size();
@@ -357,6 +230,101 @@ impl PlironCompiler {
             )
         })
     }
+}
+
+/// The module and the facts about it the pipeline needs, taken while the kernel still owns
+/// its scope: lowering starts by consuming that scope into the context, after which the
+/// kernel cannot be asked anything.
+struct KernelIr {
+    module_op: Ptr<Operation>,
+    entry_func: FuncOp,
+    info: Info,
+    #[cfg_attr(not(feature = "pliron-dump"), allow(dead_code))]
+    name: String,
+}
+
+impl KernelIr {
+    fn of(kernel: &KernelDefinition) -> Self {
+        let state = kernel.body.state();
+        Self {
+            module_op: state.module.get_operation(),
+            entry_func: state.entry_func,
+            info: kernel.info.clone(),
+            name: kernel.settings.kernel_name.clone(),
+        }
+    }
+}
+
+/// Runs `kernel` down to the LLVM dialect, with `target` contributing the passes around the
+/// optimizations both share, and answers what the kernel does with each buffer binding.
+///
+/// The context is left holding a verified LLVM-dialect module, which each target then takes
+/// to machine code its own way.
+fn lower(ctx: &mut Context, kernel: &KernelIr, target: &dyn TargetLowering) -> Vec<BufferIOAttr> {
+    let (module_op, entry_func) = (kernel.module_op, kernel.entry_func);
+
+    #[cfg(not(feature = "pliron-dump"))]
+    let ir_printing_dir = None;
+    #[cfg(feature = "pliron-dump")]
+    let ir_printing_dir = pliron_path(&kernel.name);
+    let config = PMConfig {
+        print_after_all: true,
+        ir_printing_dir,
+        ..Default::default()
+    };
+
+    let mut analyses = AnalysisManager::default();
+    analyses.set_config(config);
+
+    let mut func_passes = OpPass::<FuncOp, Passes>::default();
+    target.prologue(&mut func_passes);
+    func_passes.add_pass(SROAPass);
+    func_passes.add_pass(SCCPPass);
+    func_passes.add_pass(SimpleCSEPass);
+    func_passes.add_pass(SimplifyOpsPass::default());
+    func_passes.add_pass(PromoteBitwisePass);
+    func_passes.add_pass(InstCombinePass::default());
+    func_passes.add_pass(LowerMinifloatCastPass::default());
+    func_passes.add_pass(LowerMinifloatComparePass::default());
+    func_passes.add_pass(LowerComplexOpPass::default());
+    target.epilogue(&mut func_passes);
+    func_passes.add_pass(DCEPass);
+    func_passes.add_pass(SROAPass);
+
+    let mut lowering_passes = OpPass::<FuncOp, Passes>::default();
+    lowering_passes.add_pass(BranchToSCFPass::default());
+    lowering_passes.add_pass(SCFToLlvmCf::default());
+    lowering_passes.add_pass(LowerEntryAbiPass::new(
+        kernel.info.clone(),
+        target.arg_layout(),
+    ));
+    lowering_passes.add_pass(CubeToLLVMPass::default());
+    lowering_passes.add_pass(SimplifyCFGPass);
+    lowering_passes.add_pass(DCEPass);
+    lowering_passes.add_pass(Mem2RegPass);
+
+    let mut passes = OpPass::<ModuleOp, Passes>::default();
+    passes.add_pass(NestedOpsPass::new(func_passes));
+    // Reads cube-dialect memory effects, so it has to run after the optimizations that shape
+    // them and before the lowering group erases the cube ops, which is the same
+    // post-optimization point the other backends annotate at.
+    passes.add_pass(AnnotateGlobalVisibilityPass);
+    passes.run(module_op, ctx, &mut analyses).unwrap();
+
+    // Read the stamped answer now: the entry ABI lowering below folds the buffer arguments
+    // behind the target's own layout and erases them, attributes included.
+    let io = cubecl_core::ir::attributes::buffer_io_by_position(ctx, entry_func);
+
+    let mut passes = OpPass::<ModuleOp, Passes>::default();
+    passes.add_pass(NestedOpsPass::new(lowering_passes));
+    passes.add_pass(builtin_to_llvm_pass());
+    passes.run(module_op, ctx, &mut analyses).unwrap();
+
+    if let Err(e) = verify_operation(module_op, ctx) {
+        panic!("{}", e.disp(ctx));
+    }
+
+    io
 }
 
 #[cfg(feature = "pliron-dump")]

@@ -9,6 +9,11 @@ use cubecl_core::ir::prelude::*;
 use pliron::builtin::ops::FuncOp;
 use pliron_llvm::types::PointerType as LlvmPointerType;
 
+use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
+use pliron::pass::{OpPass, Passes};
+
+use crate::amdgpu::builtins::InsertAmdgpuBuiltinsPass;
+use crate::shared::lowering::TargetLowering;
 use crate::shared::metadata::{EntryArgLayout, rebuild_func_type};
 use crate::shared::shared_memory::SharedDeclarations;
 
@@ -62,5 +67,33 @@ impl EntryArgLayout for KernargArgs {
         info_arg.set_type(ctx, global_ptr);
 
         rebuild_func_type(ctx, func);
+    }
+}
+
+/// The AMDGPU target's contribution to the pipeline.
+///
+/// The hardware *is* the launch grid, so nothing is emulated: the shared memories are packed
+/// into the one LDS block a launch reserves, and the builtins become intrinsic calls once the
+/// polyfills that read them have been expanded.
+pub struct AmdGpuLowering {
+    /// Wavefront width of the device, which `PlaneDim` resolves to.
+    pub plane_dim: u32,
+}
+
+impl TargetLowering for AmdGpuLowering {
+    fn prologue(&self, passes: &mut OpPass<FuncOp, Passes>) {
+        // Packs every shared memory into one block of offsets, which the AMDGPU lowering then
+        // gives an address in LDS. Same pass the C++ backends run.
+        passes.add_pass(AllocateSharedMemoryBlockPass);
+    }
+
+    fn epilogue(&self, passes: &mut OpPass<FuncOp, Passes>) {
+        passes.add_pass(InsertAmdgpuBuiltinsPass {
+            plane_dim: self.plane_dim,
+        });
+    }
+
+    fn arg_layout(&self) -> Box<dyn EntryArgLayout> {
+        Box::new(KernargArgs)
     }
 }
