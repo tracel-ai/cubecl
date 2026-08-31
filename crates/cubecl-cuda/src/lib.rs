@@ -61,9 +61,6 @@ pub mod install {
 }
 
 #[cfg(test)]
-mod tests_profiling;
-
-#[cfg(test)]
 #[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::CudaRuntime;
@@ -79,4 +76,6 @@ mod tests {
     cubecl_core::testgen_complex_compare!();
     cubecl_core::testgen_complex_math!();
     cubecl_core::testgen_complex_validation!();
+    cubecl_core::testgen_profiling!();
+    cubecl_core::testgen_profiling_nested!();
 }

@@ -23,6 +23,7 @@ pub mod metadata;
 pub mod minifloat;
 pub mod numeric;
 pub mod plane;
+pub mod profiling;
 pub mod properties;
 pub mod read_lazy;
 pub mod saturating;
