@@ -100,7 +100,7 @@ impl<T: CubePrimitive> CubePrimitiveExpand for NativeExpand<T> {
 /// **not** for `Vector` or non-standard primitives like `Barrier`. Alternatively, treat these as
 /// types that can be stored in a [`Vector`]
 pub trait Scalar:
-    CubePrimitive<Scalar = Self, Size = Const<1>>
+    CubePrimitive<Scalar = Self, Size = Const<1>, WithScalar<Self> = Self>
     + Default
     + IntoRuntime
     + Debug
