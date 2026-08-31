@@ -40,6 +40,26 @@ impl WmmaGeneration {
         *self == WmmaGeneration::Rdna3
     }
 
+    /// How a tile of depth `k` splits into hardware instructions: the `k` of one
+    /// instruction, and how many of them the tile takes.
+    ///
+    /// gfx11 only has the `16x16x16` WMMA shapes, but rocWMMA advertises `16x16x32` on it
+    /// as well and implements it as two instructions, so the device properties offer that
+    /// tile and callers take it up. A tile deeper than the instruction is therefore not an
+    /// error: it is several instructions over consecutive slices of the `k` range, chained
+    /// through the accumulator. gfx12 has the wider instruction and always runs in one step.
+    pub fn instruction_steps(&self, k: usize) -> (usize, usize) {
+        let instruction_k = match self {
+            WmmaGeneration::Rdna3 => 16.min(k),
+            WmmaGeneration::Rdna4 => k,
+        };
+        assert!(
+            instruction_k > 0 && k % instruction_k == 0,
+            "a k of {k} does not divide into {instruction_k}-deep WMMA instructions"
+        );
+        (instruction_k, k / instruction_k)
+    }
+
     /// The generation of `arch`, or `None` where there is no WMMA at all.
     pub fn of(arch: &str) -> Option<Self> {
         if arch.starts_with("gfx11") {
@@ -382,6 +402,94 @@ fn wmma_format(ctx: &Context, elem: TypeHandle) -> &'static str {
     }
 }
 
+/// The `step`th `width`-element slice of a fragment.
+///
+/// Only reached when a tile takes more than one instruction, which is RDNA3 alone; there a
+/// lane holds the whole `k` range of its row or column contiguously, so consecutive slices
+/// of the fragment are exactly the operands of the consecutive instructions.
+fn fragment_slice(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    fragment: Value,
+    step: usize,
+    width: usize,
+) -> Value {
+    let mask = (0..width).map(|i| (step * width + i) as i32).collect();
+    let op = llvm::ShuffleVectorOp::new(ctx, fragment, fragment, mask);
+    rw.insert_op(ctx, &op);
+    op.get_result(ctx)
+}
+
+/// What one WMMA lowering needs that is not the operand values.
+struct WmmaCall {
+    /// `m`, `n` and the depth of the *tile*, which may be several instructions.
+    shape: MatrixShape,
+    /// WMMA format name of the A/B element type.
+    ab: &'static str,
+    /// WMMA format name of the C/D element type.
+    cd: &'static str,
+    /// Whether the accumulator is a 16 bit type, which RDNA3 gives an `opsel` argument.
+    cd_is_half: bool,
+}
+
+/// Emit the instructions a tile takes and return the final accumulator.
+///
+/// `ab_ty` types the A and B operands as the caller holds them, covering the whole tile; when
+/// the tile is more than one instruction each step takes its own slice and is typed by that.
+fn emit_wmma(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    call: WmmaCall,
+    (a_val, b_val, c_val): (Value, Value, Value),
+    ab_ty: TypeHandle,
+    cd_ty: TypeHandle,
+) -> Value {
+    let WmmaCall {
+        shape: MatrixShape { m, n, k },
+        ab,
+        cd,
+        cd_is_half,
+    } = call;
+    let generation = ctx.wmma();
+    let (instruction_k, steps) = generation.instruction_steps(k);
+    let pads_half = generation.pads_half_accumulator() && cd_is_half;
+
+    let mut acc = c_val;
+    for step in 0..steps {
+        let (a_arg, b_arg, arg_ty) = if steps == 1 {
+            (a_val, b_val, ab_ty)
+        } else {
+            let a_slice = fragment_slice(ctx, rw, a_val, step, instruction_k);
+            let b_slice = fragment_slice(ctx, rw, b_val, step, instruction_k);
+            let ty = a_slice.get_type(ctx);
+            (a_slice, b_slice, ty)
+        };
+
+        // The intrinsic is overloaded on both fragment types, so the name carries them.
+        let name = format!(
+            "llvm.amdgcn.wmma.{cd}.{m}x{n}x{instruction_k}.{ab}.{}.{}",
+            llvm_mangled_ty(ctx, cd_ty),
+            llvm_mangled_ty(ctx, arg_ty),
+        );
+
+        let mut args = vec![a_arg, b_arg, acc];
+        let mut arg_tys = vec![arg_ty, arg_ty, cd_ty];
+        // RDNA3 writes a 16 bit result into one half of each register and takes an `opsel`
+        // saying which. RDNA4 packs them densely and has no such argument.
+        if pads_half {
+            let low_half = insert_bool_const(ctx, rw, false);
+            arg_tys.push(low_half.get_type(ctx));
+            args.push(low_half);
+        }
+
+        let fn_ty = FuncType::get(ctx, cd_ty, arg_tys, false);
+        let op = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
+        rw.insert_op(ctx, &op);
+        acc = op.get_result(ctx);
+    }
+    acc
+}
+
 #[op_interface_impl]
 impl ToLLVMDialect for MultiplyAccumulateOp {
     fn rewrite(
@@ -407,30 +515,21 @@ impl ToLLVMDialect for MultiplyAccumulateOp {
         let b_val = load_fragment(ctx, rw, b, ab_frag_ty);
         let c_val = load_fragment(ctx, rw, c, cd_frag_ty);
 
-        let MatrixShape { m, n, k } = a_ty.shape;
-        let ab = wmma_format(ctx, a_ty.elem_ty);
-        let cd = wmma_format(ctx, c_ty.elem_ty);
-        // The intrinsic is overloaded on both fragment types, so the name carries them.
-        let name = format!(
-            "llvm.amdgcn.wmma.{cd}.{m}x{n}x{k}.{ab}.{}.{}",
-            llvm_mangled_ty(ctx, cd_frag_ty),
-            llvm_mangled_ty(ctx, ab_frag_ty),
+        let call = WmmaCall {
+            shape: a_ty.shape,
+            ab: wmma_format(ctx, a_ty.elem_ty),
+            cd: wmma_format(ctx, c_ty.elem_ty),
+            cd_is_half: is_half(ctx, c_ty.elem_ty),
+        };
+        let result = emit_wmma(
+            ctx,
+            rw,
+            call,
+            (a_val, b_val, c_val),
+            ab_frag_ty,
+            cd_frag_ty,
         );
-
-        let mut args = vec![a_val, b_val, c_val];
-        let mut arg_tys = vec![ab_frag_ty, ab_frag_ty, cd_frag_ty];
-        // RDNA3 writes a 16 bit result into one half of each register and takes an `opsel`
-        // saying which. RDNA4 packs them densely and has no such argument.
-        if ctx.wmma().pads_half_accumulator() && is_half(ctx, c_ty.elem_ty) {
-            let low_half = insert_bool_const(ctx, rw, false);
-            arg_tys.push(low_half.get_type(ctx));
-            args.push(low_half);
-        }
-
-        let fn_ty = FuncType::get(ctx, cd_frag_ty, arg_tys, false);
-        let op = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
-        rw.insert_op(ctx, &op);
-        store_fragment(ctx, rw, d, op.get_result(ctx));
+        store_fragment(ctx, rw, d, result);
 
         rw.erase_operation(ctx, old_op);
         Ok(())
@@ -684,27 +783,14 @@ impl ToLLVMDialect for MmaManualOp {
         let b_val = registers_value(ctx, rw, b, ab_ty);
         let c_val = registers_value(ctx, rw, c, cd_ty);
 
-        let MatrixShape { m, n, k } = *self.shape(ctx).clone();
-        let ab = wmma_format(ctx, ab_elem);
-        let cd = wmma_format(ctx, cd_elem);
-        let name = format!(
-            "llvm.amdgcn.wmma.{cd}.{m}x{n}x{k}.{ab}.{}.{}",
-            llvm_mangled_ty(ctx, cd_ty),
-            llvm_mangled_ty(ctx, ab_ty),
-        );
-
-        let mut args = vec![a_val, b_val, c_val];
-        let mut arg_tys = vec![ab_ty, ab_ty, cd_ty];
-        if ctx.wmma().pads_half_accumulator() && is_half(ctx, cd_elem) {
-            let low_half = insert_bool_const(ctx, rw, false);
-            arg_tys.push(low_half.get_type(ctx));
-            args.push(low_half);
-        }
-
-        let fn_ty = FuncType::get(ctx, cd_ty, arg_tys, false);
-        let op = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
-        rw.insert_op(ctx, &op);
-        store_fragment(ctx, rw, d, op.get_result(ctx));
+        let call = WmmaCall {
+            shape: *self.shape(ctx).clone(),
+            ab: wmma_format(ctx, ab_elem),
+            cd: wmma_format(ctx, cd_elem),
+            cd_is_half: is_half(ctx, cd_elem),
+        };
+        let result = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_ty, cd_ty);
+        store_fragment(ctx, rw, d, result);
 
         rw.erase_operation(ctx, old_op);
         Ok(())
