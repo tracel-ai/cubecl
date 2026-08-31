@@ -5,6 +5,7 @@ pub(crate) mod driver;
 pub(crate) mod storage;
 pub(crate) mod stream;
 pub(crate) mod sync;
+pub(crate) mod timings;
 
 mod server;
 

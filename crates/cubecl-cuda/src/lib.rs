@@ -61,6 +61,9 @@ pub mod install {
 }
 
 #[cfg(test)]
+mod tests_profiling;
+
+#[cfg(test)]
 #[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::CudaRuntime;

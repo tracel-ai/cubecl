@@ -12,6 +12,9 @@ pub use device::*;
 pub use runtime::HipRuntime;
 
 #[cfg(test)]
+mod tests_profiling;
+
+#[cfg(test)]
 mod tests {
     use half::f16;
     pub type TestRuntime = crate::HipRuntime;

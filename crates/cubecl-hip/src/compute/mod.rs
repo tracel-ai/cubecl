@@ -6,6 +6,7 @@ pub(crate) mod driver;
 pub(crate) mod fence;
 pub(crate) mod storage;
 pub(crate) mod stream;
+pub(crate) mod timings;
 
 pub use server::*;
 pub use storage::*;

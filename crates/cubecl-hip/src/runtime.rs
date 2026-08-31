@@ -157,7 +157,7 @@ impl DeviceService for HipServer {
             Default::default(),
             mem_properties.clone(),
             topology,
-            TimingMethod::System,
+            TimingMethod::Device,
             DeviceIdentity {
                 name: probe.name.clone(),
                 fingerprint: fingerprint.clone(),

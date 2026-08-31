@@ -314,8 +314,10 @@ impl ComputeServer for HipServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id))?;
-        Ok(self.ctx.timestamps.start())
+        // No drain: the window opens where the stream already is, and the
+        // device stamps it there. See [`EventProfiler`].
+        let sys = self.profiled_stream(stream_id)?;
+        self.ctx.timestamps.start(sys)
     }
 
     fn end_profile(
@@ -323,12 +325,17 @@ impl ComputeServer for HipServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        if let Err(err) = cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id)) {
-            self.ctx
-                .timestamps
-                .error(ProfileError::Server(Box::new(err)));
-        }
-        self.ctx.timestamps.stop(token)
+        let sys = match self.profiled_stream(stream_id) {
+            Ok(sys) => sys,
+            Err(err) => {
+                // The window cannot be closed on the device, so there is
+                // nothing to read back — drop it and report, rather than leave
+                // a token open that nothing will ever close.
+                self.ctx.timestamps.abandon(token);
+                return Err(ProfileError::from(&err));
+            }
+        };
+        self.ctx.timestamps.stop(sys, token)
     }
 
     fn get_resource(
@@ -494,6 +501,32 @@ impl HipServer {
             self.profile_failure(&ServerError::Launch(err));
         }
         true
+    }
+
+    /// The stream a profiling window records its events into.
+    ///
+    /// # Errors
+    ///
+    /// A stream recording a graph. Its events would be recorded into the graph
+    /// as nodes rather than stamped as they are queued, so the window would
+    /// measure nothing and reading it back would abort the capture. Refusing is
+    /// what the client's profiled launch path expects here — it hands the
+    /// launch back and runs it unmeasured.
+    fn profiled_stream(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<cubecl_hip_sys::hipStream_t, ServerError> {
+        let mut streams = self.streams.resolve(stream_id, [].into_iter());
+        let stream = streams.current();
+
+        if stream.capturing.is_recording() {
+            return Err(ServerError::Generic {
+                reason: "Can't profile a stream while it is recording a graph".into(),
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+            });
+        }
+
+        Ok(stream.sys)
     }
 
     /// Mark every open profile invalid: a failure inside a profiling window

@@ -9,6 +9,7 @@
 use super::storage::gpu::GpuResource;
 use crate::compiler::{HipCompilationOptions, HipCompiler, HipRepresentation};
 use crate::compute::stream::Stream;
+use crate::compute::timings::EventProfiler;
 #[cfg(feature = "cpp")]
 use cubecl_core::hash::StableHasher;
 use cubecl_core::{hash::StableHash, ir::DeviceProperties, prelude::*, server::ResourceLimitError};
@@ -23,7 +24,6 @@ use cubecl_runtime::compiler::{
 };
 use cubecl_runtime::driver::checked;
 use cubecl_runtime::kernel::BufferIOAttr;
-use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     compiler::CompilationError,
     validation::{validate_cube_dim, validate_units},
@@ -48,7 +48,7 @@ pub(crate) struct HipContext {
     /// An environment switch drops these, and nothing unloads the modules they
     /// name: see [`HipContext::is_loaded`].
     modules: CompilationCache<KernelId, HipCompiledKernel>,
-    pub timestamps: TimestampProfiler,
+    pub timestamps: EventProfiler,
     pub compilation_options: HipCompilationOptions,
     pub properties: DeviceProperties,
     pub compilation_cache: Option<Store<KernelCacheKey, CompilationCacheEntry>>,
@@ -119,7 +119,7 @@ impl HipContext {
 
         Self {
             modules: CompilationCache::mirroring(&compilation_cache),
-            timestamps: TimestampProfiler::default(),
+            timestamps: EventProfiler::default(),
             compilation_options,
             compilation_cache,
             #[cfg(feature = "cpp")]
