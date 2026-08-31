@@ -1,4 +1,5 @@
 use super::prelude::*;
+use crate::target::{CtxTarget, LlvmTarget};
 use cubecl_core::ir::dialect::bitwise::*;
 use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp};
 use cubecl_core::ir::dialect::general::{BoolAndOp, BoolNotOp, BoolOrOp};
@@ -331,8 +332,25 @@ impl ToLLVMDialect for BoolNotOp {
     }
 }
 
+/// Whether a multiply feeding an add may fuse into an FMA.
+///
+/// `contract` alone, never the rest of `fast`: assuming no NaNs or infinities and allowing
+/// reassociation change what the kernel computes, which is not the compiler's call to make.
+/// Contraction only rounds once instead of twice, and a matmul inner loop is made of it.
+///
+/// On the GPU only. The FMA is the instruction the hardware wants, and the C++ backends
+/// contract by default, so this is what the other runtimes already do. The CPU pipeline is
+/// the reference those runtimes get compared against, so its arithmetic stays exactly what
+/// the kernel wrote.
+fn fma_contraction(ctx: &Context) -> FastmathFlagsAttr {
+    match ctx.target() {
+        LlvmTarget::AmdGpu => FastmathFlagsAttr(FastmathFlags::CONTRACT),
+        LlvmTarget::Cpu => FastmathFlagsAttr::default(),
+    }
+}
+
 macro_rules! lower_float_bin_arith {
-    ($cube_op:ty => $llvm_op:ty) => {
+    ($cube_op:ty => $llvm_op:ty, $flags:expr) => {
         #[op_interface_impl]
         impl ToLLVMDialect for $cube_op {
             fn rewrite(
@@ -343,17 +361,8 @@ macro_rules! lower_float_bin_arith {
             ) -> Result<()> {
                 let lhs = self.lhs(ctx);
                 let rhs = self.rhs(ctx);
-                let op = <$llvm_op>::new_with_fast_math_flags(
-                    ctx,
-                    lhs,
-                    rhs,
-                    // `contract` alone: it lets a multiply feeding an add fuse into
-                    // an FMA, which is what a matmul inner loop is made of, and is
-                    // the only flag needed for that. The rest of `fast` -- assuming
-                    // no NaNs or infinities, allowing reassociation -- changes what
-                    // the kernel computes, so it is not ours to turn on.
-                    FastmathFlagsAttr(FastmathFlags::CONTRACT),
-                );
+                let flags = $flags(ctx);
+                let op = <$llvm_op>::new_with_fast_math_flags(ctx, lhs, rhs, flags);
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(
                     ctx,
@@ -366,11 +375,16 @@ macro_rules! lower_float_bin_arith {
     };
 }
 
-lower_float_bin_arith!(FAddOp => llvm::FAddOp);
-lower_float_bin_arith!(FSubOp => llvm::FSubOp);
-lower_float_bin_arith!(FMulOp => llvm::FMulOp);
-lower_float_bin_arith!(FDivOp => llvm::FDivOp);
-lower_float_bin_arith!(FRemOp => llvm::FRemOp);
+/// No flags. A division or a remainder has nothing to contract into.
+fn no_fast_math(_ctx: &Context) -> FastmathFlagsAttr {
+    FastmathFlagsAttr::default()
+}
+
+lower_float_bin_arith!(FAddOp => llvm::FAddOp, fma_contraction);
+lower_float_bin_arith!(FSubOp => llvm::FSubOp, fma_contraction);
+lower_float_bin_arith!(FMulOp => llvm::FMulOp, fma_contraction);
+lower_float_bin_arith!(FDivOp => llvm::FDivOp, no_fast_math);
+lower_float_bin_arith!(FRemOp => llvm::FRemOp, no_fast_math);
 
 macro_rules! lower_binary_intrinsic_arith {
     ($cube_op:ty => $llvm_op:expr) => {

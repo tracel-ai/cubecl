@@ -15,6 +15,7 @@ use cubecl_core::ir::types::{MatrixIdent, MatrixLayout, MatrixShape};
 
 use crate::amdgpu::plane::lane_id;
 use crate::shared::to_llvm::prelude::*;
+use crate::shared::to_llvm::ty::scalar_alignment;
 
 /// Which WMMA the device has. The instructions are the same shape; the fragments are not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -316,6 +317,42 @@ fn store_fragment(
     rw.insert_op(ctx, &op);
 }
 
+/// Loads `ty` out of the tile `ptr` points into, at the alignment the tile guarantees.
+///
+/// A fragment sits in an `alloca` of the vector itself, so an access to it is aligned to the
+/// whole vector by construction. A tile in memory is not: its rows are `stride` elements
+/// apart and a caller is free to pad that stride, so an access can land on any element
+/// boundary. Left implicit, LLVM assumes the ABI alignment of the type it is given -- 64
+/// bytes for a `<32 x half>` A fragment -- and a wide `ds_read` on an address that does not
+/// meet it reads the wrong data. The element's alignment is what the tile actually promises,
+/// so it is what is asked for; LLVM raises it on its own wherever it can prove more.
+fn load_tile(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    ptr: Value,
+    ty: TypeHandle,
+    align: u32,
+) -> Value {
+    let op = llvm::LoadOp::new(ctx, ptr, ty);
+    op.set_alignment(ctx, align);
+    rw.insert_op(ctx, &op);
+    op.get_result(ctx)
+}
+
+/// Stores `value` into the tile `ptr` points into. The counterpart of [`load_tile`], and
+/// aligned for the same reason.
+fn store_tile(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    ptr: Value,
+    value: Value,
+    align: u32,
+) {
+    let op = llvm::StoreOp::new(ctx, value, ptr);
+    op.set_alignment(ctx, align);
+    rw.insert_op(ctx, &op);
+}
+
 #[op_interface_impl]
 impl ToLLVMDialect for FillOp {
     fn rewrite(
@@ -359,18 +396,20 @@ impl ToLLVMDialect for LoadOp {
         let (elems, step) = fragment_layout(ctx, &ty);
         let frag_ty = fragment_ty(ctx, &ty);
         let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
+        let align = scalar_alignment(ctx, ty.elem_ty);
         let lane = lane_position(ctx, rw);
 
-        // One vector load where the elements are consecutive. Alignment is left at
-        // the element's: the base is the LDS block, aligned to 128, so when the
-        // offset is a known multiple of the fragment width LLVM raises the
-        // alignment itself and the load becomes a single wide `ds_load`. When it
-        // cannot prove that, it splits the vector back into element-sized
-        // accesses, which is what this path would have emitted by hand anyway.
+        // One vector load where the elements are consecutive, at the element's alignment
+        // like the element-wise path below. The base of a tile is aligned far past that --
+        // an LDS block to 128 bytes -- so when the offset is a known multiple of the
+        // fragment width LLVM raises the alignment itself and the load becomes a single
+        // wide access. When it cannot prove that -- a padded stride, say -- it splits the
+        // vector back into element-sized ones, which is what this path would have emitted
+        // by hand anyway.
         if fragment_is_contiguous(ctx.wmma(), &ty, layout, step) {
             let index = element_index(ctx, rw, &ty, layout, 0, lane, stride);
             let ptr = element_ptr(ctx, rw, source, index, elem_ty);
-            let frag = load_fragment(ctx, rw, ptr, frag_ty);
+            let frag = load_tile(ctx, rw, ptr, frag_ty, align);
             store_fragment(ctx, rw, matrix, frag);
 
             rw.erase_operation(ctx, old_op);
@@ -384,7 +423,7 @@ impl ToLLVMDialect for LoadOp {
         for i in 0..elems {
             let index = element_index(ctx, rw, &ty, layout, i, lane, stride);
             let ptr = element_ptr(ctx, rw, source, index, elem_ty);
-            let value = load_fragment(ctx, rw, ptr, elem_ty);
+            let value = load_tile(ctx, rw, ptr, elem_ty, align);
 
             let slot = insert_i32_const(ctx, rw, (i * step) as i32);
             let insert = llvm::InsertElementOp::new(ctx, frag, value, slot);
@@ -416,6 +455,7 @@ impl ToLLVMDialect for StoreOp {
         let (elems, step) = fragment_layout(ctx, &ty);
         let frag_ty = fragment_ty(ctx, &ty);
         let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
+        let align = scalar_alignment(ctx, ty.elem_ty);
         let lane = lane_position(ctx, rw);
 
         let frag = load_fragment(ctx, rw, matrix, frag_ty);
@@ -424,7 +464,7 @@ impl ToLLVMDialect for StoreOp {
         if fragment_is_contiguous(ctx.wmma(), &ty, layout, step) {
             let index = element_index(ctx, rw, &ty, layout, 0, lane, stride);
             let ptr = element_ptr(ctx, rw, destination, index, elem_ty);
-            store_fragment(ctx, rw, ptr, frag);
+            store_tile(ctx, rw, ptr, frag, align);
 
             rw.erase_operation(ctx, old_op);
             return Ok(());
@@ -437,7 +477,7 @@ impl ToLLVMDialect for StoreOp {
 
             let index = element_index(ctx, rw, &ty, layout, i, lane, stride);
             let ptr = element_ptr(ctx, rw, destination, index, elem_ty);
-            store_fragment(ctx, rw, ptr, extract.get_result(ctx));
+            store_tile(ctx, rw, ptr, extract.get_result(ctx), align);
         }
 
         rw.erase_operation(ctx, old_op);
@@ -589,14 +629,7 @@ impl ToLLVMDialect for MultiplyAccumulateOp {
             cd: wmma_format(ctx, c_ty.elem_ty),
             cd_is_half: is_half(ctx, c_ty.elem_ty),
         };
-        let result = emit_wmma(
-            ctx,
-            rw,
-            call,
-            (a_val, b_val, c_val),
-            ab_frag_ty,
-            cd_frag_ty,
-        );
+        let result = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_frag_ty, cd_frag_ty);
         store_fragment(ctx, rw, d, result);
 
         rw.erase_operation(ctx, old_op);
@@ -630,7 +663,21 @@ impl ToLLVMDialect for CastOp {
         // and re-pad for the destination.
         let (elems, in_step) = fragment_layout(ctx, &in_ty);
         let (out_elems, out_step) = fragment_layout(ctx, &out_ty);
-        debug_assert_eq!(
+
+        // A and B lay their elements out the same way -- one row or column per lane, the `k`
+        // range along it -- so a cast between those two idents only reinterprets which
+        // operand the fragment is. An accumulator does not: it holds several rows per lane,
+        // in a different count and a different order, so a cast across that boundary needs a
+        // cross-lane relayout this lowering does not do. `cmma::cast_with_ident` can ask for
+        // one, and the counts sometimes even agree (RDNA4, `k` of 16), so it is refused here
+        // rather than left to write elements into the wrong positions.
+        assert_eq!(
+            in_ty.ident == MatrixIdent::Accumulator,
+            out_ty.ident == MatrixIdent::Accumulator,
+            "casting between an accumulator and an A or B fragment needs a relayout the \
+             AMDGPU lowering does not implement"
+        );
+        assert_eq!(
             elems, out_elems,
             "a cast keeps the element count and changes only their width"
         );
@@ -638,7 +685,12 @@ impl ToLLVMDialect for CastOp {
         let dense = if in_step == 1 {
             value
         } else {
-            shuffle(ctx, rw, value, (0..elems).map(|i| (i * in_step) as i32).collect())
+            shuffle(
+                ctx,
+                rw,
+                value,
+                (0..elems).map(|i| (i * in_step) as i32).collect(),
+            )
         };
 
         let in_bits = in_ty.elem_ty.size_bits(ctx);
@@ -651,17 +703,27 @@ impl ToLLVMDialect for CastOp {
         )
         .into();
         let cast = if in_bits > out_bits {
-            let op = llvm::FPTruncOp::new(ctx, dense, dense_out_ty);
-            op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-            rw.insert_op(ctx, &op);
-            op.get_result(ctx)
+            fptrunc(ctx, rw, dense, dense_out_ty)
         } else if in_bits < out_bits {
-            let op = llvm::FPExtOp::new(ctx, dense, dense_out_ty);
-            op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-            rw.insert_op(ctx, &op);
-            op.get_result(ctx)
-        } else {
+            fpext(ctx, rw, dense, dense_out_ty)
+        } else if in_ty.elem_ty == out_ty.elem_ty {
+            // Nothing to convert. The frontend folds this away, but the lowering does not
+            // depend on it having done so.
             dense
+        } else {
+            // Same width, different type: f16 and bf16 split their 16 bits between exponent
+            // and mantissa differently, so neither `fptrunc` nor `fpext` applies and keeping
+            // the bits would change the value they stand for. f32 holds either exactly, so
+            // the conversion goes through it.
+            let wide_ty: TypeHandle = LlvmVectorType::get(
+                ctx,
+                FP32Type::get(ctx).into(),
+                elems as u32,
+                VectorTypeKind::Fixed,
+            )
+            .into();
+            let wide = fpext(ctx, rw, dense, wide_ty);
+            fptrunc(ctx, rw, wide, dense_out_ty)
         };
 
         // Repeating each element across its slots rather than leaving the padding undefined:
@@ -674,7 +736,9 @@ impl ToLLVMDialect for CastOp {
                 ctx,
                 rw,
                 cast,
-                (0..elems * out_step).map(|i| (i / out_step) as i32).collect(),
+                (0..elems * out_step)
+                    .map(|i| (i / out_step) as i32)
+                    .collect(),
             )
         };
         store_fragment(ctx, rw, output, result);
@@ -682,6 +746,32 @@ impl ToLLVMDialect for CastOp {
         rw.erase_operation(ctx, old_op);
         Ok(())
     }
+}
+
+/// Widens every element of `value` to `ty`.
+fn fpext(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    value: Value,
+    ty: TypeHandle,
+) -> Value {
+    let op = llvm::FPExtOp::new(ctx, value, ty);
+    op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
+    rw.insert_op(ctx, &op);
+    op.get_result(ctx)
+}
+
+/// Narrows every element of `value` to `ty`.
+fn fptrunc(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    value: Value,
+    ty: TypeHandle,
+) -> Value {
+    let op = llvm::FPTruncOp::new(ctx, value, ty);
+    op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
+    rw.insert_op(ctx, &op);
+    op.get_result(ctx)
 }
 
 /// Which of the two matrix axes an element sits on.
