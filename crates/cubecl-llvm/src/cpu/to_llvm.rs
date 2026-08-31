@@ -11,7 +11,7 @@ use crate::cpu::synchronization::SpinLoopHintOp;
 use crate::shared::to_llvm::prelude::*;
 use crate::shared::to_llvm::ty::scalar_alignment;
 
-use pliron_llvm::attributes::AtomicRmwKindAttr;
+use pliron_llvm::attributes::{AtomicRmwKindAttr, SyncScopeAttr};
 use pliron_llvm::types::VoidType;
 
 /// The instruction hinting the core that it is in a spin loop, i.e. what `std::hint::spin_loop`
@@ -62,7 +62,8 @@ impl ToLLVMDialect for OrderedAtomicLoadOp {
         let align = scalar_alignment(ctx, res_cube_ty);
         let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
 
-        let op = llvm::AtomicLoadOp::new(ctx, ptr, res_ty, ordering, None);
+        let sync_scope = SyncScopeAttr::System;
+        let op = llvm::AtomicLoadOp::new(ctx, ptr, res_ty, ordering, sync_scope);
         op.set_alignment(ctx, align);
         rewriter.insert_op(ctx, &op);
         rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
@@ -86,7 +87,8 @@ impl ToLLVMDialect for OrderedAtomicStoreOp {
             .unwrap_or_else(|| value.get_type(ctx));
         let align = scalar_alignment(ctx, value_cube_ty);
 
-        let store = llvm::AtomicStoreOp::new(ctx, value, ptr, ordering, None);
+        let sync_scope = SyncScopeAttr::System;
+        let store = llvm::AtomicStoreOp::new(ctx, value, ptr, ordering, sync_scope);
         store.set_alignment(ctx, align);
         rewriter.insert_op(ctx, &store);
         rewriter.replace_operation(ctx, self.get_operation(), store.get_operation());
@@ -106,7 +108,15 @@ impl ToLLVMDialect for OrderedAtomicFetchAddOp {
         let value = self.value(ctx);
         let ordering = self.ordering(ctx).clone();
 
-        let op = llvm::AtomicRmwOp::new(ctx, ptr, value, AtomicRmwKindAttr::Add, ordering, None);
+        let sync_scope = SyncScopeAttr::System;
+        let op = llvm::AtomicRmwOp::new(
+            ctx,
+            ptr,
+            value,
+            AtomicRmwKindAttr::Add,
+            ordering,
+            sync_scope,
+        );
         rewriter.insert_op(ctx, &op);
         rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
         Ok(())

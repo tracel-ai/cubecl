@@ -1963,6 +1963,10 @@ name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
+dependencies = [
+ "ahash",
+ "allocator-api2",
+]
 
 [[package]]
 name = "hashbrown"
@@ -3167,12 +3171,13 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 [[package]]
 name = "pliron"
 version = "0.17.0"
+source = "git+https://github.com/pliron-org/pliron.git?rev=95ebad6e7997ea610ce0c22c808692d7119c9f9f#95ebad6e7997ea610ce0c22c808692d7119c9f9f"
 dependencies = [
  "awint",
  "combine",
  "downcast-rs",
  "dyn-clone",
- "hashbrown 0.17.1",
+ "hashbrown 0.14.5",
  "hi_sparse_bitset",
  "indexmap",
  "inventory",
@@ -3193,6 +3198,7 @@ dependencies = [
 [[package]]
 name = "pliron-derive"
 version = "0.17.0"
+source = "git+https://github.com/pliron-org/pliron.git?rev=95ebad6e7997ea610ce0c22c808692d7119c9f9f#95ebad6e7997ea610ce0c22c808692d7119c9f9f"
 dependencies = [
  "combine",
  "convert_case 0.11.0",
@@ -3206,6 +3212,7 @@ dependencies = [
 [[package]]
 name = "pliron-llvm"
 version = "0.17.0"
+source = "git+https://github.com/pliron-org/pliron.git?rev=95ebad6e7997ea610ce0c22c808692d7119c9f9f#95ebad6e7997ea610ce0c22c808692d7119c9f9f"
 dependencies = [
  "bitflags 2.13.1",
  "llvm-sys",
@@ -4664,6 +4671,7 @@ dependencies = [
 [[package]]
 name = "tracel-llvm-bundler"
 version = "22.1.4-7"
+source = "git+https://github.com/tracel-ai/tracel-llvm.git?rev=7932ee9e52044e298dacbfd04b1e0476544bb185#7932ee9e52044e298dacbfd04b1e0476544bb185"
 dependencies = [
  "anyhow",
  "bytes",

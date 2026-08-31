@@ -8,6 +8,7 @@
 use cubecl_core::ir::Scope;
 use cubecl_core::ir::prelude::*;
 use pliron_llvm::attributes::AtomicOrderingAttr;
+use pliron_llvm::attributes::SyncScopeAttr;
 use pliron_llvm::ops as llvm;
 use pliron_llvm::types::FuncType;
 use pliron_llvm::types::VoidType;
@@ -20,7 +21,11 @@ const WAVE_BARRIER: &str = "llvm.amdgcn.wave.barrier";
 
 /// Emits a fence over `sync_scope`, in `ordering`.
 fn fence(scope: &Scope, sync_scope: &str, ordering: AtomicOrderingAttr) {
-    let fence = llvm::FenceOp::new(scope.ctx_mut(), ordering, Some(sync_scope.into()));
+    let fence = llvm::FenceOp::new(
+        scope.ctx_mut(),
+        ordering,
+        SyncScopeAttr::NamedScope(sync_scope.into()),
+    );
     scope.register(&fence);
 }
 

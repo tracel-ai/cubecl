@@ -2,7 +2,7 @@ use crate::shared::to_llvm::ty::scalar_alignment;
 
 use super::prelude::*;
 use cubecl_core::ir::dialect::atomic::*;
-use pliron_llvm::attributes::{AtomicOrderingAttr, AtomicRmwKindAttr};
+use pliron_llvm::attributes::{AtomicOrderingAttr, AtomicRmwKindAttr, SyncScopeAttr};
 
 macro_rules! lower_atomic_rmw {
     ($cube_op:ty => $pred:expr) => {
@@ -18,8 +18,9 @@ macro_rules! lower_atomic_rmw {
                 let val = self.value(ctx);
                 let kind = $pred;
                 let ordering = AtomicOrderingAttr::Monotonic;
+                let sync_scope = SyncScopeAttr::System;
 
-                let op = llvm::AtomicRmwOp::new(ctx, ptr, val, kind, ordering, None);
+                let op = llvm::AtomicRmwOp::new(ctx, ptr, val, kind, ordering, sync_scope);
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(
                     ctx,
@@ -64,7 +65,8 @@ impl ToLLVMDialect for AtomicLoadOp {
         let align = scalar_alignment(ctx, res_cube_ty);
         let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
 
-        let op = llvm::AtomicLoadOp::new(ctx, ptr, res_ty, ordering, None);
+        let sync_scope = SyncScopeAttr::System;
+        let op = llvm::AtomicLoadOp::new(ctx, ptr, res_ty, ordering, sync_scope);
         op.set_alignment(ctx, align);
         rewriter.insert_op(ctx, &op);
         rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
@@ -87,8 +89,9 @@ impl ToLLVMDialect for AtomicStoreOp {
             .unwrap_or_else(|| value.get_type(ctx));
         let align = scalar_alignment(ctx, value_cube_ty);
         let ordering = AtomicOrderingAttr::Monotonic;
+        let sync_scope = SyncScopeAttr::System;
 
-        let store = llvm::AtomicStoreOp::new(ctx, value, ptr, ordering, None);
+        let store = llvm::AtomicStoreOp::new(ctx, value, ptr, ordering, sync_scope);
         store.set_alignment(ctx, align);
         rewriter.insert_op(ctx, &store);
         rewriter.replace_operation(ctx, self.get_operation(), store.get_operation());
@@ -110,7 +113,8 @@ impl ToLLVMDialect for AtomicCompareExchangeWeakOp {
         let before = AtomicOrderingAttr::Monotonic;
         let after = AtomicOrderingAttr::Monotonic;
 
-        let op = llvm::AtomicCmpxchgOp::new(ctx, ptr, cmp, new_val, before, after, None);
+        let sync_scope = SyncScopeAttr::System;
+        let op = llvm::AtomicCmpxchgOp::new(ctx, ptr, cmp, new_val, before, after, sync_scope);
         rewriter.insert_op(ctx, &op);
         rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
         Ok(())

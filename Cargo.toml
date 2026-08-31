@@ -161,12 +161,12 @@ inflections = "1"
 # pliron-llvm = { version = "0.17", default-features = false }
 
 # Path
-pliron = { path = "../pliron", default-features = false }
-pliron-llvm = { path = "../pliron/pliron-llvm", default-features = false }
+# pliron = { path = "../pliron", default-features = false }
+# pliron-llvm = { path = "../pliron/pliron-llvm", default-features = false }
 
 # Git
-# pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "d6886bd2ff997dff11b13330c257cfb99308f35f", default-features = false }
-# pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "d6886bd2ff997dff11b13330c257cfb99308f35f", default-features = false }
+pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "95ebad6e7997ea610ce0c22c808692d7119c9f9f", default-features = false }
+pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "95ebad6e7997ea610ce0c22c808692d7119c9f9f", default-features = false }
 
 # These features stop llvm-sys from resolving LLVM itself; cubecl-llvm's build.rs
 # links the bundled toolchain instead.
@@ -174,8 +174,7 @@ llvm-sys = { version = "221", features = [
     "no-llvm-linking",
     "disable-alltargets-init",
 ] }
-# tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "24e3361a3969d28cb5aaea9981cbc323c2a67f89" }
-tracel-llvm-bundler = { path = "/home/marcantoinem/Tracel/tracel-llvm/crates/tracel-llvm-bundler" }
+tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "7932ee9e52044e298dacbfd04b1e0476544bb185" }
 
 cudarc = { version = "0.19.6", features = [
     "std",

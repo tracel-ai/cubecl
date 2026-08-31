@@ -2,6 +2,7 @@
 
 use pliron::builtin::ops::ModuleOp;
 use pliron::context::Context;
+use pliron_llvm::attributes::set_data_layout;
 use pliron_llvm::llvm_sys::core::LLVMContext;
 use pliron_llvm::to_llvm_ir;
 use std::ffi::{CStr, CString};
@@ -65,13 +66,10 @@ pub fn emit_code_object(
     shared_memory_size: usize,
 ) -> Result<AmdGpuModule, String> {
     let llvm_ctx = LLVMContext::default();
-    let llvm_module = to_llvm_ir::convert_module_with_data_layout(
-        ctx,
-        &llvm_ctx,
-        module,
-        Some(DATA_LAYOUT),
-    )
-    .map_err(|err| err.to_string())?;
+
+    set_data_layout(ctx, module, DATA_LAYOUT.to_string());
+    let llvm_module =
+        to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
     let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, cube_dim)?;
     let want_asm = std::env::var_os("CUBECL_DEBUG_PLIRON").is_some();
