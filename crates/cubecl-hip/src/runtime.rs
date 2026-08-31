@@ -132,7 +132,10 @@ impl DeviceService for HipServer {
             max_cube_count: probe.max_cube_count,
             max_units_per_cube: probe.max_units_per_cube,
             max_cube_dim: probe.max_cube_dim,
-            num_streaming_multiprocessors: None,
+            // Consumers that size a grid against the machine need this: without
+            // it cubek's matmul selectors fall back to `CubeCountStrategy::FromProblem`
+            // and the cube count bears no relation to the device it runs on.
+            num_streaming_multiprocessors: probe.num_sms,
             num_tensor_cores: None,
             min_tensor_cores_dim: if supported_wmma_combinations.is_empty() {
                 None
@@ -312,6 +315,12 @@ struct DeviceProbe {
     name: String,
     /// The wavefront width, which the architecture table has to agree with.
     warp_size: u32,
+    /// What the driver counts as a multiprocessor. On RDNA that is the work
+    /// group processor rather than the compute unit -- gfx1151 reports 20 for
+    /// its 40 CUs -- which is the right figure either way, since the WGP is
+    /// what a cube is scheduled onto. `None` when the driver reports zero,
+    /// which is a driver that does not know rather than a device with none.
+    num_sms: Option<u32>,
     max_shared_memory: usize,
     max_cube_count: (u32, u32, u32),
     max_units_per_cube: u32,
@@ -364,6 +373,7 @@ impl DeviceProbe {
             arch_name,
             name,
             warp_size: props.warpSize as u32,
+            num_sms: (props.multiProcessorCount > 0).then_some(props.multiProcessorCount as u32),
             max_shared_memory: props.sharedMemPerBlock,
             max_cube_count: (
                 props.maxGridSize[0] as u32,
