@@ -786,7 +786,7 @@ pub fn test_plane_shuffle_up<
         .collect();
     let mut expected = input.clone();
 
-    // Unit 0 is undefined, so the kernel leaves it alone and it keeps its input.
+    // Unit 0's read is indeterminate, so the kernel skips its write and it keeps its input.
     for lane in 1..plane_size as usize {
         for v in 0..vectorization {
             expected[lane * vectorization + v] = input[(lane - 1) * vectorization + v];
@@ -825,7 +825,7 @@ pub fn test_plane_shuffle_down<
         .collect();
     let mut expected = input.clone();
 
-    // The last unit is undefined, so the kernel leaves it alone and it keeps its input.
+    // The last unit's read is indeterminate, so the kernel skips its write and it keeps its input.
     for lane in 0..(plane_size - 1) as usize {
         for v in 0..vectorization {
             expected[lane * vectorization + v] = input[(lane + 1) * vectorization + v];

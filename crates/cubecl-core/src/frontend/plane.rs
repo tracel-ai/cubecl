@@ -159,11 +159,11 @@ pub mod plane_shuffle_xor {
 
 /// Perform a shuffle up operation across the plane.
 /// Each unit reads the value from a unit with a lower lane ID (`current_id` - delta).
-/// What a unit with `lane_id` < delta reads is undefined and differs by backend, so mask
-/// those units at the call site.
+/// A unit with `lane_id` < delta reads an indeterminate value that differs by backend, so
+/// mask those units at the call site.
 ///
 /// # Example
-/// For delta=1, reading `?` for the undefined unit: `[a, b, c, d] -> [?, a, b, c]`
+/// For delta=1, writing `?` for the indeterminate read: `[a, b, c, d] -> [?, a, b, c]`
 #[allow(unused_variables)]
 pub fn plane_shuffle_up<E: CubePrimitive>(value: E, delta: u32) -> E {
     unexpanded!()
@@ -188,11 +188,11 @@ pub mod plane_shuffle_up {
 
 /// Perform a shuffle down operation across the plane.
 /// Each unit reads the value from a unit with a higher lane ID (`current_id` + delta).
-/// What a unit reads when `lane_id` + delta >= `plane_dim` is undefined and differs by
-/// backend, so mask those units at the call site.
+/// A unit whose `lane_id` + delta >= `plane_dim` reads an indeterminate value that differs
+/// by backend, so mask those units at the call site.
 ///
 /// # Example
-/// For delta=1, reading `?` for the undefined unit: `[a, b, c, d] -> [b, c, d, ?]`
+/// For delta=1, writing `?` for the indeterminate read: `[a, b, c, d] -> [b, c, d, ?]`
 #[allow(unused_variables)]
 pub fn plane_shuffle_down<E: CubePrimitive>(value: E, delta: u32) -> E {
     unexpanded!()
