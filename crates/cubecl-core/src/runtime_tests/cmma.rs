@@ -480,6 +480,81 @@ pub fn test_simple_1_vectorized_offset<R: Runtime>(
     );
 }
 
+#[cube(launch)]
+/// Executes Out = Lhs @ Rhs.T with the accumulator declaring a layout.
+///
+/// An accumulator's layout is its own and never reaches the product, so declaring
+/// one must compile and change nothing.
+pub fn kernel_accumulator_row_major(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
+    let a = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::A,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::RowMajor,
+        lhs,
+        16,
+    );
+    let b = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::B,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::ColMajor,
+        rhs,
+        16,
+    );
+    let c = cmma::Matrix::<f32>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::RowMajor,
+        0.0,
+    );
+
+    cmma::execute(&a, &b, &c, &c);
+
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
+}
+
+pub fn test_accumulator_row_major<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
+    if !client.features().matmul.cmma.contains(&MmaConfig {
+        a_type: ElemType::Float(FloatKind::F16),
+        b_type: ElemType::Float(FloatKind::F16),
+        cd_type: ElemType::Float(FloatKind::F32),
+        m: 16,
+        k: 16,
+        n: 16,
+    }) {
+        // We can't execute the test, skip.
+        return;
+    }
+
+    let lhs: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
+    let rhs: Vec<f16> = (0..256).map(|i| f16::from_f32((i % 8) as f32)).collect();
+
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
+    let out = client.empty(core::mem::size_of::<f32>() * 256);
+
+    unsafe {
+        kernel_accumulator_row_major::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            BufferArg::from_raw_parts(lhs, 256),
+            BufferArg::from_raw_parts(rhs, 256),
+            BufferArg::from_raw_parts(out.clone(), 256),
+        )
+    };
+
+    let actual = client.read_one_unchecked(out);
+    let actual = f32::from_bytes(&actual);
+
+    assert_eq!(test_simple_1_expected(), actual);
+}
+
 pub fn test_simple_1<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
     if !client.features().matmul.cmma.contains(&MmaConfig {
         a_type: ElemType::Float(FloatKind::F16),
@@ -1741,6 +1816,16 @@ macro_rules! testgen_cmma {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::cmma::test_simple_1_vectorized_offset::<TestRuntime>(
+                client,
+                cube_dimensions,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cmma_accumulator_row_major() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_accumulator_row_major::<TestRuntime>(
                 client,
                 cube_dimensions,
             );
