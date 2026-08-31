@@ -1,5 +1,5 @@
 use crate::{
-    ConstantValue, ElemType,
+    AddressSpace, ConstantValue, ElemType,
     dialect::synchronization::SyncScope,
     prelude::*,
     types::{AtomicType, PointerType, VectorType, scalar::*},
@@ -167,6 +167,8 @@ pub(crate) use synchronizes;
 pub enum MemoryEffect {
     Read(Value),
     Write(Value),
+    ReadAllInSpace(AddressSpace),
+    WriteAllInSpace(AddressSpace),
     ReadAll,
     WriteAll,
 }

@@ -1,7 +1,7 @@
 use alloc::{string::String, vec::Vec};
 
 use cubecl_ir::{
-    Scope,
+    AddressSpace, Scope,
     dialect::{InlineAsmOp, OperationPtrExt},
     interfaces::TypeExt,
 };
@@ -9,14 +9,21 @@ use pliron::{op::Op, r#type::Typed, value::Value};
 
 use crate::frontend::{HasValue, assign};
 
+pub use cubecl_ir::dialect::{InputKind, InputSpec, RegSpec};
+
 #[derive(Default)]
 pub struct BuildAsmExpand {
     asm: String,
     out_values: Vec<Value>,
+    out_specs: Vec<RegSpec>,
     in_values: Vec<Value>,
+    in_specs: Vec<InputSpec>,
     pure: bool,
     nomem: bool,
+    explicit_mem: bool,
     readonly: bool,
+    reads_spaces: Vec<AddressSpace>,
+    writes_spaces: Vec<AddressSpace>,
 }
 
 impl BuildAsmExpand {
@@ -30,15 +37,23 @@ impl BuildAsmExpand {
     // Takes by reference because of syntax reasons, since normal Rust allows immutables that are
     // uninitialized and only assigned once (i.e. as the output for an assembly macro).
     // We also only assign once, so reference gives the correct semantics.
-    pub fn push_output<T: HasValue>(mut self, scope: &Scope, output: &T) -> Self {
+    pub fn push_output<T: HasValue>(mut self, scope: &Scope, output: &T, spec: RegSpec) -> Self {
         let value = output.value(scope);
         self.out_values.push(value);
+        self.out_specs.push(spec);
         self
     }
 
-    pub fn push_input<T: HasValue>(mut self, scope: &Scope, input: T) -> Self {
+    pub fn push_input<T: HasValue>(
+        mut self,
+        scope: &Scope,
+        input: T,
+        kind: InputKind,
+        spec: RegSpec,
+    ) -> Self {
         let value = input.value(scope);
         self.in_values.push(value);
+        self.in_specs.push(InputSpec::new(kind, spec));
         self
     }
 
@@ -52,8 +67,43 @@ impl BuildAsmExpand {
         self
     }
 
+    pub fn explicit_mem(mut self) -> Self {
+        self.explicit_mem = true;
+        self
+    }
+
     pub fn readonly(mut self) -> Self {
         self.readonly = true;
+        self
+    }
+
+    pub fn reads_local(mut self) -> Self {
+        self.reads_spaces.push(AddressSpace::Local);
+        self
+    }
+
+    pub fn reads_shared(mut self) -> Self {
+        self.reads_spaces.push(AddressSpace::Shared);
+        self
+    }
+
+    pub fn reads_global(mut self) -> Self {
+        self.reads_spaces.push(AddressSpace::Global(0));
+        self
+    }
+
+    pub fn writes_local(mut self) -> Self {
+        self.writes_spaces.push(AddressSpace::Local);
+        self
+    }
+
+    pub fn writes_shared(mut self) -> Self {
+        self.writes_spaces.push(AddressSpace::Shared);
+        self
+    }
+
+    pub fn writes_global(mut self) -> Self {
+        self.writes_spaces.push(AddressSpace::Global(0));
         self
     }
 
@@ -64,12 +114,22 @@ impl BuildAsmExpand {
             .iter()
             .map(|it| it.get_type(ctx).as_ptr(ctx).inner)
             .collect();
-        let op = InlineAsmOp::new(ctx, result_types, self.asm, self.in_values);
+        let op = InlineAsmOp::new(
+            ctx,
+            result_types,
+            self.out_specs,
+            self.asm,
+            self.in_values,
+            self.in_specs,
+        );
         if self.pure {
             op.set_pure(ctx);
         }
         if self.nomem {
             op.set_nomem(ctx);
+        }
+        if self.explicit_mem {
+            op.set_explicit_mem(ctx);
         }
         if self.readonly {
             op.set_readonly(ctx);

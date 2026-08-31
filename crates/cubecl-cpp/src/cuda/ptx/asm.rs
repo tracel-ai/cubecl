@@ -1,7 +1,14 @@
 use core::{cell::Ref, fmt::Display};
 
-use cubecl_core::ir::{
-    AddressType, Scope, dialect::InlineAsmOp, interfaces::TypedExt, prelude::*, types::VectorType,
+use cubecl_core::{
+    frontend::InputKind,
+    ir::{
+        AddressSpaceVecAttr, AddressType, Scope,
+        dialect::{InlineAsmOp, InputSpecVecAttr},
+        interfaces::{MemoryEffect, MemoryEffects, TypedExt},
+        prelude::*,
+        types::VectorType,
+    },
 };
 use itertools::Itertools;
 use pliron::{
@@ -26,8 +33,21 @@ use crate::{
     name = "cuda.inline_ptx",
     format = "opt_attr($cuda_inline_ptx_volatile, $UnitAttr, label($volatile))
     attr($cuda_inline_ptx_ptx, $StringAttr) ` : ` types(CharSpace(`,`)) ` : ` operands(CharSpace(`,`))
-    opt_attr($cuda_inline_ptx_clobbers, $VecAttr)",
-    attributes = (cuda_inline_ptx_ptx: StringAttr, cuda_inline_ptx_volatile: UnitAttr, cuda_inline_ptx_clobbers: VecAttr),
+    opt_attr($cuda_inline_ptx_clobbers, $VecAttr)
+    opt_attr($cuda_inline_ptx_in_spec, $InputSpecVecAttr, label($in_spec))
+    opt_attr($cuda_inline_ptx_reads_spaces, $AddressSpaceVecAttr, label($reads_spaces))
+    opt_attr($cuda_inline_ptx_writes_spaces, $AddressSpaceVecAttr, label($writes_spaces))",
+    attributes = (
+        cuda_inline_ptx_ptx: StringAttr,
+        cuda_inline_ptx_volatile: UnitAttr,
+        cuda_inline_ptx_clobbers: VecAttr,
+        cuda_inline_ptx_nomem: UnitAttr,
+        cuda_inline_ptx_explicit_mem: UnitAttr,
+        cuda_inline_ptx_readonly: UnitAttr,
+        cuda_inline_ptx_in_spec: InputSpecVecAttr,
+        cuda_inline_ptx_reads_spaces: AddressSpaceVecAttr,
+        cuda_inline_ptx_writes_spaces: AddressSpaceVecAttr,
+    ),
     verifier = "succ"
 )]
 pub struct InlinePtxOp;
@@ -73,6 +93,17 @@ impl InlinePtxOp {
         }
     }
 
+    pub fn clobbers(&self, ctx: &Context) -> Vec<String> {
+        let clobbers = self
+            .get_attr_cuda_inline_ptx_clobbers(ctx)
+            .map(|it| it.0.clone())
+            .unwrap_or_default();
+        clobbers
+            .into_iter()
+            .map(|it| (*it.downcast::<StringAttr>().unwrap()).into())
+            .collect()
+    }
+
     pub fn raw_ptx<'a>(&self, ctx: &'a Context) -> Ref<'a, str> {
         Ref::map(self.get_attr_cuda_inline_ptx_ptx(ctx).unwrap(), |it| {
             it.as_str()
@@ -96,6 +127,55 @@ impl InlinePtxOp {
 impl SideEffects for InlinePtxOp {
     fn has_side_effects(&self, ctx: &Context) -> bool {
         self.get_attr_cuda_inline_ptx_volatile(ctx).is_some()
+    }
+}
+
+#[op_interface_impl]
+impl MemoryEffects for InlinePtxOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        if self.get_attr_cuda_inline_ptx_nomem(ctx).is_some() {
+            vec![]
+        } else if self.get_attr_cuda_inline_ptx_readonly(ctx).is_some() {
+            vec![MemoryEffect::ReadAll]
+        } else if self.get_attr_cuda_inline_ptx_explicit_mem(ctx).is_some() {
+            let mut out = vec![];
+            for space in self
+                .get_attr_cuda_inline_ptx_reads_spaces(ctx)
+                .map(|it| it.0.clone())
+                .unwrap_or_default()
+            {
+                out.push(MemoryEffect::ReadAllInSpace(space));
+            }
+            for space in self
+                .get_attr_cuda_inline_ptx_writes_spaces(ctx)
+                .map(|it| it.0.clone())
+                .unwrap_or_default()
+            {
+                out.push(MemoryEffect::WriteAllInSpace(space));
+            }
+            let in_specs = self
+                .get_attr_cuda_inline_ptx_in_spec(ctx)
+                .map(|it| it.0.clone())
+                .unwrap_or_default();
+            for (value, spec) in self.inputs(ctx).into_iter().zip(in_specs) {
+                match spec.kind {
+                    InputKind::MemIn => {
+                        out.push(MemoryEffect::Read(value));
+                    }
+                    InputKind::MemOut => {
+                        out.push(MemoryEffect::Write(value));
+                    }
+                    InputKind::MemInout => {
+                        out.push(MemoryEffect::Read(value));
+                        out.push(MemoryEffect::Write(value));
+                    }
+                    InputKind::In => {}
+                }
+            }
+            out
+        } else {
+            vec![MemoryEffect::ReadAll, MemoryEffect::WriteAll]
+        }
     }
 }
 
@@ -200,7 +280,7 @@ fn insert_placeholders(
 ) -> String {
     let pat = format!("${plir_idx}");
     if !ptx.contains(&pat) {
-        panic!("Tried substituting argument {pat} in PTX, but it wasn't found.")
+        panic!("Tried substituting argument {pat} in PTX string {ptx:?}, but it wasn't found.")
     }
     let substitute = if ty.deref(ctx).is::<VectorType>() {
         let vec = ty.vector_size(ctx);
@@ -260,12 +340,29 @@ impl LowerOp<Cuda> for InlineAsmOp {
         if !self.pure(ctx) {
             inline_ptx.set_attr_cuda_inline_ptx_volatile(ctx, UnitAttr::new());
         }
-        if !self.nomem(ctx) {
+        if self.readonly(ctx) {
+            inline_ptx.set_attr_cuda_inline_ptx_readonly(ctx, UnitAttr::new());
+        }
+        if self.nomem(ctx) {
+            inline_ptx.set_attr_cuda_inline_ptx_nomem(ctx, UnitAttr::new());
+        } else {
             inline_ptx.set_attr_cuda_inline_ptx_clobbers(
                 ctx,
                 VecAttr(vec![Box::new(StringAttr::new("memory".into()))]),
             );
         }
+        if self.explicit_mem(ctx) {
+            inline_ptx.set_attr_cuda_inline_ptx_explicit_mem(ctx, UnitAttr::new());
+            inline_ptx.set_attr_cuda_inline_ptx_clobbers(
+                ctx,
+                VecAttr(vec![Box::new(StringAttr::new("memory".into()))]),
+            );
+        }
+
+        inline_ptx.set_attr_cuda_inline_ptx_in_spec(ctx, self.in_specs(ctx).into());
+        inline_ptx.set_attr_cuda_inline_ptx_reads_spaces(ctx, self.reads_spaces(ctx).into());
+        inline_ptx.set_attr_cuda_inline_ptx_writes_spaces(ctx, self.writes_spaces(ctx).into());
+
         inline_ptx
             .get_operation()
             .insert_before(ctx, self.get_operation());

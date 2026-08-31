@@ -21,12 +21,13 @@ pub fn tma_load_im2col_3d(
     let smem = generic_to_shared::<u32>(smem);
     let descriptor_address = tensor_map_address(tensor_map);
     let (n, w, c) = pos;
+    // Note: tensor maps are opaque descriptors not pointers, so memory effects don't apply
     gpu_asm!(
         "cp.async.bulk.tensor.3d.shared::cluster.global.im2col.mbarrier::complete_tx::bytes ",
         "[{smem}], [{tensor_map}, {{{c}, {w}, {n}}}], [{bar}], {{{offs_w}}};",
-        smem = in(_) smem, tensor_map = in(_) descriptor_address,
+        smem = mem_out(_) smem, tensor_map = in(_) descriptor_address,
         c = in(_) c, w = in(_) w, n = in(_) n, offs_w = in(_) offset,
-        bar = in(_) bar_handle,
+        bar = mem_inout(_) bar_handle, options(explicit_mem)
     );
 }
 
@@ -43,13 +44,14 @@ pub fn tma_load_im2col_4d(
     let descriptor_address = tensor_map_address(tensor_map);
     let (n, h, w, c) = pos;
     let (offs_h, offs_w) = offset;
+    // Note: tensor maps are opaque descriptors not pointers, so memory effects don't apply
     gpu_asm!(
         "cp.async.bulk.tensor.4d.shared::cluster.global.im2col.mbarrier::complete_tx::bytes ",
         "[{smem}], [{tensor_map}, {{{c}, {w}, {h}, {n}}}], [{bar}], {{{offs_w}, {offs_h}}};",
-        smem = in(_) smem, tensor_map = in(_) descriptor_address,
+        smem = mem_out(_) smem, tensor_map = in(_) descriptor_address,
         c = in(_) c, w = in(_) w, h = in(_) h, n = in(_) n,
         offs_w = in(_) offs_w, offs_h = in(_) offs_h,
-        bar = in(_) bar_handle,
+        bar = mem_inout(_) bar_handle, options(explicit_mem),
     );
 }
 
@@ -66,13 +68,14 @@ pub fn tma_load_im2col_5d(
     let descriptor_address = tensor_map_address(tensor_map);
     let (n, d, h, w, c) = pos;
     let (offs_d, offs_h, offs_w) = offset;
+    // Note: tensor maps are opaque descriptors not pointers, so memory effects don't apply
     gpu_asm!(
         "cp.async.bulk.tensor.5d.shared::cluster.global.im2col.mbarrier::complete_tx::bytes ",
         "[{smem}], [{tensor_map}, {{{c}, {w}, {h}, {d}, {n}}}], [{bar}], {{{offs_w}, {offs_h}, {offs_d}}};",
-        smem = in(_) smem, tensor_map = in(_) descriptor_address,
+        smem = in(mem_out) smem, tensor_map = in(_) descriptor_address,
         c = in(_) c, w = in(_) w, h = in(_) h, d = in(_) d, n = in(_) n,
         offs_w = in(_) offs_w, offs_h = in(_) offs_h, offs_d = in(_) offs_d,
-        bar = in(_) bar_handle,
+        bar = in(mem_inout) bar_handle, options(explicit_mem)
     );
 }
 

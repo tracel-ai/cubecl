@@ -947,6 +947,7 @@ dependencies = [
  "itertools 0.15.0",
  "num",
  "num-traits",
+ "paste",
  "pliron",
  "pliron-spirv",
  "portable-atomic",

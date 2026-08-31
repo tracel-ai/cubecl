@@ -13,6 +13,7 @@ use cubecl_ir::{
         ATTR_BUFFER_BINDING, ATTR_BUFFER_IO, BufferBindingAttr, BufferIOAttr, FuncInterface,
     },
     dialect::{
+        RegSpec,
         asm::InlineAsmOp,
         memory::{IndexOp, LoadOp, StoreOp},
     },
@@ -136,7 +137,9 @@ fn an_untraceable_global_pointer_is_attributed_by_its_type() {
         let asm = InlineAsmOp::new(
             ctx,
             vec![ptr_ty.to_handle()],
+            vec![RegSpec::Inferred],
             "mystery_pointer".into(),
+            vec![],
             vec![],
         );
         asm.set_nomem(ctx);
@@ -173,7 +176,14 @@ fn inline_asm_reaches_every_buffer() {
     let _a = global(&scope, 0);
     let _b = global(&scope, 1);
 
-    let asm = InlineAsmOp::new(scope.ctx_mut(), vec![], "who_knows".into(), vec![]);
+    let asm = InlineAsmOp::new(
+        scope.ctx_mut(),
+        vec![],
+        vec![],
+        "who_knows".into(),
+        vec![],
+        vec![],
+    );
     scope.register(&asm);
 
     let visibility = visibility(scope);
@@ -196,7 +206,14 @@ fn readonly_inline_asm_marks_reads_only() {
     let scope = kernel();
     let _a = global(&scope, 0);
 
-    let asm = InlineAsmOp::new(scope.ctx_mut(), vec![], "observer".into(), vec![]);
+    let asm = InlineAsmOp::new(
+        scope.ctx_mut(),
+        vec![],
+        vec![],
+        "observer".into(),
+        vec![],
+        vec![],
+    );
     asm.set_readonly(scope.ctx_mut());
     scope.register(&asm);
 

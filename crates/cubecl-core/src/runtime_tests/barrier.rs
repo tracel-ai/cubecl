@@ -1,4 +1,4 @@
-use crate::{self as cubecl, as_bytes};
+use crate::{self as cubecl, as_bytes, frontend::barrier::copy_async};
 use alloc::vec::Vec;
 use barrier::Barrier;
 use cubecl::prelude::*;
@@ -6,7 +6,7 @@ use cubecl_ir::OpaqueType;
 use num_traits::Zero;
 
 #[cube(launch)]
-pub fn async_copy_test<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [Vector<F, N>]) {
+pub fn async_memcpy_test<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [Vector<F, N>]) {
     let barrier = Barrier::local();
     let mut smem = Shared::new_slice(1usize);
 
@@ -19,7 +19,7 @@ pub fn async_copy_test<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [
     output[0] = smem[0];
 }
 
-pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_async_memcpy<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     if !client.properties().supports_type(OpaqueType::Barrier) {
         // We can't execute the test, skip.
         return;
@@ -29,7 +29,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
     let output = client.empty(core::mem::size_of::<F>());
 
     unsafe {
-        async_copy_test::launch::<F, R>(
+        async_memcpy_test::launch::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
@@ -43,6 +43,51 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(2.0));
+}
+
+#[cube(launch)]
+pub fn async_copy_test<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [Vector<F, N>]) {
+    let elected = plane_elect();
+    let barrier = Barrier::shared(1u32, elected);
+    // Align to 16 to avoid any issues with misaligned pointers
+    let mut smem = Shared::new_aligned_slice(2usize, 16usize);
+
+    if elected {
+        let source = &input[2..4];
+        let destination = &mut smem[..2];
+        copy_async(source, destination, 2u32);
+
+        barrier.commit_copy_async();
+        barrier.arrive_and_wait();
+        output[0] = smem[0];
+        output[1] = smem[1];
+    }
+}
+
+pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    if !client.properties().features.copy_async {
+        // We can't execute the test, skip.
+        return;
+    }
+
+    let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let output = client.empty(core::mem::size_of::<F>() * 2);
+
+    unsafe {
+        async_copy_test::launch::<F, R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(1),
+            1,
+            BufferArg::from_raw_parts(input, 5),
+            BufferArg::from_raw_parts(output.clone(), 2),
+        )
+    };
+
+    let actual = client.read_one_unchecked(output);
+    let actual = F::from_bytes(&actual);
+
+    assert_eq!(actual, [F::new(2.0), F::new(3.0)]);
 }
 
 #[cube(launch)]
@@ -233,6 +278,14 @@ macro_rules! testgen_barrier {
         fn test_barrier_async_copy() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::barrier::test_async_copy::<TestRuntime, FloatType>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_barrier_async_memcpy() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::barrier::test_async_memcpy::<TestRuntime, FloatType>(
+                client,
+            );
         }
 
         #[$crate::runtime_tests::test_log::test]
