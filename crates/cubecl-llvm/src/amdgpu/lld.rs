@@ -1,6 +1,6 @@
 //! Linking AMDGPU objects with LLD.
 //!
-//! LLD exposes no C API, so `lld_shim.cpp` wraps `lld::elf::link` in an
+//! LLD exposes no C API, so `cpp_shims/lld.cpp` wraps `lld::elf::link` in an
 //! `extern "C"` entry point that `build.rs` compiles and links in.
 
 use std::ffi::{CString, c_char};
@@ -9,24 +9,26 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 unsafe extern "C" {
-    /// See `lld_shim.cpp`. Returns `true` when the link succeeded.
+    /// See `cpp_shims/lld.cpp`. Returns `true` when the link succeeded.
     fn cubecl_lld_elf_link(argv: *const *const c_char, argc: usize) -> bool;
 }
 
 /// LLD keeps global linker context, so concurrent calls corrupt each other.
 static LLD_LOCK: Mutex<()> = Mutex::new(());
 
-/// Keeps temp directories unique. `(pid, name)` alone collides between threads
-/// sharing a `name`, letting one call's cleanup delete a sibling's directory.
+/// Keeps temp directories unique. The pid alone collides between threads, letting one
+/// call's cleanup delete a sibling's directory.
 static CALL_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// Links a relocatable AMDGPU ELF into a loadable `ET_DYN` code object.
 ///
-/// LLD writes to a path rather than a buffer, so files are staged in a temp dir.
+/// LLD writes to a path rather than a buffer, so files are staged in a temp dir. The kernel
+/// name is not part of that path: it comes from a user's own types and carries whatever
+/// `::`, `<` and `>` those spell. The pid and counter already make the directory unique, and
+/// the name is what the error says rather than what the filesystem sees.
 pub fn link_relocatable(object: &[u8], name: &str) -> Result<Vec<u8>, String> {
     let unique = CALL_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir =
-        std::env::temp_dir().join(format!("cubecl-lld-{}-{unique}-{name}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("cubecl-lld-{}-{unique}", std::process::id()));
     let result = link_in(&dir, object, name);
     let _ = std::fs::remove_dir_all(&dir);
     result

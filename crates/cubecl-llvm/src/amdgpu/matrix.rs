@@ -4,9 +4,10 @@
 //! one row or column, the accumulator eight rows' worth. The layouts differ by generation —
 //! RDNA3 gives both halves of the wave the whole `k` range and pads 16 bit accumulators out to
 //! 32 bits per element, RDNA4 splits `k` between the halves and packs densely — so the element
-//! counts and the index arithmetic are derived from [`WmmaGeneration`] rather than fixed.
+//! counts and the index arithmetic are derived from [`AmdWmma`] rather than fixed.
 
 use cubecl_core::ir::ContextExt;
+use cubecl_core::ir::amd::AmdWmma;
 use cubecl_core::ir::dialect::matrix::{
     CastOp, ColIndexOp, FillOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RowIndexOp, StoreOp,
 };
@@ -14,6 +15,7 @@ use cubecl_core::ir::types::matrix::MatrixType;
 use cubecl_core::ir::types::{MatrixIdent, MatrixLayout, MatrixShape};
 
 use pliron::input_err;
+use pliron::printable::Printable;
 use thiserror::Error;
 
 use crate::amdgpu::plane::lane_id;
@@ -28,73 +30,49 @@ use crate::shared::to_llvm::ty::scalar_alignment;
 )]
 pub struct MatrixRelayoutUnsupported(MatrixIdent, MatrixIdent);
 
-/// Which WMMA the device has. The instructions are the same shape; the fragments are not.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WmmaGeneration {
-    /// gfx11.
-    Rdna3,
-    /// gfx12.
-    Rdna4,
+/// A tile whose depth is not a whole number of hardware instructions.
+#[derive(Debug, Error)]
+#[error("a k of {0} does not divide into {1}-deep WMMA instructions")]
+pub struct MatrixDepthUnsupported(usize, usize);
+
+/// A fragment element type no WMMA instruction takes.
+#[derive(Debug, Error)]
+#[error("no WMMA instruction takes a {0} fragment element")]
+pub struct MatrixElemUnsupported(String);
+
+/// Whether a 16 bit accumulator is padded to one element per 32 bit register.
+fn pads_half_accumulator(generation: AmdWmma) -> bool {
+    generation == AmdWmma::Rdna3
 }
 
-impl WmmaGeneration {
-    /// Elements of A or B each lane holds. RDNA3 gives every lane the whole `k` range and
-    /// duplicates it across the halves of the wave; RDNA4 gives each half its own.
-    pub fn ab_elems(&self, k: usize) -> usize {
-        match self {
-            WmmaGeneration::Rdna3 => k,
-            WmmaGeneration::Rdna4 => k / 2,
-        }
-    }
-
-    /// Whether a 16 bit accumulator is padded to one element per 32 bit register.
-    pub fn pads_half_accumulator(&self) -> bool {
-        *self == WmmaGeneration::Rdna3
-    }
-
-    /// How a tile of depth `k` splits into hardware instructions: the `k` of one
-    /// instruction, and how many of them the tile takes.
-    ///
-    /// gfx11 only has the `16x16x16` WMMA shapes, but rocWMMA advertises `16x16x32` on it
-    /// as well and implements it as two instructions, so the device properties offer that
-    /// tile and callers take it up. A tile deeper than the instruction is therefore not an
-    /// error: it is several instructions over consecutive slices of the `k` range, chained
-    /// through the accumulator. gfx12 has the wider instruction and always runs in one step.
-    pub fn instruction_steps(&self, k: usize) -> (usize, usize) {
-        let instruction_k = match self {
-            WmmaGeneration::Rdna3 => 16.min(k),
-            WmmaGeneration::Rdna4 => k,
-        };
-        assert!(
-            instruction_k > 0 && k.is_multiple_of(instruction_k),
-            "a k of {k} does not divide into {instruction_k}-deep WMMA instructions"
-        );
-        (instruction_k, k / instruction_k)
-    }
-
-    /// The generation of `arch`, or `None` where there is no WMMA at all.
-    pub fn of(arch: &str) -> Option<Self> {
-        if arch.starts_with("gfx11") {
-            Some(WmmaGeneration::Rdna3)
-        } else if arch.starts_with("gfx12") {
-            Some(WmmaGeneration::Rdna4)
-        } else {
-            None
-        }
-    }
+/// How a tile of depth `k` splits into hardware instructions: the `k` of one instruction,
+/// and how many of them the tile takes.
+///
+/// gfx11 only has the `16x16x16` WMMA shapes, but rocWMMA advertises `16x16x32` on it as
+/// well and implements it as two instructions, so the device properties offer that tile and
+/// callers take it up. A tile deeper than the instruction is therefore not an error: it is
+/// several instructions over consecutive slices of the `k` range, chained through the
+/// accumulator. gfx12 has the wider instruction and always runs in one step.
+fn instruction_steps(generation: AmdWmma, k: usize) -> Option<(usize, usize)> {
+    let instruction_k = match generation {
+        AmdWmma::Rdna3 => 16.min(k),
+        AmdWmma::Rdna4 => k,
+    };
+    (instruction_k > 0 && k.is_multiple_of(instruction_k))
+        .then(|| (instruction_k, k / instruction_k))
 }
 
 impl CtxWmma for Context {}
 
 /// The WMMA generation on the context.
 pub trait CtxWmma: ContextExt {
-    fn wmma(&self) -> WmmaGeneration {
+    fn wmma(&self) -> AmdWmma {
         *self
-            .aux_ty::<Option<WmmaGeneration>>()
+            .aux_ty::<Option<AmdWmma>>()
             .as_ref()
             .expect("matrix ops are only compiled for devices that have WMMA")
     }
-    fn set_wmma(&mut self, generation: Option<WmmaGeneration>) {
+    fn set_wmma(&mut self, generation: Option<AmdWmma>) {
         self.set_aux_ty(generation);
     }
 }
@@ -117,9 +95,9 @@ const LANES_PER_ROW: u32 = 16;
 fn fragment_layout(ctx: &Context, matrix: &MatrixType) -> (usize, usize) {
     let generation = ctx.wmma();
     match matrix.ident {
-        MatrixIdent::A | MatrixIdent::B => (generation.ab_elems(matrix.shape.k), 1),
+        MatrixIdent::A | MatrixIdent::B => (generation.frag_ab_elems(matrix.shape.k), 1),
         MatrixIdent::Accumulator => {
-            let padded = is_half(ctx, matrix.elem_ty) && generation.pads_half_accumulator();
+            let padded = is_half(ctx, matrix.elem_ty) && pads_half_accumulator(generation);
             (ACCUMULATOR_REGISTERS, if padded { 2 } else { 1 })
         }
     }
@@ -162,16 +140,14 @@ fn matrix_of(ctx: &Context, info: &OperandsInfo, value: Value) -> MatrixType {
 fn mul(ctx: &mut Context, rw: &mut DialectConversionRewriter, lhs: Value, rhs: Value) -> Value {
     let op =
         llvm::MulOp::new_with_overflow_flag(ctx, lhs, rhs, IntegerOverflowFlagsAttr::default());
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// `lhs + rhs` over `i32`.
 fn add(ctx: &mut Context, rw: &mut DialectConversionRewriter, lhs: Value, rhs: Value) -> Value {
     let op =
         llvm::AddOp::new_with_overflow_flag(ctx, lhs, rhs, IntegerOverflowFlagsAttr::default());
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// Where in the fragment's row or column a lane sits, and which half of the wave it is in.
@@ -181,27 +157,71 @@ struct LanePosition {
     half: Value,
 }
 
-/// This lane's position within its wavefront.
-fn lane_position(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> LanePosition {
-    let lane = lane_id(ctx, rw);
-    let width = insert_i32_const(ctx, rw, LANES_PER_ROW as i32);
+impl LanePosition {
+    /// Split `lane`, an index within the wavefront, into the two halves the fragment
+    /// layouts are written in terms of.
+    fn of(ctx: &mut Context, rw: &mut DialectConversionRewriter, lane: Value) -> Self {
+        let width = insert_i32_const(ctx, rw, LANES_PER_ROW as i32);
 
-    let in_row = llvm::URemOp::new(ctx, lane, width);
-    rw.insert_op(ctx, &in_row);
-    let half = llvm::UDivOp::new(ctx, lane, width);
-    rw.insert_op(ctx, &half);
+        let in_row = llvm::URemOp::new(ctx, lane, width);
+        let half = llvm::UDivOp::new(ctx, lane, width);
 
-    LanePosition {
-        in_row: in_row.get_result(ctx),
-        half: half.get_result(ctx),
+        LanePosition {
+            in_row: insert(ctx, rw, &in_row),
+            half: insert(ctx, rw, &half),
+        }
+    }
+
+    /// This lane's position within its own wavefront.
+    fn current(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Self {
+        let lane = lane_id(ctx, rw);
+        Self::of(ctx, rw, lane)
+    }
+}
+
+/// How far along the fragment's own axis this lane's `i`th element sits: the `k` range for
+/// A and B, the rows of the output for the accumulator.
+///
+/// This is the only place the fragment layout is written down. [`element_index`] walks it
+/// with a constant `i` to place a load or a store, and [`axis_index`] with a runtime one to
+/// answer `row_index` and `col_index`. A second copy that drifted would have a kernel
+/// addressing its own fragment at coordinates the loads never wrote.
+fn along(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    matrix: &MatrixType,
+    i: Value,
+    lane: LanePosition,
+) -> Value {
+    let half = lane.half;
+    match (matrix.ident, ctx.wmma()) {
+        // Every lane holds the whole `k` range, duplicated across the halves of the wave.
+        (MatrixIdent::A | MatrixIdent::B, AmdWmma::Rdna3) => i,
+        // Each half holds its own part of the `k` range.
+        (MatrixIdent::A | MatrixIdent::B, AmdWmma::Rdna4) => {
+            let per_half = insert_i32_const(ctx, rw, matrix.shape.k as i32 / 2);
+            let offset = mul(ctx, rw, half, per_half);
+            add(ctx, rw, i, offset)
+        }
+        // The halves interleave row by row.
+        (MatrixIdent::Accumulator, AmdWmma::Rdna3) => {
+            let two = insert_i32_const(ctx, rw, 2);
+            let row = mul(ctx, rw, i, two);
+            add(ctx, rw, row, half)
+        }
+        // Each half gets a contiguous block of eight rows.
+        (MatrixIdent::Accumulator, AmdWmma::Rdna4) => {
+            let block = insert_i32_const(ctx, rw, ACCUMULATOR_REGISTERS as i32);
+            let offset = mul(ctx, rw, half, block);
+            add(ctx, rw, i, offset)
+        }
     }
 }
 
 /// The index into the backing memory of this lane's `i`th element of `matrix`.
 ///
-/// A and B walk the `k` range of one row or column; RDNA4 splits that range between the halves
-/// of the wave, so the half selects which part this lane holds. The accumulator instead walks
-/// eight rows two apart, the half choosing between them.
+/// The element sits at [`along`] on the fragment's own axis and at the lane's place in the
+/// row on the other; `layout` decides which of the two the stride multiplies.
 fn element_index(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -211,40 +231,9 @@ fn element_index(
     lane: LanePosition,
     stride: Value,
 ) -> Value {
-    let LanePosition { in_row, half } = lane;
-    let generation = ctx.wmma();
-
-    let (along, across) = match matrix.ident {
-        MatrixIdent::A | MatrixIdent::B => {
-            let step = insert_i32_const(ctx, rw, i as i32);
-            let along = match generation {
-                WmmaGeneration::Rdna3 => step,
-                WmmaGeneration::Rdna4 => {
-                    let per_half = insert_i32_const(ctx, rw, matrix.shape.k as i32 / 2);
-                    let offset = mul(ctx, rw, half, per_half);
-                    add(ctx, rw, step, offset)
-                }
-            };
-            (along, in_row)
-        }
-        MatrixIdent::Accumulator => {
-            // RDNA3 interleaves the halves row by row, RDNA4 gives each half a contiguous
-            // block of eight.
-            let along = match generation {
-                WmmaGeneration::Rdna3 => {
-                    let row = insert_i32_const(ctx, rw, (i * 2) as i32);
-                    add(ctx, rw, row, half)
-                }
-                WmmaGeneration::Rdna4 => {
-                    let row = insert_i32_const(ctx, rw, i as i32);
-                    let block = insert_i32_const(ctx, rw, ACCUMULATOR_REGISTERS as i32);
-                    let offset = mul(ctx, rw, half, block);
-                    add(ctx, rw, row, offset)
-                }
-            };
-            (along, in_row)
-        }
-    };
+    let step = insert_i32_const(ctx, rw, i as i32);
+    let along = along(ctx, rw, matrix, step, lane);
+    let across = lane.in_row;
 
     if is_strided(matrix.ident, layout) {
         let scaled = mul(ctx, rw, along, stride);
@@ -278,7 +267,7 @@ fn is_strided(ident: MatrixIdent, layout: MatrixLayout) -> bool {
 /// register side -- a padded 16 bit accumulator spreads its elements over every
 /// second slot, which no contiguous load can fill.
 fn fragment_is_contiguous(
-    generation: WmmaGeneration,
+    generation: AmdWmma,
     matrix: &MatrixType,
     layout: MatrixLayout,
     step: usize,
@@ -288,7 +277,7 @@ fn fragment_is_contiguous(
     }
     match matrix.ident {
         MatrixIdent::A | MatrixIdent::B => true,
-        MatrixIdent::Accumulator => generation == WmmaGeneration::Rdna4,
+        MatrixIdent::Accumulator => generation == AmdWmma::Rdna4,
     }
 }
 
@@ -301,8 +290,7 @@ fn element_ptr(
     elem_ty: TypeHandle,
 ) -> Value {
     let gep = llvm::GetElementPtrOp::new(ctx, base, vec![llvm::GepIndex::Value(index)], elem_ty);
-    rw.insert_op(ctx, &gep);
-    gep.get_result(ctx)
+    insert(ctx, rw, &gep)
 }
 
 /// Loads the fragment `matrix` points at.
@@ -313,8 +301,7 @@ fn load_fragment(
     ty: TypeHandle,
 ) -> Value {
     let op = llvm::LoadOp::new(ctx, matrix, ty);
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// Stores `value` into the fragment `matrix` points at.
@@ -346,8 +333,7 @@ fn load_tile(
 ) -> Value {
     let op = llvm::LoadOp::new(ctx, ptr, ty);
     op.set_alignment(ctx, align);
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// Stores `value` into the tile `ptr` points into. The counterpart of [`load_tile`], and
@@ -408,7 +394,7 @@ impl ToLLVMDialect for LoadOp {
         let frag_ty = fragment_ty(ctx, &ty);
         let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
         let align = scalar_alignment(ctx, ty.elem_ty);
-        let lane = lane_position(ctx, rw);
+        let lane = LanePosition::current(ctx, rw);
 
         // One vector load where the elements are consecutive, at the element's alignment
         // like the element-wise path below. The base of a tile is aligned far past that --
@@ -428,8 +414,7 @@ impl ToLLVMDialect for LoadOp {
         }
 
         let poison = llvm::PoisonOp::new(ctx, frag_ty);
-        rw.insert_op(ctx, &poison);
-        let mut frag = poison.get_result(ctx);
+        let mut frag = insert(ctx, rw, &poison);
 
         for i in 0..elems {
             let index = element_index(ctx, rw, &ty, layout, i, lane, stride);
@@ -437,9 +422,8 @@ impl ToLLVMDialect for LoadOp {
             let value = load_tile(ctx, rw, ptr, elem_ty, align);
 
             let slot = insert_i32_const(ctx, rw, (i * step) as i32);
-            let insert = llvm::InsertElementOp::new(ctx, frag, value, slot);
-            rw.insert_op(ctx, &insert);
-            frag = insert.get_result(ctx);
+            let op = llvm::InsertElementOp::new(ctx, frag, value, slot);
+            frag = insert(ctx, rw, &op);
         }
 
         store_fragment(ctx, rw, matrix, frag);
@@ -467,7 +451,7 @@ impl ToLLVMDialect for StoreOp {
         let frag_ty = fragment_ty(ctx, &ty);
         let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
         let align = scalar_alignment(ctx, ty.elem_ty);
-        let lane = lane_position(ctx, rw);
+        let lane = LanePosition::current(ctx, rw);
 
         let frag = load_fragment(ctx, rw, matrix, frag_ty);
 
@@ -484,11 +468,11 @@ impl ToLLVMDialect for StoreOp {
         for i in 0..elems {
             let slot = insert_i32_const(ctx, rw, (i * step) as i32);
             let extract = llvm::ExtractElementOp::new(ctx, frag, slot);
-            rw.insert_op(ctx, &extract);
+            let element = insert(ctx, rw, &extract);
 
             let index = element_index(ctx, rw, &ty, layout, i, lane, stride);
             let ptr = element_ptr(ctx, rw, destination, index, elem_ty);
-            store_tile(ctx, rw, ptr, extract.get_result(ctx), align);
+            store_tile(ctx, rw, ptr, element, align);
         }
 
         rw.erase_operation(ctx, old_op);
@@ -496,16 +480,35 @@ impl ToLLVMDialect for StoreOp {
     }
 }
 
-/// The WMMA format name of a fragment element type.
-fn wmma_format(ctx: &Context, elem: TypeHandle) -> &'static str {
-    if elem.is_float32(ctx) {
-        "f32"
-    } else if elem.is_bfloat16(ctx) {
-        "bf16"
-    } else if elem.is_float16(ctx) {
-        "f16"
+/// The `k` one instruction of this device's WMMA covers, for reporting a tile that does not
+/// divide into whole ones.
+fn instruction_k(ctx: &Context) -> usize {
+    match ctx.wmma() {
+        AmdWmma::Rdna3 => 16,
+        AmdWmma::Rdna4 => 32,
+    }
+}
+
+/// Names whichever of the two element types has no WMMA format.
+fn unsupported_elem(ctx: &Context, ab: TypeHandle, cd: TypeHandle) -> MatrixElemUnsupported {
+    let culprit = if wmma_format(ctx, ab).is_none() {
+        ab
     } else {
-        panic!("no WMMA takes this element type")
+        cd
+    };
+    MatrixElemUnsupported(culprit.disp(ctx).to_string())
+}
+
+/// The WMMA format name of a fragment element type, or `None` for one no instruction takes.
+fn wmma_format(ctx: &Context, elem: TypeHandle) -> Option<&'static str> {
+    if elem.is_float32(ctx) {
+        Some("f32")
+    } else if elem.is_bfloat16(ctx) {
+        Some("bf16")
+    } else if elem.is_float16(ctx) {
+        Some("f16")
+    } else {
+        None
     }
 }
 
@@ -521,10 +524,12 @@ fn fragment_slice(
     step: usize,
     width: usize,
 ) -> Value {
-    let mask = (0..width).map(|i| (step * width + i) as i32).collect();
-    let op = llvm::ShuffleVectorOp::new(ctx, fragment, fragment, mask);
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    shuffle(
+        ctx,
+        rw,
+        fragment,
+        (0..width).map(|i| (step * width + i) as i32).collect(),
+    )
 }
 
 /// `fragment` re-indexed by `mask`, which may reorder, narrow or widen it.
@@ -535,8 +540,7 @@ fn shuffle(
     mask: Vec<i32>,
 ) -> Value {
     let op = llvm::ShuffleVectorOp::new(ctx, fragment, fragment, mask);
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// What one WMMA lowering needs that is not the operand values.
@@ -562,7 +566,7 @@ fn emit_wmma(
     (a_val, b_val, c_val): (Value, Value, Value),
     ab_ty: TypeHandle,
     cd_ty: TypeHandle,
-) -> Value {
+) -> Option<Value> {
     let WmmaCall {
         shape: MatrixShape { m, n, k },
         ab,
@@ -570,8 +574,8 @@ fn emit_wmma(
         cd_is_half,
     } = call;
     let generation = ctx.wmma();
-    let (instruction_k, steps) = generation.instruction_steps(k);
-    let pads_half = generation.pads_half_accumulator() && cd_is_half;
+    let (instruction_k, steps) = instruction_steps(generation, k)?;
+    let pads_half = pads_half_accumulator(generation) && cd_is_half;
 
     let mut acc = c_val;
     for step in 0..steps {
@@ -603,10 +607,9 @@ fn emit_wmma(
 
         let fn_ty = FuncType::get(ctx, cd_ty, arg_tys, false);
         let op = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
-        rw.insert_op(ctx, &op);
-        acc = op.get_result(ctx);
+        acc = insert(ctx, rw, &op);
     }
-    acc
+    Some(acc)
 }
 
 #[op_interface_impl]
@@ -634,13 +637,26 @@ impl ToLLVMDialect for MultiplyAccumulateOp {
         let b_val = load_fragment(ctx, rw, b, ab_frag_ty);
         let c_val = load_fragment(ctx, rw, c, cd_frag_ty);
 
+        let (Some(ab), Some(cd)) = (
+            wmma_format(ctx, a_ty.elem_ty),
+            wmma_format(ctx, c_ty.elem_ty),
+        ) else {
+            return input_err!(
+                self.loc(ctx),
+                unsupported_elem(ctx, a_ty.elem_ty, c_ty.elem_ty)
+            );
+        };
+        let k = a_ty.shape.k;
         let call = WmmaCall {
             shape: a_ty.shape,
-            ab: wmma_format(ctx, a_ty.elem_ty),
-            cd: wmma_format(ctx, c_ty.elem_ty),
+            ab,
+            cd,
             cd_is_half: is_half(ctx, c_ty.elem_ty),
         };
-        let result = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_frag_ty, cd_frag_ty);
+        let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_frag_ty, cd_frag_ty)
+        else {
+            return input_err!(self.loc(ctx), MatrixDepthUnsupported(k, instruction_k(ctx)));
+        };
         store_fragment(ctx, rw, d, result);
 
         rw.erase_operation(ctx, old_op);
@@ -784,8 +800,7 @@ fn fpext(
 ) -> Value {
     let op = llvm::FPExtOp::new(ctx, value, ty);
     op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// Narrows every element of `value` to `ty`.
@@ -797,8 +812,7 @@ fn fptrunc(
 ) -> Value {
     let op = llvm::FPTruncOp::new(ctx, value, ty);
     op.set_fast_math_flags(ctx, FastmathFlagsAttr::default());
-    rw.insert_op(ctx, &op);
-    op.get_result(ctx)
+    insert(ctx, rw, &op)
 }
 
 /// Which of the two matrix axes an element sits on.
@@ -819,42 +833,13 @@ fn axis_index(
     lane: Value,
     i: Value,
 ) -> Value {
-    let generation = ctx.wmma();
-    let width = insert_i32_const(ctx, rw, LANES_PER_ROW as i32);
-
-    let in_row = llvm::URemOp::new(ctx, lane, width);
-    rw.insert_op(ctx, &in_row);
-    let half_op = llvm::UDivOp::new(ctx, lane, width);
-    rw.insert_op(ctx, &half_op);
-    let (in_row, half) = (in_row.get_result(ctx), half_op.get_result(ctx));
-
-    let along = match matrix.ident {
-        MatrixIdent::A | MatrixIdent::B => match generation {
-            WmmaGeneration::Rdna3 => i,
-            WmmaGeneration::Rdna4 => {
-                let per_half = insert_i32_const(ctx, rw, matrix.shape.k as i32 / 2);
-                let offset = mul(ctx, rw, half, per_half);
-                add(ctx, rw, i, offset)
-            }
-        },
-        MatrixIdent::Accumulator => match generation {
-            WmmaGeneration::Rdna3 => {
-                let two = insert_i32_const(ctx, rw, 2);
-                let row = mul(ctx, rw, i, two);
-                add(ctx, rw, row, half)
-            }
-            WmmaGeneration::Rdna4 => {
-                let block = insert_i32_const(ctx, rw, ACCUMULATOR_REGISTERS as i32);
-                let offset = mul(ctx, rw, half, block);
-                add(ctx, rw, i, offset)
-            }
-        },
-    };
+    let lane = LanePosition::of(ctx, rw, lane);
+    let along = along(ctx, rw, matrix, i, lane);
 
     // A is indexed by its row and walks `k`; B and the accumulator are the other way round.
     let lane_names_row = matrix.ident == MatrixIdent::A;
     match (axis, lane_names_row) {
-        (Axis::Row, true) | (Axis::Col, false) => in_row,
+        (Axis::Row, true) | (Axis::Col, false) => lane.in_row,
         (Axis::Row, false) | (Axis::Col, true) => along,
     }
 }
@@ -954,28 +939,24 @@ fn registers_value(
     };
 
     let poison = llvm::PoisonOp::new(ctx, vector_ty);
-    rw.insert_op(ctx, &poison);
-    let mut acc = poison.get_result(ctx);
+    let mut acc = insert(ctx, rw, &poison);
 
     for register in 0..count {
-        let element = llvm::ExtractValueOp::new(ctx, value, vec![register as u32])
+        let op = llvm::ExtractValueOp::new(ctx, value, vec![register as u32])
             .expect("a constant index into the register array");
-        rw.insert_op(ctx, &element);
-        let element = element.get_result(ctx);
+        let element = insert(ctx, rw, &op);
 
         for lane in 0..per_register {
             let value = if per_register == 1 {
                 element
             } else {
                 let from = insert_i32_const(ctx, rw, lane as i32);
-                let extract = llvm::ExtractElementOp::new(ctx, element, from);
-                rw.insert_op(ctx, &extract);
-                extract.get_result(ctx)
+                let op = llvm::ExtractElementOp::new(ctx, element, from);
+                insert(ctx, rw, &op)
             };
             let to = insert_i32_const(ctx, rw, (register * per_register + lane) as i32);
-            let insert = llvm::InsertElementOp::new(ctx, acc, value, to);
-            rw.insert_op(ctx, &insert);
-            acc = insert.get_result(ctx);
+            let op = llvm::InsertElementOp::new(ctx, acc, value, to);
+            acc = insert(ctx, rw, &op);
         }
     }
     acc
@@ -1004,16 +985,166 @@ impl ToLLVMDialect for MmaManualOp {
         let b_val = registers_value(ctx, rw, b, ab_ty);
         let c_val = registers_value(ctx, rw, c, cd_ty);
 
+        let (Some(ab), Some(cd)) = (wmma_format(ctx, ab_elem), wmma_format(ctx, cd_elem)) else {
+            return input_err!(self.loc(ctx), unsupported_elem(ctx, ab_elem, cd_elem));
+        };
+        let shape = *self.shape(ctx).clone();
         let call = WmmaCall {
-            shape: *self.shape(ctx).clone(),
-            ab: wmma_format(ctx, ab_elem),
-            cd: wmma_format(ctx, cd_elem),
+            shape,
+            ab,
+            cd,
             cd_is_half: is_half(ctx, cd_elem),
         };
-        let result = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_ty, cd_ty);
+        let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_ty, cd_ty) else {
+            return input_err!(
+                self.loc(ctx),
+                MatrixDepthUnsupported(shape.k, instruction_k(ctx))
+            );
+        };
         store_fragment(ctx, rw, d, result);
 
         rw.erase_operation(ctx, old_op);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_core::ir::types::MatrixScope;
+    use cubecl_core::ir::types::scalar::{Float16Type, Float32Type};
+
+    fn matrix(ident: MatrixIdent, elem_ty: TypeHandle, k: usize) -> MatrixType {
+        MatrixType {
+            ident,
+            shape: MatrixShape { m: 16, n: 16, k },
+            elem_ty,
+            layout: MatrixLayout::RowMajor,
+            scope: MatrixScope::Plane,
+        }
+    }
+
+    fn f16(ctx: &mut Context) -> TypeHandle {
+        Float16Type::get(ctx).into()
+    }
+
+    fn f32(ctx: &mut Context) -> TypeHandle {
+        Float32Type::get(ctx).into()
+    }
+
+    /// The A/B fragment width is what selects the WMMA intrinsic, and getting it wrong fails
+    /// to select rather than computing a wrong answer. RDNA3 hands every lane the whole `k`
+    /// range; RDNA4 splits it between the halves of the wave.
+    #[test]
+    fn each_generation_holds_its_own_share_of_k() {
+        let mut ctx = Context::default();
+        let f16 = f16(&mut ctx);
+
+        for (generation, elems) in [(AmdWmma::Rdna3, 16), (AmdWmma::Rdna4, 8)] {
+            ctx.set_wmma(Some(generation));
+            let a = matrix(MatrixIdent::A, f16, 16);
+            assert_eq!(fragment_layout(&ctx, &a), (elems, 1), "{generation:?}");
+        }
+    }
+
+    /// RDNA3 writes a 16 bit accumulator into the low half of each register and leaves the
+    /// other half alone, so its elements sit every second slot. A 32 bit one is dense, and so
+    /// is every RDNA4 accumulator.
+    #[test]
+    fn only_a_half_accumulator_on_rdna3_is_padded() {
+        let mut ctx = Context::default();
+        let (f16, f32) = (f16(&mut ctx), f32(&mut ctx));
+
+        for (generation, elem, step) in [
+            (AmdWmma::Rdna3, f16, 2),
+            (AmdWmma::Rdna3, f32, 1),
+            (AmdWmma::Rdna4, f16, 1),
+            (AmdWmma::Rdna4, f32, 1),
+        ] {
+            ctx.set_wmma(Some(generation));
+            let acc = matrix(MatrixIdent::Accumulator, elem, 16);
+            assert_eq!(
+                fragment_layout(&ctx, &acc),
+                (ACCUMULATOR_REGISTERS, step),
+                "{generation:?}"
+            );
+        }
+    }
+
+    /// gfx11 has only the 16-deep instruction, but the device properties advertise a 32-deep
+    /// tile because rocWMMA implements one as two instructions. A deeper tile is therefore
+    /// several instructions chained through the accumulator, not an error.
+    #[test]
+    fn a_tile_deeper_than_the_instruction_is_several_of_them() {
+        assert_eq!(instruction_steps(AmdWmma::Rdna3, 16), Some((16, 1)));
+        assert_eq!(instruction_steps(AmdWmma::Rdna3, 32), Some((16, 2)));
+        assert_eq!(instruction_steps(AmdWmma::Rdna4, 32), Some((32, 1)));
+    }
+
+    /// A depth that is not a whole number of instructions has no lowering, and says so
+    /// rather than emitting one that covers part of the tile.
+    #[test]
+    fn a_tile_that_does_not_divide_has_no_lowering() {
+        assert_eq!(instruction_steps(AmdWmma::Rdna3, 24), None);
+        assert_eq!(instruction_steps(AmdWmma::Rdna4, 0), None);
+    }
+
+    /// Whichever axis the layout makes contiguous is the one the stride does not multiply.
+    /// A and B disagree about which that is, and the accumulator follows B.
+    #[test]
+    fn the_layout_decides_which_axis_carries_the_stride() {
+        use MatrixIdent::{A, Accumulator, B};
+        use MatrixLayout::{ColMajor, RowMajor};
+
+        assert!(is_strided(A, ColMajor) && !is_strided(A, RowMajor));
+        assert!(is_strided(B, RowMajor) && !is_strided(B, ColMajor));
+        assert!(is_strided(Accumulator, RowMajor) && !is_strided(Accumulator, ColMajor));
+    }
+
+    /// A fragment loads as one wide access only when both its memory side and its register
+    /// side step by one. An RDNA3 accumulator walks two rows at a time because the halves of
+    /// the wave interleave, and a padded one leaves every second register slot alone, so
+    /// neither can be filled by a contiguous load.
+    #[test]
+    fn only_a_fragment_dense_on_both_sides_loads_as_one_access() {
+        let mut ctx = Context::default();
+        let (f16, f32) = (f16(&mut ctx), f32(&mut ctx));
+        let a = matrix(MatrixIdent::A, f16, 16);
+        let acc16 = matrix(MatrixIdent::Accumulator, f16, 16);
+        let acc32 = matrix(MatrixIdent::Accumulator, f32, 16);
+
+        // A is contiguous whenever the layout leaves it unstrided.
+        assert!(fragment_is_contiguous(
+            AmdWmma::Rdna3,
+            &a,
+            MatrixLayout::RowMajor,
+            1
+        ));
+        assert!(!fragment_is_contiguous(
+            AmdWmma::Rdna3,
+            &a,
+            MatrixLayout::ColMajor,
+            1
+        ));
+
+        // An RDNA3 accumulator never is, padded or not; an RDNA4 one is when it is dense.
+        assert!(!fragment_is_contiguous(
+            AmdWmma::Rdna3,
+            &acc32,
+            MatrixLayout::ColMajor,
+            1
+        ));
+        assert!(fragment_is_contiguous(
+            AmdWmma::Rdna4,
+            &acc32,
+            MatrixLayout::ColMajor,
+            1
+        ));
+        assert!(!fragment_is_contiguous(
+            AmdWmma::Rdna4,
+            &acc16,
+            MatrixLayout::ColMajor,
+            2
+        ));
     }
 }
