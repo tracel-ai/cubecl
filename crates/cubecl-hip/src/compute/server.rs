@@ -316,7 +316,7 @@ impl ComputeServer for HipServer {
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
         // No drain: the window opens where the stream already is, and the
         // device stamps it there. See [`EventProfiler`].
-        let sys = self.profiled_stream(stream_id)?;
+        let sys = self.profiled_stream(stream_id, "start_profile")?;
         self.ctx.profiler.start(sys)
     }
 
@@ -325,7 +325,7 @@ impl ComputeServer for HipServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        let sys = match self.profiled_stream(stream_id) {
+        let sys = match self.profiled_stream(stream_id, "end_profile") {
             Ok(sys) => sys,
             Err(err) => {
                 // The window cannot be closed on the device, so there is
@@ -505,6 +505,12 @@ impl HipServer {
 
     /// The stream a profiling window records its events into.
     ///
+    /// `entry_point` is the server call asking, and it opens the refusal the
+    /// way every other graph-state error names the call it turned down. Both
+    /// ends of a window come through here: a capture can begin inside an open
+    /// window, so the refusal `end_profile` gets is the one `start_profile`
+    /// did not.
+    ///
     /// # Errors
     ///
     /// A stream recording a graph. Its events would be recorded into the graph
@@ -515,15 +521,16 @@ impl HipServer {
     fn profiled_stream(
         &mut self,
         stream_id: StreamId,
+        entry_point: &'static str,
     ) -> Result<cubecl_hip_sys::hipStream_t, ServerError> {
         let mut streams = self.streams.resolve(stream_id, [].into_iter());
         let stream = streams.current();
 
         if stream.capturing.is_recording() {
-            return Err(ServerError::graph_state(
-                "start_profile: a capture window records launches only, so a profiling event \
-                 has no recorded form",
-            ));
+            return Err(ServerError::graph_state(format!(
+                "{entry_point}: a capture window records launches only, so a profiling event \
+                 has no recorded form"
+            )));
         }
 
         Ok(stream.sys)
