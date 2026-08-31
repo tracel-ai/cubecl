@@ -234,19 +234,49 @@ fn element_index(
         }
     };
 
-    // Whichever of the two the layout makes contiguous gets the stride.
-    let strided = matches!(
-        (matrix.ident, layout),
-        (MatrixIdent::A, MatrixLayout::ColMajor)
-            | (MatrixIdent::B, MatrixLayout::RowMajor)
-            | (MatrixIdent::Accumulator, MatrixLayout::RowMajor)
-    );
-    if strided {
+    if is_strided(matrix.ident, layout) {
         let scaled = mul(ctx, rw, along, stride);
         add(ctx, rw, scaled, across)
     } else {
         let scaled = mul(ctx, rw, across, stride);
         add(ctx, rw, along, scaled)
+    }
+}
+
+/// Whether the layout puts `along` on the stride rather than `across`.
+///
+/// Whichever of the two the layout makes contiguous gets the stride.
+fn is_strided(ident: MatrixIdent, layout: MatrixLayout) -> bool {
+    matches!(
+        (ident, layout),
+        (MatrixIdent::A, MatrixLayout::ColMajor)
+            | (MatrixIdent::B, MatrixLayout::RowMajor)
+            | (MatrixIdent::Accumulator, MatrixLayout::RowMajor)
+    )
+}
+
+/// Whether a fragment's elements sit one after another in memory, so the whole
+/// fragment is one vector access instead of `elems` scalar ones.
+///
+/// Two things have to hold. The layout must leave `along` unstrided, which makes
+/// [`element_index`] `along + across * stride` and so a step of one per `i`. And
+/// `along` itself must advance by one per `i`: it does for A and B, and for an
+/// RDNA4 accumulator, but an RDNA3 accumulator steps two rows at a time because
+/// the halves of the wave interleave. `step` covers the matching gap on the
+/// register side -- a padded 16 bit accumulator spreads its elements over every
+/// second slot, which no contiguous load can fill.
+fn fragment_is_contiguous(
+    generation: WmmaGeneration,
+    matrix: &MatrixType,
+    layout: MatrixLayout,
+    step: usize,
+) -> bool {
+    if step != 1 || is_strided(matrix.ident, layout) {
+        return false;
+    }
+    match matrix.ident {
+        MatrixIdent::A | MatrixIdent::B => true,
+        MatrixIdent::Accumulator => generation == WmmaGeneration::Rdna4,
     }
 }
 
@@ -331,6 +361,22 @@ impl ToLLVMDialect for LoadOp {
         let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
         let lane = lane_position(ctx, rw);
 
+        // One vector load where the elements are consecutive. Alignment is left at
+        // the element's: the base is the LDS block, aligned to 128, so when the
+        // offset is a known multiple of the fragment width LLVM raises the
+        // alignment itself and the load becomes a single wide `ds_load`. When it
+        // cannot prove that, it splits the vector back into element-sized
+        // accesses, which is what this path would have emitted by hand anyway.
+        if fragment_is_contiguous(ctx.wmma(), &ty, layout, step) {
+            let index = element_index(ctx, rw, &ty, layout, 0, lane, stride);
+            let ptr = element_ptr(ctx, rw, source, index, elem_ty);
+            let frag = load_fragment(ctx, rw, ptr, frag_ty);
+            store_fragment(ctx, rw, matrix, frag);
+
+            rw.erase_operation(ctx, old_op);
+            return Ok(());
+        }
+
         let poison = llvm::PoisonOp::new(ctx, frag_ty);
         rw.insert_op(ctx, &poison);
         let mut frag = poison.get_result(ctx);
@@ -373,6 +419,16 @@ impl ToLLVMDialect for StoreOp {
         let lane = lane_position(ctx, rw);
 
         let frag = load_fragment(ctx, rw, matrix, frag_ty);
+
+        // The counterpart of the vector load in `LoadOp`; see the note there.
+        if fragment_is_contiguous(ctx.wmma(), &ty, layout, step) {
+            let index = element_index(ctx, rw, &ty, layout, 0, lane, stride);
+            let ptr = element_ptr(ctx, rw, destination, index, elem_ty);
+            store_fragment(ctx, rw, ptr, frag);
+
+            rw.erase_operation(ctx, old_op);
+            return Ok(());
+        }
 
         for i in 0..elems {
             let slot = insert_i32_const(ctx, rw, (i * step) as i32);
