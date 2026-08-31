@@ -1,14 +1,19 @@
-//! CUDA's half of device profiling: the driver calls, and the type naming them.
+//! CUDA's device events: the driver calls, and the type naming them.
 //!
-//! The design — what a profiling window is, why its events are read back
-//! lazily, and how the anchor places one on the host clock — lives with the
-//! shared [`EventProfiler`](cubecl_runtime::device_events::EventProfiler).
+//! What is built on them — a [`Fence`] handed out so a caller can wait on a
+//! stream outside the server's lock, and an [`EventProfiler`] timing work on
+//! the device's own clock — lives with the shared
+//! [`device_events`](cubecl_runtime::device_events) module, along with the
+//! design arguments for both.
 
 use cubecl_common::profile::Duration;
 use cubecl_runtime::device_events::EventApi;
 use cubecl_runtime::driver::DriverError;
 use cudarc::driver::result::{event, stream};
 use cudarc::driver::sys::{CUevent, CUevent_flags, CUevent_wait_flags, CUstream};
+
+/// A fence, over CUDA's event API.
+pub type Fence = cubecl_runtime::device_events::EventFence<Cuda>;
 
 /// The device profiler, over CUDA's event API.
 pub type EventProfiler = cubecl_runtime::device_events::EventProfiler<Cuda>;
@@ -23,9 +28,8 @@ pub struct Cuda;
 pub struct CudaEvent(CUevent);
 
 // SAFETY: a `CUevent` is a handle into the driver rather than thread-affine
-// state. It is recorded on the server's thread and read back on whichever
-// thread awaits the profile — the same crossing [`Fence`](super::sync::Fence)
-// already makes.
+// state. It is recorded on the server's thread and waited for on whichever
+// thread holds the fence or awaits the profile.
 unsafe impl Send for CudaEvent {}
 unsafe impl Sync for CudaEvent {}
 

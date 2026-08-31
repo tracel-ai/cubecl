@@ -2,16 +2,16 @@ use cubecl_common::profile::Duration;
 
 use crate::driver::DriverError;
 
-/// The device event calls an [`EventProfiler`](super::EventProfiler) is built
-/// from.
+/// The device event calls an [`EventFence`](super::EventFence) and an
+/// [`EventProfiler`](super::EventProfiler) are built from.
 ///
 /// The C-family device APIs agree on an event model: a timestamp is recorded
 /// into a queue, the device stamps it as the queue reaches it, and the span
 /// between two of them is read back afterwards. One implementation per backend
-/// spells those calls; everything above them — a profiling window, the anchor
-/// that places one on the host clock — is written once.
+/// spells those calls; everything above them — a fence's lifetime, a profiling
+/// window, the anchor that places one on the host clock — is written once.
 ///
-/// This is deliberately only what its consumers need. Memory, launches and
+/// This is deliberately only what those two types need. Memory, launches and
 /// module loading have their own seams; widening this trait to cover them would
 /// make it the device API rather than the device's *event* API, and the name
 /// would stop being true.

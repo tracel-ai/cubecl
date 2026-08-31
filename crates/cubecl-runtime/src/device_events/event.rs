@@ -13,7 +13,12 @@ pub struct Event<A: EventApi> {
 }
 
 impl<A: EventApi> Event<A> {
-    fn new() -> Result<Self, DriverError> {
+    /// Create an event, with timing enabled.
+    ///
+    /// # Errors
+    ///
+    /// [`DriverError`] when the driver refuses it.
+    pub fn new() -> Result<Self, DriverError> {
         Ok(Self {
             sys: A::event_create()?,
         })

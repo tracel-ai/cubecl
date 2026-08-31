@@ -8,8 +8,8 @@
 
 use super::storage::gpu::GpuResource;
 use crate::compiler::{HipCompilationOptions, HipCompiler, HipRepresentation};
+use crate::compute::events::EventProfiler;
 use crate::compute::stream::Stream;
-use crate::compute::timings::EventProfiler;
 #[cfg(feature = "cpp")]
 use cubecl_core::hash::StableHasher;
 use cubecl_core::{hash::StableHash, ir::DeviceProperties, prelude::*, server::ResourceLimitError};

@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use cubecl_runtime::driver::checked;
 
-use crate::compute::{cpu::PinnedMemoryStorage, fence::Fence, gpu::GpuStorage};
+use crate::compute::{cpu::PinnedMemoryStorage, events::Fence, gpu::GpuStorage};
 
 #[derive(Debug)]
 pub struct Stream {
@@ -62,12 +62,6 @@ impl StreamMemory for Stream {
     fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
         self.memory_management_gpu
             .written(&binding.memory, binding.range(), failures)
-    }
-}
-
-impl drop_queue::Fence for Fence {
-    fn wait(self) -> Result<(), ServerError> {
-        self.wait_sync()
     }
 }
 

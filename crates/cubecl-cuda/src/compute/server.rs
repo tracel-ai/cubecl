@@ -3,7 +3,7 @@ use crate::compute::driver::Cuda;
 use crate::{
     CudaCompiler,
     compute::{
-        Captures, Command, Window, context::CudaContext, stream::CudaStreamBackend, sync::Fence,
+        Captures, Command, Window, context::CudaContext, events::Fence, stream::CudaStreamBackend,
     },
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};

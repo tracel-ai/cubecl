@@ -7,7 +7,7 @@ use cubecl_runtime::{
     validation::{validate_cube_dim, validate_units},
 };
 
-use crate::compute::timings::EventProfiler;
+use crate::compute::events::EventProfiler;
 use crate::{CudaCompiler, compute::stream::Stream};
 use crate::{
     CudaComputeKernel,
