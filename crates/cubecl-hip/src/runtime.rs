@@ -1,5 +1,5 @@
 use crate::{
-    compiler::{HipCompilationOptions, HipCompiler},
+    compiler::{HipBackend, HipCompilationOptions, HipCompiler},
     compute::{HipServer, context::HipContext},
     device::AmdDevice,
 };
@@ -16,7 +16,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ContiguousElements, DeviceIdentity, DeviceProperties, HardwareProperties,
-        MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, features::Plane,
+        MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, amd::GfxArch,
+        features::Plane,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -24,7 +25,7 @@ use cubecl_core::{
 use cubecl_cpp::{
     hip::{
         self,
-        arch::{AMDArchitecture, AmdWmma},
+        arch::AmdWmma,
         mma::{
             HipCmmaCompiler,
             manual::{contiguous_elements_rdna3, contiguous_elements_rdna4},
@@ -38,8 +39,8 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, compiler::Compiler,
-    driver::checked, logging::ServerLogger,
+    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, driver::checked,
+    logging::ServerLogger,
 };
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
@@ -60,33 +61,26 @@ impl DeviceService for HipServer {
         let device = AmdDevice::from_id(device_id);
         let probe = DeviceProbe::of(device.index as i32);
 
-        // The suffix after the colon is the target features (`xnack`, `sramecc`);
-        // the architecture table is keyed by the bare name.
-        let bare_arch = probe
-            .arch_name
-            .split(':')
-            .next()
-            .unwrap_or(&probe.arch_name);
-        let arch = AMDArchitecture::parse(bare_arch).unwrap_or_else(|err| {
-            panic!(
-                "unrecognized AMD architecture {bare_arch:?} (reported as {:?}): {err}",
-                probe.arch_name
-            )
-        });
+        // Parsed once, here, and handed to whichever backend compiles: the target feature
+        // suffix (`xnack`, `sramecc`) is not part of the name the tables are keyed by.
+        let gfx = GfxArch::parse(&probe.arch_name);
+        let arch = gfx.family();
         // `Runtime::target_properties` is static, so stash what it needs from the device we're
         // initializing. A process mixing RDNA3 and RDNA4 GPUs would see whichever came up first,
         // which is a limitation the static signature can't express anyway.
-        let _ = AMD_WMMA.set(arch.wmma_generation());
-        // The architecture table decides the plane size the compiler emits
-        // for, so a driver reporting a different one would mean every kernel
-        // is generated for the wrong wavefront width.
+        let _ = AMD_WMMA.set(gfx.wmma());
+        // The architecture table decides the plane size the compiler emits for, so a driver
+        // reporting a different one, or a name the table has never seen, would mean every
+        // kernel is generated for the wrong wavefront width.
         assert_eq!(
+            Some(probe.warp_size),
+            gfx.plane_dim(),
+            "the driver reports a wavefront of {} for {:?} (reported as {:?}), but the \
+             architecture table generates code for {:?}",
             probe.warp_size,
-            arch.warp_size(),
-            "the driver reports a wavefront of {} for {bare_arch}, but the \
-             architecture table generates code for {}",
-            probe.warp_size,
-            arch.warp_size()
+            gfx.name(),
+            probe.arch_name,
+            gfx.plane_dim(),
         );
 
         // SAFETY: Calling HIP FFI to set the active device and configure spin-wait scheduling
@@ -132,7 +126,10 @@ impl DeviceService for HipServer {
             max_cube_count: probe.max_cube_count,
             max_units_per_cube: probe.max_units_per_cube,
             max_cube_dim: probe.max_cube_dim,
-            num_streaming_multiprocessors: None,
+            // Consumers that size a grid against the machine need this: without
+            // it cubek's matmul selectors fall back to `CubeCountStrategy::FromProblem`
+            // and the cube count bears no relation to the device it runs on.
+            num_streaming_multiprocessors: probe.num_sms,
             num_tensor_cores: None,
             min_tensor_cores_dim: if supported_wmma_combinations.is_empty() {
                 None
@@ -188,15 +185,15 @@ impl DeviceService for HipServer {
                     fast_math: true,
                     ..Default::default()
                 },
-                amd_wmma: arch.wmma_generation(),
+                amd_wmma: gfx.wmma(),
             },
-            arch: bare_arch.to_string(),
+            arch: Some(gfx),
         };
         let hip_ctx = HipContext::new(
             comp_opts,
             device_props.clone(),
             fingerprint,
-            HipCompiler::default().extension(),
+            HipBackend::default(),
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
@@ -312,6 +309,12 @@ struct DeviceProbe {
     name: String,
     /// The wavefront width, which the architecture table has to agree with.
     warp_size: u32,
+    /// What the driver counts as a multiprocessor. On RDNA that is the work
+    /// group processor rather than the compute unit -- gfx1151 reports 20 for
+    /// its 40 CUs -- which is the right figure either way, since the WGP is
+    /// what a cube is scheduled onto. `None` when the driver reports zero,
+    /// which is a driver that does not know rather than a device with none.
+    num_sms: Option<u32>,
     max_shared_memory: usize,
     max_cube_count: (u32, u32, u32),
     max_units_per_cube: u32,
@@ -364,6 +367,7 @@ impl DeviceProbe {
             arch_name,
             name,
             warp_size: props.warpSize as u32,
+            num_sms: (props.multiProcessorCount > 0).then_some(props.multiProcessorCount as u32),
             max_shared_memory: props.sharedMemPerBlock,
             max_cube_count: (
                 props.maxGridSize[0] as u32,

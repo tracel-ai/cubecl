@@ -10,8 +10,9 @@ use cubecl_core::ir::prelude::*;
 use pliron_llvm::attributes::AtomicOrderingAttr;
 use pliron_llvm::attributes::SyncScopeAttr;
 use pliron_llvm::ops as llvm;
-use pliron_llvm::types::FuncType;
 use pliron_llvm::types::VoidType;
+
+use crate::amdgpu::intrinsic::call_op;
 
 /// The workgroup barrier, i.e. what `__syncthreads` compiles to.
 const S_BARRIER: &str = "llvm.amdgcn.s.barrier";
@@ -32,8 +33,7 @@ fn fence(scope: &Scope, sync_scope: &str, ordering: AtomicOrderingAttr) {
 /// Emits a call to the valueless intrinsic `name`.
 fn barrier(scope: &Scope, name: &str) {
     let void_ty = VoidType::get(scope.ctx_mut()).into();
-    let ty = FuncType::get(scope.ctx_mut(), void_ty, vec![], false);
-    let op = llvm::CallIntrinsicOp::new(scope.ctx_mut(), name.into(), ty, vec![]);
+    let op = call_op(scope.ctx_mut(), name, void_ty, vec![]);
     scope.register(&op);
 }
 

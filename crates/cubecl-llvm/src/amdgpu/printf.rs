@@ -1,14 +1,14 @@
 //! Lowering of `printf` to the AMDGPU hostcall sequence.
 //!
 //! A device talks to the host rather than calling libc: a handle from `__ockl_printf_begin`, the
-//! format string, then the arguments widened to 64 bits. `printf_shim.cpp` reaches LLVM's own
+//! format string, then the arguments widened to 64 bits. `cpp_shims/printf.cpp` reaches LLVM's own
 //! emitter for it.
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::{LLVMModuleRef, LLVMValueRef};
 
 unsafe extern "C" {
-    /// See `printf_shim.cpp`. Consumes the call, which must not be used afterwards.
+    /// See `cpp_shims/printf.cpp`. Consumes the call, which must not be used afterwards.
     fn cubecl_emit_amdgpu_printf(call: LLVMValueRef);
 }
 

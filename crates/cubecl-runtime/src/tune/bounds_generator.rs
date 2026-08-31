@@ -161,7 +161,7 @@ impl TimeBound for Bounds {
 
 #[cfg(test)]
 mod tests {
-    use crate::throughput::ThroughputMode;
+    use crate::throughput::{MemoryAccess, ThroughputMode};
 
     use super::*;
     use alloc::vec;
@@ -233,7 +233,7 @@ mod tests {
             memory: 1.0,
         };
         let key = ThroughputKey {
-            mode: ThroughputMode::Memory,
+            mode: ThroughputMode::memory(MemoryAccess::Copy),
         };
 
         let bounds = calculate_bounds(

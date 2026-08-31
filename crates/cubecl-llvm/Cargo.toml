@@ -26,6 +26,7 @@ tracing = ["cubecl-core/tracing", "cubecl-runtime/tracing", "cubecl-opt/tracing"
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", default-features = false, features = [
+    "amd",
     "std",
 ] }
 cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
@@ -40,6 +41,7 @@ derive-new = { workspace = true }
 half = { workspace = true }
 pliron = { workspace = true, features = ["std"] }
 pliron-llvm = { workspace = true, features = ["llvm-sys"] }
+thiserror = { workspace = true }
 # Not used directly, depended on to select its features.
 llvm-sys = { workspace = true }
 

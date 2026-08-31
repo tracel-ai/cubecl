@@ -36,6 +36,7 @@ pub fn build_kernel<R: cubecl_runtime::runtime::Runtime>(
     cubecl_runtime::throughput::KernelConfig {
         sample,
         ops_count: 1,
+        min_iterations: 1,
     }
 }
 

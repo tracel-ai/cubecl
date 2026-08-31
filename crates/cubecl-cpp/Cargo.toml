@@ -42,7 +42,9 @@ tracing = [
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.3", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", default-features = false, features = [
+    "amd",
+] }
 cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
 # For shared allocation
 cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.3", default-features = false }

@@ -11,10 +11,11 @@ use std::sync::Once;
 use crate::amdgpu::device_libs::{DeviceLibs, link_device_libs};
 use crate::amdgpu::lld::link_relocatable;
 use crate::amdgpu::ocml::redirect_intrinsics_to_ocml;
-use crate::amdgpu::plane_dim_for;
 use crate::amdgpu::printf::lower_printf_to_hostcall;
 use crate::shared::AmdGpuModule;
+use cubecl_core::ir::amd::GfxArch;
 use cubecl_core::ir::attributes::BufferIOAttr;
+use cubecl_environment::bytes::Bytes;
 
 /// The HSA target triple; the specific device is the `-mcpu`, not the triple.
 const TRIPLE: &CStr = c"amdgcn-amd-amdhsa";
@@ -49,8 +50,8 @@ fn init_amdgpu() {
 }
 
 /// Subtarget feature string for `arch`, empty on the wave64 parts.
-fn features_for(arch: &str) -> &'static str {
-    if plane_dim_for(arch) == 32 {
+fn features_for(arch: &GfxArch) -> &'static str {
+    if arch.plane_dim() == Some(32) {
         WAVE32
     } else {
         ""
@@ -62,7 +63,7 @@ pub fn emit_code_object(
     ctx: &Context,
     module: ModuleOp,
     entrypoint: &str,
-    arch: &str,
+    arch: &GfxArch,
     cube_dim: u32,
     shared_memory_size: usize,
     io: Vec<BufferIOAttr>,
@@ -86,7 +87,7 @@ pub fn emit_code_object(
         }
     }
 
-    let code_object = link_relocatable(&object, entrypoint)?;
+    let code_object = Bytes::from_bytes_vec(link_relocatable(&object, entrypoint)?);
 
     Ok(AmdGpuModule {
         code_object,
@@ -101,7 +102,12 @@ pub fn emit_code_object(
 /// Stamps `ir` with what the AMDGPU backend keys off: the HSA triple, the
 /// `amdgpu_kernel` calling convention on `entrypoint`, the subtarget attributes,
 /// and the code object version.
-fn finalize_ir(ir: &str, entrypoint: &str, arch: &str, cube_dim: u32) -> Result<String, String> {
+fn finalize_ir(
+    ir: &str,
+    entrypoint: &str,
+    arch: &GfxArch,
+    cube_dim: u32,
+) -> Result<String, String> {
     use llvm_sys::LLVMModuleFlagBehavior::LLVMModuleFlagBehaviorError;
     use llvm_sys::core::{
         LLVMAddAttributeAtIndex, LLVMAddModuleFlag, LLVMConstInt, LLVMContextDispose,
@@ -116,7 +122,7 @@ fn finalize_ir(ir: &str, entrypoint: &str, arch: &str, cube_dim: u32) -> Result<
 
     let flat_work_group_size = format!("1,{cube_dim}");
     let mut attributes = vec![
-        ("target-cpu", arch),
+        ("target-cpu", arch.name()),
         ("amdgpu-flat-work-group-size", &flat_work_group_size),
     ];
     let features = features_for(arch);
@@ -173,7 +179,7 @@ fn finalize_ir(ir: &str, entrypoint: &str, arch: &str, cube_dim: u32) -> Result<
 /// when `want_asm`.
 fn compile_to_object(
     ir: &str,
-    arch: &str,
+    arch: &GfxArch,
     want_asm: bool,
 ) -> Result<(Vec<u8>, Option<String>), String> {
     use llvm_sys::core::{LLVMContextDispose, LLVMDisposeMessage, LLVMDisposeModule};
@@ -185,7 +191,8 @@ fn compile_to_object(
 
     init_amdgpu();
 
-    let cpu = CString::new(arch).map_err(|_| format!("arch '{arch}' contains a NUL"))?;
+    let cpu =
+        CString::new(arch.name()).map_err(|_| format!("arch '{}' contains a NUL", arch.name()))?;
     let features = CString::new(features_for(arch)).expect("static feature string");
 
     unsafe {
@@ -209,7 +216,7 @@ fn compile_to_object(
             LLVMCodeModel::LLVMCodeModelDefault,
         );
         if tm.is_null() {
-            return Err(format!("no target machine for '{arch}'"));
+            return Err(format!("no target machine for '{}'", arch.name()));
         }
 
         let (ctx, module) = match parse_ir(ir) {
@@ -243,7 +250,7 @@ fn compile_to_object(
 /// `module` must be a live LLVM module.
 unsafe fn lower_to_device_libs(
     module: llvm_sys::prelude::LLVMModuleRef,
-    arch: &str,
+    arch: &GfxArch,
 ) -> Result<(), String> {
     unsafe {
         let needs = DeviceLibs {
@@ -390,6 +397,19 @@ unsafe fn parse_ir(
 mod tests {
     use super::*;
 
+    /// The wave32 subtarget feature goes on the RDNA parts and nothing else. It is passed
+    /// both as a function attribute and to the target machine, so a wrong answer here has
+    /// every cross-lane lowering generating for the wrong wavefront width.
+    #[test]
+    fn only_the_rdna_parts_ask_for_wave32() {
+        for name in ["gfx1201", "gfx1100", "gfx1030"] {
+            assert_eq!(features_for(&GfxArch::parse(name)), WAVE32, "{name}");
+        }
+        for name in ["gfx90a", "gfx942", "gfx908"] {
+            assert_eq!(features_for(&GfxArch::parse(name)), "", "{name}");
+        }
+    }
+
     /// The finalized module carries everything the AMDGPU backend needs.
     #[test]
     fn finalize_sets_triple_callconv_and_arch() {
@@ -400,7 +420,7 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", "gfx1201", 64).unwrap();
+        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64).unwrap();
         assert!(
             finalized.contains(r#"target triple = "amdgcn-amd-amdhsa""#),
             "{finalized}"
@@ -438,8 +458,9 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", "gfx1201", 64).unwrap();
-        let (object, asm) = compile_to_object(&finalized, "gfx1201", true).unwrap();
+        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64).unwrap();
+        let (object, asm) =
+            compile_to_object(&finalized, &GfxArch::parse("gfx1201"), true).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");
 
         let asm = asm.unwrap();
@@ -469,7 +490,8 @@ entry:
     /// answer, so this pins both.
     #[test]
     fn wmma_reaches_the_code_object() {
-        for (arch, ab) in [("gfx1201", "<8 x half>"), ("gfx1100", "<16 x half>")] {
+        for (name, ab) in [("gfx1201", "<8 x half>"), ("gfx1100", "<16 x half>")] {
+            let arch = GfxArch::parse(name);
             let width = if ab.starts_with("<8") {
                 "v8f16"
             } else {
@@ -486,14 +508,14 @@ entry:
 }}
 "#
             );
-            let finalized = finalize_ir(&ir, "k", arch, 32).unwrap();
-            let (object, asm) = compile_to_object(&finalized, arch, true).unwrap();
+            let finalized = finalize_ir(&ir, "k", &arch, 32).unwrap();
+            let (object, asm) = compile_to_object(&finalized, &arch, true).unwrap();
             assert_eq!(&object[..4], b"\x7fELF");
 
             let asm = asm.unwrap();
             assert!(
                 asm.contains("v_wmma_f32_16x16x16_f16"),
-                "{arch} should reach the matrix instruction:\n{asm}"
+                "{name} should reach the matrix instruction:\n{asm}"
             );
 
             crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();
@@ -512,8 +534,9 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", "gfx1201", 64).unwrap();
-        let (object, asm) = compile_to_object(&finalized, "gfx1201", true).unwrap();
+        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64).unwrap();
+        let (object, asm) =
+            compile_to_object(&finalized, &GfxArch::parse("gfx1201"), true).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");
         assert_eq!(
             u16::from_le_bytes([object[16], object[17]]),

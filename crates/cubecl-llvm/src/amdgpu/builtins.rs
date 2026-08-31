@@ -16,11 +16,9 @@ use cubecl_core::{self as cubecl};
 use pliron::builtin::ops::FuncOp;
 use pliron::builtin::types::{IntegerType, Signedness};
 
-use pliron_llvm::ops as llvm;
-
-use crate::shared::to_llvm::constant::{I32_WIDTH, int_attr};
-use pliron_llvm::ops::{CallIntrinsicOp, GepIndex, GetElementPtrOp, LoadOp};
-use pliron_llvm::types::{FuncType, PointerType as LlvmPointerType};
+use crate::amdgpu::intrinsic::{call_op, i32_ty, lane_id_ops};
+use pliron_llvm::ops::{GepIndex, GetElementPtrOp, LoadOp};
+use pliron_llvm::types::PointerType as LlvmPointerType;
 
 use crate::cpu::entrypoint::{
     BuiltinValues, Replacer, absolute_pos, absolute_pos_x, absolute_pos_y, absolute_pos_z,
@@ -39,12 +37,6 @@ const WORKGROUP_ID: [(&str, Builtin); 3] = [
     ("llvm.amdgcn.workgroup.id.y", Builtin::CubePosY),
     ("llvm.amdgcn.workgroup.id.z", Builtin::CubePosZ),
 ];
-
-/// Counts the set bits of the exec mask below this lane, which for a full mask is the lane's
-/// own index in the wavefront. Split in two halves so the same pair serves both wave widths:
-/// on wave32 the high half adds nothing.
-const MBCNT_LO: &str = "llvm.amdgcn.mbcnt.lo";
-const MBCNT_HI: &str = "llvm.amdgcn.mbcnt.hi";
 
 /// AMDGPU's constant address space. This is where the HSA runtime maps the kernel dispatch
 /// packet that `llvm.amdgcn.dispatch.ptr` points to.
@@ -237,49 +229,22 @@ fn derive_positions(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3)
 
 /// The lane's index within its wavefront.
 fn unit_pos_plane(scope: &Scope) -> Value {
-    let i32_ty = llvm_i32(scope);
-    let all_lanes = i32_const(scope, -1);
-    let zero = i32_const(scope, 0);
-
-    let lo = call_intrinsic_with(scope, MBCNT_LO, i32_ty, vec![all_lanes, zero]);
-    call_intrinsic_with(scope, MBCNT_HI, i32_ty, vec![all_lanes, lo])
-}
-
-/// A signless `i32` constant, which is what the intrinsics above take.
-fn i32_const(scope: &Scope, value: i32) -> Value {
-    let attr = int_attr(scope.ctx_mut(), I32_WIDTH, value as i128);
-    let op = llvm::ConstantOp::new(scope.ctx_mut(), attr.into());
-    scope.register_with_result(&op)
+    let (ops, lane) = lane_id_ops(scope.ctx_mut());
+    for op in ops {
+        scope.inserter().append_operation(scope.ctx(), op);
+    }
+    lane
 }
 
 /// Emits a call to LLVM intrinsic `name` returning `ret_ty`.
-///
-/// `llvm.call_intrinsic` carries the name and type as attributes; the function
-/// declaration is added lazily during `to_llvm_ir`, as `shared::to_llvm::math` does.
 fn call_intrinsic(scope: &Scope, name: &str, ret_ty: TypeHandle) -> Value {
-    call_intrinsic_with(scope, name, ret_ty, vec![])
-}
-
-/// Emits a call to LLVM intrinsic `name` over `args`, returning `ret_ty`.
-fn call_intrinsic_with(scope: &Scope, name: &str, ret_ty: TypeHandle, args: Vec<Value>) -> Value {
-    let arg_tys = args.iter().map(|a| a.get_type(scope.ctx())).collect();
-    let fn_ty = FuncType::get(scope.ctx_mut(), ret_ty, arg_tys, false);
-    let op = CallIntrinsicOp::new(scope.ctx_mut(), name.into(), fn_ty, args);
+    let op = call_op(scope.ctx_mut(), name, ret_ty, vec![]);
     scope.register_with_result(&op)
 }
 
-/// Signless `i32`, the type every cube integer converges to in the LLVM dialect.
-///
-/// Ops built here are already LLVM-dialect, so `CubeToLLVMPass` never revisits them.
-/// Tagging them with cube's `u32` (`Signedness::Unsigned`) would leave them unsigned
-/// forever while the constants they get paired with are forced signless — tripping
-/// `SameOperandsType` verification despite representing the same value.
-fn llvm_i32(scope: &Scope) -> TypeHandle {
-    IntegerType::get(scope.ctx_mut(), 32, Signedness::Signless).into()
-}
-
 fn call_i32_intrinsic(scope: &Scope, name: &str) -> Value {
-    call_intrinsic(scope, name, llvm_i32(scope))
+    let ty = i32_ty(scope.ctx_mut());
+    call_intrinsic(scope, name, ty)
 }
 
 /// `llvm.amdgcn.dispatch.ptr` returns a `ptr addrspace(4)` to the HSA kernel dispatch packet
@@ -301,7 +266,7 @@ fn load_u32_at(scope: &Scope, ptr: Value, byte_offset: u32) -> Value {
     );
     let byte_ptr = scope.register_with_result(&gep);
 
-    let u32_ty = llvm_i32(scope);
+    let u32_ty = i32_ty(scope.ctx_mut());
     let load = LoadOp::new(scope.ctx_mut(), byte_ptr, u32_ty);
     scope.register_with_result(&load)
 }

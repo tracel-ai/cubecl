@@ -10,10 +10,10 @@ use std::sync::{Mutex, OnceLock};
 
 use llvm_sys::prelude::LLVMModuleRef;
 
-use crate::amdgpu::plane_dim_for;
+use cubecl_core::ir::amd::GfxArch;
 
 unsafe extern "C" {
-    /// See `device_libs_shim.cpp`. Returns null on success, else an owned message.
+    /// See `cpp_shims/device_libs.cpp`. Returns null on success, else an owned message.
     fn cubecl_link_device_bitcode(
         dest: LLVMModuleRef,
         data: *const c_char,
@@ -37,21 +37,28 @@ fn bitcode_dir() -> Result<&'static PathBuf, String> {
     static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
     DIR.get_or_init(|| {
-        let direct = DEVICE_LIB_PATH_VARS.iter().filter_map(std::env::var_os).map(PathBuf::from);
+        let direct = DEVICE_LIB_PATH_VARS
+            .iter()
+            .filter_map(std::env::var_os)
+            .map(PathBuf::from);
         let roots = (ROCM_ROOT_VARS.iter())
             .filter_map(std::env::var_os)
             .map(PathBuf::from)
             .chain(DEFAULT_ROCM_ROOTS.iter().map(PathBuf::from))
             .map(|root| root.join("amdgcn").join("bitcode"));
 
-        direct.chain(roots).find(|dir| dir.join("ocml.bc").is_file())
+        direct
+            .chain(roots)
+            .find(|dir| dir.join("ocml.bc").is_file())
     })
     .as_ref()
     .ok_or_else(|| {
         format!(
-            "no ROCm device libraries found: looked for amdgcn/bitcode/ocml.bc via {} and under {}. \
+            "no ROCm device libraries found: looked for ocml.bc via {}, and for \
+             amdgcn/bitcode/ocml.bc under {} and {}. \
              Set CUBECL_ROCM_DEVICE_LIB_PATH to the directory holding ocml.bc",
             DEVICE_LIB_PATH_VARS.join(", "),
+            ROCM_ROOT_VARS.join(", "),
             DEFAULT_ROCM_ROOTS.join(", "),
         )
     })
@@ -98,8 +105,7 @@ impl DeviceLibs {
 /// Each library leaves control globals undefined, one bitcode file per global. The math options
 /// take the conservative side: operands are not assumed finite and reassociation is not assumed
 /// safe. The other three follow the device and the code object.
-fn device_libs_for(arch: &str, needs: DeviceLibs, code_object_version: u32) -> Vec<String> {
-    let isa = arch.strip_prefix("gfx").unwrap_or(arch);
+fn device_libs_for(arch: &GfxArch, needs: DeviceLibs, code_object_version: u32) -> Vec<String> {
     let mut libs = Vec::new();
 
     if needs.math {
@@ -110,7 +116,7 @@ fn device_libs_for(arch: &str, needs: DeviceLibs, code_object_version: u32) -> V
     if needs.printf {
         libs.push("ockl.bc".to_string());
         libs.push(format!("oclc_abi_version_{code_object_version}.bc"));
-        let wave = if plane_dim_for(arch) == 64 {
+        let wave = if arch.plane_dim() == Some(64) {
             "on"
         } else {
             "off"
@@ -119,7 +125,7 @@ fn device_libs_for(arch: &str, needs: DeviceLibs, code_object_version: u32) -> V
     }
     if needs.any() {
         // Wanted by both, so appended once.
-        libs.push(format!("oclc_isa_version_{isa}.bc"));
+        libs.push(format!("oclc_isa_version_{}.bc", arch.isa_version()));
     }
 
     libs
@@ -131,7 +137,7 @@ fn device_libs_for(arch: &str, needs: DeviceLibs, code_object_version: u32) -> V
 /// `module` must be a live LLVM module, already stamped with the AMDGPU triple and layout.
 pub unsafe fn link_device_libs(
     module: LLVMModuleRef,
-    arch: &str,
+    arch: &GfxArch,
     needs: DeviceLibs,
     code_object_version: u32,
 ) -> Result<(), String> {
@@ -171,15 +177,21 @@ mod tests {
     fn the_isa_library_follows_the_architecture() {
         for needs in [MATH, PRINTF] {
             assert_eq!(
-                device_libs_for("gfx1201", needs, 500).last().unwrap(),
+                device_libs_for(&GfxArch::parse("gfx1201"), needs, 500)
+                    .last()
+                    .unwrap(),
                 "oclc_isa_version_1201.bc"
             );
             assert_eq!(
-                device_libs_for("gfx90a", needs, 500).last().unwrap(),
+                device_libs_for(&GfxArch::parse("gfx90a"), needs, 500)
+                    .last()
+                    .unwrap(),
                 "oclc_isa_version_90a.bc"
             );
             assert_eq!(
-                device_libs_for("gfx12-generic", needs, 500).last().unwrap(),
+                device_libs_for(&GfxArch::parse("gfx12-generic"), needs, 500)
+                    .last()
+                    .unwrap(),
                 "oclc_isa_version_12-generic.bc"
             );
         }
@@ -189,14 +201,14 @@ mod tests {
     /// that actually reach into it.
     #[test]
     fn needing_nothing_links_nothing() {
-        assert!(device_libs_for("gfx1201", DeviceLibs::default(), 500).is_empty());
+        assert!(device_libs_for(&GfxArch::parse("gfx1201"), DeviceLibs::default(), 500).is_empty());
     }
 
     /// Printing pulls in OCKL, and with it the two control globals OCML never wanted: the
     /// code object's ABI version and the wavefront width of the device.
     #[test]
     fn printing_pulls_in_ockl_and_its_controls() {
-        let libs = device_libs_for("gfx1201", PRINTF, 500);
+        let libs = device_libs_for(&GfxArch::parse("gfx1201"), PRINTF, 500);
         assert!(libs.contains(&"ockl.bc".to_string()), "{libs:?}");
         assert!(
             libs.contains(&"oclc_abi_version_500.bc".to_string()),
@@ -208,7 +220,7 @@ mod tests {
             "{libs:?}"
         );
         // gfx90a is CDNA, so wave64.
-        let cdna = device_libs_for("gfx90a", PRINTF, 500);
+        let cdna = device_libs_for(&GfxArch::parse("gfx90a"), PRINTF, 500);
         assert!(
             cdna.contains(&"oclc_wavefrontsize64_on.bc".to_string()),
             "{cdna:?}"
@@ -219,7 +231,7 @@ mod tests {
     #[test]
     fn the_shared_control_library_is_listed_once() {
         let libs = device_libs_for(
-            "gfx1201",
+            &GfxArch::parse("gfx1201"),
             DeviceLibs {
                 math: true,
                 printf: true,
