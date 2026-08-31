@@ -48,7 +48,7 @@ pub(crate) struct HipContext {
     /// An environment switch drops these, and nothing unloads the modules they
     /// name: see [`HipContext::is_loaded`].
     modules: CompilationCache<KernelId, HipCompiledKernel>,
-    pub timestamps: EventProfiler,
+    pub profiler: EventProfiler,
     pub compilation_options: HipCompilationOptions,
     pub properties: DeviceProperties,
     pub compilation_cache: Option<Store<KernelCacheKey, CompilationCacheEntry>>,
@@ -119,7 +119,7 @@ impl HipContext {
 
         Self {
             modules: CompilationCache::mirroring(&compilation_cache),
-            timestamps: EventProfiler::default(),
+            profiler: EventProfiler::default(),
             compilation_options,
             compilation_cache,
             #[cfg(feature = "cpp")]

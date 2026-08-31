@@ -317,7 +317,7 @@ impl ComputeServer for HipServer {
         // No drain: the window opens where the stream already is, and the
         // device stamps it there. See [`EventProfiler`].
         let sys = self.profiled_stream(stream_id)?;
-        self.ctx.timestamps.start(sys)
+        self.ctx.profiler.start(sys)
     }
 
     fn end_profile(
@@ -331,11 +331,11 @@ impl ComputeServer for HipServer {
                 // The window cannot be closed on the device, so there is
                 // nothing to read back — drop it and report, rather than leave
                 // a token open that nothing will ever close.
-                self.ctx.timestamps.abandon(token);
+                self.ctx.profiler.abandon(token);
                 return Err(ProfileError::from(&err));
             }
         };
-        self.ctx.timestamps.stop(sys, token)
+        self.ctx.profiler.stop(sys, token)
     }
 
     fn get_resource(
@@ -520,10 +520,10 @@ impl HipServer {
         let stream = streams.current();
 
         if stream.capturing.is_recording() {
-            return Err(ServerError::Generic {
-                reason: "Can't profile a stream while it is recording a graph".into(),
-                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-            });
+            return Err(ServerError::graph_state(
+                "start_profile: a capture window records launches only, so a profiling event \
+                 has no recorded form",
+            ));
         }
 
         Ok(stream.sys)
@@ -534,7 +534,7 @@ impl HipServer {
     /// that failed from benchmarking at close to zero and winning the tune. A
     /// no-op with no profile open.
     fn profile_failure(&mut self, error: &ServerError) {
-        self.ctx.timestamps.failure(error);
+        self.ctx.profiler.failure(error);
     }
 
     /// The grid dimensions this launch runs with, host-read from the count

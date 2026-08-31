@@ -47,7 +47,7 @@ pub(crate) struct CudaContext {
     /// Cache mapping C++ code hashes to the key that first compiled them. We can skip the slow CUDA
     /// compiler if we already have a compiled artifact for the same code.
     second_line_ptx_cache: Option<Store<StableHash, KernelCacheKey>>,
-    pub timestamps: EventProfiler,
+    pub profiler: EventProfiler,
     pub arch: CudaArchitecture,
     pub compilation_options: CompilationOptions,
     pub properties: DeviceProperties,
@@ -95,7 +95,7 @@ impl CudaContext {
             ptx_cache,
             second_line_ptx_cache,
             arch,
-            timestamps: EventProfiler::default(),
+            profiler: EventProfiler::default(),
             compilation_options,
             properties,
             build_id: build_id_hash(),
