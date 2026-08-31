@@ -83,21 +83,11 @@ pub struct MemorySpec {
 }
 
 impl ThroughputMode {
-    /// `access` over as much as the interface will take at once, which is what
-    /// the scalar variants named before a working set was a parameter.
+    /// `access` over as much as the interface will take at once.
     pub const fn memory(access: MemoryAccess) -> Self {
         Self::Memory(MemorySpec::new(access, access.default_working_set()))
     }
-}
 
-impl MemorySpec {
-    /// A probe moving `bytes` per pass in the directions `access` names.
-    pub const fn new(access: MemoryAccess, bytes: u64) -> Self {
-        Self { access, bytes }
-    }
-}
-
-impl ThroughputMode {
     /// What this mode asks of a memory probe, or `None` for the modes that do
     /// not measure memory.
     pub const fn memory_probe(&self) -> Option<MemorySpec> {
@@ -105,6 +95,13 @@ impl ThroughputMode {
             Self::Memory(spec) => Some(*spec),
             Self::ComputeDirect { .. } | Self::ComputeCmma { .. } | Self::Launch => None,
         }
+    }
+}
+
+impl MemorySpec {
+    /// A probe moving `bytes` per pass in the directions `access` names.
+    pub const fn new(access: MemoryAccess, bytes: u64) -> Self {
+        Self { access, bytes }
     }
 }
 

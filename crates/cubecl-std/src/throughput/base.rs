@@ -107,20 +107,11 @@ pub fn measure_peak_throughput<R: Runtime>(
             }
             compute_cmma::build_kernel(client, key, cmma_config, launch_config)
         }
-        ThroughputMode::Memory(_) => {
-            // The memory modes differ only in what they ask of the probe, and
-            // `memory_probe` is the one place that mapping lives.
-            let spec = key
-                .mode
-                .memory_probe()
-                .expect("A memory mode describes a probe");
-
-            match spec.access {
-                MemoryAccess::Copy => memory_direct::build_kernel(client, key, launch_config, spec),
-                MemoryAccess::Read => memory_read::build_kernel(client, key, launch_config, spec),
-                MemoryAccess::Write => memory_write::build_kernel(client, key, launch_config, spec),
-            }
-        }
+        ThroughputMode::Memory(spec) => match spec.access {
+            MemoryAccess::Copy => memory_direct::build_kernel(client, key, launch_config, spec),
+            MemoryAccess::Read => memory_read::build_kernel(client, key, launch_config, spec),
+            MemoryAccess::Write => memory_write::build_kernel(client, key, launch_config, spec),
+        },
         ThroughputMode::Launch => launch_overhead::build_kernel(client, key, launch_config),
     };
 
