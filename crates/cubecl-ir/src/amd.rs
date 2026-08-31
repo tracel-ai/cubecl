@@ -83,3 +83,93 @@ impl AMDArchitecture {
         }
     }
 }
+
+/// A gfx architecture name, parsed once from what the driver reports.
+///
+/// `gcnArchName` carries a target-feature suffix (`gfx1151:xnack-`), and the bare name in
+/// front of it is what selects a `-mcpu`, a device library and a fragment layout. Both AMD
+/// backends ask this the same questions, so they get the same answers: the wavefront width
+/// the compiler generates for is the one the runtime checks against the driver.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GfxArch {
+    name: String,
+    family: AMDArchitecture,
+}
+
+impl GfxArch {
+    /// Parse `gcnArchName` as the driver reports it, suffix included.
+    pub fn parse(reported: &str) -> Self {
+        let name = reported.split(':').next().unwrap_or(reported).to_lowercase();
+        let family = AMDArchitecture::parse(&name).unwrap_or(AMDArchitecture::Other);
+        Self { name, family }
+    }
+
+    /// The bare name, which is the `-mcpu` and the `target-cpu` attribute.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Which family the tables key off.
+    pub fn family(&self) -> AMDArchitecture {
+        self.family
+    }
+
+    /// The wavefront width, or `None` for an architecture the table does not know.
+    pub fn plane_dim(&self) -> Option<u32> {
+        self.family.plane_dim()
+    }
+
+    /// Which WMMA this device has, or `None` where it has none at all.
+    pub fn wmma(&self) -> Option<AmdWmma> {
+        self.family.wmma_generation()
+    }
+
+    /// The bare architecture number, which is how the `oclc_isa_version_*` control libraries
+    /// are named.
+    pub fn isa_version(&self) -> &str {
+        self.name.strip_prefix("gfx").unwrap_or(&self.name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+
+    /// The driver appends target features to the architecture name, and everything keyed on
+    /// the architecture wants the bare one in front of them.
+    #[test]
+    fn the_target_feature_suffix_is_not_part_of_the_name() {
+        let gfx = GfxArch::parse("gfx1151:xnack-:sramecc+");
+        assert_eq!(gfx.name(), "gfx1151");
+        assert_eq!(gfx.isa_version(), "1151");
+        assert_eq!(gfx.family(), AMDArchitecture::GFX11);
+    }
+
+    /// The wavefront width and the WMMA generation are one answer per device, given to both
+    /// backends. A disagreement means kernels are generated for the wrong wave width.
+    #[test]
+    fn a_device_has_one_wave_width_and_one_wmma() {
+        for (name, plane_dim, wmma) in [
+            ("gfx1201", Some(32), Some(AmdWmma::Rdna4)),
+            ("gfx1100", Some(32), Some(AmdWmma::Rdna3)),
+            ("gfx1030", Some(32), None),
+            ("gfx90a", Some(64), None),
+            ("gfx942", Some(64), None),
+        ] {
+            let gfx = GfxArch::parse(name);
+            assert_eq!(gfx.plane_dim(), plane_dim, "{name}");
+            assert_eq!(gfx.wmma(), wmma, "{name}");
+        }
+    }
+
+    /// An architecture the table has never heard of reports no width rather than guessing
+    /// one, so the runtime refuses it instead of compiling every kernel for the wrong wave.
+    #[test]
+    fn an_unknown_architecture_claims_no_wave_width() {
+        let gfx = GfxArch::parse("gfx1337");
+        assert_eq!(gfx.family(), AMDArchitecture::Other);
+        assert_eq!(gfx.plane_dim(), None);
+        assert_eq!(gfx.name().to_string(), "gfx1337");
+    }
+}

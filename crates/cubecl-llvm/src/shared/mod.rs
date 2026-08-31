@@ -22,6 +22,7 @@ use cubecl_runtime::compiler::CompilationError;
 
 use cubecl_core::{
     Compiler,
+    ir::amd::GfxArch,
     ir::dialect::scf::BranchToSCFPass,
     ir::rewrite::SimplifyOpsPass,
     post_processing::bitwise::PromoteBitwisePass,
@@ -39,9 +40,8 @@ use pliron::{
 
 use crate::amdgpu::abi::KernargArgs;
 use crate::amdgpu::builtins::InsertAmdgpuBuiltinsPass;
-use crate::amdgpu::matrix::{CtxWmma, WmmaGeneration};
+use crate::amdgpu::matrix::CtxWmma;
 use crate::amdgpu::plane::CtxPlaneDim;
-use crate::amdgpu::plane_dim_for;
 use crate::amdgpu::shared_memory::CtxSharedMemory;
 use crate::cpu::{
     abi::TableArgs,
@@ -63,8 +63,9 @@ pub struct PlironCompiler {
 
 #[derive(Clone, Debug, Default)]
 pub struct PlironOptions {
-    /// gfx name of the target device, e.g. `"gfx1201"`. Ignored by [`LlvmTarget::Cpu`].
-    pub arch: String,
+    /// The device [`LlvmTarget::AmdGpu`] compiles for. `None` on the CPU, which has no gfx
+    /// architecture to name.
+    pub arch: Option<GfxArch>,
 }
 
 /// A finished AMD code object, compiled and linked by this crate.
@@ -162,7 +163,11 @@ impl PlironCompiler {
         match self.target {
             LlvmTarget::Cpu => PlironArtifact::Jit(self.compile_cpu(kernel)),
             LlvmTarget::AmdGpu => {
-                PlironArtifact::AmdGpuCode(self.compile_amdgpu(kernel, &options.arch))
+                let arch = options
+                    .arch
+                    .as_ref()
+                    .expect("the AMDGPU target is configured with the device it compiles for");
+                PlironArtifact::AmdGpuCode(self.compile_amdgpu(kernel, arch))
             }
         }
     }
@@ -254,17 +259,23 @@ impl PlironCompiler {
     }
 
     /// Lowers `kernel` for `arch` and compiles it into a linked AMD code object.
-    fn compile_amdgpu(self, kernel: KernelDefinition, arch: &str) -> AmdGpuModule {
+    fn compile_amdgpu(self, kernel: KernelDefinition, arch: &GfxArch) -> AmdGpuModule {
         let module = kernel.body.state().module;
         let entry_func = kernel.body.state().entry_func;
         let module_op = module.get_operation();
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
+        // The runtime checks this against what the driver reports before it compiles
+        // anything, so an architecture with no known width never reaches here.
+        let plane_dim = arch
+            .plane_dim()
+            .unwrap_or_else(|| panic!("no known wavefront width for '{}'", arch.name()));
+
         ctx.set_target(LlvmTarget::AmdGpu);
         // Left at zero for the kernels that never declare any.
         ctx.set_shared_memory_size(0);
-        ctx.set_plane_dim(plane_dim_for(arch));
-        ctx.set_wmma(WmmaGeneration::of(arch));
+        ctx.set_plane_dim(plane_dim);
+        ctx.set_wmma(arch.wmma());
 
         #[cfg(not(feature = "pliron-dump"))]
         let ir_printing_dir = None;
@@ -294,9 +305,7 @@ impl PlironCompiler {
         func_passes.add_pass(LowerComplexOpPass::default());
         // After the polyfills, which read builtins of their own: the plane folds ask for the
         // plane's width and this unit's place in it.
-        func_passes.add_pass(InsertAmdgpuBuiltinsPass {
-            plane_dim: plane_dim_for(arch),
-        });
+        func_passes.add_pass(InsertAmdgpuBuiltinsPass { plane_dim });
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
 
@@ -348,8 +357,9 @@ impl PlironCompiler {
         )
         .unwrap_or_else(|err| {
             panic!(
-                "Failed to compile '{}' for {arch}: {err}",
-                kernel.settings.kernel_name
+                "Failed to compile '{}' for {}: {err}",
+                kernel.settings.kernel_name,
+                arch.name()
             )
         })
     }

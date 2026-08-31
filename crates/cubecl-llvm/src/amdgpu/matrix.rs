@@ -4,9 +4,10 @@
 //! one row or column, the accumulator eight rows' worth. The layouts differ by generation —
 //! RDNA3 gives both halves of the wave the whole `k` range and pads 16 bit accumulators out to
 //! 32 bits per element, RDNA4 splits `k` between the halves and packs densely — so the element
-//! counts and the index arithmetic are derived from [`WmmaGeneration`] rather than fixed.
+//! counts and the index arithmetic are derived from [`AmdWmma`] rather than fixed.
 
 use cubecl_core::ir::ContextExt;
+use cubecl_core::ir::amd::AmdWmma;
 use cubecl_core::ir::dialect::matrix::{
     CastOp, ColIndexOp, FillOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RowIndexOp, StoreOp,
 };
@@ -28,73 +29,42 @@ use crate::shared::to_llvm::ty::scalar_alignment;
 )]
 pub struct MatrixRelayoutUnsupported(MatrixIdent, MatrixIdent);
 
-/// Which WMMA the device has. The instructions are the same shape; the fragments are not.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WmmaGeneration {
-    /// gfx11.
-    Rdna3,
-    /// gfx12.
-    Rdna4,
+/// Whether a 16 bit accumulator is padded to one element per 32 bit register.
+fn pads_half_accumulator(generation: AmdWmma) -> bool {
+    generation == AmdWmma::Rdna3
 }
 
-impl WmmaGeneration {
-    /// Elements of A or B each lane holds. RDNA3 gives every lane the whole `k` range and
-    /// duplicates it across the halves of the wave; RDNA4 gives each half its own.
-    pub fn ab_elems(&self, k: usize) -> usize {
-        match self {
-            WmmaGeneration::Rdna3 => k,
-            WmmaGeneration::Rdna4 => k / 2,
-        }
-    }
-
-    /// Whether a 16 bit accumulator is padded to one element per 32 bit register.
-    pub fn pads_half_accumulator(&self) -> bool {
-        *self == WmmaGeneration::Rdna3
-    }
-
-    /// How a tile of depth `k` splits into hardware instructions: the `k` of one
-    /// instruction, and how many of them the tile takes.
-    ///
-    /// gfx11 only has the `16x16x16` WMMA shapes, but rocWMMA advertises `16x16x32` on it
-    /// as well and implements it as two instructions, so the device properties offer that
-    /// tile and callers take it up. A tile deeper than the instruction is therefore not an
-    /// error: it is several instructions over consecutive slices of the `k` range, chained
-    /// through the accumulator. gfx12 has the wider instruction and always runs in one step.
-    pub fn instruction_steps(&self, k: usize) -> (usize, usize) {
-        let instruction_k = match self {
-            WmmaGeneration::Rdna3 => 16.min(k),
-            WmmaGeneration::Rdna4 => k,
-        };
-        assert!(
-            instruction_k > 0 && k.is_multiple_of(instruction_k),
-            "a k of {k} does not divide into {instruction_k}-deep WMMA instructions"
-        );
-        (instruction_k, k / instruction_k)
-    }
-
-    /// The generation of `arch`, or `None` where there is no WMMA at all.
-    pub fn of(arch: &str) -> Option<Self> {
-        if arch.starts_with("gfx11") {
-            Some(WmmaGeneration::Rdna3)
-        } else if arch.starts_with("gfx12") {
-            Some(WmmaGeneration::Rdna4)
-        } else {
-            None
-        }
-    }
+/// How a tile of depth `k` splits into hardware instructions: the `k` of one instruction,
+/// and how many of them the tile takes.
+///
+/// gfx11 only has the `16x16x16` WMMA shapes, but rocWMMA advertises `16x16x32` on it as
+/// well and implements it as two instructions, so the device properties offer that tile and
+/// callers take it up. A tile deeper than the instruction is therefore not an error: it is
+/// several instructions over consecutive slices of the `k` range, chained through the
+/// accumulator. gfx12 has the wider instruction and always runs in one step.
+fn instruction_steps(generation: AmdWmma, k: usize) -> (usize, usize) {
+    let instruction_k = match generation {
+        AmdWmma::Rdna3 => 16.min(k),
+        AmdWmma::Rdna4 => k,
+    };
+    assert!(
+        instruction_k > 0 && k.is_multiple_of(instruction_k),
+        "a k of {k} does not divide into {instruction_k}-deep WMMA instructions"
+    );
+    (instruction_k, k / instruction_k)
 }
 
 impl CtxWmma for Context {}
 
 /// The WMMA generation on the context.
 pub trait CtxWmma: ContextExt {
-    fn wmma(&self) -> WmmaGeneration {
+    fn wmma(&self) -> AmdWmma {
         *self
-            .aux_ty::<Option<WmmaGeneration>>()
+            .aux_ty::<Option<AmdWmma>>()
             .as_ref()
             .expect("matrix ops are only compiled for devices that have WMMA")
     }
-    fn set_wmma(&mut self, generation: Option<WmmaGeneration>) {
+    fn set_wmma(&mut self, generation: Option<AmdWmma>) {
         self.set_aux_ty(generation);
     }
 }
@@ -117,9 +87,9 @@ const LANES_PER_ROW: u32 = 16;
 fn fragment_layout(ctx: &Context, matrix: &MatrixType) -> (usize, usize) {
     let generation = ctx.wmma();
     match matrix.ident {
-        MatrixIdent::A | MatrixIdent::B => (generation.ab_elems(matrix.shape.k), 1),
+        MatrixIdent::A | MatrixIdent::B => (generation.frag_ab_elems(matrix.shape.k), 1),
         MatrixIdent::Accumulator => {
-            let padded = is_half(ctx, matrix.elem_ty) && generation.pads_half_accumulator();
+            let padded = is_half(ctx, matrix.elem_ty) && pads_half_accumulator(generation);
             (ACCUMULATOR_REGISTERS, if padded { 2 } else { 1 })
         }
     }
@@ -218,21 +188,21 @@ fn along(
     let half = lane.half;
     match (matrix.ident, ctx.wmma()) {
         // Every lane holds the whole `k` range, duplicated across the halves of the wave.
-        (MatrixIdent::A | MatrixIdent::B, WmmaGeneration::Rdna3) => i,
+        (MatrixIdent::A | MatrixIdent::B, AmdWmma::Rdna3) => i,
         // Each half holds its own part of the `k` range.
-        (MatrixIdent::A | MatrixIdent::B, WmmaGeneration::Rdna4) => {
+        (MatrixIdent::A | MatrixIdent::B, AmdWmma::Rdna4) => {
             let per_half = insert_i32_const(ctx, rw, matrix.shape.k as i32 / 2);
             let offset = mul(ctx, rw, half, per_half);
             add(ctx, rw, i, offset)
         }
         // The halves interleave row by row.
-        (MatrixIdent::Accumulator, WmmaGeneration::Rdna3) => {
+        (MatrixIdent::Accumulator, AmdWmma::Rdna3) => {
             let two = insert_i32_const(ctx, rw, 2);
             let row = mul(ctx, rw, i, two);
             add(ctx, rw, row, half)
         }
         // Each half gets a contiguous block of eight rows.
-        (MatrixIdent::Accumulator, WmmaGeneration::Rdna4) => {
+        (MatrixIdent::Accumulator, AmdWmma::Rdna4) => {
             let block = insert_i32_const(ctx, rw, ACCUMULATOR_REGISTERS as i32);
             let offset = mul(ctx, rw, half, block);
             add(ctx, rw, i, offset)
@@ -289,7 +259,7 @@ fn is_strided(ident: MatrixIdent, layout: MatrixLayout) -> bool {
 /// register side -- a padded 16 bit accumulator spreads its elements over every
 /// second slot, which no contiguous load can fill.
 fn fragment_is_contiguous(
-    generation: WmmaGeneration,
+    generation: AmdWmma,
     matrix: &MatrixType,
     layout: MatrixLayout,
     step: usize,
@@ -299,7 +269,7 @@ fn fragment_is_contiguous(
     }
     match matrix.ident {
         MatrixIdent::A | MatrixIdent::B => true,
-        MatrixIdent::Accumulator => generation == WmmaGeneration::Rdna4,
+        MatrixIdent::Accumulator => generation == AmdWmma::Rdna4,
     }
 }
 
@@ -577,8 +547,8 @@ fn emit_wmma(
         cd_is_half,
     } = call;
     let generation = ctx.wmma();
-    let (instruction_k, steps) = generation.instruction_steps(k);
-    let pads_half = generation.pads_half_accumulator() && cd_is_half;
+    let (instruction_k, steps) = instruction_steps(generation, k);
+    let pads_half = pads_half_accumulator(generation) && cd_is_half;
 
     let mut acc = c_val;
     for step in 0..steps {

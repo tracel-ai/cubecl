@@ -1,5 +1,6 @@
 //! Selecting between the HIP C++ backend and the LLVM backend.
 
+use cubecl_core::ir::amd::GfxArch;
 use cubecl_core::prelude::KernelDefinition;
 use cubecl_cpp::shared::CompilationOptions;
 #[cfg(feature = "cpp")]
@@ -35,8 +36,8 @@ impl Default for HipCompiler {
 #[derive(Debug, Default, Clone)]
 pub struct HipCompilationOptions {
     pub cpp: CompilationOptions,
-    /// gfx name of the device, e.g. `"gfx1201"`.
-    pub arch: String,
+    /// The device, as the runtime parsed it out of `gcnArchName`.
+    pub arch: Option<GfxArch>,
 }
 
 pub enum HipRepresentation {
