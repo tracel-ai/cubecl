@@ -2,7 +2,7 @@ use std::{
     collections::VecDeque,
     sync::{
         Arc,
-        atomic::{self, AtomicBool, AtomicUsize},
+        atomic::{self, AtomicUsize},
         mpsc,
     },
 };
@@ -136,28 +136,10 @@ impl Worker for DispatcherWorker {
                 }
             });
             if !computed && !self.aside.is_empty() {
-                // Skipping the wait leaves the client dispatching while units
-                // are still going, so a worker waiting its turn holds a CPU it
-                // needs and yielding gives it back. Without it every batch
-                // drains the pool, and there is nobody left to yield to.
-                if SKIPPING_BATCH_WAIT.load(atomic::Ordering::Relaxed) {
-                    std::thread::yield_now();
-                } else {
-                    std::hint::spin_loop();
-                }
+                // The client dispatches while units are still going, so a
+                // worker waiting its turn holds a CPU that client needs.
+                std::thread::yield_now();
             }
         }
     }
-}
-
-/// Whether any stream is queueing work behind a batch it did not wait for.
-///
-/// A worker cannot ask the stream directly, and the answer is not known when
-/// the pool starts: streams settle it from what their workload turns out to
-/// do. The flag is only read to choose how to wait, so a stale read costs a
-/// spin rather than correctness.
-static SKIPPING_BATCH_WAIT: AtomicBool = AtomicBool::new(false);
-
-pub(crate) fn set_skipping_batch_wait(skipping: bool) {
-    SKIPPING_BATCH_WAIT.store(skipping, atomic::Ordering::Relaxed);
 }

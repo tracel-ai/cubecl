@@ -11,17 +11,6 @@ pub struct StreamingConfig {
     /// The maximum number of streams to be used.
     #[serde(default = "default_max_streams")]
     pub max_streams: u8,
-    /// Whether a batch that has filled up is waited for before more is queued.
-    ///
-    /// Not waiting hides the latency of preparing a launch, which is worth it
-    /// when the launches are short enough that the device would otherwise sit
-    /// idle between them. It costs memory: queued work holds its buffers, so a
-    /// model with large activations pins them all at once for a gain it does
-    /// not need. `Auto` measures the workload and picks; the rest force the
-    /// choice. Ignored by backends whose flush does not wait.
-    #[serde(default)]
-    pub batch_wait: BatchWait,
-
     /// Backend stream priority hint.
     ///
     /// Backends that expose stream priorities (e.g. CUDA via
@@ -45,7 +34,6 @@ impl Default for StreamingConfig {
         Self {
             logger: Default::default(),
             max_streams: default_max_streams(),
-            batch_wait: BatchWait::default(),
             priority: StreamPriority::default(),
             policy: StreamPolicy::default(),
         }
@@ -152,19 +140,4 @@ mod tests {
             "\"default\""
         );
     }
-}
-
-/// Whether a filled batch is waited for before more work is queued behind it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum BatchWait {
-    /// Measure the workload and choose. A pool that spends its time waiting on
-    /// the client wants the work queued behind it; one the client cannot keep
-    /// up with gains nothing and would only hold the buffers.
-    #[default]
-    Auto,
-    /// Wait for every filled batch.
-    Always,
-    /// Never wait for a filled batch.
-    Never,
 }

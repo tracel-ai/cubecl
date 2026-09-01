@@ -154,14 +154,6 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             }
         }
 
-        if let Ok(val) = std::env::var("CUBECL_STREAMING_BATCH_WAIT") {
-            self.streaming.batch_wait = match val.as_str() {
-                "always" => super::streaming::BatchWait::Always,
-                "never" => super::streaming::BatchWait::Never,
-                _ => super::streaming::BatchWait::Auto,
-            };
-        }
-
         if let Some(enabled) = env_bool("CUBECL_THROUGHPUT_CACHE") {
             self.throughput.disable_cache = !enabled;
         }
