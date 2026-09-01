@@ -129,11 +129,11 @@ impl SchedulerStreamBackend for ScheduledCpuBackend {
         stream.submit();
     }
 
-    /// `enqueue` has already dispatched the batch, so the only thing left to
-    /// wait for is completion, and whether that is worth waiting for is the
-    /// stream's to answer.
-    fn may_skip_wait(stream: &mut Self::Stream) -> bool {
-        stream.may_skip_wait()
+    /// `enqueue` has already handed every task to the pool, so a filled batch
+    /// has nothing left to order. Completion is only worth waiting for where
+    /// something reads the results back.
+    fn may_skip_wait(_stream: &mut Self::Stream) -> bool {
+        true
     }
 
     fn factory(&mut self) -> &mut Self::Factory {
