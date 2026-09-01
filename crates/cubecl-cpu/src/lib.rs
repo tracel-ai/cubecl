@@ -425,8 +425,11 @@ mod tests {
         assert_eq!(actual, expected.as_slice());
     }
 
+    /// Two [`StreamId`]s that collide onto one backend stream still order
+    /// their work: the host write drains the stream before copying, so it
+    /// cannot land while a queued kernel is reading.
     #[test]
-    fn queued_cpu_kernel_keeps_buffer_bindings_alive_until_execution() {
+    fn a_host_write_waits_for_the_kernels_queued_on_its_stream() {
         let client = TestRuntime::client(&Default::default());
         let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
 
@@ -460,6 +463,61 @@ mod tests {
 
         let replacement = client_b.create_from_slice(u32::as_bytes(&[99, 99]));
         drop(replacement);
+
+        let bytes = client_a.read_one_unchecked(output);
+        let actual = u32::from_bytes(&bytes);
+        assert_eq!(actual, &[7]);
+    }
+
+    /// The keepalive contract for foreign buffers: a launch pins a binding it
+    /// borrowed from another stream until it has run.
+    ///
+    /// Stream values 0 and 1 map to two distinct backend streams, so nothing
+    /// orders b's allocations against a's launches. Were the input's binding
+    /// released at enqueue, b's replacement could reserve its slice and the
+    /// queued write below would overwrite bytes the kernels still read.
+    #[test]
+    fn a_launch_pins_a_foreign_streams_buffer_until_it_runs() {
+        let client = TestRuntime::client(&Default::default());
+
+        let stream_a = StreamId { value: 0 };
+        let stream_b = StreamId { value: 1 };
+
+        let client_a = unsafe {
+            let mut client = client.clone();
+            client.set_stream(stream_a);
+            client
+        };
+        let client_b = unsafe {
+            let mut client = client.clone();
+            client.set_stream(stream_b);
+            client
+        };
+
+        let input = client_b.create_from_slice(u32::as_bytes(&[7, 7]));
+        let output = client_a.empty(core::mem::size_of::<u32>());
+
+        // As many launches as the scheduler batches, so the batch fills and
+        // is handed to the pool without waiting: the kernels are still
+        // running when the replacement below is allocated and written.
+        let batch = 8;
+        for _ in 0..batch {
+            unsafe {
+                delayed_copy::launch_unchecked::<TestRuntime>(
+                    &client_a,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(1),
+                    BufferArg::from_raw_parts(input.clone(), 2),
+                    BufferArg::from_raw_parts(output.clone(), 1),
+                    5_000_001,
+                )
+            }
+        }
+        drop(input);
+
+        let replacement = client_b.create_from_slice(u32::as_bytes(&[99, 99]));
+        let overwrite = client_b.read_one_unchecked(replacement);
+        assert_eq!(u32::from_bytes(&overwrite), &[99, 99]);
 
         let bytes = client_a.read_one_unchecked(output);
         let actual = u32::from_bytes(&bytes);
