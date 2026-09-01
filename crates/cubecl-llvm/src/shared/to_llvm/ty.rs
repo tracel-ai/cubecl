@@ -30,7 +30,7 @@ use pliron::printable::Printable;
 /// ```
 ///
 /// The 32-bit form still does the 64-bit shift and add to form the address, and
-/// pays one more VALU op to widen the index first. A decode benchmark measured
+/// pays one more VALUE op to widen the index first. A decode benchmark measured
 /// flat to slightly worse across three runs, and the memory probe did not move.
 ///
 /// It is also **not correct as-is**: that widening is `v_ashrrev`, an
