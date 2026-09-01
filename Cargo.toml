@@ -191,7 +191,7 @@ llvm-sys = { version = "221", features = [
     "no-llvm-linking",
     "disable-alltargets-init",
 ] }
-tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "7932ee9e52044e298dacbfd04b1e0476544bb185" }
+tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "c6a245b4b14c00509d501a863531f0389315b9b9" }
 
 cudarc = { version = "0.19.6", features = [
     "std",
