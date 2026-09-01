@@ -54,12 +54,11 @@ half = { workspace = true, features = ["bytemuck"] }
 hashbrown = { workspace = true }
 num-complex = { workspace = true }
 itertools = { workspace = true }
-num-integer = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tempfile = { version = "3.20", optional = true }
+tempfile = { workspace = true, optional = true }
 variadics_please = { workspace = true }
 
 pliron = { workspace = true }
@@ -68,6 +67,5 @@ pliron = { workspace = true }
 pliron = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
-pretty_assertions = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
 trybuild = "1"

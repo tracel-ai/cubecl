@@ -17,7 +17,6 @@ use crate::{
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
-use ahash::AHasher;
 use alloc::boxed::Box;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
@@ -26,7 +25,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
     fmt::Debug,
-    hash::{Hash, Hasher},
+    hash::{BuildHasher, Hash},
 };
 use cubecl_common::{
     bytes::Bytes,
@@ -41,6 +40,7 @@ use cubecl_environment::sync::RwLock;
 use cubecl_ir::{DeviceProperties, ElemType, settings::Dim3};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use derive_more::{Deref, DerefMut, From};
+use foldhash::fast::FixedState;
 use itertools::Itertools;
 use thiserror::Error;
 
@@ -711,10 +711,8 @@ impl From<Vec<DeviceId>> for CommunicationId {
     fn from(mut value: Vec<DeviceId>) -> Self {
         // Make sure that device ids are sorted so that any combination of the same devices uses the same communicator.
         value.sort();
-        let mut hasher = AHasher::default();
-        value.hash(&mut hasher);
         CommunicationId {
-            id: hasher.finish(),
+            id: FixedState::default().hash_one(value),
         }
     }
 }

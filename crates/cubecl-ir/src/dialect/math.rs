@@ -2,7 +2,7 @@ use core::ops::Neg;
 
 use cubecl_macros_internal::{const_eval, cube_op, simplify};
 use half::{bf16, f16};
-use num::Integer;
+use num_integer::Integer;
 use num_traits::Float;
 use pliron::{
     attribute::AttrObj,

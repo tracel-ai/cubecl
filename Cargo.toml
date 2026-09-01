@@ -37,7 +37,6 @@ derive_more = { version = "2", default-features = false, features = [
     "from",
     "into",
 ] }
-num = "0.4"
 oneshot = { version = "0.2.1", default-features = false }
 tynm = { version = "0.2" }
 
@@ -72,7 +71,6 @@ toml = "1"
 variadics_please = "2"
 
 # no_std compatibility
-dashmap = "6.1.0"
 foldhash = { version = "0.2", default-features = false }
 hashbrown = "0.17"
 smallvec = { version = "1", features = [
@@ -105,7 +103,6 @@ web-time = "1.1.0"
 criterion = { version = "0.8", features = ["html_reports"] }
 env_logger = "0.11"
 expect-test = "1"
-rstest = "0.26"
 serial_test = "4"
 tempfile = "3.20"
 
@@ -130,7 +127,7 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 buildid = "1.0.5" # 1.0.5 is the min required for a fix
 bumpalo = "3"
 cfg-if = "1.0.0"
-downcast-rs = "1"
+downcast-rs = "2"
 enumset = { version = "1.1", default-features = false }
 ident_case = "1"
 internment = "0.8"
@@ -138,7 +135,6 @@ itertools = { version = "0.15", default-features = false, features = [
     "use_alloc",
 ] }
 paste = "1"
-rustc-hash = "2"
 thiserror = { version = "2", default-features = false }
 tracy-client = { version = "0.18.0" }
 
@@ -152,7 +148,6 @@ portable-atomic = { version = "1.14", default-features = false, features = [
     "serde",
 ] }
 portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
-pretty_assertions = "1.4"
 
 # Async
 embassy-futures = { version = "0.1.1" } # for no-std

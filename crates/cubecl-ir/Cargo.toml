@@ -49,7 +49,7 @@ half = { workspace = true }
 num-complex = { workspace = true }
 internment = { workspace = true, features = ["intern", "serde"] }
 itertools = { workspace = true }
-num = { workspace = true }
+num-integer = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, optional = true, features = ["rc"] }
 smallvec = { workspace = true }

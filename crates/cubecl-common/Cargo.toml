@@ -80,7 +80,6 @@ cfg_aliases = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-dashmap = { workspace = true }
 tempfile = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
 
