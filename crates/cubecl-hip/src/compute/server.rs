@@ -25,7 +25,6 @@ use cubecl_environment::stream::StreamId;
 use cubecl_runtime::command::Refused;
 use cubecl_runtime::metadata_cache::Lookup;
 use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
@@ -58,7 +57,6 @@ unsafe impl Send for HipServer {}
 
 impl ComputeServer for HipServer {
     type Storage = GpuStorage;
-    type MemoryLayoutPolicy = PitchedMemoryLayoutPolicy;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {

@@ -22,7 +22,6 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
-    allocator::ContiguousMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::KernelId,
@@ -195,7 +194,6 @@ impl CpuServer {
 
 impl ComputeServer for CpuServer {
     type Storage = BytesStorage;
-    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {

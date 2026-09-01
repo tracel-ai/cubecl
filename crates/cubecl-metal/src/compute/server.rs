@@ -18,7 +18,6 @@ use cubecl_core::{
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
-    allocator::ContiguousMemoryLayoutPolicy,
     dry_run::LaunchMode,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -176,7 +175,6 @@ impl WriteScoped for MetalServer {
 
 impl ComputeServer for MetalServer {
     type Storage = MetalStorage;
-    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {

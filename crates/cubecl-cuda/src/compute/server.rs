@@ -21,7 +21,6 @@ use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::command::{CollectiveDriver, Collectives, Refused};
 use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
@@ -100,7 +99,6 @@ unsafe impl Send for CudaServer {}
 
 impl ComputeServer for CudaServer {
     type Storage = GpuStorage;
-    type MemoryLayoutPolicy = PitchedMemoryLayoutPolicy;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {

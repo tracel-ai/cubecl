@@ -107,7 +107,6 @@ impl ServerCommunication for DummyServer {
 
 impl ComputeServer for DummyServer {
     type Storage = BytesStorage;
-    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {

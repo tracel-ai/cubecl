@@ -29,7 +29,6 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::persistence::Store;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(feature = "spirv")]
 use cubecl_runtime::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_runtime::memory_management::{
@@ -323,7 +322,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
 impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     type Storage = WgpuStorage;
-    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = wgpu::Backend;
 
     fn logger(&self) -> Arc<ServerLogger> {

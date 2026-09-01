@@ -11,7 +11,7 @@ use crate::{
     runtime::Runtime,
     server::{
         BufferBinding, CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
         MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities,
     },

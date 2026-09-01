@@ -121,7 +121,7 @@ pub struct ServerUtilities<Server: ComputeServer> {
     /// The logger based on global cubecl configs.
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
-    pub layout_policy: Server::MemoryLayoutPolicy,
+    pub layout_policy: Box<dyn MemoryLayoutPolicy>,
     /// How to enforce bounds checking on kernels.
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
@@ -164,7 +164,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
         target_properties: TargetProperties,
         logger: Arc<ServerLogger>,
         info: S::Info,
-        allocator: S::MemoryLayoutPolicy,
+        allocator: impl MemoryLayoutPolicy,
     ) -> Self {
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
@@ -191,7 +191,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             #[cfg(feature = "profile-tracy")]
             epoch_time: cubecl_environment::time::Instant::now(),
             info,
-            layout_policy: allocator,
+            layout_policy: Box::new(allocator),
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
         }
@@ -469,8 +469,6 @@ where
 {
     /// Information that can be retrieved for the runtime.
     type Info: Debug + Send + Sync;
-    /// Manages how allocations are performed for a server.
-    type MemoryLayoutPolicy: MemoryLayoutPolicy;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
 
