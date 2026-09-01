@@ -80,7 +80,7 @@ pub(super) fn supported_wmma_combinations_rocwmma(
                 )
                 .collect()
         }
-        AMDArchitecture::GFX10 | AMDArchitecture::GFX11 => {
+        AMDArchitecture::GFX103 | AMDArchitecture::GFX11 => {
             // For gfx11 the supported tile dimensions are always the same
             //                                   m   n   k
             let tdims = vec![(16, 16, 16), (16, 16, 32)];

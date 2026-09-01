@@ -32,8 +32,8 @@ pub enum AMDArchitecture {
     GFX12,
     // gfx1100, gfx1101, gfx1102
     GFX11,
-    // gfx1030, gfx1031, gfx1032
-    GFX10,
+    // gfx1030 through gfx1036 (RDNA2)
+    GFX103,
     // CDNA
     GFX908,
     GFX90A,
@@ -58,7 +58,7 @@ impl AMDArchitecture {
     /// CDNA runs wave64 (gfx9 and gfx940+) and RDNA wave32 (gfx10, gfx11, gfx12).
     pub fn plane_dim(&self) -> Option<u32> {
         match self {
-            AMDArchitecture::GFX10 | AMDArchitecture::GFX11 | AMDArchitecture::GFX12 => Some(32),
+            AMDArchitecture::GFX103 | AMDArchitecture::GFX11 | AMDArchitecture::GFX12 => Some(32),
             AMDArchitecture::GFX908 | AMDArchitecture::GFX90A | AMDArchitecture::GFX94 => Some(64),
             AMDArchitecture::Other => None,
         }
@@ -71,7 +71,7 @@ impl AMDArchitecture {
         } else if norm.starts_with("gfx11") {
             Ok(AMDArchitecture::GFX11)
         } else if norm.starts_with("gfx10") {
-            Ok(AMDArchitecture::GFX10)
+            Ok(AMDArchitecture::GFX103)
         } else if norm == "gfx908" {
             Ok(AMDArchitecture::GFX908)
         } else if norm == "gfx90a" {
