@@ -208,8 +208,8 @@ cudarc = { version = "0.19.6", features = [
 # rspirv = { version = "0.14.1", package = "tracel-rspirv" }
 # pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
 # rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
-pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "e52c4c918585bc02fa413eb6ee4f0b34e1109ae0" }
-rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "e52c4c918585bc02fa413eb6ee4f0b34e1109ae0", package = "tracel-rspirv" }
+pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "b3153342f82e504369b982582641b933c45c6950" }
+rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "b3153342f82e504369b982582641b933c45c6950", package = "tracel-rspirv" }
 rustc_apfloat = "0.2"
 
 # CubeCL-WGPU

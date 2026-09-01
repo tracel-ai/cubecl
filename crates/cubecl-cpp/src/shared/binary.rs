@@ -1,5 +1,6 @@
 use cubecl_core::{
     self as cubecl, define_scalar, define_size,
+    frontend::polyfills::expand_dp4a_polyfill,
     ir::{
         dialect::{
             bitwise::*,
@@ -21,12 +22,30 @@ use crate::{
     shared::{
         CppValue,
         convert::{no_half, promotes_int},
+        lowering::LowerOp,
         shared_op, shared_op_with_out,
         ty::{TypeExtCPP, TypedExtCPP},
         unroll::unrolling,
     },
-    target::{CtxTarget, Hip},
+    target::{CtxTarget, Hip, Target},
 };
+
+#[op_interface_impl]
+impl LowerOp for Dp4aOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        ctx.target() != Target::Cuda
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![expand_dp4a_polyfill(
+            scope,
+            self.a(ctx),
+            self.b(ctx),
+            self.c(ctx),
+        )]
+    }
+}
 
 macro_rules! operator {
     ($name:ident, $op:expr) => {

@@ -1,7 +1,7 @@
 use alloc::vec;
 use core::f32::consts::PI;
 
-use cubecl_ir::{Type, cube_op, prelude::*};
+use cubecl_ir::{Type, cube_op, interfaces::TypedExt, prelude::*};
 use num_traits::One;
 
 use crate::prelude::*;
@@ -109,6 +109,41 @@ fn himul_sim<T: Int, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T,
 pub fn expand_himul_sim(scope: &Scope, lhs: Value, rhs: Value) -> Value {
     scope.register_value_type::<ElemA, SizeA>(lhs);
     himul_sim::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
+}
+
+/// Portable implementation of a four-byte signed dot product with accumulation.
+#[cube]
+pub fn dp4a_polyfill<N: Size>(
+    a: Vector<i32, N>,
+    b: Vector<i32, N>,
+    c: Vector<i32, N>,
+) -> Vector<i32, N> {
+    let a = Vector::<u32, N>::reinterpret(a);
+    let b = Vector::<u32, N>::reinterpret(b);
+    let shift_8 = Vector::new(8);
+    let shift_16 = Vector::new(16);
+    let shift_24 = Vector::new(24);
+    let byte_mask = Vector::new(0xff);
+    let sign_mask = Vector::new(0x80);
+    let sign_offset = Vector::<i32, N>::new(0x80);
+
+    let a0 = Vector::<i32, N>::cast_from((a & byte_mask) ^ sign_mask) - sign_offset;
+    let a1 = Vector::<i32, N>::cast_from(((a >> shift_8) & byte_mask) ^ sign_mask) - sign_offset;
+    let a2 = Vector::<i32, N>::cast_from(((a >> shift_16) & byte_mask) ^ sign_mask) - sign_offset;
+    let a3 = Vector::<i32, N>::cast_from((a >> shift_24) ^ sign_mask) - sign_offset;
+
+    let b0 = Vector::<i32, N>::cast_from((b & byte_mask) ^ sign_mask) - sign_offset;
+    let b1 = Vector::<i32, N>::cast_from(((b >> shift_8) & byte_mask) ^ sign_mask) - sign_offset;
+    let b2 = Vector::<i32, N>::cast_from(((b >> shift_16) & byte_mask) ^ sign_mask) - sign_offset;
+    let b3 = Vector::<i32, N>::cast_from((b >> shift_24) ^ sign_mask) - sign_offset;
+
+    c + a0 * b0 + a1 * b1 + a2 * b2 + a3 * b3
+}
+
+#[allow(missing_docs)]
+pub fn expand_dp4a_polyfill(scope: &Scope, a: Value, b: Value, c: Value) -> Value {
+    scope.register_size::<SizeA>(a.vector_size(scope.ctx()));
+    dp4a_polyfill::expand::<SizeA>(scope, a.into(), b.into(), c.into()).value(scope)
 }
 
 #[cube]

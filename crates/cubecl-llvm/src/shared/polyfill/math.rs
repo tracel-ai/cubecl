@@ -2,22 +2,35 @@ use cubecl_core as cubecl;
 use cubecl_core::ir::dialect::bitwise::{BitwiseNotOp, FindFirstSetOp};
 use cubecl_core::ir::dialect::cmp::{FClampOp, SClampOp, UClampOp};
 use cubecl_core::ir::dialect::math::{
-    ArcCoshOp, ArcSinhOp, ArcTanhOp, CosOp, DegreesOp, ErfOp, ExpOp, Expm1Op, FModFloorOp, HypotOp,
-    Log1pOp, LogOp, PowiOp, RadiansOp, RecipOp, RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp, SNegOp,
-    SinOp, TanhOp, UMulHiOp,
+    ArcCoshOp, ArcSinhOp, ArcTanhOp, CosOp, DegreesOp, Dp4aOp, ErfOp, ExpOp, Expm1Op, FModFloorOp,
+    HypotOp, Log1pOp, LogOp, PowiOp, RadiansOp, RecipOp, RhypotOp, RsqrtOp, SModFloorOp, SMulHiOp,
+    SNegOp, SinOp, TanhOp, UMulHiOp,
 };
 use cubecl_core::ir::dialect::vector::{FDotOp, MagnitudeOp, NormalizeOp, SDotOp, UDotOp};
 use cubecl_core::ir::interfaces::TypedExt;
 use cubecl_core::ir::prelude::*;
 use cubecl_core::prelude::polyfills::{
-    erf, expand_himul_sim, expand_s_himul_64, expand_u_himul_64, expm1, log1p, recip, to_degrees,
-    to_radians,
+    erf, expand_dp4a_polyfill, expand_himul_sim, expand_s_himul_64, expand_u_himul_64, expm1,
+    log1p, recip, to_degrees, to_radians,
 };
 use cubecl_core::prelude::*;
 
 use crate::shared::polyfill::LowerOp;
 use crate::shared::polyfill::transcendental::{cos, exp, ln, sin, tanh};
 use cubecl_core::ir::Scope;
+
+#[op_interface_impl]
+impl LowerOp for Dp4aOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![expand_dp4a_polyfill(
+            scope,
+            self.a(ctx),
+            self.b(ctx),
+            self.c(ctx),
+        )]
+    }
+}
 
 /// Lower a unary op to `$polyfill`, unconditionally or only where `$gate` accepts the input.
 macro_rules! lower_unary_math_arith {

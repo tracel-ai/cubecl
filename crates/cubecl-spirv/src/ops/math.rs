@@ -1,6 +1,8 @@
 use cubecl_core::{self as cubecl, frontend::polyfills::*, prelude::*};
 use cubecl_ir::{dialect::math, prelude::*};
-use pliron_spirv::{ext::gl, ops, types::StructType};
+use pliron_spirv::{
+    attrs::PackedVectorFormatAttr, ext::gl, ops, spirv::PackedVectorFormat, types::StructType,
+};
 
 use crate::{
     lower::{LowerOp, lower_binop, lower_unop},
@@ -28,6 +30,45 @@ binop_to_spirv_dialect!(math::URemOp => ops::UModOp);
 binop_to_spirv_dialect!(math::FRemOp => ops::FRemOp);
 binop_to_spirv_dialect!(math::SModFloorOp => ops::SModOp);
 binop_to_spirv_dialect!(math::FModFloorOp => ops::FModOp);
+
+#[op_interface_impl]
+impl LowerOp for math::Dp4aOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        !ctx.aux_ty::<cubecl_core::WgpuCompilationOptions>()
+            .vulkan
+            .supports_dp4a
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![expand_dp4a_polyfill(
+            scope,
+            self.a(ctx),
+            self.b(ctx),
+            self.c(ctx),
+        )]
+    }
+}
+
+#[op_interface_impl]
+impl ToSpirvDialectOp for math::Dp4aOp {
+    fn to_spirv_dialect(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let op = self.get_operation();
+        let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
+        let packed = PackedVectorFormatAttr::new(PackedVectorFormat::PackedVectorFormat4x8Bit);
+        let dot = ops::SDotOp::new(ctx, out_ty, self.a(ctx), self.b(ctx), Some(packed));
+        rewriter.append_op(ctx, &dot);
+        let add = ops::IAddOp::new(ctx, out_ty, dot.get_result(ctx), self.c(ctx));
+        rewriter.append_op(ctx, &add);
+        rewriter.replace_operation(ctx, op, add.get_operation());
+        Ok(())
+    }
+}
 
 binop_to_spirv_dialect!(SimplePowOp => gl::PowOp);
 

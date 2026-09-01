@@ -341,6 +341,9 @@ fn register_features(
     comp_options.vulkan.max_spirv_version = extended_feat.max_spirv_version;
     comp_options.vulkan.max_vector_size = 4;
     comp_options.vulkan.push_constant_size = properties.limits.max_push_constants_size as usize;
+    comp_options.vulkan.supports_dp4a = extended_feat
+        .shader_integer_dot_product
+        .is_some_and(|it| it.shader_integer_dot_product == TRUE);
 
     props.features.plane.insert(Plane::Sync);
 

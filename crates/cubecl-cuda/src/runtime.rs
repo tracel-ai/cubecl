@@ -111,6 +111,7 @@ impl DeviceService for CudaServer {
         let mut comp_opts = CompilationOptions {
             supports_features: CppSupportedFeatures {
                 fast_math: true,
+                dp4a: arch_version >= 61,
                 ..Default::default()
             },
             ..Default::default()
