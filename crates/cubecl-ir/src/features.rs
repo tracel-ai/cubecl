@@ -1,7 +1,7 @@
 use crate::{AddressType, ElemType, OpaqueType, SemanticType, Type};
 use alloc::collections::{BTreeMap, BTreeSet};
 
-use cubecl_macros_internal::EnumSetType;
+use crate::EnumSetType;
 
 pub use crate::EnumSet;
 

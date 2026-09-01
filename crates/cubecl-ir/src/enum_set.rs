@@ -370,7 +370,7 @@ impl<'de, T: EnumSetType> serde::Deserialize<'de> for EnumSet<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cubecl_macros_internal::EnumSetType;
+    use crate::EnumSetType;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumSetType)]
     enum Usage {

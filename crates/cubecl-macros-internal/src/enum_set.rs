@@ -85,7 +85,7 @@ pub fn enum_set_type_impl(input: DeriveInput) -> Result<TokenStream, Error> {
     });
 
     Ok(quote! {
-        impl crate::EnumSetType for #ident {
+        impl ::cubecl_ir::EnumSetType for #ident {
             const VARIANTS: u32 = #count;
 
             fn to_bit(self) -> u32 {
@@ -105,26 +105,26 @@ pub fn enum_set_type_impl(input: DeriveInput) -> Result<TokenStream, Error> {
         }
 
         impl ::core::ops::BitOr<#ident> for #ident {
-            type Output = crate::EnumSet<#ident>;
+            type Output = ::cubecl_ir::EnumSet<#ident>;
 
-            fn bitor(self, other: #ident) -> crate::EnumSet<#ident> {
-                crate::EnumSet::only(self) | crate::EnumSet::only(other)
+            fn bitor(self, other: #ident) -> ::cubecl_ir::EnumSet<#ident> {
+                ::cubecl_ir::EnumSet::only(self) | ::cubecl_ir::EnumSet::only(other)
             }
         }
 
-        impl ::core::ops::BitOr<crate::EnumSet<#ident>> for #ident {
-            type Output = crate::EnumSet<#ident>;
+        impl ::core::ops::BitOr<::cubecl_ir::EnumSet<#ident>> for #ident {
+            type Output = ::cubecl_ir::EnumSet<#ident>;
 
-            fn bitor(self, other: crate::EnumSet<#ident>) -> crate::EnumSet<#ident> {
-                crate::EnumSet::only(self) | other
+            fn bitor(self, other: ::cubecl_ir::EnumSet<#ident>) -> ::cubecl_ir::EnumSet<#ident> {
+                ::cubecl_ir::EnumSet::only(self) | other
             }
         }
 
         impl ::core::ops::Not for #ident {
-            type Output = crate::EnumSet<#ident>;
+            type Output = ::cubecl_ir::EnumSet<#ident>;
 
-            fn not(self) -> crate::EnumSet<#ident> {
-                !crate::EnumSet::only(self)
+            fn not(self) -> ::cubecl_ir::EnumSet<#ident> {
+                !::cubecl_ir::EnumSet::only(self)
             }
         }
     })

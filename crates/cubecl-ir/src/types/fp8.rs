@@ -1,5 +1,5 @@
+use crate::EnumSetType;
 use cubecl_common::{e4m3, e5m2, ue8m0};
-use cubecl_macros_internal::EnumSetType;
 use pliron::{context::Context, r#type::TypeHandle};
 
 use crate::types::scalar::{Float8E4M3Type, Float8E5M2Type, Float8E8M0Type};

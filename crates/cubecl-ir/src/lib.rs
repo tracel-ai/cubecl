@@ -3,6 +3,9 @@
 pub extern crate alloc;
 extern crate std;
 
+// So `#[derive(EnumSetType)]` resolves `::cubecl_ir::` inside this crate as well as out.
+extern crate self as cubecl_ir;
+
 pub mod features;
 
 mod address;
@@ -38,6 +41,7 @@ pub use scope::*;
 pub use r#type::*;
 pub use value::*;
 
+pub use cubecl_macros_internal::EnumSetType;
 pub(crate) use cubecl_macros_internal::TypeHash;
 pub use type_hash::TypeHash;
 

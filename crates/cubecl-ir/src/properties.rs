@@ -2,12 +2,12 @@ use alloc::string::String;
 use core::hash::{BuildHasher, Hash, Hasher};
 
 use crate::EnumSet;
+use crate::EnumSetType;
 use crate::{
     AddressType, ElemType, OpaqueType, SemanticType, Type, TypeHash, VectorSize,
     features::{AtomicUsage, ComplexUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
-use cubecl_macros_internal::EnumSetType;
 
 /// Properties of the device related to the accelerator hardware.
 ///
