@@ -513,9 +513,7 @@ impl ComputeServer for CpuServer {
     }
 }
 
-impl ServerCommunication for CpuServer {
-    const SERVER_COMM_ENABLED: bool = false;
-}
+impl ServerCommunication for CpuServer {}
 
 pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
     let rank = shape.len();

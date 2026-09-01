@@ -798,7 +798,7 @@ impl<R: Runtime> ComputeClient<R> {
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
-        if R::Server::SERVER_COMM_ENABLED {
+        if self.utilities.server_comm_enabled {
             self.to_client_tensor(src_descriptor, dst_server, dtype)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(

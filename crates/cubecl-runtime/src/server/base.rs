@@ -122,6 +122,10 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
     pub layout_policy: Box<dyn MemoryLayoutPolicy>,
+    /// Whether the server can move data to a peer server of the same runtime
+    /// directly, without a round trip through the host. Off unless the
+    /// backend turns it on at init.
+    pub server_comm_enabled: bool,
     /// How to enforce bounds checking on kernels.
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
@@ -192,6 +196,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             epoch_time: cubecl_environment::time::Instant::now(),
             info,
             layout_policy: Box::new(allocator),
+            server_comm_enabled: false,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
         }
@@ -766,9 +771,6 @@ pub enum ReduceOperation {
 /// collective reduce stale bytes across every device in the group, or leave a
 /// destination that reads back clean when nothing wrote it.
 pub trait ServerCommunication {
-    /// Indicates whether server-to-server communication is enabled for this implementation.
-    const SERVER_COMM_ENABLED: bool;
-
     /// Ensure that all queued collective operations have been executed.
     ///
     /// # Arguments

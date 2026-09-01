@@ -101,9 +101,7 @@ impl KernelTask {
     }
 }
 
-impl ServerCommunication for DummyServer {
-    const SERVER_COMM_ENABLED: bool = false;
-}
+impl ServerCommunication for DummyServer {}
 
 impl ComputeServer for DummyServer {
     type Storage = BytesStorage;

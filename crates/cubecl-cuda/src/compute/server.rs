@@ -430,8 +430,6 @@ impl ComputeServer for CudaServer {
 }
 
 impl ServerCommunication for CudaServer {
-    const SERVER_COMM_ENABLED: bool = true;
-
     fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
         // A group already joined is joined once, so the membership is
         // announced once too.

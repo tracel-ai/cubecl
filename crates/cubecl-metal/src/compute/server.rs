@@ -155,9 +155,7 @@ impl MetalServer {
     }
 }
 
-impl ServerCommunication for MetalServer {
-    const SERVER_COMM_ENABLED: bool = false;
-}
+impl ServerCommunication for MetalServer {}
 
 impl WriteScoped for MetalServer {
     type Streams = MultiStream<MetalStreamBackend>;

@@ -104,9 +104,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     _compiler: PhantomData<C>,
 }
 
-impl<C: WgpuCompiler> ServerCommunication for WgpuServer<C> {
-    const SERVER_COMM_ENABLED: bool = false;
-}
+impl<C: WgpuCompiler> ServerCommunication for WgpuServer<C> {}
 
 impl<C: WgpuCompiler> WriteScoped for WgpuServer<C> {
     type Streams = SchedulerMultiStream<ScheduledWgpuBackend>;

@@ -386,9 +386,7 @@ impl ComputeServer for HipServer {
     }
 }
 
-impl ServerCommunication for HipServer {
-    const SERVER_COMM_ENABLED: bool = false;
-}
+impl ServerCommunication for HipServer {}
 
 impl WriteScoped for HipServer {
     type Streams = MultiStream<HipStreamBackend>;
