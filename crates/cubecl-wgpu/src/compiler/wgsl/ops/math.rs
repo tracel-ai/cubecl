@@ -10,6 +10,19 @@ use crate::compiler::wgsl::{
     to_wgsl::wgsl_op_with_out,
 };
 
+#[op_interface_impl]
+impl LowerOp for Dp4aOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ctx = scope.ctx();
+        vec![expand_dp4a_polyfill(
+            scope,
+            self.a(ctx),
+            self.b(ctx),
+            self.c(ctx),
+        )]
+    }
+}
+
 wgsl_op_with_out!(SAbsOp, FAbsOp; |op, ctx| {
     format!("abs({})", op.input(ctx).name(ctx))
 });

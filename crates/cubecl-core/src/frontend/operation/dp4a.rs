@@ -12,7 +12,7 @@ pub fn dp4a(a: i32, b: i32, c: i32) -> i32 {
 /// Expand method of [`dp4a()`].
 pub mod dp4a {
     use super::*;
-    use cubecl_ir::{Arithmetic, FmaOperands, Instruction, Scope};
+    use cubecl_ir::{Scope, dialect::math::Dp4aOp};
 
     pub fn expand(
         scope: &Scope,
@@ -20,16 +20,10 @@ pub mod dp4a {
         b: NativeExpand<i32>,
         c: NativeExpand<i32>,
     ) -> NativeExpand<i32> {
-        let output = scope.create_value(a.expand.value_type());
-        let a = a.expand;
-        let b = b.expand;
-        let c = c.expand;
-
-        scope.register(Instruction::new(
-            Arithmetic::Dp4a(FmaOperands { a, b, c }),
-            output,
-        ));
-
-        output.into()
+        let a = a.read_value(scope);
+        let b = b.read_value(scope);
+        let c = c.read_value(scope);
+        let op = Dp4aOp::new(scope.ctx_mut(), a, b, c);
+        scope.register_with_result(&op).into()
     }
 }

@@ -98,6 +98,7 @@ pub struct CppSupportedFeatures {
     pub fast_math: bool,
     pub fast_tanh: bool,
     pub elect_sync: bool,
+    pub dp4a: bool,
 }
 
 impl Default for CompilationOptions {

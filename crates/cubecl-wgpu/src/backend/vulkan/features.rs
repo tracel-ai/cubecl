@@ -18,6 +18,7 @@ pub struct ExtendedFeatures<'a> {
     pub buf_8: Option<PhysicalDevice8BitStorageFeatures<'a>>,
     pub subgroup_extended: Option<PhysicalDeviceShaderSubgroupExtendedTypesFeatures<'a>>,
     pub uniform_standard_layout: Option<PhysicalDeviceUniformBufferStandardLayoutFeatures<'a>>,
+    pub shader_integer_dot_product: Option<PhysicalDeviceShaderIntegerDotProductFeatures<'a>>,
 
     // extensions
     pub cooperative_matrix: Option<PhysicalDeviceCooperativeMatrixFeaturesKHR<'a>>,
@@ -120,6 +121,7 @@ impl<'a> ExtendedFeatures<'a> {
             KHR_8BIT_STORAGE_NAME; API_VERSION_1_2 => buf_8,
             KHR_SHADER_SUBGROUP_EXTENDED_TYPES_NAME; API_VERSION_1_2 => subgroup_extended,
             KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_NAME; API_VERSION_1_2 => uniform_standard_layout,
+            KHR_SHADER_INTEGER_DOT_PRODUCT_NAME; API_VERSION_1_3 => shader_integer_dot_product,
         );
 
         fill_opt!(self,
@@ -169,6 +171,7 @@ impl<'a> ExtendedFeatures<'a> {
         info = push_opt(info, &mut self.buf_8);
         info = push_opt(info, &mut self.subgroup_extended);
         info = push_opt(info, &mut self.uniform_standard_layout);
+        info = push_opt(info, &mut self.shader_integer_dot_product);
 
         // Extensions
         info = push_opt(info, &mut self.cooperative_matrix);
@@ -215,6 +218,7 @@ impl<'a> ExtendedFeatures<'a> {
         features = push_opt(features, &mut self.buf_8);
         features = push_opt(features, &mut self.subgroup_extended);
         features = push_opt(features, &mut self.uniform_standard_layout);
+        features = push_opt(features, &mut self.shader_integer_dot_product);
 
         // Extensions
         features = push_opt(features, &mut self.cooperative_matrix);
@@ -287,6 +291,7 @@ impl<'a> ExtendedFeatures<'a> {
             buf_8,
             subgroup_extended,
             uniform_standard_layout,
+            shader_integer_dot_product,
             // Extensions
             cooperative_matrix,
             atomic_float,
