@@ -11,7 +11,7 @@ use crate::{
     runtime::Runtime,
     server::{
         BufferBinding, CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
         MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities,
     },
@@ -26,7 +26,7 @@ use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 mod lazy;
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
-    device::{Device, DeviceId},
+    device::{Device, DeviceId, ServiceId},
     device_handle::{CallResultExt, DeviceHandle},
     profile::ProfileDuration,
 };
@@ -218,6 +218,36 @@ impl<R: Runtime> ComputeClient<R> {
         }
     }
 
+    /// The service this client reaches: what its handles are stamped with.
+    pub fn service_id(&self) -> ServiceId {
+        self.device.service_id()
+    }
+
+    /// Whether `binding` addresses this client's device. Memory coordinates
+    /// mean nothing on another device, so a foreign binding is refused here,
+    /// before anything is submitted, rather than read there.
+    fn local(&self, binding: &BufferBinding) -> Result<(), ServerError> {
+        let client = self.service_id();
+        if binding.service == client {
+            return Ok(());
+        }
+        Err(ServerError::ForeignHandle {
+            handle: format!("{}", binding.service),
+            client: format!("{client}"),
+            backtrace: BackTrace::capture(),
+        })
+    }
+
+    /// [`local`](Self::local) for a call that has no error to return: a
+    /// foreign handle is a bug in the caller, and the alternative to stopping
+    /// here is reading another device's memory.
+    #[track_caller]
+    fn expect_local(&self, binding: &BufferBinding) {
+        if let Err(err) = self.local(binding) {
+            panic!("{err}");
+        }
+    }
+
     /// Set the stream in which the current client is operating on.
     ///
     /// # Safety
@@ -228,6 +258,12 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        if let Some(err) = descriptors
+            .iter()
+            .find_map(|descriptor| self.local(&descriptor.handle).err())
+        {
+            return Box::pin(core::future::ready(Err(err)));
+        }
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
@@ -334,6 +370,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// between this call and the first read.
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy(&self, descriptor: CopyDescriptor) -> Bytes {
+        self.expect_local(&descriptor.handle);
         let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
         let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
         // SAFETY: the controller materializes exactly `len` bytes on first access.
@@ -349,6 +386,9 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         descriptor: CopyDescriptor,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+        if let Err(err) = self.local(&descriptor.handle) {
+            return core::future::ready(Err(err));
+        }
         let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
         let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
         // SAFETY: the controller materializes exactly `len` bytes on first access.
@@ -379,6 +419,7 @@ impl<R: Runtime> ComputeClient<R> {
     > {
         let stream_id = self.stream_id();
         let binding = handle.binding();
+        self.local(&binding)?;
 
         self.device
             .submit_blocking(move |state| state.get_resource(binding, stream_id))
@@ -391,7 +432,10 @@ impl<R: Runtime> ComputeClient<R> {
         slices: Vec<Vec<u8>>,
     ) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
-        let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
+        let (handle_base, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.service_id(), stream_id, &descriptors);
 
         let descriptors = descriptors
             .into_iter()
@@ -425,7 +469,10 @@ impl<R: Runtime> ComputeClient<R> {
         data: Vec<Bytes>,
     ) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
-        let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
+        let (handle_base, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.service_id(), stream_id, &descriptors);
 
         let descriptors = descriptors
             .into_iter()
@@ -538,6 +585,7 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let descriptor =
             CopyDescriptor::new(handle.clone().binding(), [data.len()].into(), [1].into(), 1);
+        self.expect_local(&descriptor.handle);
         self.device.submit(move |server| {
             server.write(vec![(descriptor, data)], stream_id);
         });
@@ -653,7 +701,10 @@ impl<R: Runtime> ComputeClient<R> {
 
     fn do_empty(&self, descriptors: Vec<MemoryLayoutDescriptor>) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
-        let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
+        let (handle_base, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.service_id(), stream_id, &descriptors);
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
@@ -820,6 +871,8 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let src = src.binding();
         let dst = dst.binding();
+        self.expect_local(&src);
+        self.expect_local(&dst);
 
         self.ensure_init_collective(device_ids.clone());
 
@@ -848,6 +901,7 @@ impl<R: Runtime> ComputeClient<R> {
         dst_server: &Self,
         dtype: ElemType,
     ) -> Handle {
+        self.expect_local(&src_descriptor.handle);
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
 
@@ -855,7 +909,11 @@ impl<R: Runtime> ComputeClient<R> {
         let device_id_dst = dst_server.device.device_id();
 
         let mut dst_server = dst_server.clone();
-        let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
+        let handle = Handle::new(
+            dst_server.service_id(),
+            stream_id_dst,
+            src_descriptor.handle.size_in_used(),
+        );
         let handle_cloned = handle.clone();
 
         let device_ids = vec![device_id_src, device_id_dst];
@@ -919,6 +977,15 @@ impl<R: Runtime> ComputeClient<R> {
             && (*x == 0 || *y == 0 || *z == 0)
         {
             return;
+        }
+        if let CubeCount::Dynamic(binding) = &count {
+            self.expect_local(binding);
+        }
+        for resource in &bindings.resources {
+            self.expect_local(match resource {
+                KernelResource::Buffer(binding) => binding,
+                KernelResource::TensorMap(map) => &map.binding,
+            });
         }
 
         // Decided here, on the issuing thread, because that is the only place
@@ -1098,7 +1165,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         handles: impl IntoIterator<Item = &'a Handle>,
     ) -> Result<(), ServerError> {
-        let bindings = Self::bindings(handles);
+        let bindings = self.bindings(handles)?;
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.check(bindings, stream_id))
@@ -1192,7 +1259,10 @@ impl<R: Runtime> ComputeClient<R> {
         handles: impl IntoIterator<Item = &'a Handle>,
     ) -> DynFut<Result<(), ServerError>> {
         let stream_id = self.stream_id();
-        let bindings = Self::bindings(handles);
+        let bindings = match self.bindings(handles) {
+            Ok(bindings) => bindings,
+            Err(err) => return Box::pin(core::future::ready(Err(err))),
+        };
 
         let fut = self
             .device
@@ -1207,10 +1277,17 @@ impl<R: Runtime> ComputeClient<R> {
     /// The bindings `handles` name, which is what crosses to the device
     /// thread: a `Handle` borrows, and the closure that answers for it runs
     /// somewhere else.
-    fn bindings<'a>(handles: impl IntoIterator<Item = &'a Handle>) -> Vec<BufferBinding> {
+    fn bindings<'a>(
+        &self,
+        handles: impl IntoIterator<Item = &'a Handle>,
+    ) -> Result<Vec<BufferBinding>, ServerError> {
         handles
             .into_iter()
-            .map(|handle| handle.clone().binding())
+            .map(|handle| {
+                let binding = handle.clone().binding();
+                self.local(&binding)?;
+                Ok(binding)
+            })
             .collect()
     }
 
@@ -1530,10 +1607,10 @@ impl<R: Runtime> ComputeClient<R> {
 
         let mut data = cubecl_environment::future::block_on(read).unwrap();
 
-        let (handle_base, mut layouts) = self
-            .utilities
-            .layout_policy
-            .apply(stream_id, &[alloc_descriptor]);
+        let (handle_base, mut layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.service_id(), stream_id, &[alloc_descriptor]);
         let alloc = layouts.remove(0);
 
         let desc_descriptor = CopyDescriptor {

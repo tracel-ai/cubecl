@@ -112,6 +112,7 @@ impl DeviceService for MetalServer {
         let logger = std::sync::Arc::new(cubecl_runtime::logging::ServerLogger::default());
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
         let utilities = std::sync::Arc::new(cubecl_core::server::ServerUtilities::new(
+            cubecl_common::device::ServiceId::of::<Self>(device_id),
             device_props.clone(),
             MetalRuntime::target_properties(),
             logger,

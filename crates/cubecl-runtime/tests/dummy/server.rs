@@ -1,5 +1,5 @@
 use super::DummyKernel;
-use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
+use cubecl_common::{bytes::Bytes, device::ServiceId, profile::ProfileDuration};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
@@ -265,7 +265,7 @@ impl ComputeServer for DummyServer {
             })
             .collect();
         let data = bytemuck::cast_slice(&bindings.info.data);
-        let metadata = Handle::new(stream_id, data.len() as u64);
+        let metadata = Handle::new(self.utilities.service, stream_id, data.len() as u64);
         self.bind_with_data(data, metadata.clone(), stream_id);
 
         resources.push({
@@ -351,6 +351,7 @@ impl ComputeServer for DummyServer {
 
 impl DummyServer {
     pub fn new(
+        service: ServiceId,
         memory_management: MemoryManagement<BytesStorage>,
         mem_props: MemoryDeviceProperties,
     ) -> Self {
@@ -386,6 +387,7 @@ impl DummyServer {
         let logger = Arc::new(ServerLogger::default());
 
         let utilities = Arc::new(ServerUtilities::new(
+            service,
             props,
             TargetProperties::default(),
             logger,

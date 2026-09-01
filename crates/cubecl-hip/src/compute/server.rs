@@ -451,7 +451,7 @@ impl HipServer {
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Command<'_> {
         let streams = self.streams.resolve(stream_id, handles);
-        Command::new(&mut self.ctx, streams)
+        Command::new(&mut self.ctx, streams, self.utilities.service)
     }
 
     /// Compile `kernel` if this is the first launch of it, and say whether

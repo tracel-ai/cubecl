@@ -29,7 +29,7 @@ use core::{
 };
 use cubecl_common::{
     bytes::Bytes,
-    device::{self, DeviceId},
+    device::{self, DeviceId, ServiceId},
     profile::ProfileDuration,
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -100,6 +100,9 @@ pub struct ServerUtilities<Server: ComputeServer> {
     /// The GPU client when `profile-tracy` is activated.
     #[cfg(feature = "profile-tracy")]
     pub gpu_client: tracy_client::GpuContext,
+    /// The service these utilities belong to: what the handles it allocates
+    /// are stamped with, and what a client compares them against.
+    pub service: ServiceId,
     /// Information shared between all servers.
     pub properties: Arc<DeviceProperties>,
     /// Stable hash of the device properties
@@ -133,6 +136,7 @@ pub trait MemoryLayoutPolicy: Send + Sync + 'static {
     /// single `Binding`.
     fn apply(
         &self,
+        service: ServiceId,
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
     ) -> (Handle, Vec<MemoryLayout>);
@@ -155,6 +159,7 @@ where
 impl<S: ComputeServer> ServerUtilities<S> {
     /// Creates a new server utilities.
     pub fn new(
+        service: ServiceId,
         properties: DeviceProperties,
         target_properties: TargetProperties,
         logger: Arc<ServerLogger>,
@@ -166,6 +171,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
         let client = tracy_client::Client::start();
 
         Self {
+            service,
             properties_hash: properties.checksum(),
             properties: Arc::new(properties),
             target_properties: Arc::new(target_properties),
@@ -307,6 +313,19 @@ pub enum ServerError {
     Generic {
         /// The details of the generic error.
         reason: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// A handle from one service was handed to a client of another: memory
+    /// coordinates mean nothing there, so nothing was run.
+    #[error("A handle of {handle} was used on {client}\nBacktrace:\n{backtrace}")]
+    ForeignHandle {
+        /// The service whose memory the handle addresses.
+        handle: String,
+        /// The service the client reaches.
+        client: String,
         /// The backtrace for this error.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
@@ -1616,6 +1635,11 @@ mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
 
+    /// A service for handles that never reach a device.
+    fn service() -> cubecl_common::device::ServiceId {
+        cubecl_common::device::ServiceId::of::<()>(cubecl_common::device::DeviceId::new(0, 0))
+    }
+
     #[test_log::test]
     fn safe_num_cubes_even() {
         let max = (32, 32, 32);
@@ -1645,10 +1669,10 @@ mod tests {
 
         let stream = StreamId { value: 0 };
         let args = KernelArguments::new().with_buffers(vec![
-            Handle::new(stream, 8).binding(),
-            Handle::new(stream, 8).binding(),
-            Handle::new(stream, 8).binding(),
-            Handle::new(stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
         ]);
         let io = [
             BufferIOAttr::ReadOnly,
@@ -1737,8 +1761,8 @@ mod tests {
 
         let stream = StreamId { value: 0 };
         let args = KernelArguments::new().with_buffers(vec![
-            Handle::new(stream, 8).binding(),
-            Handle::new(stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
         ]);
 
         assert_eq!(args.buffers_written(None).count(), 2);
@@ -1765,9 +1789,18 @@ mod tests {
 
         let stream = StreamId { value: 0 };
         let args = KernelArguments::new()
-            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::ReadOnly)
-            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::ReadOnly)
-            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::WriteOnly);
+            .with_buffer_io(
+                Handle::new(service(), stream, 8).binding(),
+                BufferIOAttr::ReadOnly,
+            )
+            .with_buffer_io(
+                Handle::new(service(), stream, 8).binding(),
+                BufferIOAttr::ReadOnly,
+            )
+            .with_buffer_io(
+                Handle::new(service(), stream, 8).binding(),
+                BufferIOAttr::WriteOnly,
+            );
 
         // No compiled answer: the declaration decides. The inputs are not
         // written, so a failed compile leaves them readable.
@@ -1795,8 +1828,11 @@ mod tests {
 
         let stream = StreamId { value: 0 };
         let args = KernelArguments::new()
-            .with_buffer(Handle::new(stream, 8).binding())
-            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::ReadOnly);
+            .with_buffer(Handle::new(service(), stream, 8).binding())
+            .with_buffer_io(
+                Handle::new(service(), stream, 8).binding(),
+                BufferIOAttr::ReadOnly,
+            );
 
         let written: Vec<_> = args.buffers_written(None).collect();
         assert_eq!(written.len(), 1, "the undeclared resource reads as written");

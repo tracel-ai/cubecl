@@ -630,7 +630,7 @@ impl CudaServer {
     ) -> Command<'_> {
         self.unsafe_set_current();
         let streams = self.streams.resolve(stream_id, handles);
-        Command::new(&mut self.ctx, streams)
+        Command::new(&mut self.ctx, streams, self.utilities.service)
     }
 
     /// Compile `kernel` if this is the first launch of it, and say whether

@@ -33,8 +33,8 @@ impl Device for DummyDevice {
 pub type DummyClient = ComputeClient<DummyRuntime>;
 
 impl DeviceService for DummyServer {
-    fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
-        init_server()
+    fn init(device_id: cubecl_common::device::DeviceId) -> Self {
+        init_server(cubecl_common::device::ServiceId::of::<Self>(device_id))
     }
 
     fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
@@ -42,7 +42,7 @@ impl DeviceService for DummyServer {
     }
 }
 
-fn init_server() -> DummyServer {
+fn init_server(service: cubecl_common::device::ServiceId) -> DummyServer {
     let storage = BytesStorage::default();
     let mem_properties = MemoryDeviceProperties {
         max_page_size: 1024 * 1024 * 512,
@@ -56,7 +56,7 @@ fn init_server() -> DummyServer {
         Arc::new(ServerLogger::default()),
         MemoryManagementOptions::new("Main CPU Memory"),
     );
-    DummyServer::new(memory_management, mem_properties)
+    DummyServer::new(service, memory_management, mem_properties)
 }
 
 pub fn test_client(device: &DummyDevice) -> DummyClient {

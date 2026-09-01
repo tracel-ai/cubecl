@@ -2,7 +2,7 @@ mod base;
 
 pub use base::*;
 
-use crate::device::{DeviceId, DeviceService, ServerUtilitiesHandle};
+use crate::device::{DeviceId, DeviceService, ServerUtilitiesHandle, ServiceId};
 
 #[cfg(feature = "std")]
 #[allow(dead_code)]
@@ -56,6 +56,11 @@ impl<S: DeviceService> DeviceHandle<S> {
 
     pub fn device_id(&self) -> DeviceId {
         self.handle.device_id()
+    }
+
+    /// The service this handle reaches: its device and its type.
+    pub fn service_id(&self) -> ServiceId {
+        ServiceId::of::<S>(self.device_id())
     }
 
     pub fn utilities(&self) -> ServerUtilitiesHandle {

@@ -81,7 +81,7 @@ fn register_supported_types(props: &mut DeviceProperties) {
 }
 
 impl DeviceService for CpuServer {
-    fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
+    fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
         let mut system = System::new();
         system.refresh_memory();
@@ -154,6 +154,7 @@ impl DeviceService for CpuServer {
         register_supported_types(&mut device_props);
 
         let utilities = ServerUtilities::new(
+            cubecl_common::device::ServiceId::of::<Self>(device_id),
             device_props,
             CpuRuntime::target_properties(),
             logger,

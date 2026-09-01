@@ -2,8 +2,10 @@ mod dummy;
 
 use crate::dummy::{DummyDevice, DummyElementwiseAddition, test_client};
 
-use cubecl_runtime::server::CubeCount;
-use cubecl_runtime::server::KernelArguments;
+use cubecl_common::bytes::Bytes;
+use cubecl_common::device::{DeviceId, ServiceId};
+use cubecl_environment::stream::StreamId;
+use cubecl_runtime::server::{CubeCount, Handle, KernelArguments, ServerError};
 use cubecl_runtime::{local_tuner, tune::LocalTuner};
 use dummy::*;
 
@@ -30,6 +32,61 @@ fn empty_allocates_memory() {
 
 // Dry runs are process-wide, so a test asserting that a launch really ran must
 // not overlap one. `parallel` still runs alongside the other parallel tests; it
+
+/// A handle stamped for `service`, never allocated: what a caller holding a
+/// handle from another client has.
+fn handle_of(service: ServiceId) -> Handle {
+    Handle::new(service, StreamId::current(), 8)
+}
+
+#[test_log::test]
+fn a_handle_of_this_client_passes_the_check() {
+    let client = test_client(&DummyDevice);
+    let handle = client.empty(8);
+
+    assert!(client.check(&[handle]).is_ok());
+}
+
+#[test_log::test]
+fn a_handle_from_another_device_of_the_same_runtime_is_refused() {
+    let client = test_client(&DummyDevice);
+    let other_device = DeviceId::new(0, 1);
+    let handle = handle_of(ServiceId::of::<DummyServer>(other_device));
+
+    let err = client.check(&[handle]).unwrap_err();
+
+    assert!(
+        matches!(err, ServerError::ForeignHandle { .. }),
+        "expected the handle to be refused, got: {err}"
+    );
+}
+
+/// Two runtimes can hand out the same [`DeviceId`]; the service type is what
+/// tells their devices apart.
+#[test_log::test]
+fn a_handle_from_another_runtime_on_the_same_device_id_is_refused() {
+    let client = test_client(&DummyDevice);
+    let same_device = client.service_id().device;
+    let handle = handle_of(ServiceId::of::<()>(same_device));
+
+    let err = client.check(&[handle]).unwrap_err();
+
+    assert!(
+        matches!(err, ServerError::ForeignHandle { .. }),
+        "expected the handle to be refused, got: {err}"
+    );
+}
+
+/// A call with no error to return stops instead of reading another device's
+/// memory.
+#[test_log::test]
+#[should_panic(expected = "was used on")]
+fn writing_through_a_foreign_handle_panics() {
+    let client = test_client(&DummyDevice);
+    let handle = handle_of(ServiceId::of::<()>(DeviceId::new(0, 0)));
+
+    client.write(&handle, Bytes::from_bytes_vec(vec![0; 8]));
+}
 // only excludes the `serial` ones.
 #[test_log::test]
 #[serial_test::parallel]

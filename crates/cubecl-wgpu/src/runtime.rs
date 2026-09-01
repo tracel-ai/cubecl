@@ -5,7 +5,7 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
-use cubecl_common::device::{Device, DeviceService};
+use cubecl_common::device::{Device, DeviceService, ServiceId};
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
 use cubecl_core::server::ServerUtilities;
@@ -38,7 +38,7 @@ impl<C: WgpuCompiler> DeviceService for WgpuServer<C> {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = WgpuDevice::from_id(device_id);
         let setup = future::block_on(create_setup_for_device(&device, AutoGraphicsApi::backend()));
-        create_server(setup, RuntimeOptions::default())
+        create_server(setup, RuntimeOptions::default(), device_id)
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
@@ -251,7 +251,7 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
     }
 
     let device_id = WgpuDevice::Existing(device_id);
-    let server = create_server(setup, options);
+    let server = create_server(setup, options, device_id.to_id());
     let _ = ComputeClient::<WgpuRuntime>::init(&device_id, server);
     device_id
 }
@@ -278,7 +278,7 @@ pub async fn init_setup_async<G: GraphicsApi>(
 ) -> WgpuSetup {
     let setup = create_setup_for_device(device, G::backend()).await;
     let return_setup = setup.clone();
-    let server = create_server(setup, options);
+    let server = create_server(setup, options, device.to_id());
     let _ = ComputeClient::<WgpuRuntime>::init(device, server);
     return_setup
 }
@@ -286,6 +286,7 @@ pub async fn init_setup_async<G: GraphicsApi>(
 pub(crate) fn create_server<C: WgpuCompiler>(
     setup: WgpuSetup,
     options: RuntimeOptions,
+    device_id: DeviceId,
 ) -> WgpuServer<C> {
     let limits = setup.device.limits();
     let adapter_limits = setup.adapter.limits();
@@ -408,6 +409,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         setup.backend,
         time_measurement,
         ServerUtilities::new(
+            ServiceId::of::<WgpuServer<C>>(device_id),
             device_props,
             WgpuRuntime::<C>::target_properties(),
             logger,
