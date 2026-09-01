@@ -108,7 +108,7 @@ impl Launch {
                    other unpredictable behaviour.",
                 self.func.sig.name
             );
-            let generics = &self.kernel_generics;
+            let generics = self.runtime_generics();
             let args = self.launch_args();
             let body = self.launch_body(ExecutionMode::Unchecked);
 
@@ -156,14 +156,19 @@ impl Launch {
         quote! {
             #settings
 
-            let mut launcher = #kernel_launcher::<__R>::new(__settings.clone());
+            let mut launcher = #kernel_launcher::new(__settings.clone());
             launcher.with_scope(|scope| {
                 scope.device_properties(__client.properties());
                 #generic_registers
             });
 
             #registers
-            let __kernel = #kernel_name #kernel_generics::new(__settings, __client.clone(), #args #(#comptime_args),*);
+            let __kernel = #kernel_name #kernel_generics::new(
+                __settings,
+                __client.properties_shared(),
+                __client.target_properties_shared(),
+                #args #(#comptime_args),*
+            );
         }
     }
 
@@ -213,6 +218,10 @@ impl Launch {
                 "Launch the kernel [{}()] on the given runtime",
                 self.func.sig.name
             );
+            let device_properties = prelude_type("DeviceProperties");
+            let target_properties = prelude_type("TargetProperties");
+            let kernel_launcher = prelude_type("KernelLauncher");
+            let private = core_type("__private");
             let generics = &self.kernel_generics;
             let (_, generic_names, _) = self.kernel_generics.split_for_impl();
 
@@ -221,6 +230,12 @@ impl Launch {
             let comptime_args = self.launch_args();
             let comptime_names = self.comptime_params().map(|it| &it.name);
             let (compilation_args, args) = self.arg_registers();
+
+            let mappings = self.func.sig.define_mappings();
+            let generic_registers =
+                self.func
+                    .analysis
+                    .register_types(mappings, quote![scope], false, true);
 
             let address_type = match self.args.address_type {
                 AddressType::Dynamic => quote![__address_type: #address_type,],
@@ -231,15 +246,30 @@ impl Launch {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
                 pub fn create_dummy_kernel #generics(
+                    __device_properties: #private::Arc<#device_properties>,
+                    __target_properties: #private::Arc<#target_properties>,
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #address_type
                     #(#comptime_args),*
                 ) -> #kernel_name #generic_names {
                     #settings
-                    #compilation_args
 
-                    #kernel_name::new(__settings, #args #(#comptime_names),*)
+                    // Same registration the launch functions do — it is what
+                    // turns the runtime arguments into the kernel's
+                    // compilation arguments. The launcher itself has nothing
+                    // to launch here, so it is discarded rather than dropped:
+                    // see `KernelLauncher::discard`.
+                    let mut launcher = #kernel_launcher::new(__settings.clone());
+                    launcher.with_scope(|scope| {
+                        scope.device_properties(&__device_properties);
+                        #generic_registers
+                    });
+
+                    #compilation_args
+                    launcher.discard();
+
+                    #kernel_name::new(__settings, __device_properties, __target_properties, #args #(#comptime_names),*)
                 }
             }
         } else {
@@ -257,7 +287,7 @@ impl Launch {
         for arg in args.iter_mut().filter(|it| !it.is_const) {
             let ty = strip_ref(arg.ty.clone());
             let ty = anon_lifetime_to_static(ty);
-            arg.normalized_ty = parse_quote![#runtime_arg<#ty, __R>];
+            arg.normalized_ty = parse_quote![#runtime_arg<#ty>];
             arg.mutability = None;
         }
         args
@@ -266,6 +296,15 @@ impl Launch {
     pub fn kernel_name(&self) -> Ident {
         let kernel_name = RenameRule::PascalCase.apply_to_field(self.func.sig.name.to_string());
         format_ident!("{kernel_name}")
+    }
+
+    /// The kernel generics plus the runtime, for a launch signature that
+    /// declares no lifetime.
+    fn runtime_generics(&self) -> Generics {
+        let runtime = prelude_type("Runtime");
+        let mut generics = self.kernel_generics.clone();
+        generics.params.push(parse_quote![__R: #runtime]);
+        generics
     }
 
     pub fn kernel_call_generics(&self) -> Generics {

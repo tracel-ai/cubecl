@@ -155,6 +155,7 @@ impl DeviceService for CpuServer {
 
         let utilities = ServerUtilities::new(
             device_props,
+            CpuRuntime::target_properties(),
             logger,
             (),
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),

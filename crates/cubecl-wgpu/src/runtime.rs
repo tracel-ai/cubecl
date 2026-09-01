@@ -407,7 +407,13 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         options.tasks_max,
         setup.backend,
         time_measurement,
-        ServerUtilities::new(device_props, logger, setup.backend, allocator),
+        ServerUtilities::new(
+            device_props,
+            WgpuRuntime::<C>::target_properties(),
+            logger,
+            setup.backend,
+            allocator,
+        ),
     )
 }
 

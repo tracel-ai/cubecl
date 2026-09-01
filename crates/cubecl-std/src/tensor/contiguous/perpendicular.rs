@@ -101,9 +101,9 @@ fn copy_perpendicular<T: Numeric, N: Size>(
 /// the copy by using hardware vectorization (Vectors) and an in-register transpose.
 pub fn launch_into_contiguous_perpendicular<R: Runtime>(
     client: &ComputeClient<R>,
-    input: TensorBinding<R>,
+    input: TensorBinding,
     dtype: ElemType,
-) -> TensorHandle<R> {
+) -> TensorHandle {
     // Fallback for 1D tensors where perpendicularity doesn't apply.
     if input.shape.len() <= 1 {
         return into_contiguous(client, input, dtype);
@@ -122,8 +122,8 @@ pub fn launch_into_contiguous_perpendicular<R: Runtime>(
 /// the copy by using hardware vectorization (Vectors) and an in-register transpose.
 pub fn launch_copy_perpendicular_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: TensorBinding<R>,
-    output: TensorBinding<R>,
+    input: TensorBinding,
+    output: TensorBinding,
     dtype: ElemType,
 ) {
     let mut axis = 0;

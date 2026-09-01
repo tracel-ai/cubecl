@@ -347,9 +347,9 @@ fn quant_vector_size_q(vector_size: usize, num_quants: usize) -> usize {
 
 /// Register the per-tensor scale binding. Registered as f32 to match the element type
 /// [`expand_known_scale`] reads it back with.
-fn register_global_scale<R: Runtime>(
-    global_scale: Option<BufferArg<R>>,
-    launcher: &mut KernelLauncher<R>,
+fn register_global_scale(
+    global_scale: Option<BufferArg>,
+    launcher: &mut KernelLauncher,
 ) -> Option<BufferCompilationArg> {
     global_scale.map(|global_scale| <[f32] as LaunchArg>::register(global_scale, launcher))
 }
@@ -357,10 +357,10 @@ fn register_global_scale<R: Runtime>(
 /// Register the lookup table's binding, checking it against the scheme so the two cannot
 /// register apart. Registered as f32 to match the element type [`expand_table`] reads it back
 /// with.
-fn register_table<R: Runtime>(
-    table: Option<BufferArg<R>>,
+fn register_table(
+    table: Option<BufferArg>,
     scheme: &QuantScheme,
-    launcher: &mut KernelLauncher<R>,
+    launcher: &mut KernelLauncher,
 ) -> Option<BufferCompilationArg> {
     check_table_bindings(scheme, table.is_some());
     table.map(|table| {
@@ -446,16 +446,16 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
     }
 }
 
-pub(crate) struct RegisterDynamic<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> {
-    pub values: ViewArg<C, R>,
-    pub scales: ScaleBindings<C, R>,
+pub(crate) struct RegisterDynamic<'a, E: CubePrimitive, C: Coordinates + 'static> {
+    pub values: ViewArg<C>,
+    pub scales: ScaleBindings<C>,
     pub scheme: QuantScheme,
-    pub launcher: &'a mut KernelLauncher<R>,
+    pub launcher: &'a mut KernelLauncher,
     pub _ty: PhantomData<E>,
 }
 
-impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantType
-    for RegisterDynamic<'a, E, C, R>
+impl<'a, E: CubePrimitive, C: Coordinates + 'static> RunWithQuantType
+    for RegisterDynamic<'a, E, C>
 {
     type Output = ViewCompilationArg<C>;
 

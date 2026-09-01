@@ -4,9 +4,9 @@ use cubecl_core::{Runtime, client::ComputeClient, ir::ElemType, prelude::TensorB
 /// Make a jit tensor contiguous.
 pub fn into_contiguous<R: Runtime>(
     client: &ComputeClient<R>,
-    input: TensorBinding<R>,
+    input: TensorBinding,
     dtype: ElemType,
-) -> TensorHandle<R> {
+) -> TensorHandle {
     let num_elems: usize = input.shape.iter().product();
 
     let handle = client.empty(num_elems * dtype.size());
@@ -21,9 +21,9 @@ pub fn into_contiguous<R: Runtime>(
 /// See [`create_tensor`](cubecl_runtime::client::ComputeClient::create_tensor).
 pub fn into_contiguous_pitched<R: Runtime>(
     client: &ComputeClient<R>,
-    input: TensorBinding<R>,
+    input: TensorBinding,
     dtype: ElemType,
-) -> TensorHandle<R> {
+) -> TensorHandle {
     if input.shape.len() <= 1 {
         return into_contiguous(client, input, dtype);
     }
@@ -38,8 +38,8 @@ pub fn into_contiguous_pitched<R: Runtime>(
 /// Copies the input tensor into the output tensor following the strides.
 pub fn copy_into<R: Runtime>(
     client: &ComputeClient<R>,
-    input: TensorBinding<R>,
-    output: TensorBinding<R>,
+    input: TensorBinding,
+    output: TensorBinding,
     dtype: ElemType,
 ) {
     let rank = input.strides.len();

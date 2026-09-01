@@ -483,10 +483,12 @@ impl Launch {
             }
         }
 
-        kernel_generics.params.push(parse_quote![__R: #runtime]);
         let mut launch_generics = kernel_generics.clone();
-        launch_generics.params =
-            Punctuated::from_iter(iter::once(parse_quote!['kernel]).chain(launch_generics.params));
+        launch_generics.params = Punctuated::from_iter(
+            iter::once(parse_quote!['kernel])
+                .chain(launch_generics.params)
+                .chain(iter::once(parse_quote![__R: #runtime])),
+        );
 
         Ok(Launch {
             args,

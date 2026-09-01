@@ -5,7 +5,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
     AddressType, DeviceIdentity, DeviceProperties, ElemType, HardwareProperties,
-    MemoryDeviceProperties, UIntKind, VectorSize,
+    MemoryDeviceProperties, TargetProperties, UIntKind, VectorSize,
     features::Features,
     metadata::Info,
     settings::{Dim3, ExecutionMode, KernelSettings},
@@ -387,6 +387,7 @@ impl DummyServer {
 
         let utilities = Arc::new(ServerUtilities::new(
             props,
+            TargetProperties::default(),
             logger,
             (),
             ContiguousMemoryLayoutPolicy::new(4),

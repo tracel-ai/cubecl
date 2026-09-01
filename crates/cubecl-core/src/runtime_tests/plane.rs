@@ -861,7 +861,7 @@ fn test_plane_operation<
     client: ComputeClient<TestRuntime>,
     launch: Launch,
 ) where
-    Launch: Fn(CubeCount, TensorArg<TestRuntime>),
+    Launch: Fn(CubeCount, TensorArg),
 {
     if !client.features().plane.contains(Plane::Ops) {
         // Can't execute the test.

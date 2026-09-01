@@ -113,6 +113,7 @@ impl DeviceService for MetalServer {
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
         let utilities = std::sync::Arc::new(cubecl_core::server::ServerUtilities::new(
             device_props.clone(),
+            MetalRuntime::target_properties(),
             logger,
             (),
             allocator,

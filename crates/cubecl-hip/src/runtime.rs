@@ -197,7 +197,13 @@ impl DeviceService for HipServer {
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let utilities = ServerUtilities::new(device_props, logger, (), policy);
+        let utilities = ServerUtilities::new(
+            device_props,
+            HipRuntime::target_properties(),
+            logger,
+            (),
+            policy,
+        );
         let options = RuntimeOptions::default();
 
         HipServer::new(

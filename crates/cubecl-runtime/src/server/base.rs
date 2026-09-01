@@ -37,7 +37,7 @@ use cubecl_environment::collections::HashSet;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::RwLock;
-use cubecl_ir::{DeviceProperties, ElemType, settings::Dim3};
+use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, settings::Dim3};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use derive_more::{Deref, DerefMut, From};
 use foldhash::fast::FixedState;
@@ -101,9 +101,18 @@ pub struct ServerUtilities<Server: ComputeServer> {
     #[cfg(feature = "profile-tracy")]
     pub gpu_client: tracy_client::GpuContext,
     /// Information shared between all servers.
-    pub properties: DeviceProperties,
+    pub properties: Arc<DeviceProperties>,
     /// Stable hash of the device properties
     pub properties_hash: u64,
+    /// What the target the server compiles for guarantees about its own
+    /// instructions — [`Runtime::target_properties`](crate::runtime::Runtime::target_properties)
+    /// resolved once, when the device came up, rather than on every launch.
+    ///
+    /// A kernel keeps a clone of this `Arc` so it can expand itself on the
+    /// device thread without naming a runtime, so building it per launch
+    /// would put a `TargetProperties` construction — and the allocations
+    /// inside it — on the hot path of every already-compiled kernel.
+    pub target_properties: Arc<TargetProperties>,
     /// Information specific to the current server.
     pub info: Server::Info,
     /// The logger based on global cubecl configs.
@@ -147,6 +156,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
     /// Creates a new server utilities.
     pub fn new(
         properties: DeviceProperties,
+        target_properties: TargetProperties,
         logger: Arc<ServerLogger>,
         info: S::Info,
         allocator: S::MemoryLayoutPolicy,
@@ -157,7 +167,8 @@ impl<S: ComputeServer> ServerUtilities<S> {
 
         Self {
             properties_hash: properties.checksum(),
-            properties,
+            properties: Arc::new(properties),
+            target_properties: Arc::new(target_properties),
             logger,
             // Create the GPU client if needed.
             #[cfg(feature = "profile-tracy")]

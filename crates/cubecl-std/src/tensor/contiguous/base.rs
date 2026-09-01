@@ -256,12 +256,12 @@ fn copy_kernel_packed<T: Int, N: Size>(
 /// This assumes `u32` or `u8` packing.
 pub fn into_contiguous_packed<R: Runtime>(
     client: &ComputeClient<R>,
-    input: TensorBinding<R>,
+    input: TensorBinding,
     packed_dim: usize,
     shape: &[usize],
     packing: usize,
     dtype: ElemType,
-) -> TensorHandle<R> {
+) -> TensorHandle {
     let rank = shape.len();
     if rank <= 1 {
         return into_contiguous(client, input, dtype);
@@ -289,8 +289,8 @@ pub fn into_contiguous_packed<R: Runtime>(
 /// Make a jit tensor contiguous.
 pub fn copy_gpu_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: TensorBinding<R>,
-    output: TensorBinding<R>,
+    input: TensorBinding,
+    output: TensorBinding,
     dtype: ElemType,
 ) {
     let num_elems: usize = input.shape.iter().product();
@@ -383,8 +383,8 @@ pub fn copy_gpu_ref<R: Runtime>(
 /// Make a jit tensor contiguous.
 pub fn into_contiguous_packed_ref<R: Runtime>(
     client: &ComputeClient<R>,
-    input: TensorBinding<R>,
-    output: TensorBinding<R>,
+    input: TensorBinding,
+    output: TensorBinding,
     packed_dim: usize,
     shape: &[usize],
     packing: usize,

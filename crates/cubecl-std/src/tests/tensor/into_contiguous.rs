@@ -82,7 +82,7 @@ fn run_repack_case<R: Runtime>(
     let expected = pack_along(&unpacked, shape, rank - 1, packing, bits);
 
     let input_handle = client.create_from_slice(u32::as_bytes(&input_storage));
-    let input = TensorHandle::<R>::new_contiguous(in_storage_shape, input_handle, dtype);
+    let input = TensorHandle::new_contiguous(in_storage_shape, input_handle, dtype);
 
     let output =
         into_contiguous_packed(&client, input.binding(), packed_dim, shape, packing, dtype);
@@ -139,7 +139,7 @@ pub fn test_into_contiguous_rank_mismatch<R: Runtime>(device: &R::Device) {
     let num_elems = 8;
 
     let data: Vec<f32> = (0..num_elems).map(|i| i as f32 + 1.0).collect();
-    let input = TensorHandle::<R>::new(
+    let input = TensorHandle::new(
         client.create_from_slice(f32::as_bytes(&data)),
         shape.clone(),
         strides.clone(),
@@ -147,7 +147,7 @@ pub fn test_into_contiguous_rank_mismatch<R: Runtime>(device: &R::Device) {
     );
     // Same elements in linear order, but with the unit dim dropped.
     let out_shape = vec![1usize, 2, 4];
-    let output = TensorHandle::<R>::new_contiguous(
+    let output = TensorHandle::new_contiguous(
         out_shape.clone(),
         client.empty(num_elems * size_of::<f32>()),
         dtype,
@@ -198,13 +198,13 @@ fn run_permuted_case<R: Runtime, E: CubeElement + From<u8> + PartialEq>(
         .map(|i| E::from((i % 251 + 1) as u8))
         .collect();
 
-    let input = TensorHandle::<R>::new(
+    let input = TensorHandle::new(
         client.create_from_slice(E::as_bytes(&data)),
         shape.clone(),
         strides.clone(),
         dtype,
     );
-    let output = TensorHandle::<R>::new_contiguous(
+    let output = TensorHandle::new_contiguous(
         shape.clone(),
         client.empty(num_elems * size_of::<E>()),
         dtype,

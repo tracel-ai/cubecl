@@ -32,7 +32,7 @@ use cubecl_common::{
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
-use cubecl_ir::{DeviceProperties, ElemType, VectorSize, features::Features};
+use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
@@ -1226,9 +1226,42 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// # Warning
     ///
-    /// For private use only.
+    /// For private use only, and only before the client has been used.
+    ///
+    /// Returns `None` unless this client is the sole owner of *both* Arcs it
+    /// has to reach through: the [`ServerUtilities`] every clone of the client
+    /// shares, and the [`DeviceProperties`] inside it. The second one is the
+    /// easy one to miss — every kernel built by a launch keeps a clone of that
+    /// `Arc` (see [`properties_shared`](Self::properties_shared)), so a caller
+    /// that edits properties after a first launch gets a silent no-op rather
+    /// than a mutable reference. Edit properties while the device is coming
+    /// up, or not at all.
     pub fn properties_mut(&mut self) -> Option<&mut DeviceProperties> {
-        Arc::get_mut(&mut self.utilities).map(|state| &mut state.properties)
+        Arc::get_mut(&mut self.utilities).and_then(|state| Arc::get_mut(&mut state.properties))
+    }
+
+    /// The device properties, shared: what a kernel keeps to expand itself
+    /// on the device thread without holding the client.
+    pub fn properties_shared(&self) -> Arc<DeviceProperties> {
+        self.utilities.properties.clone()
+    }
+
+    /// What the target this client compiles for guarantees about its own
+    /// instructions, resolved once when the device came up.
+    pub fn target_properties(&self) -> &TargetProperties {
+        &self.utilities.target_properties
+    }
+
+    /// The target properties, shared: the other half of what a kernel keeps to
+    /// expand itself on the device thread without naming a runtime.
+    ///
+    /// Cloning this is one atomic increment, which is why the generated launch
+    /// functions can afford to do it per launch where calling
+    /// [`Runtime::target_properties`] again would not be.
+    ///
+    /// [`Runtime::target_properties`]: crate::runtime::Runtime::target_properties
+    pub fn target_properties_shared(&self) -> Arc<TargetProperties> {
+        self.utilities.target_properties.clone()
     }
 
     /// Total memory usage across all streams on this client's device.

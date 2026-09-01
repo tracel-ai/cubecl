@@ -347,7 +347,13 @@ impl DeviceService for CudaServer {
         let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let utilities = ServerUtilities::new(device_props, logger, (), policy);
+        let utilities = ServerUtilities::new(
+            device_props,
+            CudaRuntime::target_properties(),
+            logger,
+            (),
+            policy,
+        );
 
         CudaServer::new(
             cuda_ctx,

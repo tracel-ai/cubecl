@@ -1,5 +1,4 @@
 use alloc::boxed::Box;
-use core::marker::PhantomData;
 
 use crate::{self as cubecl, IntoRuntime, as_bytes};
 use cubecl::prelude::*;
@@ -48,13 +47,11 @@ impl Default for BStructCompilationArg {
     }
 }
 
-impl<R: Runtime> Default for BStructLaunch<R> {
+// Derivable, but the type is generated.
+#[allow(clippy::derivable_impls)]
+impl Default for BStructLaunch {
     fn default() -> Self {
-        Self {
-            _phantom_runtime: PhantomData,
-            x: 0,
-            y: 0,
-        }
+        Self { x: 0, y: 0 }
     }
 }
 
@@ -159,7 +156,7 @@ pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        TestEnumArgs::<i32, R>::C(10),
+        TestEnumArgs::<i32>::C(10),
         unsafe { BufferArg::from_raw_parts(array.clone(), 1) },
     );
     let bytes = client.read_one_unchecked(array);
@@ -287,10 +284,10 @@ pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R>) {
         client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        SimpleEnumArgs::<&mut [u32], R>::Variant(unsafe {
+        SimpleEnumArgs::<&mut [u32]>::Variant(unsafe {
             BufferArg::from_raw_parts(first.clone(), 1)
         }),
-        SimpleEnumArgs::<&[u32], R>::Variant(unsafe { BufferArg::from_raw_parts(second, 1) }),
+        SimpleEnumArgs::<&[u32]>::Variant(unsafe { BufferArg::from_raw_parts(second, 1) }),
     );
 
     let bytes = client.read_one_unchecked(first);
@@ -312,7 +309,7 @@ pub fn kernel_comptime_option_scalar(opt: ComptimeOption<f32>, output: &mut [f32
 }
 
 pub fn test_comptime_option_scalar<R: Runtime>(client: &ComputeClient<R>) {
-    let read = |args: ComptimeOptionArgs<f32, R>| {
+    let read = |args: ComptimeOptionArgs<f32>| {
         let array = client.empty(core::mem::size_of::<f32>());
         kernel_comptime_option_scalar::launch(
             client,
