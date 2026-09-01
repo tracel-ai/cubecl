@@ -15,11 +15,13 @@ impl CudaArchitecture {
     /// Turing has tensor cores and every Turing that does shipped under another brand, so the
     /// two coincide exactly at 7.5. The professional TU117 parts (T400 to T1000) are not caught.
     pub fn has_tensor_cores(version: u32, name: &str) -> bool {
-        // Tensor cores arrive with Volta.
-        if version < 70 {
-            return false;
+        match version {
+            // Tensor cores arrive with Volta.
+            ..70 => false,
+            // The GTX-branded Turings are the only later dies without them.
+            75 => !name.to_uppercase().contains("GTX"),
+            _ => true,
         }
-        !(version == 75 && name.to_uppercase().contains("GTX"))
     }
 }
 
@@ -59,6 +61,8 @@ mod tests {
             52,
             "NVIDIA GeForce GTX 980"
         ));
+        // Volta itself has them: the boundary is inclusive.
+        assert!(CudaArchitecture::has_tensor_cores(70, "Tesla V100-SXM2"));
     }
 
     #[test]
