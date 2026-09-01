@@ -5,26 +5,17 @@ use crate::shared::Architecture;
 #[derive(Debug)]
 pub struct CudaArchitecture {
     pub version: u32,
-    /// Whether this die has tensor cores, which its compute capability does not say.
-    ///
-    /// TU116 and TU117 report 7.5 exactly like every other Turing and ship without them, so a
-    /// version check alone advertises CMMA on a GTX 1660. The kernel then compiles, runs on
-    /// the ordinary FP16 pipeline at about a fiftieth of the rate, and reports a number that
-    /// looks comparable to one from a card that has the hardware.
+    /// Compute capability cannot say this: TU116 and TU117 report 7.5 like every other
+    /// Turing, and `mma.sync` still runs on them, on the FP16 pipeline at a fiftieth the rate.
     pub tensor_cores: bool,
 }
 
 impl CudaArchitecture {
-    /// Decided by the marketing name, because CUDA exposes no attribute for it: there is no
-    /// device property, and both dies share their compute capability with Turings that do have
-    /// tensor cores.
-    ///
-    /// No GTX-branded Turing has them. Every Turing that does shipped as RTX, Titan RTX,
-    /// Quadro RTX or Tesla, so the absence of tensor cores and the GTX brand coincide exactly
-    /// on 7.5. The professional TU117 parts, T400 through T1000, also lack them and are not
-    /// caught here; they keep reporting what they report today rather than being guessed at.
+    /// Decided by the marketing name because CUDA exposes no attribute for it. No GTX-branded
+    /// Turing has tensor cores and every Turing that does shipped under another brand, so the
+    /// two coincide exactly at 7.5. The professional TU117 parts (T400 to T1000) are not caught.
     pub fn has_tensor_cores(version: u32, name: &str) -> bool {
-        // Volta brought them; nothing before it has any.
+        // Tensor cores arrive with Volta.
         if version < 70 {
             return false;
         }
@@ -38,7 +29,6 @@ mod tests {
 
     #[test]
     fn turing_without_tensor_cores_is_told_apart_from_turing_with_them() {
-        // Same compute capability, opposite answers. This is the whole reason the name is read.
         assert!(!CudaArchitecture::has_tensor_cores(
             75,
             "NVIDIA GeForce GTX 1660 SUPER"
@@ -51,12 +41,11 @@ mod tests {
 
     #[test]
     fn the_gtx_exception_applies_only_to_turing() {
-        // A GTX at another compute capability is not a Turing and is not what this excludes.
         assert!(CudaArchitecture::has_tensor_cores(
             80,
             "NVIDIA A100-GTX-ish"
         ));
-        // And Tesla T4 is TU104: 7.5, tensor cores, no GTX in the name.
+        // Tesla T4 is TU104: 7.5 with tensor cores, no GTX in the name.
         assert!(CudaArchitecture::has_tensor_cores(75, "Tesla T4"));
     }
 
@@ -72,8 +61,6 @@ mod tests {
         ));
     }
 
-    /// A driver that will not name the device leaves the old behaviour rather than guessing a
-    /// card has no tensor cores, which would silently disable CMMA on hardware that has them.
     #[test]
     fn an_unnamed_device_keeps_what_its_version_says() {
         assert!(CudaArchitecture::has_tensor_cores(

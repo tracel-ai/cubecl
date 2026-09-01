@@ -80,10 +80,8 @@ impl DeviceService for CudaServer {
         // Querying texture row align is a heuristic, but also not guaranteed to be the same.
         let mem_alignment = 512;
 
-        // Read before the architecture rather than only for display, because whether this die
-        // has tensor cores is not in any attribute and the name is the only thing that says so.
-        // A driver that declines to name its device is not a reason to fail initialization; it
-        // costs the tensor-core exception, which leaves the old behaviour.
+        // The name is the only signal for tensor cores. A driver that declines to give one
+        // costs only the tensor-core exception, never initialization.
         let device_name = cudarc::driver::result::device::get_name(device_ptr)
             .unwrap_or_else(|_| "unknown CUDA device".to_string());
 

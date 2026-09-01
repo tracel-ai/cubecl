@@ -34,8 +34,7 @@ pub enum AMDArchitecture {
     GFX11,
     // gfx1030 through gfx1036 (RDNA2)
     GFX103,
-    // gfx1010 through gfx1013 (RDNA1). Wave32 like the RDNA generations after it, and the
-    // only one of them with no WMMA at all: the instructions arrive with RDNA3.
+    // gfx1010 through gfx1013 (RDNA1): wave32, but no WMMA, which arrives with RDNA3
     GFX101,
     // CDNA
     GFX908,
@@ -166,8 +165,6 @@ mod tests {
             ("gfx1201", Some(32), Some(AmdWmma::Rdna4)),
             ("gfx1100", Some(32), Some(AmdWmma::Rdna3)),
             ("gfx1030", Some(32), None),
-            // RDNA1. Wave32 like RDNA2, and no WMMA: the instructions arrive with RDNA3, so a
-            // prefix match that folded it into gfx103 advertised tensor ops it does not have.
             ("gfx1010", Some(32), None),
             ("gfx90a", Some(64), None),
             ("gfx942", Some(64), None),
@@ -178,19 +175,14 @@ mod tests {
         }
     }
 
-    /// RDNA1 and RDNA2 differ in what they can do, not in how wide their waves are, and a
-    /// prefix match on "gfx10" answered for both. The families are what the WMMA tables key
-    /// off, so folding them together advertised tensor operations RDNA1 has none of.
     #[test]
     fn rdna1_is_not_rdna2() {
         assert_eq!(GfxArch::parse("gfx1010").family(), AMDArchitecture::GFX101);
         assert_eq!(GfxArch::parse("gfx1012").family(), AMDArchitecture::GFX101);
         assert_eq!(GfxArch::parse("gfx1030").family(), AMDArchitecture::GFX103);
         assert_eq!(GfxArch::parse("gfx1032").family(), AMDArchitecture::GFX103);
-        // Both are wave32, which is why the fold went unnoticed.
         assert_eq!(GfxArch::parse("gfx1010").plane_dim(), Some(32));
         assert_eq!(GfxArch::parse("gfx1030").plane_dim(), Some(32));
-        // And neither has WMMA, which arrives with RDNA3.
         assert_eq!(GfxArch::parse("gfx1010").wmma(), None);
     }
 
