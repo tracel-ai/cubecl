@@ -137,7 +137,7 @@ impl Worker for DispatcherWorker {
             });
             if !computed && !self.aside.is_empty() {
                 // The client dispatches while units are still going, so a
-                // worker waiting its turn holds a CPU that client needs.
+                // worker waiting its turn holds a CPU the client needs.
                 std::thread::yield_now();
             }
         }
