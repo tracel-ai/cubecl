@@ -1,11 +1,7 @@
-use alloc::{
-    boxed::Box,
-    string::{String, ToString},
-};
+use alloc::string::{String, ToString};
 use core::{
     fmt::Display,
     hash::Hash,
-    marker::PhantomData,
     sync::atomic::{AtomicI8, Ordering},
 };
 
@@ -19,14 +15,14 @@ use cubecl_ir::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    compiler::{CompilationError, Compiler, CubeTask},
+    compiler::{CompilationError, Compiler},
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
     id::KernelId,
     server::CubeDim,
 };
 
 /// Implement this trait to create a [kernel definition](KernelDefinition).
-pub trait KernelMetadata: Send + Sync + 'static {
+pub trait KernelMetadata: core::any::Any + Send + Sync + 'static {
     /// Name of the kernel for debugging.
     fn name(&self) -> &'static str {
         core::any::type_name::<Self>()
@@ -144,84 +140,28 @@ pub trait CubeKernel: KernelMetadata {
     fn define(&self) -> KernelDefinition;
 }
 
-/// Wraps a [`CubeKernel`] to allow it be compiled.
-pub struct KernelTask<C: Compiler, K: CubeKernel> {
-    kernel_definition: K,
-    _compiler: PhantomData<C>,
-}
-
-/// Generic [`CubeTask`] for compiling kernels
-pub struct CubeTaskKernel<C: Compiler> {
-    /// The inner compilation task being wrapped
-    pub task: Box<dyn CubeTask<C>>,
-}
-
-impl<C: Compiler, K: CubeKernel> KernelTask<C, K> {
-    /// Create a new kernel task
-    pub fn new(kernel_definition: K) -> Self {
-        Self {
-            kernel_definition,
-            _compiler: PhantomData,
-        }
-    }
-}
-
-impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
-    fn define(&self) -> KernelDefinition {
-        self.kernel_definition.define()
-    }
-
-    fn compile(
-        &self,
-        gpu_ir: KernelDefinition,
+impl<C: Compiler> CompiledKernel<C> {
+    /// Compile `definition` with `compiler`, keeping `kernel`'s name as the
+    /// debug name of the result.
+    pub fn compile(
+        kernel: &dyn CubeKernel,
+        definition: KernelDefinition,
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
-    ) -> Result<CompiledKernel<C>, CompilationError> {
-        let entrypoint_name = gpu_ir.settings.kernel_name.clone();
-        let cube_dim = gpu_ir.settings.cube_dim.into();
-        let lower_level_ir = compiler.compile(gpu_ir, compilation_options)?;
+    ) -> Result<Self, CompilationError> {
+        let entrypoint_name = definition.settings.kernel_name.clone();
+        let cube_dim = definition.settings.cube_dim.into();
+        let lower_level_ir = compiler.compile(definition, compilation_options)?;
 
         Ok(CompiledKernel {
             entrypoint_name,
-            debug_name: Some(core::any::type_name::<K>()),
+            debug_name: Some(kernel.name()),
             source: lower_level_ir.to_string(),
             io: C::buffer_io(&lower_level_ir),
             repr: Some(lower_level_ir),
             cube_dim,
             debug_info: None,
         })
-    }
-}
-
-impl<C: Compiler, K: CubeKernel> KernelMetadata for KernelTask<C, K> {
-    // Forward ID to underlying kernel definition.
-    fn id(&self) -> KernelId {
-        self.kernel_definition.id()
-    }
-
-    // Forward name to underlying kernel definition.
-    fn name(&self) -> &'static str {
-        self.kernel_definition.name()
-    }
-
-    fn address_type(&self) -> ElemType {
-        self.kernel_definition.address_type()
-    }
-}
-
-impl<C: Compiler> KernelMetadata for Box<dyn CubeTask<C>> {
-    // Deref and use existing ID.
-    fn id(&self) -> KernelId {
-        self.as_ref().id()
-    }
-
-    // Deref and use existing name.
-    fn name(&self) -> &'static str {
-        self.as_ref().name()
-    }
-
-    fn address_type(&self) -> ElemType {
-        self.as_ref().address_type()
     }
 }
 

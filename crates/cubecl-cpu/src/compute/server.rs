@@ -23,10 +23,10 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
-    compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::KernelId,
+    kernel::{CompiledKernel, CubeKernel},
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
     storage::{BytesStorage, ComputeStorage, ManagedResource},
@@ -144,15 +144,16 @@ impl CpuServer {
 
     /// Compile and cache `kernel` without scheduling anything — everything a
     /// skipped launch owes the caches, touching no buffer.
-    fn compile_only(&mut self, kernel: &dyn CubeTask<CpuCompiler>) -> Result<(), CompilationError> {
+    fn compile_only(&mut self, kernel: &dyn CubeKernel) -> Result<(), CompilationError> {
         let kernel_id = kernel.id();
         if self.compilation_cache.contains_key(&kernel_id) {
             return Ok(());
         }
         let definition = kernel.define();
-        let compiled = kernel.compile(
+        let compiled = CompiledKernel::compile(
+            kernel,
             definition,
-            &mut Default::default(),
+            &mut CpuCompiler::default(),
             &PlironOptions::default(),
         )?;
         self.compilation_cache
@@ -193,7 +194,6 @@ impl CpuServer {
 }
 
 impl ComputeServer for CpuServer {
-    type Kernel = Box<dyn CubeTask<CpuCompiler>>;
     type Storage = BytesStorage;
     type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
@@ -349,7 +349,7 @@ impl ComputeServer for CpuServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,

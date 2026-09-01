@@ -1,5 +1,4 @@
 use crate::{
-    MetalCompiler,
     compute::context::MetalContext,
     compute::stream::MetalStreamBackend,
     memory::{MetalBufferHandle, MetalStorage},
@@ -20,8 +19,8 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
-    compiler::CubeTask,
     dry_run::LaunchMode,
+    kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{InstallMemoryPoolsError, ManagedMemoryHandle},
     server::ComputeServer,
@@ -176,7 +175,6 @@ impl WriteScoped for MetalServer {
 }
 
 impl ComputeServer for MetalServer {
-    type Kernel = Box<dyn CubeTask<MetalCompiler>>;
     type Storage = MetalStorage;
     type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
@@ -323,7 +321,7 @@ impl ComputeServer for MetalServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,

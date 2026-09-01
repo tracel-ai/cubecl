@@ -9,7 +9,7 @@ use ash::vk::{
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
-    prelude::{CompiledKernel, KernelDefinition, Visibility},
+    prelude::{CompiledKernel, CubeKernel, KernelDefinition, Visibility},
     server::{ComputeServer, IoError, KernelArguments},
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -763,13 +763,14 @@ fn convert_type(vk_ty: ComponentTypeKHR) -> Option<ElemType> {
 pub(crate) fn compile<C>(
     dyn_comp: &mut C,
     server: &mut WgpuServer<C>,
-    kernel: <WgpuServer<C> as ComputeServer>::Kernel,
+    kernel: Box<dyn CubeKernel>,
     definition: KernelDefinition,
 ) -> Result<CompiledKernel<C>, CompilationError>
 where
     C: WgpuCompiler<CompilationOptions = WgpuCompilationOptions>,
 {
     log::debug!("Compiling {}", kernel.name());
-    let compiled = kernel.compile(definition, dyn_comp, &server.compilation_options)?;
+    let compiled =
+        CompiledKernel::compile(&*kernel, definition, dyn_comp, &server.compilation_options)?;
     Ok(compiled)
 }

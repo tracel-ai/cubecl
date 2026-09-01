@@ -1,5 +1,5 @@
 use crate::{
-    compiler::{HipBackend, HipCompilationOptions, HipCompiler},
+    compiler::{HipBackend, HipCompilationOptions},
     compute::{HipServer, context::HipContext},
     device::AmdDevice,
 };
@@ -216,7 +216,6 @@ impl DeviceService for HipServer {
 }
 
 impl Runtime for HipRuntime {
-    type Compiler = HipCompiler;
     type Server = HipServer;
     type Device = AmdDevice;
 

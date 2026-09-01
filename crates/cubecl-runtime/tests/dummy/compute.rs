@@ -1,11 +1,9 @@
 use super::DummyServer;
-use crate::dummy::KernelTask;
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::server::ComputeServer;
 use cubecl_runtime::{
     client::ComputeClient,
-    compiler::{CompilationError, Compiler},
     logging::ServerLogger,
     memory_management::{MemoryConfiguration, MemoryManagement, MemoryManagementOptions},
     runtime::Runtime,
@@ -66,32 +64,9 @@ pub fn test_client(device: &DummyDevice) -> DummyClient {
 }
 
 #[derive(Debug, Clone)]
-pub struct DummyCompiler;
-
-impl Compiler for DummyCompiler {
-    type Representation = KernelTask;
-
-    type CompilationOptions = ();
-
-    fn compile(
-        &mut self,
-        _kernel: cubecl_runtime::kernel::KernelDefinition,
-        _compilation_options: &Self::CompilationOptions,
-    ) -> Result<Self::Representation, CompilationError> {
-        unimplemented!()
-    }
-
-    fn extension(&self) -> &'static str {
-        unimplemented!()
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct DummyRuntime;
 
 impl Runtime for DummyRuntime {
-    type Compiler = DummyCompiler;
-
     type Server = DummyServer;
 
     type Device = DummyDevice;

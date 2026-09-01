@@ -1,21 +1,14 @@
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 use cubecl_common::device::{Device, DeviceId};
 use cubecl_ir::TargetProperties;
 use cubecl_zspace::{Shape, Strides};
 
-use crate::{
-    client::ComputeClient,
-    compiler::{Compiler, CubeTask},
-    server::ComputeServer,
-};
+use crate::{client::ComputeClient, server::ComputeServer};
 
 /// Runtime for the `CubeCL`.
 pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
-    /// The compiler used to compile the inner representation into tokens.
-    type Compiler: Compiler;
     /// The compute server used to run kernels and perform autotuning.
-    type Server: ComputeServer<Kernel = Box<dyn CubeTask<Self::Compiler>>>;
+    type Server: ComputeServer;
     /// The device used to retrieve the compute client.
     type Device: Device;
 

@@ -6,7 +6,7 @@ use crate::{
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
     dry_run::LaunchMode,
     id::GraphId,
-    kernel::KernelMetadata,
+    kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{
         InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode,
@@ -437,8 +437,6 @@ pub trait ComputeServer:
 where
     Self: Sized,
 {
-    /// The kernel type defines the computation algorithms.
-    type Kernel: KernelMetadata;
     /// Information that can be retrieved for the runtime.
     type Info: Debug + Send + Sync;
     /// Manages how allocations are performed for a server.
@@ -536,7 +534,7 @@ where
     /// When executing with mode [`ExecutionMode::Unchecked`], out-of-bound reads and writes can happen.
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,

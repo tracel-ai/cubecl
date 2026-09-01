@@ -45,7 +45,7 @@ pub use pod::*;
 pub use cubecl_macros::*;
 pub use cubecl_runtime::benchmark;
 pub use cubecl_runtime::client;
-pub use cubecl_runtime::compiler::{CompilationError, Compiler, CubeTask};
+pub use cubecl_runtime::compiler::{CompilationError, Compiler};
 pub use cubecl_runtime::memory_management::MemoryUsage;
 pub use cubecl_runtime::memory_management::{
     InstallMemoryPoolsError, MemoryPoolKind, MemoryPoolReport, MemoryReport,

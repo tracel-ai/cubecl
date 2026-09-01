@@ -3,8 +3,8 @@ use std::fmt::Display;
 
 use cubecl_core::{
     Compiler, WgpuCompilationOptions,
-    prelude::{CompiledKernel, KernelDefinition},
-    server::{ComputeServer, LaunchError, ResourceLimitError},
+    prelude::{CompiledKernel, CubeKernel, KernelDefinition},
+    server::{LaunchError, ResourceLimitError},
 };
 #[cfg(feature = "msl")]
 use cubecl_cpp::shared::MslComputeKernel;
@@ -188,15 +188,19 @@ impl WgpuCompiler for AutoCompiler {
     fn compile_kernel(
         &mut self,
         server: &mut WgpuServer<AutoCompiler>,
-        kernel: <WgpuServer<AutoCompiler> as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         definition: KernelDefinition,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         match self {
-            AutoCompiler::Wgsl(_) => kernel.compile(definition, self, &server.compilation_options),
+            AutoCompiler::Wgsl(_) => {
+                CompiledKernel::compile(&*kernel, definition, self, &server.compilation_options)
+            }
             #[cfg(feature = "spirv")]
             AutoCompiler::SpirV(_) => crate::vulkan::compile(self, server, kernel, definition),
             #[cfg(feature = "msl")]
-            AutoCompiler::Msl(_) => kernel.compile(definition, self, &server.compilation_options),
+            AutoCompiler::Msl(_) => {
+                CompiledKernel::compile(&*kernel, definition, self, &server.compilation_options)
+            }
         }
     }
 
@@ -255,10 +259,10 @@ impl WgpuCompiler for WgslCompiler {
     fn compile_kernel(
         &mut self,
         server: &mut WgpuServer<Self>,
-        kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         definition: KernelDefinition,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
-        kernel.compile(definition, self, &server.compilation_options)
+        CompiledKernel::compile(&*kernel, definition, self, &server.compilation_options)
     }
 
     fn lang_tag(&self) -> &'static str {
@@ -291,12 +295,12 @@ impl WgpuCompiler for MslCompiler {
     fn compile_kernel(
         &mut self,
         _server: &mut WgpuServer<Self>,
-        kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         definition: KernelDefinition,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         // The MSL compiler uses its own CompilationOptions, not WgpuCompilationOptions.
         let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
-        kernel.compile(definition, self, &compilation_options)
+        CompiledKernel::compile(&*kernel, definition, self, &compilation_options)
     }
 
     fn lang_tag(&self) -> &'static str {
@@ -329,7 +333,7 @@ impl WgpuCompiler for cubecl_spirv::SpirvCompiler {
     fn compile_kernel(
         &mut self,
         server: &mut WgpuServer<Self>,
-        kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         definition: KernelDefinition,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         crate::vulkan::compile(self, server, kernel, definition)
@@ -385,7 +389,7 @@ fn check_shared_memory(
 ///
 /// The base [`Compiler`] trait already exposes a `compile` method that turns a
 /// [`KernelDefinition`] into a backend representation. [`WgpuCompiler`] sits one level
-/// higher: it owns the wgpu-specific lifecycle around a [`CubeTask`](cubecl_runtime::compiler::CubeTask)
+/// higher: it owns the wgpu-specific lifecycle around a [`CubeKernel`](cubecl_runtime::kernel::CubeKernel)
 /// kernel — initializing the compiler for a given `wgpu::Backend`, compiling a kernel using
 /// the server's [`WgpuCompilationOptions`], validating the resulting IR against the device,
 /// and projecting the typed representation into the runtime-erased [`AutoRepresentation`].
@@ -415,7 +419,7 @@ pub trait WgpuCompiler: Compiler {
     fn compile_kernel(
         &mut self,
         server: &mut WgpuServer<Self>,
-        kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         definition: KernelDefinition,
     ) -> Result<CompiledKernel<Self>, CompilationError>;
 

@@ -1,10 +1,7 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::driver::Cuda;
-use crate::{
-    CudaCompiler,
-    compute::{
-        Captures, Command, Window, context::CudaContext, events::Fence, stream::CudaStreamBackend,
-    },
+use crate::compute::{
+    Captures, Command, Window, context::CudaContext, events::Fence, stream::CudaStreamBackend,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
@@ -25,10 +22,10 @@ use cubecl_environment::stream::StreamId;
 use cubecl_runtime::command::{CollectiveDriver, Collectives, Refused};
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
-    compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
+    kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{
         InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
@@ -102,7 +99,6 @@ pub struct CudaServer {
 unsafe impl Send for CudaServer {}
 
 impl ComputeServer for CudaServer {
-    type Kernel = Box<dyn CubeTask<CudaCompiler>>;
     type Storage = GpuStorage;
     type MemoryLayoutPolicy = PitchedMemoryLayoutPolicy;
     type Info = ();
@@ -180,7 +176,7 @@ impl ComputeServer for CudaServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -655,7 +651,7 @@ impl CudaServer {
     fn compile_failed(
         &mut self,
         kernel_id: &KernelId,
-        kernel: <Self as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         bindings: &KernelArguments,
         stream_id: StreamId,
         launch_mode: LaunchMode,

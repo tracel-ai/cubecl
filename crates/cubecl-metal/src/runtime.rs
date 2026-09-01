@@ -1,4 +1,4 @@
-use crate::{MetalCompiler, MetalDevice, compute::MetalServer};
+use crate::{MetalDevice, compute::MetalServer};
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_core::{
     Runtime,
@@ -129,7 +129,6 @@ impl DeviceService for MetalServer {
 }
 
 impl Runtime for MetalRuntime {
-    type Compiler = MetalCompiler;
     type Server = MetalServer;
     type Device = MetalDevice;
 

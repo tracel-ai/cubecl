@@ -2,7 +2,7 @@ use crate::{
     config::memory::MemoryPoolsConfig,
     config::{TypeNameFormatLevel, type_name_format},
     id::GraphId,
-    kernel::KernelMetadata,
+    kernel::CubeKernel,
     logging::ProfileLevel,
     memory_management::{
         InstallMemoryPoolsError, MemoryAllocationMode, MemoryConfiguration, MemoryReport,
@@ -20,7 +20,7 @@ use crate::{
         KernelConfig, ThroughputBenchmarker, ThroughputCache, ThroughputKey, ThroughputValue,
     },
 };
-use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
@@ -909,7 +909,7 @@ impl<R: Runtime> ComputeClient<R> {
     ))]
     unsafe fn launch_inner(
         &self,
-        kernel: <R::Server as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -1075,12 +1075,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Launches the `kernel` with the given `bindings`.
     #[track_caller]
-    pub fn launch(
-        &self,
-        kernel: <R::Server as ComputeServer>::Kernel,
-        count: CubeCount,
-        bindings: KernelArguments,
-    ) {
+    pub fn launch(&self, kernel: Box<dyn CubeKernel>, count: CubeCount, bindings: KernelArguments) {
         unsafe { self.launch_inner(kernel, count, bindings, self.stream_id()) }
     }
 

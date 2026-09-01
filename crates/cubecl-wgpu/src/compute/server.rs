@@ -36,10 +36,11 @@ use cubecl_runtime::memory_management::{
     InstallMemoryPoolsError, ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
 };
 use cubecl_runtime::{
-    compiler::{CompilationCache, CubeTask},
+    compiler::CompilationCache,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
+    kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
@@ -225,7 +226,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
     fn pipeline(
         &mut self,
-        kernel: <Self as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         bindings: &KernelArguments,
     ) -> Result<PipelineEntry, LaunchError> {
         let kernel_id = kernel.id();
@@ -321,7 +322,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 }
 
 impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
-    type Kernel = Box<dyn CubeTask<C>>;
     type Storage = WgpuStorage;
     type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = wgpu::Backend;
@@ -514,7 +514,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         args: KernelArguments,
         stream_id: StreamId,

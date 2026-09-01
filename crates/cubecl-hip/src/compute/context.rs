@@ -26,8 +26,8 @@ use cubecl_runtime::{
     validation::{validate_cube_dim, validate_units},
 };
 use cubecl_runtime::{
-    compiler::{CubeTask, KernelCacheKey},
-    kernel::CompiledKernel,
+    compiler::KernelCacheKey,
+    kernel::{CompiledKernel, CubeKernel},
     logging::ServerLogger,
 };
 use serde::Deserialize;
@@ -169,7 +169,7 @@ impl HipContext {
     pub fn compile_kernel(
         &mut self,
         kernel_id: &KernelId,
-        cube_kernel: Box<dyn CubeTask<HipCompiler>>,
+        cube_kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
         let key = match self.try_load_cached(kernel_id)? {
@@ -183,9 +183,10 @@ impl HipContext {
         // CubeCL compilation
         // jitc = just-in-time compiled
         let definition = cube_kernel.define();
-        let jitc_kernel = cube_kernel.compile(
+        let jitc_kernel = CompiledKernel::compile(
+            &*cube_kernel,
             definition,
-            &mut Default::default(),
+            &mut HipCompiler::default(),
             &self.compilation_options,
         )?;
 

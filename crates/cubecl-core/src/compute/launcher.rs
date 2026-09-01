@@ -9,11 +9,7 @@ use core::cell::RefCell;
 use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
 use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::server::{BufferBinding, CubeCount, KernelResource, TensorMapBinding};
-use cubecl_runtime::{
-    client::ComputeClient,
-    kernel::{CubeKernel, KernelTask},
-    server::KernelArguments,
-};
+use cubecl_runtime::{client::ComputeClient, kernel::CubeKernel, server::KernelArguments};
 
 #[cfg(feature = "std")]
 std::thread_local! {
@@ -79,7 +75,7 @@ impl<R: Runtime> KernelLauncher<R> {
         client: &ComputeClient<R>,
     ) {
         let bindings = self.into_bindings();
-        let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
+        let kernel = Box::new(kernel);
 
         client.launch(kernel, cube_count, bindings)
     }

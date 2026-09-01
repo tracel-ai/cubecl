@@ -168,7 +168,6 @@ impl DeviceService for CpuServer {
 }
 
 impl Runtime for CpuRuntime {
-    type Compiler = CpuCompiler;
     type Server = CpuServer;
     type Device = CpuDevice;
 

@@ -20,10 +20,7 @@ use cubecl_core::{
     server::ResourceLimitError,
 };
 use cubecl_environment::persistence::Store;
-use cubecl_runtime::{
-    compiler::{CubeTask, KernelCacheKey},
-    logging::ServerLogger,
-};
+use cubecl_runtime::{compiler::KernelCacheKey, kernel::CubeKernel, logging::ServerLogger};
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute};
@@ -153,7 +150,7 @@ impl CudaContext {
     pub fn compile_kernel(
         &mut self,
         kernel_id: &KernelId,
-        kernel: Box<dyn CubeTask<CudaCompiler>>,
+        kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
         let key = match self.try_load_cached(kernel_id)? {
@@ -167,9 +164,10 @@ impl CudaContext {
         validate_units(&self.properties, kernel_id)?;
 
         let definition = kernel.define();
-        let mut kernel_compiled = kernel.compile(
+        let mut kernel_compiled = cubecl_runtime::kernel::CompiledKernel::compile(
+            &*kernel,
             definition,
-            &mut Default::default(),
+            &mut CudaCompiler::default(),
             &self.compilation_options,
         )?;
 

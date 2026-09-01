@@ -1,5 +1,4 @@
 use super::DummyKernel;
-use crate::dummy::DummyCompiler;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
@@ -13,15 +12,14 @@ use cubecl_ir::{
 };
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
-    compiler::{CompilationError, CubeTask},
     id::KernelId,
-    kernel::{CompiledKernel, KernelMetadata},
+    kernel::{CubeKernel, KernelMetadata},
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage,
     },
     server::{
-        BufferBinding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, Handle, KernelArguments,
+        BufferBinding, ComputeServer, CopyDescriptor, CubeCount, Handle, KernelArguments,
         KernelResource, ProfileError, ProfilingToken, ServerCommunication, ServerError,
         ServerUtilities,
     },
@@ -78,9 +76,9 @@ impl core::fmt::Display for KernelTask {
     }
 }
 
-impl CubeTask<DummyCompiler> for KernelTask {
+impl CubeKernel for KernelTask {
     fn define(&self) -> cubecl_runtime::kernel::KernelDefinition {
-        // The dummy server compiles directly and never keys a cache, so nothing here is observed.
+        // The dummy server runs the kernel directly and never keys a cache, so nothing here is observed.
         let settings =
             KernelSettings::new(Dim3::new_single(), ExecutionMode::Checked, AddressType::U32);
         cubecl_runtime::kernel::KernelDefinition {
@@ -88,27 +86,6 @@ impl CubeTask<DummyCompiler> for KernelTask {
             settings,
             info: Info::default(),
         }
-    }
-
-    fn compile(
-        &self,
-        _definition: cubecl_runtime::kernel::KernelDefinition,
-        _compiler: &mut DummyCompiler,
-        _compilation_options: &<DummyCompiler as cubecl_runtime::compiler::Compiler>::CompilationOptions,
-    ) -> Result<cubecl_runtime::kernel::CompiledKernel<DummyCompiler>, CompilationError> {
-        if let Some(err) = self.kernel.compilation_error() {
-            return Err(err);
-        }
-
-        Ok(CompiledKernel {
-            entrypoint_name: self.kernel.name().to_string(),
-            debug_name: None,
-            source: String::new(),
-            repr: Some(self.clone()),
-            io: None,
-            cube_dim: CubeDim::new_single(),
-            debug_info: None,
-        })
     }
 }
 
@@ -129,7 +106,6 @@ impl ServerCommunication for DummyServer {
 }
 
 impl ComputeServer for DummyServer {
-    type Kernel = Box<dyn CubeTask<DummyCompiler>>;
     type Storage = BytesStorage;
     type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
@@ -229,15 +205,18 @@ impl ComputeServer for DummyServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         _count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
         launch_mode: cubecl_runtime::dry_run::LaunchMode,
     ) {
-        let kernel = match kernel.compile(kernel.define(), &mut DummyCompiler, &()) {
-            Ok(kernel) => kernel,
-            Err(err) => {
+        let kernel = (&*kernel as &dyn core::any::Any)
+            .downcast_ref::<KernelTask>()
+            .expect("the dummy server only runs its own kernels");
+        let kernel = match kernel.kernel.compilation_error() {
+            None => kernel.clone(),
+            Some(err) => {
                 // No IR, so no compiled answer about what the kernel writes:
                 // the caller's declared IO decides, exactly as on a real
                 // server — only the declared outputs carry the failure, and
@@ -301,7 +280,7 @@ impl ComputeServer for DummyServer {
 
         let mut resources: Vec<_> = resources.iter_mut().collect();
 
-        kernel.repr.unwrap().compute(resources.as_mut_slice());
+        kernel.compute(resources.as_mut_slice());
 
         // The work ran: its write set has a writer again, which is what
         // releases an earlier failure's claim on those buffers — a relaunch

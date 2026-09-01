@@ -47,7 +47,6 @@ impl<C: WgpuCompiler> DeviceService for WgpuServer<C> {
 }
 
 impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
-    type Compiler = C;
     type Server = WgpuServer<C>;
     type Device = WgpuDevice;
 

@@ -376,7 +376,6 @@ fn tensor_cores_per_sm(version: u32) -> Option<u32> {
 }
 
 impl Runtime for CudaRuntime {
-    type Compiler = CudaCompiler;
     type Server = CudaServer;
     type Device = CudaDevice;
 

@@ -8,10 +8,7 @@
 
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::{Captures, Window};
-use crate::{
-    compiler::HipCompiler,
-    compute::{Command, context::HipContext, stream::HipStreamBackend},
-};
+use crate::compute::{Command, context::HipContext, stream::HipStreamBackend};
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
@@ -29,10 +26,10 @@ use cubecl_runtime::command::Refused;
 use cubecl_runtime::metadata_cache::Lookup;
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
-    compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
+    kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{
         InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
@@ -60,7 +57,6 @@ pub struct HipServer {
 unsafe impl Send for HipServer {}
 
 impl ComputeServer for HipServer {
-    type Kernel = Box<dyn CubeTask<HipCompiler>>;
     type Storage = GpuStorage;
     type MemoryLayoutPolicy = PitchedMemoryLayoutPolicy;
     type Info = ();
@@ -138,7 +134,7 @@ impl ComputeServer for HipServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -476,7 +472,7 @@ impl HipServer {
     fn compile_failed(
         &mut self,
         kernel_id: &KernelId,
-        kernel: <Self as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         bindings: &KernelArguments,
         stream_id: StreamId,
         launch_mode: LaunchMode,
