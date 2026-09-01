@@ -80,9 +80,17 @@ impl DeviceService for CudaServer {
         // Querying texture row align is a heuristic, but also not guaranteed to be the same.
         let mem_alignment = 512;
 
+        // Read before the architecture rather than only for display, because whether this die
+        // has tensor cores is not in any attribute and the name is the only thing that says so.
+        // A driver that declines to name its device is not a reason to fail initialization; it
+        // costs the tensor-core exception, which leaves the old behaviour.
+        let device_name = cudarc::driver::result::device::get_name(device_ptr)
+            .unwrap_or_else(|_| "unknown CUDA device".to_string());
+
         // Ask the wmma compiler for its supported combinations
         let arch = CudaArchitecture {
             version: arch_version,
+            tensor_cores: CudaArchitecture::has_tensor_cores(arch_version, &device_name),
         };
         let supported_cmma_combinations = CudaCmmaCompiler::Cpp.supported_cmma_combinations(&arch);
         let supported_mma_combinations = cuda::supported_mma_combinations(&arch);
@@ -177,10 +185,6 @@ impl DeviceService for CudaServer {
         // the compilation namespace and the identity. Built once and shared
         // with `CudaContext` below, so the two cannot disagree.
         let fingerprint = format!("ptx_sm{arch_version}");
-        // Display only, and a driver that declines to name its device is not a
-        // reason to fail initialization.
-        let device_name = cudarc::driver::result::device::get_name(device_ptr)
-            .unwrap_or_else(|_| "unknown CUDA device".to_string());
 
         let mut device_props = DeviceProperties::new(
             Default::default(),
