@@ -1,5 +1,6 @@
 use crate::compute::{
     alloc_controller::CpuAllocController,
+    ordered_storage::OrderedStorage,
     schedule::ScheduleTask,
     threadpool::{Threadpool, completion_counter::CompletionCounter},
 };
@@ -17,27 +18,36 @@ use cubecl_runtime::{
         ErrorGraph, FailureId, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
         MemoryManagementOptions,
     },
-    storage::{BytesResource, BytesStorage},
+    storage::BytesResource,
     stream::StreamMemory,
     timestamp_profiler::TimestampProfiler,
 };
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+
+/// Hands every stream an identity of its own. [`StreamId`]s are hashed into a
+/// bounded pool of these, so several of them name the same stream.
+static NEXT_STREAM_ID: AtomicU64 = AtomicU64::new(0);
 
 pub struct CpuStream {
-    pub(crate) memory_management: MemoryManagement<BytesStorage>,
+    id: u64,
+    pub(crate) memory_management: MemoryManagement<OrderedStorage>,
     /// Dedicated pool for per-launch shared memory.
     ///
     /// Shared memory MUST NOT be reserved from `memory_management`: kernel input/output
     /// bindings keep their allocation alive through a `ManagedMemoryBinding`, which does
     /// *not* hold the pool reservation. `reserve` would then hand a still-bound tensor's
     /// slice to shared memory, aliasing an input and corrupting it in place.
-    pub(crate) shared_memory_management: MemoryManagement<BytesStorage>,
+    pub(crate) shared_memory_management: MemoryManagement<OrderedStorage>,
     pub(crate) timestamps: TimestampProfiler,
     threadpool: &'static spin::Mutex<Threadpool>,
     batch_wait: BatchWaitChoice,
     launches: u32,
     dispatch_ns: u64,
     next_counter_step: u64,
+    frontier: Arc<AtomicU64>,
     atomic_counter: Arc<CompletionCounter>,
 }
 
@@ -143,24 +153,26 @@ impl CpuStream {
         // overridden. Pool layout overrides reach GPU runtimes through
         // `install_memory_pools`; the CPU runtime has no such override and
         // keeps the config it's handed.
+        let next_counter_step = 0;
+        let atomic_counter = Arc::new(CompletionCounter::new());
+        let frontier = Arc::new(AtomicU64::new(next_counter_step));
         let memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
+            OrderedStorage::new(atomic_counter.clone(), frontier.clone()),
             &memory_properties,
             memory_config.clone(),
             logger.clone(),
             MemoryManagementOptions::new("Main CPU"),
         );
         let shared_memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
+            OrderedStorage::new(atomic_counter.clone(), frontier.clone()),
             &memory_properties,
             memory_config,
             logger.clone(),
             MemoryManagementOptions::new("Shared CPU"),
         );
         let threadpool = Threadpool::get();
-        let next_counter_step = 0;
-        let atomic_counter = Arc::new(CompletionCounter::new());
         Self {
+            id: NEXT_STREAM_ID.fetch_add(1, Ordering::Relaxed),
             memory_management,
             shared_memory_management,
             timestamps: TimestampProfiler::default(),
@@ -169,18 +181,24 @@ impl CpuStream {
             launches: 0,
             dispatch_ns: 0,
             next_counter_step,
+            frontier,
             atomic_counter,
         }
     }
 
+    /// The identity of the backend stream, which is what tells the buffers
+    /// this stream owns from another's.
+    pub(crate) fn id(&self) -> u64 {
+        self.id
+    }
+
     pub fn enqueue_task(&mut self, task: ScheduleTask, failures: &mut ErrorGraph) {
-        // Launches pipeline: `ComputeTask::is_ready` orders tasks and the
-        // launch's resources ride in `SharedData::keepalive`, so the client
-        // only drains where that protocol does not cover:
+        // Launches pipeline: `ComputeTask::is_ready` orders them on the pool,
+        // so the client only drains where that ordering does not reach:
         // * a host `Write`, which copies on this thread and would race a
         //   queued kernel reading the buffer;
         // * a shared-memory kernel, whose pool reservations are released at
-        //   enqueue — sound only while one such launch has the pool to itself.
+        //   enqueue, sound only while one such launch has the pool to itself.
         match task {
             ScheduleTask::Write { data, mut buffer } => {
                 self.submit();
@@ -212,12 +230,15 @@ impl CpuStream {
                     cube_count,
                     &mut self.shared_memory_management,
                     failures,
+                    self.id,
                     self.next_counter_step,
                     &self.atomic_counter,
                 );
                 self.dispatch_ns += dispatch_start.elapsed().as_nanos() as u64;
                 self.launches += 1;
                 self.next_counter_step += units as u64;
+                self.frontier
+                    .store(self.next_counter_step, Ordering::Relaxed);
             }
         }
     }
@@ -297,7 +318,7 @@ impl CpuStream {
         descriptor: CopyDescriptor,
     ) -> impl Future<Output = Result<Bytes, IoError>> + Send + use<> {
         fn inner(
-            mem: &mut MemoryManagement<BytesStorage>,
+            mem: &mut MemoryManagement<OrderedStorage>,
             descriptor: CopyDescriptor,
         ) -> Result<Bytes, IoError> {
             let len = descriptor.handle.size_in_used() as usize;

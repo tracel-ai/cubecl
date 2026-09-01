@@ -1,13 +1,11 @@
 use cubecl_core::CubeDim;
-use cubecl_runtime::{
-    memory_management::{ErrorGraph, MemoryManagement},
-    storage::BytesStorage,
-};
+use cubecl_runtime::memory_management::{ErrorGraph, MemoryManagement};
 use std::sync::{Arc, OnceLock};
 
 use cubecl_llvm::{PlironData, PlironEngine, SharedMemories};
 
 use crate::compute::{
+    ordered_storage::OrderedStorage,
     schedule::BindingsResource,
     threadpool::{
         completion_counter::CompletionCounter,
@@ -53,8 +51,9 @@ impl Threadpool {
         bindings: BindingsResource,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
-        memory: &mut MemoryManagement<BytesStorage>,
+        memory: &mut MemoryManagement<OrderedStorage>,
         failures: &mut ErrorGraph,
+        executing_stream: u64,
         next_counter_step: u64,
         atomic_counter: &Arc<CompletionCounter>,
     ) {
@@ -63,8 +62,8 @@ impl Threadpool {
         let BindingsResource { resources, info } = bindings;
         let mut buffer_ptrs: Vec<*mut std::ffi::c_void> = resources
             .iter()
-            .map(|resource| {
-                resource.resource().get_write_ptr_and_length().0 as *mut std::ffi::c_void
+            .map(|binding| {
+                binding.resource.resource().get_write_ptr_and_length().0 as *mut std::ffi::c_void
             })
             .collect();
         reserve_shared_memories(
@@ -73,11 +72,14 @@ impl Threadpool {
             &requirements.shared_memories,
             &mut buffer_ptrs,
         );
-        // Pin the resources for the launch's lifetime (see
-        // `SharedData::keepalive`).
+        // A slice released here can only be handed to a launch enqueued after
+        // this one, which `ComputeTask::is_ready` holds back until this one is
+        // done reading it. Nothing orders two streams that way, so a foreign
+        // stream's buffers stay pinned in `SharedData::keepalive`.
         let keepalive: Vec<Box<dyn std::any::Any + Send>> = resources
             .into_iter()
-            .map(|resource| Box::new(resource) as Box<dyn std::any::Any + Send>)
+            .filter(|binding| binding.owner != executing_stream)
+            .map(|binding| Box::new(binding.resource) as Box<dyn std::any::Any + Send>)
             .collect();
         let base_data = PlironData::new(buffer_ptrs, info.data, cube_count, keepalive);
 
@@ -120,7 +122,7 @@ impl Threadpool {
 /// The reservations are released right away: shared-memory launches never overlap — the stream
 /// drains before enqueuing one (see `CpuStream::enqueue_task`).
 fn reserve_shared_memories(
-    memory: &mut MemoryManagement<BytesStorage>,
+    memory: &mut MemoryManagement<OrderedStorage>,
     failures: &mut ErrorGraph,
     shared_memories: &SharedMemories,
     table: &mut Vec<*mut std::ffi::c_void>,

@@ -4,7 +4,8 @@ use crate::{
     CpuCompiler,
     compute::{
         cpu_kernel::CpuKernel,
-        schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
+        ordered_storage::OrderedStorage,
+        schedule::{BindingsResource, LaunchBinding, ScheduleTask, ScheduledCpuBackend},
     },
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
@@ -29,7 +30,7 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
-    storage::{BytesStorage, ComputeStorage, ManagedResource},
+    storage::{ComputeStorage, ManagedResource},
     stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     stream::{ExecuteScope, FailureStore, WriteScoped, failed_writing},
 };
@@ -98,12 +99,16 @@ impl CpuServer {
                     return None;
                 };
                 let stream = self.scheduler.stream(&binding.stream);
+                let owner = stream.id();
                 let memory = binding.memory.clone();
                 let resource = stream
                     .memory_management
                     .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                     .unwrap();
-                Some(ManagedResource::new(memory, resource))
+                Some(LaunchBinding {
+                    resource: ManagedResource::new(memory, resource),
+                    owner,
+                })
             })
             .collect::<Vec<_>>();
 
@@ -194,7 +199,7 @@ impl CpuServer {
 
 impl ComputeServer for CpuServer {
     type Kernel = Box<dyn CubeTask<CpuCompiler>>;
-    type Storage = BytesStorage;
+    type Storage = OrderedStorage;
     type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = ();
 
