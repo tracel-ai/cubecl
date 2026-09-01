@@ -338,7 +338,9 @@ pub(super) fn supported_wmma_combinations_rocwmma(
                 ),
             ]
         }
-        AMDArchitecture::Other => vec![],
+        // RDNA1 has no WMMA instructions at all: they arrive with RDNA3, and rocWMMA does
+        // not target gfx101x. Grouped with the unknown case because the answer is the same.
+        AMDArchitecture::GFX101 | AMDArchitecture::Other => vec![],
     };
     combinations
         .into_iter()
