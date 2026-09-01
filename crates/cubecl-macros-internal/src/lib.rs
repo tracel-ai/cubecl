@@ -15,6 +15,7 @@ use crate::{
     },
 };
 
+mod enum_set;
 mod generate;
 mod parse;
 mod type_hash;
@@ -26,6 +27,17 @@ macro_rules! macro_try {
             Err(e) => return e.into_compile_error().into(),
         }
     };
+}
+
+/// Derives the machinery an enum needs to live in a `cubecl_ir::EnumSet`.
+///
+/// The enum must be a plain C-like enum of at most 64 unit variants with no explicit
+/// discriminants, and must also derive `Clone`, `Copy`, `PartialEq` and `Eq`, which the
+/// `EnumSetType` trait requires.
+#[proc_macro_derive(EnumSetType)]
+pub fn derive_enum_set_type(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    macro_try!(crate::enum_set::enum_set_type_impl(input)).into()
 }
 
 #[proc_macro_derive(TypeHash, attributes(type_hash))]

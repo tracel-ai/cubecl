@@ -6,8 +6,8 @@ use crate::{self as cubecl, as_type};
 use cubecl_environment::sync::LazyLock;
 
 use cubecl::prelude::*;
+use cubecl_ir::EnumSet;
 use cubecl_runtime::server::Handle;
-use enumset::EnumSet;
 
 /// Set by reductions: they round twice per term against a reference `f16` cannot hold.
 const ULPS_ALLOWED: f32 = 32.0;

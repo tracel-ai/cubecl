@@ -1,7 +1,7 @@
+use crate::EnumSetType;
 use alloc::borrow::ToOwned;
 use core::hash::Hasher;
 use cubecl_common::hash::{StableHash, StableHasher};
-use enumset::EnumSetType;
 
 /// A hash of a type's structure
 pub trait TypeHash {
@@ -123,7 +123,7 @@ impl_type_hash!(
     portable_atomic::AtomicU64,
     portable_atomic::AtomicU8,
     portable_atomic::AtomicUsize,
-    enumset::EnumSet<T: EnumSetType>,
+    crate::EnumSet<T: EnumSetType>,
     internment::Intern<T: ?Sized>,
     bumpalo::Bump,
     pliron::value::Value,

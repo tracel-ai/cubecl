@@ -59,7 +59,6 @@ cubecl-zspace = { path = "../cubecl-zspace", version = "=0.11.0-pre.3", default-
 
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["eq"] }
-enumset = { workspace = true }
 hashbrown = { workspace = true }
 itertools = { workspace = true }
 pliron = { workspace = true }

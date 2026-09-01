@@ -126,7 +126,6 @@ buildid = "1.0.5" # 1.0.5 is the min required for a fix
 bumpalo = "3"
 cfg-if = "1.0.0"
 downcast-rs = "2"
-enumset = { version = "1.1", default-features = false }
 ident_case = "1"
 internment = "0.8"
 itertools = { version = "0.15", default-features = false, features = [

@@ -1,12 +1,13 @@
 use alloc::string::String;
 use core::hash::{BuildHasher, Hash, Hasher};
 
+use crate::EnumSet;
 use crate::{
     AddressType, ElemType, OpaqueType, SemanticType, Type, TypeHash, VectorSize,
     features::{AtomicUsage, ComplexUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
-use enumset::{EnumSet, EnumSetType};
+use cubecl_macros_internal::EnumSetType;
 
 /// Properties of the device related to the accelerator hardware.
 ///
@@ -225,7 +226,7 @@ impl DeviceProperties {
 /// Unchecked optimizations for float operations. May cause precision differences, or undefined
 /// behaviour if the relevant conditions are not followed.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Hash, TypeHash, EnumSetType)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, EnumSetType)]
 pub enum FastMath {
     /// Assume values are never `NaN`. If they are, the result is considered undefined behaviour.
     NotNaN,

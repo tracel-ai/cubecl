@@ -1,3 +1,4 @@
+use crate::EnumSet;
 use alloc::{boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::{
     any::{TypeId, type_name},
@@ -8,7 +9,6 @@ use core::{
 use cubecl_common::format::type_name_sanitized;
 use cubecl_environment::{collections::HashMap, sync::Mutex};
 use derive_more::{Eq, PartialEq};
-use enumset::EnumSet;
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,

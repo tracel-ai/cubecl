@@ -6,6 +6,7 @@ extern crate std;
 pub mod features;
 
 mod address;
+mod enum_set;
 mod properties;
 mod runtime_properties;
 mod scope;
@@ -30,6 +31,7 @@ pub mod settings;
 pub mod types;
 
 pub use address::*;
+pub use enum_set::*;
 pub use properties::*;
 pub use runtime_properties::*;
 pub use scope::*;

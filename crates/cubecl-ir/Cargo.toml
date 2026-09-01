@@ -22,7 +22,7 @@ workspace = true
 amd = []
 default = ["serde"]
 
-serde = ["dep:serde", "hashbrown/serde", "enumset/serde"]
+serde = ["dep:serde", "hashbrown/serde"]
 spirv = ["dep:pliron-spirv"]
 tracing = ["cubecl-common/tracing"]
 
@@ -42,7 +42,6 @@ rustc_apfloat = { workspace = true }
 bumpalo = { workspace = true }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["from", "eq"] }
-enumset = { workspace = true }
 float-ord = { workspace = true }
 foldhash = { workspace = true }
 half = { workspace = true }

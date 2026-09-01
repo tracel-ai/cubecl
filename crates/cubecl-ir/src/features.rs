@@ -1,9 +1,9 @@
 use crate::{AddressType, ElemType, OpaqueType, SemanticType, Type};
 use alloc::collections::{BTreeMap, BTreeSet};
 
-use enumset::EnumSetType;
+use cubecl_macros_internal::EnumSetType;
 
-pub use enumset::EnumSet;
+pub use crate::EnumSet;
 
 /// Features supported by a runtime
 #[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
@@ -77,7 +77,7 @@ pub struct MatmulFeatures {
 }
 
 /// Operations allowed for this type. CMMA is defined separately.
-#[derive(Debug, Hash, PartialOrd, Ord, EnumSetType)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, EnumSetType)]
 pub enum TypeUsage {
     /// Conversion to/from the type. All types should support this.
     Conversion,
@@ -90,7 +90,7 @@ pub enum TypeUsage {
 }
 
 /// Complex capability families allowed for a complex element type.
-#[derive(Debug, Hash, PartialOrd, Ord, EnumSetType)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, EnumSetType)]
 pub enum ComplexUsage {
     /// Arithmetic, negation, conjugation, and real/imaginary extraction.
     Core,
@@ -119,7 +119,7 @@ impl TypeUsage {
 }
 
 /// Atomic operations allowed for this type.
-#[derive(Debug, Hash, PartialOrd, Ord, EnumSetType)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, EnumSetType)]
 pub enum AtomicUsage {
     /// Atomic loads and stores
     LoadStore,
@@ -142,7 +142,7 @@ impl AtomicUsage {
 }
 
 /// Supported plane features
-#[derive(Debug, Hash, PartialOrd, Ord, EnumSetType)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, EnumSetType)]
 pub enum Plane {
     /// Basic plane-wide operations
     Ops,
@@ -224,7 +224,7 @@ pub struct ScaledMmaConfig {
 }
 
 /// Atomic features that may be supported by a ``Runtime``.
-#[derive(Debug, PartialOrd, Ord, EnumSetType)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, EnumSetType)]
 pub enum Tma {
     /// Base feature set for tensor memory accelerator features. Includes tiling and im2col
     Base,
