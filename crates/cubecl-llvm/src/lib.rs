@@ -13,9 +13,3 @@ pub use cpu::jit::engine::{KernelRequirements, PlironEngine};
 pub use cpu::shared_memory::SharedMemories;
 pub use shared::{AmdGpuModule, PlironArtifact, PlironCompiler, PlironOptions};
 pub use target::LlvmTarget;
-
-// Unit tests for the flag handling in `build.rs`, which cargo doesn't build as a
-// test target on its own.
-#[cfg(test)]
-#[path = "../build_support.rs"]
-mod build_support;
