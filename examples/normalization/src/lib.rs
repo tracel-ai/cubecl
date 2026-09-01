@@ -38,7 +38,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
 
     println!(
         "Executed normalize with runtime {:?} => {output:?}",
-        R::name(&client)
+        client.name()
     );
 
     let bytes = client.read_one(output_b_handle).unwrap();
@@ -46,6 +46,6 @@ pub fn launch<R: Runtime>(device: &R::Device) {
 
     println!(
         "Executed normalize using magnitude with runtime {:?} => {output:?}",
-        R::name(&client)
+        client.name()
     );
 }

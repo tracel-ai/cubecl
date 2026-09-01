@@ -107,7 +107,7 @@ const CUBE_DIM: u32 = 256;
 fn main() {
     let client = WgpuRuntime::client(&Default::default());
 
-    println!("adapter: {}", WgpuRuntime::name(&client));
+    println!("adapter: {}", client.name());
     println!(
         "{:>11} | {:>19} | {:>24} | {:>6} | {:>8}",
         "config", "enqueue µs/pass", "e2e µs/kernel", "share", "capture"

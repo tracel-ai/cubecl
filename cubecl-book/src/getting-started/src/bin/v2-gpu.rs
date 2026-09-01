@@ -30,7 +30,7 @@ pub fn launch<R: Runtime, F: Float + CubeElement>(device: &R::Device) {
 
     println!(
         "Executed reduction with runtime {:?} => {:?}",
-        R::name(&client),
+        client.name(),
         output.read(&client)
     );
 }

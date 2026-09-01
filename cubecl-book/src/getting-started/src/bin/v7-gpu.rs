@@ -21,7 +21,7 @@ impl<R: Runtime, F: Float + CubeElement> Benchmark for ReductionBench<R, F> {
     }
 
     fn name(&self) -> String {
-        format!("{}-reduction-{:?}", R::name(&self.client), self.input_shape).to_lowercase()
+        format!("{}-reduction-{:?}", self.client.name(), self.input_shape).to_lowercase()
     }
 
     fn sync(&self) {

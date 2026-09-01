@@ -45,7 +45,7 @@ enum DispatchInfo {
 pub struct MetalServer {
     context: MetalContext,
     streams: MultiStream<MetalStreamBackend>,
-    pub(crate) utilities: Arc<ServerUtilities<Self>>,
+    pub(crate) utilities: Arc<ServerUtilities>,
     timestamps: TimestampProfiler,
 }
 
@@ -54,7 +54,7 @@ impl MetalServer {
         device: Retained<ProtocolObject<dyn MTLDevice>>,
         mem_props: cubecl_ir::MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
-        utilities: Arc<ServerUtilities<Self>>,
+        utilities: Arc<ServerUtilities>,
     ) -> Self {
         let logger = utilities.logger.clone();
 
@@ -173,13 +173,12 @@ impl WriteScoped for MetalServer {
 
 impl ComputeServer for MetalServer {
     type Storage = MetalStorage;
-    type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 

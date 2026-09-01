@@ -75,10 +75,6 @@ impl Runtime for DummyRuntime {
         ComputeClient::load(device)
     }
 
-    fn name(_client: &ComputeClient<Self>) -> &'static str {
-        unimplemented!()
-    }
-
     fn max_cube_count() -> (u32, u32, u32) {
         unimplemented!()
     }
@@ -91,10 +87,7 @@ impl Runtime for DummyRuntime {
         unimplemented!()
     }
 
-    fn enumerate_devices(
-        _: u16,
-        _: &<Self::Server as ComputeServer>::Info,
-    ) -> Vec<cubecl_common::device::DeviceId> {
+    fn enumerate_devices(_: u16) -> Vec<cubecl_common::device::DeviceId> {
         vec![cubecl_common::device::DeviceId {
             type_id: 0,
             index_id: 0,

@@ -44,7 +44,7 @@ use std::sync::Arc;
 pub struct HipServer {
     ctx: HipContext,
     streams: MultiStream<HipStreamBackend>,
-    utilities: Arc<ServerUtilities<Self>>,
+    utilities: Arc<ServerUtilities>,
     /// The graphs this server has captured — see [`Captures`].
     graphs: Captures,
 }
@@ -57,13 +57,12 @@ unsafe impl Send for HipServer {}
 
 impl ComputeServer for HipServer {
     type Storage = GpuStorage;
-    type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -414,7 +413,7 @@ impl HipServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
         is_integrated: bool,
-        utilities: ServerUtilities<Self>,
+        utilities: ServerUtilities,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;

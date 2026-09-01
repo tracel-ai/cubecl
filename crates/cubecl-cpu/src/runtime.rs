@@ -155,10 +155,10 @@ impl DeviceService for CpuServer {
 
         let utilities = ServerUtilities::new(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
+            "cpu",
             device_props,
             CpuRuntime::target_properties(),
             logger,
-            (),
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
         CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
@@ -177,10 +177,6 @@ impl Runtime for CpuRuntime {
         ComputeClient::load(device)
     }
 
-    fn name(_client: &ComputeClient<Self>) -> &'static str {
-        "cpu"
-    }
-
     fn max_cube_count() -> (u32, u32, u32) {
         (u32::MAX, u32::MAX, u32::MAX)
     }
@@ -196,10 +192,7 @@ impl Runtime for CpuRuntime {
         }
     }
 
-    fn enumerate_devices(
-        _: u16,
-        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
-    ) -> Vec<DeviceId> {
+    fn enumerate_devices(_: u16) -> Vec<DeviceId> {
         vec![DeviceId {
             type_id: 0,
             index_id: 0,

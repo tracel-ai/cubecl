@@ -54,26 +54,6 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
         ComputeClient::load(device)
     }
 
-    fn name(client: &ComputeClient<Self>) -> &'static str {
-        match client.info() {
-            wgpu::Backend::Vulkan => {
-                #[cfg(feature = "spirv")]
-                return "wgpu<spirv>";
-
-                #[cfg(not(feature = "spirv"))]
-                return "wgpu<wgsl>";
-            }
-            wgpu::Backend::Metal => {
-                #[cfg(feature = "msl")]
-                return "wgpu<msl>";
-
-                #[cfg(not(feature = "msl"))]
-                return "wgpu<wgsl>";
-            }
-            _ => "wgpu<wgsl>",
-        }
-    }
-
     fn max_cube_count() -> (u32, u32, u32) {
         let max_dim = u16::MAX as u32;
         (max_dim, max_dim, max_dim)
@@ -100,11 +80,10 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
         }
     }
 
-    fn enumerate_devices(type_id: u16, info: &wgpu::Backend) -> Vec<DeviceId> {
+    fn enumerate_devices(type_id: u16) -> Vec<DeviceId> {
         #[cfg(target_family = "wasm")]
         {
             let _ = type_id;
-            let _ = info;
             // WebGPU only supports a single device currently.
             vec![DeviceId::new(0, 0)]
         }
@@ -116,7 +95,7 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
 
-            let adapters = enumerate_all_adapters(instance, *info);
+            let adapters = enumerate_all_adapters(instance, AutoGraphicsApi::backend());
             adapters
                 .into_iter()
                 .filter(|adapter| {
@@ -149,10 +128,9 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
         }
     }
 
-    fn enumerate_all_devices(info: &wgpu::Backend) -> Vec<DeviceId> {
+    fn enumerate_all_devices() -> Vec<DeviceId> {
         #[cfg(target_family = "wasm")]
         {
-            let _ = info;
             // WebGPU only supports a single device currently.
             vec![DeviceId::new(0, 0)]
         }
@@ -163,7 +141,7 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
                 backends: wgpu::Backends::all(),
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
-            let adapters = enumerate_all_adapters(instance, *info);
+            let adapters = enumerate_all_adapters(instance, AutoGraphicsApi::backend());
             adapters
                 .into_iter()
                 .enumerate()
@@ -281,6 +259,27 @@ pub async fn init_setup_async<G: GraphicsApi>(
     let server = create_server(setup, options, device.to_id());
     let _ = ComputeClient::<WgpuRuntime>::init(device, server);
     return_setup
+}
+
+/// The runtime name for `backend`, naming the compiler that serves it.
+fn runtime_name(backend: wgpu::Backend) -> &'static str {
+    match backend {
+        wgpu::Backend::Vulkan => {
+            #[cfg(feature = "spirv")]
+            return "wgpu<spirv>";
+
+            #[cfg(not(feature = "spirv"))]
+            return "wgpu<wgsl>";
+        }
+        wgpu::Backend::Metal => {
+            #[cfg(feature = "msl")]
+            return "wgpu<msl>";
+
+            #[cfg(not(feature = "msl"))]
+            return "wgpu<wgsl>";
+        }
+        _ => "wgpu<wgsl>",
+    }
 }
 
 pub(crate) fn create_server<C: WgpuCompiler>(
@@ -410,10 +409,10 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         time_measurement,
         ServerUtilities::new(
             ServiceId::of::<WgpuServer<C>>(device_id),
+            runtime_name(setup.backend),
             device_props,
             WgpuRuntime::<C>::target_properties(),
             logger,
-            setup.backend,
             allocator,
         ),
     )

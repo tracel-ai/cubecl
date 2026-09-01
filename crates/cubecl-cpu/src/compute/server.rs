@@ -37,7 +37,7 @@ use std::{collections::HashMap, sync::Arc};
 #[derive(Debug)]
 pub struct CpuServer {
     scheduler: SchedulerMultiStream<ScheduledCpuBackend>,
-    utilities: Arc<ServerUtilities<CpuServer>>,
+    utilities: Arc<ServerUtilities>,
     compilation_cache: HashMap<KernelId, CpuKernel>,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
@@ -61,7 +61,7 @@ impl CpuServer {
     pub fn new(
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
-        utilities: Arc<ServerUtilities<CpuServer>>,
+        utilities: Arc<ServerUtilities>,
     ) -> Self {
         let backend =
             ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
@@ -187,14 +187,13 @@ impl CpuServer {
         Ok(task)
     }
 
-    pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    pub(crate) fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 }
 
 impl ComputeServer for CpuServer {
     type Storage = BytesStorage;
-    type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.scheduler.logger.clone()
@@ -211,7 +210,7 @@ impl ComputeServer for CpuServer {
         .into())
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 

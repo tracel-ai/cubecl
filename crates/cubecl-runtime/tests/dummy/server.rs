@@ -41,7 +41,7 @@ pub static REFUSE_PROFILES: core::sync::atomic::AtomicBool =
 pub struct DummyServer {
     memory_management: MemoryManagement<BytesStorage>,
     timestamps: TimestampProfiler,
-    utilities: Arc<ServerUtilities<Self>>,
+    utilities: Arc<ServerUtilities>,
     /// The failures the server's tainted allocations still point at.
     ///
     /// Errors live on the memory here as they do on a real server: a failed
@@ -105,13 +105,12 @@ impl ServerCommunication for DummyServer {}
 
 impl ComputeServer for DummyServer {
     type Storage = BytesStorage;
-    type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<cubecl_runtime::server::ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<cubecl_runtime::server::ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -385,10 +384,10 @@ impl DummyServer {
 
         let utilities = Arc::new(ServerUtilities::new(
             service,
+            "dummy",
             props,
             TargetProperties::default(),
             logger,
-            (),
             ContiguousMemoryLayoutPolicy::new(4),
         ));
 

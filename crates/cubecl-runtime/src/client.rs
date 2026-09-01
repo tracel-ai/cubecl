@@ -43,7 +43,7 @@ use cubecl_environment::stream::StreamId;
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<R: Runtime> {
     device: DeviceHandle<R::Server>,
-    utilities: Arc<ServerUtilities<R::Server>>,
+    utilities: Arc<ServerUtilities>,
     stream_id: Option<StreamId>,
 }
 
@@ -176,9 +176,9 @@ impl<R: Runtime> Clone for ComputeClient<R> {
 }
 
 impl<R: Runtime> ComputeClient<R> {
-    /// Get the info of the current backend.
-    pub fn info(&self) -> &<R::Server as ComputeServer>::Info {
-        &self.utilities.info
+    /// The runtime name on this device, as logs and cache keys show it.
+    pub fn name(&self) -> &'static str {
+        self.utilities.name
     }
 
     /// Create a new client with a new server.
@@ -201,7 +201,7 @@ impl<R: Runtime> ComputeClient<R> {
         // This is safe because we now know the return type of [`DeviceHandle::utilities()`].
         let utilities = context
             .utilities()
-            .downcast::<ServerUtilities<R::Server>>()
+            .downcast::<ServerUtilities>()
             .expect("Can downcast to `ServerUtilities`");
 
         Self {
@@ -1378,26 +1378,6 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap_or_resume()
     }
 
-    /// Get all devices of a specific type available to this runtime
-    pub fn enumerate_devices(&self, type_id: u16) -> Vec<DeviceId> {
-        R::enumerate_devices(type_id, self.info())
-    }
-
-    /// Get all devices available to this runtime
-    pub fn enumerate_all_devices(&self) -> Vec<DeviceId> {
-        R::enumerate_all_devices(self.info())
-    }
-
-    /// Get the number of devices of a specific type available to this runtime
-    pub fn device_count(&self, type_id: u16) -> usize {
-        self.enumerate_devices(type_id).len()
-    }
-
-    /// Get the number of devices of a specific type available to this runtime
-    pub fn device_count_total(&self) -> usize {
-        self.enumerate_all_devices().len()
-    }
-
     /// Change the memory allocation mode.
     ///
     /// # Safety
@@ -1647,7 +1627,11 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Stable per-device identity, used to key device-level measurement caches.
     fn device_key(&self) -> String {
-        format!("{}_dev{}", R::name(self), self.device.device_id().index_id)
+        format!(
+            "{}_dev{}",
+            self.utilities.name,
+            self.device.device_id().index_id
+        )
     }
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)

@@ -94,7 +94,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pub(crate) build_id: cubecl_common::hash::StableHash,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
-    pub(crate) utilities: Arc<ServerUtilities<Self>>,
+    pub(crate) utilities: Arc<ServerUtilities>,
     /// Reusable buffers for the cross-stream input bindings of each launch.
     shared_bindings_pool: LeasePool<SharedMemoryBindings>,
     /// Captured graphs owned by this server, keyed by the [`GraphId`] handed to
@@ -136,7 +136,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         tasks_max: usize,
         backend: wgpu::Backend,
         timing_method: TimingMethod,
-        utilities: ServerUtilities<Self>,
+        utilities: ServerUtilities,
     ) -> Self {
         #[cfg(feature = "spirv")]
         let adapter_info = device.adapter_info();
@@ -320,13 +320,12 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
 impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     type Storage = WgpuStorage;
-    type Info = wgpu::Backend;
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.scheduler.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 

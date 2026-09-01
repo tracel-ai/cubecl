@@ -13,7 +13,7 @@ impl CubeTuneId {
     pub fn new<R: Runtime>(client: &ComputeClient<R>, device: &R::Device) -> Self {
         Self {
             device: device.to_id(),
-            name: R::name(client),
+            name: client.name(),
         }
     }
 }

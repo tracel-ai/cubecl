@@ -79,7 +79,7 @@ pub fn memory_write<R: Runtime>(device: &R::Device) {
 pub fn memory_curve<R: Runtime>(device: &R::Device) {
     let client = R::client(device);
 
-    println!("Memory curve — {}", R::name(&client));
+    println!("Memory curve — {}", client.name());
 
     for access in [MemoryAccess::Read, MemoryAccess::Write, MemoryAccess::Copy] {
         print_curve(access, &measure_memory_curve::<R>(&client, access));
@@ -136,7 +136,7 @@ pub fn all<R: Runtime>(device: &R::Device) {
 fn run<R: Runtime>(device: &R::Device, keys: &[ThroughputKey]) {
     let client = R::client(device);
 
-    println!("Peak throughput — {}", R::name(&client));
+    println!("Peak throughput — {}", client.name());
     for &key in keys {
         let value = measure_peak_throughput(&client, key).format(&key);
 

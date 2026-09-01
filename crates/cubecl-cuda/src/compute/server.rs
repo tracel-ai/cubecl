@@ -80,7 +80,7 @@ pub struct CudaServer {
     ctx: CudaContext,
     device_id: DeviceId,
     streams: MultiStream<CudaStreamBackend>,
-    utilities: Arc<ServerUtilities<Self>>,
+    utilities: Arc<ServerUtilities>,
     comm_stream: *mut CUstream_st,
     /// The groups this device has joined — see [`Collectives`].
     collectives: Collectives<Cuda>,
@@ -99,7 +99,6 @@ unsafe impl Send for CudaServer {}
 
 impl ComputeServer for CudaServer {
     type Storage = GpuStorage;
-    type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()
@@ -114,7 +113,7 @@ impl ComputeServer for CudaServer {
             .collect())
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -578,7 +577,7 @@ impl CudaServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
         device_id: DeviceId,
-        utilities: ServerUtilities<Self>,
+        utilities: ServerUtilities,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
@@ -932,7 +931,7 @@ impl CudaServer {
         Ok(())
     }
 
-    pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    pub(crate) fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 }

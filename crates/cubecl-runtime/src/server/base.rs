@@ -93,7 +93,7 @@ impl core::fmt::Debug for ProfileError {
 }
 
 /// Contains many different types that are useful for server implementations and compute clients.
-pub struct ServerUtilities<Server: ComputeServer> {
+pub struct ServerUtilities {
     /// The time when `profile-tracy` is activated.
     #[cfg(feature = "profile-tracy")]
     pub epoch_time: cubecl_environment::time::Instant,
@@ -103,6 +103,9 @@ pub struct ServerUtilities<Server: ComputeServer> {
     /// The service these utilities belong to: what the handles it allocates
     /// are stamped with, and what a client compares them against.
     pub service: ServiceId,
+    /// The runtime name on this device, as logs and cache keys show it:
+    /// `cuda`, `wgpu<spirv>`.
+    pub name: &'static str,
     /// Information shared between all servers.
     pub properties: Arc<DeviceProperties>,
     /// Stable hash of the device properties
@@ -116,8 +119,6 @@ pub struct ServerUtilities<Server: ComputeServer> {
     /// would put a `TargetProperties` construction — and the allocations
     /// inside it — on the hot path of every already-compiled kernel.
     pub target_properties: Arc<TargetProperties>,
-    /// Information specific to the current server.
-    pub info: Server::Info,
     /// The logger based on global cubecl configs.
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
@@ -146,28 +147,24 @@ pub trait MemoryLayoutPolicy: Send + Sync + 'static {
     ) -> (Handle, Vec<MemoryLayout>);
 }
 
-impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
-where
-    Server: ComputeServer,
-    Server::Info: core::fmt::Debug,
-{
+impl core::fmt::Debug for ServerUtilities {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("ServerUtilities")
             .field("properties", &self.properties)
-            .field("info", &self.info)
+            .field("name", &self.name)
             .field("logger", &self.logger)
             .finish()
     }
 }
 
-impl<S: ComputeServer> ServerUtilities<S> {
+impl ServerUtilities {
     /// Creates a new server utilities.
     pub fn new(
         service: ServiceId,
+        name: &'static str,
         properties: DeviceProperties,
         target_properties: TargetProperties,
         logger: Arc<ServerLogger>,
-        info: S::Info,
         allocator: impl MemoryLayoutPolicy,
     ) -> Self {
         // Start a tracy client if needed.
@@ -176,6 +173,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
 
         Self {
             service,
+            name,
             properties_hash: properties.checksum(),
             properties: Arc::new(properties),
             target_properties: Arc::new(target_properties),
@@ -185,7 +183,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             gpu_client: client
                 .clone()
                 .new_gpu_context(
-                    Some(&format!("{info:?}")),
+                    Some(name),
                     // In the future should ask the server what makes sense here. 'Invalid' atm is a generic stand-in (Tracy doesn't have CUDA/RocM atm anyway).
                     tracy_client::GpuContextType::Invalid,
                     0,   // Timestamps are manually aligned to this epoch so start at 0.
@@ -194,7 +192,6 @@ impl<S: ComputeServer> ServerUtilities<S> {
                 .unwrap(),
             #[cfg(feature = "profile-tracy")]
             epoch_time: cubecl_environment::time::Instant::now(),
-            info,
             layout_policy: Box::new(allocator),
             server_comm_enabled: false,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
@@ -472,8 +469,6 @@ pub trait ComputeServer:
 where
     Self: Sized,
 {
-    /// Information that can be retrieved for the runtime.
-    type Info: Debug + Send + Sync;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
 
@@ -496,7 +491,7 @@ where
     fn logger(&self) -> Arc<ServerLogger>;
 
     /// Retrieve the server utilities.
-    fn utilities(&self) -> Arc<ServerUtilities<Self>>;
+    fn utilities(&self) -> Arc<ServerUtilities>;
 
     /// Given bindings, returns the owned resources as bytes.
     ///

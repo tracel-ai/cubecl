@@ -113,10 +113,10 @@ impl DeviceService for MetalServer {
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
         let utilities = std::sync::Arc::new(cubecl_core::server::ServerUtilities::new(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
+            "metal",
             device_props.clone(),
             MetalRuntime::target_properties(),
             logger,
-            (),
             allocator,
         ));
 
@@ -138,10 +138,6 @@ impl Runtime for MetalRuntime {
         ComputeClient::load(device)
     }
 
-    fn name(_client: &ComputeClient<Self>) -> &'static str {
-        "metal"
-    }
-
     fn max_cube_count() -> (u32, u32, u32) {
         (u32::MAX, u32::MAX, u32::MAX)
     }
@@ -156,10 +152,7 @@ impl Runtime for MetalRuntime {
         }
     }
 
-    fn enumerate_devices(
-        type_id: u16,
-        _info: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
-    ) -> Vec<DeviceId> {
+    fn enumerate_devices(type_id: u16) -> Vec<DeviceId> {
         // type_id matches `device.rs`: 0=Default, 1=Discrete, 2=Integrated, where
         // integrated == `hasUnifiedMemory()`. index_id is the nth device of that class,
         // as resolved by `DeviceService::init`.

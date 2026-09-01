@@ -349,10 +349,10 @@ impl DeviceService for CudaServer {
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let mut utilities = ServerUtilities::new(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
+            "cuda",
             device_props,
             CudaRuntime::target_properties(),
             logger,
-            (),
             policy,
         );
         utilities.server_comm_enabled = true;
@@ -391,10 +391,6 @@ impl Runtime for CudaRuntime {
         ComputeClient::load(device)
     }
 
-    fn name(_client: &ComputeClient<Self>) -> &'static str {
-        "cuda"
-    }
-
     fn require_array_lengths() -> bool {
         true
     }
@@ -423,10 +419,7 @@ impl Runtime for CudaRuntime {
         }
     }
 
-    fn enumerate_devices(
-        _: u16,
-        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
-    ) -> Vec<cubecl_core::device::DeviceId> {
+    fn enumerate_devices(_: u16) -> Vec<cubecl_core::device::DeviceId> {
         let count = cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize;
         (0..count)
             .map(|i| DeviceId {

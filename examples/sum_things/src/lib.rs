@@ -222,6 +222,6 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         let bytes = client.read_one(output.clone()).unwrap();
         let output = f32::from_bytes(&bytes);
 
-        println!("[{:?} - {kind:?}]\n {output:?}", R::name(&client));
+        println!("[{:?} - {kind:?}]\n {output:?}", client.name());
     }
 }

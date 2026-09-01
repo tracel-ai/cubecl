@@ -15,9 +15,6 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     /// Retrieve the compute client from the runtime device.
     fn client(device: &Self::Device) -> ComputeClient<Self>;
 
-    /// The runtime name on the given device.
-    fn name(client: &ComputeClient<Self>) -> &'static str;
-
     /// Return true if global input array lengths should be added to kernel info.
     fn require_array_lengths() -> bool {
         false
@@ -34,12 +31,9 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     fn target_properties() -> TargetProperties;
 
     /// Returns all devices available under the provided type id.
-    fn enumerate_devices(
-        type_id: u16,
-        info: &<Self::Server as ComputeServer>::Info,
-    ) -> Vec<DeviceId>;
+    fn enumerate_devices(type_id: u16) -> Vec<DeviceId>;
     /// Returns all devices that can be handled by the runtime.
-    fn enumerate_all_devices(info: &<Self::Server as ComputeServer>::Info) -> Vec<DeviceId> {
-        Self::enumerate_devices(0, info)
+    fn enumerate_all_devices() -> Vec<DeviceId> {
+        Self::enumerate_devices(0)
     }
 }

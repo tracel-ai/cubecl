@@ -199,10 +199,10 @@ impl DeviceService for HipServer {
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let utilities = ServerUtilities::new(
             cubecl_common::device::ServiceId::of::<Self>(device_id),
+            "hip",
             device_props,
             HipRuntime::target_properties(),
             logger,
-            (),
             policy,
         );
         let options = RuntimeOptions::default();
@@ -228,10 +228,6 @@ impl Runtime for HipRuntime {
 
     fn client(device: &Self::Device) -> ComputeClient<Self> {
         ComputeClient::load(device)
-    }
-
-    fn name(_client: &ComputeClient<Self>) -> &'static str {
-        "hip"
     }
 
     fn require_array_lengths() -> bool {
@@ -273,10 +269,7 @@ impl Runtime for HipRuntime {
         }
     }
 
-    fn enumerate_devices(
-        _: u16,
-        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
-    ) -> Vec<cubecl_core::device::DeviceId> {
+    fn enumerate_devices(_: u16) -> Vec<cubecl_core::device::DeviceId> {
         fn device_count() -> usize {
             let mut device_count: c_int = 0;
             let result;
