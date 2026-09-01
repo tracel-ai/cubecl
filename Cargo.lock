@@ -3255,7 +3255,7 @@ dependencies = [
 [[package]]
 name = "pliron-spirv"
 version = "0.14.1+sdk-1.4.357.0"
-source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=e52c4c918585bc02fa413eb6ee4f0b34e1109ae0#e52c4c918585bc02fa413eb6ee4f0b34e1109ae0"
+source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=b3153342f82e504369b982582641b933c45c6950#b3153342f82e504369b982582641b933c45c6950"
 dependencies = [
  "derive-new",
  "derive_more",
@@ -4723,7 +4723,7 @@ dependencies = [
 [[package]]
 name = "tracel-rspirv"
 version = "0.14.1+sdk-1.4.357.0"
-source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=e52c4c918585bc02fa413eb6ee4f0b34e1109ae0#e52c4c918585bc02fa413eb6ee4f0b34e1109ae0"
+source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=b3153342f82e504369b982582641b933c45c6950#b3153342f82e504369b982582641b933c45c6950"
 dependencies = [
  "bitflags 2.13.1",
  "pliron",
