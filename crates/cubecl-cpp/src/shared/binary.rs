@@ -307,9 +307,16 @@ unrolling!(PowfOp);
 no_half!(PowfOp);
 
 shared_op_with_out!(PowiOp, |op, ctx| {
-    let lhs = op.lhs(ctx);
+    let lhs = op.lhs(ctx).name(ctx);
     let rhs = op.rhs(ctx).name(ctx);
-    format!("pow({}, {rhs})", lhs.name(ctx))
+    // The exponent is cast to the base's type rather than left as an integer:
+    // `pow(float, int)` picks the `powif`/`powi` overload, which the C-family
+    // math headers declare but leave to libdevice. NVRTC does not link it, so
+    // the call survives to ptxas as an unresolved extern. `pow` with an
+    // integral floating-point exponent is exact for a negative base, which is
+    // the case the integer overload existed to serve.
+    let elem = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
+    format!("pow({lhs}, ({elem}){rhs})")
 });
 unrolling!(PowiOp);
 no_half!(PowiOp);

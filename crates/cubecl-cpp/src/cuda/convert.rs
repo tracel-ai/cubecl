@@ -135,10 +135,27 @@ cuda_op_with_out!(CastOp, |op, ctx| {
         cast_half_to_minifloat(ctx, input, out_ty)
     } else if out_ty.is_tfloat32(ctx) {
         format!("nvcuda::wmma::__float_to_tf32({})", input.name(ctx))
+    } else if crosses_half_kinds(ctx, input, out_ty) {
+        format!("{}(float({}))", out_ty.to_cpp(ctx), input.name(ctx))
     } else {
         format!("{}({})", out_ty.to_cpp(ctx), input.name(ctx))
     }
 });
+
+/// Whether a cast goes between the two 16-bit float kinds, which is the one
+/// pair CUDA will not construct directly.
+///
+/// `__half` and `__nv_bfloat16` declare no constructor from each other, and
+/// each converts implicitly to `float` and to every integer width, so
+/// `__nv_bfloat16(h)` is ambiguous across seven candidates rather than simply
+/// absent — the error names the constructors instead of the missing one, which
+/// is why it reads as an overload problem. Naming the `float` hop resolves it
+/// and costs no accuracy: f32 holds either kind exactly, so the only rounding
+/// is the one into the destination that a direct cast would also do.
+fn crosses_half_kinds(ctx: &Context, input: Value, out_ty: TypeHandle) -> bool {
+    (input.is_float16(ctx) && out_ty.is_bfloat16(ctx))
+        || (input.is_bfloat16(ctx) && out_ty.is_float16(ctx))
+}
 
 // Cast from minifloat to half/bf16. Could be made more generic, but a simple mapping is easier
 // to understand. The naming is very inconsistent (i.e. halfraw2 vs bf162raw)

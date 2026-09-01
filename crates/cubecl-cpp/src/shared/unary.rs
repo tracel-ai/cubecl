@@ -307,6 +307,15 @@ fn trailing_zeros<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
     select_many(input.equal(&Vector::zero()), bits, out)
 }
 
+/// Half precision `tanh` where the target has no native half version.
+///
+/// f32 holds f16 and bf16 exactly, so the only rounding is the one back into
+/// the half type.
+#[cube]
+pub(crate) fn tanh_via_f32<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    Vector::cast_from(Vector::<f32, N>::cast_from(input).tanh())
+}
+
 #[cube]
 fn cast_f16_bf16<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<bf16, N> {
     Vector::<bf16, N>::cast_from(Vector::<f32, N>::cast_from(input))
