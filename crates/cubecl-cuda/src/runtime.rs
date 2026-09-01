@@ -391,14 +391,6 @@ impl Runtime for CudaRuntime {
         ComputeClient::load(device)
     }
 
-    fn require_array_lengths() -> bool {
-        true
-    }
-
-    fn max_cube_count() -> (u32, u32, u32) {
-        (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
-    }
-
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         has_pitched_row_major_strides(shape, strides)
     }

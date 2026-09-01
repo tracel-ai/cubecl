@@ -15,14 +15,6 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     /// Retrieve the compute client from the runtime device.
     fn client(device: &Self::Device) -> ComputeClient<Self>;
 
-    /// Return true if global input array lengths should be added to kernel info.
-    fn require_array_lengths() -> bool {
-        false
-    }
-
-    /// Returns the maximum cube count on each dimension that can be launched.
-    fn max_cube_count() -> (u32, u32, u32);
-
     /// Whether a tensor with `shape` and `strides` can be read as is. If the result is false, the
     /// tensor should be made contiguous before reading.
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool;

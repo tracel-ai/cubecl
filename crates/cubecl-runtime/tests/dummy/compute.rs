@@ -75,10 +75,6 @@ impl Runtime for DummyRuntime {
         ComputeClient::load(device)
     }
 
-    fn max_cube_count() -> (u32, u32, u32) {
-        unimplemented!()
-    }
-
     fn can_read_tensor(_shape: &Shape, _strides: &Strides) -> bool {
         unimplemented!()
     }

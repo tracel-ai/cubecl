@@ -177,10 +177,6 @@ impl Runtime for CpuRuntime {
         ComputeClient::load(device)
     }
 
-    fn max_cube_count() -> (u32, u32, u32) {
-        (u32::MAX, u32::MAX, u32::MAX)
-    }
-
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         is_contiguous(shape, strides)
     }

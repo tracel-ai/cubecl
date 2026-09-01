@@ -54,11 +54,6 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
         ComputeClient::load(device)
     }
 
-    fn max_cube_count() -> (u32, u32, u32) {
-        let max_dim = u16::MAX as u32;
-        (max_dim, max_dim, max_dim)
-    }
-
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         if shape.is_empty() {
             return true;

@@ -138,10 +138,6 @@ impl Runtime for MetalRuntime {
         ComputeClient::load(device)
     }
 
-    fn max_cube_count() -> (u32, u32, u32) {
-        (u32::MAX, u32::MAX, u32::MAX)
-    }
-
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         has_pitched_row_major_strides(shape, strides)
     }
