@@ -16,12 +16,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .file("src/amdgpu/cpp_shims/device_libs.cpp")
         .file("src/amdgpu/cpp_shims/printf.cpp");
 
-    for flag in tracel_llvm_bundler::config::get_cxxflags(Some(&prefix))?.split_whitespace() {
-        match flag.strip_prefix("-I") {
-            Some(dir) => shim.flag("-isystem").flag(dir),
-            None => shim.flag(flag),
-        };
-    }
+    shim.flags(tracel_llvm_bundler::config::get_cxxflags_args(Some(
+        &prefix,
+    ))?);
 
     shim.opt_level(3);
 
