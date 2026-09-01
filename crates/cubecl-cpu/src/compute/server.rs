@@ -8,6 +8,7 @@ use crate::{
     },
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
+use cubecl_core::server::ServerStorage;
 use cubecl_core::{
     CompilationError, CubeCount, MemoryConfiguration, MemoryUsage,
     ir::MemoryDeviceProperties,
@@ -193,8 +194,6 @@ impl CpuServer {
 }
 
 impl ComputeServer for CpuServer {
-    type Storage = BytesStorage;
-
     fn logger(&self) -> Arc<ServerLogger> {
         self.scheduler.logger.clone()
     }
@@ -484,6 +483,26 @@ impl ComputeServer for CpuServer {
         stream.end_profile(token, stream_id)
     }
 
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
+        let stream = self.scheduler.stream(&stream_id);
+        stream.allocation_mode(mode);
+    }
+}
+
+impl ServerCommunication for CpuServer {}
+
+pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
+    let rank = shape.len();
+    let mut strides = strides![1; rank];
+    for i in (0..rank - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    strides
+}
+
+impl ServerStorage for CpuServer {
+    type Storage = BytesStorage;
+
     fn get_resource(
         &mut self,
         binding: BufferBinding,
@@ -505,20 +524,4 @@ impl ComputeServer for CpuServer {
 
         Ok(ManagedResource::new(memory, resource))
     }
-
-    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        let stream = self.scheduler.stream(&stream_id);
-        stream.allocation_mode(mode);
-    }
-}
-
-impl ServerCommunication for CpuServer {}
-
-pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
-    let rank = shape.len();
-    let mut strides = strides![1; rank];
-    for i in (0..rank - 1).rev() {
-        strides[i] = strides[i + 1] * shape[i + 1];
-    }
-    strides
 }

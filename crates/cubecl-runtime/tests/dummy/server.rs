@@ -10,6 +10,7 @@ use cubecl_ir::{
     metadata::Info,
     settings::{Dim3, ExecutionMode, KernelSettings},
 };
+use cubecl_runtime::server::ServerStorage;
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
     id::KernelId,
@@ -104,8 +105,6 @@ impl KernelTask {
 impl ServerCommunication for DummyServer {}
 
 impl ComputeServer for DummyServer {
-    type Storage = BytesStorage;
-
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
     }
@@ -183,20 +182,6 @@ impl ComputeServer for DummyServer {
         // no device to fault here, so the barrier itself never fails.
         let result = self.ensure_written(handles.iter());
         Box::pin(async move { result })
-    }
-
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        _stream_id: StreamId,
-    ) -> Result<ManagedResource<BytesResource>, ServerError> {
-        let resource = self.memory_management.get_resource(
-            binding.memory.clone(),
-            binding.offset_start,
-            binding.offset_end,
-        )?;
-
-        Ok(ManagedResource::new(binding.memory, resource))
     }
 
     unsafe fn launch(
@@ -447,5 +432,23 @@ impl DummyServer {
             )],
             stream_id,
         );
+    }
+}
+
+impl ServerStorage for DummyServer {
+    type Storage = BytesStorage;
+
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        _stream_id: StreamId,
+    ) -> Result<ManagedResource<BytesResource>, ServerError> {
+        let resource = self.memory_management.get_resource(
+            binding.memory.clone(),
+            binding.offset_start,
+            binding.offset_end,
+        )?;
+
+        Ok(ManagedResource::new(binding.memory, resource))
     }
 }

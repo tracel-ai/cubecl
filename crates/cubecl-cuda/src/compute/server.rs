@@ -4,6 +4,7 @@ use crate::compute::{
     Captures, Command, Window, context::CudaContext, events::Fence, stream::CudaStreamBackend,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
+use cubecl_core::server::ServerStorage;
 use cubecl_core::{
     MemoryConfiguration,
     device::DeviceId,
@@ -98,8 +99,6 @@ pub struct CudaServer {
 unsafe impl Send for CudaServer {}
 
 impl ComputeServer for CudaServer {
-    type Storage = GpuStorage;
-
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()
     }
@@ -371,22 +370,6 @@ impl ComputeServer for CudaServer {
             }
         };
         self.ctx.profiler.stop(sys, token)
-    }
-
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        stream_id: StreamId,
-    ) -> Result<ManagedResource<GpuResource>, ServerError> {
-        // The same claim check a read makes: a buffer a failed launch never
-        // filled reports the failure rather than handing back a pointer to
-        // whatever was there before.
-        self.streams.ensure_written([&binding].into_iter())?;
-        let mut command = self.command(stream_id, [&binding].into_iter());
-        let memory = binding.memory.clone();
-        let resource = command.resource(binding)?;
-
-        Ok(ManagedResource::new(memory, resource))
     }
 
     fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
@@ -1355,4 +1338,24 @@ fn pair(this: DeviceId, peer: DeviceId) -> (Vec<DeviceId>, CommunicationId) {
     devices.sort();
     let id = CommunicationId::from(devices.clone());
     (devices, id)
+}
+
+impl ServerStorage for CudaServer {
+    type Storage = GpuStorage;
+
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        stream_id: StreamId,
+    ) -> Result<ManagedResource<GpuResource>, ServerError> {
+        // The same claim check a read makes: a buffer a failed launch never
+        // filled reports the failure rather than handing back a pointer to
+        // whatever was there before.
+        self.streams.ensure_written([&binding].into_iter())?;
+        let mut command = self.command(stream_id, [&binding].into_iter());
+        let memory = binding.memory.clone();
+        let resource = command.resource(binding)?;
+
+        Ok(ManagedResource::new(memory, resource))
+    }
 }

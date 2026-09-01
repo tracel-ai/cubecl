@@ -7,6 +7,7 @@ use cubecl_common::{
     bytes::Bytes,
     profile::{Duration, Instant, ProfileDuration, ProfileTicks},
 };
+use cubecl_core::server::ServerStorage;
 use cubecl_core::{
     MemoryConfiguration,
     prelude::*,
@@ -172,8 +173,6 @@ impl WriteScoped for MetalServer {
 }
 
 impl ComputeServer for MetalServer {
-    type Storage = MetalStorage;
-
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
     }
@@ -655,28 +654,6 @@ impl ComputeServer for MetalServer {
         Ok(ProfileDuration::new_device_time(async move { ticks }))
     }
 
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        stream_id: StreamId,
-    ) -> Result<ManagedResource<<MetalStorage as ComputeStorage>::Resource>, ServerError> {
-        // The same claim check a read makes: a buffer a failed launch never
-        // filled reports the failure rather than handing back a pointer to
-        // whatever was there before.
-        self.streams.ensure_written([&binding].into_iter())?;
-        let mut resolved = self.streams.resolve(stream_id, std::iter::once(&binding));
-        // Resolve from the binding's origin stream; see `resolve_origin_resource`.
-        let stream = resolved.get(&binding.stream);
-
-        let memory = binding.memory.clone();
-        let resource = stream
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .map_err(ServerError::from)?;
-
-        Ok(ManagedResource::new(memory, resource))
-    }
-
     fn memory_usage(
         &mut self,
         stream_id: StreamId,
@@ -746,5 +723,31 @@ mod pitched_tests {
 
         let read_back = read_pitched(buffer.as_ptr(), &shape, &strides, 1);
         assert_eq!(read_back, packed);
+    }
+}
+
+impl ServerStorage for MetalServer {
+    type Storage = MetalStorage;
+
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        stream_id: StreamId,
+    ) -> Result<ManagedResource<<MetalStorage as ComputeStorage>::Resource>, ServerError> {
+        // The same claim check a read makes: a buffer a failed launch never
+        // filled reports the failure rather than handing back a pointer to
+        // whatever was there before.
+        self.streams.ensure_written([&binding].into_iter())?;
+        let mut resolved = self.streams.resolve(stream_id, std::iter::once(&binding));
+        // Resolve from the binding's origin stream; see `resolve_origin_resource`.
+        let stream = resolved.get(&binding.stream);
+
+        let memory = binding.memory.clone();
+        let resource = stream
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .map_err(ServerError::from)?;
+
+        Ok(ManagedResource::new(memory, resource))
     }
 }

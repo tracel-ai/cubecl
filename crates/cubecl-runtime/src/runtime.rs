@@ -3,12 +3,12 @@ use cubecl_common::device::{Device, DeviceId};
 use cubecl_ir::TargetProperties;
 use cubecl_zspace::{Shape, Strides};
 
-use crate::{client::ComputeClient, server::ComputeServer};
+use crate::{client::ComputeClient, server::ServerStorage};
 
 /// Runtime for the `CubeCL`.
 pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     /// The compute server used to run kernels and perform autotuning.
-    type Server: ComputeServer;
+    type Server: ServerStorage;
     /// The device used to retrieve the compute client.
     type Device: Device;
 

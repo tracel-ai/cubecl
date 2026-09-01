@@ -12,7 +12,7 @@ use crate::{
     server::{
         BufferBinding, CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
+        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerError, ServerStorage,
         ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
@@ -21,6 +21,7 @@ use crate::{
     },
 };
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
+use core::{any::Any, marker::PhantomData};
 
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
@@ -42,9 +43,10 @@ use cubecl_environment::stream::StreamId;
 /// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<R: Runtime> {
-    device: DeviceHandle<R::Server>,
+    device: DeviceHandle<dyn ComputeServer>,
     utilities: Arc<ServerUtilities>,
     stream_id: Option<StreamId>,
+    runtime: PhantomData<R>,
 }
 
 /// A captured graph produced by [`ComputeClient::stop_capture`]: a recorded
@@ -86,8 +88,9 @@ impl<R: Runtime> core::fmt::Debug for Graph<R> {
 /// thread that owns it.
 struct GraphHandle<R: Runtime> {
     id: GraphId,
-    device: DeviceHandle<R::Server>,
+    device: DeviceHandle<dyn ComputeServer>,
     stream_id: StreamId,
+    runtime: PhantomData<R>,
 }
 
 impl<R: Runtime> Graph<R> {
@@ -165,12 +168,22 @@ impl<R: Runtime> Drop for GraphHandle<R> {
     }
 }
 
+/// The state a `DeviceHandle` reaches, seen as the server it is. A client
+/// keeps this cast, not the server type, so every operation reads the same
+/// whatever backend is underneath.
+fn as_server<S: ComputeServer>(state: &mut dyn Any) -> &mut dyn ComputeServer {
+    state
+        .downcast_mut::<S>()
+        .expect("State type mismatch in the device registry")
+}
+
 impl<R: Runtime> Clone for ComputeClient<R> {
     fn clone(&self) -> Self {
         Self {
             device: self.device.clone(),
             utilities: self.utilities.clone(),
             stream_id: self.stream_id,
+            runtime: PhantomData,
         }
     }
 }
@@ -185,18 +198,21 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
         let utilities = server.utilities();
         let context = DeviceHandle::<R::Server>::insert(device.to_id(), server)
-            .expect("Can't create a new client on an already registered server");
+            .expect("Can't create a new client on an already registered server")
+            .seen_as(as_server::<R::Server>);
 
         Self {
             device: context,
             utilities,
             stream_id: None,
+            runtime: PhantomData,
         }
     }
 
     /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
-        let context = DeviceHandle::<R::Server>::new(device.to_id());
+        let context =
+            DeviceHandle::<R::Server>::new(device.to_id()).seen_as(as_server::<R::Server>);
 
         // This is safe because we now know the return type of [`DeviceHandle::utilities()`].
         let utilities = context
@@ -208,6 +224,7 @@ impl<R: Runtime> ComputeClient<R> {
             device: context,
             utilities,
             stream_id: None,
+            runtime: PhantomData,
         }
     }
 
@@ -414,7 +431,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         handle: Handle,
     ) -> Result<
-        ManagedResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource>,
+        ManagedResource<<<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource>,
         ServerError,
     > {
         let stream_id = self.stream_id();
@@ -422,7 +439,12 @@ impl<R: Runtime> ComputeClient<R> {
         self.local(&binding)?;
 
         self.device
-            .submit_blocking(move |state| state.get_resource(binding, stream_id))
+            .submit_blocking(move |server| {
+                let server = (server as &mut dyn Any)
+                    .downcast_mut::<R::Server>()
+                    .expect("the client was built from this server type");
+                server.get_resource(binding, stream_id)
+            })
             .unwrap_or_resume()
     }
 
@@ -832,7 +854,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// Wait on the communication stream.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
-        if DeviceHandle::<R::Server>::is_blocking() {
+        if DeviceHandle::<dyn ComputeServer>::is_blocking() {
             panic!("Can't use `sync_collective` with a blocking device handle");
         }
         let stream_id = self.stream_id();
@@ -864,7 +886,7 @@ impl<R: Runtime> ComputeClient<R> {
         device_ids: Vec<DeviceId>,
         op: ReduceOperation,
     ) {
-        if DeviceHandle::<R::Server>::is_blocking() {
+        if DeviceHandle::<dyn ComputeServer>::is_blocking() {
             panic!("Can't use `all_reduce` with a blocking device handle");
         }
 
@@ -1228,6 +1250,7 @@ impl<R: Runtime> ComputeClient<R> {
                 id,
                 device: self.device.clone(),
                 stream_id,
+                runtime: PhantomData,
             }),
         })
     }

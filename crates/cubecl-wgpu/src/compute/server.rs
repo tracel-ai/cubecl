@@ -1,3 +1,4 @@
+use cubecl_core::server::ServerStorage;
 use cubecl_runtime::kernel::BufferIOAttr;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -319,8 +320,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 }
 
 impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
-    type Storage = WgpuStorage;
-
     fn logger(&self) -> Arc<ServerLogger> {
         self.scheduler.logger.clone()
     }
@@ -484,27 +483,6 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         self.scheduler.ensure_written(handles.iter())
-    }
-
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        stream_id: StreamId,
-    ) -> Result<ManagedResource<WgpuResource>, ServerError> {
-        // The same claim check a read makes: a buffer a failed launch never
-        // filled reports the failure rather than handing back a pointer to
-        // whatever was there before.
-        self.scheduler.ensure_written([&binding].into_iter())?;
-        let mut streams = vec![stream_id];
-        if binding.stream != stream_id {
-            streams.push(binding.stream);
-        }
-        self.scheduler.execute_streams(streams);
-        let stream = self.scheduler.stream(&binding.stream);
-        let memory = binding.memory.clone();
-        let resource = stream.mem_manage.get_resource(binding)?;
-
-        Ok(ManagedResource::new(memory, resource))
     }
 
     unsafe fn launch(
@@ -918,4 +896,29 @@ pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
+}
+
+impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
+    type Storage = WgpuStorage;
+
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        stream_id: StreamId,
+    ) -> Result<ManagedResource<WgpuResource>, ServerError> {
+        // The same claim check a read makes: a buffer a failed launch never
+        // filled reports the failure rather than handing back a pointer to
+        // whatever was there before.
+        self.scheduler.ensure_written([&binding].into_iter())?;
+        let mut streams = vec![stream_id];
+        if binding.stream != stream_id {
+            streams.push(binding.stream);
+        }
+        self.scheduler.execute_streams(streams);
+        let stream = self.scheduler.stream(&binding.stream);
+        let memory = binding.memory.clone();
+        let resource = stream.mem_manage.get_resource(binding)?;
+
+        Ok(ManagedResource::new(memory, resource))
+    }
 }

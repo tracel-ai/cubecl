@@ -465,13 +465,8 @@ impl ServerError {
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [`ComputeClient`] for thread safety.
 pub trait ComputeServer:
-    Send + core::fmt::Debug + ServerCommunication + device::DeviceService + 'static
-where
-    Self: Sized,
+    core::any::Any + Send + core::fmt::Debug + ServerCommunication + device::DeviceService + 'static
 {
-    /// The [storage](ComputeStorage) type defines how data is stored and accessed.
-    type Storage: ComputeStorage;
-
     /// Initializes [memory](ManagedMemoryHandle) on the given [stream](StreamId) with the given size.
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId);
 
@@ -533,18 +528,6 @@ where
         handles: Vec<BufferBinding>,
         stream_id: StreamId,
     ) -> Result<(), ServerError>;
-
-    /// Given a resource handle, returns the storage resource.
-    ///
-    /// The same claim check a read makes guards this too: a buffer a failed
-    /// launch never filled reports the failure rather than handing back a
-    /// pointer to whatever was there before. It costs a field read on a slice
-    /// the resolution walks anyway.
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        stream_id: StreamId,
-    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///
@@ -724,6 +707,26 @@ where
 
     /// Update the memory mode of allocation in the server.
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
+}
+
+/// The storage a server allocates from, and the native resources it hands
+/// out. Kept off [`ComputeServer`] so that trait is object-safe: a resource's
+/// type is the backend's own, and only a caller that names the backend can
+/// receive one.
+pub trait ServerStorage: ComputeServer {
+    /// The [storage](ComputeStorage) type defines how data is stored and accessed.
+    type Storage: ComputeStorage;
+    /// Given a resource handle, returns the storage resource.
+    ///
+    /// The same claim check a read makes guards this too: a buffer a failed
+    /// launch never filled reports the failure rather than handing back a
+    /// pointer to whatever was there before. It costs a field read on a slice
+    /// the resolution walks anyway.
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        stream_id: StreamId,
+    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
 }
 
 /// An ID unique to any unordered combination of devices.

@@ -51,7 +51,9 @@ pub type ServerUtilitiesHandle = Arc<dyn Any + Send + Sync>;
 /// Represent a service that runs on a device.
 pub trait DeviceService: Send + 'static {
     /// Initializes the service. It is only called once per device.
-    fn init(device_id: DeviceId) -> Self;
+    fn init(device_id: DeviceId) -> Self
+    where
+        Self: Sized;
     /// Get the service utilities.
     fn utilities(&self) -> ServerUtilitiesHandle;
     /// Which pipeline stage this service runs on.
@@ -59,7 +61,10 @@ pub trait DeviceService: Send + 'static {
     /// Services on [`DeviceServiceStage::Upstream`] produce work ahead of time (e.g. autodiff graph
     /// construction, kernel fusion) that is consumed by [`DeviceServiceStage::Downstream`] services,
     /// which stream kernels to the device.
-    fn stage() -> DeviceServiceStage {
+    fn stage() -> DeviceServiceStage
+    where
+        Self: Sized,
+    {
         DeviceServiceStage::Downstream
     }
 }

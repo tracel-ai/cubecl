@@ -3,7 +3,7 @@ use alloc::{fmt::Debug, vec, vec::Vec};
 use cubecl::prelude::*;
 use cubecl_ir::features::Tma;
 use cubecl_runtime::{
-    server::{ComputeServer, CopyDescriptor, MemoryLayout},
+    server::{CopyDescriptor, MemoryLayout, ServerStorage},
     storage::ComputeStorage,
 };
 use cubecl_zspace::{Shape, shape, strides};
@@ -112,7 +112,7 @@ fn tensormap_metadata<F: Float, N: Size>(
 
 pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
-    <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
+    <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {
     if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
@@ -155,7 +155,7 @@ where
 
 pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
-    <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
+    <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {
     if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
@@ -211,7 +211,7 @@ where
 
 pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
-    <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
+    <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {
     if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
@@ -301,7 +301,7 @@ where
 
 pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
-    <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
+    <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {
     if !client.features().tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
