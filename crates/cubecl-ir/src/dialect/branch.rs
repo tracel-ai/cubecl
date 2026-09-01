@@ -20,6 +20,7 @@ use crate::{
             InvocationBounds, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
             RegionPredecessor, RegionSuccessor,
         },
+        uniformity::{UniformRegionTerminatorOpInterface, Uniformity},
     },
     prelude::*,
     types::scalar::BoolType,
@@ -163,6 +164,20 @@ impl RegionBranchTerminatorOpInterface for ConditionOp {
             true => vec![after_region],
             false => vec![RegionSuccessor::AfterOp],
         }
+    }
+}
+
+#[op_interface_impl]
+impl UniformRegionTerminatorOpInterface for ConditionOp {
+    fn successor_region_uniformity(
+        &self,
+        ctx: &Context,
+        operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        self.all_successor_regions(ctx)
+            .iter()
+            .map(|_| operands[0])
+            .collect()
     }
 }
 

@@ -13,13 +13,17 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    Builtin, CanMaterialize, ConstantValue, Pure,
+    Builtin, CanMaterialize, ConstantValue, PropagatesUniformity, Pure,
     attributes::{BoolAttr, IndexAttr},
     dialect::{
         math::{index_attr, int_attr},
         pure_binop, pure_unop,
     },
-    interfaces::{ScalarType, TriviallyUnrollable, TypedExt, aliasing::AliasingOp},
+    interfaces::{
+        ScalarType, TriviallyUnrollable, TypedExt,
+        aliasing::AliasingOp,
+        uniformity::{UniformOpInterface, Uniformity},
+    },
     prelude::*,
     types::scalar::IndexType,
 };
@@ -36,7 +40,7 @@ pub enum SymbolUserOpVerifyErr {
 
 #[cube_op(name = "cube.copy")]
 #[result_ty(same_as = value)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct CopyOp {
     pub value: Value,
 }
@@ -129,7 +133,7 @@ const_eval!(BoolNotOp, {
 #[cube_op(name = "cube.cast")]
 #[result_ty(argument)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct CastOp {
     pub input: Value,
 }
@@ -153,7 +157,7 @@ simplify!(CastOp, {
 
 #[cube_op(name = "cube.reinterpret_cast")]
 #[result_ty(argument)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct ReinterpretCastOp {
     pub input: Value,
 }
@@ -195,7 +199,7 @@ impl AliasingOp for ReinterpretCastOp {
 #[cube_op(name = "cube.select")]
 #[result_ty(same_as = true_value)]
 #[op_interfaces(TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct SelectOp {
     pub condition: Value,
     pub true_value: Value,
@@ -228,12 +232,58 @@ pub struct ReadBuiltinOp {
     pub builtin: BuiltinAttr,
 }
 
+#[op_interface_impl]
+impl UniformOpInterface for ReadBuiltinOp {
+    fn uniformity(&self, ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        match self.builtin(ctx).0 {
+            Builtin::CubeDim
+            | Builtin::CubeDimX
+            | Builtin::CubeDimY
+            | Builtin::CubeDimZ
+            | Builtin::CubeClusterDim
+            | Builtin::CubeClusterDimX
+            | Builtin::CubeClusterDimY
+            | Builtin::CubeClusterDimZ
+            | Builtin::CubeCount
+            | Builtin::CubeCountX
+            | Builtin::CubeCountY
+            | Builtin::CubeCountZ
+            | Builtin::PlaneDim => Uniformity::Device,
+            Builtin::CubePosCluster
+            | Builtin::CubePosClusterX
+            | Builtin::CubePosClusterY
+            | Builtin::CubePosClusterZ
+            | Builtin::CubePos
+            | Builtin::CubePosX
+            | Builtin::CubePosY
+            | Builtin::CubePosZ => Uniformity::Cube,
+            Builtin::PlanePos => Uniformity::Plane,
+            Builtin::UnitPos
+            | Builtin::UnitPosX
+            | Builtin::UnitPosY
+            | Builtin::UnitPosZ
+            | Builtin::UnitPosPlane
+            | Builtin::AbsolutePos
+            | Builtin::AbsolutePosX
+            | Builtin::AbsolutePosY
+            | Builtin::AbsolutePosZ => Uniformity::None,
+        }
+    }
+}
+
 #[cube_op(name = "cube.read_scalar")]
 #[result_ty(from_inputs = |ctx, ty: &TypeAttr, _| ty.get_type(ctx))]
 #[op_traits(Pure, CanMaterialize)]
 pub struct ReadScalarOp {
     pub ty: TypeAttr,
     pub id: IndexAttr,
+}
+
+#[op_interface_impl]
+impl UniformOpInterface for ReadScalarOp {
+    fn uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        Uniformity::Device
+    }
 }
 
 #[cube_op(name = "cube.free")]
@@ -249,6 +299,13 @@ pub struct BufferLenOp {
     pub buffer_idx: IndexAttr,
 }
 
+#[op_interface_impl]
+impl UniformOpInterface for BufferLenOp {
+    fn uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        Uniformity::Device
+    }
+}
+
 #[cube_op(name = "cube.shape")]
 #[result_ty(fixed = IndexType::get(ctx).into())]
 #[op_traits(Pure, CanMaterialize)]
@@ -257,12 +314,26 @@ pub struct ShapeOp {
     pub buffer_idx: IndexAttr,
 }
 
+#[op_interface_impl]
+impl UniformOpInterface for ShapeOp {
+    fn uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        Uniformity::Device
+    }
+}
+
 #[cube_op(name = "cube.stride")]
 #[result_ty(fixed = IndexType::get(ctx).into())]
 #[op_traits(Pure, CanMaterialize)]
 pub struct StrideOp {
     pub dim: Value,
     pub buffer_idx: IndexAttr,
+}
+
+#[op_interface_impl]
+impl UniformOpInterface for StrideOp {
+    fn uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        Uniformity::Device
+    }
 }
 
 #[cube_op(name = "cube.comment")]

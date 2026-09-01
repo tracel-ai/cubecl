@@ -6,7 +6,7 @@ use pliron::{
 };
 
 use crate::{
-    CanMaterialize, ConstantValue, Pure,
+    CanMaterialize, ConstantValue, PropagatesUniformity, Pure,
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttrExt},
     dialect::{base::pure_binop, math::int_attr},
     interfaces::{TriviallyUnrollable, TypedExt},
@@ -55,13 +55,9 @@ pure_binop!("cmp.u_min", UMinOp);
 const_eval!(UMinOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.min(rhs),
     // min(min_int, x) -> min_int
-    custom: |lhs, rhs| {
-        let const_val = lhs.or(rhs)?;
-        let ty = const_val.get_type(ctx);
-        match const_val.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(int_attr(ctx, ty, 0)),
-            _ => None
-        }
+    custom: |lhs, rhs| match lhs.or(rhs)?.as_int(ctx)?.is_zero() {
+        true => Some(int_attr(ctx, self.result_type(ctx), 0)),
+        false => None,
     }
 });
 simplify!(UMinOp, {
@@ -150,18 +146,14 @@ const_eval!(UMaxOp, {
 });
 simplify!(UMaxOp, {
     // max(min_int, x) -> x
-    |lhs, _| {
-        match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(self.rhs(ctx)),
-            _ => None,
-        }
+    |lhs, _| match lhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.rhs(ctx)),
+        false => None,
     },
     // max(x, min_int) -> x
-    |_, rhs| {
-        match rhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(self.lhs(ctx)),
-            _ => None,
-        }
+    |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => Some(self.lhs(ctx)),
+        false => None,
     },
     // max(x, x) -> x
     |_, _| match self.lhs(ctx) == self.rhs(ctx) {
@@ -185,7 +177,7 @@ simplify!(FMaxOp, {
 #[cube_op(name = "cmp.s_clamp")]
 #[result_ty(same_as = input)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct SClampOp {
     pub input: Value,
     pub min: Value,
@@ -214,7 +206,7 @@ const_eval!(SClampOp, {
 #[cube_op(name = "cmp.u_clamp")]
 #[result_ty(same_as = input)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct UClampOp {
     pub input: Value,
     pub min: Value,
@@ -231,19 +223,16 @@ const_eval!(UClampOp, {
         }
     },
     // clamp(x, y, min_int) -> min_int
-    custom: |_, _, max| {
-        let ty = max?.get_type(ctx);
-        match max?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => Some(int_attr(ctx, ty, 0)),
-            _ => None
-        }
+    custom: |_, _, max| match max?.as_int(ctx)?.is_zero() {
+        true => Some(int_attr(ctx, self.result_type(ctx), 0)),
+        false => None
     }
 });
 
 #[cube_op(name = "cmp.f_clamp")]
 #[result_ty(same_as = input)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct FClampOp {
     pub input: Value,
     pub min: Value,
@@ -258,7 +247,7 @@ macro_rules! cmp_binop {
         #[cubecl_macros_internal::cube_op(name = $name)]
         #[result_ty(from_inputs = cmp_result_ty)]
         #[$crate::prelude::op_interfaces(SameOperandsType, TriviallyUnrollable)]
-        #[op_traits(Pure, CanMaterialize)]
+        #[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
         pub struct $ty {
             pub lhs: Value,
             pub rhs: Value,
@@ -272,12 +261,9 @@ const_eval!(SLessThanOp, {
         (lhs < rhs).into()
     },
     // (x < x) -> false;
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // int < min_int -> false
     custom: |_, rhs| {
@@ -303,19 +289,14 @@ const_eval!(ULessThanOp, {
         (lhs < rhs).into()
     },
     // (x < x) -> false;
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // int < min_int -> false
-    custom: |_, rhs| {
-        match rhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
-            _ => None
-        }
+    custom: |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // max_int < int -> false
     custom: |lhs, _| {
@@ -340,12 +321,9 @@ const_eval!(SGreaterThanOp, {
         (lhs > rhs).into()
     },
     // (x > x) -> false;
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // min_int > int -> false
     custom: |lhs, _| {
@@ -371,19 +349,14 @@ const_eval!(UGreaterThanOp, {
         (lhs > rhs).into()
     },
     // (x > x) -> false
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // min_int > int -> false
-    custom: |lhs, _| {
-        match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
-            _ => None
-        }
+    custom: |lhs, _| match lhs?.as_int(ctx)?.is_zero() {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     },
     // int > max_int -> false
     custom: |_, rhs| {
@@ -408,12 +381,9 @@ const_eval!(SLessThanOrEqualOp, {
         (lhs <= rhs).into()
     },
     // (x <= x) -> true
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // min_int <= int -> true
     custom: |lhs, _| {
@@ -439,19 +409,14 @@ const_eval!(ULessThanOrEqualOp, {
         (lhs <= rhs).into()
     },
     // (x <= x) -> true
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // min_int <= int -> true
-    custom: |lhs, _| {
-        match lhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
-            _ => None
-        }
+    custom: |lhs, _| match lhs?.as_int(ctx)?.is_zero() {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // int <= max_int -> true
     custom: |_, rhs| {
@@ -476,12 +441,9 @@ const_eval!(SGreaterThanOrEqualOp, {
         (lhs >= rhs).into()
     },
     // (x >= x) -> true
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // int >= min_int -> true
     custom: |_, rhs| {
@@ -507,19 +469,14 @@ const_eval!(UGreaterThanOrEqualOp, {
         (lhs >= rhs).into()
     },
     // (x >= x) -> true
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // int >= min_int -> true
-    custom: |_, rhs| {
-        match rhs?.as_const_val(ctx) {
-            ConstantValue::UInt(0) => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
-            _ => None
-        }
+    custom: |_, rhs| match rhs?.as_int(ctx)?.is_zero() {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     },
     // max_int >= int -> true
     custom: |lhs, _| {
@@ -543,13 +500,10 @@ const_eval!(IEqualOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64), IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| -> BoolAttr {
         (lhs == rhs).into()
     },
-    // (x == x) -> true; exclude float
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    // (x == x) -> true
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     }
 });
 
@@ -563,13 +517,10 @@ const_eval!(FEqualOp, {
 cmp_binop!("cmp.bool_equal", BoolEqualOp);
 const_eval!(BoolEqualOp, {
     [BoolAttr]: |lhs, rhs| lhs == rhs,
-    // (x == x) -> true; exclude float
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), true)
-        } else {
-            None
-        }
+    // (x == x) -> true
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), true),
+        false => None
     }
 });
 
@@ -578,14 +529,11 @@ const_eval!(INotEqualOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64), IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| -> BoolAttr {
         (lhs != rhs).into()
     },
-    // (x != x) == false; exclude float
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
-    }
+    // (x != x) == false
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
+    },
 });
 
 cmp_binop!("cmp.f_not_equal", FNotEqualOp);
@@ -598,13 +546,10 @@ const_eval!(FNotEqualOp, {
 cmp_binop!("cmp.bool_not_equal", BoolNotEqualOp);
 const_eval!(BoolNotEqualOp, {
     [BoolAttr]: |lhs, rhs| lhs != rhs,
-    // (x != x) == false; exclude float
-    custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            BoolAttr::per_lane(ctx, self.get_result(ctx), false)
-        } else {
-            None
-        }
+    // (x != x) == false
+    custom: |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => BoolAttr::per_lane(ctx, self.get_result(ctx), false),
+        false => None
     }
 });
 

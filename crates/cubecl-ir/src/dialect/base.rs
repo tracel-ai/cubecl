@@ -158,7 +158,11 @@ macro_rules! pure_unop {
             SameOperandsAndResultType,
             $crate::interfaces::TriviallyUnrollable
         )]
-        #[$crate::prelude::op_traits($crate::CanMaterialize, $crate::Pure)]
+        #[$crate::prelude::op_traits(
+            $crate::CanMaterialize,
+            $crate::Pure,
+            $crate::PropagatesUniformity
+        )]
         pub struct $ty {
             pub input: Value,
         }
@@ -188,7 +192,11 @@ macro_rules! pure_binop {
             SameOperandsAndResultType,
             $crate::interfaces::TriviallyUnrollable
         )]
-        #[$crate::prelude::op_traits($crate::CanMaterialize, $crate::Pure)]
+        #[$crate::prelude::op_traits(
+            $crate::CanMaterialize,
+            $crate::Pure,
+            $crate::PropagatesUniformity
+        )]
         pub struct $ty {
             pub lhs: Value,
             pub rhs: Value,

@@ -143,6 +143,13 @@ impl ConstantAttr for ZeroAttr {
             panic!("Invalid value type for `as_const_val`")
         }
     }
+    fn as_int(&self, ctx: &Context) -> Option<APInt> {
+        if self.ty.is_int(ctx) || self.ty.is_index(ctx) {
+            Some(APInt::zero(bw(self.ty.size_bits(ctx))))
+        } else {
+            None
+        }
+    }
     fn float_as_f64(&self, ctx: &Context) -> Option<f64> {
         let ty = self.ty.deref(ctx);
         if type_impls::<dyn APFloatType>(&*ty) {
@@ -172,6 +179,10 @@ impl IndexAttr {
 impl ConstantAttr for IndexAttr {
     fn as_const_val(&self, _ctx: &Context) -> ConstantValue {
         ConstantValue::UInt(self.0 as u64)
+    }
+    fn as_int(&self, ctx: &Context) -> Option<APInt> {
+        let size = IndexType::get(ctx).to_handle().size_bits(ctx);
+        Some(APInt::from_usize(self.0, bw(size)))
     }
 }
 
@@ -285,6 +296,9 @@ impl ConstantAttr for IntegerAttr {
         } else {
             ConstantValue::UInt(self.value().to_u64())
         }
+    }
+    fn as_int(&self, _ctx: &Context) -> Option<APInt> {
+        Some(self.value())
     }
 }
 

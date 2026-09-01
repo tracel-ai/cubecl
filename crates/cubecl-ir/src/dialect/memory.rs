@@ -35,7 +35,7 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    AddressSpace, CanMaterialize, NoSideEffects, Pure,
+    AddressSpace, CanMaterialize, NoSideEffects, PropagatesUniformity, Pure,
     attributes::{IndexAttr, ZeroAttr},
     dialect::{general::PoisonOp, math::index_attr, ptr_value_ty},
     interfaces::{
@@ -46,6 +46,7 @@ use crate::{
             DestructurableTypeInterface, DestructurableValueSlot, LogicalResult,
             SafeMemorySlotAccessOpInterface, ValueSlot,
         },
+        uniformity::{UniformOpInterface, Uniformity},
     },
     prelude::*,
     try_cast_ty,
@@ -243,6 +244,17 @@ impl DestructurableConstructorOpInterface for DeclareVariableOp {
     }
 }
 
+#[op_interface_impl]
+impl UniformOpInterface for DeclareVariableOp {
+    fn uniformity(&self, ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        match self.addr_space(ctx).0 {
+            AddressSpace::Global(_) => Uniformity::Device,
+            AddressSpace::Shared => Uniformity::Cube,
+            AddressSpace::Local => Uniformity::None,
+        }
+    }
+}
+
 fn variable_ptr_ty(
     ctx: &Context,
     value_ty: &TypeAttr,
@@ -259,7 +271,7 @@ fn variable_ptr_ty(
 )]
 #[result_ty(from_inputs = |ctx, base, _| indexed_ptr_ty(ctx, base))]
 #[op_interfaces(OperandNOfType<0, PointerType>, OperandNOfType<1, IndexType>)]
-#[op_traits(Pure, CanMaterialize)]
+#[op_traits(Pure, CanMaterialize, PropagatesUniformity)]
 pub struct IndexOp {
     pub base: Value,
     pub index: Value,
@@ -353,7 +365,7 @@ pub struct UnrelatedAllocInfo;
 #[cube_op(name = "memory.load")]
 #[result_ty(from_inputs = ptr_value_ty)]
 #[op_interfaces(OperandNOfType<0, PointerType>, TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoSideEffects)]
+#[op_traits(CanMaterialize, NoSideEffects, PropagatesUniformity)]
 pub struct LoadOp {
     #[operand(ptr_read)]
     pub ptr: Value,
