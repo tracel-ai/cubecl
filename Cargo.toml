@@ -58,7 +58,6 @@ opentelemetry_sdk = "^0.32.0"
 
 
 ciborium = { version = "0.2.2", default-features = false }
-fnv = "1"
 serde = { version = "1.0.204", default-features = false, features = [
     "derive",
     "alloc",
@@ -90,7 +89,6 @@ backtrace = { version = "0.3", default-features = false }
 embassy-time = { version = "0.5", default-features = false }
 etcetera = "0.11.0"
 js-sys = "0.3"
-md5 = "0.8.0"
 parking_lot = { version = "0.12.5", default-features = false }
 rusqlite = { version = "0.40", features = ["bundled"] }
 sanitize-filename = "0.6"

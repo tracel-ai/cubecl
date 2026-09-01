@@ -69,7 +69,6 @@ toml = { workspace = true, optional = true }
 
 foldhash = { workspace = true }
 buildid = { workspace = true }
-md5 = { workspace = true }
 thiserror = { workspace = true }
 
 futures-util = { workspace = true, default-features = false }

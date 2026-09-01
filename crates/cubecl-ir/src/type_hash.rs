@@ -1,5 +1,6 @@
 use alloc::borrow::ToOwned;
 use core::hash::Hasher;
+use cubecl_common::hash::{StableHash, StableHasher};
 use enumset::EnumSetType;
 
 /// A hash of a type's structure
@@ -10,10 +11,10 @@ pub trait TypeHash {
     /// hasher to ensure the hash is stable across compilations and executions. The hash should only
     /// change if a field/variant is renamed, added, or its type is changed.
     #[allow(unused)]
-    fn type_hash() -> u64 {
-        let mut hasher = fnv::FnvHasher::default();
+    fn type_hash() -> StableHash {
+        let mut hasher = StableHasher::new();
         Self::write_hash(&mut hasher);
-        hasher.finish()
+        hasher.finalize()
     }
 
     /// Write the structure of the type to the hasher
