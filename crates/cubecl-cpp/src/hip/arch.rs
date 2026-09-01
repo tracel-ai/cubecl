@@ -12,7 +12,7 @@ impl Architecture for AMDArchitecture {
     fn is_wmma_capable(&self) -> bool {
         matches!(
             self,
-            AMDArchitecture::GFX10 | AMDArchitecture::GFX11 | AMDArchitecture::GFX12
+            AMDArchitecture::GFX103 | AMDArchitecture::GFX11 | AMDArchitecture::GFX12
         )
     }
 

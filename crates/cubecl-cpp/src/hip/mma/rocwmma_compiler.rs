@@ -80,7 +80,7 @@ pub(super) fn supported_wmma_combinations_rocwmma(
                 )
                 .collect()
         }
-        AMDArchitecture::GFX10 | AMDArchitecture::GFX11 => {
+        AMDArchitecture::GFX103 | AMDArchitecture::GFX11 => {
             // For gfx11 the supported tile dimensions are always the same
             //                                   m   n   k
             let tdims = vec![(16, 16, 16), (16, 16, 32)];
@@ -338,7 +338,8 @@ pub(super) fn supported_wmma_combinations_rocwmma(
                 ),
             ]
         }
-        AMDArchitecture::Other => vec![],
+        // RDNA1 has no WMMA instructions; they arrive with RDNA3.
+        AMDArchitecture::GFX101 | AMDArchitecture::Other => vec![],
     };
     combinations
         .into_iter()
