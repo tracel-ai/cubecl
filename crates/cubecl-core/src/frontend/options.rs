@@ -1,5 +1,5 @@
+use cubecl_ir::EnumSet;
 use cubecl_ir::{FastMath, Scope};
-use enumset::EnumSet;
 
 pub fn fast_math_expand<R>(
     scope: &Scope,

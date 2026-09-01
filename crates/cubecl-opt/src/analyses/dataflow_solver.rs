@@ -10,6 +10,7 @@ use alloc::{boxed::Box, collections::VecDeque, rc::Rc, vec::Vec};
 use cubecl_environment::collections::HashMap;
 use cubecl_ir::prelude::*;
 use downcast_rs::{Downcast, impl_downcast};
+use foldhash::fast::FixedState;
 use pliron::{
     basic_block::BasicBlock,
     graph::HasLabel,
@@ -17,7 +18,6 @@ use pliron::{
     printable::Printable,
     verify_err_noloc,
 };
-use rustc_hash::FxBuildHasher;
 
 use smallvec::SmallVec;
 pub use solver::*;
@@ -112,7 +112,7 @@ mod solver {
     pub struct DataflowSolver {
         child_analyses: HashMap<TypeId, Box<dyn DataflowAnalysis>>,
         worklist: RefCell<VecDeque<SolverWorkItem>>,
-        anchor_hash: FxBuildHasher,
+        anchor_hash: FixedState,
         analysis_states: RefCell<AnalysisStates>,
         config: SolverConfig,
     }

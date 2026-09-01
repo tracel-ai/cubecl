@@ -327,7 +327,7 @@ fn format_reg_and_inc(count: &mut u8) -> String {
 
 pub(super) fn supported_cmma_combinations_ptx(arch: &CudaArchitecture) -> SupportedMmaCombinations {
     let mut result: SupportedMmaCombinations = vec![];
-    if arch.get_version() >= WMMA_MINIMUM_VERSION {
+    if arch.get_version() >= WMMA_MINIMUM_VERSION && arch.tensor_cores {
         // Types fully supported.
         let types = vec![
             (

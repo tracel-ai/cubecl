@@ -1,5 +1,5 @@
+use crate::EnumSetType;
 use cubecl_common::{e4m3, e5m2, ue8m0};
-use enumset::EnumSetType;
 use pliron::{context::Context, r#type::TypeHandle};
 
 use crate::types::scalar::{Float8E4M3Type, Float8E5M2Type, Float8E8M0Type};
@@ -14,7 +14,7 @@ const FP8_MAGNITUDE_MASK: u32 = 0x7F;
 /// enum answers — which 8-bit formats does the backend convert natively, and which need the
 /// software path — is the same question for it, and it is the scale type MXFP4 is defined on.
 /// The generic field arithmetic below does not serve it; the codec branches on it instead.
-#[derive(Debug, Hash, EnumSetType)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumSetType)]
 pub enum Fp8Format {
     E4M3,
     E5M2,

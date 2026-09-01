@@ -877,12 +877,13 @@ impl_into_value!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::hash::{Hash, Hasher};
+    use core::hash::Hash;
+    use cubecl_common::hash::{StableHash, StableHasher};
 
-    fn hash(ty: Type) -> u64 {
-        let mut hasher = fnv::FnvHasher::default();
+    fn hash(ty: Type) -> StableHash {
+        let mut hasher = StableHasher::new();
         ty.hash(&mut hasher);
-        hasher.finish()
+        hasher.finalize()
     }
 
     #[test]
