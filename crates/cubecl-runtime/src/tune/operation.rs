@@ -4,6 +4,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
+use cubecl_common::hash::StableHasher;
 
 use alloc::format;
 
@@ -121,7 +122,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
         for tune in &self.tunables {
             checksum += &tune.function.name;
         }
-        format!("{:x}", md5::compute(checksum))
+        format!("{:x}", StableHasher::hash_one(&checksum))
     }
 
     /// Generate a key from a set of inputs

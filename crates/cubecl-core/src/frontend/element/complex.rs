@@ -77,7 +77,7 @@ pub trait ComplexCore:
 
     fn supported_complex_uses<R: Runtime>(
         client: &ComputeClient<R>,
-    ) -> enumset::EnumSet<ComplexUsage> {
+    ) -> cubecl_ir::EnumSet<ComplexUsage> {
         client.properties().complex_usage(Self::elem_type_native())
     }
 }

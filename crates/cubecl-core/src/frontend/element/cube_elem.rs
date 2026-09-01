@@ -6,10 +6,10 @@ use crate::{
     prelude::{Const, CubeDebug, IntoMut, Size},
     unexpanded,
 };
+use cubecl_ir::EnumSet;
 use cubecl_ir::{ConstantValue, ElemType, ExpandValue, features::TypeUsage, interfaces::TypedExt};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
-use enumset::EnumSet;
 use pliron::r#type::TypeHandle;
 
 use crate::frontend::CubeType;
