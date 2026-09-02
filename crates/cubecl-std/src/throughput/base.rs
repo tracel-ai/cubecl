@@ -4,9 +4,9 @@ use cubecl_runtime::{
     runtime::Runtime,
     server::CubeDim,
     throughput::{
-        DEFAULT_BUFFER_BYTES, MemoryAccess, MemoryCurve, MemoryPoint, MemorySpec,
-        ThroughputBenchmarker, ThroughputKey, ThroughputMode, ThroughputValue, sweep_size,
-        working_set_sweep,
+        ComputeCmmaConfig, DEFAULT_BUFFER_BYTES, KernelConfig, MemoryAccess, MemoryCurve,
+        MemoryPoint, MemorySpec, ThroughputBenchmarker, ThroughputKey, ThroughputMode,
+        ThroughputValue, sweep_size, working_set_sweep,
     },
     tune::{Bounds, Thresholds, Work, calculate_bounds},
 };
@@ -95,28 +95,42 @@ pub fn measure_peak_throughput<R: Runtime>(
 
     let launch_config = launch_config(client, key.dtype());
 
-    let kernel_config = match key.mode {
-        ThroughputMode::ComputeDirect { .. } => {
-            compute_direct::build_kernel(client, key, launch_config)
-        }
+    let candidates = match key.mode {
+        ThroughputMode::ComputeDirect { .. } => arithmetic_widths(client, key.dtype())
+            .into_iter()
+            .map(|vector_size| {
+                let config = LaunchConfig {
+                    vector_size,
+                    ..launch_config
+                };
+                compute_direct::build_kernel(client, key, config)
+            })
+            .collect(),
         ThroughputMode::ComputeCmma {
+            dtype,
             config: cmma_config,
-            ..
         } => {
-            if client.properties().features.matmul.cmma.is_empty() {
+            if !implements_cmma(client, dtype, cmma_config) {
                 return ThroughputValue::ZERO;
             }
-            compute_cmma::build_kernel(client, key, cmma_config, launch_config)
+            alloc::vec![compute_cmma::build_kernel(
+                client,
+                key,
+                cmma_config,
+                launch_config
+            )]
         }
-        ThroughputMode::Memory(spec) => match spec.access {
+        ThroughputMode::Memory(spec) => alloc::vec![match spec.access {
             MemoryAccess::Copy => memory_direct::build_kernel(client, key, launch_config, spec),
             MemoryAccess::Read => memory_read::build_kernel(client, key, launch_config, spec),
             MemoryAccess::Write => memory_write::build_kernel(client, key, launch_config, spec),
-        },
-        ThroughputMode::Launch => launch_overhead::build_kernel(client, key, launch_config),
+        }],
+        ThroughputMode::Launch => {
+            alloc::vec![launch_overhead::build_kernel(client, key, launch_config)]
+        }
     };
 
-    let value = client.measure_throughput(key, || ThroughputBenchmarker::sample(kernel_config));
+    let value = client.measure_throughput(key, || fastest_shape(candidates));
 
     client.memory_cleanup();
 
@@ -153,6 +167,62 @@ pub fn roofline_bounds<R: Runtime>(
         ),
         launch_overhead: measure_peak_throughput(client, launch_key).duration_per_op(),
     }
+}
+
+/// What the device answers fastest, of the shapes a probe can be launched in.
+///
+/// A rate that is not finite is a shape that did not run rather than a slow
+/// one, so it does not stand as an answer; where none of them ran there is no
+/// peak to report.
+fn fastest_shape(candidates: alloc::vec::Vec<KernelConfig>) -> ThroughputValue {
+    candidates
+        .into_iter()
+        .map(ThroughputBenchmarker::sample)
+        .filter(|value| value.ops_per_s().is_finite())
+        .max_by(|a, b| a.ops_per_s().total_cmp(&b.ops_per_s()))
+        .unwrap_or(ThroughputValue::ZERO)
+}
+
+/// The vector widths an arithmetic probe is measured at.
+///
+/// [`io_optimized_vector_sizes`](ComputeClient::io_optimized_vector_sizes)
+/// orders widest first because it describes load and store instructions, and
+/// an arithmetic probe issues none. Which width retires the most is a property
+/// of the device — a SIMD CPU needs the widest, while on a scalar-lane GPU the
+/// lane layout a wide vector imposes costs more shuffling than its packing
+/// saves — so the probe measures every width the device offers.
+fn arithmetic_widths<R: Runtime>(
+    client: &ComputeClient<R>,
+    dtype: ElemType,
+) -> alloc::vec::Vec<usize> {
+    let widths: alloc::vec::Vec<usize> = client.io_optimized_vector_sizes(dtype.size()).collect();
+
+    if widths.is_empty() {
+        alloc::vec![1]
+    } else {
+        widths
+    }
+}
+
+/// Whether the device implements the cooperative matrix the probe launches.
+///
+/// A non-empty capability list says the device has tensor hardware, not that it
+/// has this shape on it, and launching a shape it lacks measures nothing while
+/// looking like any other number. The manual `mma` list is deliberately not
+/// consulted: the probe issues `cmma::execute`.
+fn implements_cmma<R: Runtime>(
+    client: &ComputeClient<R>,
+    dtype: ElemType,
+    config: ComputeCmmaConfig,
+) -> bool {
+    client.properties().features.matmul.cmma.iter().any(|it| {
+        it.a_type == dtype
+            && it.b_type == dtype
+            && it.cd_type == config.accumulator_type
+            && it.m as usize == config.cmma_dims.m
+            && it.n as usize == config.cmma_dims.n
+            && it.k as usize == config.cmma_dims.k
+    })
 }
 
 /// Hardware execution parameters for launching a compute kernel.
