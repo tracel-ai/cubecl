@@ -106,9 +106,6 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
             }
         }
 
-        // Step to the next window, modulo the pool — see
-        // [`MemoryProbe`](super::memory_probe::MemoryProbe) on why it is
-        // modulo and not a wrap counter.
         start += window;
         if start >= len {
             start -= len;

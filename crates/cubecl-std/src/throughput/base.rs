@@ -4,15 +4,16 @@ use cubecl_runtime::{
     runtime::Runtime,
     server::CubeDim,
     throughput::{
-        ComputeCmmaConfig, DEFAULT_BUFFER_BYTES, KernelConfig, MemoryAccess, MemoryCurve,
-        MemoryPoint, MemorySpec, ThroughputBenchmarker, ThroughputError, ThroughputKey,
-        ThroughputMode, ThroughputValue, sweep_size, working_set_sweep,
+        ComputeCmmaConfig, KernelConfig, MemoryAccess, MemoryCurve, MemoryPoint, MemorySpec,
+        ThroughputBenchmarker, ThroughputError, ThroughputKey, ThroughputMode, ThroughputValue,
+        sweep_size, working_set_sweep,
     },
     tune::{Bounds, Thresholds, Work, calculate_bounds},
 };
 
 use crate::throughput::{
-    compute_cmma, compute_direct, launch_overhead, memory_direct, memory_read, memory_write,
+    compute_cmma, compute_direct, launch_overhead, memory_direct, memory_probe, memory_read,
+    memory_write,
 };
 
 /// Independent cube positions each CPU worker interleaves, so a compute
@@ -80,12 +81,12 @@ fn sweep<R: Runtime>(
         .collect()
 }
 
-/// The largest working set `access` can be probed at: as much as one buffer can
-/// hold, times the buffers the access touches.
+/// The largest working set `access` can be probed at: the largest window one
+/// buffer holds, times the buffers the access touches.
 fn working_set_cap<R: Runtime>(client: &ComputeClient<R>, access: MemoryAccess) -> u64 {
     let max_alloc = client.properties().memory.max_page_size;
 
-    DEFAULT_BUFFER_BYTES.min(max_alloc) * access.buffers()
+    memory_probe::window_cap(max_alloc) * access.buffers()
 }
 
 /// Computes the peak throughput for a given runtime and key.

@@ -8,9 +8,10 @@ use thiserror::Error;
 /// a probe changes what it reports.
 pub const PROBE_VERSION: u32 = 1;
 
-/// Bytes per buffer of a [`ThroughputMode::Memory`] probe left at its default
-/// working set. Clamped to the device's maximum allocation when the probe runs.
-pub const DEFAULT_BUFFER_BYTES: u64 = 512 * 1024 * 1024;
+/// Bytes one buffer of a [`ThroughputMode::Memory`] probe moves per pass at its
+/// default working set. The probe's buffer is a multiple of this, and both are
+/// clamped to the device's maximum allocation when the probe runs.
+pub const DEFAULT_WORKING_SET_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Which directions of traffic a memory probe issues.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
@@ -44,9 +45,9 @@ impl MemoryAccess {
     }
 
     /// The working set of the single-size probe for this access, in bytes moved
-    /// per pass: [`DEFAULT_BUFFER_BYTES`] per buffer touched.
+    /// per pass: [`DEFAULT_WORKING_SET_BYTES`] per buffer touched.
     pub const fn default_working_set(&self) -> u64 {
-        DEFAULT_BUFFER_BYTES * self.buffers()
+        DEFAULT_WORKING_SET_BYTES * self.buffers()
     }
 }
 
