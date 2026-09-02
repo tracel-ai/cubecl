@@ -42,18 +42,11 @@ impl ThroughputBenchmarker {
         }
     }
 
-    /// The value for `key`, measured by `probe` unless the cache already holds
-    /// one, and kept when it is measured.
-    ///
-    /// What a peak is measured *from* is the caller's: a probe may have several
-    /// shapes to try, and which of them the device answers fastest is knowledge
-    /// about that probe rather than about timing it.
+    /// The value for `key`, measured by `probe` unless the cache holds one.
     ///
     /// # Errors
     ///
-    /// Whatever `probe` reports it could not measure. Only a measurement is
-    /// cached, so a device asked for something it does not implement answers
-    /// from its capabilities every time rather than from a stored absence.
+    /// Whatever `probe` reports. Only a measurement is cached.
     pub fn measure(
         &mut self,
         key: ThroughputKey,
@@ -74,8 +67,7 @@ impl ThroughputBenchmarker {
         Ok(value)
     }
 
-    /// Time one shape of a kernel: warm it up until it plateaus, then sample it
-    /// over several launches keeping the minimum time per iteration.
+    /// Warm one shape of a kernel up to its plateau, then keep its fastest sample.
     pub fn sample(kernel_config: KernelConfig) -> ThroughputValue {
         let sample = kernel_config.sample;
 

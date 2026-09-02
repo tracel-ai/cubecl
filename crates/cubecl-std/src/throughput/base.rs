@@ -90,9 +90,9 @@ fn working_set_cap<R: Runtime>(client: &ComputeClient<R>, access: MemoryAccess) 
 ///
 /// # Errors
 ///
-/// [`Unsupported`](ThroughputError::Unsupported) where the device
-/// implements no such operation, and [`NoTiming`](ThroughputError::NoTiming)
-/// where it does but reported no elapsed time for any shape of the probe.
+/// [`Unsupported`](ThroughputError::Unsupported) where the device implements
+/// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
+/// and reported no elapsed time.
 pub fn measure_peak_throughput<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
@@ -107,9 +107,7 @@ pub fn measure_peak_throughput<R: Runtime>(
 
     let candidates = match key.mode {
         ThroughputMode::ComputeDirect { dtype } => {
-            // Without this the kernel is built for a type the backend cannot
-            // lower, which is a panic on a compiler worker rather than an
-            // answer the caller can read.
+            // A type the backend cannot lower panics rather than answering.
             if !client.properties().features.supports_type(dtype) {
                 return Err(ThroughputError::Unsupported);
             }
@@ -176,10 +174,7 @@ pub fn roofline_bounds<R: Runtime>(
         mode: ThroughputMode::Launch,
     };
 
-    // A resource with no measured peak has no ceiling to bound against, which
-    // is what a zero peak already means to `ResourceBound::time_at_peak`: it
-    // declines to divide by one. An unmeasurable launch is charged as free,
-    // which is the wgpu backends today and understates their bounds.
+    // No ceiling to bound against, which `time_at_peak` already declines.
     let no_ceiling = ThroughputValue::ZERO;
 
     Bounds {
@@ -198,8 +193,7 @@ pub fn roofline_bounds<R: Runtime>(
 
 /// What the device answers fastest, of the shapes a probe can be launched in.
 ///
-/// A rate that is not finite is a shape that did not run rather than a slow
-/// one, so it does not stand as an answer.
+/// A rate that is not finite is a shape that did not run, not a slow one.
 fn fastest_shape(
     candidates: alloc::vec::Vec<KernelConfig>,
 ) -> Result<ThroughputValue, ThroughputError> {
@@ -213,12 +207,8 @@ fn fastest_shape(
 
 /// The vector widths an arithmetic probe is measured at.
 ///
-/// [`io_optimized_vector_sizes`](ComputeClient::io_optimized_vector_sizes)
-/// orders widest first because it describes load and store instructions, and
-/// an arithmetic probe issues none. Which width retires the most is a property
-/// of the device — a SIMD CPU needs the widest, while on a scalar-lane GPU the
-/// lane layout a wide vector imposes costs more shuffling than its packing
-/// saves — so the probe measures every width the device offers.
+/// `io_optimized_vector_sizes` is ordered for the loads and stores this probe
+/// issues none of, and its widest is not the fastest on every device.
 fn arithmetic_widths<R: Runtime>(
     client: &ComputeClient<R>,
     dtype: ElemType,
@@ -234,10 +224,8 @@ fn arithmetic_widths<R: Runtime>(
 
 /// Whether the device implements the cooperative matrix the probe launches.
 ///
-/// A non-empty capability list says the device has tensor hardware, not that it
-/// has this shape on it, and launching a shape it lacks measures nothing while
-/// looking like any other number. The manual `mma` list is deliberately not
-/// consulted: the probe issues `cmma::execute`.
+/// A non-empty capability list says the device has tensor hardware, not this
+/// shape of it. `mma` is not consulted: the probe issues `cmma::execute`.
 fn implements_cmma<R: Runtime>(
     client: &ComputeClient<R>,
     dtype: ElemType,

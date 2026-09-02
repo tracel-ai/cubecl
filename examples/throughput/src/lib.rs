@@ -116,8 +116,7 @@ pub fn all<R: Runtime>(device: &R::Device) {
     });
 }
 
-/// One line of the report: what it measures, on which operands, and the probe
-/// behind it — or `None` where the device implements no such thing.
+/// One line of the report, or `None` where the device implements no such thing.
 struct Row {
     mode: &'static str,
     operands: String,
@@ -139,8 +138,6 @@ fn report<R: Runtime>(device: &R::Device, rows: impl FnOnce(&ComputeClient<R>) -
                 Ok(value) => value.format(&key),
                 Err(unavailable) => unavailable.to_string(),
             },
-            // A row the device could not even be asked for: no tile to name, no
-            // type to compute in.
             None => ThroughputError::Unsupported.to_string(),
         };
 
@@ -168,8 +165,8 @@ fn compute_direct_rows<R: Runtime>(client: &ComputeClient<R>) -> Vec<Row> {
 
 /// A row per accumulator width, at f16 inputs.
 ///
-/// The accumulator earns a row of its own because consumer parts halve their
-/// tensor rate for f32 accumulation, which is the one a matmul runs on.
+/// Consumer parts halve their tensor rate for f32 accumulation, which is the
+/// one a matmul runs on.
 fn compute_cmma_rows<R: Runtime>(client: &ComputeClient<R>) -> Vec<Row> {
     let dtype = ElemType::Float(FloatKind::F16);
 
@@ -206,9 +203,8 @@ fn compute_cmma_rows<R: Runtime>(client: &ComputeClient<R>) -> Vec<Row> {
 
 /// The largest cooperative matrix the device implements for these operands.
 ///
-/// Read from the `cmma` capability rather than through `select_cmma_tile`,
-/// which answers from the manual `mma` list as well: the probe issues
-/// `cmma::execute`, and a shape only the other instruction has does not run.
+/// Read from `cmma` rather than through `select_cmma_tile`, which answers from
+/// `mma` as well: a shape only that instruction has does not run here.
 fn largest_cmma<R: Runtime>(
     client: &ComputeClient<R>,
     dtype: ElemType,
