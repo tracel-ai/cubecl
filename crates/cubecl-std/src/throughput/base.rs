@@ -24,9 +24,8 @@ use crate::throughput::{
 /// [`MemoryProbe::new`](crate::throughput::memory_probe::MemoryProbe::new)).
 const CPU_CHAIN_DEPTH: usize = 64;
 
-/// Units a GPU probe asks for. Every larger ask resolves here anyway, since
-/// [`CubeDim::new`] caps a cube at eight planes; cubes built wider than that
-/// measure no faster, and make the memory probes report impossible rates.
+/// Units a GPU probe asks for. A wider cube measures no faster, and makes the
+/// memory probes report several times the bus rate.
 const PROBE_UNITS_PER_CUBE: u32 = 256;
 
 /// Measure peak throughput on `device` for each of the given `keys`.
@@ -249,8 +248,8 @@ fn implements_cmma<R: Runtime>(
 /// Hardware execution parameters for launching a compute kernel.
 #[derive(Clone, Copy)]
 pub struct LaunchConfig {
-    /// The cube the probe launches, resolved once so every runner counts the
-    /// operations the launch it issues actually performs.
+    /// The cube the probe launches, resolved once so `ops_count` cannot
+    /// describe a launch that did not happen.
     pub cube_dim: CubeDim,
     /// The total number of cubes to dispatch.
     pub cube_count: usize,
