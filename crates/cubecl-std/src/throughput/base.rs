@@ -171,9 +171,7 @@ pub fn roofline_bounds<R: Runtime>(
 
 /// What the device answers fastest, of the shapes a probe can be launched in.
 ///
-/// A rate that is not finite is a shape that did not run rather than a slow
-/// one, so it does not stand as an answer; where none of them ran there is no
-/// peak to report.
+/// A rate that is not finite is a shape that did not run, not a slow one.
 fn fastest_shape(candidates: alloc::vec::Vec<KernelConfig>) -> ThroughputValue {
     candidates
         .into_iter()
@@ -185,12 +183,8 @@ fn fastest_shape(candidates: alloc::vec::Vec<KernelConfig>) -> ThroughputValue {
 
 /// The vector widths an arithmetic probe is measured at.
 ///
-/// [`io_optimized_vector_sizes`](ComputeClient::io_optimized_vector_sizes)
-/// orders widest first because it describes load and store instructions, and
-/// an arithmetic probe issues none. Which width retires the most is a property
-/// of the device — a SIMD CPU needs the widest, while on a scalar-lane GPU the
-/// lane layout a wide vector imposes costs more shuffling than its packing
-/// saves — so the probe measures every width the device offers.
+/// `io_optimized_vector_sizes` is ordered for the loads and stores this probe
+/// issues none of, and its widest is not the fastest on every device.
 fn arithmetic_widths<R: Runtime>(
     client: &ComputeClient<R>,
     dtype: ElemType,
@@ -206,10 +200,8 @@ fn arithmetic_widths<R: Runtime>(
 
 /// Whether the device implements the cooperative matrix the probe launches.
 ///
-/// A non-empty capability list says the device has tensor hardware, not that it
-/// has this shape on it, and launching a shape it lacks measures nothing while
-/// looking like any other number. The manual `mma` list is deliberately not
-/// consulted: the probe issues `cmma::execute`.
+/// A non-empty capability list says the device has tensor hardware, not this
+/// shape of it. `mma` is not consulted: the probe issues `cmma::execute`.
 fn implements_cmma<R: Runtime>(
     client: &ComputeClient<R>,
     dtype: ElemType,

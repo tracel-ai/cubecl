@@ -1545,7 +1545,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
     ///
-    /// `probe` runs only when this device has no cached value for `key`.
+    /// `probe` runs only when the cache has no value for `key`.
     pub fn measure_throughput(
         &self,
         key: ThroughputKey,
