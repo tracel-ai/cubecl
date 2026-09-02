@@ -1,6 +1,6 @@
 use crate::{
     config::CubeClRuntimeConfig,
-    throughput::{ThroughputCache, ThroughputKey, ThroughputValue},
+    throughput::{ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue},
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -48,24 +48,30 @@ impl ThroughputBenchmarker {
     /// What a peak is measured *from* is the caller's: a probe may have several
     /// shapes to try, and which of them the device answers fastest is knowledge
     /// about that probe rather than about timing it.
+    ///
+    /// # Errors
+    ///
+    /// Whatever `probe` reports it could not measure. Only a measurement is
+    /// cached, so a device asked for something it does not implement answers
+    /// from its capabilities every time rather than from a stored absence.
     pub fn measure(
         &mut self,
         key: ThroughputKey,
-        probe: impl FnOnce() -> ThroughputValue,
-    ) -> ThroughputValue {
+        probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
+    ) -> Result<ThroughputValue, ThroughputError> {
         if self.cache_enabled
             && let Some(cached_value) = self.cache.lock().get(&key)
         {
-            return *cached_value;
+            return Ok(*cached_value);
         }
 
-        let value = probe();
+        let value = probe()?;
 
         if self.cache_enabled {
             self.cache.lock().insert(key, value);
         }
 
-        value
+        Ok(value)
     }
 
     /// Time one shape of a kernel: warm it up until it plateaus, then sample it

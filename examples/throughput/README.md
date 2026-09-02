@@ -43,8 +43,10 @@ Peak throughput — cuda / NVIDIA GeForce RTX 4070 Ti SUPER
 
 A row reads `unsupported` where the device implements no such thing: a
 cooperative matrix on a card without tensor hardware, a type it cannot compute
-in. A row that measured nothing reads `N/A` instead — the two are different
-answers.
+in. It reads `no timing` where the device does implement it and reported no
+elapsed time for any shape of the probe — which is every wgpu backend's launch
+row, since that is the one probe timed on the device rather than on the host.
+The two are different answers, and neither is a slow one.
 
 ## Reading the numbers
 

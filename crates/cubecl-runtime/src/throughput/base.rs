@@ -2,6 +2,7 @@ use crate::throughput::{CmmaDims, ComputeCmmaConfig};
 use alloc::{format, string::String};
 use core::time::Duration;
 use cubecl_ir::{ElemType, FloatKind};
+use thiserror::Error;
 
 /// Bytes per buffer of a [`ThroughputMode::Memory`] probe left at its default
 /// working set. Clamped to the device's maximum allocation when the probe runs.
@@ -125,6 +126,24 @@ impl ThroughputKey {
             ThroughputMode::Memory(_) | ThroughputMode::Launch => ElemType::Float(FloatKind::F32),
         }
     }
+}
+
+/// Why a device has no peak to report for a probe.
+///
+/// These are answers, not failures to get one: a card without tensor hardware
+/// is not slow at cooperative matrices, and a backend whose timer reports no
+/// elapsed time has not measured a fast kernel. Collapsing them into a number
+/// leaves a consumer dividing by a peak that was never measured.
+#[derive(Error, Eq, PartialEq, Clone, Copy, Debug)]
+pub enum ThroughputError {
+    /// The device implements no such operation: a cooperative matrix shape it
+    /// does not have, a type it cannot compute in.
+    #[error("unsupported")]
+    Unsupported,
+    /// Every shape of the probe launched, and the device's timer reported no
+    /// elapsed time for any of them.
+    #[error("no timing")]
+    NoTiming,
 }
 
 /// Represents the throughput of a computation, including the number of operations and the duration.

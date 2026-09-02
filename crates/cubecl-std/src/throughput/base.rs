@@ -5,8 +5,8 @@ use cubecl_runtime::{
     server::CubeDim,
     throughput::{
         ComputeCmmaConfig, DEFAULT_BUFFER_BYTES, KernelConfig, MemoryAccess, MemoryCurve,
-        MemoryPoint, MemorySpec, ThroughputBenchmarker, ThroughputKey, ThroughputMode,
-        ThroughputValue, sweep_size, working_set_sweep,
+        MemoryPoint, MemorySpec, ThroughputBenchmarker, ThroughputError, ThroughputKey,
+        ThroughputMode, ThroughputValue, sweep_size, working_set_sweep,
     },
     tune::{Bounds, Thresholds, Work, calculate_bounds},
 };
@@ -28,7 +28,7 @@ const CPU_CHAIN_DEPTH: usize = 64;
 pub fn device_throughput<R: Runtime>(
     device: &R::Device,
     keys: &[ThroughputKey],
-) -> alloc::vec::Vec<ThroughputValue> {
+) -> alloc::vec::Vec<Result<ThroughputValue, ThroughputError>> {
     let client = R::client(device);
     keys.iter()
         .map(|key| measure_peak_throughput::<R>(&client, *key))
@@ -65,9 +65,13 @@ fn sweep<R: Runtime>(
 ) -> alloc::vec::Vec<MemoryPoint> {
     working_set_sweep(working_set_cap(client, access))
         .into_iter()
-        .map(|bytes| MemoryPoint {
-            bytes,
-            value: measure_peak_throughput::<R>(client, ThroughputKey { mode: mode(bytes) }),
+        .filter_map(|bytes| {
+            let key = ThroughputKey { mode: mode(bytes) };
+
+            Some(MemoryPoint {
+                bytes,
+                value: measure_peak_throughput::<R>(client, key).ok()?,
+            })
         })
         .collect()
 }
@@ -83,10 +87,16 @@ fn working_set_cap<R: Runtime>(client: &ComputeClient<R>, access: MemoryAccess) 
 /// Computes the peak throughput for a given runtime and key.
 ///
 /// Native only, panics on WASM
+///
+/// # Errors
+///
+/// [`Unsupported`](ThroughputError::Unsupported) where the device
+/// implements no such operation, and [`NoTiming`](ThroughputError::NoTiming)
+/// where it does but reported no elapsed time for any shape of the probe.
 pub fn measure_peak_throughput<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
-) -> ThroughputValue {
+) -> Result<ThroughputValue, ThroughputError> {
     // A throughput probe is a measurement: inside a dry run its launches must
     // still execute, or they would be timed anyway and cache a garbage peak in
     // the device-level throughput store. The guard is read where the launch is
@@ -96,22 +106,31 @@ pub fn measure_peak_throughput<R: Runtime>(
     let launch_config = launch_config(client, key.dtype());
 
     let candidates = match key.mode {
-        ThroughputMode::ComputeDirect { .. } => arithmetic_widths(client, key.dtype())
-            .into_iter()
-            .map(|vector_size| {
-                let config = LaunchConfig {
-                    vector_size,
-                    ..launch_config
-                };
-                compute_direct::build_kernel(client, key, config)
-            })
-            .collect(),
+        ThroughputMode::ComputeDirect { dtype } => {
+            // Without this the kernel is built for a type the backend cannot
+            // lower, which is a panic on a compiler worker rather than an
+            // answer the caller can read.
+            if !client.properties().features.supports_type(dtype) {
+                return Err(ThroughputError::Unsupported);
+            }
+
+            arithmetic_widths(client, dtype)
+                .into_iter()
+                .map(|vector_size| {
+                    let config = LaunchConfig {
+                        vector_size,
+                        ..launch_config
+                    };
+                    compute_direct::build_kernel(client, key, config)
+                })
+                .collect()
+        }
         ThroughputMode::ComputeCmma {
             dtype,
             config: cmma_config,
         } => {
             if !implements_cmma(client, dtype, cmma_config) {
-                return ThroughputValue::ZERO;
+                return Err(ThroughputError::Unsupported);
             }
             alloc::vec![compute_cmma::build_kernel(
                 client,
@@ -157,30 +176,39 @@ pub fn roofline_bounds<R: Runtime>(
         mode: ThroughputMode::Launch,
     };
 
+    // A resource with no measured peak has no ceiling to bound against, which
+    // is what a zero peak already means to `ResourceBound::time_at_peak`: it
+    // declines to divide by one. An unmeasurable launch is charged as free,
+    // which is the wgpu backends today and understates their bounds.
+    let no_ceiling = ThroughputValue::ZERO;
+
     Bounds {
         bounds: calculate_bounds(
             work,
             thresholds,
-            &measure_peak_throughput(client, compute_key),
-            &measure_peak_throughput(client, memory_key),
+            &measure_peak_throughput(client, compute_key).unwrap_or(no_ceiling),
+            &measure_peak_throughput(client, memory_key).unwrap_or(no_ceiling),
             &memory_key,
         ),
-        launch_overhead: measure_peak_throughput(client, launch_key).duration_per_op(),
+        launch_overhead: measure_peak_throughput(client, launch_key)
+            .map(|value| value.duration_per_op())
+            .unwrap_or_default(),
     }
 }
 
 /// What the device answers fastest, of the shapes a probe can be launched in.
 ///
 /// A rate that is not finite is a shape that did not run rather than a slow
-/// one, so it does not stand as an answer; where none of them ran there is no
-/// peak to report.
-fn fastest_shape(candidates: alloc::vec::Vec<KernelConfig>) -> ThroughputValue {
+/// one, so it does not stand as an answer.
+fn fastest_shape(
+    candidates: alloc::vec::Vec<KernelConfig>,
+) -> Result<ThroughputValue, ThroughputError> {
     candidates
         .into_iter()
         .map(ThroughputBenchmarker::sample)
         .filter(|value| value.ops_per_s().is_finite())
         .max_by(|a, b| a.ops_per_s().total_cmp(&b.ops_per_s()))
-        .unwrap_or(ThroughputValue::ZERO)
+        .ok_or(ThroughputError::NoTiming)
 }
 
 /// The vector widths an arithmetic probe is measured at.
