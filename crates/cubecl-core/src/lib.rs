@@ -78,8 +78,8 @@ pub use prelude::{Assign, IntoRuntime};
 
 /// Calculate the number of cubes required to execute an operation where one cube unit is
 /// assigned to one element.
-pub fn calculate_cube_count_elemwise<R: Runtime>(
-    client: &ComputeClient<R>,
+pub fn calculate_cube_count_elemwise(
+    client: &ComputeClient,
     num_elems: usize,
     cube_dim: CubeDim,
 ) -> CubeCount {

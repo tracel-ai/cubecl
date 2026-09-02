@@ -1,7 +1,6 @@
 //! Allocation controller that lazily reads a device resource into host memory.
 
 use super::ComputeClient;
-use crate::runtime::Runtime;
 use crate::server::CopyDescriptor;
 use alloc::boxed::Box;
 use alloc::format;
@@ -31,15 +30,15 @@ use cubecl_zspace::striding::has_contiguous_row_major_strides;
 /// read. This matches the typical use case of serializing frozen weights.
 ///
 /// [`read_lazy`]: ComputeClient::read_lazy
-pub struct LazyDeviceController<R: Runtime> {
-    client: ComputeClient<R>,
+pub struct LazyDeviceController {
+    client: ComputeClient,
     descriptor: Arc<CopyDescriptor>,
     /// Host bytes, materialized from the device on first access.
     materialized: Once<Bytes>,
 }
 
-impl<R: Runtime> LazyDeviceController<R> {
-    pub(super) fn new(client: ComputeClient<R>, descriptor: Arc<CopyDescriptor>) -> Self {
+impl LazyDeviceController {
+    pub(super) fn new(client: ComputeClient, descriptor: Arc<CopyDescriptor>) -> Self {
         Self {
             client,
             descriptor,
@@ -86,7 +85,7 @@ impl<R: Runtime> LazyDeviceController<R> {
     }
 }
 
-impl<R: Runtime> AllocationController for LazyDeviceController<R> {
+impl AllocationController for LazyDeviceController {
     fn alloc_align(&self) -> usize {
         // Avoid materializing just to answer. `try_detach` is never implemented, so this is not
         // used for `Vec` reconstruction; a conservative value is fine before materialization.

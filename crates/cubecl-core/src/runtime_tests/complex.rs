@@ -4,8 +4,8 @@ use core::fmt::{Debug, Display};
 use cubecl::prelude::*;
 use cubecl_runtime::server::ServerError;
 
-fn assert_exact_eq<R: Runtime, E: CubeElement + Debug + PartialEq>(
-    client: &ComputeClient<R>,
+fn assert_exact_eq<E: CubeElement + Debug + PartialEq>(
+    client: &ComputeClient,
     output: cubecl_runtime::server::Handle,
     expected: &[E],
 ) {
@@ -15,8 +15,8 @@ fn assert_exact_eq<R: Runtime, E: CubeElement + Debug + PartialEq>(
     assert_eq!(actual, expected);
 }
 
-fn assert_real_approx_eq<R: Runtime, F: num_traits::Float + CubeElement + Display>(
-    client: &ComputeClient<R>,
+fn assert_real_approx_eq<F: num_traits::Float + CubeElement + Display>(
+    client: &ComputeClient,
     output: cubecl_runtime::server::Handle,
     expected: &[F],
     epsilon: F,
@@ -41,8 +41,8 @@ fn assert_real_approx_eq<R: Runtime, F: num_traits::Float + CubeElement + Displa
     }
 }
 
-fn assert_complex_approx_eq<R: Runtime, F: num_traits::Float + CubeElement + Display>(
-    client: &ComputeClient<R>,
+fn assert_complex_approx_eq<F: num_traits::Float + CubeElement + Display>(
+    client: &ComputeClient,
     output: cubecl_runtime::server::Handle,
     expected: &[num_complex::Complex<F>],
     epsilon: F,
@@ -224,7 +224,7 @@ macro_rules! test_complex_binary_eq_op {
         rhs: [$($rhs:expr),+ $(,)?],
         expect: |$lhs_var:ident, $rhs_var:ident| $expected:expr
     ) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient) {
             type C = $ty;
             let lhs = vec![$($lhs),+];
             let rhs = vec![$($rhs),+];
@@ -240,7 +240,7 @@ macro_rules! test_complex_binary_eq_op {
             let handle_rhs = client.create_from_slice(C::as_bytes(&rhs));
 
             unsafe {
-                $kernel::launch_unchecked::<C, R>(
+                $kernel::launch_unchecked::<C>(
                     &client,
                     CubeCount::new_single(),
                     CubeDim::new_1d(lhs.len() as u32),
@@ -263,7 +263,7 @@ macro_rules! test_complex_unary_eq_op {
         input: [$($value:expr),+ $(,)?],
         expect: |$value_var:ident| $expected:expr
     ) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient) {
             type C = $ty;
             let input = vec![$($value),+];
             let expected = input
@@ -276,7 +276,7 @@ macro_rules! test_complex_unary_eq_op {
             let handle_input = client.create_from_slice(C::as_bytes(&input));
 
             unsafe {
-                $kernel::launch_unchecked::<C, R>(
+                $kernel::launch_unchecked::<C>(
                     &client,
                     CubeCount::new_single(),
                     CubeDim::new_1d(input.len() as u32),
@@ -299,7 +299,7 @@ macro_rules! test_complex_scalar_eq_op {
         scalar: $scalar:expr,
         expect: |$value_var:ident, $scale_var:ident| $expected:expr
     ) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient) {
             type C = $ty;
             let input = vec![$($value),+];
             let scale = $scalar;
@@ -315,7 +315,7 @@ macro_rules! test_complex_scalar_eq_op {
             let handle_output = client.create_from_slice(C::as_bytes(&input));
 
             unsafe {
-                $kernel::launch_unchecked::<C, R>(
+                $kernel::launch_unchecked::<C>(
                     &client,
                     CubeCount::new_single(),
                     CubeDim::new_1d(input.len() as u32),
@@ -338,7 +338,7 @@ macro_rules! test_complex_unary_scalar_eq_op {
         input: [$($value:expr),+ $(,)?],
         expect: |$value_var:ident| $expected:expr
     ) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient) {
             type C = $input_ty;
             type O = $output_ty;
             let input = vec![$($value),+];
@@ -352,7 +352,7 @@ macro_rules! test_complex_unary_scalar_eq_op {
             let handle_input = client.create_from_slice(C::as_bytes(&input));
 
             unsafe {
-                $kernel::launch_unchecked::<R>(
+                $kernel::launch_unchecked(
                     &client,
                     CubeCount::new_single(),
                     CubeDim::new_1d(input.len() as u32),
@@ -375,7 +375,7 @@ macro_rules! test_complex_binary_bool_eq_op {
         rhs: [$($rhs:expr),+ $(,)?],
         expect: |$lhs_var:ident, $rhs_var:ident| $expected:expr
     ) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient) {
             type C = $ty;
             let lhs = vec![$($lhs),+];
             let rhs = vec![$($rhs),+];
@@ -391,7 +391,7 @@ macro_rules! test_complex_binary_bool_eq_op {
             let handle_rhs = client.create_from_slice(C::as_bytes(&rhs));
 
             unsafe {
-                $kernel::launch_unchecked::<C, R>(
+                $kernel::launch_unchecked::<C>(
                     &client,
                     CubeCount::new_single(),
                     CubeDim::new_1d(lhs.len() as u32),
@@ -744,7 +744,7 @@ pub fn kernel_complex_powf<C: ComplexMath + Powf>(output: &mut [C], lhs: &[C], r
     }
 }
 
-pub fn test_complex_abs_cf32<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_complex_abs_cf32<R: Runtime>(client: ComputeClient) {
     type C = num_complex::Complex<f32>;
     let input = vec![C::new(3.0f32, 4.0f32), C::new(5.0f32, -12.0f32)];
     let expected = vec![complex_abs_value(input[0]), complex_abs_value(input[1])];
@@ -753,7 +753,7 @@ pub fn test_complex_abs_cf32<R: Runtime>(client: ComputeClient<R>) {
     let handle_input = client.create_from_slice(C::as_bytes(&input));
 
     unsafe {
-        kernel_complex_abs_cf32::launch_unchecked::<R>(
+        kernel_complex_abs_cf32::launch_unchecked(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
@@ -762,10 +762,10 @@ pub fn test_complex_abs_cf32<R: Runtime>(client: ComputeClient<R>) {
         )
     };
 
-    assert_real_approx_eq::<R, f32>(&client, handle_output, &expected, 1.0e-5f32);
+    assert_real_approx_eq::<f32>(&client, handle_output, &expected, 1.0e-5f32);
 }
 
-pub fn test_complex_norm_cf64<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_complex_norm_cf64<R: Runtime>(client: ComputeClient) {
     type C = num_complex::Complex<f64>;
     let input = vec![C::new(3.0f64, 4.0f64), C::new(5.0f64, -12.0f64)];
     let expected = vec![complex_abs_value(input[0]), complex_abs_value(input[1])];
@@ -774,7 +774,7 @@ pub fn test_complex_norm_cf64<R: Runtime>(client: ComputeClient<R>) {
     let handle_input = client.create_from_slice(C::as_bytes(&input));
 
     unsafe {
-        kernel_complex_norm_cf64::launch_unchecked::<R>(
+        kernel_complex_norm_cf64::launch_unchecked(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
@@ -783,12 +783,12 @@ pub fn test_complex_norm_cf64<R: Runtime>(client: ComputeClient<R>) {
         )
     };
 
-    assert_real_approx_eq::<R, f64>(&client, handle_output, &expected, 1.0e-12f64);
+    assert_real_approx_eq::<f64>(&client, handle_output, &expected, 1.0e-12f64);
 }
 
 macro_rules! test_complex_unary_op {
     ($test_name:ident, $kernel:ident, $method:ident, $ty:ty, $epsilon:expr, [$($value:expr),+ $(,)?]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient) {
             type C = $ty;
             let input = vec![$($value),+];
             let expected = input.iter().copied().map(|value| value.$method()).collect::<vec::Vec<_>>();
@@ -797,7 +797,7 @@ macro_rules! test_complex_unary_op {
             let handle_input = client.create_from_slice(C::as_bytes(&input));
 
             unsafe {
-                $kernel::launch_unchecked::<C, R>(
+                $kernel::launch_unchecked::<C>(
                     &client,
                     CubeCount::new_single(),
                     CubeDim::new_1d(input.len() as u32),
@@ -806,14 +806,14 @@ macro_rules! test_complex_unary_op {
                 )
             };
 
-            assert_complex_approx_eq::<R, _>(&client, handle_output, &expected, $epsilon);
+            assert_complex_approx_eq::<_>(&client, handle_output, &expected, $epsilon);
         }
     };
 }
 
 macro_rules! test_complex_powf_op {
     ($test_name:ident, $ty:ty, $epsilon:expr, lhs: [$($lhs:expr),+ $(,)?], rhs: [$($rhs:expr),+ $(,)?]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient) {
             type C = $ty;
             let lhs = vec![$($lhs),+];
             let rhs = vec![$($rhs),+];
@@ -829,7 +829,7 @@ macro_rules! test_complex_powf_op {
             let handle_rhs = client.create_from_slice(C::as_bytes(&rhs));
 
             unsafe {
-                kernel_complex_powf::launch_unchecked::<C, R>(
+                kernel_complex_powf::launch_unchecked::<C>(
                     &client,
                     CubeCount::new_single(),
                     CubeDim::new_1d(lhs.len() as u32),
@@ -839,7 +839,7 @@ macro_rules! test_complex_powf_op {
                 )
             };
 
-            assert_complex_approx_eq::<R, _>(&client, handle_output, &expected, $epsilon);
+            assert_complex_approx_eq::<_>(&client, handle_output, &expected, $epsilon);
         }
     };
 }
@@ -1097,7 +1097,7 @@ pub fn kernel_complex_validation_math<C: ComplexMath>(output: &mut [C], input: &
     }
 }
 
-pub fn test_complex_validation_core<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_complex_validation_core<R: Runtime>(client: ComputeClient) {
     type C = num_complex::Complex<f32>;
     if C::supported_complex_uses(&client).contains(cubecl::ir::features::ComplexUsage::Core) {
         return;
@@ -1107,7 +1107,7 @@ pub fn test_complex_validation_core<R: Runtime>(client: ComputeClient<R>) {
     let lhs = client.create_from_slice(C::as_bytes(&[C::new(1.0, 2.0)]));
     let rhs = client.create_from_slice(C::as_bytes(&[C::new(3.0, 4.0)]));
 
-    kernel_complex_validation_core::launch::<C, R>(
+    kernel_complex_validation_core::launch::<C>(
         &client,
         CubeCount::new_single(),
         CubeDim::new_1d(1),
@@ -1119,7 +1119,7 @@ pub fn test_complex_validation_core<R: Runtime>(client: ComputeClient<R>) {
     assert_complex_validation_error(client.read_one(output).map(|_| ()), "Complex operation");
 }
 
-pub fn test_complex_validation_compare<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_complex_validation_compare<R: Runtime>(client: ComputeClient) {
     type C = num_complex::Complex<f32>;
     if C::supported_complex_uses(&client).contains(cubecl::ir::features::ComplexUsage::Compare) {
         return;
@@ -1129,7 +1129,7 @@ pub fn test_complex_validation_compare<R: Runtime>(client: ComputeClient<R>) {
     let lhs = client.create_from_slice(C::as_bytes(&[C::new(1.0, 2.0)]));
     let rhs = client.create_from_slice(C::as_bytes(&[C::new(1.0, 2.0)]));
 
-    kernel_complex_validation_compare::launch::<C, R>(
+    kernel_complex_validation_compare::launch::<C>(
         &client,
         CubeCount::new_single(),
         CubeDim::new_1d(1),
@@ -1141,7 +1141,7 @@ pub fn test_complex_validation_compare<R: Runtime>(client: ComputeClient<R>) {
     assert_complex_validation_error(client.read_one(output).map(|_| ()), "Complex operation");
 }
 
-pub fn test_complex_validation_math<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_complex_validation_math<R: Runtime>(client: ComputeClient) {
     type C = num_complex::Complex<f32>;
     if C::supported_complex_uses(&client).contains(cubecl::ir::features::ComplexUsage::Math) {
         return;
@@ -1150,7 +1150,7 @@ pub fn test_complex_validation_math<R: Runtime>(client: ComputeClient<R>) {
     let output = client.empty(core::mem::size_of::<C>());
     let input = client.create_from_slice(C::as_bytes(&[C::new(1.0, 2.0)]));
 
-    kernel_complex_validation_math::launch::<C, R>(
+    kernel_complex_validation_math::launch::<C>(
         &client,
         CubeCount::new_single(),
         CubeDim::new_1d(1),

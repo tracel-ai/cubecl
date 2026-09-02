@@ -47,7 +47,7 @@ fn expm1_handles_large_and_extreme_inputs() {
     let output_handle = client.empty(n * core::mem::size_of::<f32>());
 
     unsafe {
-        expm1_kernel::launch_unchecked::<R>(
+        expm1_kernel::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(n as u32),

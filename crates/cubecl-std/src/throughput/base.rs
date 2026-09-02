@@ -30,7 +30,7 @@ pub fn device_throughput<R: Runtime>(
 ) -> alloc::vec::Vec<ThroughputValue> {
     let client = R::client(device);
     keys.iter()
-        .map(|key| measure_peak_throughput::<R>(&client, *key))
+        .map(|key| measure_peak_throughput(&client, *key))
         .collect()
 }
 
@@ -44,10 +44,10 @@ pub fn device_throughput<R: Runtime>(
 ///
 /// Native only, panics on WASM
 pub fn measure_memory_curve<R: Runtime>(
-    client: &ComputeClient<R>,
+    client: &ComputeClient,
     access: MemoryAccess,
 ) -> MemoryCurve {
-    let points = sweep::<R>(client, access, |bytes| {
+    let points = sweep(client, access, |bytes| {
         ThroughputMode::Memory(MemorySpec::new(access, bytes))
     });
 
@@ -57,8 +57,8 @@ pub fn measure_memory_curve<R: Runtime>(
 /// One measured point per size in [`working_set_sweep`], each cached exactly
 /// like the single-size probe, so a curve costs one probe per size on the
 /// first run and nothing afterwards.
-fn sweep<R: Runtime>(
-    client: &ComputeClient<R>,
+fn sweep(
+    client: &ComputeClient,
     access: MemoryAccess,
     mode: impl Fn(u64) -> ThroughputMode,
 ) -> alloc::vec::Vec<MemoryPoint> {
@@ -66,14 +66,14 @@ fn sweep<R: Runtime>(
         .into_iter()
         .map(|bytes| MemoryPoint {
             bytes,
-            value: measure_peak_throughput::<R>(client, ThroughputKey { mode: mode(bytes) }),
+            value: measure_peak_throughput(client, ThroughputKey { mode: mode(bytes) }),
         })
         .collect()
 }
 
 /// The largest working set `access` can be probed at: as much as one buffer can
 /// hold, times the buffers the access touches.
-fn working_set_cap<R: Runtime>(client: &ComputeClient<R>, access: MemoryAccess) -> u64 {
+fn working_set_cap(client: &ComputeClient, access: MemoryAccess) -> u64 {
     let max_alloc = client.properties().memory.max_page_size;
 
     DEFAULT_BUFFER_BYTES.min(max_alloc) * access.buffers()
@@ -82,10 +82,7 @@ fn working_set_cap<R: Runtime>(client: &ComputeClient<R>, access: MemoryAccess) 
 /// Computes the peak throughput for a given runtime and key.
 ///
 /// Native only, panics on WASM
-pub fn measure_peak_throughput<R: Runtime>(
-    client: &ComputeClient<R>,
-    key: ThroughputKey,
-) -> ThroughputValue {
+pub fn measure_peak_throughput(client: &ComputeClient, key: ThroughputKey) -> ThroughputValue {
     // A throughput probe is a measurement: inside a dry run its launches must
     // still execute, or they would be timed anyway and cache a garbage peak in
     // the device-level throughput store. The guard is read where the launch is
@@ -126,7 +123,7 @@ pub fn measure_peak_throughput<R: Runtime>(
 ///
 /// Measures compute and memory peak throughputs along with launch overhead for the runtime client.
 pub fn roofline_bounds<R: Runtime>(
-    client: &ComputeClient<R>,
+    client: &ComputeClient,
     compute_key: ThroughputKey,
     work: Work,
     thresholds: Thresholds,
@@ -167,7 +164,7 @@ pub struct LaunchConfig {
     pub plane_size: usize,
 }
 
-fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> LaunchConfig {
+fn launch_config(client: &ComputeClient, dtype: ElemType) -> LaunchConfig {
     let hardware = &client.properties().hardware;
 
     let plane_size = hardware.plane_size_max.max(1);

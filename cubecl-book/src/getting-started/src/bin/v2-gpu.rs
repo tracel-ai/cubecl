@@ -19,7 +19,7 @@ pub fn launch<R: Runtime, F: Float + CubeElement>(device: &R::Device) {
     let output = GpuTensor::<R, F>::empty(vec![3], &client);
 
     unsafe {
-        reduce_matrix::launch_unchecked::<F, R>(
+        reduce_matrix::launch_unchecked::<F>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),

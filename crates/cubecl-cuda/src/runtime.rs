@@ -387,8 +387,8 @@ impl Runtime for CudaRuntime {
     type Server = CudaServer;
     type Device = CudaDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self> {
-        ComputeClient::load(device)
+    fn client(device: &Self::Device) -> ComputeClient {
+        ComputeClient::load::<CudaServer>(device.to_id())
     }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {

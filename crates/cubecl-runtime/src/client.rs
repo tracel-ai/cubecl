@@ -8,7 +8,6 @@ use crate::{
         InstallMemoryPoolsError, MemoryAllocationMode, MemoryConfiguration, MemoryReport,
         MemoryUsage,
     },
-    runtime::Runtime,
     server::{
         BufferBinding, CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
@@ -21,13 +20,13 @@ use crate::{
     },
 };
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
-use core::{any::Any, marker::PhantomData};
+use core::any::Any;
 
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
-    device::{Device, DeviceId, ServiceId},
+    device::{DeviceId, ServiceId},
     device_handle::{CallResultExt, DeviceHandle},
     profile::ProfileDuration,
 };
@@ -42,11 +41,10 @@ use cubecl_environment::stream::StreamId;
 
 /// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
-pub struct ComputeClient<R: Runtime> {
+pub struct ComputeClient {
     device: DeviceHandle<dyn ComputeServer>,
     utilities: Arc<ServerUtilities>,
     stream_id: Option<StreamId>,
-    runtime: PhantomData<R>,
 }
 
 /// A captured graph produced by [`ComputeClient::stop_capture`]: a recorded
@@ -70,11 +68,11 @@ pub struct ComputeClient<R: Runtime> {
 /// replays, and reads from the same unpinned client — for the whole decode loop.
 /// Refreshing inputs from a client on a different stream races the replay and
 /// silently feeds it stale data.
-pub struct Graph<R: Runtime> {
-    inner: Arc<GraphHandle<R>>,
+pub struct Graph {
+    inner: Arc<GraphHandle>,
 }
 
-impl<R: Runtime> core::fmt::Debug for Graph<R> {
+impl core::fmt::Debug for Graph {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Graph")
             .field("id", &self.inner.id)
@@ -86,14 +84,13 @@ impl<R: Runtime> core::fmt::Debug for Graph<R> {
 /// Reference-counted owner of a backend graph. Its [`Drop`] ships the release to
 /// the server actor, so the last [`Graph`] clone frees the backend graph on the
 /// thread that owns it.
-struct GraphHandle<R: Runtime> {
+struct GraphHandle {
     id: GraphId,
     device: DeviceHandle<dyn ComputeServer>,
     stream_id: StreamId,
-    runtime: PhantomData<R>,
 }
 
-impl<R: Runtime> Graph<R> {
+impl Graph {
     /// Replay the captured launch sequence — every recorded kernel re-run
     /// against the buffers it was captured with, on the stream it was captured
     /// on. Self-contained (the handle owns its device handle); no client
@@ -147,7 +144,7 @@ impl<R: Runtime> Graph<R> {
     }
 }
 
-impl<R: Runtime> Clone for Graph<R> {
+impl Clone for Graph {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -155,7 +152,7 @@ impl<R: Runtime> Clone for Graph<R> {
     }
 }
 
-impl<R: Runtime> Drop for GraphHandle<R> {
+impl Drop for GraphHandle {
     fn drop(&mut self) {
         let id = self.id;
         let stream_id = self.stream_id;
@@ -177,42 +174,40 @@ fn as_server<S: ComputeServer>(state: &mut dyn Any) -> &mut dyn ComputeServer {
         .expect("State type mismatch in the device registry")
 }
 
-impl<R: Runtime> Clone for ComputeClient<R> {
+impl Clone for ComputeClient {
     fn clone(&self) -> Self {
         Self {
             device: self.device.clone(),
             utilities: self.utilities.clone(),
             stream_id: self.stream_id,
-            runtime: PhantomData,
         }
     }
 }
 
-impl<R: Runtime> ComputeClient<R> {
+impl ComputeClient {
     /// The runtime name on this device, as logs and cache keys show it.
     pub fn name(&self) -> &'static str {
         self.utilities.name
     }
 
     /// Create a new client with a new server.
-    pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
-        let utilities = server.utilities();
-        let context = DeviceHandle::<R::Server>::insert(device.to_id(), server)
+    pub fn init<S: ServerStorage>(device_id: DeviceId, server: S) -> Self {
+        let utilities = ComputeServer::utilities(&server);
+        let context = DeviceHandle::<S>::insert(device_id, server)
             .expect("Can't create a new client on an already registered server")
-            .seen_as(as_server::<R::Server>);
+            .seen_as(as_server::<S>);
 
         Self {
             device: context,
             utilities,
             stream_id: None,
-            runtime: PhantomData,
         }
     }
 
-    /// Load the client for the given device.
-    pub fn load<D: Device>(device: &D) -> Self {
-        let context =
-            DeviceHandle::<R::Server>::new(device.to_id()).seen_as(as_server::<R::Server>);
+    /// Load the client for the given device, starting a server of type `S`
+    /// there if none runs yet.
+    pub fn load<S: ServerStorage>(device_id: DeviceId) -> Self {
+        let context = DeviceHandle::<S>::new(device_id).seen_as(as_server::<S>);
 
         // This is safe because we now know the return type of [`DeviceHandle::utilities()`].
         let utilities = context
@@ -224,7 +219,6 @@ impl<R: Runtime> ComputeClient<R> {
             device: context,
             utilities,
             stream_id: None,
-            runtime: PhantomData,
         }
     }
 
@@ -427,13 +421,10 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Given a resource handle, returns the storage resource.
-    pub fn get_resource(
+    pub fn get_resource<S: ServerStorage>(
         &self,
         handle: Handle,
-    ) -> Result<
-        ManagedResource<<<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource>,
-        ServerError,
-    > {
+    ) -> Result<ManagedResource<<S::Storage as ComputeStorage>::Resource>, ServerError> {
         let stream_id = self.stream_id();
         let binding = handle.binding();
         self.local(&binding)?;
@@ -441,8 +432,8 @@ impl<R: Runtime> ComputeClient<R> {
         self.device
             .submit_blocking(move |server| {
                 let server = (server as &mut dyn Any)
-                    .downcast_mut::<R::Server>()
-                    .expect("the client was built from this server type");
+                    .downcast_mut::<S>()
+                    .expect("the client was not built from this server type");
                 server.get_resource(binding, stream_id)
             })
             .unwrap_or_resume()
@@ -1238,7 +1229,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Stop recording and return the captured graph, ready to
     /// [`replay`](Graph::replay).
-    pub fn stop_capture(&self) -> Result<Graph<R>, ServerError> {
+    pub fn stop_capture(&self) -> Result<Graph, ServerError> {
         let stream_id = self.stream_id();
         let id = self
             .device
@@ -1250,7 +1241,6 @@ impl<R: Runtime> ComputeClient<R> {
                 id,
                 device: self.device.clone(),
                 stream_id,
-                runtime: PhantomData,
             }),
         })
     }

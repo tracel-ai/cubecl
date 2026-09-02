@@ -159,7 +159,7 @@ pub fn test_plane_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -176,27 +176,22 @@ pub fn test_plane_sum<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_sum::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_sum::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_inclusive_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -218,27 +213,22 @@ pub fn test_plane_inclusive_sum<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_inclusive_sum::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_inclusive_sum::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_exclusive_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -260,27 +250,22 @@ pub fn test_plane_exclusive_sum<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_exclusive_sum::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_exclusive_sum::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_prod<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -302,27 +287,22 @@ pub fn test_plane_prod<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_prod::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_prod::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_inclusive_prod<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -348,27 +328,22 @@ pub fn test_plane_inclusive_prod<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_inclusive_prod::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_inclusive_prod::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_exclusive_prod<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -394,27 +369,22 @@ pub fn test_plane_exclusive_prod<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_exclusive_prod::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_exclusive_prod::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_max<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -433,27 +403,22 @@ pub fn test_plane_max<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_max::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_max::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_min<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -472,20 +437,15 @@ pub fn test_plane_min<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_min::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_min::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 /// Plane reduction over a cube smaller than the plane, where the upper lanes are inactive.
@@ -494,7 +454,7 @@ pub fn test_plane_min_partial<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
 ) {
     let vectorization = 1;
     // Below the minimum plane width of any supported backend.
@@ -512,27 +472,22 @@ pub fn test_plane_min_partial<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_min::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(cube_dim as u32),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_min::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(cube_dim as u32),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_all<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
 ) {
     let vectorization = 1; // Vectorization can't work for all/any
     let plane_size = 32;
@@ -553,26 +508,16 @@ pub fn test_plane_all<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_all::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_all::launch::<F>(&client, cube_count, CubeDim::new_1d(plane_size), handle)
+    });
 }
 
 pub fn test_plane_any<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
 ) {
     let vectorization = 1; // Vectorization can't work for all/any
     let plane_size = 32;
@@ -593,22 +538,12 @@ pub fn test_plane_any<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_any::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_any::launch::<F>(&client, cube_count, CubeDim::new_1d(plane_size), handle)
+    });
 }
 
-pub fn test_plane_ballot<TestRuntime: Runtime>(client: ComputeClient<TestRuntime>) {
+pub fn test_plane_ballot<TestRuntime: Runtime>(client: ComputeClient) {
     if !client.features().plane.contains(Plane::Ops) {
         // Can't execute the test.
         return;
@@ -618,7 +553,7 @@ pub fn test_plane_ballot<TestRuntime: Runtime>(client: ComputeClient<TestRuntime
     let (shape, strides) = ([1], [1]);
 
     unsafe {
-        kernel_ballot::launch::<TestRuntime>(
+        kernel_ballot::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(32),
@@ -636,7 +571,7 @@ pub fn test_plane_elect<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
 ) {
     let plane_size = 32;
     let input = vec![0.0; plane_size as usize];
@@ -647,26 +582,16 @@ pub fn test_plane_elect<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_elect::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                handle,
-            );
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_elect::launch::<F>(&client, cube_count, CubeDim::new_1d(plane_size), handle);
+    });
 }
 
 pub fn test_plane_broadcast<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -681,27 +606,22 @@ pub fn test_plane_broadcast<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_broadcast::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_broadcast::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_shuffle<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = client.properties().hardware.plane_size_max;
@@ -716,27 +636,22 @@ pub fn test_plane_shuffle<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_shuffle::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_shuffle::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_shuffle_xor<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -757,27 +672,22 @@ pub fn test_plane_shuffle_xor<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_shuffle_xor::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_shuffle_xor::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_shuffle_up<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = client.properties().hardware.plane_size_max;
@@ -796,27 +706,22 @@ pub fn test_plane_shuffle_up<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_shuffle_up::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_shuffle_up::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
 pub fn test_plane_shuffle_down<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     vectorization: VectorSize,
 ) {
     let plane_size = client.properties().hardware.plane_size_max;
@@ -835,30 +740,21 @@ pub fn test_plane_shuffle_down<
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
 
-    test_plane_operation::<TestRuntime, F, _>(
-        &input,
-        &expected,
-        client.clone(),
-        |cube_count, handle| {
-            kernel_shuffle_down::launch::<F, TestRuntime>(
-                &client,
-                cube_count,
-                CubeDim::new_1d(plane_size),
-                vectorization,
-                handle,
-            )
-        },
-    );
+    test_plane_operation::<F, _>(&input, &expected, client.clone(), |cube_count, handle| {
+        kernel_shuffle_down::launch::<F>(
+            &client,
+            cube_count,
+            CubeDim::new_1d(plane_size),
+            vectorization,
+            handle,
+        )
+    });
 }
 
-fn test_plane_operation<
-    TestRuntime: Runtime,
-    F: Float + num_traits::Float + CubeElement + Display,
-    Launch,
->(
+fn test_plane_operation<F: Float + num_traits::Float + CubeElement + Display, Launch>(
     input: &[F],
     expected: &[F],
-    client: ComputeClient<TestRuntime>,
+    client: ComputeClient,
     launch: Launch,
 ) where
     Launch: Fn(CubeCount, TensorArg),
@@ -878,7 +774,7 @@ fn test_plane_operation<
         )
     }
 
-    assert_equals_approx::<TestRuntime, F>(&client, handle, expected, 1e-5);
+    assert_equals_approx::<F>(&client, handle, expected, 1e-5);
 }
 
 #[allow(missing_docs)]

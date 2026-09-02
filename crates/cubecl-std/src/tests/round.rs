@@ -17,7 +17,7 @@ fn kernel_round_up<F: Float>(input: &[F], out: &mut [F], #[comptime] dtype: Scal
 ///
 /// No capability gate: the kernel is instantiated at `f32` and `dtype` only selects comptime
 /// constants, so the storage type is never named on device.
-pub fn test_round_up_matches_host<R: Runtime>(client: ComputeClient<R>, dtype: ScaleDtype) {
+pub fn test_round_up_matches_host<R: Runtime>(client: ComputeClient, dtype: ScaleDtype) {
     // Reaches below every dtype's minimum normal, where the spacing stops halving. The low end
     // runs well past what the narrow dtypes need so that `ue8m0`, whose range reaches 2^-127,
     // is swept over more than its top few exponents.
@@ -34,7 +34,7 @@ pub fn test_round_up_matches_host<R: Runtime>(client: ComputeClient<R>, dtype: S
     // `ue8m0_saturates_at_both_ends` test in `cubecl_common::quant::scheme` pins that end
     // host-side instead.
 
-    let actual = launch::<R>(&client, &scales, dtype);
+    let actual = launch(&client, &scales, dtype);
 
     let mut bad = vec![];
     for (i, &scale) in scales.iter().enumerate() {
@@ -56,7 +56,7 @@ pub fn test_round_up_matches_host<R: Runtime>(client: ComputeClient<R>, dtype: S
     }
 }
 
-fn launch<R: Runtime>(client: &ComputeClient<R>, scales: &[f32], dtype: ScaleDtype) -> Vec<f32> {
+fn launch(client: &ComputeClient, scales: &[f32], dtype: ScaleDtype) -> Vec<f32> {
     let handle_in = client.create_from_slice(f32::as_bytes(scales));
     let handle_out = client.empty(size_of_val(scales));
 
@@ -64,7 +64,7 @@ fn launch<R: Runtime>(client: &ComputeClient<R>, scales: &[f32], dtype: ScaleDty
     let cube_dim = 256u32;
 
     unsafe {
-        kernel_round_up::launch_unchecked::<f32, R>(
+        kernel_round_up::launch_unchecked::<f32>(
             client,
             CubeCount::Static((scales.len() as u32).div_ceil(cube_dim), 1, 1),
             CubeDim::new_1d(cube_dim),

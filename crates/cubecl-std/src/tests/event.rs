@@ -163,11 +163,11 @@ fn launch_test_3(output: &mut [f32]) {
     test_3(output);
 }
 
-pub fn event_test_1<R: Runtime>(client: ComputeClient<R>) {
+pub fn event_test_1(client: ComputeClient) {
     let output = client.empty(8);
 
     unsafe {
-        launch_test_1::launch_unchecked::<R>(
+        launch_test_1::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_single(),
@@ -181,11 +181,11 @@ pub fn event_test_1<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(actual, &[20.0, 50.0]);
 }
 
-pub fn event_test_2<R: Runtime>(client: ComputeClient<R>) {
+pub fn event_test_2(client: ComputeClient) {
     let output = client.empty(8);
 
     unsafe {
-        launch_test_2::launch_unchecked::<R>(
+        launch_test_2::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_single(),
@@ -199,11 +199,11 @@ pub fn event_test_2<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(actual, &[15.0, 30.0]);
 }
 
-pub fn event_test_3<R: Runtime>(client: ComputeClient<R>) {
+pub fn event_test_3(client: ComputeClient) {
     let output = client.empty(12);
 
     unsafe {
-        launch_test_3::launch_unchecked::<R>(
+        launch_test_3::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_single(),

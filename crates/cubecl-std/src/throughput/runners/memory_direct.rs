@@ -9,8 +9,8 @@ use crate::throughput::{
 
 /// Builds the copy kernel, moving `working_set` bytes per pass: half read out
 /// of the input buffer, half written into the output one.
-pub fn build_kernel<R: Runtime>(
-    client: &ComputeClient<R>,
+pub fn build_kernel(
+    client: &ComputeClient,
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,

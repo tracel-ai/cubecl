@@ -65,7 +65,7 @@ mod tests {
             }
         }
 
-        fn assert_rejected(client: &ComputeClient<TestRuntime>, out: Handle) {
+        fn assert_rejected(client: &ComputeClient, out: Handle) {
             let err = client
                 .read_one(out)
                 .expect_err("two fp8 lanes have no WGSL representation, the launch must fail")
@@ -82,7 +82,7 @@ mod tests {
             let input = client.create_from_slice(&[0u8; 64]);
             let out = client.empty(64);
             unsafe {
-                cast_fp8::launch_unchecked::<TestRuntime>(
+                cast_fp8::launch_unchecked(
                     &client,
                     CubeCount::new_single(),
                     CubeDim::new_1d(8),
@@ -100,7 +100,7 @@ mod tests {
             let input = client.create_from_slice(&[0u8; 32]);
             let out = client.empty(32);
             unsafe {
-                copy_fp8::launch_unchecked::<TestRuntime>(
+                copy_fp8::launch_unchecked(
                     &client,
                     CubeCount::new_single(),
                     CubeDim::new_1d(8),

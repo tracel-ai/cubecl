@@ -1,4 +1,5 @@
 use crate::{compute::affinity, compute::server::CpuServer, device::CpuDevice};
+use cubecl_common::device::Device;
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
@@ -173,8 +174,8 @@ impl Runtime for CpuRuntime {
     type Server = CpuServer;
     type Device = CpuDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self> {
-        ComputeClient::load(device)
+    fn client(device: &Self::Device) -> ComputeClient {
+        ComputeClient::load::<CpuServer>(device.to_id())
     }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {

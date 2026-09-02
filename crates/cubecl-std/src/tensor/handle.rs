@@ -53,8 +53,8 @@ impl TensorHandle {
         }
     }
 
-    pub fn empty<R: Runtime>(
-        client: &ComputeClient<R>,
+    pub fn empty(
+        client: &ComputeClient,
         shape: impl Into<Shape>,
         storage: impl Into<Type>,
     ) -> Self {
@@ -133,7 +133,7 @@ impl TensorHandle {
 }
 impl TensorHandle {
     pub fn zeros<R: Runtime>(
-        client: &ComputeClient<R>,
+        client: &ComputeClient,
         shape: impl Into<Shape>,
         dtype: impl Into<Type>,
     ) -> Self {

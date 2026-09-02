@@ -427,7 +427,6 @@ impl KernelFn {
 
 impl Launch {
     pub fn from_item_fn(function: ItemFn, args: KernelArgs) -> syn::Result<Self> {
-        let runtime = prelude_type("Runtime");
         let ret = function.sig.output.clone();
 
         let vis = function.vis;
@@ -484,11 +483,8 @@ impl Launch {
         }
 
         let mut launch_generics = kernel_generics.clone();
-        launch_generics.params = Punctuated::from_iter(
-            iter::once(parse_quote!['kernel])
-                .chain(launch_generics.params)
-                .chain(iter::once(parse_quote![__R: #runtime])),
-        );
+        launch_generics.params =
+            Punctuated::from_iter(iter::once(parse_quote!['kernel]).chain(launch_generics.params));
 
         Ok(Launch {
             args,

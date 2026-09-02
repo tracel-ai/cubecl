@@ -32,7 +32,7 @@ pub fn kernel_saturating_sub<I: Int, N: Size>(
 
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
-    client: ComputeClient<R>,
+    client: ComputeClient,
     vector_size: VectorSize,
 ) {
     if I::cube_type() == u64::cube_type() {
@@ -60,7 +60,7 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
     let out_handle = client.empty(4 * size_of::<I>());
 
     unsafe {
-        kernel_saturating_add::launch_unchecked::<I, R>(
+        kernel_saturating_add::launch_unchecked::<I>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(core::cmp::min(
@@ -81,7 +81,7 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
 
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
-    client: ComputeClient<R>,
+    client: ComputeClient,
     vector_size: VectorSize,
 ) {
     if I::cube_type() == u64::cube_type() {
@@ -104,7 +104,7 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
     let out_handle = client.empty(4 * size_of::<I>());
 
     unsafe {
-        kernel_saturating_sub::launch_unchecked::<I, R>(
+        kernel_saturating_sub::launch_unchecked::<I>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(core::cmp::min(
@@ -126,7 +126,7 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
 // Signed has a lot more possible cases due to overflow/underflow
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
-    client: ComputeClient<R>,
+    client: ComputeClient,
     vector_size: VectorSize,
 ) {
     let lhs = vec![
@@ -189,7 +189,7 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
     let out_handle = client.empty(16 * size_of::<I>());
 
     unsafe {
-        kernel_saturating_add::launch_unchecked::<I, R>(
+        kernel_saturating_add::launch_unchecked::<I>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(core::cmp::min(
@@ -211,7 +211,7 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
 // Signed has a lot more possible cases due to overflow/underflow
 #[allow(clippy::needless_range_loop)]
 pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
-    client: ComputeClient<R>,
+    client: ComputeClient,
     vector_size: VectorSize,
 ) {
     let lhs = vec![
@@ -274,7 +274,7 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
     let out_handle = client.empty(16 * size_of::<I>());
 
     unsafe {
-        kernel_saturating_sub::launch_unchecked::<I, R>(
+        kernel_saturating_sub::launch_unchecked::<I>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(core::cmp::min(

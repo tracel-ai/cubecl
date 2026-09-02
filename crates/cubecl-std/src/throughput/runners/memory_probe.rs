@@ -75,8 +75,8 @@ impl MemoryProbe {
     /// serves it. A coalesced launch spreads one cube position's addresses
     /// across the full window regardless of cube count, so it has no such
     /// limit.
-    pub fn new<R: Runtime>(
-        client: &ComputeClient<R>,
+    pub fn new(
+        client: &ComputeClient,
         config: LaunchConfig,
         line_bytes: usize,
         spec: MemorySpec,
@@ -135,8 +135,8 @@ impl MemoryProbe {
 /// bandwidth well past the device's real ceiling. Writing real data in first
 /// gives each line its own page, the way a buffer a real kernel reads
 /// already got one from whoever produced it.
-pub fn prime<R: Runtime>(
-    client: &ComputeClient<R>,
+pub fn prime(
+    client: &ComputeClient,
     handle: &Handle,
     pool_lines: usize,
     config: LaunchConfig,

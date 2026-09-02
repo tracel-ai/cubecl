@@ -4,8 +4,8 @@ use cubecl_runtime::throughput::{KernelConfig, ThroughputKey};
 
 use crate::throughput::LaunchConfig;
 
-pub fn build_kernel<R: Runtime>(
-    client: &ComputeClient<R>,
+pub fn build_kernel(
+    client: &ComputeClient,
     key: ThroughputKey,
     config: LaunchConfig,
 ) -> KernelConfig {

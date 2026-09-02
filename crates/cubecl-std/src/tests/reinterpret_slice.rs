@@ -10,7 +10,7 @@ fn kernel_read_global<N: Size>(input: &[Vector<i8, N>], output: &mut [f16]) {
     output[UNIT_POS as usize] = list.read(UNIT_POS as usize);
 }
 
-pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R>, vector_size: usize) {
+pub fn run_test_read_global<R: Runtime>(client: ComputeClient, vector_size: usize) {
     if !client.features().memory_reinterpret {
         return; // can't run test
     }
@@ -43,7 +43,7 @@ fn kernel_write_global<N: Size>(output: &mut [Vector<i8, N>], input: &[f16]) {
     list.write(UNIT_POS as usize, input[UNIT_POS as usize]);
 }
 
-pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, vector_size: usize) {
+pub fn run_test_write_global<R: Runtime>(client: ComputeClient, vector_size: usize) {
     if !client.features().memory_reinterpret {
         return; // can't run test
     }
@@ -86,7 +86,7 @@ fn kernel_read_shared_memory(output: &mut [f16]) {
     output[UNIT_POS as usize] = list.read(UNIT_POS as usize);
 }
 
-pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R>) {
+pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient) {
     if !client.features().memory_reinterpret {
         return; // can't run test
     }
@@ -120,7 +120,7 @@ fn kernel_write_shared_memory<N: Size>(output: &mut [Vector<i8, N>], input: &[f1
     output[2 * unit_pos + 1] = mem[2 * unit_pos + 1];
 }
 
-pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R>) {
+pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient) {
     if !client.features().memory_reinterpret {
         return; // can't run test
     }

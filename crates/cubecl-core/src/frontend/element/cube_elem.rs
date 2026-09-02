@@ -9,7 +9,7 @@ use crate::{
 use cubecl_ir::EnumSet;
 use cubecl_ir::{ConstantValue, ElemType, ExpandValue, features::TypeUsage, interfaces::TypedExt};
 use cubecl_macros::{comptime_type, cube, intrinsic};
-use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
+use cubecl_runtime::client::ComputeClient;
 use pliron::r#type::TypeHandle;
 
 use crate::frontend::CubeType;
@@ -114,7 +114,7 @@ pub trait Scalar:
         unexpanded!()
     }
 
-    fn supported_uses<R: Runtime>(client: &ComputeClient<R>) -> EnumSet<TypeUsage> {
+    fn supported_uses(client: &ComputeClient) -> EnumSet<TypeUsage> {
         let ty = Self::elem_type_native();
         client.features().type_usage(ty)
     }

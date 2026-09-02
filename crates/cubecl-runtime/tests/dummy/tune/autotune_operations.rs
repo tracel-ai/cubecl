@@ -5,14 +5,14 @@ use cubecl_runtime::{
 };
 use derive_new::new;
 
-use crate::dummy::{DummyRuntime, KernelTask};
+use crate::dummy::KernelTask;
 
 #[derive(new, Clone)]
 /// Extended kernel that accounts for additional parameters, i.e. needed
 /// information that does not count as an input/output.
 pub struct OneKernelAutotuneOperation {
     kernel: KernelTask,
-    client: ComputeClient<DummyRuntime>,
+    client: ComputeClient,
 }
 
 impl OneKernelAutotuneOperation {

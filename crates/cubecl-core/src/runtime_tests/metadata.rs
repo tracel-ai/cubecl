@@ -81,7 +81,7 @@ pub fn kernel_buffer_len<N: Size>(out: &mut Tensor<Vector<u32, N>>) {
     out[0] = Vector::new(out.buffer_len() as u32);
 }
 
-pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient, addr_type: AddressType) {
     if !client.properties().supports_address(addr_type) {
         return;
     }
@@ -113,7 +113,7 @@ pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R>, addr_type: Address
     assert_eq!(actual, &expect);
 }
 
-pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient, addr_type: AddressType) {
     if !client.properties().supports_address(addr_type) {
         return;
     }
@@ -141,7 +141,7 @@ pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_typ
     assert_eq!(actual, &expect);
 }
 
-pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient, addr_type: AddressType) {
     if !client.properties().supports_address(addr_type) {
         return;
     }
@@ -169,7 +169,7 @@ pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_ty
     assert_eq!(actual, &expect);
 }
 
-pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient, addr_type: AddressType) {
     if !client.properties().supports_address(addr_type) {
         return;
     }
@@ -197,7 +197,7 @@ pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient<R>, addr_type:
     assert_eq!(actual, &expect);
 }
 
-pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient, addr_type: AddressType) {
     if !client.properties().supports_address(addr_type) {
         return;
     }
@@ -221,7 +221,7 @@ pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient<R>, addr_
     assert_eq!(actual[0], 64);
 }
 
-pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient, addr_type: AddressType) {
     if !client.properties().supports_address(addr_type) {
         return;
     }
@@ -245,7 +245,7 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R>, addr_typ
     assert_eq!(actual[0], 8);
 }
 
-pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R>, addr_type: AddressType) {
+pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient, addr_type: AddressType) {
     if !client.properties().supports_address(addr_type) {
         return;
     }

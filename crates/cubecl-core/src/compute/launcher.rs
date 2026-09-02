@@ -1,6 +1,5 @@
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::Runtime;
 use crate::prelude::{BufferArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{InfoBuilder, ScalarArgType};
 #[cfg(feature = "std")]
@@ -66,12 +65,7 @@ impl KernelLauncher {
 
     /// Launch the kernel.
     #[track_caller]
-    pub fn launch<R: Runtime, K: CubeKernel>(
-        self,
-        cube_count: CubeCount,
-        kernel: K,
-        client: &ComputeClient<R>,
-    ) {
+    pub fn launch<K: CubeKernel>(self, cube_count: CubeCount, kernel: K, client: &ComputeClient) {
         let bindings = self.into_bindings();
         let kernel = Box::new(kernel);
 

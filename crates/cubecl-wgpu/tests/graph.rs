@@ -53,14 +53,14 @@ fn mul_two(input: &[f32], output: &mut [f32]) {
 #[test]
 fn wgpu_graph_capture_replay() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
 
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -101,14 +101,14 @@ fn wgpu_graph_capture_replay() {
 #[test]
 fn wgpu_graph_mid_capture_allocation_is_allowed() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
 
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -147,13 +147,13 @@ fn wgpu_graph_mid_capture_allocation_is_allowed() {
 #[test]
 fn wgpu_graph_input_rewrite() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -203,21 +203,21 @@ fn wgpu_graph_input_rewrite() {
 #[test]
 fn wgpu_graph_intermediate_recycling() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
     let n = 4usize;
     let bytes = n * core::mem::size_of::<f32>();
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(bytes);
 
-    let run = |client: &ComputeClient<WgpuRuntime>, tmp: &Handle| {
-        add_one::launch::<WgpuRuntime>(
+    let run = |client: &ComputeClient, tmp: &Handle| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
             unsafe { BufferArg::from_raw_parts(input.clone(), n) },
             unsafe { BufferArg::from_raw_parts(tmp.clone(), n) },
         );
-        mul_two::launch::<WgpuRuntime>(
+        mul_two::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -298,7 +298,7 @@ fn wgpu_graph_many_launches_dynamic_metadata() {
 
     // One pass: ping-pong `dst = src + 1` between `a` and `b`. The identical
     // sequence is run once as warmup and once recorded.
-    fn run_pass(client: &ComputeClient<WgpuRuntime>, a: &Handle, b: &Handle) {
+    fn run_pass(client: &ComputeClient, a: &Handle, b: &Handle) {
         for i in 0..PASS_LAUNCHES {
             let (src, dst) = if i % 2 == 0 { (a, b) } else { (b, a) };
             add_one_tensor::launch(
@@ -333,7 +333,7 @@ fn wgpu_graph_many_launches_dynamic_metadata() {
     }
 
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
 
     let a = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
     let b = client.create_from_slice(f32::as_bytes(&vec![0.0f32; N]));
@@ -391,7 +391,7 @@ fn wgpu_graph_many_launches_dynamic_metadata() {
 #[test]
 fn wgpu_graph_lifecycle_state_errors() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
 
     // No capture prepared or recording.
     assert!(
@@ -414,8 +414,8 @@ fn wgpu_graph_lifecycle_state_errors() {
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -440,13 +440,13 @@ fn wgpu_graph_lifecycle_state_errors() {
 #[test]
 fn wgpu_graph_read_rejected_while_recording() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
 
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -479,13 +479,13 @@ fn wgpu_graph_read_rejected_while_recording() {
 #[test]
 fn wgpu_graph_write_rejected_while_recording() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
 
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -536,7 +536,7 @@ fn wgpu_graph_write_rejected_while_recording() {
 #[test]
 fn wgpu_graph_write_rejected_while_recording_is_not_read_as_written() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
     // Two logical streams one apart, so they land on different pooled streams:
     // the reader must be free to read while the other is recording.
     let capturing = StreamId { value: 3_000_001 };
@@ -552,8 +552,8 @@ fn wgpu_graph_write_rejected_while_recording_is_not_read_as_written() {
             client.empty(n * core::mem::size_of::<f32>()),
         )
     });
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -614,21 +614,21 @@ fn wgpu_graph_write_rejected_while_recording_is_not_read_as_written() {
 #[test]
 fn wgpu_graph_destroy_leaves_an_enqueued_replay_intact() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
     let n = 4usize;
     let bytes = n * core::mem::size_of::<f32>();
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(bytes);
 
-    let run = |client: &ComputeClient<WgpuRuntime>, tmp: &Handle| {
-        add_one::launch::<WgpuRuntime>(
+    let run = |client: &ComputeClient, tmp: &Handle| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
             unsafe { BufferArg::from_raw_parts(input.clone(), n) },
             unsafe { BufferArg::from_raw_parts(tmp.clone(), n) },
         );
-        mul_two::launch::<WgpuRuntime>(
+        mul_two::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -685,7 +685,7 @@ fn wgpu_graph_destroy_leaves_an_enqueued_replay_intact() {
 #[test]
 fn wgpu_graph_a_capture_that_never_sealed_is_not_read_as_run() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
     // Two pooled streams: the reader must be a stream the failure was never
     // reported to, which is every stream but the one that ended the capture.
     let capturing = StreamId { value: 4_000_001 };
@@ -699,8 +699,8 @@ fn wgpu_graph_a_capture_that_never_sealed_is_not_read_as_run() {
             client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
         )
     });
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -762,7 +762,7 @@ fn wgpu_graph_a_capture_that_never_sealed_is_not_read_as_run() {
 #[test]
 fn wgpu_graph_capture_is_sealed_by_the_stream_that_opened_it() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
     let (owner, neighbour) = sharing_one_pooled_stream(2_000_001);
     let n = 4usize;
 
@@ -773,8 +773,8 @@ fn wgpu_graph_capture_is_sealed_by_the_stream_that_opened_it() {
         )
     });
 
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -829,13 +829,13 @@ fn wgpu_graph_capture_is_sealed_by_the_stream_that_opened_it() {
 #[test]
 fn wgpu_graph_capture_is_isolated_from_another_stream() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -857,7 +857,7 @@ fn wgpu_graph_capture_is_isolated_from_another_stream() {
         std::thread::spawn(move || {
             let a = other_client.create_from_slice(f32::as_bytes(&[7.0, 7.0, 7.0, 7.0]));
             let b = other_client.empty(n * core::mem::size_of::<f32>());
-            mul_two::launch::<WgpuRuntime>(
+            mul_two::launch(
                 &other_client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new(&other_client, n),
@@ -897,7 +897,7 @@ fn poisoned(out: &mut [f32], #[comptime] reason: String) {
 #[test]
 fn wgpu_graph_capture_refuses_a_tainted_input() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
 
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
@@ -906,7 +906,7 @@ fn wgpu_graph_capture_refuses_a_tainted_input() {
     // Taint the input: the rejected launch was going to write it and never
     // did. Drain the queued report so the capture path is otherwise clean.
     unsafe {
-        poisoned::launch_unchecked::<WgpuRuntime>(
+        poisoned::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(&client, n),
@@ -918,7 +918,7 @@ fn wgpu_graph_capture_refuses_a_tainted_input() {
 
     client.graph_prepare().expect("graph_prepare");
     client.start_capture().expect("start_capture");
-    add_one::launch::<WgpuRuntime>(
+    add_one::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, n),
@@ -944,7 +944,7 @@ fn wgpu_graph_capture_refuses_a_tainted_input() {
 #[test]
 fn wgpu_graph_a_prepared_capture_that_never_opened_is_disarmed_by_end() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
 
     client.graph_prepare().expect("graph_prepare");
     // The warmup failed; closing without opening is the caller's only move.
@@ -956,8 +956,8 @@ fn wgpu_graph_a_prepared_capture_that_never_opened_is_disarmed_by_end() {
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),
@@ -991,7 +991,7 @@ fn wgpu_graph_a_prepared_capture_that_never_opened_is_disarmed_by_end() {
 #[test]
 fn wgpu_graph_a_launch_that_fails_in_the_window_dooms_the_capture() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
 
     let n = 4usize;
     let output = client.empty(n * core::mem::size_of::<f32>());
@@ -1001,7 +1001,7 @@ fn wgpu_graph_a_launch_that_fails_in_the_window_dooms_the_capture() {
     // The launch fails inside the window — the compiler refuses it — so the
     // recording is missing an operation.
     unsafe {
-        poisoned::launch_unchecked::<WgpuRuntime>(
+        poisoned::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(&client, n),
@@ -1033,14 +1033,14 @@ fn wgpu_graph_a_launch_that_fails_in_the_window_dooms_the_capture() {
 #[test]
 fn wgpu_graph_replay_settles_after_a_failed_enqueue() {
     let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
 
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient<WgpuRuntime>| {
-        add_one::launch::<WgpuRuntime>(
+    let launch = |client: &ComputeClient| {
+        add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(client, n),

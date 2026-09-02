@@ -6,7 +6,7 @@ use cubecl_example::gpu_tensor::GpuTensor; // Change to the path of your own mod
 
 pub struct ReductionBench<R: Runtime, F: Float + CubeElement> {
     input_shape: Vec<usize>,
-    client: ComputeClient<R>,
+    client: ComputeClient,
     _f: PhantomData<F>,
 }
 
@@ -33,7 +33,7 @@ impl<R: Runtime, F: Float + CubeElement> Benchmark for ReductionBench<R, F> {
         let output = GpuTensor::<R, F>::empty(output_shape, &self.client);
 
         unsafe {
-            reduce_matrix::launch_unchecked::<F, R>(
+            reduce_matrix::launch_unchecked::<F>(
                 &self.client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new(self.input_shape[0] as u32, self.input_shape[1] as u32, 1),

@@ -30,7 +30,7 @@ impl Device for DummyDevice {
     }
 }
 
-pub type DummyClient = ComputeClient<DummyRuntime>;
+pub type DummyClient = ComputeClient;
 
 impl DeviceService for DummyServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
@@ -60,7 +60,7 @@ fn init_server(service: cubecl_common::device::ServiceId) -> DummyServer {
 }
 
 pub fn test_client(device: &DummyDevice) -> DummyClient {
-    ComputeClient::load(device)
+    DummyRuntime::client(device)
 }
 
 #[derive(Debug, Clone)]
@@ -71,8 +71,8 @@ impl Runtime for DummyRuntime {
 
     type Device = DummyDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self> {
-        ComputeClient::load(device)
+    fn client(device: &Self::Device) -> ComputeClient {
+        ComputeClient::load::<DummyServer>(device.to_id())
     }
 
     fn can_read_tensor(_shape: &Shape, _strides: &Strides) -> bool {

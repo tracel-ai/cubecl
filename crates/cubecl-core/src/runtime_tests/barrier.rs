@@ -19,7 +19,7 @@ pub fn async_copy_test<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [
     output[0] = smem[0];
 }
 
-pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
     if !client.properties().supports_type(OpaqueType::Barrier) {
         // We can't execute the test, skip.
         return;
@@ -29,7 +29,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
     let output = client.empty(core::mem::size_of::<F>());
 
     unsafe {
-        async_copy_test::launch::<F, R>(
+        async_copy_test::launch::<F>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
@@ -131,7 +131,7 @@ fn two_independent_loads<F: Float, N: Size>(
     output[UNIT_POS_X as usize] = dot;
 }
 
-pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
     if !client.properties().supports_type(OpaqueType::Barrier) {
         // We can't execute the test, skip.
         return;
@@ -141,7 +141,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
     let output = client.empty(4 * core::mem::size_of::<F>());
 
     unsafe {
-        one_load::launch::<F, R>(
+        one_load::launch::<F>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(2),
@@ -160,7 +160,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
 
 pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     independent: bool,
-    client: ComputeClient<R>,
+    client: ComputeClient,
 ) {
     if !client.properties().supports_type(OpaqueType::Barrier) {
         // We can't execute the test, skip.
@@ -177,7 +177,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
 
     if independent {
         unsafe {
-            two_independent_loads::launch::<F, R>(
+            two_independent_loads::launch::<F>(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_1d(2),
@@ -190,7 +190,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
         };
     } else {
         unsafe {
-            two_loads::launch::<F, R>(
+            two_loads::launch::<F>(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_1d(2),

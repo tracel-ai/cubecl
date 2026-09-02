@@ -50,8 +50,8 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
     type Server = WgpuServer<C>;
     type Device = WgpuDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self> {
-        ComputeClient::load(device)
+    fn client(device: &Self::Device) -> ComputeClient {
+        ComputeClient::load::<WgpuServer<C>>(device.to_id())
     }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
@@ -224,8 +224,8 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
     }
 
     let device_id = WgpuDevice::Existing(device_id);
-    let server = create_server(setup, options, device_id.to_id());
-    let _ = ComputeClient::<WgpuRuntime>::init(&device_id, server);
+    let server = create_server::<AutoCompiler>(setup, options, device_id.to_id());
+    let _ = ComputeClient::init(device_id.to_id(), server);
     device_id
 }
 
@@ -251,8 +251,8 @@ pub async fn init_setup_async<G: GraphicsApi>(
 ) -> WgpuSetup {
     let setup = create_setup_for_device(device, G::backend()).await;
     let return_setup = setup.clone();
-    let server = create_server(setup, options, device.to_id());
-    let _ = ComputeClient::<WgpuRuntime>::init(device, server);
+    let server = create_server::<AutoCompiler>(setup, options, device.to_id());
+    let _ = ComputeClient::init(device.to_id(), server);
     return_setup
 }
 

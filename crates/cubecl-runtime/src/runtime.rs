@@ -13,7 +13,7 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     type Device: Device;
 
     /// Retrieve the compute client from the runtime device.
-    fn client(device: &Self::Device) -> ComputeClient<Self>;
+    fn client(device: &Self::Device) -> ComputeClient;
 
     /// Whether a tensor with `shape` and `strides` can be read as is. If the result is false, the
     /// tensor should be made contiguous before reading.

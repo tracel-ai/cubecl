@@ -20,7 +20,6 @@ use cubecl_ir::{
 use cubecl_runtime::client::ComputeClient;
 
 use crate::{
-    Runtime,
     frontend::{
         Cos, CosNativeExpand, Exp, ExpNativeExpand, Log, LogNativeExpand, Powf, PowfNativeExpand,
         ScalarArgSettings, Sin, SinNativeExpand, Sqrt, SqrtNativeExpand, Tanh, TanhNativeExpand,
@@ -75,9 +74,7 @@ pub trait ComplexCore:
         unexpanded!()
     }
 
-    fn supported_complex_uses<R: Runtime>(
-        client: &ComputeClient<R>,
-    ) -> cubecl_ir::EnumSet<ComplexUsage> {
+    fn supported_complex_uses(client: &ComputeClient) -> cubecl_ir::EnumSet<ComplexUsage> {
         client.properties().complex_usage(Self::elem_type_native())
     }
 }

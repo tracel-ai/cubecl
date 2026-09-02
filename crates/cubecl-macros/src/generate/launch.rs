@@ -77,7 +77,7 @@ impl Launch {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
                 pub fn launch #generics(
-                    __client: &#compute_client<__R>,
+                    __client: &#compute_client,
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #address_type
@@ -108,7 +108,7 @@ impl Launch {
                    other unpredictable behaviour.",
                 self.func.sig.name
             );
-            let generics = self.runtime_generics();
+            let generics = &self.kernel_generics;
             let args = self.launch_args();
             let body = self.launch_body(ExecutionMode::Unchecked);
 
@@ -121,7 +121,7 @@ impl Launch {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
                 pub unsafe fn launch_unchecked #generics(
-                    __client: &#compute_client<__R>,
+                    __client: &#compute_client,
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #address_type
@@ -296,15 +296,6 @@ impl Launch {
     pub fn kernel_name(&self) -> Ident {
         let kernel_name = RenameRule::PascalCase.apply_to_field(self.func.sig.name.to_string());
         format_ident!("{kernel_name}")
-    }
-
-    /// The kernel generics plus the runtime, for a launch signature that
-    /// declares no lifetime.
-    fn runtime_generics(&self) -> Generics {
-        let runtime = prelude_type("Runtime");
-        let mut generics = self.kernel_generics.clone();
-        generics.params.push(parse_quote![__R: #runtime]);
-        generics
     }
 
     pub fn kernel_call_generics(&self) -> Generics {

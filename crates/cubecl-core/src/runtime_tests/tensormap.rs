@@ -110,7 +110,7 @@ fn tensormap_metadata<F: Float, N: Size>(
     output_2[3] = output_2.shape(0) as u32;
 }
 
-pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
+pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient)
 where
     <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -128,7 +128,7 @@ where
     let input = unsafe { TensorArg::from_raw_parts(handle.clone(), strides, shape) };
     let out = client.empty(16 * 32 * size_of::<F>());
 
-    tensormap_load::launch::<F, R>(
+    tensormap_load::launch::<F>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
@@ -153,7 +153,7 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
+pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient)
 where
     <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -171,7 +171,7 @@ where
         size_of::<F>(),
     );
 
-    tensormap_store::launch::<F, R>(
+    tensormap_store::launch::<F>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
@@ -209,7 +209,7 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
+pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: ComputeClient)
 where
     <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -251,7 +251,7 @@ where
     let out_strides = [tile_m, 1];
     let out = client.empty(out_size * size_of::<F>());
 
-    tensormap_im2col_load::launch::<F, R>(
+    tensormap_im2col_load::launch::<F>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(tile_m as u32 * c as u32, kernel_h as u32 * kernel_w as u32),
@@ -299,7 +299,7 @@ where
     assert_eq!(actual, &expected_actual);
 }
 
-pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
+pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient)
 where
     <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -320,7 +320,7 @@ where
     let output_2 =
         unsafe { TensorArg::from_raw_parts(out_handle_2.clone(), strides, [8, 9].into()) };
 
-    tensormap_metadata::launch::<F, R>(
+    tensormap_metadata::launch::<F>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),

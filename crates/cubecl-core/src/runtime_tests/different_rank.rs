@@ -13,7 +13,7 @@ pub fn kernel_different_rank<F: Float, N: Size>(
 }
 
 pub fn test_kernel_different_rank_first_biggest<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
+    client: ComputeClient,
 ) {
     let shape_lhs = vec![2, 2, 2];
     let shape_rhs = vec![8];
@@ -23,7 +23,7 @@ pub fn test_kernel_different_rank_first_biggest<R: Runtime, F: Float + CubeEleme
     let strides_rhs = vec![1];
     let strides_out = vec![4, 1];
 
-    test_kernel_different_rank::<R, F>(
+    test_kernel_different_rank::<F>(
         client,
         (shape_lhs, shape_rhs, shape_out),
         (strides_lhs, strides_rhs, strides_out),
@@ -31,7 +31,7 @@ pub fn test_kernel_different_rank_first_biggest<R: Runtime, F: Float + CubeEleme
 }
 
 pub fn test_kernel_different_rank_last_biggest<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
+    client: ComputeClient,
 ) {
     let shape_lhs = vec![2, 4];
     let shape_rhs = vec![8];
@@ -41,15 +41,15 @@ pub fn test_kernel_different_rank_last_biggest<R: Runtime, F: Float + CubeElemen
     let strides_rhs = vec![1];
     let strides_out = vec![8, 4, 1];
 
-    test_kernel_different_rank::<R, F>(
+    test_kernel_different_rank::<F>(
         client,
         (shape_lhs, shape_rhs, shape_out),
         (strides_lhs, strides_rhs, strides_out),
     );
 }
 
-fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
+fn test_kernel_different_rank<F: Float + CubeElement>(
+    client: ComputeClient,
     (shape_lhs, shape_rhs, shape_out): (Vec<usize>, Vec<usize>, Vec<usize>),
     (strides_lhs, strides_rhs, strides_out): (Vec<usize>, Vec<usize>, Vec<usize>),
 ) {
@@ -71,7 +71,7 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
     let cube_dim = std::cmp::min(16, client.properties().hardware.max_cube_dim.0);
     let cube_count = 32 / cube_dim;
 
-    kernel_different_rank::launch::<F, R>(
+    kernel_different_rank::launch::<F>(
         &client,
         CubeCount::Static(cube_count, 1, 1),
         CubeDim::new_1d(cube_dim),

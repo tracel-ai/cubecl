@@ -12,12 +12,12 @@ use cubecl_environment::sync::Mutex;
 use alloc::string::{String, ToString};
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
+use crate::client::ComputeClient;
 use crate::config::Logger;
 #[cfg(std_io)]
 use crate::config::autotune::AutotuneLogLevel;
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
-use crate::{client::ComputeClient, runtime::Runtime};
 use cubecl_environment::config::RuntimeConfig;
 
 use super::{
@@ -209,7 +209,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
     /// Check the cache, validate checksums if needed, and kick off a tuning job if the
     /// key is a miss. Returns the resolved cache state.
-    pub fn check_tune<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+    pub fn check_tune<'a, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         key: &K,
         inputs: &F::At<'a>,
@@ -217,7 +217,7 @@ impl<K: AutotuneKey> Tuner<K> {
         #[cfg_attr(not(autotune_persistence), allow(unused))] checksum: impl FnOnce() -> String
         + Send
         + Sync,
-        client: &ComputeClient<R>,
+        client: &ComputeClient,
         mut log_context: Option<crate::tune::AutotuneLogContext>,
     ) -> TuneCacheResult
     where
@@ -332,10 +332,10 @@ impl<K: AutotuneKey> Tuner<K> {
     /// Round robin the candidates, eliminating them as the evidence allows. Native only: the
     /// driver has to resolve samples between rounds, which it cannot do on the browser event loop.
     #[cfg(not(target_family = "wasm"))]
-    fn tune_adaptive<'i, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+    fn tune_adaptive<'i, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         mut job: TuneJob<'_, 'i, K, F, Out>,
-        client: &ComputeClient<R>,
+        client: &ComputeClient,
     ) -> TuneCacheResult
     where
         <F as TuneInputs>::At<'i>: Clone + Send,
@@ -373,10 +373,10 @@ impl<K: AutotuneKey> Tuner<K> {
 
     /// Benchmark every candidate with a fixed sample count, resolving the samples afterwards.
     /// This is the only strategy available on wasm, where nothing can be awaited inline.
-    fn tune_fixed_samples<'i, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+    fn tune_fixed_samples<'i, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         mut job: TuneJob<'_, 'i, K, F, Out>,
-        client: &ComputeClient<R>,
+        client: &ComputeClient,
     ) -> TuneCacheResult
     where
         <F as TuneInputs>::At<'i>: Clone + Send,

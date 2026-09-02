@@ -22,7 +22,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let output_b_handle = client.empty(input.len() * core::mem::size_of::<f32>());
 
     unsafe {
-        norm_test::launch_unchecked::<f32, R>(
+        norm_test::launch_unchecked::<f32>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32),

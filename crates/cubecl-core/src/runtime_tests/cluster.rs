@@ -22,7 +22,7 @@ fn cluster_meta_kernel(out: &mut [u32]) {
     }
 }
 
-pub fn test_cluster_meta<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_cluster_meta<R: Runtime>(client: ComputeClient) {
     if !client.features().cube_cluster {
         return;
     }

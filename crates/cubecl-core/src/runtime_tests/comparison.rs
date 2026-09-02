@@ -11,7 +11,7 @@ macro_rules! test_binary_impl {
             lhs: $lhs:expr,
             rhs: $rhs:expr,
         }),*]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function<N: Size>(
                 lhs: &[Vector<$primitive_type, N>],
@@ -139,7 +139,7 @@ test_binary_impl!(
 );
 
 /// NaN comparison semantics: `<`, `<=`, `>`, `>=` and `==` are *ordered* (false whenever an
-pub fn test_nan_ordering<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_nan_ordering<R: Runtime>(client: ComputeClient) {
     #[cube(launch_unchecked)]
     fn test_function(lhs: &[f32], rhs: &[f32], output: &mut [u32]) {
         if ABSOLUTE_POS < lhs.len() {
@@ -220,11 +220,11 @@ fn kernel_folded(output: &mut [Vector<u32, Const<4>>]) {
 }
 
 /// A vector comparison that constant folds still answers per lane.
-pub fn test_folded_vector<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_folded_vector<R: Runtime>(client: ComputeClient) {
     let handle = client.create_from_slice(u32::as_bytes(&[7u32, 0, 3, 0]));
 
     unsafe {
-        kernel_folded::launch_unchecked::<R>(
+        kernel_folded::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),

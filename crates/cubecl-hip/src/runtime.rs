@@ -226,8 +226,8 @@ impl Runtime for HipRuntime {
     type Server = HipServer;
     type Device = AmdDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self> {
-        ComputeClient::load(device)
+    fn client(device: &Self::Device) -> ComputeClient {
+        ComputeClient::load::<HipServer>(device.to_id())
     }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {

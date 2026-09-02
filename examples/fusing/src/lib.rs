@@ -66,7 +66,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             output_index: 1,
         });
 
-        fusing::launch_unchecked::<f32, R>(
+        fusing::launch_unchecked::<f32>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32 / vector_size as u32),

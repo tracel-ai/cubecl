@@ -46,12 +46,12 @@ pub fn slice_mut_len(output: &mut [u32]) {
     }
 }
 
-pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
     let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.empty(core::mem::size_of::<F>());
 
     unsafe {
-        slice_select::launch::<F, R>(
+        slice_select::launch::<F>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
@@ -66,12 +66,12 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClie
     assert_eq!(actual[0], F::new(2.0));
 }
 
-pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
     let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.empty(core::mem::size_of::<u32>());
 
     unsafe {
-        slice_len::launch::<F, R>(
+        slice_len::launch::<F>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
@@ -86,12 +86,12 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
     assert_eq!(actual, &[2]);
 }
 
-pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
     let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.create_from_slice(as_bytes![F: 0.0]);
 
     unsafe {
-        slice_for::launch::<F, R>(
+        slice_for::launch::<F>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
@@ -106,12 +106,12 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
     assert_eq!(actual[0], F::new(5.0));
 }
 
-pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
     let input = client.create_from_slice(as_bytes![F: 15.0]);
     let output = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
 
     unsafe {
-        slice_mut_assign::launch::<F, R>(
+        slice_mut_assign::launch::<F>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
@@ -126,7 +126,7 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: Compute
     assert_eq!(&actual[0..5], as_type![F: 0.0, 1.0, 15.0, 3.0, 4.0]);
 }
 
-pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient) {
     let output = client.empty(core::mem::size_of::<u32>() * 4);
 
     unsafe {

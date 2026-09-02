@@ -12,7 +12,6 @@ use crate::{
         InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode,
         MemoryConfiguration, MemoryReport, MemoryUsage,
     },
-    runtime::Runtime,
     server::{BufferBinding, KernelResource},
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
@@ -1418,7 +1417,7 @@ pub enum CubeCountSelection {
 
 impl CubeCountSelection {
     /// Creates a [`CubeCount`] while respecting the hardware limits.
-    pub fn new<R: Runtime>(client: &ComputeClient<R>, num_cubes: u32) -> Self {
+    pub fn new(client: &ComputeClient, num_cubes: u32) -> Self {
         let cube_count = cube_count_spread(&client.properties().hardware.max_cube_count, num_cubes);
 
         let num_cubes_actual = cube_count[0] * cube_count[1] * cube_count[2];
@@ -1512,7 +1511,7 @@ impl CubeDim {
     ///
     /// For complex problems, you probably want to have your own logic function to create the
     /// [`CubeDim`], but for simpler problems such as elemwise-operation, this is a great default.
-    pub fn new<R: Runtime>(client: &ComputeClient<R>, working_units: usize) -> Self {
+    pub fn new(client: &ComputeClient, working_units: usize) -> Self {
         let properties = client.properties();
         let plane_size = properties.hardware.plane_size_max;
         let plane_count = Self::calculate_plane_count_per_cube(

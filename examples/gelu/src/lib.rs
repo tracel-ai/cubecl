@@ -26,7 +26,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let input_handle = client.create_from_slice(f32::as_bytes(input));
 
     unsafe {
-        gelu_array::launch_unchecked::<f32, R>(
+        gelu_array::launch_unchecked::<f32>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32 / vector_size as u32),

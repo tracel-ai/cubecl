@@ -105,7 +105,7 @@ const CONFIGS: &[Config] = &[
 const CUBE_DIM: u32 = 256;
 
 fn main() {
-    let client = WgpuRuntime::client(&Default::default());
+    let client = <WgpuRuntime>::client(&Default::default());
 
     println!("adapter: {}", client.name());
     println!(
@@ -122,7 +122,7 @@ fn main() {
     }
 }
 
-fn bench(client: &ComputeClient<WgpuRuntime>, config: &Config) {
+fn bench(client: &ComputeClient, config: &Config) {
     let a = client.create_from_slice(f32::as_bytes(&vec![0.0f32; config.elems]));
     let b = client.create_from_slice(f32::as_bytes(&vec![0.0f32; config.elems]));
 
@@ -190,7 +190,7 @@ impl Measure {
     }
 }
 
-fn run_pass(client: &ComputeClient<WgpuRuntime>, a: &Handle, b: &Handle, config: &Config) {
+fn run_pass(client: &ComputeClient, a: &Handle, b: &Handle, config: &Config) {
     let cubes = config.elems.div_ceil(CUBE_DIM as usize) as u32;
     for i in 0..config.kernels {
         let (src, dst) = if i % 2 == 0 { (a, b) } else { (b, a) };
@@ -206,7 +206,7 @@ fn run_pass(client: &ComputeClient<WgpuRuntime>, a: &Handle, b: &Handle, config:
     }
 }
 
-fn sync(client: &ComputeClient<WgpuRuntime>, handle: &Handle) {
+fn sync(client: &ComputeClient, handle: &Handle) {
     let _ = client.read_one(handle.clone()).unwrap();
 }
 

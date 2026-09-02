@@ -10,7 +10,7 @@ pub struct CubeTuneId {
 
 impl CubeTuneId {
     /// Create a new ID.
-    pub fn new<R: Runtime>(client: &ComputeClient<R>, device: &R::Device) -> Self {
+    pub fn new<R: Runtime>(client: &ComputeClient, device: &R::Device) -> Self {
         Self {
             device: device.to_id(),
             name: client.name(),

@@ -1,7 +1,7 @@
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::AutotuneLoggerExt;
-use crate::{client::ComputeClient, runtime::Runtime, tune::TuneCacheResult};
+use crate::{client::ComputeClient, tune::TuneCacheResult};
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use core::{
@@ -120,10 +120,10 @@ where
 
     /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
     /// the first call for a given key.
-    pub fn execute<'a, R: Runtime, I: TuneInputs, Out>(
+    pub fn execute<'a, I: TuneInputs, Out>(
         &self,
         id: &ID,
-        client: &ComputeClient<R>,
+        client: &ComputeClient,
         operations: Arc<TunableSet<AK, I, Out>>,
         inputs: <I as TuneInputs>::At<'a>,
     ) -> Out
@@ -161,7 +161,7 @@ where
                 .expect("Should run when selected by autotune.");
         }
 
-        let fastest = tuner.check_tune::<R, I, Out>(
+        let fastest = tuner.check_tune::<I, Out>(
             &key,
             &inputs,
             &operations,

@@ -7,7 +7,7 @@ use cubecl_zspace::shape;
 
 /// A device resource read lazily must defer the device-to-host copy until first access, then
 /// return the same data as an eager read.
-pub fn test_read_lazy<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_read_lazy<R: Runtime>(client: ComputeClient) {
     let data = (0i32..1024).collect::<Vec<i32>>();
     let bytes_expected = i32::as_bytes(&data);
     let elem_size = size_of::<i32>();

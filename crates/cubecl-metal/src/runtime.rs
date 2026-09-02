@@ -134,8 +134,8 @@ impl Runtime for MetalRuntime {
     type Server = MetalServer;
     type Device = MetalDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self> {
-        ComputeClient::load(device)
+    fn client(device: &Self::Device) -> ComputeClient {
+        ComputeClient::load::<MetalServer>(device.to_id())
     }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
