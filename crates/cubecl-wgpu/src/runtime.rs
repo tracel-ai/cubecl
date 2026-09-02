@@ -12,6 +12,7 @@ use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
 use cubecl_environment::future;
+use cubecl_environment::sync::RwLock;
 use cubecl_ir::{DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(not(feature = "vulkan-validate"))]
@@ -85,40 +86,16 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-                backends: wgpu::Backends::all(),
-                ..wgpu::InstanceDescriptor::new_without_display_handle()
-            });
+            let devices = Self::enumerate_all_devices();
 
-            let adapters = enumerate_all_adapters(instance, AutoGraphicsApi::backend());
-            adapters
+            // Default doesn't filter device types.
+            if type_id == 4 {
+                return devices;
+            }
+
+            devices
                 .into_iter()
-                .filter(|adapter| {
-                    // Default doesn't filter device types.
-                    if type_id == 4 {
-                        return true;
-                    }
-
-                    let device_type = adapter.get_info().device_type;
-
-                    let adapter_type_id = match device_type {
-                        wgpu::DeviceType::Other => 4,
-                        wgpu::DeviceType::IntegratedGpu => 1,
-                        wgpu::DeviceType::DiscreteGpu => 0,
-                        wgpu::DeviceType::VirtualGpu => 2,
-                        wgpu::DeviceType::Cpu => 3,
-                    };
-
-                    adapter_type_id == type_id
-                })
-                .enumerate()
-                .map(|(index, adapter)| match adapter.get_info().device_type {
-                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u16),
-                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u16),
-                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u16),
-                    wgpu::DeviceType::Cpu => DeviceId::new(3, 0),
-                    wgpu::DeviceType::Other => DeviceId::new(4, 0),
-                })
+                .filter(|device| device.type_id == type_id)
                 .collect()
         }
     }
@@ -136,20 +113,45 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
                 backends: wgpu::Backends::all(),
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
-            let adapters = enumerate_all_adapters(instance, AutoGraphicsApi::backend());
-            adapters
-                .into_iter()
-                .enumerate()
-                .map(|(index, adapter)| match adapter.get_info().device_type {
-                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u16),
-                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u16),
-                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u16),
-                    wgpu::DeviceType::Cpu => DeviceId::new(3, 0),
-                    wgpu::DeviceType::Other => DeviceId::new(4, 0),
-                })
-                .collect()
+            adapter_device_ids(enumerate_all_adapters(instance, active_backend()))
         }
     }
+}
+
+/// The `DeviceId` addressing each adapter, in enumeration order.
+///
+/// Every device type counts from zero on its own: `WgpuDevice::DiscreteGpu(n)`
+/// is the nth *discrete* adapter, not the nth adapter overall, so a single
+/// counter over the mixed list hands out ids for devices that do not exist.
+/// `Cpu` and `Other` carry no index in `WgpuDevice`, so they stay at zero.
+#[cfg(not(target_family = "wasm"))]
+fn adapter_device_ids(adapters: Vec<wgpu::Adapter>) -> Vec<DeviceId> {
+    let mut next = [0u16; 3];
+
+    adapters
+        .into_iter()
+        .map(|adapter| {
+            let type_id = match adapter.get_info().device_type {
+                wgpu::DeviceType::DiscreteGpu => 0,
+                wgpu::DeviceType::IntegratedGpu => 1,
+                wgpu::DeviceType::VirtualGpu => 2,
+                wgpu::DeviceType::Cpu => 3,
+                wgpu::DeviceType::Other => 4,
+            };
+
+            // Only the indexed types have a counter; the rest are always zero.
+            let index = match next.get_mut(type_id as usize) {
+                Some(next) => {
+                    let index = *next;
+                    *next += 1;
+                    index
+                }
+                None => 0,
+            };
+
+            DeviceId::new(type_id, index)
+        })
+        .collect()
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -277,6 +279,35 @@ fn runtime_name(backend: wgpu::Backend) -> &'static str {
     }
 }
 
+/// The backend the first server was brought up on.
+///
+/// `enumerate_devices` is a static call with no client to ask, but the
+/// `DeviceId`s it hands out only mean anything against the adapter list the
+/// live servers were created from. `init_setup`/`init_setup_async` let a caller
+/// pick a `GraphicsApi` other than [`AutoGraphicsApi`], so the auto backend is
+/// not always that list. Every init path funnels through [`create_server`], so
+/// the choice is recorded there and read back here.
+///
+/// First one wins: a process that mixes backends across devices has no single
+/// adapter list to enumerate, and the backend brought up first is the one
+/// callers have a client for.
+static ACTIVE_BACKEND: RwLock<Option<wgpu::Backend>> = RwLock::new(None);
+
+/// Record the backend a server was created on, if none is recorded yet.
+fn record_active_backend(backend: wgpu::Backend) {
+    let mut active = ACTIVE_BACKEND.write();
+    active.get_or_insert(backend);
+}
+
+/// The backend to enumerate adapters from: what the runtime is actually
+/// running on, falling back to the auto backend before any server exists.
+#[cfg(not(target_family = "wasm"))]
+fn active_backend() -> wgpu::Backend {
+    ACTIVE_BACKEND
+        .read()
+        .unwrap_or_else(AutoGraphicsApi::backend)
+}
+
 pub(crate) fn create_server<C: WgpuCompiler>(
     setup: WgpuSetup,
     options: RuntimeOptions,
@@ -391,6 +422,8 @@ pub(crate) fn create_server<C: WgpuCompiler>(
     );
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
+
+    record_active_backend(setup.backend);
 
     let allocator = ContiguousMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
     WgpuServer::new(
