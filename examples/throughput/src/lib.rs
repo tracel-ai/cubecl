@@ -82,7 +82,7 @@ pub fn memory_curve<R: Runtime>(device: &R::Device) {
     println!("Memory curve — {}", client.name());
 
     for access in [MemoryAccess::Read, MemoryAccess::Write, MemoryAccess::Copy] {
-        print_curve(access, &measure_memory_curve::<R>(&client, access));
+        print_curve(access, &measure_memory_curve(&client, access));
     }
 }
 

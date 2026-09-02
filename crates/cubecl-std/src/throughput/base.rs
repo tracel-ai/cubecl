@@ -43,10 +43,7 @@ pub fn device_throughput<R: Runtime>(
 /// first run and nothing afterwards.
 ///
 /// Native only, panics on WASM
-pub fn measure_memory_curve<R: Runtime>(
-    client: &ComputeClient,
-    access: MemoryAccess,
-) -> MemoryCurve {
+pub fn measure_memory_curve(client: &ComputeClient, access: MemoryAccess) -> MemoryCurve {
     let points = sweep(client, access, |bytes| {
         ThroughputMode::Memory(MemorySpec::new(access, bytes))
     });
@@ -122,7 +119,7 @@ pub fn measure_peak_throughput(client: &ComputeClient, key: ThroughputKey) -> Th
 /// Calculates roofline autotune bounds for a given [`Work`] amount and compute throughput key.
 ///
 /// Measures compute and memory peak throughputs along with launch overhead for the runtime client.
-pub fn roofline_bounds<R: Runtime>(
+pub fn roofline_bounds(
     client: &ComputeClient,
     compute_key: ThroughputKey,
     work: Work,

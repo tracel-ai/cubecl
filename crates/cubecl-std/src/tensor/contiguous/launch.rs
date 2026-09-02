@@ -1,5 +1,5 @@
 use crate::tensor::{TensorHandle, copy_gpu_ref, launch_copy_perpendicular_ref};
-use cubecl_core::{Runtime, client::ComputeClient, ir::ElemType, prelude::TensorBinding};
+use cubecl_core::{client::ComputeClient, ir::ElemType, prelude::TensorBinding};
 
 /// Make a jit tensor contiguous.
 pub fn into_contiguous(
@@ -19,7 +19,7 @@ pub fn into_contiguous(
 
 /// Make a jit tensor contiguous, using the pitched allocator if available.
 /// See [`create_tensor`](cubecl_runtime::client::ComputeClient::create_tensor).
-pub fn into_contiguous_pitched<R: Runtime>(
+pub fn into_contiguous_pitched(
     client: &ComputeClient,
     input: TensorBinding,
     dtype: ElemType,

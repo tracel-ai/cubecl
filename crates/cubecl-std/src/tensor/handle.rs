@@ -1,7 +1,7 @@
 use cubecl_core::zspace::metadata::Metadata;
-use cubecl_core::{Runtime, server, zspace::strides};
 use cubecl_core::{calculate_cube_count_elemwise, server::MemoryLayout};
 use cubecl_core::{prelude::*, server::CopyDescriptor};
+use cubecl_core::{server, zspace::strides};
 use cubecl_core::{
     tensor_vector_size_parallel,
     zspace::{Shape, Strides},
@@ -132,11 +132,7 @@ impl TensorHandle {
     }
 }
 impl TensorHandle {
-    pub fn zeros<R: Runtime>(
-        client: &ComputeClient,
-        shape: impl Into<Shape>,
-        dtype: impl Into<Type>,
-    ) -> Self {
+    pub fn zeros(client: &ComputeClient, shape: impl Into<Shape>, dtype: impl Into<Type>) -> Self {
         let dtype = dtype.into();
         let shape = shape.into();
         let num_elements: usize = shape.iter().product();

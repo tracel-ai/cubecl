@@ -99,7 +99,7 @@ fn copy_perpendicular<T: Numeric, N: Size>(
 /// This is used when the input tensor's memory layout is such that the last dimension
 /// is not the one with a stride of 1 (the vectorized dimension). It optimizes
 /// the copy by using hardware vectorization (Vectors) and an in-register transpose.
-pub fn launch_into_contiguous_perpendicular<R: Runtime>(
+pub fn launch_into_contiguous_perpendicular(
     client: &ComputeClient,
     input: TensorBinding,
     dtype: ElemType,
