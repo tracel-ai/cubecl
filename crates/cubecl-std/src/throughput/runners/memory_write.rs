@@ -36,7 +36,7 @@ pub fn build_kernel<R: Runtime>(
             memory_write_throughput::launch_unchecked(
                 &client,
                 CubeCount::Static(probe.cube_count as u32, 1, 1),
-                CubeDim::new(&client, config.cube_dim),
+                config.cube_dim,
                 config.vector_size,
                 BufferArg::from_raw_parts(out_handle.clone(), probe.pool_lines),
                 probe.window_lines,

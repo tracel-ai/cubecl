@@ -244,8 +244,9 @@ fn implements_cmma<R: Runtime>(
 /// Hardware execution parameters for launching a compute kernel.
 #[derive(Clone, Copy)]
 pub struct LaunchConfig {
-    /// The number of threads per cube.
-    pub cube_dim: usize,
+    /// The cube the probe launches, resolved once so every runner counts the
+    /// operations the launch it issues actually performs.
+    pub cube_dim: CubeDim,
     /// The total number of cubes to dispatch.
     pub cube_count: usize,
     /// The vectorization factor (e.g., 4 for `vec4` operations).
@@ -267,26 +268,21 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
     // a cube's units are its real dispatched workers here, while its cube
     // count is only a loop inside each of them. `num_cpu_cores` units, one
     // per core, is the real worker count.
-    if let Some(cores) = hardware.num_cpu_cores {
-        return LaunchConfig {
-            cube_dim: cores as usize,
-            cube_count: CPU_CHAIN_DEPTH,
-            vector_size,
-            plane_size: plane_size as usize,
-        };
-    }
-
-    let requested = (hardware.max_units_per_cube / plane_size * plane_size)
-        .max(plane_size)
-        .min(hardware.max_cube_dim.0);
-
-    let cube_dim = CubeDim::new(client, requested as usize).num_elems();
-
-    let sms = hardware.num_streaming_multiprocessors.unwrap_or(64);
-    let cube_count = (sms * 32).min(hardware.max_cube_count.0);
+    let (units, cube_count) = match hardware.num_cpu_cores {
+        Some(cores) => (cores, CPU_CHAIN_DEPTH as u32),
+        None => {
+            let sms = hardware.num_streaming_multiprocessors.unwrap_or(64);
+            (
+                (hardware.max_units_per_cube / plane_size * plane_size)
+                    .max(plane_size)
+                    .min(hardware.max_cube_dim.0),
+                (sms * 32).min(hardware.max_cube_count.0),
+            )
+        }
+    };
 
     LaunchConfig {
-        cube_dim: cube_dim as usize,
+        cube_dim: CubeDim::new(client, units as usize),
         cube_count: cube_count as usize,
         vector_size,
         plane_size: plane_size as usize,

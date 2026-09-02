@@ -111,7 +111,7 @@ impl MemoryProbe {
         let blocked = config.plane_size == 1;
         let shape = DeviceShape {
             max_alloc: client.properties().memory.max_page_size as usize,
-            cube_dim: config.cube_dim,
+            cube_dim: config.cube_dim.num_elems() as usize,
             cube_count: if blocked { 1 } else { config.cube_count },
         };
 
@@ -173,7 +173,7 @@ pub fn prime<R: Runtime>(
         prime_buffer::launch_unchecked(
             client,
             CubeCount::Static(config.cube_count as u32, 1, 1),
-            CubeDim::new(client, config.cube_dim),
+            config.cube_dim,
             config.vector_size,
             BufferArg::from_raw_parts(handle.clone(), pool_lines),
             pool_lines,

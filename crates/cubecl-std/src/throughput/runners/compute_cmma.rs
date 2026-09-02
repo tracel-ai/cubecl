@@ -25,7 +25,7 @@ pub fn build_kernel<R: Runtime>(
             compute_cmma_throughput::launch_unchecked(
                 &client,
                 CubeCount::Static(config.cube_count as u32, 1, 1),
-                CubeDim::new(&client, config.cube_dim),
+                config.cube_dim,
                 config.vector_size,
                 BufferArg::from_raw_parts(out, 1),
                 iterations,
@@ -38,7 +38,7 @@ pub fn build_kernel<R: Runtime>(
         start.elapsed()
     });
 
-    let planes_per_cube = config.cube_dim / config.plane_size;
+    let planes_per_cube = config.cube_dim.num_elems() as usize / config.plane_size;
     let ops_count = config.cube_count * planes_per_cube * ops_per_cmma;
 
     KernelConfig {
