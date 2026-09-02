@@ -20,6 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &prefix,
     ))?);
 
+    // The LLVM headers have multiple warning under `cc`'s default `-Wall -Wextra`
+    shim.warnings(false);
     shim.opt_level(3);
 
     shim.compile("cubecl_llvm_shim");
