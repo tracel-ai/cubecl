@@ -2,10 +2,12 @@
 use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
 
 use crate::throughput::{ThroughputKey, ThroughputValue};
-use alloc::string::{String, ToString};
+use alloc::format;
+use alloc::string::String;
 use alloc::sync::Arc;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::Mutex;
+use cubecl_ir::DeviceIdentity;
 
 static GLOBAL_CACHE: Mutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>> = Mutex::new(None);
 
@@ -21,14 +23,16 @@ pub struct ThroughputCache {
 }
 
 impl ThroughputCache {
-    /// Gets or creates a global `ThroughputCache` for the given device name.
-    pub fn get_for_device(name: &str) -> Arc<Mutex<Self>> {
+    /// Gets or creates the global `ThroughputCache` holding what `runtime`
+    /// measured on the device it reports as `identity`.
+    pub fn get_for_device(runtime: &str, identity: &DeviceIdentity) -> Arc<Mutex<Self>> {
+        let name = device_key(runtime, identity);
         let mut cache_map = GLOBAL_CACHE.lock();
         let cache_map = cache_map.get_or_insert_with(HashMap::new);
 
         cache_map
-            .entry(name.to_string())
-            .or_insert_with(|| Arc::new(Mutex::new(Self::new(name))))
+            .entry(name.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(Self::new(&name))))
             .clone()
     }
 
@@ -69,5 +73,36 @@ impl ThroughputCache {
     /// Returns the [`ThroughputValue`] for the given [`ThroughputKey`], if it exists in the cache.
     pub fn get(&self, key: &ThroughputKey) -> Option<&ThroughputValue> {
         self.cache.get(key)
+    }
+}
+
+/// What separates one device's measurements from another's: the part, never the
+/// device index, which `CUDA_VISIBLE_DEVICES` makes 0 for whichever card was
+/// pinned. Two cards this cannot tell apart are the same part, and share a peak.
+fn device_key(runtime: &str, identity: &DeviceIdentity) -> String {
+    let DeviceIdentity { name, fingerprint } = identity;
+    let part = name.replace(|c: char| !c.is_ascii_alphanumeric(), "-");
+
+    format!("{runtime}_{fingerprint}_{part}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+
+    /// Two cards in one machine were served each other's peaks: pinning either
+    /// one makes it index 0, and the index was all that told them apart.
+    #[test]
+    fn two_parts_of_one_architecture_do_not_share_an_entry() {
+        let turing = |name: &str| DeviceIdentity {
+            name: name.to_string(),
+            fingerprint: "ptx_sm75".to_string(),
+        };
+
+        assert_ne!(
+            device_key("cuda", &turing("NVIDIA GeForce RTX 2060")),
+            device_key("cuda", &turing("NVIDIA GeForce GTX 1660 SUPER")),
+        );
     }
 }
