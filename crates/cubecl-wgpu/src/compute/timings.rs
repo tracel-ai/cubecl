@@ -11,6 +11,11 @@ use wgpu::{QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType};
 
 type QuerySetId = u64;
 
+/// Slot a profile's start timestamp is written to, once, by the pass that opens it.
+const PROFILE_START_INDEX: u32 = 0;
+/// Slot every pass of a live profile rewrites, so the last one to run marks the end.
+const PROFILE_END_INDEX: u32 = 1;
+
 /// Metal caps live `MTLCounterSampleBuffer`s at 32 per device; leave a little headroom.
 const DEFAULT_MAX_METAL_TIMING_QUERY_SETS: u32 = 28;
 
@@ -82,8 +87,9 @@ impl TimestampQuerySetBudget {
 /// exhausted it reuses its own sets round-robin instead of allocating past the hardware limit.
 /// Reuse is safe because all of a device's streams submit to a single ordered queue, so a
 /// set's timestamp-write and resolve always execute atomically and in submission order — the
-/// only cost is that a profile spanning more compute passes than this allocator has sets may
-/// under-measure, which autotune tolerates. Releases every slot it holds on drop.
+/// only cost is that once the budget is exhausted a profile opens in a set an older one may
+/// still have started in, rewriting that start, which autotune tolerates. Releases every slot
+/// it holds on drop.
 #[derive(Debug)]
 struct QuerySetAllocator {
     /// Shared device budget of live timestamp query sets.
@@ -369,8 +375,10 @@ impl QueryProfiler {
         let query_set_end = self.query_sets.get(end).ok_or_else(query_set_error)?;
 
         let size = QUERY_SIZE as u64;
-        encoder.resolve_query_set(&query_set_start.query_set, 0..1, &resolve_start, 0);
-        encoder.resolve_query_set(&query_set_end.query_set, 1..2, &resolve_end, 0);
+        let start_slot = PROFILE_START_INDEX..PROFILE_START_INDEX + 1;
+        let end_slot = PROFILE_END_INDEX..PROFILE_END_INDEX + 1;
+        encoder.resolve_query_set(&query_set_start.query_set, start_slot, &resolve_start, 0);
+        encoder.resolve_query_set(&query_set_end.query_set, end_slot, &resolve_end, 0);
         encoder.copy_buffer_to_buffer(&resolve_start, 0, &map_buffer, 0, size);
         encoder.copy_buffer_to_buffer(&resolve_end, 0, &map_buffer, size, size);
         Ok(Some(map_buffer))
@@ -432,21 +440,37 @@ impl QueryProfiler {
         }
     }
 
-    /// Returns the query set to be used by the [`wgpu::ComputePass`].
+    /// Returns the timestamp writes a [`wgpu::ComputePass`] about to be opened should carry.
+    ///
+    /// A pass that opens one or more profiles writes both ends of a fresh query set. Every
+    /// later pass of a live profile rewrites only the end slot of that same set, so the window
+    /// closes on the last pass of the region instead of the first; a pass outside any profile
+    /// writes nothing.
     ///
     /// Also performs cleanup of old [query set](QuerySet).
-    pub fn register_profile_device(&mut self, device: &wgpu::Device) -> Option<&QuerySet> {
-        self.init_query_set().map(|info| {
-            let item = self.new_query_set(info, device);
-            &item.query_set
+    pub fn register_profile_device(
+        &mut self,
+        device: &wgpu::Device,
+    ) -> Option<wgpu::ComputePassTimestampWrites<'_>> {
+        let (query_set_id, beginning_of_pass_write_index) = match self.init_query_set() {
+            Some(info) => {
+                self.new_query_set(info, device);
+                (info.0, Some(PROFILE_START_INDEX))
+            }
+            None if self.timestamps.is_empty() => return None,
+            None => (self.current?, None),
+        };
+
+        let item = self.query_sets.get(&query_set_id)?;
+
+        Some(wgpu::ComputePassTimestampWrites {
+            query_set: &item.query_set,
+            beginning_of_pass_write_index,
+            end_of_pass_write_index: Some(PROFILE_END_INDEX),
         })
     }
 
-    fn new_query_set(
-        &mut self,
-        query_set_info: (u64, u32),
-        device: &wgpu::Device,
-    ) -> &mut QuerySetItem {
+    fn new_query_set(&mut self, query_set_info: (u64, u32), device: &wgpu::Device) {
         let (query_set_id, num_ref) = query_set_info;
         let query_set = match self.query_set_pool.pop() {
             // Recycle a set we already own and are done with.
@@ -457,7 +481,6 @@ impl QueryProfiler {
 
         let slot = QuerySetItem { query_set, num_ref };
         self.query_sets.insert(query_set_id, slot);
-        self.query_sets.get_mut(&query_set_id).unwrap()
     }
 
     fn init_query_set(&mut self) -> Option<(QuerySetId, u32)> {
@@ -495,9 +518,7 @@ impl QueryProfiler {
     /// all gone, because it is still the *end* marker:
     /// [`stop_profile_setup`](Self::stop_profile_setup) writes `end = self.current` and then
     /// resolves it, so recycling it here leaves a profile that started earlier unable to read its
-    /// own end timestamp. The end it reads can be stale, since a new set is only allocated when
-    /// tokens are waiting for one, but a short measurement beats none at all: autotune reads a
-    /// profiling error as the tunable failing.
+    /// own end timestamp.
     fn cleanup_query_sets(&mut self) {
         let mut cleanups = core::mem::take(&mut self.cleanups);
 
