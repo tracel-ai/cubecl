@@ -1,9 +1,12 @@
 use itertools::Itertools;
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{ToTokens, quote};
 
 use crate::{
-    parse::asm::{AsmArgs, AsmExpression, DirSpec, FormatString, RegOperandBody},
+    parse::asm::{
+        AsmArgs, AsmExpression, DirSpec, DualDirSpec, DualDirSpecExpression, FormatString,
+        RegOperandBody, RegOperandKind, RegSpec,
+    },
     paths::prelude_type,
     scope::Context,
 };
@@ -16,22 +19,68 @@ impl AsmExpression {
         let inputs = self
             .inputs
             .iter()
-            .map(|it| it.to_tokens(ctx))
+            .map(|(expr, spec)| {
+                let expr = expr.to_tokens(ctx);
+                let spec = match spec {
+                    RegOperandKind::DirSpec(dir, reg) => quote![#dir, #reg],
+                    RegOperandKind::DualDirSpec(dir, reg) => quote![#dir, #reg],
+                };
+                quote![#expr, #spec]
+            })
             .collect::<Vec<_>>();
         let outputs = self
             .outputs
             .iter()
-            .map(|it| it.to_tokens(ctx))
+            .map(|(expr, spec)| {
+                let expr = expr.to_tokens(ctx);
+                quote![&#expr, #spec]
+            })
             .collect::<Vec<_>>();
         let options = &self.options;
 
         quote! {{
             #builder::new(#asm)
             #(.push_input(scope, #inputs))*
-            #(.push_output(scope, &#outputs))*
+            #(.push_output(scope, #outputs))*
             #(.#options())*
             .register(scope)
         }}
+    }
+}
+
+impl ToTokens for RegSpec {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let reg_spec = prelude_type("RegSpec");
+        tokens.extend(match self {
+            RegSpec::Inferred(_) => quote![#reg_spec::Inferred],
+            RegSpec::Class(ident) => {
+                let name = ident.to_string();
+                quote![#reg_spec::Class(#name.into())]
+            }
+            RegSpec::Explicit(name) => quote![#reg_spec::Explicit(#name.into())],
+        });
+    }
+}
+
+impl ToTokens for DirSpec {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let kind = prelude_type("InputKind");
+        tokens.extend(match self {
+            DirSpec::In(_) => quote![#kind::In],
+            DirSpec::MemIn(_) => quote![#kind::MemIn],
+            DirSpec::MemOut(_) => quote![#kind::MemOut],
+            DirSpec::Lateout(_) | DirSpec::Out(_) => unreachable!(),
+        });
+    }
+}
+
+impl ToTokens for DualDirSpec {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let kind = prelude_type("InputKind");
+        tokens.extend(match self {
+            DualDirSpec::MemInout(_) => quote![#kind::MemInout],
+            DualDirSpec::Inout(_) | DualDirSpec::Inlateout(_) => unreachable!(),
+        });
     }
 }
 
@@ -57,7 +106,7 @@ impl AsmArgs {
             match reg.body {
                 RegOperandBody::DirSpec(dir_spec, ..) => {
                     let placeholder = match dir_spec {
-                        DirSpec::In(_) => {
+                        DirSpec::In(_) | DirSpec::MemIn(_) | DirSpec::MemOut(_) => {
                             let placeholder = format!("${in_idx}");
                             in_idx += 1;
                             placeholder
@@ -74,8 +123,22 @@ impl AsmArgs {
                     };
                     fmt_args.push(fmt_arg);
                 }
-                RegOperandBody::DualDirSpec(..) => {
-                    panic!("inout params not yet supported")
+                RegOperandBody::DualDirSpec(dir_spec, ..) => {
+                    let placeholder = match dir_spec {
+                        DualDirSpec::MemInout(_) => {
+                            let placeholder = format!("${in_idx}");
+                            in_idx += 1;
+                            placeholder
+                        }
+                        DualDirSpec::Inout(_) | DualDirSpec::Inlateout(_) => {
+                            panic!("inout params not yet supported")
+                        }
+                    };
+                    let fmt_arg = match reg.param_name {
+                        Some(name) => quote![#name = #placeholder],
+                        None => quote![#placeholder],
+                    };
+                    fmt_args.push(fmt_arg);
                 }
                 RegOperandBody::Const(expr) => match reg.param_name {
                     Some(name) => fmt_args.push(quote![#name = #expr]),
@@ -103,13 +166,23 @@ pub fn generate_asm_unexpanded(tokens: TokenStream) -> syn::Result<TokenStream> 
     for reg in registers {
         match reg.body {
             RegOperandBody::DirSpec(dir_spec, _, expr) => match dir_spec {
-                DirSpec::In(_) => {
+                DirSpec::In(_) | DirSpec::MemIn(_) | DirSpec::MemOut(_) => {
                     inputs.push(expr);
                 }
                 DirSpec::Out(_) | DirSpec::Lateout(_) => {
                     outputs.push(expr);
                 }
             },
+            RegOperandBody::DualDirSpec(dir_spec, _, DualDirSpecExpression::Single(expr)) => {
+                match dir_spec {
+                    DualDirSpec::MemInout(_) => {
+                        inputs.push(expr);
+                    }
+                    DualDirSpec::Inout(_) | DualDirSpec::Inlateout(_) => {
+                        unimplemented!("inout params not yet supported")
+                    }
+                }
+            }
             RegOperandBody::DualDirSpec(..) => {
                 unimplemented!("inout params not yet supported")
             }

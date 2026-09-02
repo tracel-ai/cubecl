@@ -21,7 +21,10 @@ mod kw {
 
     syn::custom_keyword!(pure);
     syn::custom_keyword!(nomem);
+    syn::custom_keyword!(explicit_mem);
     syn::custom_keyword!(readonly);
+    syn::custom_keyword!(reads_address_space);
+    syn::custom_keyword!(writes_address_space);
     syn::custom_keyword!(preserves_flags);
     syn::custom_keyword!(noreturn);
     syn::custom_keyword!(nostack);
@@ -33,6 +36,16 @@ mod kw {
     syn::custom_keyword!(inlateout);
     syn::custom_keyword!(sym);
     syn::custom_keyword!(label);
+
+    // Address spaces
+    syn::custom_keyword!(global);
+    syn::custom_keyword!(shared);
+    syn::custom_keyword!(local);
+
+    // Memory registers
+    syn::custom_keyword!(mem_in);
+    syn::custom_keyword!(mem_out);
+    syn::custom_keyword!(mem_inout);
 }
 
 macro_rules! peek_select {
@@ -93,8 +106,14 @@ pub enum AsmOption {
     Pure(kw::pure),
     #[display("nomem")]
     Nomem(kw::nomem),
+    #[display("explicit_mem")]
+    ExplicitMem(kw::explicit_mem),
     #[display("readonly")]
     Readonly(kw::readonly),
+    #[display("reads_{_1}")]
+    ReadsAddressSpace(kw::reads_address_space, AddressSpace),
+    #[display("writes_{_1}")]
+    WritesAddressSpace(kw::writes_address_space, AddressSpace),
     #[display("preserves_flags")]
     PreservesFlags(kw::preserves_flags),
     #[display("noreturn")]
@@ -110,13 +129,26 @@ impl AsmOption {
         match self {
             AsmOption::Pure(kw) => kw.span(),
             AsmOption::Nomem(kw) => kw.span(),
+            AsmOption::ExplicitMem(kw) => kw.span(),
             AsmOption::Readonly(kw) => kw.span(),
+            AsmOption::ReadsAddressSpace(kw, _) => kw.span(),
+            AsmOption::WritesAddressSpace(kw, _) => kw.span(),
             AsmOption::PreservesFlags(kw) => kw.span(),
             AsmOption::Noreturn(kw) => kw.span(),
             AsmOption::Nostack(kw) => kw.span(),
             AsmOption::Raw(kw) => kw.span(),
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Display)]
+pub enum AddressSpace {
+    #[display("global")]
+    Global(kw::global),
+    #[display("shared")]
+    Shared(kw::shared),
+    #[display("local")]
+    Local(kw::local),
 }
 
 #[derive(Clone)]
@@ -135,6 +167,12 @@ pub enum RegOperandBody {
     Label(kw::label, syn::Block),
 }
 
+#[derive(Clone, Debug)]
+pub enum RegOperandKind {
+    DirSpec(DirSpec, RegSpec),
+    DualDirSpec(DualDirSpec, RegSpec),
+}
+
 #[derive(Clone)]
 #[allow(unused, reason = "not supported, but want to parse it")]
 pub enum DualDirSpecExpression {
@@ -142,8 +180,8 @@ pub enum DualDirSpecExpression {
     Pair(Expr, Expr),
 }
 
-#[derive(Clone)]
-#[allow(unused, reason = "not supported, but want to parse it")]
+#[derive(Clone, Debug)]
+#[allow(unused, reason = "parsing")]
 pub enum RegSpec {
     Class(Ident),
     Inferred(Token![_]),
@@ -154,14 +192,30 @@ pub enum RegSpec {
 #[allow(unused, reason = "parsing")]
 pub enum DirSpec {
     In(token::In),
+    MemIn(kw::mem_in),
     Out(kw::out),
+    MemOut(kw::mem_out),
     Lateout(kw::lateout),
+}
+
+impl DirSpec {
+    pub fn span(&self) -> Span {
+        match self {
+            DirSpec::In(kw) => kw.span(),
+            DirSpec::MemIn(kw) => kw.span(),
+            DirSpec::Out(kw) => kw.span(),
+            DirSpec::MemOut(kw) => kw.span(),
+            DirSpec::Lateout(kw) => kw.span(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Display)]
 pub enum DualDirSpec {
     #[display("inout")]
     Inout(kw::inout),
+    #[display("mem_inout")]
+    MemInout(kw::mem_inout),
     #[display("inlateout")]
     Inlateout(kw::inlateout),
 }
@@ -169,8 +223,9 @@ pub enum DualDirSpec {
 impl DualDirSpec {
     pub fn span(&self) -> Span {
         match self {
-            DualDirSpec::Inout(inout) => inout.span(),
-            DualDirSpec::Inlateout(inlateout) => inlateout.span(),
+            DualDirSpec::Inout(kw) => kw.span(),
+            DualDirSpec::MemInout(kw) => kw.span(),
+            DualDirSpec::Inlateout(kw) => kw.span(),
         }
     }
 }
@@ -282,13 +337,30 @@ impl Parse for AsmOption {
         peek_select!(input, {
             kw::pure => Ok(AsmOption::Pure(input.parse()?)),
             kw::nomem => Ok(AsmOption::Nomem(input.parse()?)),
+            kw::explicit_mem => Ok(AsmOption::ExplicitMem(input.parse()?)),
             kw::readonly => Ok(AsmOption::Readonly(input.parse()?)),
+            kw::reads_address_space => Ok(AsmOption::ReadsAddressSpace(input.parse()?, input.parse()?)),
+            kw::writes_address_space => Ok(AsmOption::WritesAddressSpace(input.parse()?, input.parse()?)),
             kw::preserves_flags => Ok(AsmOption::PreservesFlags(input.parse()?)),
             kw::noreturn => Ok(AsmOption::Noreturn(input.parse()?)),
             kw::nostack => Ok(AsmOption::Nostack(input.parse()?)),
             kw::raw => Ok(AsmOption::Raw(input.parse()?));
             _ => {
                 Err(syn::Error::new(input.span(), "expected asm option"))
+            },
+        })
+    }
+}
+
+// AddressSpace -> global | shared | local
+impl Parse for AddressSpace {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        peek_select!(input, {
+            kw::global => Ok(AddressSpace::Global(input.parse()?)),
+            kw::shared => Ok(AddressSpace::Shared(input.parse()?)),
+            kw::local => Ok(AddressSpace::Local(input.parse()?));
+            _ => {
+                Err(syn::Error::new(input.span(), "expected global, shared or local"))
             },
         })
     }
@@ -328,7 +400,27 @@ impl Parse for RegOperandBody {
                     input.parse()?,
                 ))
             },
+            kw::mem_in => {
+                let dir = input.parse()?;
+                let content;
+                syn::parenthesized!(content in input);
+                Ok(RegOperandBody::DirSpec(
+                    dir,
+                    content.parse()?,
+                    input.parse()?,
+                ))
+            },
             kw::out => {
+                let dir = input.parse()?;
+                let content;
+                syn::parenthesized!(content in input);
+                Ok(RegOperandBody::DirSpec(
+                    dir,
+                    content.parse()?,
+                    input.parse()?,
+                ))
+            },
+            kw::mem_out => {
                 let dir = input.parse()?;
                 let content;
                 syn::parenthesized!(content in input);
@@ -349,6 +441,16 @@ impl Parse for RegOperandBody {
                 ))
             },
             kw::inout => {
+                let dir = input.parse()?;
+                let content;
+                syn::parenthesized!(content in input);
+                 Ok(RegOperandBody::DualDirSpec(
+                    dir,
+                    content.parse()?,
+                    input.parse()?,
+                ))
+            },
+            kw::mem_inout => {
                 let dir = input.parse()?;
                 let content;
                 syn::parenthesized!(content in input);
@@ -395,40 +497,41 @@ impl Parse for DualDirSpecExpression {
 // RegSpec → RegisterClass | ExplicitRegister
 impl Parse for RegSpec {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        if input.peek(LitStr) {
-            Ok(RegSpec::Explicit(input.parse()?))
-        } else if input.peek(Token![_]) {
-            Ok(RegSpec::Inferred(input.parse()?))
-        } else {
-            Ok(RegSpec::Class(input.parse()?))
-        }
+        peek_select!(input, {
+            token::Underscore => input.parse().map(RegSpec::Inferred),
+            LitStr =>  input.parse().map(RegSpec::Explicit);
+            _ => input.parse().map(RegSpec::Class),
+        })
     }
 }
 
-// DirSpec → in | out | lateout
+// DirSpec → in | mem_in | out | mem_out | lateout
 impl Parse for DirSpec {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         peek_select!(input, {
             token::In => input.parse().map(DirSpec::In),
+            kw::mem_in => input.parse().map(DirSpec::MemIn),
             kw::out => input.parse().map(DirSpec::Out),
+            kw::mem_out => input.parse().map(DirSpec::MemOut),
             kw::lateout => input.parse().map(DirSpec::Lateout);
             _ => Err(syn::Error::new(
                 input.span(),
-                "expected `in`, `out`, or `lateout`",
+                "expected `in`, `mem_in`, `out`, `mem_out` or `lateout`",
             )),
         })
     }
 }
 
-// DualDirSpec → inout | inlateout
+// DualDirSpec → inout | mem_inout | inlateout
 impl Parse for DualDirSpec {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         peek_select!(input, {
             kw::inout => input.parse().map(DualDirSpec::Inout),
+            kw::mem_inout => input.parse().map(DualDirSpec::MemInout),
             kw::inlateout => input.parse().map(DualDirSpec::Inlateout);
             _ => Err(syn::Error::new(
                 input.span(),
-                "expected `inout` or `inlateout`",
+                "expected `inout`, `mem_inout` or `inlateout`",
             )),
         })
     }
@@ -465,7 +568,7 @@ impl AsmArgs {
                     ))?;
                 }
                 AsmOperand::AsmOptions(options) => options.validate(self)?,
-                AsmOperand::RegOperand(reg) => reg.validate()?,
+                AsmOperand::RegOperand(reg) => reg.validate(self)?,
             }
         }
         Ok(())
@@ -483,10 +586,14 @@ impl AsmArgs {
 
     pub fn out_registers(&self) -> impl Iterator<Item = RegOperand> {
         self.registers().into_iter().filter(|it| match &it.body {
-            RegOperandBody::DirSpec(dir, _, _) => {
-                matches!(dir, DirSpec::Out(_) | DirSpec::Lateout(_))
-            }
-            RegOperandBody::DualDirSpec(..) => true,
+            RegOperandBody::DirSpec(dir, ..) => match dir {
+                DirSpec::In(_) | DirSpec::MemIn(_) | DirSpec::MemOut(_) => false,
+                DirSpec::Out(_) | DirSpec::Lateout(_) => true,
+            },
+            RegOperandBody::DualDirSpec(dir, ..) => match dir {
+                DualDirSpec::MemInout(_) => false,
+                DualDirSpec::Inout(_) | DualDirSpec::Inlateout(_) => true,
+            },
             _ => false,
         })
     }
@@ -518,7 +625,66 @@ impl AsmOptions {
                         ))?;
                     }
                 }
-                AsmOption::Nomem(_) | AsmOption::Readonly(_) => {}
+                AsmOption::Nomem(token) => {
+                    let has_conflict = self
+                        .options
+                        .iter()
+                        .any(|it| matches!(it, AsmOption::Readonly(_) | AsmOption::ExplicitMem(_)));
+                    if has_conflict {
+                        Err(syn::Error::new(
+                            token.span(),
+                            "`nomem` cannot be combined with `readonly` or `explicit_mem`",
+                        ))?;
+                    }
+                }
+                AsmOption::ExplicitMem(token) => {
+                    let has_conflict = self
+                        .options
+                        .iter()
+                        .any(|it| matches!(it, AsmOption::Readonly(_) | AsmOption::Nomem(_)));
+                    if has_conflict {
+                        Err(syn::Error::new(
+                            token.span(),
+                            "`explicit_mem` cannot be combined with `readonly` or `nomem`",
+                        ))?;
+                    }
+                }
+                AsmOption::Readonly(token) => {
+                    let has_conflict = self
+                        .options
+                        .iter()
+                        .any(|it| matches!(it, AsmOption::ExplicitMem(_) | AsmOption::Nomem(_)));
+                    if has_conflict {
+                        Err(syn::Error::new(
+                            token.span(),
+                            "`readonly` cannot be combined with `explicit_mem` or `nomem`",
+                        ))?;
+                    }
+                }
+                AsmOption::ReadsAddressSpace(token, ..) => {
+                    let has_explicit = self
+                        .options
+                        .iter()
+                        .any(|it| matches!(it, AsmOption::ExplicitMem(_)));
+                    if !has_explicit {
+                        Err(syn::Error::new(
+                            token.span(),
+                            "`reads_address_space` requires `explicit_mem`",
+                        ))?;
+                    }
+                }
+                AsmOption::WritesAddressSpace(token, ..) => {
+                    let has_explicit = self
+                        .options
+                        .iter()
+                        .any(|it| matches!(it, AsmOption::ExplicitMem(_)));
+                    if !has_explicit {
+                        Err(syn::Error::new(
+                            token.span(),
+                            "`writes_address_space` requires `explicit_mem`",
+                        ))?;
+                    }
+                }
                 unsupported @ (AsmOption::PreservesFlags(_)
                 | AsmOption::Noreturn(_)
                 | AsmOption::Nostack(_)
@@ -533,24 +699,59 @@ impl AsmOptions {
 }
 
 impl RegOperand {
-    pub fn validate(&self) -> syn::Result<()> {
+    pub fn validate(&self, args: &AsmArgs) -> syn::Result<()> {
         match &self.body {
             RegOperandBody::DirSpec(dir, ..) => {
                 // Maybe validate register class, leave for now since it's ignored. I wish there was
                 // `compile_warning!()`...
-                if let DirSpec::Lateout(token) = dir {
-                    Err(syn::Error::new_spanned(
-                        token,
-                        "`lateout` direction is currently not supported",
-                    ))?;
+                match dir {
+                    DirSpec::MemIn(_) | DirSpec::MemOut(_) => {
+                        let opts = args.operands.iter().filter_map(|opd| match &opd.operand {
+                            AsmOperand::AsmOptions(asm_options) => Some(asm_options.options.iter()),
+                            _ => None,
+                        });
+                        let is_explicit = opts
+                            .flatten()
+                            .any(|opt| matches!(opt, AsmOption::ExplicitMem(_)));
+                        if !is_explicit {
+                            Err(syn::Error::new(
+                                dir.span(),
+                                "`mem_*` register directions require `explicit_mem`",
+                            ))?;
+                        }
+                    }
+                    DirSpec::Lateout(kw) => {
+                        Err(syn::Error::new_spanned(
+                            kw,
+                            "`lateout` direction is currently not supported",
+                        ))?;
+                    }
+                    DirSpec::In(..) | DirSpec::Out(..) => {}
                 }
             }
-            RegOperandBody::DualDirSpec(dir, ..) => {
-                Err(syn::Error::new(
-                    dir.span(),
-                    format!("`{}` direction is currently not supported", dir),
-                ))?;
-            }
+            RegOperandBody::DualDirSpec(dir, ..) => match dir {
+                DualDirSpec::MemInout(_) => {
+                    let opts = args.operands.iter().filter_map(|opd| match &opd.operand {
+                        AsmOperand::AsmOptions(asm_options) => Some(asm_options.options.iter()),
+                        _ => None,
+                    });
+                    let is_explicit = opts
+                        .flatten()
+                        .any(|opt| matches!(opt, AsmOption::ExplicitMem(_)));
+                    if !is_explicit {
+                        Err(syn::Error::new(
+                            dir.span(),
+                            "`mem_*` register directions require `explicit_mem`",
+                        ))?;
+                    }
+                }
+                DualDirSpec::Inout(_) | DualDirSpec::Inlateout(_) => {
+                    Err(syn::Error::new(
+                        dir.span(),
+                        format!("`{}` direction is currently not supported", dir),
+                    ))?;
+                }
+            },
             RegOperandBody::Const(_) => {}
             RegOperandBody::Sym(keyword, ..) => {
                 Err(syn::Error::new(
@@ -573,8 +774,8 @@ impl RegOperand {
 pub struct AsmExpression {
     /// `format!()` call with the args already filled in for simplicity
     pub asm: TokenStream,
-    pub outputs: Vec<Expression>,
-    pub inputs: Vec<Expression>,
+    pub outputs: Vec<(Expression, RegSpec)>,
+    pub inputs: Vec<(Expression, RegOperandKind)>,
     pub options: Vec<Ident>,
 }
 
@@ -599,19 +800,30 @@ pub fn parse_asm_call(ctx: &mut Context, tokens: TokenStream) -> syn::Result<Asm
 
     for reg in registers {
         match reg.body {
-            RegOperandBody::DirSpec(dir_spec, _, expr) => {
+            RegOperandBody::DirSpec(dir_spec, reg, expr) => {
                 let expr = Expression::from_expr(expr, ctx)?;
                 match dir_spec {
-                    DirSpec::In(_) => {
-                        inputs.push(expr);
+                    dir @ (DirSpec::In(_) | DirSpec::MemIn(_) | DirSpec::MemOut(_)) => {
+                        inputs.push((expr, RegOperandKind::DirSpec(dir, reg)));
                     }
                     DirSpec::Out(_) | DirSpec::Lateout(_) => {
-                        outputs.push(expr);
+                        outputs.push((expr, reg));
+                    }
+                }
+            }
+            RegOperandBody::DualDirSpec(dir_spec, reg, DualDirSpecExpression::Single(expr)) => {
+                let expr = Expression::from_expr(expr, ctx)?;
+                match dir_spec {
+                    dir @ DualDirSpec::MemInout(_) => {
+                        inputs.push((expr, RegOperandKind::DualDirSpec(dir, reg)));
+                    }
+                    DualDirSpec::Inout(_) | DualDirSpec::Inlateout(_) => {
+                        unimplemented!();
                     }
                 }
             }
             RegOperandBody::DualDirSpec(..) => {
-                unimplemented!()
+                unimplemented!();
             }
             RegOperandBody::Const(..) => {}
             RegOperandBody::Sym(..) | RegOperandBody::Label(..) => unimplemented!(),
