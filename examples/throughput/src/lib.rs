@@ -138,8 +138,6 @@ fn report<R: Runtime>(device: &R::Device, rows: impl FnOnce(&ComputeClient<R>) -
                 Ok(value) => value.format(&key),
                 Err(unavailable) => unavailable.to_string(),
             },
-            // A row the device could not even be asked for: no tile to name, no
-            // type to compute in.
             None => ThroughputError::Unsupported.to_string(),
         };
 

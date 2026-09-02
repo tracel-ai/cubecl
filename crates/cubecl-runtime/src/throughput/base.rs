@@ -129,19 +129,12 @@ impl ThroughputKey {
 }
 
 /// Why a device has no peak to report for a probe.
-///
-/// These are answers, not failures to get one: a card without tensor hardware
-/// is not slow at cooperative matrices, and a backend whose timer reports no
-/// elapsed time has not measured a fast kernel. Collapsing them into a number
-/// leaves a consumer dividing by a peak that was never measured.
 #[derive(Error, Eq, PartialEq, Clone, Copy, Debug)]
 pub enum ThroughputError {
-    /// The device implements no such operation: a cooperative matrix shape it
-    /// does not have, a type it cannot compute in.
+    /// The device implements no such operation.
     #[error("unsupported")]
     Unsupported,
-    /// Every shape of the probe launched, and the device's timer reported no
-    /// elapsed time for any of them.
+    /// The device's timer reported no elapsed time for any shape of the probe.
     #[error("no timing")]
     NoTiming,
 }
