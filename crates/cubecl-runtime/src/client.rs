@@ -16,9 +16,7 @@ use crate::{
         ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
-    throughput::{
-        KernelConfig, ThroughputBenchmarker, ThroughputCache, ThroughputKey, ThroughputValue,
-    },
+    throughput::{ThroughputBenchmarker, ThroughputCache, ThroughputKey, ThroughputValue},
 };
 use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 
@@ -1546,13 +1544,15 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
+    ///
+    /// `probe` runs only when this device has no cached value for `key`.
     pub fn measure_throughput(
         &self,
         key: ThroughputKey,
-        kernel_config: KernelConfig,
+        probe: impl FnOnce() -> ThroughputValue,
     ) -> ThroughputValue {
         let cache = ThroughputCache::get_for_device(&self.device_key());
         let mut throughputs = ThroughputBenchmarker::new(cache);
-        throughputs.measure(key, kernel_config)
+        throughputs.measure(key, probe)
     }
 }

@@ -42,31 +42,44 @@ impl ThroughputBenchmarker {
         }
     }
 
-    /// Measure the maximum compute throughput of the given kernel.
-    /// Warms up the kernel until it plateaus,
-    /// then measures the throughput over multiple iterations taking the minimum time per iteration (peak attained).
-    pub fn measure(&mut self, key: ThroughputKey, kernel_config: KernelConfig) -> ThroughputValue {
+    /// The value for `key`, measured by `probe` unless the cache already holds
+    /// one, and kept when it is measured.
+    ///
+    /// What a peak is measured *from* is the caller's: a probe may have several
+    /// shapes to try, and which of them the device answers fastest is knowledge
+    /// about that probe rather than about timing it.
+    pub fn measure(
+        &mut self,
+        key: ThroughputKey,
+        probe: impl FnOnce() -> ThroughputValue,
+    ) -> ThroughputValue {
         if self.cache_enabled
             && let Some(cached_value) = self.cache.lock().get(&key)
         {
             return *cached_value;
         }
 
-        let sample = kernel_config.sample;
-
-        let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
-        let duration = Self::sample_peak_duration(iterations, &sample);
-
-        let value = ThroughputValue {
-            ops_count: kernel_config.ops_count,
-            duration,
-        };
+        let value = probe();
 
         if self.cache_enabled {
             self.cache.lock().insert(key, value);
         }
 
         value
+    }
+
+    /// Time one shape of a kernel: warm it up until it plateaus, then sample it
+    /// over several launches keeping the minimum time per iteration.
+    pub fn sample(kernel_config: KernelConfig) -> ThroughputValue {
+        let sample = kernel_config.sample;
+
+        let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
+        let duration = Self::sample_peak_duration(iterations, &sample);
+
+        ThroughputValue {
+            ops_count: kernel_config.ops_count,
+            duration,
+        }
     }
 
     /// Warms up the device by running the kernel multiple times

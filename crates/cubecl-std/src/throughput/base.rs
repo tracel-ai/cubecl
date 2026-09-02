@@ -4,8 +4,9 @@ use cubecl_runtime::{
     runtime::Runtime,
     server::CubeDim,
     throughput::{
-        DEFAULT_BUFFER_BYTES, MemoryAccess, MemoryCurve, MemoryPoint, MemorySpec, ThroughputKey,
-        ThroughputMode, ThroughputValue, sweep_size, working_set_sweep,
+        DEFAULT_BUFFER_BYTES, MemoryAccess, MemoryCurve, MemoryPoint, MemorySpec,
+        ThroughputBenchmarker, ThroughputKey, ThroughputMode, ThroughputValue, sweep_size,
+        working_set_sweep,
     },
     tune::{Bounds, Thresholds, Work, calculate_bounds},
 };
@@ -115,7 +116,7 @@ pub fn measure_peak_throughput<R: Runtime>(
         ThroughputMode::Launch => launch_overhead::build_kernel(client, key, launch_config),
     };
 
-    let value = client.measure_throughput(key, kernel_config);
+    let value = client.measure_throughput(key, || ThroughputBenchmarker::sample(kernel_config));
 
     client.memory_cleanup();
 
