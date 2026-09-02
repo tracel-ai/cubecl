@@ -1,6 +1,6 @@
 use crate::{
     config::CubeClRuntimeConfig,
-    throughput::{ThroughputCache, ThroughputKey, ThroughputValue},
+    throughput::{ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue},
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -43,24 +43,28 @@ impl ThroughputBenchmarker {
     }
 
     /// The value for `key`, measured by `probe` unless the cache holds one.
+    ///
+    /// # Errors
+    ///
+    /// Whatever `probe` reports. Only a measurement is cached.
     pub fn measure(
         &mut self,
         key: ThroughputKey,
-        probe: impl FnOnce() -> ThroughputValue,
-    ) -> ThroughputValue {
+        probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
+    ) -> Result<ThroughputValue, ThroughputError> {
         if self.cache_enabled
             && let Some(cached_value) = self.cache.lock().get(&key)
         {
-            return *cached_value;
+            return Ok(*cached_value);
         }
 
-        let value = probe();
+        let value = probe()?;
 
         if self.cache_enabled {
             self.cache.lock().insert(key, value);
         }
 
-        value
+        Ok(value)
     }
 
     /// Warm one shape of a kernel up to its plateau, then keep its fastest sample.

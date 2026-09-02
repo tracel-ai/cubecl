@@ -3,7 +3,8 @@ use cubecl::{
     prelude::*,
     std::throughput::{measure_memory_curve, measure_peak_throughput},
     throughput::{
-        CmmaDims, ComputeCmmaConfig, MemoryAccess, MemoryCurve, ThroughputKey, ThroughputMode,
+        CmmaDims, ComputeCmmaConfig, MemoryAccess, MemoryCurve, ThroughputError, ThroughputKey,
+        ThroughputMode,
     },
 };
 
@@ -133,8 +134,13 @@ fn report<R: Runtime>(device: &R::Device, rows: impl FnOnce(&ComputeClient<R>) -
 
     for row in rows(&client) {
         let value = match row.key {
-            Some(key) => measure_peak_throughput(&client, key).format(&key),
-            None => String::from("unsupported"),
+            Some(key) => match measure_peak_throughput(&client, key) {
+                Ok(value) => value.format(&key),
+                Err(unavailable) => unavailable.to_string(),
+            },
+            // A row the device could not even be asked for: no tile to name, no
+            // type to compute in.
+            None => ThroughputError::Unsupported.to_string(),
         };
 
         println!("  {:<15}{:<24}{:>18}", row.mode, row.operands, value);
