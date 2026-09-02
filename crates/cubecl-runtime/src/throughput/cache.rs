@@ -30,6 +30,9 @@ impl ThroughputCache {
         let mut cache_map = GLOBAL_CACHE.lock();
         let cache_map = cache_map.get_or_insert_with(HashMap::new);
 
+        #[cfg(std_io)]
+        drop_earlier_generations();
+
         cache_map
             .entry(name.clone())
             .or_insert_with(|| Arc::new(Mutex::new(Self::new(&name))))
@@ -91,6 +94,36 @@ fn device_key(runtime: &str, identity: &DeviceIdentity) -> String {
     )
 }
 
+/// Namespaces this build wrote under an earlier [`PROBE_VERSION`], which hold
+/// numbers taken by a probe that no longer measures the same thing.
+///
+/// Scoped to this crate version: another one may belong to a cubecl still in
+/// use, and its measurements are not this build's to discard.
+#[cfg(std_io)]
+fn is_earlier_generation(candidate: &str, scope: &str, current: &str) -> bool {
+    candidate.starts_with(scope) && !candidate.starts_with(current)
+}
+
+#[cfg(std_io)]
+fn drop_earlier_generations() {
+    use core::sync::atomic::{AtomicBool, Ordering};
+
+    static DROPPED: AtomicBool = AtomicBool::new(false);
+
+    if DROPPED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+
+    let scope = String::from(Namespace::scoped("throughput", "").as_str());
+    let current = format!("{scope}probe-v{}/", crate::throughput::PROBE_VERSION);
+
+    for candidate in cubecl_environment::persistence::namespaces() {
+        if is_earlier_generation(&candidate, &scope, &current) {
+            cubecl_environment::persistence::open(&candidate).purge();
+        }
+    }
+}
+
 #[cfg(std_io)]
 fn namespace(device_key: &str) -> Namespace {
     Namespace::scoped(
@@ -137,6 +170,24 @@ mod tests {
                 .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
             "{key}"
         );
+    }
+
+    /// A build may drop what its own earlier probes wrote and nothing else: a
+    /// namespace under another crate version can belong to a cubecl still in
+    /// use, and a later probe version to a build running right now.
+    #[cfg(std_io)]
+    #[test]
+    fn only_this_crate_version_s_earlier_probes_are_dropped() {
+        let scope = "throughput/0.11.0/";
+        let current = "throughput/0.11.0/probe-v2/";
+        let stale = |ns: &str| is_earlier_generation(ns, scope, current);
+
+        assert!(stale("throughput/0.11.0/probe-v1/cuda_ptx_sm75_part"));
+        assert!(stale("throughput/0.11.0/cuda_dev0"));
+
+        assert!(!stale("throughput/0.11.0/probe-v2/cuda_ptx_sm75_part"));
+        assert!(!stale("throughput/0.10.0/probe-v1/cuda_ptx_sm75_part"));
+        assert!(!stale("autotune/0.11.0/device-0-0-cpu/matmul"));
     }
 
     /// The crate version in the namespace does not move when a probe changes

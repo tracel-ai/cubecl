@@ -342,6 +342,23 @@ pub struct NamespaceSummary {
     pub bytes: u64,
 }
 
+/// Every namespace the active environment holds.
+///
+/// Empty where the backend cannot enumerate itself, which is every backend
+/// but the database: a caller sweeping what it no longer reads has nothing to
+/// sweep when the store did not outlive the process that wrote it.
+pub fn namespaces() -> Vec<String> {
+    cfg_if::cfg_if! {
+        if #[cfg(native_cache)] {
+            super::Database::open_active()
+                .map(|database| database.namespaces())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
 /// The storage serving `namespace` in the active environment.
 ///
 /// The location is not a parameter: an environment is the store, so a cache
