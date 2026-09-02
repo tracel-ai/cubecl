@@ -84,7 +84,7 @@ pub struct CompiledKernel<C: Compiler> {
     ///
     /// ```text
     /// #[cube(launch)]
-    /// fn gelu_array<F: Float, R: Runtime>() {}
+    /// fn gelu_array<F: Float>() {}
     /// ```
     ///
     /// would have the entrypoint name "`gelu_array`".
@@ -96,7 +96,7 @@ pub struct CompiledKernel<C: Compiler> {
     ///
     /// ```text
     /// #[cube(launch)]
-    /// fn gelu_array<F: Float, R: Runtime>() {}
+    /// fn gelu_array<F: Float>() {}
     /// ```
     ///
     /// would have a debug name such as
@@ -134,10 +134,27 @@ pub struct DebugInformation {
     pub id: KernelId,
 }
 
+/// A hand-written kernel's own compiled text, standing in for what the
+/// compiler would have produced from a [`KernelDefinition`].
+pub struct PrecompiledSource {
+    /// The compiled source, in the target language.
+    pub source: String,
+    /// The name of the entrypoint within `source`.
+    pub entrypoint_name: String,
+}
+
 /// Kernel that can be defined
 pub trait CubeKernel: KernelMetadata {
     /// Define the kernel for compilation
     fn define(&self) -> KernelDefinition;
+
+    /// The kernel's own compiled source, for a hand-written kernel that
+    /// carries target-language text rather than IR to compile.
+    ///
+    /// `None`, the default, compiles what [`define`](Self::define) returns.
+    fn source(&self) -> Option<PrecompiledSource> {
+        None
+    }
 }
 
 impl<C: Compiler> CompiledKernel<C> {
@@ -151,6 +168,23 @@ impl<C: Compiler> CompiledKernel<C> {
     ) -> Result<Self, CompilationError> {
         let entrypoint_name = definition.settings.kernel_name.clone();
         let cube_dim = definition.settings.cube_dim.into();
+
+        // A hand-written kernel is already in the target language: there is no
+        // IR to hand the compiler, so neither analysis it produces exists.
+        // `io: None` reads as every buffer both read and written, which is the
+        // conservative direction.
+        if let Some(precompiled) = kernel.source() {
+            return Ok(CompiledKernel {
+                entrypoint_name: precompiled.entrypoint_name,
+                debug_name: Some(kernel.name()),
+                source: precompiled.source,
+                io: None,
+                repr: None,
+                cube_dim,
+                debug_info: None,
+            });
+        }
+
         let lower_level_ir = compiler.compile(definition, compilation_options)?;
 
         Ok(CompiledKernel {
