@@ -68,6 +68,7 @@ sysinfo = { workspace = true }
 libc = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+bytemuck = { workspace = true }
 winapi = { workspace = true }
 
 [dev-dependencies]

@@ -24,7 +24,7 @@ pub fn cp_async_global_to_shared(
     let smem = generic_to_shared::<u32>(smem);
     gpu_asm!(
         "cp.async.{cache}.shared::cta.global [{}], [{}], {size}, {size};",
-        in(_) smem, in(_) src, size = const copy_size
+        mem_out(_) smem, mem_in(_) src, size = const copy_size, options(explicit_mem)
     );
 }
 
@@ -39,14 +39,14 @@ pub fn cp_async_global_to_shared_checked(
     let smem = generic_to_shared::<u32>(smem);
     gpu_asm!(
         "cp.async.{cache}.shared::cta.global [{}], [{}], {copy_size}, {len};",
-        in(_) smem, in(_) src, len = in(_) src_size
+        mem_out(_) smem, mem_in(_) src, len = in(_) src_size, options(explicit_mem)
     );
 }
 
 #[cube]
 pub fn commit_copy_async(bar: &Barrier) {
     let bar_handle = barrier_native_handle(bar);
-    gpu_asm!("cp.async.mbarrier.arrive.shared::cta.b64 [{}];", in(_) bar_handle);
+    gpu_asm!("cp.async.mbarrier.arrive.shared::cta.b64 [{}];", mem_inout(_) bar_handle, options(explicit_mem));
 }
 
 #[op_interface_impl]
