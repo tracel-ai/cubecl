@@ -7,14 +7,16 @@ use crate::Runtime;
 use crate::prelude::*;
 
 pub fn test_to_client<R: Runtime>() {
-    let type_id = 0;
-    let device_count = R::enumerate_devices(type_id).len();
+    // Every device the runtime can reach, not just one type: a machine with a
+    // single discrete GPU still has other devices to move data between, and
+    // this test is the only cover for the cross-device transfer path.
+    let devices = R::enumerate_all_devices();
 
-    if device_count < 2 {
+    if devices.len() < 2 {
         return;
     }
 
-    for (device_0, device_1) in num_combination(type_id, device_count as u32) {
+    for (device_0, device_1) in num_combination(&devices) {
         let device_0 = R::Device::from_id(device_0);
         let device_1 = R::Device::from_id(device_1);
 
@@ -39,15 +41,12 @@ pub fn test_to_client<R: Runtime>() {
     }
 }
 
-fn num_combination(type_id: u16, n: u32) -> Vec<(DeviceId, DeviceId)> {
+fn num_combination(devices: &[DeviceId]) -> Vec<(DeviceId, DeviceId)> {
     let mut results = Vec::new();
 
-    for i in 0..n {
-        for j in i + 1..n {
-            results.push((
-                DeviceId::new(type_id, i as u16),
-                DeviceId::new(type_id, j as u16),
-            ));
+    for i in 0..devices.len() {
+        for j in i + 1..devices.len() {
+            results.push((devices[i], devices[j]));
         }
     }
 
