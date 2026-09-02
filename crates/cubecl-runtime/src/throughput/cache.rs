@@ -47,10 +47,8 @@ impl ThroughputCache {
 
         #[cfg(std_io)]
         {
-            let namespace = Namespace::scoped("throughput", name);
-
             Self {
-                cache: Store::new(StoreOptions::new().storage(namespace)),
+                cache: Store::new(StoreOptions::new().storage(namespace(name))),
             }
         }
     }
@@ -86,6 +84,14 @@ fn device_key(runtime: &str, identity: &DeviceIdentity) -> String {
     format!("{runtime}_{fingerprint}_{part}")
 }
 
+#[cfg(std_io)]
+fn namespace(device_key: &str) -> Namespace {
+    Namespace::scoped(
+        "throughput",
+        format!("probe-v{}/{device_key}", crate::throughput::PROBE_VERSION),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,5 +110,15 @@ mod tests {
             device_key("cuda", &turing("NVIDIA GeForce RTX 2060")),
             device_key("cuda", &turing("NVIDIA GeForce GTX 1660 SUPER")),
         );
+    }
+
+    /// The crate version in the namespace does not move when a probe changes
+    /// what it measures inside a release, so the probes carry their own.
+    #[cfg(std_io)]
+    #[test]
+    fn the_namespace_carries_the_probe_version() {
+        let expected = format!("/probe-v{}/", crate::throughput::PROBE_VERSION);
+
+        assert!(namespace("cuda_ptx_sm75_part").as_str().contains(&expected));
     }
 }

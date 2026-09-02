@@ -4,6 +4,11 @@ use core::time::Duration;
 use cubecl_ir::{ElemType, FloatKind};
 use thiserror::Error;
 
+/// What the probes measure, as opposed to which crate release ran them. Bump it
+/// whenever a probe changes what it reports, so numbers taken under the old
+/// behaviour stop being served.
+pub const PROBE_VERSION: u32 = 1;
+
 /// Bytes per buffer of a [`ThroughputMode::Memory`] probe left at its default
 /// working set. Clamped to the device's maximum allocation when the probe runs.
 pub const DEFAULT_BUFFER_BYTES: u64 = 512 * 1024 * 1024;
