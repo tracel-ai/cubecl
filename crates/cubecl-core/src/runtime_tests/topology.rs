@@ -84,7 +84,9 @@ pub fn test_kernel_topology_absolute_pos_is_cube_major<R: Runtime>(
 
     let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
-    let expect: Vec<u32> = (0..cubes).flat_map(|cube| core::iter::repeat_n(cube, units_per_cube as usize)).collect();
+    let expect: Vec<u32> = (0..cubes)
+        .flat_map(|cube| core::iter::repeat_n(cube, units_per_cube as usize))
+        .collect();
 
     assert_eq!(actual, &expect);
 }
