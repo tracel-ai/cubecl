@@ -67,17 +67,52 @@ impl ThroughputBenchmarker {
         Ok(value)
     }
 
-    /// Warm one shape of a kernel up to its plateau, then keep its fastest sample.
+    /// The peak of one kernel shape, over measurements taken until two agree.
     pub fn sample(kernel_config: KernelConfig) -> ThroughputValue {
-        let sample = kernel_config.sample;
-
-        let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
-        let duration = Self::sample_peak_duration(iterations, &sample);
+        let duration =
+            Self::corroborated_peak_duration(kernel_config.min_iterations, kernel_config.sample);
 
         ThroughputValue {
             ops_count: kernel_config.ops_count,
             duration,
         }
+    }
+
+    /// The fastest of several whole measurements, taken until two agree.
+    ///
+    /// A device held at a low clock stays there for a whole measurement, its
+    /// warmup and its draws alike, so the warmup plateaus there and every draw
+    /// confirms it. Only a later measurement disagrees with it.
+    fn corroborated_peak_duration(
+        min_iterations: usize,
+        sample: impl Fn(usize) -> Duration,
+    ) -> Duration {
+        const MAX_MEASUREMENTS: usize = 4;
+        // Wider than the plateau tolerance, which compares passes microseconds
+        // apart rather than measurements half a second apart.
+        const AGREEMENT_TOL: f64 = 0.05;
+
+        let mut best = Self::warmed_peak_seconds(min_iterations, &sample);
+
+        for _ in 1..MAX_MEASUREMENTS {
+            let seconds = Self::warmed_peak_seconds(min_iterations, &sample);
+            let agrees = (seconds - best).abs() <= best * AGREEMENT_TOL;
+            best = best.min(seconds);
+
+            if agrees {
+                break;
+            }
+        }
+
+        Duration::from_secs_f64(best)
+    }
+
+    /// One whole measurement: a warmup from scratch, then the fastest draw at
+    /// the iteration count it settles on.
+    fn warmed_peak_seconds(min_iterations: usize, sample: impl Fn(usize) -> Duration) -> f64 {
+        let iterations = Self::warmup(min_iterations, WARMUP_BUDGET, &sample);
+
+        Self::sample_peak_duration(iterations, &sample).as_secs_f64()
     }
 
     /// Warms up the device by running the kernel multiple times
@@ -241,6 +276,63 @@ mod tests {
         });
 
         assert!(calls.get() < 200, "ran {} samples", calls.get());
+    }
+
+    /// Every draw of a measurement taken at a low clock confirms that clock, so
+    /// the low rate is only visible from outside the measurement.
+    #[test]
+    fn a_measurement_taken_at_a_low_clock_is_outvoted_by_a_later_one() {
+        let measurements = Cell::new(0);
+        let low_clock_first = |iterations: usize| {
+            if iterations == 1 {
+                measurements.set(measurements.get() + 1);
+            }
+            let per_iter_ns = if measurements.get() == 1 { 3000 } else { 1000 };
+
+            Duration::from_nanos(iterations as u64 * per_iter_ns)
+        };
+
+        let duration = ThroughputBenchmarker::corroborated_peak_duration(1, low_clock_first);
+
+        assert!(duration < Duration::from_nanos(1100), "kept {duration:?}");
+    }
+
+    /// A device that answers the same twice is the case every probe of every
+    /// key pays for, so it must not pay for a third.
+    #[test]
+    fn two_agreeing_measurements_are_the_whole_cost() {
+        let measurements = Cell::new(0);
+        let steady = |iterations: usize| {
+            if iterations == 1 {
+                measurements.set(measurements.get() + 1);
+            }
+
+            Duration::from_nanos(iterations as u64 * 1000)
+        };
+
+        ThroughputBenchmarker::corroborated_peak_duration(1, steady);
+
+        assert_eq!(measurements.get(), 2);
+    }
+
+    /// A probe runs on first use of every key, so what it costs where nothing
+    /// ever agrees is the cost that has to be bounded.
+    #[test]
+    fn a_device_that_never_agrees_with_itself_stops_at_the_cap() {
+        let measurements = Cell::new(0);
+        let never_agrees = |iterations: usize| {
+            if iterations == 1 {
+                measurements.set(measurements.get() + 1);
+            }
+            let per_iter_ns = [1000, 3000, 500, 2000][(measurements.get() - 1) % 4];
+
+            Duration::from_nanos(iterations as u64 * per_iter_ns)
+        };
+
+        let duration = ThroughputBenchmarker::corroborated_peak_duration(1, never_agrees);
+
+        assert_eq!(measurements.get(), 4);
+        assert!(duration < Duration::from_nanos(550), "kept {duration:?}");
     }
 
     /// A working timer still drives the count to the duration target.
