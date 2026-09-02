@@ -344,9 +344,8 @@ pub struct NamespaceSummary {
 
 /// Every namespace the active environment holds.
 ///
-/// Empty where the backend cannot enumerate itself, which is every backend
-/// but the database: a caller sweeping what it no longer reads has nothing to
-/// sweep when the store did not outlive the process that wrote it.
+/// Empty on every backend but the database, which are the ones that do not
+/// outlive the process that wrote them.
 pub fn namespaces() -> Vec<String> {
     cfg_if::cfg_if! {
         if #[cfg(native_cache)] {

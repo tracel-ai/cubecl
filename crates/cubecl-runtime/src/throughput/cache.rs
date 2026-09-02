@@ -9,6 +9,10 @@ use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::DeviceIdentity;
 
+/// The namespace segment naming which generation of probes wrote a value.
+#[cfg(std_io)]
+const GENERATION: &str = "probe-v";
+
 static GLOBAL_CACHE: Mutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>> = Mutex::new(None);
 
 /// Caches the [`ThroughputValue`] for a given [`ThroughputKey`].
@@ -23,8 +27,7 @@ pub struct ThroughputCache {
 }
 
 impl ThroughputCache {
-    /// Gets or creates the global `ThroughputCache` holding what `runtime`
-    /// measured on the device it reports as `identity`.
+    /// Gets or creates the global `ThroughputCache` for one device.
     pub fn get_for_device(runtime: &str, identity: &DeviceIdentity) -> Arc<Mutex<Self>> {
         let name = device_key(runtime, identity);
         let mut cache_map = GLOBAL_CACHE.lock();
@@ -77,13 +80,12 @@ impl ThroughputCache {
     }
 }
 
-/// What separates one device's measurements from another's: the part, never the
-/// device index, which `CUDA_VISIBLE_DEVICES` makes 0 for whichever card was
-/// pinned. Two cards this cannot tell apart are the same part, and share a peak.
+/// The part, never the device index, which `CUDA_VISIBLE_DEVICES` makes 0 for
+/// whichever card was pinned. Two cards this cannot separate are one part, and
+/// share a peak.
 fn device_key(runtime: &str, identity: &DeviceIdentity) -> String {
     let DeviceIdentity { name, fingerprint } = identity;
-    // A namespace is a `/`-separated path, and a runtime names itself
-    // `wgpu<spirv>`.
+    // A namespace is a path, and a runtime names itself `wgpu<spirv>`.
     let segment = |text: &str| text.replace(|c: char| !c.is_ascii_alphanumeric(), "-");
 
     format!(
@@ -94,14 +96,24 @@ fn device_key(runtime: &str, identity: &DeviceIdentity) -> String {
     )
 }
 
-/// Namespaces this build wrote under an earlier [`PROBE_VERSION`], which hold
-/// numbers taken by a probe that no longer measures the same thing.
+/// Namespaces this build wrote under an earlier [`PROBE_VERSION`].
 ///
-/// Scoped to this crate version: another one may belong to a cubecl still in
-/// use, and its measurements are not this build's to discard.
+/// Only this crate version's, and only earlier: another version may belong to a
+/// cubecl still in use, and a later generation to a build running right now. A
+/// namespace with no generation at all predates them.
 #[cfg(std_io)]
-fn is_earlier_generation(candidate: &str, scope: &str, current: &str) -> bool {
-    candidate.starts_with(scope) && !candidate.starts_with(current)
+fn is_earlier_generation(candidate: &str, scope: &str, current: u32) -> bool {
+    let Some(device) = candidate.strip_prefix(scope) else {
+        return false;
+    };
+
+    let generation = device
+        .strip_prefix(GENERATION)
+        .and_then(|device| device.split('/').next())
+        .and_then(|generation| generation.parse::<u32>().ok())
+        .unwrap_or(0);
+
+    generation < current
 }
 
 #[cfg(std_io)]
@@ -115,10 +127,10 @@ fn drop_earlier_generations() {
     }
 
     let scope = String::from(Namespace::scoped("throughput", "").as_str());
-    let current = format!("{scope}probe-v{}/", crate::throughput::PROBE_VERSION);
+    let current = crate::throughput::PROBE_VERSION;
 
     for candidate in cubecl_environment::persistence::namespaces() {
-        if is_earlier_generation(&candidate, &scope, &current) {
+        if is_earlier_generation(&candidate, &scope, current) {
             cubecl_environment::persistence::open(&candidate).purge();
         }
     }
@@ -128,7 +140,10 @@ fn drop_earlier_generations() {
 fn namespace(device_key: &str) -> Namespace {
     Namespace::scoped(
         "throughput",
-        format!("probe-v{}/{device_key}", crate::throughput::PROBE_VERSION),
+        format!(
+            "{GENERATION}{}/{device_key}",
+            crate::throughput::PROBE_VERSION
+        ),
     )
 }
 
@@ -138,7 +153,7 @@ mod tests {
     use alloc::string::ToString;
 
     /// Two cards in one machine were served each other's peaks: pinning either
-    /// one makes it index 0, and the index was all that told them apart.
+    /// makes it index 0, and the index was all that told them apart.
     #[test]
     fn two_parts_of_one_architecture_do_not_share_an_entry() {
         let turing = |name: &str| DeviceIdentity {
@@ -152,9 +167,8 @@ mod tests {
         );
     }
 
-    /// A namespace is a path, so a device key is one segment of one: a runtime
-    /// that names itself `wgpu<spirv>` must not put brackets or a separator in
-    /// it.
+    /// A device key is one segment of a path, so a runtime that names itself
+    /// `wgpu<spirv>` must not put brackets or a separator in it.
     #[test]
     fn a_device_key_is_one_path_segment() {
         let key = device_key(
@@ -172,20 +186,19 @@ mod tests {
         );
     }
 
-    /// A build may drop what its own earlier probes wrote and nothing else: a
-    /// namespace under another crate version can belong to a cubecl still in
-    /// use, and a later probe version to a build running right now.
+    /// A build drops what its own earlier probes wrote and nothing else:
+    /// another crate version may be in use, and a later probe version is
+    /// running right now.
     #[cfg(std_io)]
     #[test]
     fn only_this_crate_version_s_earlier_probes_are_dropped() {
-        let scope = "throughput/0.11.0/";
-        let current = "throughput/0.11.0/probe-v2/";
-        let stale = |ns: &str| is_earlier_generation(ns, scope, current);
+        let stale = |ns: &str| is_earlier_generation(ns, "throughput/0.11.0/", 2);
 
         assert!(stale("throughput/0.11.0/probe-v1/cuda_ptx_sm75_part"));
         assert!(stale("throughput/0.11.0/cuda_dev0"));
 
         assert!(!stale("throughput/0.11.0/probe-v2/cuda_ptx_sm75_part"));
+        assert!(!stale("throughput/0.11.0/probe-v3/cuda_ptx_sm75_part"));
         assert!(!stale("throughput/0.10.0/probe-v1/cuda_ptx_sm75_part"));
         assert!(!stale("autotune/0.11.0/device-0-0-cpu/matmul"));
     }
@@ -195,8 +208,12 @@ mod tests {
     #[cfg(std_io)]
     #[test]
     fn the_namespace_carries_the_probe_version() {
-        let expected = format!("/probe-v{}/", crate::throughput::PROBE_VERSION);
+        let generation = namespace("").as_str().to_string();
 
-        assert!(namespace("cuda_ptx_sm75_part").as_str().contains(&expected));
+        assert!(
+            namespace("cuda_ptx_sm75_part")
+                .as_str()
+                .starts_with(&format!("{generation}/"))
+        );
     }
 }
