@@ -24,6 +24,11 @@ use crate::throughput::{
 /// [`MemoryProbe::new`](crate::throughput::memory_probe::MemoryProbe::new)).
 const CPU_CHAIN_DEPTH: usize = 64;
 
+/// Units a GPU probe asks for. Every larger ask resolves here anyway, since
+/// [`CubeDim::new`] caps a cube at eight planes; cubes built wider than that
+/// measure no faster, and make the memory probes report impossible rates.
+const PROBE_UNITS_PER_CUBE: u32 = 256;
+
 /// Measure peak throughput on `device` for each of the given `keys`.
 pub fn device_throughput<R: Runtime>(
     device: &R::Device,
@@ -273,9 +278,7 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
         None => {
             let sms = hardware.num_streaming_multiprocessors.unwrap_or(64);
             (
-                (hardware.max_units_per_cube / plane_size * plane_size)
-                    .max(plane_size)
-                    .min(hardware.max_cube_dim.0),
+                PROBE_UNITS_PER_CUBE,
                 (sms * 32).min(hardware.max_cube_count.0),
             )
         }
