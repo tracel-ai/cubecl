@@ -174,8 +174,8 @@ inflections = "1"
 # pliron-llvm = { path = "../pliron/pliron-llvm", default-features = false }
 
 # Git
-pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "6f4e739266c037a69488031a81f4381e62db9ac3", default-features = false }
-pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "6f4e739266c037a69488031a81f4381e62db9ac3", default-features = false }
+pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "e23ff9faa16425f2bd995aa92d960dee6721f9aa", default-features = false }
+pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "e23ff9faa16425f2bd995aa92d960dee6721f9aa", default-features = false }
 
 # These features stop llvm-sys from resolving LLVM itself; cubecl-llvm's build.rs
 # links the bundled toolchain instead.
@@ -200,8 +200,8 @@ cudarc = { version = "0.19.6", features = [
 # rspirv = { version = "0.14.1", package = "tracel-rspirv" }
 # pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
 # rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
-pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "b3153342f82e504369b982582641b933c45c6950" }
-rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "b3153342f82e504369b982582641b933c45c6950", package = "tracel-rspirv" }
+pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "497f58cd477061d806bba07997278f7065beff4e" }
+rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "497f58cd477061d806bba07997278f7065beff4e", package = "tracel-rspirv" }
 rustc_apfloat = "0.2"
 
 # CubeCL-WGPU
