@@ -79,9 +79,16 @@ impl ThroughputCache {
 /// pinned. Two cards this cannot tell apart are the same part, and share a peak.
 fn device_key(runtime: &str, identity: &DeviceIdentity) -> String {
     let DeviceIdentity { name, fingerprint } = identity;
-    let part = name.replace(|c: char| !c.is_ascii_alphanumeric(), "-");
+    // A namespace is a `/`-separated path, and a runtime names itself
+    // `wgpu<spirv>`.
+    let segment = |text: &str| text.replace(|c: char| !c.is_ascii_alphanumeric(), "-");
 
-    format!("{runtime}_{fingerprint}_{part}")
+    format!(
+        "{}_{}_{}",
+        segment(runtime),
+        segment(fingerprint),
+        segment(name)
+    )
 }
 
 #[cfg(std_io)]
@@ -109,6 +116,26 @@ mod tests {
         assert_ne!(
             device_key("cuda", &turing("NVIDIA GeForce RTX 2060")),
             device_key("cuda", &turing("NVIDIA GeForce GTX 1660 SUPER")),
+        );
+    }
+
+    /// A namespace is a path, so a device key is one segment of one: a runtime
+    /// that names itself `wgpu<spirv>` must not put brackets or a separator in
+    /// it.
+    #[test]
+    fn a_device_key_is_one_path_segment() {
+        let key = device_key(
+            "wgpu<spirv>",
+            &DeviceIdentity {
+                name: "Intel(R) Arc(tm) B390 (PTL)".to_string(),
+                fingerprint: "spirv_32902_45184".to_string(),
+            },
+        );
+
+        assert!(
+            key.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+            "{key}"
         );
     }
 
