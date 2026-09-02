@@ -1591,19 +1591,25 @@ impl ComputeClient {
     ) -> MemoryLayout {
         let shape = src_descriptor.shape.clone();
         let elem_size = src_descriptor.elem_size;
-        let stream_id = self.stream_id();
+        let stream_id_src = self.stream_id();
+        let stream_id_dst = dst_server.stream_id();
 
         let read = self
             .device
-            .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id))
+            .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id_src))
             .unwrap_or_resume();
 
         let mut data = cubecl_environment::future::block_on(read).unwrap();
 
-        let (handle_base, mut layouts) =
-            self.utilities
-                .layout_policy
-                .apply(self.service_id(), stream_id, &[alloc_descriptor]);
+        // The allocation belongs to the destination: it is initialized and
+        // written there, so it takes that device's layout policy, stream and
+        // `ServiceId`. Stamping it from `self` would hand back a handle the
+        // destination refuses as foreign.
+        let (handle_base, mut layouts) = dst_server.utilities.layout_policy.apply(
+            dst_server.service_id(),
+            stream_id_dst,
+            &[alloc_descriptor],
+        );
         let alloc = layouts.remove(0);
 
         let desc_descriptor = CopyDescriptor {
@@ -1615,8 +1621,8 @@ impl ComputeClient {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         dst_server.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
-            server.write(vec![(desc_descriptor, data.remove(0))], stream_id)
+            server.initialize_memory(memory, size, stream_id_dst);
+            server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
         });
 
         alloc
