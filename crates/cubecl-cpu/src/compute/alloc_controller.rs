@@ -1,10 +1,11 @@
+use crate::compute::ordered_storage::OrderedStorage;
 use cubecl_common::bytes::{
     AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes, Reader, Writer,
 };
 use cubecl_core::server::IoError;
 use cubecl_runtime::{
     memory_management::{ManagedMemoryBinding, MemoryManagement},
-    storage::{BytesResource, BytesStorage},
+    storage::BytesResource,
 };
 
 pub struct CpuAllocController {
@@ -81,7 +82,7 @@ impl AllocationController for CpuAllocController {
 impl CpuAllocController {
     pub fn init(
         binding: cubecl_core::server::BufferBinding,
-        memory_management: &mut MemoryManagement<BytesStorage>,
+        memory_management: &mut MemoryManagement<OrderedStorage>,
     ) -> Result<Self, IoError> {
         let memory = binding.memory.clone();
         let resource = memory_management.get_resource(

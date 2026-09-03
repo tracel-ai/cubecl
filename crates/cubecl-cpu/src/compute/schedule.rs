@@ -54,11 +54,20 @@ impl core::fmt::Debug for ScheduleTask {
     }
 }
 
+/// A buffer a launch reads or writes, with the stream whose pool it came from.
+#[derive(Debug)]
+pub struct LaunchBinding {
+    /// The memory the kernel is handed a pointer into.
+    pub resource: ManagedResource<BytesResource>,
+    /// Identity of the [`CpuStream`] the resource was reserved on.
+    pub owner: u64,
+}
+
 /// Represents a collection of resources and bindings for a compute task.
 #[derive(Debug)]
 pub struct BindingsResource {
     /// List of cpu resources used in the task.
-    pub resources: Vec<ManagedResource<BytesResource>>,
+    pub resources: Vec<LaunchBinding>,
     /// Metadata for uniform bindings.
     pub info: MetadataBindingInfo,
 }
@@ -118,6 +127,13 @@ impl SchedulerStreamBackend for ScheduledCpuBackend {
 
     fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) {
         stream.submit();
+    }
+
+    /// `enqueue` has already handed every task to the pool, so a filled batch
+    /// has nothing left to order. Completion is only worth waiting for where
+    /// something reads the results back.
+    fn may_skip_wait(_stream: &mut Self::Stream) -> bool {
+        true
     }
 
     fn factory(&mut self) -> &mut Self::Factory {
