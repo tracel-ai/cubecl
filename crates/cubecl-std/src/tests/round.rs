@@ -18,7 +18,7 @@ fn kernel_round_up<F: Float>(input: &[F], out: &mut [F], #[comptime] dtype: Scal
 ///
 /// No capability gate: the kernel is instantiated at `f32` and `dtype` only selects comptime
 /// constants, so the storage type is never named on device.
-pub fn test_round_up_matches_host<R: Runtime>(client: ComputeClient, dtype: ScaleDtype) {
+pub fn test_round_up_matches_host<R: Runtime>(client: Client, dtype: ScaleDtype) {
     // Reaches below every dtype's minimum normal, where the spacing stops halving. The low end
     // runs well past what the narrow dtypes need so that `ue8m0`, whose range reaches 2^-127,
     // is swept over more than its top few exponents.
@@ -57,7 +57,7 @@ pub fn test_round_up_matches_host<R: Runtime>(client: ComputeClient, dtype: Scal
     }
 }
 
-fn launch(client: &ComputeClient, scales: &[f32], dtype: ScaleDtype) -> Vec<f32> {
+fn launch(client: &Client, scales: &[f32], dtype: ScaleDtype) -> Vec<f32> {
     let handle_in = client.create_from_slice(f32::as_bytes(scales));
     let handle_out = client.empty(size_of_val(scales));
 

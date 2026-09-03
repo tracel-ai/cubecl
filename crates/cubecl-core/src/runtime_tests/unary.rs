@@ -12,7 +12,7 @@ use cubecl::prelude::*;
 use cubecl_runtime::server::Handle;
 
 pub(crate) fn assert_equals_approx<F: num_traits::Float + CubeElement + Display>(
-    client: &ComputeClient,
+    client: &Client,
     output: Handle,
     expected: &[F],
     epsilon: F,
@@ -88,7 +88,7 @@ macro_rules! test_unary_impl {
             expected: $expected:expr
         }),*],
         $epsilon:expr) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function<$float_type: Float, In: Size, Out: Size>(
                 input: &[Vector<$float_type, In>], output: &mut [Vector<$float_type, Out>]
@@ -134,7 +134,7 @@ macro_rules! test_unary_impl_fixed {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
             #[cube(launch_unchecked)]
             fn test_function<$float_type: Float, N: Size>(
                 input: &[Vector<$float_type, N>],
@@ -182,7 +182,7 @@ macro_rules! test_unary_impl_int {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: Client) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int, N: Size>(
                 input: &[Vector<$int_type, N>],
@@ -231,7 +231,7 @@ macro_rules! test_unary_impl_int_fixed {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: Client) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int, N: Size>(
                 input: &[Vector<$int_type, N>],
@@ -922,7 +922,7 @@ test_unary_impl_fixed!(
     ]
 );
 
-pub fn test_expm1_f32<R: Runtime>(client: ComputeClient) {
+pub fn test_expm1_f32<R: Runtime>(client: Client) {
     #[cube(launch_unchecked)]
     fn test_function<In: Size, Out: Size>(
         input: &[Vector<f32, In>],
@@ -1145,7 +1145,7 @@ test_unary_impl_int!(test_abs_int, I, Abs::abs, [
     }
 ]);
 
-pub fn test_vector_sum_int<R: Runtime, I: Int + CubeElement>(client: ComputeClient) {
+pub fn test_vector_sum_int<R: Runtime, I: Int + CubeElement>(client: Client) {
     #[cube(launch_unchecked)]
     fn test_function<I: Int, In: Size, Out: Size>(
         input: &[Vector<I, In>],

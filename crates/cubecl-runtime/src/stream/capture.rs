@@ -1,5 +1,5 @@
 //! The stream-side graph-capture lifecycle, shared by every backend with
-//! graph support (see [`ComputeServer::graph_prepare`](crate::server::ComputeServer::graph_prepare)).
+//! graph support (see [`Server::graph_prepare`](crate::server::Server::graph_prepare)).
 
 use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError};

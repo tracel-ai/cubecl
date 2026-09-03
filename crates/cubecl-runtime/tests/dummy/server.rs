@@ -20,9 +20,8 @@ use cubecl_runtime::{
         ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage,
     },
     server::{
-        BufferBinding, ComputeServer, CopyDescriptor, CubeCount, Handle, KernelArguments,
-        KernelResource, ProfileError, ProfilingToken, ServerCommunication, ServerError,
-        ServerUtilities,
+        BufferBinding, CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource,
+        ProfileError, ProfilingToken, Server, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -117,7 +116,7 @@ impl KernelTask {
 
 impl<M: Marker> ServerCommunication for DummyServer<M> {}
 
-impl<M: Marker> ComputeServer for DummyServer<M> {
+impl<M: Marker> Server for DummyServer<M> {
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
     }

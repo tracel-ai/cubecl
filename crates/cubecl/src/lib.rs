@@ -1,12 +1,13 @@
 pub use cubecl_core::*;
 
-use cubecl_core::client::ComputeClient;
+use cubecl_core::client::Client;
 #[cfg(any(
     feature = "cuda",
     feature = "hip",
     feature = "metal-native",
     feature = "wgpu",
-    feature = "cpu"
+    feature = "cpu",
+    test_runtime_default
 ))]
 use cubecl_runtime::runtime::Runtime;
 
@@ -75,7 +76,7 @@ pub use cubecl_runtime::logging;
 /// A device of any runtime this build enables.
 ///
 /// Each runtime has its own device type, and until now the only way to reach a
-/// [`ComputeClient`] was through the runtime, `R::client(&device)`. This enum
+/// [`Client`] was through the runtime, `R::client(&device)`. This enum
 /// is the runtime-independent way: a value names both the runtime and the
 /// device on it, and [`client`](Device::client) hands back the client for it.
 ///
@@ -107,7 +108,7 @@ pub enum Device {
     #[cfg(feature = "metal-native")]
     Metal(cubecl_metal::MetalDevice),
     /// A device of the wgpu runtime, on its default compiler.
-    #[cfg(feature = "wgpu")]
+    #[cfg(any(feature = "wgpu", test_runtime_default))]
     Wgpu(cubecl_wgpu::WgpuDevice),
     /// The device of the CPU runtime.
     #[cfg(feature = "cpu")]
@@ -116,7 +117,7 @@ pub enum Device {
 
 impl Device {
     /// The compute client of this device, initialized on first use.
-    pub fn client(&self) -> ComputeClient {
+    pub fn client(&self) -> Client {
         match *self {
             #[cfg(feature = "cuda")]
             Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::client(device),
@@ -124,7 +125,7 @@ impl Device {
             Self::Hip(ref device) => cubecl_hip::HipRuntime::client(device),
             #[cfg(feature = "metal-native")]
             Self::Metal(ref device) => cubecl_metal::MetalRuntime::client(device),
-            #[cfg(feature = "wgpu")]
+            #[cfg(any(feature = "wgpu", test_runtime_default))]
             Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::client(device),
             #[cfg(feature = "cpu")]
             Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::client(device),
@@ -153,7 +154,7 @@ impl From<cubecl_metal::MetalDevice> for Device {
     }
 }
 
-#[cfg(feature = "wgpu")]
+#[cfg(any(feature = "wgpu", test_runtime_default))]
 impl From<cubecl_wgpu::WgpuDevice> for Device {
     fn from(device: cubecl_wgpu::WgpuDevice) -> Self {
         Self::Wgpu(device)
@@ -202,3 +203,47 @@ pub type TestRuntime = hip::HipRuntime;
 
 #[cfg(test_runtime_metal)]
 pub type TestRuntime = metal::MetalRuntime;
+
+/// The [`Device`] of [`TestRuntime`], the runtime this build tests on.
+///
+/// A test reaches its client through [`Device::client`] like any other caller,
+/// which is what keeps it from naming a runtime — or the [`Runtime`] trait —
+/// to get one.
+///
+/// ```no_run
+/// let client = cubecl::test_device().client();
+/// ```
+#[cfg(test_runtime_default)]
+pub fn test_device() -> Device {
+    Device::Wgpu(Default::default())
+}
+
+/// The [`Device`] of [`TestRuntime`], the runtime this build tests on.
+#[cfg(test_runtime_wgpu)]
+pub fn test_device() -> Device {
+    Device::Wgpu(Default::default())
+}
+
+/// The [`Device`] of [`TestRuntime`], the runtime this build tests on.
+#[cfg(test_runtime_cpu)]
+pub fn test_device() -> Device {
+    Device::Cpu(Default::default())
+}
+
+/// The [`Device`] of [`TestRuntime`], the runtime this build tests on.
+#[cfg(test_runtime_cuda)]
+pub fn test_device() -> Device {
+    Device::Cuda(Default::default())
+}
+
+/// The [`Device`] of [`TestRuntime`], the runtime this build tests on.
+#[cfg(test_runtime_hip)]
+pub fn test_device() -> Device {
+    Device::Hip(Default::default())
+}
+
+/// The [`Device`] of [`TestRuntime`], the runtime this build tests on.
+#[cfg(test_runtime_metal)]
+pub fn test_device() -> Device {
+    Device::Metal(Default::default())
+}

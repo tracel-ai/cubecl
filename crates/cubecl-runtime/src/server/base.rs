@@ -1,7 +1,7 @@
 use super::Handle;
 use crate::kernel::BufferIOAttr;
 use crate::{
-    client::ComputeClient,
+    client::Client,
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
     dry_run::LaunchMode,
@@ -476,8 +476,8 @@ impl ServerError {
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
-/// [`ComputeClient`] for thread safety.
-pub trait ComputeServer:
+/// [`Client`] for thread safety.
+pub trait Server:
     core::any::Any + Send + core::fmt::Debug + ServerCommunication + device::DeviceService + 'static
 {
     /// Initializes [memory](ManagedMemoryHandle) on the given [stream](StreamId) with the given size.
@@ -576,7 +576,7 @@ pub trait ComputeServer:
 
     /// Prepare `stream_id` for an upcoming graph capture: route allocations
     /// into a stable pool and snapshot it, so every buffer allocated between
-    /// here and [`end_capture`](ComputeServer::end_capture) can be pinned for
+    /// here and [`end_capture`](Server::end_capture) can be pinned for
     /// the graph's lifetime. Call this **before** the warmup run so the capture
     /// window reuses the slices warmup left in the pool rather than allocating
     /// its own — which a hardware-graph backend cannot do at all (a device
@@ -600,10 +600,10 @@ pub trait ComputeServer:
 
     /// Begin recording the launches issued on `stream_id` into a graph instead
     /// of executing them, so the sequence can later be
-    /// [replayed](ComputeServer::replay) without paying the launch path again.
-    /// Call [`graph_prepare`](ComputeServer::graph_prepare) and warm up first.
+    /// [replayed](Server::replay) without paying the launch path again.
+    /// Call [`graph_prepare`](Server::graph_prepare) and warm up first.
     ///
-    /// Between this call and [`end_capture`](ComputeServer::end_capture) the
+    /// Between this call and [`end_capture`](Server::end_capture) the
     /// stream must not synchronize — a read, a sync or a profile either aborts
     /// the capture or is refused — and should not allocate fresh device memory,
     /// which `graph_prepare` plus a warmup run is what avoids. Whether an
@@ -620,9 +620,9 @@ pub trait ComputeServer:
         Err(ServerError::graph_capture_unsupported())
     }
 
-    /// Stop recording (see [`begin_capture`](ComputeServer::begin_capture)),
+    /// Stop recording (see [`begin_capture`](Server::begin_capture)),
     /// store the captured graph in the backend's registry, and return its
-    /// [`GraphId`], ready to [replay](ComputeServer::replay).
+    /// [`GraphId`], ready to [replay](Server::replay).
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let _ = stream_id;
         Err(ServerError::graph_capture_unsupported())
@@ -640,7 +640,7 @@ pub trait ComputeServer:
     /// there. A failure also leaves the graph's write set carrying it, so a
     /// read of those buffers fails until a replay lands. Unsupported by
     /// default: a [`GraphId`] can only come from
-    /// [`end_capture`](ComputeServer::end_capture).
+    /// [`end_capture`](Server::end_capture).
     fn replay(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = (graph, stream_id);
         Err(ServerError::graph_capture_unsupported())
@@ -723,10 +723,10 @@ pub trait ComputeServer:
 }
 
 /// The storage a server allocates from, and the native resources it hands
-/// out. Kept off [`ComputeServer`] so that trait is object-safe: a resource's
+/// out. Kept off [`Server`] so that trait is object-safe: a resource's
 /// type is the backend's own, and only a caller that names the backend can
 /// receive one.
-pub trait ServerStorage: ComputeServer {
+pub trait ServerStorage: Server {
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
     /// Given a resource handle, returns the storage resource.
@@ -774,11 +774,11 @@ pub enum ReduceOperation {
 ///
 /// A collective reads a source buffer and produces a destination one, and owes
 /// the same two answers the rest of the server gives: ask whether the source
-/// carries a failure on the way in (as [`read`](ComputeServer::read) does
+/// carries a failure on the way in (as [`read`](Server::read) does
 /// through
 /// [`FailureStore::ensure_written`](crate::stream::FailureStore::ensure_written)),
 /// and taint the destination on the way out when the operation fails (as a
-/// failed [`launch`](ComputeServer::launch) does). Skipping either lets a
+/// failed [`launch`](Server::launch) does). Skipping either lets a
 /// collective reduce stale bytes across every device in the group, or leave a
 /// destination that reads back clean when nothing wrote it.
 pub trait ServerCommunication {
@@ -1347,7 +1347,7 @@ impl KernelArguments {
 
 /// Binding of a set of scalars of the same type to execute a kernel.
 ///
-/// The [`ComputeServer`] is responsible to convert those info into actual [`Binding`] when launching
+/// The [`Server`] is responsible to convert those info into actual [`Binding`] when launching
 /// kernels.
 #[derive(new, Debug, Default)]
 pub struct MetadataBindingInfo {
@@ -1431,7 +1431,7 @@ pub enum CubeCountSelection {
 
 impl CubeCountSelection {
     /// Creates a [`CubeCount`] while respecting the hardware limits.
-    pub fn new(client: &ComputeClient, num_cubes: u32) -> Self {
+    pub fn new(client: &Client, num_cubes: u32) -> Self {
         let cube_count = cube_count_spread(&client.properties().hardware.max_cube_count, num_cubes);
 
         let num_cubes_actual = cube_count[0] * cube_count[1] * cube_count[2];
@@ -1525,7 +1525,7 @@ impl CubeDim {
     ///
     /// For complex problems, you probably want to have your own logic function to create the
     /// [`CubeDim`], but for simpler problems such as elemwise-operation, this is a great default.
-    pub fn new(client: &ComputeClient, working_units: usize) -> Self {
+    pub fn new(client: &Client, working_units: usize) -> Self {
         let properties = client.properties();
         let plane_size = properties.hardware.plane_size_max;
         let plane_count = Self::calculate_plane_count_per_cube(

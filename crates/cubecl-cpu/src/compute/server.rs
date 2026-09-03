@@ -13,9 +13,8 @@ use cubecl_core::{
     CompilationError, CubeCount, MemoryConfiguration, MemoryUsage,
     ir::MemoryDeviceProperties,
     server::{
-        BufferBinding, ComputeServer, CopyDescriptor, IoError, KernelArguments, KernelResource,
-        LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerError,
-        ServerUtilities,
+        BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, LaunchError,
+        ProfileError, ProfilingToken, Server, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -209,7 +208,7 @@ impl CpuServer {
     }
 }
 
-impl ComputeServer for CpuServer {
+impl Server for CpuServer {
     fn logger(&self) -> Arc<ServerLogger> {
         self.scheduler.logger.clone()
     }

@@ -7,7 +7,7 @@ use core::cell::RefCell;
 use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
 use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::server::{BufferBinding, CubeCount, KernelResource, TensorMapBinding};
-use cubecl_runtime::{client::ComputeClient, kernel::CubeKernel, server::KernelArguments};
+use cubecl_runtime::{client::Client, kernel::CubeKernel, server::KernelArguments};
 
 #[cfg(feature = "std")]
 std::thread_local! {
@@ -65,7 +65,7 @@ impl KernelLauncher {
 
     /// Launch the kernel.
     #[track_caller]
-    pub fn launch<K: CubeKernel>(self, cube_count: CubeCount, kernel: K, client: &ComputeClient) {
+    pub fn launch<K: CubeKernel>(self, cube_count: CubeCount, kernel: K, client: &Client) {
         let bindings = self.into_bindings();
         let kernel = Box::new(kernel);
 

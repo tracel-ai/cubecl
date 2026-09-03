@@ -9,10 +9,9 @@ use crate::{
         MemoryUsage,
     },
     server::{
-        BufferBinding, CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerError, ServerStorage,
-        ServerUtilities,
+        BufferBinding, CommunicationId, CopyDescriptor, CubeCount, Handle, KernelArguments,
+        KernelResource, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutStrategy, ProfileError,
+        ReduceOperation, Server, ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -39,15 +38,15 @@ use cubecl_zspace::Shape;
 use cubecl_common::profile::TimingMethod;
 use cubecl_environment::stream::StreamId;
 
-/// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
+/// The `Client` is the entry point to require tasks from the `Server`.
 /// It should be obtained for a specific device via the Compute struct.
-pub struct ComputeClient {
-    device: DeviceHandle<dyn ComputeServer>,
+pub struct Client {
+    device: DeviceHandle<dyn Server>,
     utilities: Arc<ServerUtilities>,
     stream_id: Option<StreamId>,
 }
 
-/// A captured graph produced by [`ComputeClient::stop_capture`]: a recorded
+/// A captured graph produced by [`Client::stop_capture`]: a recorded
 /// launch sequence that [`replay`](Graph::replay) re-runs against its original
 /// buffers, skipping the launch path it was recorded from. Cheap to clone
 /// (shares one backend graph).
@@ -58,13 +57,13 @@ pub struct ComputeClient {
 /// device buffers used during capture. The caller keeps those input/output
 /// [`Handle`]s alive and, each iteration, writes fresh inputs into the input
 /// handles (same device pointers) and reads the output handles after replaying —
-/// see [`ComputeClient::stop_capture`].
+/// see [`Client::stop_capture`].
 ///
 /// **Stream ordering.** [`replay`](Graph::replay) always dispatches on the
 /// stream the graph was captured on, but input writes and output reads go on the
 /// *writing client's* current stream. They are ordered against the replay only
 /// when they land on that same stream, so keep the client pinned to the capture
-/// stream (via [`set_stream`](ComputeClient::set_stream)) — or issue all writes,
+/// stream (via [`set_stream`](Client::set_stream)) — or issue all writes,
 /// replays, and reads from the same unpinned client — for the whole decode loop.
 /// Refreshing inputs from a client on a different stream races the replay and
 /// silently feeds it stale data.
@@ -86,7 +85,7 @@ impl core::fmt::Debug for Graph {
 /// thread that owns it.
 struct GraphHandle {
     id: GraphId,
-    device: DeviceHandle<dyn ComputeServer>,
+    device: DeviceHandle<dyn Server>,
     stream_id: StreamId,
 }
 
@@ -132,7 +131,7 @@ impl Graph {
     ///   only against work on its capture stream.
     /// - **Same-stream refreshes** — input writes and output reads are issued on
     ///   the capture stream (keep the client pinned to it via
-    ///   [`set_stream`](ComputeClient::set_stream), or do everything from the
+    ///   [`set_stream`](Client::set_stream), or do everything from the
     ///   one client), so they order against the replay instead of racing it.
     pub unsafe fn replay(&self) -> Result<(), ServerError> {
         let id = self.inner.id;
@@ -168,13 +167,13 @@ impl Drop for GraphHandle {
 /// The state a `DeviceHandle` reaches, seen as the server it is. A client
 /// keeps this cast, not the server type, so every operation reads the same
 /// whatever backend is underneath.
-fn as_server<S: ComputeServer>(state: &mut dyn Any) -> &mut dyn ComputeServer {
+fn as_server<S: Server>(state: &mut dyn Any) -> &mut dyn Server {
     state
         .downcast_mut::<S>()
         .expect("State type mismatch in the device registry")
 }
 
-impl Clone for ComputeClient {
+impl Clone for Client {
     fn clone(&self) -> Self {
         Self {
             device: self.device.clone(),
@@ -184,7 +183,7 @@ impl Clone for ComputeClient {
     }
 }
 
-impl ComputeClient {
+impl Client {
     /// The runtime name on this device, as logs and cache keys show it.
     pub fn name(&self) -> &'static str {
         self.utilities.name
@@ -192,7 +191,7 @@ impl ComputeClient {
 
     /// Create a new client with a new server.
     pub fn init<S: ServerStorage>(device_id: DeviceId, server: S) -> Self {
-        let utilities = ComputeServer::utilities(&server);
+        let utilities = Server::utilities(&server);
         let context = DeviceHandle::<S>::insert(device_id, server)
             .expect("Can't create a new client on an already registered server")
             .seen_as(as_server::<S>);
@@ -350,14 +349,14 @@ impl ComputeClient {
     /// the one created by the runtime (i.e. padded on only the last dimension). A way to check
     /// stride compatibility on the runtime will be added in the future.
     ///
-    /// Also see [`ComputeClient::create_tensor`].
+    /// Also see [`Client::create_tensor`].
     pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor>) -> Vec<Bytes> {
         cubecl_environment::future::reader::read_sync(self.read_tensor_async(descriptors))
             .expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
-    /// See [`ComputeClient::read_tensor`]
+    /// See [`Client::read_tensor`]
     pub fn read_one_tensor_async(
         &self,
         descriptor: CopyDescriptor,
@@ -372,7 +371,7 @@ impl ComputeClient {
     /// # Remarks
     ///
     /// Panics if the read operation fails.
-    /// See [`ComputeClient::read_tensor`]
+    /// See [`Client::read_tensor`]
     pub fn read_one_unchecked_tensor(&self, descriptor: CopyDescriptor) -> Bytes {
         self.read_tensor(vec![descriptor]).remove(0)
     }
@@ -646,7 +645,7 @@ impl ComputeClient {
     /// also take cache lines into account.
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
-    /// (also see [`ComputeClient::read_tensor`]).
+    /// (also see [`Client::read_tensor`]).
     ///
     /// # Notes
     ///
@@ -680,7 +679,7 @@ impl ComputeClient {
     /// also take cache lines into account.
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
-    /// (also see [`ComputeClient::read_tensor`]).
+    /// (also see [`Client::read_tensor`]).
     pub fn create_tensor(&self, bytes: Bytes, shape: Shape, elem_size: usize) -> MemoryLayout {
         self.do_create(
             vec![MemoryLayoutDescriptor::new(
@@ -695,7 +694,7 @@ impl ComputeClient {
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
-    /// See [`ComputeClient::create_tensor`]
+    /// See [`Client::create_tensor`]
     ///
     /// # Notes
     ///
@@ -716,7 +715,7 @@ impl ComputeClient {
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
-    /// See [`ComputeClient::create_tensor`]
+    /// See [`Client::create_tensor`]
     pub fn create_tensors(
         &self,
         descriptors: Vec<(MemoryLayoutDescriptor, Bytes)>,
@@ -749,7 +748,7 @@ impl ComputeClient {
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
-    /// See [`ComputeClient::create_tensor`]
+    /// See [`Client::create_tensor`]
     pub fn empty_tensor(&self, shape: Shape, elem_size: usize) -> MemoryLayout {
         let descriptor =
             MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Optimized, shape, elem_size);
@@ -757,7 +756,7 @@ impl ComputeClient {
     }
 
     /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
-    /// See [`ComputeClient::create_tensor`]
+    /// See [`Client::create_tensor`]
     pub fn empty_tensors(&self, descriptors: Vec<MemoryLayoutDescriptor>) -> Vec<MemoryLayout> {
         self.do_empty(descriptors)
     }
@@ -865,7 +864,7 @@ impl ComputeClient {
     /// Wait on the communication stream.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
-        if DeviceHandle::<dyn ComputeServer>::is_blocking() {
+        if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `sync_collective` with a blocking device handle");
         }
         let stream_id = self.stream_id();
@@ -897,7 +896,7 @@ impl ComputeClient {
         device_ids: Vec<DeviceId>,
         op: ReduceOperation,
     ) {
-        if DeviceHandle::<dyn ComputeServer>::is_blocking() {
+        if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `all_reduce` with a blocking device handle");
         }
 
@@ -1215,7 +1214,7 @@ impl ComputeClient {
     }
 
     /// Prepare this client's stream for a graph capture (see
-    /// [`ComputeServer::graph_prepare`]) — enable the persistent pool + capture
+    /// [`Server::graph_prepare`]) — enable the persistent pool + capture
     /// recording. Call this **before** the warmup run, then
     /// [`start_capture`](Self::start_capture) around the run to record.
     pub fn graph_prepare(&self) -> Result<(), ServerError> {
@@ -1226,7 +1225,7 @@ impl ComputeClient {
     }
 
     /// Begin recording launches on this client's stream into a graph rather
-    /// than executing them (see [`ComputeServer::begin_capture`]). Pin the
+    /// than executing them (see [`Server::begin_capture`]). Pin the
     /// client to a dedicated stream with [`set_stream`](Self::set_stream), then
     /// [`graph_prepare`](Self::graph_prepare) and warm up first.
     ///

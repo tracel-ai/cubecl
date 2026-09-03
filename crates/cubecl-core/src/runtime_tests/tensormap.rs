@@ -111,7 +111,7 @@ fn tensormap_metadata<F: Float, N: Size>(
     output_2[3] = output_2.shape(0) as u32;
 }
 
-pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient)
+pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: Client)
 where
     <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -154,7 +154,7 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient)
+pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: Client)
 where
     <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -210,7 +210,7 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: ComputeClient)
+pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: Client)
 where
     <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -300,7 +300,7 @@ where
     assert_eq!(actual, &expected_actual);
 }
 
-pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient)
+pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: Client)
 where
     <<R::Server as ServerStorage>::Storage as ComputeStorage>::Resource: Debug,
 {

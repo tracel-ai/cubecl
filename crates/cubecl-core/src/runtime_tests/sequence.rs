@@ -31,7 +31,7 @@ pub fn sequence_index<F: Float>(output: &mut [F]) {
     output[0] += *Sequence::<F>::index(&sequence, 1usize);
 }
 
-pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(client: Client) {
     let handle = client.create_from_slice(as_bytes![F: 0.0]);
 
     sequence_for_loop::launch::<F>(
@@ -47,7 +47,7 @@ pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(client: Comput
     assert_eq!(actual[0], F::new(5.0));
 }
 
-pub fn test_sequence_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_sequence_index<R: Runtime, F: Float + CubeElement>(client: Client) {
     let handle = client.create_from_slice(as_bytes![F: 0.0]);
 
     sequence_index::launch::<F>(

@@ -17,7 +17,7 @@ use crate::throughput::{LaunchConfig, memory_probe::MemoryProbe};
 ///
 /// Reported `ops_count` is the write count alone.
 pub fn build_kernel(
-    client: &ComputeClient,
+    client: &Client,
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,

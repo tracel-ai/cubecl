@@ -12,7 +12,7 @@ pub fn kernel_properties(output: &mut [u32]) {
     }
 }
 
-pub fn test_kernel_properties<R: Runtime>(client: ComputeClient) {
+pub fn test_kernel_properties<R: Runtime>(client: Client) {
     let handle = client.create_from_slice(u32::as_bytes(as_type![u32: 0, 0]));
 
     kernel_properties::launch(

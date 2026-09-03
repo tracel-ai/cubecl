@@ -10,7 +10,7 @@ use crate::throughput::{
 /// Builds the copy kernel, moving `working_set` bytes per pass: half read out
 /// of the input buffer, half written into the output one.
 pub fn build_kernel(
-    client: &ComputeClient,
+    client: &Client,
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,

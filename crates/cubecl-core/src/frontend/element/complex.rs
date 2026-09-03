@@ -17,7 +17,7 @@ use cubecl_ir::{
         scalar::{Complex32Type, Complex64Type},
     },
 };
-use cubecl_runtime::client::ComputeClient;
+use cubecl_runtime::client::Client;
 
 use crate::{
     frontend::{
@@ -74,7 +74,7 @@ pub trait ComplexCore:
         unexpanded!()
     }
 
-    fn supported_complex_uses(client: &ComputeClient) -> cubecl_ir::EnumSet<ComplexUsage> {
+    fn supported_complex_uses(client: &Client) -> cubecl_ir::EnumSet<ComplexUsage> {
         client.properties().complex_usage(Self::elem_type_native())
     }
 }

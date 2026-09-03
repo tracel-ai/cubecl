@@ -17,7 +17,7 @@ pub fn kernel_define_many<N: Numeric, N2: Numeric>(
     array[UNIT_POS as usize] += N::cast_from(second[UNIT_POS as usize]);
 }
 
-pub fn test_kernel_define<R: Runtime>(client: ComputeClient) {
+pub fn test_kernel_define<R: Runtime>(client: Client) {
     let handle = client.create_from_slice(f32::as_bytes(&[f32::new(0.0), f32::new(1.0)]));
 
     let elem = ElemType::Float(FloatKind::F32);
@@ -37,7 +37,7 @@ pub fn test_kernel_define<R: Runtime>(client: ComputeClient) {
     assert_eq!(actual[1], f32::new(6.0));
 }
 
-pub fn test_kernel_define_many<R: Runtime>(client: ComputeClient) {
+pub fn test_kernel_define_many<R: Runtime>(client: Client) {
     let first = client.create_from_slice(f32::as_bytes(&[f32::new(0.0), f32::new(1.0)]));
     let second = client.create_from_slice(u32::as_bytes(&[u32::new(5), u32::new(6)]));
 

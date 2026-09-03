@@ -6,7 +6,7 @@ use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::ServerError;
 
 fn assert_exact_eq<E: CubeElement + Debug + PartialEq>(
-    client: &ComputeClient,
+    client: &Client,
     output: cubecl_runtime::server::Handle,
     expected: &[E],
 ) {
@@ -17,7 +17,7 @@ fn assert_exact_eq<E: CubeElement + Debug + PartialEq>(
 }
 
 fn assert_real_approx_eq<F: num_traits::Float + CubeElement + Display>(
-    client: &ComputeClient,
+    client: &Client,
     output: cubecl_runtime::server::Handle,
     expected: &[F],
     epsilon: F,
@@ -43,7 +43,7 @@ fn assert_real_approx_eq<F: num_traits::Float + CubeElement + Display>(
 }
 
 fn assert_complex_approx_eq<F: num_traits::Float + CubeElement + Display>(
-    client: &ComputeClient,
+    client: &Client,
     output: cubecl_runtime::server::Handle,
     expected: &[num_complex::Complex<F>],
     epsilon: F,
@@ -225,7 +225,7 @@ macro_rules! test_complex_binary_eq_op {
         rhs: [$($rhs:expr),+ $(,)?],
         expect: |$lhs_var:ident, $rhs_var:ident| $expected:expr
     ) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime>(client: Client) {
             type C = $ty;
             let lhs = vec![$($lhs),+];
             let rhs = vec![$($rhs),+];
@@ -264,7 +264,7 @@ macro_rules! test_complex_unary_eq_op {
         input: [$($value:expr),+ $(,)?],
         expect: |$value_var:ident| $expected:expr
     ) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime>(client: Client) {
             type C = $ty;
             let input = vec![$($value),+];
             let expected = input
@@ -300,7 +300,7 @@ macro_rules! test_complex_scalar_eq_op {
         scalar: $scalar:expr,
         expect: |$value_var:ident, $scale_var:ident| $expected:expr
     ) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime>(client: Client) {
             type C = $ty;
             let input = vec![$($value),+];
             let scale = $scalar;
@@ -339,7 +339,7 @@ macro_rules! test_complex_unary_scalar_eq_op {
         input: [$($value:expr),+ $(,)?],
         expect: |$value_var:ident| $expected:expr
     ) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime>(client: Client) {
             type C = $input_ty;
             type O = $output_ty;
             let input = vec![$($value),+];
@@ -376,7 +376,7 @@ macro_rules! test_complex_binary_bool_eq_op {
         rhs: [$($rhs:expr),+ $(,)?],
         expect: |$lhs_var:ident, $rhs_var:ident| $expected:expr
     ) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime>(client: Client) {
             type C = $ty;
             let lhs = vec![$($lhs),+];
             let rhs = vec![$($rhs),+];
@@ -745,7 +745,7 @@ pub fn kernel_complex_powf<C: ComplexMath + Powf>(output: &mut [C], lhs: &[C], r
     }
 }
 
-pub fn test_complex_abs_cf32<R: Runtime>(client: ComputeClient) {
+pub fn test_complex_abs_cf32<R: Runtime>(client: Client) {
     type C = num_complex::Complex<f32>;
     let input = vec![C::new(3.0f32, 4.0f32), C::new(5.0f32, -12.0f32)];
     let expected = vec![complex_abs_value(input[0]), complex_abs_value(input[1])];
@@ -766,7 +766,7 @@ pub fn test_complex_abs_cf32<R: Runtime>(client: ComputeClient) {
     assert_real_approx_eq::<f32>(&client, handle_output, &expected, 1.0e-5f32);
 }
 
-pub fn test_complex_norm_cf64<R: Runtime>(client: ComputeClient) {
+pub fn test_complex_norm_cf64<R: Runtime>(client: Client) {
     type C = num_complex::Complex<f64>;
     let input = vec![C::new(3.0f64, 4.0f64), C::new(5.0f64, -12.0f64)];
     let expected = vec![complex_abs_value(input[0]), complex_abs_value(input[1])];
@@ -789,7 +789,7 @@ pub fn test_complex_norm_cf64<R: Runtime>(client: ComputeClient) {
 
 macro_rules! test_complex_unary_op {
     ($test_name:ident, $kernel:ident, $method:ident, $ty:ty, $epsilon:expr, [$($value:expr),+ $(,)?]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime>(client: Client) {
             type C = $ty;
             let input = vec![$($value),+];
             let expected = input.iter().copied().map(|value| value.$method()).collect::<vec::Vec<_>>();
@@ -814,7 +814,7 @@ macro_rules! test_complex_unary_op {
 
 macro_rules! test_complex_powf_op {
     ($test_name:ident, $ty:ty, $epsilon:expr, lhs: [$($lhs:expr),+ $(,)?], rhs: [$($rhs:expr),+ $(,)?]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime>(client: Client) {
             type C = $ty;
             let lhs = vec![$($lhs),+];
             let rhs = vec![$($rhs),+];
@@ -1098,7 +1098,7 @@ pub fn kernel_complex_validation_math<C: ComplexMath>(output: &mut [C], input: &
     }
 }
 
-pub fn test_complex_validation_core<R: Runtime>(client: ComputeClient) {
+pub fn test_complex_validation_core<R: Runtime>(client: Client) {
     type C = num_complex::Complex<f32>;
     if C::supported_complex_uses(&client).contains(cubecl::ir::features::ComplexUsage::Core) {
         return;
@@ -1120,7 +1120,7 @@ pub fn test_complex_validation_core<R: Runtime>(client: ComputeClient) {
     assert_complex_validation_error(client.read_one(output).map(|_| ()), "Complex operation");
 }
 
-pub fn test_complex_validation_compare<R: Runtime>(client: ComputeClient) {
+pub fn test_complex_validation_compare<R: Runtime>(client: Client) {
     type C = num_complex::Complex<f32>;
     if C::supported_complex_uses(&client).contains(cubecl::ir::features::ComplexUsage::Compare) {
         return;
@@ -1142,7 +1142,7 @@ pub fn test_complex_validation_compare<R: Runtime>(client: ComputeClient) {
     assert_complex_validation_error(client.read_one(output).map(|_| ()), "Complex operation");
 }
 
-pub fn test_complex_validation_math<R: Runtime>(client: ComputeClient) {
+pub fn test_complex_validation_math<R: Runtime>(client: Client) {
     type C = num_complex::Complex<f32>;
     if C::supported_complex_uses(&client).contains(cubecl::ir::features::ComplexUsage::Math) {
         return;

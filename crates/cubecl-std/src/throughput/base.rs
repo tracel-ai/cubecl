@@ -1,6 +1,6 @@
 use cubecl_core::ir::ElemType;
 use cubecl_runtime::{
-    client::ComputeClient,
+    client::Client,
     runtime::Runtime,
     server::CubeDim,
     throughput::{
@@ -49,7 +49,7 @@ pub fn device_throughput<R: Runtime>(
 /// first run and nothing afterwards.
 ///
 /// Native only, panics on WASM
-pub fn measure_memory_curve(client: &ComputeClient, access: MemoryAccess) -> MemoryCurve {
+pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurve {
     let points = sweep(client, access, |bytes| {
         ThroughputMode::Memory(MemorySpec::new(access, bytes))
     });
@@ -61,7 +61,7 @@ pub fn measure_memory_curve(client: &ComputeClient, access: MemoryAccess) -> Mem
 /// like the single-size probe, so a curve costs one probe per size on the
 /// first run and nothing afterwards.
 fn sweep(
-    client: &ComputeClient,
+    client: &Client,
     access: MemoryAccess,
     mode: impl Fn(u64) -> ThroughputMode,
 ) -> alloc::vec::Vec<MemoryPoint> {
@@ -80,7 +80,7 @@ fn sweep(
 
 /// The largest working set `access` can be probed at: the largest window one
 /// buffer holds, times the buffers the access touches.
-fn working_set_cap(client: &ComputeClient, access: MemoryAccess) -> u64 {
+fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
     let max_alloc = client.properties().memory.max_page_size;
 
     memory_probe::window_cap(max_alloc) * access.buffers()
@@ -96,7 +96,7 @@ fn working_set_cap(client: &ComputeClient, access: MemoryAccess) -> u64 {
 /// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
 /// and reported no elapsed time.
 pub fn measure_peak_throughput(
-    client: &ComputeClient,
+    client: &Client,
     key: ThroughputKey,
 ) -> Result<ThroughputValue, ThroughputError> {
     // A throughput probe is a measurement: inside a dry run its launches must
@@ -160,7 +160,7 @@ pub fn measure_peak_throughput(
 ///
 /// Measures compute and memory peak throughputs along with launch overhead for the runtime client.
 pub fn roofline_bounds(
-    client: &ComputeClient,
+    client: &Client,
     compute_key: ThroughputKey,
     work: Work,
     thresholds: Thresholds,
@@ -211,7 +211,7 @@ fn fastest_shape(
 ///
 /// `io_optimized_vector_sizes` is ordered for the loads and stores this probe
 /// issues none of, and its widest is not the fastest on every device.
-fn arithmetic_widths(client: &ComputeClient, dtype: ElemType) -> alloc::vec::Vec<usize> {
+fn arithmetic_widths(client: &Client, dtype: ElemType) -> alloc::vec::Vec<usize> {
     let widths: alloc::vec::Vec<usize> = client.io_optimized_vector_sizes(dtype.size()).collect();
 
     if widths.is_empty() {
@@ -225,7 +225,7 @@ fn arithmetic_widths(client: &ComputeClient, dtype: ElemType) -> alloc::vec::Vec
 ///
 /// A non-empty capability list says the device has tensor hardware, not this
 /// shape of it. `mma` is not consulted: the probe issues `cmma::execute`.
-fn implements_cmma(client: &ComputeClient, dtype: ElemType, config: ComputeCmmaConfig) -> bool {
+fn implements_cmma(client: &Client, dtype: ElemType, config: ComputeCmmaConfig) -> bool {
     client.properties().features.matmul.cmma.iter().any(|it| {
         it.a_type == dtype
             && it.b_type == dtype
@@ -250,7 +250,7 @@ pub struct LaunchConfig {
     pub plane_size: usize,
 }
 
-fn launch_config(client: &ComputeClient, dtype: ElemType) -> LaunchConfig {
+fn launch_config(client: &Client, dtype: ElemType) -> LaunchConfig {
     let hardware = &client.properties().hardware;
 
     let plane_size = hardware.plane_size_max.max(1);

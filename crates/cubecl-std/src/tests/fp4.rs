@@ -49,7 +49,7 @@ fn kernel_decode_packed<N: Size>(words: &[u32], out: &mut [Vector<f32, N>]) {
 ///
 /// No capability gate. The kernel names no 4-bit type — codes ride in `u32` and values in `f32` —
 /// which is exactly the property that lets a backend with no `e2m1` decode one.
-pub fn test_e2m1_codec_matches_host<R: Runtime>(client: ComputeClient) {
+pub fn test_e2m1_codec_matches_host<R: Runtime>(client: Client) {
     // Every code, then every code again under garbage upper bits: a caller may hand over an
     // unmasked field, and the decoder promises to ignore what is above the nibble.
     let codes: Vec<u32> = (0..16u32).chain((0..16u32).map(|c| c | 0xFFF0)).collect();
@@ -145,7 +145,7 @@ fn encode_inputs() -> Vec<f32> {
     values
 }
 
-fn launch_decode(client: &ComputeClient, codes: &[u32]) -> Vec<f32> {
+fn launch_decode(client: &Client, codes: &[u32]) -> Vec<f32> {
     let handle_in = client.create_from_slice(u32::as_bytes(codes));
     let handle_out = client.empty(size_of_val(codes));
 
@@ -166,7 +166,7 @@ fn launch_decode(client: &ComputeClient, codes: &[u32]) -> Vec<f32> {
     f32::from_bytes(&client.read_one_unchecked(handle_out)).to_vec()
 }
 
-fn launch_encode(client: &ComputeClient, values: &[f32]) -> Vec<u32> {
+fn launch_encode(client: &Client, values: &[f32]) -> Vec<u32> {
     let handle_in = client.create_from_slice(f32::as_bytes(values));
     let handle_out = client.empty(size_of_val(values));
 
@@ -187,7 +187,7 @@ fn launch_encode(client: &ComputeClient, values: &[f32]) -> Vec<u32> {
 }
 
 /// Returns two floats per word, the low nibble first.
-fn launch_decode_packed(client: &ComputeClient, words: &[u32]) -> Vec<f32> {
+fn launch_decode_packed(client: &Client, words: &[u32]) -> Vec<f32> {
     let lanes = 2;
     let handle_in = client.create_from_slice(u32::as_bytes(words));
     let handle_out = client.empty(words.len() * lanes * size_of::<f32>());

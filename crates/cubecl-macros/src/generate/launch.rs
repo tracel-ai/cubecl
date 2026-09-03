@@ -55,7 +55,7 @@ impl ToTokens for Launch {
 impl Launch {
     fn launch(&self) -> TokenStream {
         if self.args.launch.is_present() {
-            let compute_client = prelude_type("ComputeClient");
+            let compute_client = prelude_type("Client");
             let cube_count = prelude_type("CubeCount");
             let cube_dim = prelude_type("CubeDim");
             let address_type = prelude_type("AddressType");
@@ -94,7 +94,7 @@ impl Launch {
 
     fn launch_unchecked(&self) -> TokenStream {
         if self.args.launch_unchecked.is_present() {
-            let compute_client = prelude_type("ComputeClient");
+            let compute_client = prelude_type("Client");
             let cube_count = prelude_type("CubeCount");
             let cube_dim = prelude_type("CubeDim");
             let address_type = prelude_type("AddressType");

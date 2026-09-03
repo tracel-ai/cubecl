@@ -6,7 +6,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, UIntKind};
-use cubecl_runtime::client::ComputeClient;
+use cubecl_runtime::client::Client;
 use cubecl_runtime::server::{CubeCount, Handle, KernelArguments, ServerError};
 use cubecl_runtime::{local_tuner, tune::LocalTuner};
 use dummy::*;
@@ -105,7 +105,7 @@ fn transferring_a_foreign_handle_to_another_client_panics() {
 #[test_log::test]
 fn a_transfer_between_devices_of_the_same_runtime_round_trips() {
     let mut source = test_client(&DummyDevice);
-    let destination = ComputeClient::load::<DummyServer>(DeviceId::new(0, 1));
+    let destination = Client::load::<DummyServer>(DeviceId::new(0, 1));
     let bytes = [1u8, 2, 3, 4];
     let handle = source.create_from_slice(&bytes);
 
@@ -121,7 +121,7 @@ fn a_transfer_between_devices_of_the_same_runtime_round_trips() {
 #[test_log::test]
 fn a_transfer_across_runtimes_goes_through_the_host() {
     let mut source = test_client(&DummyDevice);
-    let destination = ComputeClient::load::<DummyServer<Other>>(DeviceId::new(0, 0));
+    let destination = Client::load::<DummyServer<Other>>(DeviceId::new(0, 0));
     let bytes = [5u8, 6, 7, 8];
     let handle = source.create_from_slice(&bytes);
 
@@ -450,7 +450,7 @@ fn autotune_short_circuit_disabled_benchmarks_all() {
     assert_eq!(obtained, vec![4, 5, 6]);
 }
 
-/// 2-I1 — A panic inside a profiled closure surfaces at the `ComputeClient` caller as
+/// 2-I1 — A panic inside a profiled closure surfaces at the `Client` caller as
 /// the *original* panic (the issue's symptom), instead of an opaque `CallError`.
 #[test_log::test]
 #[cfg(feature = "std")]
@@ -487,7 +487,7 @@ fn profile_returns_ok_on_success() {
     assert_eq!(value, 123);
 }
 
-/// 2-I3 — Design guard: the public `ComputeClient::exclusive` stays *recoverable* — a
+/// 2-I3 — Design guard: the public `Client::exclusive` stays *recoverable* — a
 /// task panic becomes `Err(ServerError::Generic)` (so autotune can skip a failing
 /// candidate) rather than re-raising. The original message is still preserved in the
 /// error string thanks to the `CallError` payload.

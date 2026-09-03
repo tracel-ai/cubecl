@@ -3,7 +3,7 @@ use cubecl_common::device::{Device, DeviceId};
 use cubecl_ir::TargetProperties;
 use cubecl_zspace::{Shape, Strides};
 
-use crate::{client::ComputeClient, server::ServerStorage};
+use crate::{client::Client, server::ServerStorage};
 
 /// Runtime for the `CubeCL`.
 pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
@@ -14,8 +14,8 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
 
     /// Retrieve the compute client from the runtime device, initializing the
     /// server on first use.
-    fn client(device: &Self::Device) -> ComputeClient {
-        ComputeClient::load::<Self::Server>(device.to_id())
+    fn client(device: &Self::Device) -> Client {
+        Client::load::<Self::Server>(device.to_id())
     }
 
     /// Whether a tensor with `shape` and `strides` can be read as is. If the result is false, the

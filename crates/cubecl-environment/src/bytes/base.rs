@@ -39,7 +39,7 @@ pub enum AllocationProperty {
     /// Pinned memory is used.
     Pinned,
     /// The data still lives on a compute device and is only copied to host memory
-    /// lazily on first access (see [`ComputeClient::read_lazy`](https://docs.rs/cubecl-runtime)).
+    /// lazily on first access (see [`Client::read_lazy`](https://docs.rs/cubecl-runtime)).
     Device,
     /// Another kind of memory is used.
     Other,

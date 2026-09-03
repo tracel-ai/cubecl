@@ -14,7 +14,7 @@ pub fn kernel_different_rank<F: Float, N: Size>(
 }
 
 pub fn test_kernel_different_rank_first_biggest<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient,
+    client: Client,
 ) {
     let shape_lhs = vec![2, 2, 2];
     let shape_rhs = vec![8];
@@ -31,9 +31,7 @@ pub fn test_kernel_different_rank_first_biggest<R: Runtime, F: Float + CubeEleme
     );
 }
 
-pub fn test_kernel_different_rank_last_biggest<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient,
-) {
+pub fn test_kernel_different_rank_last_biggest<R: Runtime, F: Float + CubeElement>(client: Client) {
     let shape_lhs = vec![2, 4];
     let shape_rhs = vec![8];
     let shape_out = vec![2, 2, 2];
@@ -50,7 +48,7 @@ pub fn test_kernel_different_rank_last_biggest<R: Runtime, F: Float + CubeElemen
 }
 
 fn test_kernel_different_rank<F: Float + CubeElement>(
-    client: ComputeClient,
+    client: Client,
     (shape_lhs, shape_rhs, shape_out): (Vec<usize>, Vec<usize>, Vec<usize>),
     (strides_lhs, strides_rhs, strides_out): (Vec<usize>, Vec<usize>, Vec<usize>),
 ) {

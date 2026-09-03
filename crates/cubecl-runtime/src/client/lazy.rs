@@ -1,6 +1,6 @@
 //! Allocation controller that lazily reads a device resource into host memory.
 
-use super::ComputeClient;
+use super::Client;
 use crate::server::CopyDescriptor;
 use alloc::boxed::Box;
 use alloc::format;
@@ -14,7 +14,7 @@ use cubecl_zspace::striding::has_contiguous_row_major_strides;
 
 /// Allocation controller that lazily copies a device resource into host memory on first access.
 ///
-/// Constructing the [`Bytes`] is cheap: it only captures the [`ComputeClient`] and a
+/// Constructing the [`Bytes`] is cheap: it only captures the [`Client`] and a
 /// [`CopyDescriptor`], whose [`Binding`](crate::server::Binding) keeps the device allocation
 /// alive. The device-to-host copy — going through the regular read path, including pinned
 /// staging — only happens the first time the bytes are read (e.g. during serialization), and
@@ -29,16 +29,16 @@ use cubecl_zspace::striding::has_contiguous_row_major_strides;
 /// therefore only sound for buffers that are not mutated between [`read_lazy`] and the first
 /// read. This matches the typical use case of serializing frozen weights.
 ///
-/// [`read_lazy`]: ComputeClient::read_lazy
+/// [`read_lazy`]: Client::read_lazy
 pub struct LazyDeviceController {
-    client: ComputeClient,
+    client: Client,
     descriptor: Arc<CopyDescriptor>,
     /// Host bytes, materialized from the device on first access.
     materialized: Once<Bytes>,
 }
 
 impl LazyDeviceController {
-    pub(super) fn new(client: ComputeClient, descriptor: Arc<CopyDescriptor>) -> Self {
+    pub(super) fn new(client: Client, descriptor: Arc<CopyDescriptor>) -> Self {
         Self {
             client,
             descriptor,

@@ -60,7 +60,7 @@ fn wgpu_graph_capture_replay() {
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -108,7 +108,7 @@ fn wgpu_graph_mid_capture_allocation_is_allowed() {
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -153,7 +153,7 @@ fn wgpu_graph_input_rewrite() {
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -210,7 +210,7 @@ fn wgpu_graph_intermediate_recycling() {
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(bytes);
 
-    let run = |client: &ComputeClient, tmp: &Handle| {
+    let run = |client: &Client, tmp: &Handle| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -299,7 +299,7 @@ fn wgpu_graph_many_launches_dynamic_metadata() {
 
     // One pass: ping-pong `dst = src + 1` between `a` and `b`. The identical
     // sequence is run once as warmup and once recorded.
-    fn run_pass(client: &ComputeClient, a: &Handle, b: &Handle) {
+    fn run_pass(client: &Client, a: &Handle, b: &Handle) {
         for i in 0..PASS_LAUNCHES {
             let (src, dst) = if i % 2 == 0 { (a, b) } else { (b, a) };
             add_one_tensor::launch(
@@ -415,7 +415,7 @@ fn wgpu_graph_lifecycle_state_errors() {
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -446,7 +446,7 @@ fn wgpu_graph_read_rejected_while_recording() {
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -485,7 +485,7 @@ fn wgpu_graph_write_rejected_while_recording() {
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -553,7 +553,7 @@ fn wgpu_graph_write_rejected_while_recording_is_not_read_as_written() {
             client.empty(n * core::mem::size_of::<f32>()),
         )
     });
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -621,7 +621,7 @@ fn wgpu_graph_destroy_leaves_an_enqueued_replay_intact() {
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(bytes);
 
-    let run = |client: &ComputeClient, tmp: &Handle| {
+    let run = |client: &Client, tmp: &Handle| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -700,7 +700,7 @@ fn wgpu_graph_a_capture_that_never_sealed_is_not_read_as_run() {
             client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0])),
         )
     });
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -774,7 +774,7 @@ fn wgpu_graph_capture_is_sealed_by_the_stream_that_opened_it() {
         )
     });
 
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -835,7 +835,7 @@ fn wgpu_graph_capture_is_isolated_from_another_stream() {
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -957,7 +957,7 @@ fn wgpu_graph_a_prepared_capture_that_never_opened_is_disarmed_by_end() {
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -1040,7 +1040,7 @@ fn wgpu_graph_replay_settles_after_a_failed_enqueue() {
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),

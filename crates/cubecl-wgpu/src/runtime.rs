@@ -18,7 +18,7 @@ use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_runtime::logging::ProfileLevel;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::runtime::Runtime;
-use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
+use cubecl_runtime::{client::Client, logging::ServerLogger};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
@@ -226,7 +226,7 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
 
     let device_id = WgpuDevice::Existing(device_id);
     let server = create_server::<AutoCompiler>(setup, options, device_id.to_id());
-    let _ = ComputeClient::init(device_id.to_id(), server);
+    let _ = Client::init(device_id.to_id(), server);
     device_id
 }
 
@@ -258,7 +258,7 @@ pub async fn init_setup_async<G: GraphicsApi>(
     let setup = create_setup_for_device(device, G::backend()).await;
     let return_setup = setup.clone();
     let server = create_server::<AutoCompiler>(setup, options, device.to_id());
-    let _ = ComputeClient::init(device.to_id(), server);
+    let _ = Client::init(device.to_id(), server);
     return_setup
 }
 

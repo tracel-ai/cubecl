@@ -150,7 +150,7 @@ pub fn kernel_runtime_variants_value(test: RuntimeEnumSingleValue, output: &mut 
     output[0] = value as f32;
 }
 
-pub fn test_scalar_enum<R: Runtime>(client: ComputeClient) {
+pub fn test_scalar_enum<R: Runtime>(client: Client) {
     let array = client.empty(core::mem::size_of::<f32>());
 
     kernel_scalar_enum::launch(
@@ -166,7 +166,7 @@ pub fn test_scalar_enum<R: Runtime>(client: ComputeClient) {
     assert_eq!(actual[0], 10.0);
 }
 
-pub fn test_runtime_variants_empty<R: Runtime>(client: ComputeClient) {
+pub fn test_runtime_variants_empty<R: Runtime>(client: Client) {
     let array = client.empty(core::mem::size_of::<f32>());
 
     unsafe {
@@ -184,7 +184,7 @@ pub fn test_runtime_variants_empty<R: Runtime>(client: ComputeClient) {
     assert_eq!(actual[0], 20.0);
 }
 
-pub fn test_runtime_variants_value<R: Runtime>(client: ComputeClient) {
+pub fn test_runtime_variants_value<R: Runtime>(client: Client) {
     let array = client.empty(core::mem::size_of::<f32>());
 
     unsafe {
@@ -204,7 +204,7 @@ pub fn test_runtime_variants_value<R: Runtime>(client: ComputeClient) {
     assert_eq!(actual[0], 5.0);
 }
 
-pub fn test_runtime_variants_empty_wildcard<R: Runtime>(client: ComputeClient) {
+pub fn test_runtime_variants_empty_wildcard<R: Runtime>(client: Client) {
     let array = client.empty(core::mem::size_of::<f32>());
 
     unsafe {
@@ -238,10 +238,7 @@ fn kernel_array_float_int(array: &mut ArrayFloatInt) {
     }
 }
 
-pub fn test_array_float_int<R: Runtime, T: Scalar + CubeElement>(
-    client: &ComputeClient,
-    expected: T,
-) {
+pub fn test_array_float_int<R: Runtime, T: Scalar + CubeElement>(client: &Client, expected: T) {
     let array = client.empty(core::mem::size_of::<T>());
 
     kernel_array_float_int::launch(
@@ -277,7 +274,7 @@ fn kernel_tuple_enum(first: SimpleEnum<&mut [u32]>, second: SimpleEnum<&[u32]>) 
     }
 }
 
-pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient) {
+pub fn test_tuple_enum<R: Runtime>(client: &Client) {
     let first = client.create_from_slice(as_bytes![u32: 20]);
     let second = client.create_from_slice(as_bytes![u32: 5]);
 
@@ -309,7 +306,7 @@ pub fn kernel_comptime_option_scalar(opt: ComptimeOption<f32>, output: &mut [f32
     output[0] = value;
 }
 
-pub fn test_comptime_option_scalar<R: Runtime>(client: &ComputeClient) {
+pub fn test_comptime_option_scalar<R: Runtime>(client: &Client) {
     let read = |args: ComptimeOptionArgs<f32>| {
         let array = client.empty(core::mem::size_of::<f32>());
         kernel_comptime_option_scalar::launch(

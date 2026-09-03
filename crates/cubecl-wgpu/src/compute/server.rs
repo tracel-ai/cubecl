@@ -44,7 +44,7 @@ use cubecl_runtime::{
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
-    server::ComputeServer,
+    server::Server,
     storage::ManagedResource,
     stream::scheduler::{
         SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
@@ -319,7 +319,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     }
 }
 
-impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
+impl<C: WgpuCompiler> Server for WgpuServer<C> {
     fn logger(&self) -> Arc<ServerLogger> {
         self.scheduler.logger.clone()
     }

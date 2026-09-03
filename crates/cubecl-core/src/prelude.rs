@@ -14,7 +14,7 @@ pub use cubecl_ir::{
     settings::{ExecutionMode, KernelSettings},
 };
 pub use cubecl_runtime::{
-    client::ComputeClient,
+    client::Client,
     id::KernelId,
     kernel::*,
     server::{CubeCount, CubeDim, LaunchError},

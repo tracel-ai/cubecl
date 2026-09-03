@@ -1,5 +1,5 @@
 use cubecl_runtime::{
-    client::ComputeClient,
+    client::Client,
     kernel::BufferIOAttr,
     server::{CubeCount, Handle, KernelArguments},
 };
@@ -12,7 +12,7 @@ use crate::dummy::KernelTask;
 /// information that does not count as an input/output.
 pub struct OneKernelAutotuneOperation {
     kernel: KernelTask,
-    client: ComputeClient,
+    client: Client,
 }
 
 impl OneKernelAutotuneOperation {

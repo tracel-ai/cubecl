@@ -25,17 +25,13 @@ pub enum IntAtomicOp {
     CompareExchange,
 }
 
-fn supports_feature<F: Numeric>(
-    client: &ComputeClient,
-    feat: AtomicUsage,
-    vector_size: usize,
-) -> bool {
+fn supports_feature<F: Numeric>(client: &Client, feat: AtomicUsage, vector_size: usize) -> bool {
     let ty = Type::atomic(F::elem_type_native().with_vector_size(vector_size));
     client.properties().atomic_type_usage(ty).contains(feat)
 }
 
 fn require_feature<F: Numeric>(
-    client: &ComputeClient,
+    client: &Client,
     feat: AtomicUsage,
     vector_size: usize,
     operation: &str,
@@ -154,7 +150,7 @@ pub fn kernel_atomic_numeric<I: Numeric, N: Size>(
 }
 
 pub fn test_kernel_atomic_numeric<R: Runtime, F: Numeric + CubeElement>(
-    client: ComputeClient,
+    client: Client,
     vector_size: usize,
     op: NumericAtomicOp,
 ) {
@@ -192,7 +188,7 @@ pub fn test_kernel_atomic_numeric<R: Runtime, F: Numeric + CubeElement>(
 }
 
 pub fn test_kernel_atomic_numeric_all_sizes<R: Runtime, F: Numeric + CubeElement>(
-    client: ComputeClient,
+    client: Client,
     op: NumericAtomicOp,
 ) {
     for vector_size in [1, 2, 4] {
@@ -224,10 +220,7 @@ pub fn kernel_atomic_int<I: Int>(
     }
 }
 
-pub fn test_kernel_atomic_int<R: Runtime, I: Int + CubeElement>(
-    client: ComputeClient,
-    op: IntAtomicOp,
-) {
+pub fn test_kernel_atomic_int<R: Runtime, I: Int + CubeElement>(client: Client, op: IntAtomicOp) {
     if !require_feature::<I>(&client, int_op_feature(op), 1, int_op_name(op)) {
         return;
     }
@@ -263,9 +256,7 @@ pub fn kernel_atomic_max_contention<I: Numeric>(atomics: &[Atomic<I>]) {
 }
 
 /// Many threads race `fetch_max` into one cell. The result must be the largest contribution.
-pub fn test_kernel_atomic_max_contention<R: Runtime, I: Numeric + CubeElement>(
-    client: ComputeClient,
-) {
+pub fn test_kernel_atomic_max_contention<R: Runtime, I: Numeric + CubeElement>(client: Client) {
     if !require_feature::<I>(&client, AtomicUsage::MinMax, 1, "Max contention") {
         return;
     }

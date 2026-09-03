@@ -66,7 +66,7 @@ pub fn kernel_pure_and(output: &mut [u32], a: u32, b: u32) {
     }
 }
 
-pub fn test_short_circuit_or<R: Runtime>(client: ComputeClient) {
+pub fn test_short_circuit_or<R: Runtime>(client: Client) {
     let handle = client.empty(core::mem::size_of::<u32>());
     kernel_short_circuit_or::launch(
         &client,
@@ -80,7 +80,7 @@ pub fn test_short_circuit_or<R: Runtime>(client: ComputeClient) {
     assert_eq!(actual[0], 0, "`||` did not short-circuit");
 }
 
-pub fn test_short_circuit_and<R: Runtime>(client: ComputeClient) {
+pub fn test_short_circuit_and<R: Runtime>(client: Client) {
     let handle = client.empty(core::mem::size_of::<u32>());
     kernel_short_circuit_and::launch(
         &client,
@@ -94,20 +94,15 @@ pub fn test_short_circuit_and<R: Runtime>(client: ComputeClient) {
     assert_eq!(actual[0], 0, "`&&` did not short-circuit");
 }
 
-fn run_pure(
-    client: &ComputeClient,
-    launch: impl Fn(&ComputeClient, Handle, u32, u32),
-    a: u32,
-    b: u32,
-) -> u32 {
+fn run_pure(client: &Client, launch: impl Fn(&Client, Handle, u32, u32), a: u32, b: u32) -> u32 {
     let handle = client.empty(core::mem::size_of::<u32>());
     launch(client, handle.clone(), a, b);
     let actual = client.read_one_unchecked(handle);
     u32::from_bytes(&actual)[0]
 }
 
-pub fn test_pure_or<R: Runtime>(client: ComputeClient) {
-    let launch = |client: &ComputeClient, handle: Handle, a, b| {
+pub fn test_pure_or<R: Runtime>(client: Client) {
+    let launch = |client: &Client, handle: Handle, a, b| {
         kernel_pure_or::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -123,8 +118,8 @@ pub fn test_pure_or<R: Runtime>(client: ComputeClient) {
     assert_eq!(run_pure(&client, launch, 5, 7), 1, "5 || 7");
 }
 
-pub fn test_pure_and<R: Runtime>(client: ComputeClient) {
-    let launch = |client: &ComputeClient, handle: Handle, a, b| {
+pub fn test_pure_and<R: Runtime>(client: Client) {
+    let launch = |client: &Client, handle: Handle, a, b| {
         kernel_pure_and::launch(
             client,
             CubeCount::Static(1, 1, 1),

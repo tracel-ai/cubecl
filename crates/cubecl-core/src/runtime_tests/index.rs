@@ -46,7 +46,7 @@ fn destructurable_kernel(orders: &mut [u32]) {
 }
 
 // Regression test for invalid `CopyTransform`
-pub fn test_kernel_shuffle<R: Runtime>(client: ComputeClient) {
+pub fn test_kernel_shuffle<R: Runtime>(client: Client) {
     let handle = client.empty(4 * size_of::<u32>());
 
     shuffle_kernel::launch(
@@ -63,7 +63,7 @@ pub fn test_kernel_shuffle<R: Runtime>(client: ComputeClient) {
 }
 
 // Test to ensure destructuring arrays doesn't break anything
-pub fn test_kernel_destructurable<R: Runtime>(client: ComputeClient) {
+pub fn test_kernel_destructurable<R: Runtime>(client: Client) {
     let data = vec![1, 2, 3, 4, 10, 10, 10, 10];
     let handle = client.create_from_slice(u32::as_bytes(&data));
 

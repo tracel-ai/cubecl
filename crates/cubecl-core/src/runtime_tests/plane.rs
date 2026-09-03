@@ -160,7 +160,7 @@ pub fn test_plane_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -192,7 +192,7 @@ pub fn test_plane_inclusive_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -229,7 +229,7 @@ pub fn test_plane_exclusive_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -266,7 +266,7 @@ pub fn test_plane_prod<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -303,7 +303,7 @@ pub fn test_plane_inclusive_prod<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -344,7 +344,7 @@ pub fn test_plane_exclusive_prod<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -385,7 +385,7 @@ pub fn test_plane_max<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -419,7 +419,7 @@ pub fn test_plane_min<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -455,7 +455,7 @@ pub fn test_plane_min_partial<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
 ) {
     let vectorization = 1;
     // Below the minimum plane width of any supported backend.
@@ -488,7 +488,7 @@ pub fn test_plane_all<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
 ) {
     let vectorization = 1; // Vectorization can't work for all/any
     let plane_size = 32;
@@ -518,7 +518,7 @@ pub fn test_plane_any<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
 ) {
     let vectorization = 1; // Vectorization can't work for all/any
     let plane_size = 32;
@@ -544,7 +544,7 @@ pub fn test_plane_any<
     });
 }
 
-pub fn test_plane_ballot<TestRuntime: Runtime>(client: ComputeClient) {
+pub fn test_plane_ballot<TestRuntime: Runtime>(client: Client) {
     if !client.features().plane.contains(Plane::Ops) {
         // Can't execute the test.
         return;
@@ -572,7 +572,7 @@ pub fn test_plane_elect<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
 ) {
     let plane_size = 32;
     let input = vec![0.0; plane_size as usize];
@@ -592,7 +592,7 @@ pub fn test_plane_broadcast<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -622,7 +622,7 @@ pub fn test_plane_shuffle<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = client.properties().hardware.plane_size_max;
@@ -652,7 +652,7 @@ pub fn test_plane_shuffle_xor<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = 32;
@@ -688,7 +688,7 @@ pub fn test_plane_shuffle_up<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = client.properties().hardware.plane_size_max;
@@ -722,7 +722,7 @@ pub fn test_plane_shuffle_down<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient,
+    client: Client,
     vectorization: VectorSize,
 ) {
     let plane_size = client.properties().hardware.plane_size_max;
@@ -755,7 +755,7 @@ pub fn test_plane_shuffle_down<
 fn test_plane_operation<F: Float + num_traits::Float + CubeElement + Display, Launch>(
     input: &[F],
     expected: &[F],
-    client: ComputeClient,
+    client: Client,
     launch: Launch,
 ) where
     Launch: Fn(CubeCount, TensorArg),

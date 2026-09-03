@@ -15,7 +15,7 @@ const ULPS_ALLOWED: f32 = 32.0;
 
 #[track_caller]
 pub(crate) fn assert_equals_approx<F: num_traits::Float + CubeElement + Display>(
-    client: &ComputeClient,
+    client: &Client,
     output: Handle,
     expected: &[F],
     epsilon: f32,
@@ -69,7 +69,7 @@ macro_rules! test_binary_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
             #[cube(launch_unchecked, fast_math = *FAST_MATH)]
             fn test_function<$float_type: Float, In: Size, Out: Size>(
                 lhs: &[Vector<$float_type, In>],
@@ -276,7 +276,7 @@ macro_rules! test_powi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
             $(
             {
                 let lhs = $lhs;
@@ -374,7 +374,7 @@ fn test_minus_product_kernel<F: Float, N: Size>(
 /// `c - a * b` negates a factor rather than the product, which is the same number only
 /// because flipping one factor flips the product exactly.
 pub fn test_fma_from_sub<R: Runtime, F: Float + num_traits::Float + CubeElement + Display>(
-    client: ComputeClient,
+    client: Client,
 ) {
     let a = as_type![F: 1., -3.1, -2.4, 15.1];
     let b = as_type![F: -1., 23.1, -1.4, 5.1];
@@ -422,7 +422,7 @@ macro_rules! test_fma_impl {
             c: $c:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
             $(
             {
                 let a = $a;
@@ -522,7 +522,7 @@ macro_rules! test_mulhi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient) {
+        pub fn $test_name<R: Runtime>(client: Client) {
             $(
             {
                 let lhs = $lhs;
@@ -594,7 +594,7 @@ fn reference_dp4a(a: i32, b: i32, c: i32) -> i32 {
         })
 }
 
-pub fn test_dp4a<R: Runtime>(client: ComputeClient) {
+pub fn test_dp4a<R: Runtime>(client: Client) {
     let a = [
         i32::from_le_bytes([1, 2, 3, 4]),
         i32::from_le_bytes([255, 254, 253, 252]),
@@ -668,7 +668,7 @@ fn kernel_self_div(output: &mut [u32]) {
     }
 }
 
-pub fn test_self_div<R: Runtime>(client: ComputeClient) {
+pub fn test_self_div<R: Runtime>(client: Client) {
     let handle = client.create_from_slice(u32::as_bytes(&[7u32, 1, 255, 42]));
 
     kernel_self_div::launch(
