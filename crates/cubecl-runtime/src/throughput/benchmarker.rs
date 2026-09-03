@@ -15,6 +15,10 @@ type Cache = Arc<Mutex<ThroughputCache>>;
 /// a probe whose timer is too coarse to ever reach the target.
 const WARMUP_BUDGET: Duration = Duration::from_secs(2);
 
+/// Wall clock a plateau must hold across before it is accepted, sized against a
+/// clock transition, which takes hundreds of milliseconds.
+const PLATEAU_FLOOR: Duration = Duration::from_millis(250);
+
 /// Configuration and payload for a benchmarkable compute kernel.
 pub struct KernelConfig {
     /// A closure that executes the kernel for the given number of iterations and returns the duration.
@@ -67,52 +71,17 @@ impl ThroughputBenchmarker {
         Ok(value)
     }
 
-    /// The peak of one kernel shape, over measurements taken until two agree.
+    /// Warm one shape of a kernel up to its plateau, then keep its fastest sample.
     pub fn sample(kernel_config: KernelConfig) -> ThroughputValue {
-        let duration =
-            Self::corroborated_peak_duration(kernel_config.min_iterations, kernel_config.sample);
+        let sample = kernel_config.sample;
+
+        let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
+        let duration = Self::sample_peak_duration(iterations, &sample);
 
         ThroughputValue {
             ops_count: kernel_config.ops_count,
             duration,
         }
-    }
-
-    /// The fastest of several whole measurements, taken until two agree.
-    ///
-    /// A device held at a low clock stays there for a whole measurement, its
-    /// warmup and its draws alike, so the warmup plateaus there and every draw
-    /// confirms it. Only a later measurement disagrees with it.
-    fn corroborated_peak_duration(
-        min_iterations: usize,
-        sample: impl Fn(usize) -> Duration,
-    ) -> Duration {
-        const MAX_MEASUREMENTS: usize = 4;
-        // Wider than the plateau tolerance, which compares passes microseconds
-        // apart rather than measurements half a second apart.
-        const AGREEMENT_TOL: f64 = 0.05;
-
-        let mut best = Self::warmed_peak_seconds(min_iterations, &sample);
-
-        for _ in 1..MAX_MEASUREMENTS {
-            let seconds = Self::warmed_peak_seconds(min_iterations, &sample);
-            let agrees = (seconds - best).abs() <= best * AGREEMENT_TOL;
-            best = best.min(seconds);
-
-            if agrees {
-                break;
-            }
-        }
-
-        Duration::from_secs_f64(best)
-    }
-
-    /// One whole measurement: a warmup from scratch, then the fastest draw at
-    /// the iteration count it settles on.
-    fn warmed_peak_seconds(min_iterations: usize, sample: impl Fn(usize) -> Duration) -> f64 {
-        let iterations = Self::warmup(min_iterations, WARMUP_BUDGET, &sample);
-
-        Self::sample_peak_duration(iterations, &sample).as_secs_f64()
     }
 
     /// Warms up the device by running the kernel multiple times
@@ -143,6 +112,7 @@ impl ThroughputBenchmarker {
         let mut stable = 0;
         let mut iterations = min_iterations.max(1);
         let start = Instant::now();
+        let mut plateau_start = start;
 
         for _ in 0..MAX_WARMUP {
             let duration = sample(iterations).as_secs_f64() * 1000.0;
@@ -171,10 +141,12 @@ impl ThroughputBenchmarker {
             if duration_per_iter < best * (1.0 - PLATEAU_TOL) {
                 best = duration_per_iter;
                 stable = 0;
+                // Growth clears `best`, so the window restarts at the settled count.
+                plateau_start = Instant::now();
             } else {
                 best = best.min(duration_per_iter);
                 stable += 1;
-                if stable >= PATIENCE {
+                if stable >= PATIENCE && plateau_start.elapsed() >= PLATEAU_FLOOR {
                     break;
                 }
             }
@@ -232,6 +204,21 @@ mod tests {
     use super::*;
     use core::cell::Cell;
 
+    fn spin(duration: Duration) {
+        let start = Instant::now();
+        while start.elapsed() < duration {}
+    }
+
+    /// A device that takes as long as it reports, at whatever rate it is asked for.
+    fn timed_device(per_iter_nanos: impl Fn() -> u64) -> impl Fn(usize) -> Duration {
+        move |iterations| {
+            let duration = Duration::from_nanos(per_iter_nanos() * iterations as u64);
+            spin(duration);
+
+            duration
+        }
+    }
+
     /// One iteration of the launch probe is a real launch, so a device whose
     /// timer reads zero must not be answered by doubling toward the ceiling the
     /// duration target drives.
@@ -258,8 +245,7 @@ mod tests {
     #[test]
     fn a_timer_that_never_reaches_the_target_stops_growing_on_the_budget() {
         let iterations = ThroughputBenchmarker::warmup(1, Duration::from_millis(12), |_| {
-            let start = Instant::now();
-            while start.elapsed() < Duration::from_millis(5) {}
+            spin(Duration::from_millis(5));
 
             Duration::from_millis(1)
         });
@@ -278,61 +264,60 @@ mod tests {
         assert!(calls.get() < 200, "ran {} samples", calls.get());
     }
 
-    /// Every draw of a measurement taken at a low clock confirms that clock, so
-    /// the low rate is only visible from outside the measurement.
+    /// Passes at one iteration count sit microseconds apart, so a plateau of
+    /// them is evidence about a moment rather than about the device.
     #[test]
-    fn a_measurement_taken_at_a_low_clock_is_outvoted_by_a_later_one() {
-        let measurements = Cell::new(0);
-        let low_clock_first = |iterations: usize| {
-            if iterations == 1 {
-                measurements.set(measurements.get() + 1);
-            }
-            let per_iter_ns = if measurements.get() == 1 { 3000 } else { 1000 };
+    fn a_clock_that_lifts_inside_the_floor_does_not_release_the_warmup() {
+        let lift = Duration::from_millis(100);
+        let clock = Instant::now();
+        let lifts_once = timed_device(move || if clock.elapsed() < lift { 3000 } else { 1000 });
 
-            Duration::from_nanos(iterations as u64 * per_iter_ns)
-        };
+        let start = Instant::now();
+        ThroughputBenchmarker::warmup(1, WARMUP_BUDGET, lifts_once);
 
-        let duration = ThroughputBenchmarker::corroborated_peak_duration(1, low_clock_first);
-
-        assert!(duration < Duration::from_nanos(1100), "kept {duration:?}");
+        assert!(
+            start.elapsed() >= lift + PLATEAU_FLOOR,
+            "released after {:?}",
+            start.elapsed()
+        );
     }
 
-    /// A device that answers the same twice is the case every probe of every
-    /// key pays for, so it must not pay for a third.
+    /// A probe runs on first use of every key, so the quiet device is the cost
+    /// every one of them pays.
     #[test]
-    fn two_agreeing_measurements_are_the_whole_cost() {
-        let measurements = Cell::new(0);
-        let steady = |iterations: usize| {
-            if iterations == 1 {
-                measurements.set(measurements.get() + 1);
-            }
+    fn a_steady_device_pays_the_floor_and_nothing_more() {
+        let passes = Cell::new(0);
+        let steady = timed_device(|| {
+            passes.set(passes.get() + 1);
+            1000
+        });
 
-            Duration::from_nanos(iterations as u64 * 1000)
-        };
+        let start = Instant::now();
+        ThroughputBenchmarker::warmup(1, WARMUP_BUDGET, steady);
 
-        ThroughputBenchmarker::corroborated_peak_duration(1, steady);
-
-        assert_eq!(measurements.get(), 2);
+        assert!(
+            start.elapsed() >= PLATEAU_FLOOR,
+            "left after {:?}",
+            start.elapsed()
+        );
+        assert!(passes.get() <= 20, "ran {} passes", passes.get());
     }
 
-    /// A probe runs on first use of every key, so what it costs where nothing
-    /// ever agrees is the cost that has to be bounded.
+    /// Contention that outlasts the whole warmup is measured, not rejected: a
+    /// device that is genuinely slow answers the same however long it is held.
     #[test]
-    fn a_device_that_never_agrees_with_itself_stops_at_the_cap() {
-        let measurements = Cell::new(0);
-        let never_agrees = |iterations: usize| {
-            if iterations == 1 {
-                measurements.set(measurements.get() + 1);
-            }
-            let per_iter_ns = [1000, 3000, 500, 2000][(measurements.get() - 1) % 4];
+    fn a_device_slow_for_the_whole_measurement_reports_its_slow_rate() {
+        let value = ThroughputBenchmarker::sample(KernelConfig {
+            sample: Box::new(timed_device(|| 3000)),
+            ops_count: 1,
+            min_iterations: 1,
+        });
 
-            Duration::from_nanos(iterations as u64 * per_iter_ns)
-        };
-
-        let duration = ThroughputBenchmarker::corroborated_peak_duration(1, never_agrees);
-
-        assert_eq!(measurements.get(), 4);
-        assert!(duration < Duration::from_nanos(550), "kept {duration:?}");
+        assert!(
+            (Duration::from_nanos(2900)..Duration::from_nanos(3100)).contains(&value.duration),
+            "kept {:?}",
+            value.duration
+        );
     }
 
     /// A working timer still drives the count to the duration target.
