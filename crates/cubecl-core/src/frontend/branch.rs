@@ -41,28 +41,50 @@ pub trait Iterable: Sized {
     /// Expand a runtime loop without unrolling
     ///
     /// # Arguments
-    /// # Arguments
     /// * `scope` - the expansion scope
     /// * `body` - the loop body to be executed repeatedly
-    fn expand(self, scope: &Scope, body: impl FnMut(&Scope, Self::Item));
+    ///
+    /// The body is a trait object rather than an `impl FnMut` so that this
+    /// expands once per iterable instead of once per loop body. See
+    /// [`for_expand`].
+    fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, Self::Item));
     /// Expand an unrolled loop. The body should be invoced `n` times, where `n` is the number of
     /// iterations.
     ///
     /// # Arguments
     /// * `scope` - the expansion scope
     /// * `body` - the loop body to be executed repeatedly
-    fn expand_unroll(self, scope: &Scope, body: impl FnMut(&Scope, Self::Item));
+    fn expand_unroll(self, scope: &Scope, body: &mut dyn FnMut(&Scope, Self::Item));
     /// Return the comptime length of this iterable, if possible
     fn const_len(&self) -> Option<usize> {
         None
     }
 }
 
+/// Expand a `for` loop over `range`.
+///
+/// Every `for` in every kernel reaches here with a body of its own anonymous
+/// closure type. Staying generic over that type all the way down would expand
+/// the whole loop machinery once per loop written anywhere — thousands of
+/// near-identical copies in a kernel-heavy crate. So this is a shim: it erases
+/// the body to a trait object straight away and hands off to
+/// [`for_expand_dyn`], which expands once per iterable. Expansion runs on the
+/// host while building a kernel, never on the device, so the indirection costs
+/// nothing that reaches the GPU.
 pub fn for_expand<I: Iterable>(
     scope: &Scope,
     range: I,
     unroll: bool,
-    body: impl FnMut(&Scope, I::Item),
+    mut body: impl FnMut(&Scope, I::Item),
+) {
+    for_expand_dyn(scope, range, unroll, &mut body);
+}
+
+fn for_expand_dyn<I: Iterable>(
+    scope: &Scope,
+    range: I,
+    unroll: bool,
+    body: &mut dyn FnMut(&Scope, I::Item),
 ) {
     if unroll || range.const_len() == Some(1) {
         range.expand_unroll(scope, body);
