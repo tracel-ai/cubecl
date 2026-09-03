@@ -94,6 +94,25 @@ pub fn cube_type_to_llvm(ctx: &Context, ty: TypeHandle) -> TypeHandle {
         .unwrap_or(ty)
 }
 
+/// The alignment of `ty` itself, which for a vector is the whole vector's.
+///
+/// What an ordinary load or store of a vectorized value promises: `CubeCL` vectorizes an access
+/// only where the layout lets it, so a `Vector<f16, 8>` read out of a buffer of them sits on a
+/// 16 byte boundary, the same promise the C++ backends make by giving the type an
+/// `alignas(16)`. Saying less than that is not merely conservative -- a target legalizes an
+/// under-aligned vector access into one scalar access per element, so a 128 bit store becomes
+/// eight 16 bit ones, which is most of the memory traffic of a kernel that moves tiles around.
+///
+/// Not for an access whose address is arithmetic the frontend did not vectorize: a matrix tile
+/// is `stride` elements per row and a caller may pad that stride, so those keep
+/// [`scalar_alignment`].
+pub fn type_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
+    let ty = ty.deref(ctx);
+    type_cast::<dyn AlignedType>(&*ty)
+        .expect("load/store value type must implement AlignedType")
+        .align(ctx) as u32
+}
+
 pub fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
     let scalar = {
         let ty = ty.deref(ctx);

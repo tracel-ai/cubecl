@@ -1,4 +1,4 @@
-use crate::shared::to_llvm::{constant::constant_op, ty::scalar_alignment};
+use crate::shared::to_llvm::{constant::constant_op, ty::type_alignment};
 
 use super::prelude::*;
 use cubecl_core::ir::{
@@ -118,7 +118,7 @@ impl ToLLVMDialect for LoadOp {
         let res_cube_ty = operands_info
             .lookup_most_recent_type(result)
             .unwrap_or_else(|| result.get_type(ctx));
-        let align = scalar_alignment(ctx, res_cube_ty);
+        let align = type_alignment(ctx, res_cube_ty);
         let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
 
         let load = llvm::LoadOp::new(ctx, ptr, res_ty);
@@ -146,7 +146,7 @@ impl ToLLVMDialect for StoreOp {
         let value_cube_ty = operands_info
             .lookup_most_recent_type(value)
             .unwrap_or_else(|| value.get_type(ctx));
-        let align = scalar_alignment(ctx, value_cube_ty);
+        let align = type_alignment(ctx, value_cube_ty);
 
         let store = llvm::StoreOp::new(ctx, value, ptr);
         store.set_alignment(ctx, align);
