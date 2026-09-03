@@ -71,7 +71,7 @@ pub fn emit_ptx(
     let llvm_module =
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
-    let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, cube_dim)?;
+    let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, cube_dim, &io)?;
     let ptx = compile_to_ptx(&ir, arch)?;
 
     #[cfg(feature = "pliron-dump")]
@@ -91,7 +91,13 @@ pub fn emit_ptx(
 
 /// Stamps `ir` with what the NVPTX backend keys off: the triple, the `ptx_kernel` calling
 /// convention on `entrypoint`, and the launch bounds.
-fn finalize_ir(ir: &str, entrypoint: &str, arch: &SmArch, cube_dim: u32) -> Result<String, String> {
+fn finalize_ir(
+    ir: &str,
+    entrypoint: &str,
+    arch: &SmArch,
+    cube_dim: u32,
+    io: &[BufferIOAttr],
+) -> Result<String, String> {
     use llvm_sys::core::{
         LLVMAddAttributeAtIndex, LLVMContextDispose, LLVMCreateStringAttribute, LLVMDisposeMessage,
         LLVMDisposeModule, LLVMGetNamedFunction, LLVMPrintModuleToString, LLVMSetFunctionCallConv,
@@ -138,12 +144,127 @@ fn finalize_ir(ir: &str, entrypoint: &str, arch: &SmArch, cube_dim: u32) -> Resu
             LLVMAddAttributeAtIndex(func, llvm_sys::LLVMAttributeFunctionIndex, attribute);
         }
 
+        annotate_buffer_params(ctx, func, io);
+
         let c_ir = LLVMPrintModuleToString(module);
         let finalized = CStr::from_ptr(c_ir).to_string_lossy().into_owned();
         LLVMDisposeMessage(c_ir);
         LLVMDisposeModule(module);
         LLVMContextDispose(ctx);
         Ok(finalized)
+    }
+}
+
+/// Tells the backend what the kernel's pointer parameters are, which is the other half of what
+/// puts a load in the read-only cache.
+///
+/// `NVPTXTagInvariantLoads` marks a load invariant -- and only an invariant load becomes
+/// `ld.global.nc` -- when every object behind its pointer is a kernel parameter that is both
+/// `readonly` and `noalias`. The address space comes from the entry ABI; these are the
+/// attributes, and they are exactly what the C++ backend asserts by declaring every binding
+/// `const __restrict__`.
+///
+/// `noalias` goes on every buffer for the same reason `__restrict__` does: two bindings of one
+/// launch are distinct allocations, which is a contract `CubeCL` already relies on everywhere
+/// else. `readonly` goes only where the compiler proved it, which is what
+/// `AnnotateGlobalVisibilityPass` computed and the launch path already trusts to decide which
+/// buffers a failed kernel taints.
+///
+/// # Safety
+/// `func` must be a live function in `ctx` whose parameters are the buffers in binding order
+/// followed by the metadata pointer.
+unsafe fn annotate_buffer_params(
+    ctx: llvm_sys::prelude::LLVMContextRef,
+    func: llvm_sys::prelude::LLVMValueRef,
+    io: &[BufferIOAttr],
+) {
+    use llvm_sys::LLVMTypeKind;
+    use llvm_sys::core::{
+        LLVMAddAttributeAtIndex, LLVMCountParams, LLVMCreateEnumAttribute,
+        LLVMGetEnumAttributeKindForName, LLVMGetParam, LLVMGetTypeKind, LLVMTypeOf,
+    };
+
+    unsafe {
+        let enum_attr = |index: u32, name: &str| {
+            let kind = LLVMGetEnumAttributeKindForName(name.as_ptr() as *const _, name.len());
+            // Zero is "no such attribute": building one from it crashes rather than
+            // diagnosing, so a name this LLVM does not know is skipped instead.
+            if kind == 0 {
+                return;
+            }
+            let attribute = LLVMCreateEnumAttribute(ctx, kind, 0);
+            LLVMAddAttributeAtIndex(func, index, attribute);
+        };
+
+        // Whether `readonly` is safe to state at all here; see `reads_atomically`.
+        let may_say_readonly = !reads_atomically(func);
+
+        let params = LLVMCountParams(func);
+        // The metadata pointer is the last parameter, past the buffers, and the kernel only
+        // ever reads it.
+        let info = params.saturating_sub(1);
+        for param in 0..params {
+            // Both attributes are only meaningful on a pointer, and applying one to anything
+            // else is rejected by the verifier rather than ignored.
+            if LLVMGetTypeKind(LLVMTypeOf(LLVMGetParam(func, param)))
+                != LLVMTypeKind::LLVMPointerTypeKind
+            {
+                continue;
+            }
+
+            // Parameter attributes are indexed from one; zero is the return value.
+            let index = param + 1;
+            enum_attr(index, "noalias");
+
+            let read_only = param == info
+                || io
+                    .get(param as usize)
+                    .is_some_and(|attr| *attr == BufferIOAttr::ReadOnly);
+            if read_only && may_say_readonly {
+                enum_attr(index, "readonly");
+            }
+        }
+    }
+}
+
+/// Whether `func` loads atomically, which is what makes `readonly` unsafe to state on any of
+/// its parameters.
+///
+/// `NVPTXTagInvariantLoads` matches every `LoadInst` whose pointer comes from a `readonly
+/// noalias` kernel parameter in the global space, with no guard against the load being atomic,
+/// and `ISel` then sends it to `tryLDG` -- which emits `ld.global.nc`, an instruction that has no
+/// atomic form. In LLVM 23 that is a segfault in the backend rather than a diagnostic.
+///
+/// The attribute is what creates the precondition, so the attribute is what is withheld. It is
+/// withheld for the whole function rather than for the one parameter because the pass looks
+/// through the pointer's whole use chain to find the argument behind it, and reproducing that
+/// reachability here to be precise would be a worse trade than losing the read-only cache in
+/// the kernels that use atomics at all.
+///
+/// # Safety
+/// `func` must be a live LLVM function.
+unsafe fn reads_atomically(func: llvm_sys::prelude::LLVMValueRef) -> bool {
+    use llvm_sys::LLVMAtomicOrdering;
+    use llvm_sys::core::{
+        LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetNextBasicBlock,
+        LLVMGetNextInstruction, LLVMGetOrdering, LLVMIsALoadInst,
+    };
+
+    unsafe {
+        let mut block = LLVMGetFirstBasicBlock(func);
+        while !block.is_null() {
+            let mut inst = LLVMGetFirstInstruction(block);
+            while !inst.is_null() {
+                if !LLVMIsALoadInst(inst).is_null()
+                    && LLVMGetOrdering(inst) != LLVMAtomicOrdering::LLVMAtomicOrderingNotAtomic
+                {
+                    return true;
+                }
+                inst = LLVMGetNextInstruction(inst);
+            }
+            block = LLVMGetNextBasicBlock(block);
+        }
+        false
     }
 }
 
@@ -363,7 +484,7 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", &SmArch::new(86, true), 256).unwrap();
+        let finalized = finalize_ir(ir, "k", &SmArch::new(86, true), 256, &[]).unwrap();
         assert!(
             finalized.contains(r#"target triple = "nvptx64-nvidia-cuda""#),
             "{finalized}"
@@ -385,7 +506,7 @@ entry:
 }
 "#;
         let arch = SmArch::new(86, true);
-        let finalized = finalize_ir(ir, "k", &arch, 256).unwrap();
+        let finalized = finalize_ir(ir, "k", &arch, 256, &[]).unwrap();
         let ptx = compile_to_ptx(&finalized, &arch).unwrap();
 
         assert!(ptx.contains(".target sm_86"), "{ptx}");
@@ -417,7 +538,7 @@ entry:
 }
 "#;
         let arch = SmArch::new(86, true);
-        let finalized = finalize_ir(ir, "k", &arch, 256).unwrap();
+        let finalized = finalize_ir(ir, "k", &arch, 256, &[]).unwrap();
         let ptx = compile_to_ptx(&finalized, &arch).unwrap();
 
         assert!(
@@ -455,7 +576,7 @@ entry:
 }
 "#;
         let arch = SmArch::new(86, true);
-        let finalized = finalize_ir(ir, "k", &arch, 32).unwrap();
+        let finalized = finalize_ir(ir, "k", &arch, 32, &[]).unwrap();
         let ptx = compile_to_ptx(&finalized, &arch).unwrap();
 
         assert!(ptx.contains("%laneid"), "{ptx}");
@@ -512,7 +633,7 @@ entry:
         );
 
         let arch = SmArch::new(86, true);
-        let finalized = finalize_ir(&ir, "k", &arch, 32).unwrap();
+        let finalized = finalize_ir(&ir, "k", &arch, 32, &[]).unwrap();
         let ptx = compile_to_ptx(&finalized, &arch).unwrap();
 
         assert!(
@@ -566,7 +687,7 @@ entry:
             b_args = named("<2 x half>", "b", 2),
         );
         let arch = SmArch::new(86, true);
-        let ptx = compile_to_ptx(&finalize_ir(&ir, "k", &arch, 32).unwrap(), &arch).unwrap();
+        let ptx = compile_to_ptx(&finalize_ir(&ir, "k", &arch, 32, &[]).unwrap(), &arch).unwrap();
         assert!(
             ptx.contains("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"),
             "{ptx}"
@@ -584,7 +705,7 @@ entry:
   ret void
 }
 ";
-        let ptx = compile_to_ptx(&finalize_ir(ir, "k", &arch, 32).unwrap(), &arch).unwrap();
+        let ptx = compile_to_ptx(&finalize_ir(ir, "k", &arch, 32, &[]).unwrap(), &arch).unwrap();
         assert!(
             ptx.contains("ldmatrix.sync.aligned.m8n8.x2.shared"),
             "{ptx}"
@@ -601,7 +722,8 @@ entry:
 }
 ";
         let hopper = SmArch::new(90, true);
-        let ptx = compile_to_ptx(&finalize_ir(ir, "k", &hopper, 32).unwrap(), &hopper).unwrap();
+        let ptx =
+            compile_to_ptx(&finalize_ir(ir, "k", &hopper, 32, &[]).unwrap(), &hopper).unwrap();
         assert!(
             ptx.contains("stmatrix.sync.aligned.m8n8.x2.shared"),
             "{ptx}"
