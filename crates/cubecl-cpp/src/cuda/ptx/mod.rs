@@ -4,7 +4,7 @@ use cubecl_core::{
     intrinsic,
     ir::{
         AddressSpace,
-        interfaces::TypeExt,
+        interfaces::{TypeExt, aliasing::AliasingOp},
         prelude::*,
         types::{
             PointerType,
@@ -41,6 +41,13 @@ pub struct GenericToSharedOp {
     ptr: Value,
 }
 
+#[op_interface_impl]
+impl AliasingOp for GenericToSharedOp {
+    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
+        Some(self.ptr(ctx))
+    }
+}
+
 cuda_op_with_out!(GenericToSharedOp, |op, ctx| {
     let ptr = op.ptr(ctx).name(ctx);
     format!("__cvta_generic_to_shared({ptr})")
@@ -65,6 +72,13 @@ pub fn generic_to_shared<T: CubePrimitive>(ptr: *const T) -> u32 {
 #[op_interfaces(OperandNOfType<0, PointerType>)]
 pub struct BarrierNativeHandleOp {
     bar_ptr: Value,
+}
+
+#[op_interface_impl]
+impl AliasingOp for BarrierNativeHandleOp {
+    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
+        Some(self.bar_ptr(ctx))
+    }
 }
 
 impl Verify for BarrierNativeHandleOp {

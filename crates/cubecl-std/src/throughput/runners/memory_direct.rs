@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{KernelConfig, MemoryAccess, ThroughputKey};
+use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputKey};
 
 use crate::throughput::{
     LaunchConfig,
@@ -13,13 +13,13 @@ pub fn build_kernel<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
     config: LaunchConfig,
-    working_set: usize,
+    spec: MemorySpec,
 ) -> KernelConfig {
     let client = client.clone();
     let dtype = key.dtype();
 
     let line_bytes = config.vector_size * dtype.size();
-    let probe = MemoryProbe::new(&client, config, line_bytes, MemoryAccess::Copy, working_set);
+    let probe = MemoryProbe::new(&client, config, line_bytes, spec);
 
     let in_handle = client.empty(probe.buffer_bytes);
     memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);
@@ -31,7 +31,7 @@ pub fn build_kernel<R: Runtime>(
             memory_direct_throughput::launch_unchecked(
                 &client,
                 CubeCount::Static(probe.cube_count as u32, 1, 1),
-                CubeDim::new(&client, config.cube_dim),
+                config.cube_dim,
                 config.vector_size,
                 BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines),
                 BufferArg::from_raw_parts(out_handle.clone(), probe.pool_lines),
@@ -48,7 +48,11 @@ pub fn build_kernel<R: Runtime>(
     // One pass moves the window twice: once in, once out.
     let ops_count = 2 * probe.window_lines * config.vector_size;
 
-    KernelConfig { sample, ops_count }
+    KernelConfig {
+        sample,
+        ops_count,
+        min_iterations: probe.min_iterations(),
+    }
 }
 
 #[cube(launch_unchecked)]
@@ -79,7 +83,6 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
     // compiler is free to sink such a copy out of the loop and perform it once
     // — leaving the probe reporting a bandwidth the hardware never moved.
     let mut start = 0;
-    let mut wrap = 0;
 
     for _ in 0..n_iter {
         for step in 0..steps {
@@ -104,17 +107,8 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
         }
 
         start += window;
-        // Back to the beginning, one line further along each time round, so a
-        // window that fills the whole buffer still moves between passes. The
-        // test is whether the window starts past the end, not whether it
-        // reaches past: the index wraps, so the last position of a cycle
-        // straddles the end rather than being skipped.
         if start >= len {
-            wrap += 1;
-            if wrap >= window {
-                wrap = 0;
-            }
-            start = wrap;
+            start -= len;
         }
     }
 }

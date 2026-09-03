@@ -14,13 +14,13 @@ pub use runtime::MetalRuntime;
 pub(crate) type MetalCompiler = cubecl_cpp::shared::CppCompiler<cubecl_cpp::target::Metal>;
 
 #[cfg(test)]
+mod tests_bf16_cast;
+#[cfg(test)]
 mod tests_expm1;
 #[cfg(test)]
 mod tests_launch_errors;
 #[cfg(test)]
 mod tests_multistream;
-#[cfg(test)]
-mod tests_profiling;
 
 #[cfg(test)]
 mod tests {
@@ -32,4 +32,9 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, f32, u32]);
     cubecl_std::testgen_quantized_view!(f32);
+    cubecl_core::testgen_profiling!();
+    // No `testgen_profiling_nested!`: a stream collects the command buffers of
+    // one window at a time (`Stream::profiling`), so an inner `start_profile`
+    // replaces the outer's collector and the outer window ends up measuring
+    // nothing. Add it once the collector is a stack.
 }

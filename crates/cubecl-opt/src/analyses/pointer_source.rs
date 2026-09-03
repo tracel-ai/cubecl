@@ -186,8 +186,17 @@ impl Analysis for GlobalVisibility {
                                 MemoryEffect::Write(affects) => state.check_write(ctx, affects),
                                 // Inline asm: it names no pointer, so it can
                                 // touch any buffer the kernel holds.
+                                MemoryEffect::ReadAllInSpace(AddressSpace::Global(_)) => {
+                                    state.read_all();
+                                }
+                                MemoryEffect::WriteAllInSpace(AddressSpace::Global(_)) => {
+                                    state.write_all();
+                                }
                                 MemoryEffect::ReadAll => state.read_all(),
                                 MemoryEffect::WriteAll => state.write_all(),
+                                // Not affecting global
+                                MemoryEffect::ReadAllInSpace(_)
+                                | MemoryEffect::WriteAllInSpace(_) => {}
                             }
                         }
                     }

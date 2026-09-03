@@ -10,8 +10,11 @@ use cubecl_core::ir::{
     types::scalar::IndexType,
 };
 use pliron::{
-    builtin::{attributes::TypeAttr, ops::FuncOp},
-    debug_info::{insert_block_arg_name, insert_operation_result_name},
+    builtin::{
+        attributes::TypeAttr,
+        given_names::{insert_block_arg_name, insert_operation_result_name},
+        ops::FuncOp,
+    },
     irbuild::match_rewrite::apply_match_rewrite,
 };
 

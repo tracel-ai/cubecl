@@ -1,8 +1,9 @@
 use super::{ConstantValue, ExpandValue};
 use crate::{
-    AddressType, ContextExt, Scope, TypeHash,
+    AddressType, ContextExt, Scope, TypeHash, typed_vec_attr,
     types::{scalar::*, spirv::ClampMode},
 };
+use alloc::vec::Vec;
 use core::fmt::Display;
 use cubecl_common::{
     e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32,
@@ -457,6 +458,8 @@ pub enum AddressSpace {
     Local,
 }
 
+typed_vec_attr!(AddressSpace, "cube.address_spaces");
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Type {
@@ -877,12 +880,13 @@ impl_into_value!(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::hash::{Hash, Hasher};
+    use core::hash::Hash;
+    use cubecl_common::hash::{StableHash, StableHasher};
 
-    fn hash(ty: Type) -> u64 {
-        let mut hasher = fnv::FnvHasher::default();
+    fn hash(ty: Type) -> StableHash {
+        let mut hasher = StableHasher::new();
         ty.hash(&mut hasher);
-        hasher.finish()
+        hasher.finalize()
     }
 
     #[test]

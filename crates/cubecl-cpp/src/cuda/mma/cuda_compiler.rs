@@ -10,7 +10,7 @@ pub(super) fn supported_cmma_combinations_wmma(
     arch: &CudaArchitecture,
 ) -> SupportedMmaCombinations {
     let mut result: SupportedMmaCombinations = vec![];
-    if arch.get_version() >= WMMA_MINIMUM_VERSION {
+    if arch.get_version() >= WMMA_MINIMUM_VERSION && arch.tensor_cores {
         let tdims = vec![(16, 16, 16), (32, 8, 16), (8, 32, 16)];
         // Types fully supported.
         let types = vec![

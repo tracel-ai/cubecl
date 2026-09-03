@@ -3,7 +3,7 @@
 //! they move in step with.
 
 use crate::compute::context::HipContext;
-use crate::compute::fence::Fence;
+use crate::compute::events::Fence;
 use crate::compute::gpu::GpuResource;
 use crate::compute::storage::cpu::PinnedMemoryStorage;
 use crate::compute::storage::gpu::GpuStorage;

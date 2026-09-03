@@ -19,6 +19,7 @@ workspace = true
 
 
 [features]
+amd = ["cubecl-ir/amd"]
 browser-cache = ["cubecl-runtime/browser-cache"]
 default = ["cubecl-runtime/default", "cubecl-ir/default"]
 export_tests = ["tempfile", "test-log/trace", "test-log/log", "std"]
@@ -47,18 +48,16 @@ cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3"
 cubecl-macros = { path = "../cubecl-macros", version = "=0.11.0-pre.3", default-features = false }
 derive-new = { workspace = true }
 derive_more = { workspace = true }
-enumset = { workspace = true }
 float-ord = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 hashbrown = { workspace = true }
 num-complex = { workspace = true }
 itertools = { workspace = true }
-num-integer = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tempfile = { version = "3.20", optional = true }
+tempfile = { workspace = true, optional = true }
 variadics_please = { workspace = true }
 
 pliron = { workspace = true }
@@ -67,6 +66,5 @@ pliron = { workspace = true }
 pliron = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
-pretty_assertions = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
 trybuild = "1"

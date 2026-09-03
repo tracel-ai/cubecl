@@ -6,7 +6,7 @@ use cubecl_runtime::{
 };
 use std::sync::{Arc, OnceLock, atomic::AtomicU64};
 
-use cubecl_llvm::{PlironData, PlironEngine, shared::shared_memory::SharedMemories};
+use cubecl_llvm::{PlironData, PlironEngine, SharedMemories};
 
 use crate::compute::{
     schedule::BindingsResource,

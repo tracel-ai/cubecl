@@ -1,6 +1,6 @@
 use crate::compute::{
+    events::Fence,
     storage::{cpu::PinnedMemoryStorage, gpu::GpuStorage},
-    sync::Fence,
 };
 use cubecl_core::{
     MemoryConfiguration,
@@ -55,12 +55,6 @@ impl StreamMemory for Stream {
     fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
         self.memory_management_gpu
             .written(&binding.memory, binding.range(), failures)
-    }
-}
-
-impl drop_queue::Fence for Fence {
-    fn wait(self) -> Result<(), ServerError> {
-        self.wait_sync()
     }
 }
 

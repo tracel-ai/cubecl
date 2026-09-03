@@ -2,9 +2,9 @@ pub(crate) mod capture;
 pub(crate) mod communication;
 pub(crate) mod context;
 pub(crate) mod driver;
+pub(crate) mod events;
 pub(crate) mod storage;
 pub(crate) mod stream;
-pub(crate) mod sync;
 
 mod server;
 

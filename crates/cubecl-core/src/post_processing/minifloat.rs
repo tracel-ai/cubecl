@@ -1,6 +1,7 @@
 //! Software fp8 conversion, on `u32` bit patterns only so that a backend with no 8- or 16-bit types
 //! can still call it on the bits in a word.
 
+use cubecl_ir::EnumSet;
 use cubecl_ir::{
     NamedRewrite, Scope,
     dialect::{
@@ -12,7 +13,6 @@ use cubecl_ir::{
     prelude::*,
     types::Fp8Format,
 };
-use enumset::EnumSet;
 use pliron::r#type::TypeHandle;
 
 use crate::{self as cubecl, prelude::*};

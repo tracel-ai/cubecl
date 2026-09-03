@@ -6,10 +6,10 @@ use crate::{
     prelude::{Const, CubeDebug, IntoMut, Size},
     unexpanded,
 };
+use cubecl_ir::EnumSet;
 use cubecl_ir::{ConstantValue, ElemType, ExpandValue, features::TypeUsage, interfaces::TypedExt};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
-use enumset::EnumSet;
 use pliron::r#type::TypeHandle;
 
 use crate::frontend::CubeType;
@@ -100,7 +100,7 @@ impl<T: CubePrimitive> CubePrimitiveExpand for NativeExpand<T> {
 /// **not** for `Vector` or non-standard primitives like `Barrier`. Alternatively, treat these as
 /// types that can be stored in a [`Vector`]
 pub trait Scalar:
-    CubePrimitive<Scalar = Self, Size = Const<1>>
+    CubePrimitive<Scalar = Self, Size = Const<1>, WithScalar<Self> = Self>
     + Default
     + IntoRuntime
     + Debug

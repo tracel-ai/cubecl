@@ -12,10 +12,10 @@ use cubecl_core::{
 };
 use pliron::{
     builtin::{
+        given_names::set_block_arg_name,
         ops::FuncOp,
         types::{IntegerType, Signedness},
     },
-    debug_info::set_block_arg_name,
     irbuild::{listener::DummyListener, match_rewrite::MatchRewrite},
     value::Value,
 };

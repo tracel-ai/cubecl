@@ -2,7 +2,7 @@ use core::ops::Neg;
 
 use cubecl_macros_internal::{const_eval, cube_op, simplify};
 use half::{bf16, f16};
-use num::Integer;
+use num_integer::Integer;
 use num_traits::Float;
 use pliron::{
     attribute::AttrObj,
@@ -718,3 +718,39 @@ pub struct FmaOp {
 const_eval!(FmaOp, {
     FloatAttr(f16, bf16, f32, f64): |a, b, c| a * b + c,
 });
+
+/// Dot product of four packed signed 8-bit integers, plus an `i32` accumulator.
+#[cube_op(name = "math.dp4a")]
+#[result_ty(same_as = a)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize)]
+pub struct Dp4aOp {
+    pub a: Value,
+    pub b: Value,
+    pub c: Value,
+}
+const_eval!(Dp4aOp, {
+    IntegerAttr(i32): |a, b, c| dp4a_const(a, b, c),
+});
+
+fn dp4a_const(a: i32, b: i32, c: i32) -> i32 {
+    let byte = |value: i32, shift: u32| ((value as u32 >> shift) as u8) as i8 as i32;
+    [0, 8, 16, 24].into_iter().fold(c, |acc, shift| {
+        acc.wrapping_add(byte(a, shift).wrapping_mul(byte(b, shift)))
+    })
+}
+
+#[cfg(test)]
+mod dp4a_tests {
+    use super::dp4a_const;
+
+    #[test]
+    fn evaluates_signed_bytes_and_wraps_accumulator() {
+        let a = i32::from_le_bytes([1, -2i8 as u8, 127, -128i8 as u8]);
+        let b = i32::from_le_bytes([-3i8 as u8, 4, -5i8 as u8, 6]);
+        let dot = -3 - 8 - 635 - 768;
+
+        assert_eq!(dp4a_const(a, b, 10), dot + 10);
+        assert_eq!(dp4a_const(a, b, i32::MIN), i32::MIN.wrapping_add(dot));
+    }
+}

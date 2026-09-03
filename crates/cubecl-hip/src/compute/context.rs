@@ -7,16 +7,12 @@
 //! scope from.
 
 use super::storage::gpu::GpuResource;
-use crate::runtime::HipCompiler;
-use crate::{compute::stream::Stream, runtime::HipComputeKernel};
-use cubecl_core::{
-    hash::{StableHash, StableHasher},
-    ir::DeviceProperties,
-    prelude::*,
-    server::ResourceLimitError,
-};
+use crate::compiler::{HipBackend, HipCompilationOptions, HipCompiler, HipRepresentation};
+use crate::compute::events::EventProfiler;
+use crate::compute::stream::Stream;
+use cubecl_core::hash::StableHasher;
+use cubecl_core::{hash::StableHash, ir::DeviceProperties, prelude::*, server::ResourceLimitError};
 use cubecl_cpp::formatter::format_cpp;
-use cubecl_cpp::shared::CompilationOptions;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::Store;
 use cubecl_hip_sys::get_hip_include_path;
@@ -25,13 +21,13 @@ use cubecl_runtime::compiler::{
 };
 use cubecl_runtime::driver::checked;
 use cubecl_runtime::kernel::BufferIOAttr;
-use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     compiler::CompilationError,
     validation::{validate_cube_dim, validate_units},
 };
 use cubecl_runtime::{
     compiler::{CubeTask, KernelCacheKey},
+    kernel::CompiledKernel,
     logging::ServerLogger,
 };
 use serde::Deserialize;
@@ -48,12 +44,15 @@ pub(crate) struct HipContext {
     /// An environment switch drops these, and nothing unloads the modules they
     /// name: see [`HipContext::is_loaded`].
     modules: CompilationCache<KernelId, HipCompiledKernel>,
-    pub timestamps: TimestampProfiler,
-    pub compilation_options: CompilationOptions,
+    pub profiler: EventProfiler,
+    pub compilation_options: HipCompilationOptions,
     pub properties: DeviceProperties,
     pub compilation_cache: Option<Store<KernelCacheKey, CompilationCacheEntry>>,
     /// Cache mapping C++ code hashes to the key that first compiled them. We can skip the slow HIP
     /// compiler if we already have a compiled artifact for the same code.
+    ///
+    /// C++ only: the LLVM backend emits a code object directly, so there is no
+    /// intermediate source to key a second line on.
     pub second_line_compilation_cache: Option<Store<StableHash, KernelCacheKey>>,
     build_id: StableHash,
 }
@@ -83,23 +82,40 @@ pub struct CompilationCacheEntry {
     io: Option<Vec<BufferIOAttr>>,
 }
 
+/// The namespace a backend's compiled artifacts live under.
+///
+/// Both backends emit AMD code objects, so without the backend in the key a stale
+/// artifact from one would load and run happily under the other — tests passing
+/// while measuring nothing.
+fn cache_namespace(fingerprint: &str, backend: HipBackend) -> String {
+    let backend = match backend {
+        HipBackend::Cpp => "cpp",
+        HipBackend::Llvm => "llvm",
+    };
+    format!("{fingerprint}-{backend}")
+}
+
 impl HipContext {
     /// `fingerprint` is the one the runtime already published on
     /// [`DeviceProperties::identity`], rather than one rebuilt here: the
     /// namespace a kernel is cached under and the identity a bundle is stamped
     /// with have to be the same string, and the only way to guarantee that is
     /// for there to be one string.
+    ///
+    /// `backend` is which one compiles here; see [`cache_namespace`].
     pub fn new(
-        compilation_options: CompilationOptions,
+        compilation_options: HipCompilationOptions,
         properties: DeviceProperties,
         fingerprint: String,
+        backend: HipBackend,
     ) -> Self {
+        let fingerprint = cache_namespace(&fingerprint, backend);
         let compilation_cache = compilation_store("hip", &fingerprint);
         let second_line_compilation_cache = compilation_store("hip-second-line", fingerprint);
 
         Self {
             modules: CompilationCache::mirroring(&compilation_cache),
-            timestamps: TimestampProfiler::default(),
+            profiler: EventProfiler::default(),
             compilation_options,
             compilation_cache,
             second_line_compilation_cache,
@@ -133,7 +149,7 @@ impl HipContext {
                 log::trace!("Using compilation cache");
 
                 self.load_compiled_binary(
-                    entry.binary,
+                    &entry.binary,
                     kernel_id.clone(),
                     entry.entrypoint_name,
                     kernel_id.cube_dim.into(),
@@ -167,7 +183,7 @@ impl HipContext {
         // CubeCL compilation
         // jitc = just-in-time compiled
         let definition = cube_kernel.define();
-        let mut jitc_kernel = cube_kernel.compile(
+        let jitc_kernel = cube_kernel.compile(
             definition,
             &mut Default::default(),
             &self.compilation_options,
@@ -175,6 +191,94 @@ impl HipContext {
 
         self.validate_shared(&jitc_kernel.repr)?;
 
+        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)
+    }
+
+    /// Loads what the compiler produced, by the route that backend's output takes.
+    fn load_jit_kernel(
+        &mut self,
+        kernel_id: &KernelId,
+        key: Option<KernelCacheKey>,
+        jitc_kernel: CompiledKernel<HipCompiler>,
+        logger: Arc<ServerLogger>,
+    ) -> Result<(), LaunchError> {
+        match &jitc_kernel.repr {
+            Some(HipRepresentation::Cpp(_)) => {
+                self.load_transpiled(kernel_id, key, jitc_kernel, logger)
+            }
+            Some(HipRepresentation::Llvm(_)) => {
+                self.load_code_object(kernel_id, key, jitc_kernel, logger)
+            }
+            None => Err(CompilationError::Generic {
+                reason: "the compiler returned no kernel to load".to_string(),
+                backtrace: BackTrace::capture(),
+            }
+            .into()),
+        }
+    }
+
+    /// Turns a kernel the LLVM backend just compiled into a loaded module.
+    ///
+    /// What it hands back is already a linked `ET_DYN` code object, so no `hiprtc*`
+    /// call belongs here: the bytes go straight to [`Self::load_compiled_binary`],
+    /// exactly as a cache hit would.
+    fn load_code_object(
+        &mut self,
+        kernel_id: &KernelId,
+        key: Option<KernelCacheKey>,
+        mut jitc_kernel: CompiledKernel<HipCompiler>,
+        logger: Arc<ServerLogger>,
+    ) -> Result<(), LaunchError> {
+        let Some(HipRepresentation::Llvm(module)) = &jitc_kernel.repr else {
+            unreachable!("dispatched on the representation");
+        };
+
+        if logger.compilation_source_activated() {
+            jitc_kernel.debug_info = Some(DebugInformation::new("ll", kernel_id.clone()));
+        }
+        logger.log_compilation(&jitc_kernel);
+
+        let code = to_signed(&module.code_object);
+        let shared_mem_bytes = module.shared_memory_size;
+        let io = jitc_kernel.io.take();
+        let entrypoint_name = jitc_kernel.entrypoint_name.clone();
+
+        self.load_compiled_binary(
+            &code,
+            kernel_id.clone(),
+            jitc_kernel.entrypoint_name,
+            jitc_kernel.cube_dim,
+            shared_mem_bytes,
+            io.clone().map(Arc::from),
+        )?;
+
+        // Cached after the load, so a code object the driver rejects is not handed back on
+        // the next run, and the bytes move rather than being copied a third time.
+        // `try_load_cached` hands back a key exactly when there is a cache to put it in.
+        if let Some((cache, key)) = self.compilation_cache.as_mut().zip(key) {
+            store_compiled(
+                cache,
+                key,
+                CompilationCacheEntry {
+                    entrypoint_name,
+                    shared_mem_bytes,
+                    binary: code,
+                    io,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    /// Turns a kernel the C++ backend just transpiled into a loaded module, by
+    /// running its source through HIP RTC first.
+    fn load_transpiled(
+        &mut self,
+        kernel_id: &KernelId,
+        key: Option<KernelCacheKey>,
+        mut jitc_kernel: CompiledKernel<HipCompiler>,
+        logger: Arc<ServerLogger>,
+    ) -> Result<(), LaunchError> {
         if logger.compilation_source_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
@@ -184,8 +288,11 @@ impl HipContext {
         }
         logger.log_compilation(&jitc_kernel);
 
-        let cpp_hash = if let Some(cache) = self.compilation_cache.as_mut() {
-            let key = key.unwrap();
+        // `try_load_cached` hands back a key exactly when there is a cache to put it in, and
+        // both stores are opened together in `HipContext::new`.
+        let cpp_hash = if let Some(key) = key
+            && let Some(cache) = self.compilation_cache.as_mut()
+        {
             let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
             let cpp_hash = StableHasher::hash_one(&jitc_kernel.source);
 
@@ -208,37 +315,40 @@ impl HipContext {
 
         let io = jitc_kernel.io.take();
         let repr = jitc_kernel.repr.unwrap();
+        let shared_mem_bytes = repr.shared_memory_size();
+        let entrypoint_name = jitc_kernel.entrypoint_name.clone();
 
-        if let Some(cache) = self.compilation_cache.as_mut() {
+        self.load_compiled_binary(
+            &code,
+            kernel_id.clone(),
+            jitc_kernel.entrypoint_name,
+            jitc_kernel.cube_dim,
+            shared_mem_bytes,
+            io.clone().map(Arc::from),
+        )?;
+
+        // Cached after the load, so a binary the driver rejects is not handed back on the
+        // next run, and the bytes move rather than being copied.
+        if let Some((cache, key)) = self.compilation_cache.as_mut().zip(key) {
             let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
-            let key = key.unwrap();
             store_compiled(
                 cache,
                 key,
                 CompilationCacheEntry {
-                    entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                    shared_mem_bytes: repr.shared_memory_size,
-                    binary: code.clone(),
-                    io: io.clone(),
+                    entrypoint_name,
+                    shared_mem_bytes,
+                    binary: code,
+                    io,
                 },
             );
             store_compiled(second_line_cache, cpp_hash.unwrap(), key);
         }
-
-        self.load_compiled_binary(
-            code,
-            kernel_id.clone(),
-            jitc_kernel.entrypoint_name,
-            jitc_kernel.cube_dim,
-            repr.shared_memory_size,
-            io.map(Arc::from),
-        )?;
         Ok(())
     }
 
     fn load_compiled_binary(
         &mut self,
-        code: Vec<i8>,
+        code: &[i8],
         kernel_id: KernelId,
         entrypoint_name: String,
         cube_dim: CubeDim,
@@ -347,8 +457,8 @@ impl HipContext {
         }
     }
 
-    fn validate_shared(&self, repr: &Option<HipComputeKernel>) -> Result<(), LaunchError> {
-        let requested = repr.as_ref().map(|repr| repr.shared_memory_size);
+    fn validate_shared(&self, repr: &Option<HipRepresentation>) -> Result<(), LaunchError> {
+        let requested = repr.as_ref().map(|repr| repr.shared_memory_size());
         let max = self.properties.hardware.max_shared_memory_size;
         if let Some(requested) = requested
             && requested > max
@@ -491,4 +601,24 @@ fn compilation_log(program: &RtcProgram) -> String {
         message += format!("\n    {line}").as_str();
     }
     message
+}
+
+/// A code object as the `c_char` slice the cache and `hipModuleLoadData` are written in.
+///
+/// `i8` and `u8` have the same layout, so this is the copy out of the compiler's buffer and
+/// nothing more.
+fn to_signed(bytes: &[u8]) -> Vec<i8> {
+    bytes.iter().map(|byte| *byte as i8).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    /// See [`super::cache_namespace`] for why this must hold.
+    #[test]
+    fn cache_namespace_separates_backends() {
+        assert_ne!(
+            super::cache_namespace("gfx1201-abc", crate::compiler::HipBackend::Cpp),
+            super::cache_namespace("gfx1201-abc", crate::compiler::HipBackend::Llvm),
+        );
+    }
 }

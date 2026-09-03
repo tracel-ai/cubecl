@@ -2,10 +2,22 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, ir::ElemType};
 use cubecl_runtime::{
     server::Handle,
-    throughput::{DEFAULT_BUFFER_BYTES, MemoryAccess},
+    throughput::{DEFAULT_WORKING_SET_BYTES, MemorySpec},
 };
 
 use crate::throughput::LaunchConfig;
+
+/// Windows the pool holds. What decides whether a rewritten line is still
+/// resident is the pool's size against the last level cache, not the positions
+/// the window walks, so two is a floor a probe that cannot read that cache size
+/// can justify rather than a ratio known to be enough.
+const POOL_WINDOWS: usize = 2;
+
+/// The largest window one buffer is probed at: the default working set, or as
+/// much of the device's allocation as leaves room for the pool around it.
+pub(crate) fn window_cap(max_alloc: u64) -> u64 {
+    (DEFAULT_WORKING_SET_BYTES.min(max_alloc / POOL_WINDOWS as u64)).max(1)
+}
 
 /// The buffer geometry and launch shape a memory probe uses to move a working
 /// set of a given size in one pass.
@@ -22,15 +34,20 @@ use crate::throughput::LaunchConfig;
 /// the data cold — by the time the window comes back around, a whole buffer of
 /// traffic has evicted it — so what varies across the sweep is how much a pass
 /// moves, which is the thing being measured.
+///
+/// # The pool is sized against the cache, not against the window
+///
+/// A store into a line a recent pass left in the last level cache never reaches
+/// memory, so a pool the cache holds a large share of reports write traffic the
+/// bus never carried: 747 GB/s across a 672 GB/s bus on an RTX 4070 Ti SUPER,
+/// at every working set from 32 MiB up. More positions did not fix that — the
+/// 32 MiB window already walked sixteen of them — and doubling the pool did.
 #[derive(Clone, Copy, Debug)]
 pub struct MemoryProbe {
-    /// Lines of each buffer the probe walks: what the window is cold against,
-    /// and the whole buffer until the window spans several last level caches
-    /// and is cold on its own.
+    /// Lines of each buffer the probe walks: what the window is cold against.
     pub pool_lines: usize,
-    /// Lines one pass moves through, per buffer. Never more than
-    /// [`pool_lines`](Self::pool_lines); equal to it at the top of the sweep,
-    /// where the window is its own pool.
+    /// Lines one pass moves through, per buffer. Always a fraction of
+    /// [`pool_lines`](Self::pool_lines), the top of the sweep included.
     pub window_lines: usize,
     /// Bytes in each buffer, which is exactly the pool. The probe kernels take
     /// their wrap-around from `len()`, so a buffer longer than the pool would
@@ -45,28 +62,25 @@ pub struct MemoryProbe {
     pub blocked: bool,
 }
 
-/// Last level caches a window must span before the probe stops walking it
-/// across the pool and pins it to its own bytes.
-///
-/// A window this far past the cache is cold on its own, so the walk only
-/// spreads the probe over bytes the kernel it scores never touches: on a
-/// 32 MiB-L3 Zen 3 a fill reaches 24.3 GB/s over 128 MiB and 19.8 over 512.
-const MIN_WINDOW_CACHE_MULTIPLE: usize = 4;
-
 /// All [`MemoryProbe::sized`] needs of a device, so the sizing can be exercised
 /// without one.
 #[derive(Clone, Copy)]
 struct DeviceShape {
     /// Bytes the device will hand out in a single allocation.
     max_alloc: usize,
-    /// Bytes of its last level cache, when it reports one.
-    cache_bytes: Option<usize>,
     /// Threads per cube, and cubes, of the probe's launch.
     cube_dim: usize,
     cube_count: usize,
 }
 
 impl MemoryProbe {
+    /// Passes a launch carries for the window to come back to bytes a whole
+    /// pool of traffic has since evicted, which is what keeps a window smaller
+    /// than the cache cold.
+    pub fn min_iterations(&self) -> usize {
+        self.pool_lines.div_ceil(self.window_lines)
+    }
+
     /// Sizes a probe moving `working_set` bytes per pass, split evenly across
     /// the buffers `access` touches.
     ///
@@ -82,26 +96,20 @@ impl MemoryProbe {
         client: &ComputeClient<R>,
         config: LaunchConfig,
         line_bytes: usize,
-        access: MemoryAccess,
-        working_set: usize,
+        spec: MemorySpec,
     ) -> Self {
         let blocked = config.plane_size == 1;
         let shape = DeviceShape {
             max_alloc: client.properties().memory.max_page_size as usize,
-            cache_bytes: client.properties().hardware.last_level_cache_size,
-            cube_dim: config.cube_dim,
+            cube_dim: config.cube_dim.num_elems() as usize,
             cube_count: if blocked { 1 } else { config.cube_count },
         };
 
-        Self::sized(shape, line_bytes, access, working_set, blocked)
+        Self::sized(shape, line_bytes, spec, blocked)
     }
 
     /// The geometry itself, with the device reduced to its allocation limit and
     /// launch shape so the sizing can be exercised without one.
-    ///
-    /// The pool is the whole buffer, so the window has somewhere cold to come
-    /// back to, until the window spans [`MIN_WINDOW_CACHE_MULTIPLE`] caches and
-    /// the pool shrinks to the window itself.
     ///
     /// The launch shrinks with the window instead of the window growing to fill
     /// the launch. A small window measured with the full dispatch would either
@@ -109,30 +117,14 @@ impl MemoryProbe {
     /// neither is the small-kernel behaviour the curve exists to describe: a
     /// kernel that moves little has little in flight, and that is precisely
     /// what limits it.
-    fn sized(
-        shape: DeviceShape,
-        line_bytes: usize,
-        access: MemoryAccess,
-        working_set: usize,
-        blocked: bool,
-    ) -> Self {
-        let buffers = access.buffers() as usize;
-        let window_bytes = working_set / buffers;
+    fn sized(shape: DeviceShape, line_bytes: usize, spec: MemorySpec, blocked: bool) -> Self {
+        let buffers = spec.access.buffers() as usize;
+        let window_bytes = (spec.bytes.min(usize::MAX as u64) as usize) / buffers;
 
-        let cold_lines = (shape.max_alloc.min(DEFAULT_BUFFER_BYTES as usize) / line_bytes).max(1);
-        let window_lines = (window_bytes / line_bytes).max(1).min(cold_lines);
+        let cap_lines = (window_cap(shape.max_alloc as u64) as usize / line_bytes).max(1);
+        let window_lines = (window_bytes / line_bytes).clamp(1, cap_lines);
 
-        // Only a device that reports its cache can tell a window that outgrew
-        // it from one that fits: without that, the walk is the sole thing
-        // keeping the window cold and dropping it would measure residency. A
-        // zero is such a device rather than a cacheless one, which
-        // `hipDeviceProp_t::l2CacheSize` documents itself as returning, and
-        // taken at face value it would pin every window.
-        let pins = shape
-            .cache_bytes
-            .filter(|cache| *cache > 0)
-            .is_some_and(|cache| window_bytes >= cache.saturating_mul(MIN_WINDOW_CACHE_MULTIPLE));
-        let pool_lines = if pins { window_lines } else { cold_lines };
+        let pool_lines = cap_lines * POOL_WINDOWS;
 
         let cube_count = (window_lines / shape.cube_dim).clamp(1, shape.cube_count);
 
@@ -166,7 +158,7 @@ pub fn prime<R: Runtime>(
         prime_buffer::launch_unchecked(
             client,
             CubeCount::Static(config.cube_count as u32, 1, 1),
-            CubeDim::new(client, config.cube_dim),
+            config.cube_dim,
             config.vector_size,
             BufferArg::from_raw_parts(handle.clone(), pool_lines),
             pool_lines,
@@ -196,100 +188,84 @@ fn prime_buffer<I: Numeric, N: Size>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cubecl_runtime::throughput::MemoryAccess;
 
     const KB: usize = 1024;
     const MB: usize = 1024 * 1024;
 
-    /// Half a gigabyte of allocation, 256-thread cubes, a full dispatch of
-    /// 2048 cubes, and a 32 MiB last level cache.
+    /// A gigabyte of allocation, 256-thread cubes, and a full dispatch of
+    /// 2048 cubes.
     const DEVICE: DeviceShape = DeviceShape {
-        max_alloc: 512 * MB,
-        cache_bytes: Some(32 * MB),
+        max_alloc: 1024 * MB,
         cube_dim: 256,
         cube_count: 2048,
     };
 
     /// A probe of that device, in the 16-byte lines a `vec4` of f32 comes in.
     fn probe(working_set: usize, access: MemoryAccess) -> MemoryProbe {
-        MemoryProbe::sized(DEVICE, 16, access, working_set, false)
-    }
-
-    /// The same device, saying nothing about its cache.
-    fn uncached(working_set: usize, access: MemoryAccess) -> MemoryProbe {
-        let shape = DeviceShape {
-            cache_bytes: None,
-            ..DEVICE
-        };
-        MemoryProbe::sized(shape, 16, access, working_set, false)
+        let spec = MemorySpec::new(access, working_set as u64);
+        MemoryProbe::sized(DEVICE, 16, spec, false)
     }
 
     #[test]
     fn the_pool_stays_large_however_small_the_window() {
-        // 256 KiB of traffic, but still half a gigabyte to be cold against.
+        // 256 KiB of traffic, but still a gigabyte to be cold against.
         let small = probe(256 * KB, MemoryAccess::Read);
-        assert_eq!(small.pool_lines, 512 * MB / 16);
+        assert_eq!(small.pool_lines, 1024 * MB / 16);
         assert_eq!(small.window_lines, 256 * KB / 16);
 
         // A copy splits its working set across two buffers, so the same traffic
         // is half the window per buffer.
         let copy = probe(256 * KB, MemoryAccess::Copy);
-        assert_eq!(copy.pool_lines, 512 * MB / 16);
+        assert_eq!(copy.pool_lines, 1024 * MB / 16);
         assert_eq!(copy.window_lines, 128 * KB / 16);
     }
 
+    /// Every window is a fraction of the pool, the top of the sweep included,
+    /// so no point of the sweep measures a window rewriting its own bytes pass
+    /// after pass.
     #[test]
-    fn a_window_spanning_four_caches_becomes_its_own_pool() {
-        let pinned = probe(128 * MB, MemoryAccess::Read);
-        assert_eq!(pinned.pool_lines, pinned.window_lines);
-
-        // Just under, the walk is still what keeps the window cold.
-        let walked = probe(127 * MB, MemoryAccess::Read);
-        assert_eq!(walked.pool_lines, 512 * MB / 16);
-
-        // A copy splits its working set in two, so the same traffic leaves a
-        // window half the size in each buffer, and that one still gets walked.
-        let copy = probe(128 * MB, MemoryAccess::Copy);
-        assert_eq!(copy.pool_lines, 512 * MB / 16);
-
-        // The allocation follows the pool, so the kernels, which wrap at the
-        // buffer's length, cannot reach past the window that was primed.
-        assert_eq!(pinned.buffer_bytes, 128 * MB);
-        assert_eq!(walked.buffer_bytes, 512 * MB);
-        assert_eq!(copy.buffer_bytes, 512 * MB);
-    }
-
-    #[test]
-    fn a_device_that_reports_no_cache_walks_every_window() {
-        for bytes in [256 * KB, 128 * MB, 512 * MB] {
-            let probe = uncached(bytes, MemoryAccess::Read);
-            assert_eq!(probe.pool_lines, 512 * MB / 16, "at {bytes} bytes");
+    fn no_window_stops_walking() {
+        for bytes in [256 * KB, 64 * MB, 256 * MB, 512 * MB, 8 * 1024 * MB] {
+            let probe = probe(bytes, MemoryAccess::Read);
+            assert_eq!(probe.pool_lines, 1024 * MB / 16, "at {bytes} bytes");
+            assert!(probe.window_lines < probe.pool_lines, "at {bytes} bytes");
+            assert_eq!(probe.buffer_bytes, 1024 * MB, "at {bytes} bytes");
         }
     }
 
-    /// A zero cache is a runtime that could not read one, so it has to walk
-    /// like any other. Read as a size it is one every window spans, which
-    /// would pin the whole sweep and report cache bandwidth throughout.
     #[test]
-    fn a_zero_cache_is_an_unknown_one() {
-        let shape = DeviceShape {
-            cache_bytes: Some(0),
-            ..DEVICE
-        };
-        let probe = MemoryProbe::sized(shape, 16, MemoryAccess::Read, 256 * KB, false);
+    fn a_small_window_carries_the_passes_that_walk_the_pool() {
+        // 8 KiB of a gigabyte pool: 131072 passes to come back round.
+        let small = probe(8 * KB, MemoryAccess::Read);
+        assert_eq!(small.min_iterations(), 1024 * MB / (8 * KB));
 
-        assert_eq!(probe.pool_lines, 512 * MB / 16);
+        // The top of the sweep still carries the passes its own walk needs.
+        let whole = probe(512 * MB, MemoryAccess::Read);
+        assert_eq!(whole.min_iterations(), 2);
     }
 
     #[test]
-    fn the_window_fills_the_pool_at_the_top_of_the_sweep() {
-        // The default working set is the whole buffer, where the window has
-        // nowhere to move and the probe is the single-size one.
-        let read = probe(512 * MB, MemoryAccess::Read);
-        assert_eq!(read.window_lines, read.pool_lines);
+    fn walking_the_pool_costs_the_pool_whatever_the_window() {
+        // Every pass moves one window, so the traffic a launch must carry is
+        // the pool, and a small window buys passes rather than time.
+        for bytes in [8 * KB, 256 * KB, 4 * MB, 512 * MB] {
+            let probe = probe(bytes, MemoryAccess::Read);
+            let walked = probe.min_iterations() * probe.window_lines;
+            assert_eq!(walked, probe.pool_lines, "at {bytes} bytes");
+        }
+    }
 
-        // And a window can never exceed the pool, whatever it is asked for.
+    #[test]
+    fn the_window_stops_at_the_default_working_set() {
+        // The single-size probe every peak is read from asks for the default
+        // working set, and gets it whole.
+        let read = probe(512 * MB, MemoryAccess::Read);
+        assert_eq!(read.window_lines, 512 * MB / 16);
+
+        // Asking for more buys nothing: the pool has to stay larger.
         let huge = probe(8 * 1024 * MB, MemoryAccess::Read);
-        assert_eq!(huge.window_lines, huge.pool_lines);
+        assert_eq!(huge.window_lines, read.window_lines);
     }
 
     #[test]
@@ -307,16 +283,17 @@ mod tests {
     }
 
     #[test]
-    fn a_device_that_allocates_little_shrinks_the_pool_with_it() {
-        // The pool is the allocation limit, and the window follows it down
+    fn a_device_that_allocates_little_shrinks_the_window_with_it() {
+        // The pool is the allocation limit, and the window drops below it
         // rather than asking for memory the device does not have.
         let shape = DeviceShape {
             max_alloc: 4 * MB,
             ..DEVICE
         };
-        let probe = MemoryProbe::sized(shape, 16, MemoryAccess::Read, 512 * MB, false);
+        let spec = MemorySpec::new(MemoryAccess::Read, 512 * MB as u64);
+        let probe = MemoryProbe::sized(shape, 16, spec, false);
 
         assert_eq!(probe.buffer_bytes, 4 * MB);
-        assert_eq!(probe.window_lines, probe.pool_lines);
+        assert_eq!(probe.window_lines, 2 * MB / 16);
     }
 }

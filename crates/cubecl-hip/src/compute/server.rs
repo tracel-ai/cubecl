@@ -9,8 +9,8 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::{Captures, Window};
 use crate::{
+    compiler::HipCompiler,
     compute::{Command, context::HipContext, stream::HipStreamBackend},
-    runtime::HipCompiler,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
@@ -314,8 +314,10 @@ impl ComputeServer for HipServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id))?;
-        Ok(self.ctx.timestamps.start())
+        // No drain: the window opens where the stream already is, and the
+        // device stamps it there. See [`EventProfiler`].
+        let sys = self.profiled_stream(stream_id, "start_profile")?;
+        self.ctx.profiler.start(sys)
     }
 
     fn end_profile(
@@ -323,12 +325,17 @@ impl ComputeServer for HipServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        if let Err(err) = cubecl_environment::future::block_on(self.sync(Vec::new(), stream_id)) {
-            self.ctx
-                .timestamps
-                .error(ProfileError::Server(Box::new(err)));
-        }
-        self.ctx.timestamps.stop(token)
+        let sys = match self.profiled_stream(stream_id, "end_profile") {
+            Ok(sys) => sys,
+            Err(err) => {
+                // The window cannot be closed on the device, so there is
+                // nothing to read back — drop it and report, rather than leave
+                // a token open that nothing will ever close.
+                self.ctx.profiler.abandon(token);
+                return Err(ProfileError::from(&err));
+            }
+        };
+        self.ctx.profiler.stop(sys, token)
     }
 
     fn get_resource(
@@ -496,12 +503,45 @@ impl HipServer {
         true
     }
 
+    /// The stream a profiling window records its events into.
+    ///
+    /// `entry_point` is the server call asking, and it opens the refusal the
+    /// way every other graph-state error names the call it turned down. Both
+    /// ends of a window come through here: a capture can begin inside an open
+    /// window, so the refusal `end_profile` gets is the one `start_profile`
+    /// did not.
+    ///
+    /// # Errors
+    ///
+    /// A stream recording a graph. Its events would be recorded into the graph
+    /// as nodes rather than stamped as they are queued, so the window would
+    /// measure nothing and reading it back would abort the capture. Refusing is
+    /// what the client's profiled launch path expects here — it hands the
+    /// launch back and runs it unmeasured.
+    fn profiled_stream(
+        &mut self,
+        stream_id: StreamId,
+        entry_point: &'static str,
+    ) -> Result<cubecl_hip_sys::hipStream_t, ServerError> {
+        let mut streams = self.streams.resolve(stream_id, [].into_iter());
+        let stream = streams.current();
+
+        if stream.capturing.is_recording() {
+            return Err(ServerError::graph_state(format!(
+                "{entry_point}: a capture window records launches only, so a profiling event \
+                 has no recorded form"
+            )));
+        }
+
+        Ok(stream.sys)
+    }
+
     /// Mark every open profile invalid: a failure inside a profiling window
     /// invalidates the measurement, and this is what keeps a tuning candidate
     /// that failed from benchmarking at close to zero and winning the tune. A
     /// no-op with no profile open.
     fn profile_failure(&mut self, error: &ServerError) {
-        self.ctx.timestamps.failure(error);
+        self.ctx.profiler.failure(error);
     }
 
     /// The grid dimensions this launch runs with, host-read from the count

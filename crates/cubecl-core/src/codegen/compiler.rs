@@ -18,6 +18,7 @@ pub struct VulkanCompilationOptions {
     pub supports_uniform_standard_layout: bool,
     pub supports_uniform_unsized_array: bool,
     pub supports_float8: bool,
+    pub supports_dp4a: bool,
 
     pub max_spirv_version: (u8, u8),
     pub max_vector_size: usize,

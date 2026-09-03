@@ -80,9 +80,15 @@ impl DeviceService for CudaServer {
         // Querying texture row align is a heuristic, but also not guaranteed to be the same.
         let mem_alignment = 512;
 
+        // The name is the only signal for tensor cores. A driver that declines to give one
+        // costs only the tensor-core exception, never initialization.
+        let device_name = cudarc::driver::result::device::get_name(device_ptr)
+            .unwrap_or_else(|_| "unknown CUDA device".to_string());
+
         // Ask the wmma compiler for its supported combinations
         let arch = CudaArchitecture {
             version: arch_version,
+            tensor_cores: CudaArchitecture::has_tensor_cores(arch_version, &device_name),
         };
         let supported_cmma_combinations = CudaCmmaCompiler::Cpp.supported_cmma_combinations(&arch);
         let supported_mma_combinations = cuda::supported_mma_combinations(&arch);
@@ -111,6 +117,7 @@ impl DeviceService for CudaServer {
         let mut comp_opts = CompilationOptions {
             supports_features: CppSupportedFeatures {
                 fast_math: true,
+                dp4a: arch_version >= 61,
                 ..Default::default()
             },
             ..Default::default()
@@ -145,7 +152,7 @@ impl DeviceService for CudaServer {
             let num_streaming_multiprocessors = Some(
                 get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
             );
-            let num_tensor_cores = tensor_cores_per_sm(arch_version);
+            let num_tensor_cores = tensor_cores_per_sm(&arch);
 
             comp_opts.warp_size = warp_size as usize;
 
@@ -176,16 +183,12 @@ impl DeviceService for CudaServer {
         // the compilation namespace and the identity. Built once and shared
         // with `CudaContext` below, so the two cannot disagree.
         let fingerprint = format!("ptx_sm{arch_version}");
-        // Display only, and a driver that declines to name its device is not a
-        // reason to fail initialization.
-        let device_name = cudarc::driver::result::device::get_name(device_ptr)
-            .unwrap_or_else(|_| "unknown CUDA device".to_string());
 
         let mut device_props = DeviceProperties::new(
             Default::default(),
             mem_properties.clone(),
             hardware_props,
-            TimingMethod::System,
+            TimingMethod::Device,
             DeviceIdentity {
                 name: device_name,
                 fingerprint: fingerprint.clone(),
@@ -366,8 +369,11 @@ impl DeviceService for CudaServer {
 pub type CudaCompiler = CppCompiler<Cuda>;
 pub type CudaComputeKernel = ComputeKernel;
 
-fn tensor_cores_per_sm(version: u32) -> Option<u32> {
-    match version {
+fn tensor_cores_per_sm(arch: &CudaArchitecture) -> Option<u32> {
+    if !arch.tensor_cores {
+        return None;
+    }
+    match arch.version {
         70 | 75 => Some(8),                           // Volta, Turing
         80 | 86 | 89 | 90 | 91 | 92 | 100 => Some(4), // Ampere, Hopper, Blackwell
         _ => None,                                    // Unknown or unsupported architecture

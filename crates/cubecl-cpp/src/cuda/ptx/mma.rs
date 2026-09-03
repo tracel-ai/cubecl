@@ -103,7 +103,7 @@ fn ldmatrix(
     let out: Vector<u32, NCD>;
     gpu_asm!(
         "ldmatrix.sync.aligned.m8n8.x{num}{transpose}.shared::cta.b16 {out}, [{addr}];",
-        out = out(_) out, addr = in(_) row_addr, options(readonly),
+        out = out(_) out, addr = mem_in(_) row_addr, options(explicit_mem),
     );
     out
 }
@@ -119,7 +119,7 @@ fn stmatrix(
 
     gpu_asm!(
         "stmatrix.sync.aligned.m8n8.x{num}{transpose}.shared::cta.b16 [{addr}], {val};",
-        addr = in(_) row_addr, val = in(_) value,
+        addr = mem_out(_) row_addr, val = in(_) value, options(explicit_mem),
     );
 }
 

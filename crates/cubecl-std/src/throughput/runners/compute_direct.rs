@@ -22,7 +22,7 @@ pub fn build_kernel<R: Runtime>(
             compute_direct_throughput::launch_unchecked(
                 &client,
                 CubeCount::Static(config.cube_count as u32, 1, 1),
-                CubeDim::new(&client, config.cube_dim),
+                config.cube_dim,
                 config.vector_size,
                 BufferArg::from_raw_parts(out, 1),
                 iterations,
@@ -36,10 +36,17 @@ pub fn build_kernel<R: Runtime>(
 
     // `CHAINS` independent accumulators per lane, each retiring one fma (two flops) or one mul.
     let ops_per_chain = if use_fma { 2 } else { 1 };
-    let ops_count =
-        ops_per_chain * CHAINS * config.cube_count * config.cube_dim * config.vector_size;
+    let ops_count = ops_per_chain
+        * CHAINS
+        * config.cube_count
+        * config.cube_dim.num_elems() as usize
+        * config.vector_size;
 
-    KernelConfig { sample, ops_count }
+    KernelConfig {
+        sample,
+        ops_count,
+        min_iterations: 1,
+    }
 }
 
 /// Independent accumulator chains per lane to hide arithmetic latency.

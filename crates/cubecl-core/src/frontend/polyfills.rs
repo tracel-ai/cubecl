@@ -1,7 +1,7 @@
 use alloc::vec;
 use core::f32::consts::PI;
 
-use cubecl_ir::{Type, cube_op, prelude::*};
+use cubecl_ir::{Type, cube_op, interfaces::TypedExt, prelude::*};
 use num_traits::One;
 
 use crate::prelude::*;
@@ -109,6 +109,41 @@ fn himul_sim<T: Int, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T,
 pub fn expand_himul_sim(scope: &Scope, lhs: Value, rhs: Value) -> Value {
     scope.register_value_type::<ElemA, SizeA>(lhs);
     himul_sim::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
+}
+
+/// Portable implementation of a four-byte signed dot product with accumulation.
+#[cube]
+pub fn dp4a_polyfill<N: Size>(
+    a: Vector<i32, N>,
+    b: Vector<i32, N>,
+    c: Vector<i32, N>,
+) -> Vector<i32, N> {
+    let a = Vector::<u32, N>::reinterpret(a);
+    let b = Vector::<u32, N>::reinterpret(b);
+    let shift_8 = Vector::new(8);
+    let shift_16 = Vector::new(16);
+    let shift_24 = Vector::new(24);
+    let byte_mask = Vector::new(0xff);
+    let sign_mask = Vector::new(0x80);
+    let sign_offset = Vector::<i32, N>::new(0x80);
+
+    let a0 = Vector::<i32, N>::cast_from((a & byte_mask) ^ sign_mask) - sign_offset;
+    let a1 = Vector::<i32, N>::cast_from(((a >> shift_8) & byte_mask) ^ sign_mask) - sign_offset;
+    let a2 = Vector::<i32, N>::cast_from(((a >> shift_16) & byte_mask) ^ sign_mask) - sign_offset;
+    let a3 = Vector::<i32, N>::cast_from((a >> shift_24) ^ sign_mask) - sign_offset;
+
+    let b0 = Vector::<i32, N>::cast_from((b & byte_mask) ^ sign_mask) - sign_offset;
+    let b1 = Vector::<i32, N>::cast_from(((b >> shift_8) & byte_mask) ^ sign_mask) - sign_offset;
+    let b2 = Vector::<i32, N>::cast_from(((b >> shift_16) & byte_mask) ^ sign_mask) - sign_offset;
+    let b3 = Vector::<i32, N>::cast_from((b >> shift_24) ^ sign_mask) - sign_offset;
+
+    c + a0 * b0 + a1 * b1 + a2 * b2 + a3 * b3
+}
+
+#[allow(missing_docs)]
+pub fn expand_dp4a_polyfill(scope: &Scope, a: Value, b: Value, c: Value) -> Value {
+    scope.register_size::<SizeA>(a.vector_size(scope.ctx()));
+    dp4a_polyfill::expand::<SizeA>(scope, a.into(), b.into(), c.into()).value(scope)
 }
 
 #[cube]
@@ -241,5 +276,96 @@ pub mod bitwise {
             high_ffs + Vector::new(32),
         );
         select_many(low_ffs.equal(&Vector::new(0)), high_ffs, low_ffs)
+    }
+}
+
+/// The plane reductions and scans, as folds over the shuffles.
+///
+/// A backend that has cross-lane shuffles but no reduction of its own gets them from here; the
+/// C++ backends and the LLVM one share these.
+pub mod plane {
+    use super::*;
+    use crate::prelude::{
+        CUBE_DIM, CubeAdd, CubeMul, CubePartialOrd, PLANE_DIM, UNIT_POS_PLANE, max, min,
+        plane_shuffle_up, plane_shuffle_xor, select,
+    };
+
+    #[cube]
+    pub trait PlaneOp<T: Scalar, N: Size> {
+        fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N>;
+    }
+
+    pub struct OpAdd;
+    pub struct OpMul;
+    pub struct OpMin;
+    pub struct OpMax;
+
+    #[cube]
+    impl<T: Scalar + CubeAdd, N: Size> PlaneOp<T, N> for OpAdd {
+        fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
+            lhs + rhs
+        }
+    }
+    #[cube]
+    impl<T: Scalar + CubeMul, N: Size> PlaneOp<T, N> for OpMul {
+        fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
+            lhs * rhs
+        }
+    }
+    #[cube]
+    impl<T: Scalar + CubePartialOrd, N: Size> PlaneOp<T, N> for OpMin {
+        fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
+            min(lhs, rhs)
+        }
+    }
+    #[cube]
+    impl<T: Scalar + CubePartialOrd, N: Size> PlaneOp<T, N> for OpMax {
+        fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
+            max(lhs, rhs)
+        }
+    }
+
+    #[cube]
+    fn plane_dim_checked() -> u32 {
+        min(PLANE_DIM, CUBE_DIM)
+    }
+
+    #[cube]
+    pub fn plane_reduce<T: Scalar, N: Size, Op: PlaneOp<T, N>>(val: Vector<T, N>) -> Vector<T, N> {
+        let plane_dim = plane_dim_checked();
+        let mut acc = val;
+        let mut offset = 1;
+        while offset < plane_dim {
+            acc = Op::apply(acc, plane_shuffle_xor(acc, offset));
+            offset *= 2;
+        }
+        acc
+    }
+
+    #[cube]
+    pub fn plane_reduce_inclusive<T: Scalar, N: Size, Op: PlaneOp<T, N>>(
+        val: Vector<T, N>,
+    ) -> Vector<T, N> {
+        let plane_dim = plane_dim_checked();
+        let mut acc = val;
+        let mut offset = 1;
+        while offset < plane_dim {
+            let tmp = Op::apply(acc, plane_shuffle_up(acc, offset));
+            if UNIT_POS_PLANE >= offset {
+                acc = tmp;
+            }
+            offset *= 2;
+        }
+        acc
+    }
+
+    #[cube]
+    pub fn plane_reduce_exclusive<T: Numeric, N: Size, Op: PlaneOp<T, N>>(
+        val: Vector<T, N>,
+        #[comptime] default: i64,
+    ) -> Vector<T, N> {
+        let inclusive = plane_reduce_inclusive::<T, N, Op>(val);
+        let shfl = plane_shuffle_up(inclusive, 1);
+        select(UNIT_POS_PLANE == 0, Vector::new(T::from_int(default)), shfl)
     }
 }

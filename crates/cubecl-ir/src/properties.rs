@@ -1,12 +1,13 @@
 use alloc::string::String;
 use core::hash::{BuildHasher, Hash, Hasher};
 
+use crate::EnumSet;
+use crate::EnumSetType;
 use crate::{
     AddressType, ElemType, OpaqueType, SemanticType, Type, TypeHash, VectorSize,
     features::{AtomicUsage, ComplexUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
-use enumset::{EnumSet, EnumSetType};
 
 /// Properties of the device related to the accelerator hardware.
 ///
@@ -89,8 +90,8 @@ pub struct MemoryDeviceProperties {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct DeviceIdentity {
     /// The device as it names itself — `AMD Radeon 8060S Graphics`,
-    /// `NVIDIA H100 PCIe`. Display only: distinct parts may share a name, so
-    /// nothing may gate on it.
+    /// `NVIDIA H100 PCIe`. Distinct parts may share a name, so no capability
+    /// and no compiled artifact may be keyed to it.
     pub name: String,
     /// What this runtime compiles *for* — `hip-kernel_gfx1151`, `ptx_sm90`.
     /// Verbatim the `compilation_store` fingerprint, so a namespace read back
@@ -225,7 +226,7 @@ impl DeviceProperties {
 /// Unchecked optimizations for float operations. May cause precision differences, or undefined
 /// behaviour if the relevant conditions are not followed.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Hash, TypeHash, EnumSetType)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, EnumSetType)]
 pub enum FastMath {
     /// Assume values are never `NaN`. If they are, the result is considered undefined behaviour.
     NotNaN,

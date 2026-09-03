@@ -4,8 +4,8 @@ use std::println;
 use crate::{self as cubecl, as_type};
 use cubecl::prelude::*;
 use cubecl_common::{e2m1x2, e2m3, e3m2, e4m3, e5m2, ue8m0};
+use cubecl_ir::EnumSet;
 use cubecl_ir::features::TypeUsage;
-use enumset::EnumSet;
 
 #[cube(launch_unchecked)]
 pub fn kernel_fp8<F: Float, N: Size>(input: &mut [Vector<F, N>], out: &mut [Vector<u8, N>]) {

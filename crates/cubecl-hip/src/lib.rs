@@ -3,9 +3,11 @@
 extern crate derive_new;
 extern crate alloc;
 
+pub mod compiler;
 pub mod compute;
 pub mod device;
 pub mod runtime;
+pub use compiler::{HipCompilationOptions, HipCompiler, HipRepresentation};
 pub use device::*;
 pub use runtime::HipRuntime;
 
@@ -18,4 +20,6 @@ mod tests {
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
     cubecl_core::testgen_complex_validation!();
     cubecl_core::testgen_launch_dynamic_count!();
+    cubecl_core::testgen_profiling!();
+    cubecl_core::testgen_profiling_nested!();
 }

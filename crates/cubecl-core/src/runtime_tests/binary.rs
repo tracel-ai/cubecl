@@ -6,8 +6,8 @@ use crate::{self as cubecl, as_type};
 use cubecl_environment::sync::LazyLock;
 
 use cubecl::prelude::*;
+use cubecl_ir::EnumSet;
 use cubecl_runtime::server::Handle;
-use enumset::EnumSet;
 
 /// Set by reductions: they round twice per term against a reference `f16` cannot hold.
 const ULPS_ALLOWED: f32 = 32.0;
@@ -577,6 +577,54 @@ test_mulhi_impl!(
     ]
 );
 
+#[cube(launch)]
+fn test_dp4a_kernel(a: &[i32], b: &[i32], c: &[i32], output: &mut [i32]) {
+    if ABSOLUTE_POS < output.len() {
+        output[ABSOLUTE_POS] = dp4a(a[ABSOLUTE_POS], b[ABSOLUTE_POS], c[ABSOLUTE_POS]);
+    }
+}
+
+fn reference_dp4a(a: i32, b: i32, c: i32) -> i32 {
+    a.to_le_bytes()
+        .into_iter()
+        .zip(b.to_le_bytes())
+        .fold(c, |acc, (a, b)| {
+            acc.wrapping_add((a as i8 as i32) * (b as i8 as i32))
+        })
+}
+
+pub fn test_dp4a<R: Runtime>(client: ComputeClient<R>) {
+    let a = [
+        i32::from_le_bytes([1, 2, 3, 4]),
+        i32::from_le_bytes([255, 254, 253, 252]),
+        i32::from_le_bytes([127, 128, 64, 192]),
+    ];
+    let b = [
+        i32::from_le_bytes([5, 6, 7, 8]),
+        i32::from_le_bytes([4, 3, 2, 1]),
+        i32::from_le_bytes([128, 127, 192, 64]),
+    ];
+    let c = [10, -20, i32::MIN];
+    let expected = core::array::from_fn::<_, 3, _>(|i| reference_dp4a(a[i], b[i], c[i]));
+
+    let a = client.create_from_slice(i32::as_bytes(&a));
+    let b = client.create_from_slice(i32::as_bytes(&b));
+    let c = client.create_from_slice(i32::as_bytes(&c));
+    let output = client.empty(expected.len() * size_of::<i32>());
+    test_dp4a_kernel::launch::<R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(expected.len() as u32),
+        unsafe { BufferArg::from_raw_parts(a, expected.len()) },
+        unsafe { BufferArg::from_raw_parts(b, expected.len()) },
+        unsafe { BufferArg::from_raw_parts(c, expected.len()) },
+        unsafe { BufferArg::from_raw_parts(output.clone(), expected.len()) },
+    );
+
+    let actual = client.read_one_unchecked(output);
+    assert_eq!(i32::from_bytes(&actual), expected);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_binary {
@@ -663,6 +711,7 @@ macro_rules! testgen_binary_untyped {
             }
 
             add_test!(test_mulhi);
+            add_test!(test_dp4a);
             add_test!(test_self_div);
         }
     };
