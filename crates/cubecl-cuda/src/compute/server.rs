@@ -31,7 +31,7 @@ use cubecl_runtime::{
         InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
         MemoryUsage,
     },
-    server::ComputeServer,
+    server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
@@ -98,7 +98,7 @@ pub struct CudaServer {
 // it manages are never shared across threads without synchronization.
 unsafe impl Send for CudaServer {}
 
-impl ComputeServer for CudaServer {
+impl Server for CudaServer {
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()
     }
@@ -657,7 +657,7 @@ impl CudaServer {
     }
 
     /// The reduction itself, so every way it can fail settles the destination
-    /// through one path in [`all_reduce`](ComputeServer::all_reduce).
+    /// through one path in [`all_reduce`](Server::all_reduce).
     ///
     /// # Errors
     ///

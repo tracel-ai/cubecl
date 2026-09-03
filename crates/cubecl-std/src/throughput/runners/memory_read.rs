@@ -23,7 +23,7 @@ use crate::throughput::{
 /// hundreds of megabytes read that is not worth counting and is deliberately
 /// left out of `ops_count` rather than approximated.
 pub fn build_kernel(
-    client: &ComputeClient,
+    client: &Client,
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,

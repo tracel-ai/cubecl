@@ -12,7 +12,7 @@ use cubecl_environment::sync::Mutex;
 use alloc::string::{String, ToString};
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
-use crate::client::ComputeClient;
+use crate::client::Client;
 use crate::config::Logger;
 #[cfg(std_io)]
 use crate::config::autotune::AutotuneLogLevel;
@@ -217,7 +217,7 @@ impl<K: AutotuneKey> Tuner<K> {
         #[cfg_attr(not(autotune_persistence), allow(unused))] checksum: impl FnOnce() -> String
         + Send
         + Sync,
-        client: &ComputeClient,
+        client: &Client,
         mut log_context: Option<crate::tune::AutotuneLogContext>,
     ) -> TuneCacheResult
     where
@@ -335,7 +335,7 @@ impl<K: AutotuneKey> Tuner<K> {
     fn tune_adaptive<'i, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         mut job: TuneJob<'_, 'i, K, F, Out>,
-        client: &ComputeClient,
+        client: &Client,
     ) -> TuneCacheResult
     where
         <F as TuneInputs>::At<'i>: Clone + Send,
@@ -376,7 +376,7 @@ impl<K: AutotuneKey> Tuner<K> {
     fn tune_fixed_samples<'i, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         mut job: TuneJob<'_, 'i, K, F, Out>,
-        client: &ComputeClient,
+        client: &Client,
     ) -> TuneCacheResult
     where
         <F as TuneInputs>::At<'i>: Clone + Send,

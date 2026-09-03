@@ -54,10 +54,7 @@ pub fn kernel_scale<N: Size>(input: &mut [Vector<f32, N>], out: &mut [Vector<ue8
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient,
-    vector_size: VectorSize,
-) {
+pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: Client, vector_size: VectorSize) {
     let byte_buffers = u8::supported_uses(&client).contains(TypeUsage::Buffer);
     if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) || !byte_buffers {
         println!("Unsupported, skipping");
@@ -101,10 +98,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient,
-    vector_size: VectorSize,
-) {
+pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: Client, vector_size: VectorSize) {
     if !e2m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -147,10 +141,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient,
-    vector_size: VectorSize,
-) {
+pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: Client, vector_size: VectorSize) {
     if !e2m1x2::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -190,7 +181,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
     assert_eq!(&actual_2[..num_out], &expected_data[..num_out]);
 }
 
-fn fp8_supported(client: &ComputeClient) -> bool {
+fn fp8_supported(client: &Client) -> bool {
     let usable = |uses: EnumSet<TypeUsage>| uses.contains(TypeUsage::Conversion);
     usable(e4m3::supported_uses(client)) && usable(e5m2::supported_uses(client))
 }
@@ -314,7 +305,7 @@ macro_rules! fp8_format_tests {
                 }
             }
 
-            pub fn equality<R: Runtime>(client: ComputeClient) {
+            pub fn equality<R: Runtime>(client: Client) {
                 if !fp8_supported(&client) {
                     println!("Unsupported, skipping");
                     return;
@@ -371,7 +362,7 @@ macro_rules! fp8_format_tests {
                 }
             }
 
-            pub fn bool_casts<R: Runtime>(client: ComputeClient) {
+            pub fn bool_casts<R: Runtime>(client: Client) {
                 if !fp8_supported(&client) {
                     println!("Unsupported, skipping");
                     return;
@@ -439,7 +430,7 @@ macro_rules! fp8_format_tests {
                 }
             }
 
-            pub fn decode_exhaustive<R: Runtime>(client: ComputeClient, lanes: VectorSize) {
+            pub fn decode_exhaustive<R: Runtime>(client: Client, lanes: VectorSize) {
                 if !fp8_supported(&client) {
                     println!("Unsupported, skipping");
                     return;
@@ -480,7 +471,7 @@ macro_rules! fp8_format_tests {
                 }
             }
 
-            pub fn encode_exhaustive<R: Runtime>(client: ComputeClient, lanes: VectorSize) {
+            pub fn encode_exhaustive<R: Runtime>(client: Client, lanes: VectorSize) {
                 if !fp8_supported(&client) {
                     println!("Unsupported, skipping");
                     return;
@@ -519,7 +510,7 @@ macro_rules! fp8_format_tests {
             /// Every `f32` bit pattern, in chunks, against the host codec. Slow by
             /// construction, so it is `#[ignore]`d rather than gated: an ignored test still
             /// compiles, so it cannot rot unnoticed.
-            pub fn encode_sweep<R: Runtime>(client: ComputeClient) {
+            pub fn encode_sweep<R: Runtime>(client: Client) {
                 if !fp8_supported(&client) {
                     println!("Unsupported, skipping");
                     return;
@@ -644,7 +635,7 @@ fn assert_same_float(actual: f32, expected: f32, format: &str, bits: u32) {
     }
 }
 
-pub fn test_scale<R: Runtime>(client: ComputeClient, vector_size: VectorSize) {
+pub fn test_scale<R: Runtime>(client: Client, vector_size: VectorSize) {
     // The same pair of questions [`test_fp8`] asks, and for the same reason: this kernel writes a
     // buffer of the fp8 type itself, at vector sizes below a word. A backend that converts fp8 but
     // packs it four lanes to a `u32` — WGSL — can do the conversion and has no such binding, so
@@ -713,7 +704,7 @@ pub mod fp8_ue8m0 {
         }
     }
 
-    fn supported(client: &ComputeClient) -> bool {
+    fn supported(client: &Client) -> bool {
         ue8m0::supported_uses(client).contains(TypeUsage::Conversion)
     }
 
@@ -723,7 +714,7 @@ pub mod fp8_ue8m0 {
     /// `bf16` a backend may convert through, so they are pinned exactly. So is 255, the format's
     /// NaN. Code 0 is 2^-127, which is subnormal in both, so it is only asked not to land on a
     /// *different* exponent — the failure a wrong shift or a missing special case produces.
-    pub fn decode_exhaustive<R: Runtime>(client: ComputeClient, lanes: VectorSize) {
+    pub fn decode_exhaustive<R: Runtime>(client: Client, lanes: VectorSize) {
         if !supported(&client) {
             println!("Unsupported, skipping");
             return;
@@ -778,7 +769,7 @@ pub mod fp8_ue8m0 {
     /// Not swept here: infinity and NaN. `__NV_NOSAT` and the software path disagree on what
     /// infinity encodes to, and pinning either answer would assert a divergence rather than a
     /// rule. The saturating end is reached through 2^127 itself.
-    pub fn encode_exhaustive<R: Runtime>(client: ComputeClient, lanes: VectorSize) {
+    pub fn encode_exhaustive<R: Runtime>(client: Client, lanes: VectorSize) {
         if !supported(&client) {
             println!("Unsupported, skipping");
             return;

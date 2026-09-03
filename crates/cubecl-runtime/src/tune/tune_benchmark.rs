@@ -1,5 +1,5 @@
 use super::{AutotuneError, TuneFn, TuneInputs};
-use crate::client::ComputeClient;
+use crate::client::Client;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
@@ -26,7 +26,7 @@ impl AutotuneOutput for () {
 pub fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
-    client: ComputeClient,
+    client: Client,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // `scoped` holds exclusive device access for the whole benchmark loop and
     // accepts non-`'static` closures.
@@ -47,7 +47,7 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
     pub(crate) fn warmup_once<'a>(
         &self,
         inputs: <F as TuneInputs>::At<'a>,
-        client: &ComputeClient,
+        client: &Client,
     ) -> Result<(), AutotuneError> {
         // We make sure the server is in a correct state.
         let _errs = client.flush();
@@ -61,7 +61,7 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
     pub(crate) fn sample_once<'a>(
         &self,
         inputs: <F as TuneInputs>::At<'a>,
-        client: &ComputeClient,
+        client: &Client,
     ) -> Result<ProfileDuration, AutotuneError> {
         // The output is returned so dead code elimination can't drop the work being profiled.
         let profiled = client.profile(move || self.execute(inputs), &self.name);
@@ -80,7 +80,7 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
 fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
-    client: ComputeClient,
+    client: Client,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // These launches are the measurement, so they run even inside a dry run:
     // that mode exists to skip the *workload*, not the tuning it is there to
@@ -124,7 +124,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
 fn warmup<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
-    client: ComputeClient,
+    client: Client,
 ) -> Result<(), AutotuneError> {
     let num_warmup = 3;
 

@@ -1,6 +1,6 @@
 //! Cross-stream correctness tests for the native Metal backend.
 //!
-//! `StreamId` is derived from the OS thread, so a single [`ComputeClient`] drives a
+//! `StreamId` is derived from the OS thread, so a single [`Client`] drives a
 //! different stream per thread, and each stream owns its own `memory_management`. A
 //! buffer therefore lives only in its origin stream's manager. These tests allocate a
 //! binding on one stream and consume it on another to exercise cross-stream resolution
@@ -25,7 +25,7 @@ fn copy_kernel(input: &[u32], output: &mut [u32]) {
     }
 }
 
-fn client() -> ComputeClient {
+fn client() -> Client {
     let device = Default::default();
     R::client(&device)
 }

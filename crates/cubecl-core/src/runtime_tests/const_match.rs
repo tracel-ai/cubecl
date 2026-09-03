@@ -28,7 +28,7 @@ pub fn test_kernel_const_match<
     F: Float + CubeElement,
     U: Int + hash::Hash + Eq + Debug,
 >(
-    client: ComputeClient,
+    client: Client,
 ) {
     // Workaround for Naga bug, remove in future wgpu version to test again
     if U::BITS == 64 {

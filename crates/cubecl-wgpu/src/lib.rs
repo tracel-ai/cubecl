@@ -142,7 +142,7 @@ fn double(@builtin(global_invocation_id) id: vec3<u32>) {
             }
         }
 
-        fn assert_rejected(client: &ComputeClient, out: Handle) {
+        fn assert_rejected(client: &Client, out: Handle) {
             let err = client
                 .read_one(out)
                 .expect_err("two fp8 lanes have no WGSL representation, the launch must fail")

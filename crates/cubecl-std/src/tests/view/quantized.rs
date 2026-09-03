@@ -73,7 +73,7 @@ pub fn kernel_quantized_view<F: Float, N: Size>(
 
 #[allow(clippy::needless_range_loop)]
 pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient,
+    client: Client,
     vector_size_values: VectorSize,
 ) {
     let vector_size_float = 8 * vector_size_values;
@@ -137,7 +137,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
 
 #[allow(clippy::needless_range_loop)]
 pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient,
+    client: Client,
     vector_size_values: VectorSize,
 ) {
     if !client.properties().supports_type(e2m1x2::cube_type()) {
@@ -230,7 +230,7 @@ pub fn kernel_global_scale_quantized_view<F: Float, N: Size>(
 
 /// A [`KnownScale::Global`] register reconstructs exactly what the two-binding launch path does:
 /// block scales read per position, the per-tensor scale riding in the register.
-pub fn test_quantized_global_scale<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_quantized_global_scale<R: Runtime, F: Float + CubeElement>(client: Client) {
     let vector_size_float = 8;
     let block = 8;
 
@@ -294,7 +294,7 @@ pub fn kernel_whole_scale_quantized_view<F: Float, N: Size>(
 /// The whole-scale view reconstructs exactly what a per-value scale of the same value would: the
 /// scales buffer is filled with a number that would be wrong if it were read.
 pub fn test_quantized_whole_scale<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient,
+    client: Client,
     scheme: QuantScheme,
 ) {
     let vector_size_float = 8;
@@ -335,7 +335,7 @@ pub fn test_quantized_whole_scale<R: Runtime, F: Float + CubeElement>(
 ///
 /// Instantiated with a float narrower than the scales by
 /// [`test_quantized_two_level_narrow_float`], which is what makes the block scales overflow `F`.
-pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: Client) {
     // One block per load, since the view assumes a single scale covers a whole read.
     let vector_size_float = 8;
     let block = 8;
@@ -399,7 +399,7 @@ pub fn test_quantized_two_level_int<R: Runtime, F: Float + CubeElement>(client: 
     }
 }
 
-pub fn test_quantized_two_level_ue4m3<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_quantized_two_level_ue4m3<R: Runtime, F: Float + CubeElement>(client: Client) {
     let usage = client.properties().type_usage(e4m3::elem_type_native());
     if !usage.is_superset(TypeUsage::Conversion | TypeUsage::Buffer) {
         println!("Unsupported, skipping");
@@ -473,7 +473,7 @@ pub fn test_quantized_two_level_ue4m3<R: Runtime, F: Float + CubeElement>(client
 /// Hardcodes the float type because the runtimes that run without a GPU instantiate the generic
 /// tests with `f32`, which cannot observe that: both levels are stored as f32 to begin with, so a
 /// multiply in `F` and a multiply in f32 are the same operation.
-pub fn test_quantized_two_level_narrow_float<R: Runtime>(client: ComputeClient) {
+pub fn test_quantized_two_level_narrow_float<R: Runtime>(client: Client) {
     if !client.properties().supports_type(f16::cube_type()) {
         return;
     }
@@ -491,7 +491,7 @@ pub fn test_quantized_two_level_narrow_float<R: Runtime>(client: ComputeClient) 
 /// fell back to the integer cast would reconstruct the index itself and miss every entry.
 /// Every read method is exercised, since each one pairs the table with its own read of the
 /// values and scales.
-pub fn test_quantized_lookup<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_quantized_lookup<R: Runtime, F: Float + CubeElement>(client: Client) {
     let vector_size_float = 8;
 
     let scheme = QuantScheme::default()

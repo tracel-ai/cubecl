@@ -12,7 +12,7 @@ fn kernel_to_degrees(input: &[f32], output: &mut [f32]) {
     }
 }
 
-pub fn test_to_degrees<R: Runtime>(client: ComputeClient) {
+pub fn test_to_degrees<R: Runtime>(client: Client) {
     let input_data = vec![0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
     let expected = [0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
 
@@ -50,7 +50,7 @@ fn kernel_to_radians(input: &[f32], output: &mut [f32]) {
     }
 }
 
-pub fn test_to_radians<R: Runtime>(client: ComputeClient) {
+pub fn test_to_radians<R: Runtime>(client: Client) {
     let input_data = vec![0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
     let expected = [0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
 

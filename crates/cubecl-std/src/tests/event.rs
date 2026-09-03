@@ -163,7 +163,7 @@ fn launch_test_3(output: &mut [f32]) {
     test_3(output);
 }
 
-pub fn event_test_1(client: ComputeClient) {
+pub fn event_test_1(client: Client) {
     let output = client.empty(8);
 
     unsafe {
@@ -181,7 +181,7 @@ pub fn event_test_1(client: ComputeClient) {
     assert_eq!(actual, &[20.0, 50.0]);
 }
 
-pub fn event_test_2(client: ComputeClient) {
+pub fn event_test_2(client: Client) {
     let output = client.empty(8);
 
     unsafe {
@@ -199,7 +199,7 @@ pub fn event_test_2(client: ComputeClient) {
     assert_eq!(actual, &[15.0, 30.0]);
 }
 
-pub fn event_test_3(client: ComputeClient) {
+pub fn event_test_3(client: Client) {
     let output = client.empty(12);
 
     unsafe {

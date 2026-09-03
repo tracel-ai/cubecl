@@ -1,7 +1,7 @@
 //! The HIP compute server: the device's streams, its compiled kernels, and
 //! the graphs it has captured.
 //!
-//! Every entry point here is a [`ComputeServer`] method, and the ones that
+//! Every entry point here is a [`Server`] method, and the ones that
 //! write device memory run inside a [write scope](WriteScoped) — the taint
 //! bookkeeping is not spelled out on the failure paths, because a path that
 //! forgot it would be silent.
@@ -35,7 +35,7 @@ use cubecl_runtime::{
         InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
         MemoryUsage,
     },
-    server::ComputeServer,
+    server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
@@ -56,7 +56,7 @@ pub struct HipServer {
 // shared across threads without synchronization.
 unsafe impl Send for HipServer {}
 
-impl ComputeServer for HipServer {
+impl Server for HipServer {
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()
     }

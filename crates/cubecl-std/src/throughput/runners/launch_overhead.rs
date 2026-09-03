@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 pub fn build_kernel(
-    client: &cubecl_runtime::client::ComputeClient,
+    client: &cubecl_runtime::client::Client,
     _key: cubecl_runtime::throughput::ThroughputKey,
     _config: super::super::LaunchConfig,
 ) -> cubecl_runtime::throughput::KernelConfig {

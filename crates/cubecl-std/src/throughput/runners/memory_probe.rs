@@ -92,12 +92,7 @@ impl MemoryProbe {
     /// serves it. A coalesced launch spreads one cube position's addresses
     /// across the full window regardless of cube count, so it has no such
     /// limit.
-    pub fn new(
-        client: &ComputeClient,
-        config: LaunchConfig,
-        line_bytes: usize,
-        spec: MemorySpec,
-    ) -> Self {
+    pub fn new(client: &Client, config: LaunchConfig, line_bytes: usize, spec: MemorySpec) -> Self {
         let blocked = config.plane_size == 1;
         let shape = DeviceShape {
             max_alloc: client.properties().memory.max_page_size as usize,
@@ -148,7 +143,7 @@ impl MemoryProbe {
 /// gives each line its own page, the way a buffer a real kernel reads
 /// already got one from whoever produced it.
 pub fn prime(
-    client: &ComputeClient,
+    client: &Client,
     handle: &Handle,
     pool_lines: usize,
     config: LaunchConfig,

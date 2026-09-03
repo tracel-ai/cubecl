@@ -100,7 +100,7 @@ fn copy_perpendicular<T: Numeric, N: Size>(
 /// is not the one with a stride of 1 (the vectorized dimension). It optimizes
 /// the copy by using hardware vectorization (Vectors) and an in-register transpose.
 pub fn launch_into_contiguous_perpendicular(
-    client: &ComputeClient,
+    client: &Client,
     input: TensorBinding,
     dtype: ElemType,
 ) -> TensorHandle {
@@ -121,7 +121,7 @@ pub fn launch_into_contiguous_perpendicular(
 /// is not the one with a stride of 1 (the vectorized dimension). It optimizes
 /// the copy by using hardware vectorization (Vectors) and an in-register transpose.
 pub fn launch_copy_perpendicular_ref(
-    client: &ComputeClient,
+    client: &Client,
     input: TensorBinding,
     output: TensorBinding,
     dtype: ElemType,

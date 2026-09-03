@@ -20,7 +20,7 @@ pub fn async_memcpy_test<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut
     output[0] = smem[0];
 }
 
-pub fn test_async_memcpy<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_async_memcpy<R: Runtime, F: Float + CubeElement>(client: Client) {
     if !client.properties().supports_type(OpaqueType::Barrier) {
         // We can't execute the test, skip.
         return;
@@ -65,7 +65,7 @@ pub fn async_copy_test<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [
     }
 }
 
-pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: Client) {
     if !client.properties().features.copy_async {
         // We can't execute the test, skip.
         return;
@@ -177,7 +177,7 @@ fn two_independent_loads<F: Float, N: Size>(
     output[UNIT_POS_X as usize] = dot;
 }
 
-pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: Client) {
     if !client.properties().supports_type(OpaqueType::Barrier) {
         // We can't execute the test, skip.
         return;
@@ -206,7 +206,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
 
 pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     independent: bool,
-    client: ComputeClient,
+    client: Client,
 ) {
     if !client.properties().supports_type(OpaqueType::Barrier) {
         // We can't execute the test, skip.

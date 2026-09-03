@@ -16,7 +16,7 @@ fn kernel_test_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
     }
 }
 
-pub fn test_sync_cube<R: Runtime>(client: ComputeClient) {
+pub fn test_sync_cube<R: Runtime>(client: Client) {
     // Clamp the cube dim to the device's limit (e.g. the core count on CPU).
     let max_units = client.properties().hardware.max_units_per_cube;
     let dim_x = core::cmp::min(8, (max_units / 2).max(1));
@@ -59,7 +59,7 @@ fn kernel_test_finished_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
     sync_cube();
 }
 
-pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient) {
+pub fn test_finished_sync_cube<R: Runtime>(client: Client) {
     // Clamp the cube dim to the device's limit (e.g. the core count on CPU).
     let max_units = client.properties().hardware.max_units_per_cube;
     let dim_x = core::cmp::min(8, (max_units / 2).max(1));
@@ -100,7 +100,7 @@ fn kernel_test_sync_plane<F: Float>(out: &mut [F]) {
     out[UNIT_POS as usize] = *shared_memory;
 }
 
-pub fn test_sync_plane<R: Runtime>(client: ComputeClient) {
+pub fn test_sync_plane<R: Runtime>(client: Client) {
     if !client.features().plane.contains(Plane::Sync) {
         // We can't execute the test, skip.
         return;
@@ -139,7 +139,7 @@ fn kernel_test_sync_cube_shared<F: Float>(out: &mut [F]) {
     out[UNIT_POS as usize] = *shared_memory;
 }
 
-pub fn test_sync_cube_shared<R: Runtime>(client: ComputeClient) {
+pub fn test_sync_cube_shared<R: Runtime>(client: Client) {
     let max_cube_count = std::cmp::min(64, client.properties().hardware.max_units_per_cube);
     let handle = client.empty(max_cube_count as usize * core::mem::size_of::<f32>());
 
@@ -172,7 +172,7 @@ fn kernel_test_workgroup_uniform_load(out: &mut [u32]) {
     out[UNIT_POS as usize] = n;
 }
 
-pub fn test_workgroup_uniform_load<R: Runtime>(client: ComputeClient) {
+pub fn test_workgroup_uniform_load<R: Runtime>(client: Client) {
     let max_cube_count = std::cmp::min(64, client.properties().hardware.max_units_per_cube);
     let handle = client.empty(max_cube_count as usize * core::mem::size_of::<u32>());
 
@@ -203,7 +203,7 @@ fn kernel_test_workgroup_uniform_load_atomic(out: &mut [u32]) {
     out[UNIT_POS as usize] = n;
 }
 
-pub fn test_workgroup_uniform_load_atomic<R: Runtime>(client: ComputeClient) {
+pub fn test_workgroup_uniform_load_atomic<R: Runtime>(client: Client) {
     let ty = Type::atomic(u32::elem_type_native());
     if !client
         .properties()
@@ -239,7 +239,7 @@ fn kernel_test_workgroup_uniform_load_vec<N: Size>(out: &mut [Vector<f32, N>]) {
     out[UNIT_POS as usize] = workgroup_uniform_load(&smem[0]);
 }
 
-pub fn test_workgroup_uniform_load_vec<R: Runtime>(client: ComputeClient) {
+pub fn test_workgroup_uniform_load_vec<R: Runtime>(client: Client) {
     let lanes = 4usize;
     let max_cube_count = std::cmp::min(64, client.properties().hardware.max_units_per_cube);
     let output = client.create_from_slice(f32::as_bytes(&vec![
@@ -294,7 +294,7 @@ fn expected_uniform_load_sum() -> u32 {
     (0..capped).sum()
 }
 
-pub fn test_workgroup_uniform_load_synchronizes<R: Runtime>(client: ComputeClient) {
+pub fn test_workgroup_uniform_load_synchronizes<R: Runtime>(client: Client) {
     let units = std::cmp::min(256, client.properties().hardware.max_units_per_cube);
     let handle = client.empty(units as usize * core::mem::size_of::<u32>());
 
@@ -334,7 +334,7 @@ fn kernel_test_workgroup_uniform_load_atomic_synchronizes(out: &mut [u32]) {
     out[UNIT_POS as usize] = sum;
 }
 
-pub fn test_workgroup_uniform_load_atomic_synchronizes<R: Runtime>(client: ComputeClient) {
+pub fn test_workgroup_uniform_load_atomic_synchronizes<R: Runtime>(client: Client) {
     let units = std::cmp::min(256, client.properties().hardware.max_units_per_cube);
     let handle = client.empty(units as usize * core::mem::size_of::<u32>());
 

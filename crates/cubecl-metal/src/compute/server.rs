@@ -23,7 +23,7 @@ use cubecl_runtime::{
     kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{InstallMemoryPoolsError, ManagedMemoryHandle},
-    server::ComputeServer,
+    server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{
         EventStreamBackend, ExecuteScope, FailureStore, MultiStream, ResolvedStreams, WriteScoped,
@@ -172,7 +172,7 @@ impl WriteScoped for MetalServer {
     }
 }
 
-impl ComputeServer for MetalServer {
+impl Server for MetalServer {
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
     }

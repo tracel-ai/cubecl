@@ -1,9 +1,9 @@
 use super::{DummyServer, Marker};
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::server::ComputeServer;
+use cubecl_runtime::server::Server;
 use cubecl_runtime::{
-    client::ComputeClient,
+    client::Client,
     logging::ServerLogger,
     memory_management::{MemoryConfiguration, MemoryManagement, MemoryManagementOptions},
     runtime::Runtime,
@@ -30,7 +30,7 @@ impl Device for DummyDevice {
     }
 }
 
-pub type DummyClient = ComputeClient;
+pub type DummyClient = Client;
 
 impl<M: Marker> DeviceService for DummyServer<M> {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
@@ -38,7 +38,7 @@ impl<M: Marker> DeviceService for DummyServer<M> {
     }
 
     fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
-        ComputeServer::utilities(self) as Arc<dyn std::any::Any + Send + Sync>
+        Server::utilities(self) as Arc<dyn std::any::Any + Send + Sync>
     }
 }
 

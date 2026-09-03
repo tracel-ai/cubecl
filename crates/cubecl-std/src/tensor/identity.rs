@@ -36,7 +36,7 @@ fn identity_kernel<C: Numeric, N: Size>(
 /// Launch identity matrix kernel.
 /// Ensure output is a [`TensorHandle`] containing a square matrix.
 /// output will contain the identity matrix.
-pub fn launch(client: &ComputeClient, output: &TensorHandle) {
+pub fn launch(client: &Client, output: &TensorHandle) {
     let dtype = output.dtype;
     launch_ref(client, output.clone().binding(), dtype);
 }
@@ -44,7 +44,7 @@ pub fn launch(client: &ComputeClient, output: &TensorHandle) {
 /// Launch identity matrix kernel by ref.
 /// Ensure output is a [`TensorHandleRef`] containing a square matrix.
 /// output will contain the identity matrix.
-pub fn launch_ref(client: &ComputeClient, output: TensorBinding, dtype: ElemType) {
+pub fn launch_ref(client: &Client, output: TensorBinding, dtype: ElemType) {
     assert_eq!(2, output.shape.len(), "input should be a matrix");
     assert_eq!(
         output.shape[0], output.shape[1],

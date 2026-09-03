@@ -39,7 +39,7 @@ fn hip_graph_capture_replay() {
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -91,7 +91,7 @@ fn hip_graph_capture_growing_the_pool_is_rejected() {
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -133,7 +133,7 @@ fn hip_graph_input_rewrite() {
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(n * core::mem::size_of::<f32>());
 
-    let launch = |client: &ComputeClient| {
+    let launch = |client: &Client| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -190,7 +190,7 @@ fn hip_graph_intermediate_recycling() {
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
     let output = client.empty(bytes);
 
-    let run = |client: &ComputeClient, tmp: &Handle| {
+    let run = |client: &Client, tmp: &Handle| {
         add_one::launch(
             client,
             CubeCount::Static(1, 1, 1),
@@ -277,7 +277,7 @@ fn hip_graph_many_launches_dynamic_metadata() {
 
     // One pass: ping-pong `dst = src + 1` between `a` and `b`. The identical
     // sequence is run once as warmup and once recorded.
-    fn run_pass(client: &ComputeClient, a: &Handle, b: &Handle) {
+    fn run_pass(client: &Client, a: &Handle, b: &Handle) {
         for i in 0..PASS_LAUNCHES {
             let (src, dst) = if i % 2 == 0 { (a, b) } else { (b, a) };
             add_one_tensor::launch(

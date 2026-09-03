@@ -11,7 +11,7 @@ pub fn tensor_coordinate<N: Size>(input: &Tensor<Vector<f32, N>>, output: &mut [
     output[UNIT_POS as usize] = input.coordinate(index, dim) as u32;
 }
 
-pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient) {
+pub fn test_tensor_coordinate<R: Runtime>(client: Client) {
     let (stride, shape, expected) =
         if let Some(num_core) = client.properties().hardware.num_cpu_cores {
             if num_core < 12 {

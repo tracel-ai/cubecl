@@ -1,7 +1,7 @@
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 #[cfg(feature = "autotune-checks")]
 use crate::tune::AutotuneLoggerExt;
-use crate::{client::ComputeClient, tune::TuneCacheResult};
+use crate::{client::Client, tune::TuneCacheResult};
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use core::{
@@ -61,7 +61,7 @@ where
     ///
     /// The device is part of the key because a set is routinely built from the
     /// device it will run on: a closure captures that device's
-    /// [`ComputeClient`] to ask what it supports, or reads its hardware
+    /// [`Client`] to ask what it supports, or reads its hardware
     /// properties to decide which tunables are worth offering at all. Keyed by
     /// the initializer alone, whichever device tuned first would answer those
     /// questions for every device that followed — promoting kernels onto
@@ -139,7 +139,7 @@ where
     pub fn execute<'a, I: TuneInputs, Out>(
         &self,
         id: &ID,
-        client: &ComputeClient,
+        client: &Client,
         operations: Arc<TunableSet<AK, I, Out>>,
         inputs: <I as TuneInputs>::At<'a>,
     ) -> Out

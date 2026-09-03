@@ -24,7 +24,7 @@ pub use cubecl_environment as environment;
 pub use cubecl_environment::future;
 
 use cubecl_ir::VectorSize;
-use cubecl_runtime::client::ComputeClient;
+use cubecl_runtime::client::Client;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::server::CubeCountSelection;
 pub use frontend::cmma;
@@ -80,7 +80,7 @@ pub use prelude::{Assign, IntoRuntime};
 /// Calculate the number of cubes required to execute an operation where one cube unit is
 /// assigned to one element.
 pub fn calculate_cube_count_elemwise(
-    client: &ComputeClient,
+    client: &Client,
     num_elems: usize,
     cube_dim: CubeDim,
 ) -> CubeCount {

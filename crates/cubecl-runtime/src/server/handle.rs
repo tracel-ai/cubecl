@@ -155,7 +155,7 @@ pub enum KernelResource {
 /// A buffer binding represents a [Handle] that is bound to managed memory.
 ///
 /// The memory used is known by the compute server.
-/// A buffer binding is only valid after being initlized with [`super::ComputeServer::initialize_bindings`]
+/// A buffer binding is only valid after being initlized with [`super::Server::initialize_bindings`]
 ///
 /// # Notes
 ///

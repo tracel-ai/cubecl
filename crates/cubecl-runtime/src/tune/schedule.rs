@@ -4,7 +4,7 @@ use core::time::Duration;
 
 use cubecl_common::profile::{Instant, ProfileDuration, TimingMethod};
 
-use crate::client::ComputeClient;
+use crate::client::Client;
 use crate::config::autotune::BenchConfig;
 use crate::tune::sampler::SampleSet;
 use crate::tune::{
@@ -56,7 +56,7 @@ impl Schedule {
         indices: Vec<usize>,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
-        client: &ComputeClient,
+        client: &Client,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
@@ -94,7 +94,7 @@ impl Schedule {
         indices: Vec<usize>,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
-        client: &ComputeClient,
+        client: &Client,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone,
@@ -257,7 +257,7 @@ impl Schedule {
         &self,
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
-        client: &ComputeClient,
+        client: &Client,
         candidate: &mut Candidate,
     ) -> bool
     where
@@ -295,7 +295,7 @@ impl Schedule {
         &self,
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
-        client: &ComputeClient,
+        client: &Client,
         candidate: &mut Candidate,
     ) -> bool
     where
@@ -375,7 +375,7 @@ impl Schedule {
         plan: &mut TunePlan,
         autotunables: &[&TuneFn<F, Out>],
         inputs: &<F as TuneInputs>::At<'a>,
-        client: &ComputeClient,
+        client: &Client,
         results: &mut [AutotuneResult],
     ) -> PlanOutcome
     where

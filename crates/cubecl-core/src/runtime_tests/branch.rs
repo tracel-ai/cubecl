@@ -17,7 +17,7 @@ macro_rules! lit_value_form {
             }
         }
 
-        fn $check(client: &ComputeClient) {
+        fn $check(client: &Client) {
             let run = |cond: u32| -> Vec<u8> {
                 let handle = client.empty(core::mem::size_of::<$ty>());
                 $kernel::launch(
@@ -50,7 +50,7 @@ lit_value_form!(kernel_lit_u64, check_u64, u64, 30u64, 50u64);
 lit_value_form!(kernel_lit_f32, check_f32, f32, 30.0f32, 50.0f32);
 lit_value_form!(kernel_lit_f64, check_f64, f64, 30.0f64, 50.0f64);
 
-pub fn test_value_form_literals<R: Runtime>(client: ComputeClient) {
+pub fn test_value_form_literals<R: Runtime>(client: Client) {
     check_i8(&client);
     check_i16(&client);
     check_i32(&client);
@@ -64,7 +64,7 @@ pub fn test_value_form_literals<R: Runtime>(client: ComputeClient) {
 }
 
 // Subset using only types every backend supports (wgpu rejects i8/i16/u8/u16/f64).
-pub fn test_value_form_literals_portable<R: Runtime>(client: ComputeClient) {
+pub fn test_value_form_literals_portable<R: Runtime>(client: Client) {
     check_f32(&client);
     check_i32(&client);
     check_u32(&client);
@@ -87,7 +87,7 @@ macro_rules! lit_match_value {
             }
         }
 
-        fn $check(client: &ComputeClient) {
+        fn $check(client: &Client) {
             let run = |sel: u32| -> Vec<u8> {
                 let handle = client.empty(core::mem::size_of::<$ty>());
                 $kernel::launch(
@@ -141,7 +141,7 @@ lit_match_value!(
     30.0f64
 );
 
-pub fn test_match_value_literals<R: Runtime>(client: ComputeClient) {
+pub fn test_match_value_literals<R: Runtime>(client: Client) {
     match_check_i8(&client);
     match_check_i16(&client);
     match_check_i32(&client);
@@ -155,7 +155,7 @@ pub fn test_match_value_literals<R: Runtime>(client: ComputeClient) {
 }
 
 // Subset using only types every backend supports (wgpu rejects i8/i16/u8/u16/f64).
-pub fn test_match_value_literals_portable<R: Runtime>(client: ComputeClient) {
+pub fn test_match_value_literals_portable<R: Runtime>(client: Client) {
     match_check_f32(&client);
     match_check_i32(&client);
     match_check_u32(&client);
@@ -245,7 +245,7 @@ pub fn kernel_for_loop_with_return<F: Float>(output: &mut [F]) {
     output[0] = F::new(5f32);
 }
 
-pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: Client) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     kernel_switch_const::launch::<F>(
@@ -262,7 +262,7 @@ pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: ComputeClie
     assert_eq!(actual[0], F::new(3.0));
 }
 
-pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Client) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     unsafe {
@@ -281,7 +281,7 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Compute
     assert_eq!(actual[0], F::new(1.0));
 }
 
-pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: Client) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     kernel_switch_value_expr::launch::<F>(
@@ -298,7 +298,7 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: Com
     assert_eq!(actual[0], F::new(3.0));
 }
 
-pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: Client) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     kernel_switch_value_expr::launch::<F>(
@@ -315,7 +315,7 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeCl
     assert_eq!(actual[0], F::new(5.0));
 }
 
-pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Client) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     kernel_switch_or_arm::launch::<F>(
@@ -332,7 +332,7 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Compute
     assert_eq!(actual[0], F::new(3.0));
 }
 
-pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient, cond: bool) {
+pub fn test_select<R: Runtime, F: Float + CubeElement>(client: Client, cond: bool) {
     let handle = client.create_from_slice(as_bytes![F: 0.0]);
 
     let cond_u32 = if cond { 1 } else { 0 };
@@ -355,7 +355,7 @@ pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient, co
     }
 }
 
-pub fn test_for_loop_with_break<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_for_loop_with_break<R: Runtime, F: Float + CubeElement>(client: Client) {
     let zeros = vec![F::new(0.0); 20];
     let handle = client.create_from_slice(F::as_bytes(&zeros));
 
@@ -375,7 +375,7 @@ pub fn test_for_loop_with_break<R: Runtime, F: Float + CubeElement>(client: Comp
     assert_eq!(actual, expected.as_slice());
 }
 
-pub fn test_for_loop_with_return<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
+pub fn test_for_loop_with_return<R: Runtime, F: Float + CubeElement>(client: Client) {
     let zeros = vec![F::new(0.0); 20];
     let handle = client.create_from_slice(F::as_bytes(&zeros));
 

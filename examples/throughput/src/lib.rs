@@ -1,7 +1,7 @@
 use cubecl::{
     Device,
     ir::{ElemType, FloatKind},
-    prelude::ComputeClient,
+    prelude::Client,
     std::throughput::{measure_memory_curve, measure_peak_throughput},
     throughput::{
         CmmaDims, ComputeCmmaConfig, MemoryAccess, MemoryCurve, ThroughputError, ThroughputKey,
@@ -125,7 +125,7 @@ struct Row {
     key: Option<ThroughputKey>,
 }
 
-fn report(device: &Device, rows: impl FnOnce(&ComputeClient) -> Vec<Row>) {
+fn report(device: &Device, rows: impl FnOnce(&Client) -> Vec<Row>) {
     let client = device.client();
 
     println!(
@@ -147,7 +147,7 @@ fn report(device: &Device, rows: impl FnOnce(&ComputeClient) -> Vec<Row>) {
     }
 }
 
-fn compute_direct_rows(client: &ComputeClient) -> Vec<Row> {
+fn compute_direct_rows(client: &Client) -> Vec<Row> {
     [FloatKind::F32, FloatKind::F16, FloatKind::BF16]
         .into_iter()
         .map(|kind| {
@@ -169,7 +169,7 @@ fn compute_direct_rows(client: &ComputeClient) -> Vec<Row> {
 ///
 /// Consumer parts halve their tensor rate for f32 accumulation, which is the
 /// one a matmul runs on.
-fn compute_cmma_rows(client: &ComputeClient) -> Vec<Row> {
+fn compute_cmma_rows(client: &Client) -> Vec<Row> {
     let dtype = ElemType::Float(FloatKind::F16);
 
     [FloatKind::F16, FloatKind::F32]
@@ -207,11 +207,7 @@ fn compute_cmma_rows(client: &ComputeClient) -> Vec<Row> {
 ///
 /// Read from `cmma` rather than through `select_cmma_tile`, which answers from
 /// `mma` as well: a shape only that instruction has does not run here.
-fn largest_cmma(
-    client: &ComputeClient,
-    dtype: ElemType,
-    accumulator_type: ElemType,
-) -> Option<CmmaDims> {
+fn largest_cmma(client: &Client, dtype: ElemType, accumulator_type: ElemType) -> Option<CmmaDims> {
     client
         .properties()
         .features

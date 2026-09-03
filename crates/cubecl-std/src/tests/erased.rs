@@ -66,7 +66,7 @@ fn values(width: usize) -> Vec<f32> {
 /// Each kernel has to land the same bytes a direct copy would, so a wrong width
 /// or a store on the wrong element shows up as a mismatch rather than as a
 /// plausible-looking buffer.
-pub fn test_write_of_tensor<R: Runtime>(client: ComputeClient, width: usize) {
+pub fn test_write_of_tensor<R: Runtime>(client: Client, width: usize) {
     let input = values(width);
     let actual = launch_copy(&client, &input, width, Kernel::Write);
     assert_eq!(
@@ -75,19 +75,19 @@ pub fn test_write_of_tensor<R: Runtime>(client: ComputeClient, width: usize) {
     );
 }
 
-pub fn test_read_of_tensor<R: Runtime>(client: ComputeClient, width: usize) {
+pub fn test_read_of_tensor<R: Runtime>(client: Client, width: usize) {
     let input = values(width);
     let actual = launch_copy(&client, &input, width, Kernel::Read);
     assert_eq!(actual, input, "read through of_tensor at width {width}");
 }
 
-pub fn test_copy_erased<R: Runtime>(client: ComputeClient, width: usize) {
+pub fn test_copy_erased<R: Runtime>(client: Client, width: usize) {
     let input = values(width);
     let actual = launch_copy(&client, &input, width, Kernel::Copy);
     assert_eq!(actual, input, "read and write erased at width {width}");
 }
 
-pub fn test_len_is_in_lines<R: Runtime>(client: ComputeClient, width: usize) {
+pub fn test_len_is_in_lines<R: Runtime>(client: Client, width: usize) {
     let input = values(width);
 
     let handle_in = client.create_from_slice(f32::as_bytes(&input));
@@ -121,7 +121,7 @@ enum Kernel {
     Copy,
 }
 
-fn launch_copy(client: &ComputeClient, input: &[f32], width: usize, kernel: Kernel) -> Vec<f32> {
+fn launch_copy(client: &Client, input: &[f32], width: usize, kernel: Kernel) -> Vec<f32> {
     let lines = input.len() / width;
     let handle_in = client.create_from_slice(f32::as_bytes(input));
     let handle_out = client.empty(size_of_val(input));

@@ -53,11 +53,7 @@ impl TensorHandle {
         }
     }
 
-    pub fn empty(
-        client: &ComputeClient,
-        shape: impl Into<Shape>,
-        storage: impl Into<Type>,
-    ) -> Self {
+    pub fn empty(client: &Client, shape: impl Into<Shape>, storage: impl Into<Type>) -> Self {
         let storage = storage.into();
         let shape: Shape = shape.into();
         let elem_size = storage.elem_type().size();
@@ -132,7 +128,7 @@ impl TensorHandle {
     }
 }
 impl TensorHandle {
-    pub fn zeros(client: &ComputeClient, shape: impl Into<Shape>, dtype: impl Into<Type>) -> Self {
+    pub fn zeros(client: &Client, shape: impl Into<Shape>, dtype: impl Into<Type>) -> Self {
         let dtype = dtype.into();
         let shape = shape.into();
         let num_elements: usize = shape.iter().product();
