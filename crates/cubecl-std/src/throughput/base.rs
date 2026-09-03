@@ -1,6 +1,6 @@
 use cubecl_core::ir::ElemType;
 use cubecl_runtime::{
-    client::ComputeClient,
+    client::Client,
     runtime::Runtime,
     server::CubeDim,
     throughput::{
@@ -36,7 +36,7 @@ pub fn device_throughput<R: Runtime>(
 ) -> alloc::vec::Vec<Result<ThroughputValue, ThroughputError>> {
     let client = R::client(device);
     keys.iter()
-        .map(|key| measure_peak_throughput::<R>(&client, *key))
+        .map(|key| measure_peak_throughput(&client, *key))
         .collect()
 }
 
@@ -49,11 +49,8 @@ pub fn device_throughput<R: Runtime>(
 /// first run and nothing afterwards.
 ///
 /// Native only, panics on WASM
-pub fn measure_memory_curve<R: Runtime>(
-    client: &ComputeClient<R>,
-    access: MemoryAccess,
-) -> MemoryCurve {
-    let points = sweep::<R>(client, access, |bytes| {
+pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurve {
+    let points = sweep(client, access, |bytes| {
         ThroughputMode::Memory(MemorySpec::new(access, bytes))
     });
 
@@ -63,8 +60,8 @@ pub fn measure_memory_curve<R: Runtime>(
 /// One measured point per size in [`working_set_sweep`], each cached exactly
 /// like the single-size probe, so a curve costs one probe per size on the
 /// first run and nothing afterwards.
-fn sweep<R: Runtime>(
-    client: &ComputeClient<R>,
+fn sweep(
+    client: &Client,
     access: MemoryAccess,
     mode: impl Fn(u64) -> ThroughputMode,
 ) -> alloc::vec::Vec<MemoryPoint> {
@@ -75,7 +72,7 @@ fn sweep<R: Runtime>(
 
             Some(MemoryPoint {
                 bytes,
-                value: measure_peak_throughput::<R>(client, key).ok()?,
+                value: measure_peak_throughput(client, key).ok()?,
             })
         })
         .collect()
@@ -83,7 +80,7 @@ fn sweep<R: Runtime>(
 
 /// The largest working set `access` can be probed at: the largest window one
 /// buffer holds, times the buffers the access touches.
-fn working_set_cap<R: Runtime>(client: &ComputeClient<R>, access: MemoryAccess) -> u64 {
+fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
     let max_alloc = client.properties().memory.max_page_size;
 
     memory_probe::window_cap(max_alloc) * access.buffers()
@@ -98,8 +95,8 @@ fn working_set_cap<R: Runtime>(client: &ComputeClient<R>, access: MemoryAccess) 
 /// [`Unsupported`](ThroughputError::Unsupported) where the device implements
 /// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
 /// and reported no elapsed time.
-pub fn measure_peak_throughput<R: Runtime>(
-    client: &ComputeClient<R>,
+pub fn measure_peak_throughput(
+    client: &Client,
     key: ThroughputKey,
 ) -> Result<ThroughputValue, ThroughputError> {
     // A throughput probe is a measurement: inside a dry run its launches must
@@ -162,8 +159,8 @@ pub fn measure_peak_throughput<R: Runtime>(
 /// Calculates roofline autotune bounds for a given [`Work`] amount and compute throughput key.
 ///
 /// Measures compute and memory peak throughputs along with launch overhead for the runtime client.
-pub fn roofline_bounds<R: Runtime>(
-    client: &ComputeClient<R>,
+pub fn roofline_bounds(
+    client: &Client,
     compute_key: ThroughputKey,
     work: Work,
     thresholds: Thresholds,
@@ -214,10 +211,7 @@ fn fastest_shape(
 ///
 /// `io_optimized_vector_sizes` is ordered for the loads and stores this probe
 /// issues none of, and its widest is not the fastest on every device.
-fn arithmetic_widths<R: Runtime>(
-    client: &ComputeClient<R>,
-    dtype: ElemType,
-) -> alloc::vec::Vec<usize> {
+fn arithmetic_widths(client: &Client, dtype: ElemType) -> alloc::vec::Vec<usize> {
     let widths: alloc::vec::Vec<usize> = client.io_optimized_vector_sizes(dtype.size()).collect();
 
     if widths.is_empty() {
@@ -231,11 +225,7 @@ fn arithmetic_widths<R: Runtime>(
 ///
 /// A non-empty capability list says the device has tensor hardware, not this
 /// shape of it. `mma` is not consulted: the probe issues `cmma::execute`.
-fn implements_cmma<R: Runtime>(
-    client: &ComputeClient<R>,
-    dtype: ElemType,
-    config: ComputeCmmaConfig,
-) -> bool {
+fn implements_cmma(client: &Client, dtype: ElemType, config: ComputeCmmaConfig) -> bool {
     client.properties().features.matmul.cmma.iter().any(|it| {
         it.a_type == dtype
             && it.b_type == dtype
@@ -260,7 +250,7 @@ pub struct LaunchConfig {
     pub plane_size: usize,
 }
 
-fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> LaunchConfig {
+fn launch_config(client: &Client, dtype: ElemType) -> LaunchConfig {
     let hardware = &client.properties().hardware;
 
     let plane_size = hardware.plane_size_max.max(1);

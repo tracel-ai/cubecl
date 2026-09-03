@@ -486,6 +486,11 @@ mod tests {
 
     use super::*;
 
+    /// A service for handles that never reach a device.
+    fn service() -> cubecl_common::device::ServiceId {
+        cubecl_common::device::ServiceId::of::<()>(cubecl_common::device::DeviceId::new(0, 0))
+    }
+
     const MAX_STREAMS: u8 = 4;
 
     #[test_log::test]
@@ -597,7 +602,7 @@ mod tests {
         ms.resolve(stream_1, [].into_iter());
         ms.resolve(stream_2, [].into_iter());
 
-        let handle = Handle::new(stream_1, 10);
+        let handle = Handle::new(service(), stream_1, 10);
         let observer = handle.memory.clone();
         let binding = handle.binding();
 
@@ -628,7 +633,7 @@ mod tests {
         ms.resolve(stream_2, [].into_iter());
 
         // First resolve records stream_1 as synced on stream_2.
-        let handle_1 = Handle::new(stream_1, 10);
+        let handle_1 = Handle::new(service(), stream_1, 10);
         let binding_1 = handle_1.binding();
         drop(ms.resolve(stream_2, [&binding_1].into_iter()));
         drop(binding_1);
@@ -636,7 +641,7 @@ mod tests {
         // Close the gate for the second round.
         gate.store(false, Ordering::Release);
 
-        let handle_2 = Handle::new(stream_1, 10);
+        let handle_2 = Handle::new(service(), stream_1, 10);
         let observer = handle_2.memory.clone();
         let binding_2 = handle_2.binding();
 
@@ -670,7 +675,7 @@ mod tests {
     }
 
     fn handle(stream: StreamId) -> BufferBinding {
-        Handle::new(stream, 10).binding()
+        Handle::new(service(), stream, 10).binding()
     }
 
     struct TestBackend;

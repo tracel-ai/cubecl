@@ -1,3 +1,3 @@
 fn main() {
-    throughput::dispatch!(R => throughput::compute_direct::<R>(&Default::default()));
+    throughput::dispatch!(device => throughput::compute_direct(&device));
 }

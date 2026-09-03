@@ -222,21 +222,21 @@ pub struct TiledViewLayoutCompilationArg {
 }
 
 impl ViewLayoutLaunchArg for TiledViewLayout {
-    type RuntimeArg<R: Runtime> = TileSpec;
+    type RuntimeArg = TileSpec;
     type CompilationArg = TiledViewLayoutCompilationArg;
 
-    fn register<R: Runtime, B: MemoryArg>(
-        spec: Self::RuntimeArg<R>,
+    fn register<B: MemoryArg>(
+        spec: Self::RuntimeArg,
         buffer: &B,
         _ty: Type,
-        launcher: &mut KernelLauncher<R>,
+        launcher: &mut KernelLauncher,
     ) -> Self::CompilationArg {
         let shape = buffer.shape();
         let strides = buffer.strides();
 
-        let shape_arg: <CoordsDyn as LaunchArg>::RuntimeArg<R> =
+        let shape_arg: <CoordsDyn as LaunchArg>::RuntimeArg =
             shape.iter().map(|&s| s as u32).collect();
-        let strides_arg: <CoordsDyn as LaunchArg>::RuntimeArg<R> =
+        let strides_arg: <CoordsDyn as LaunchArg>::RuntimeArg =
             strides.iter().map(|&s| s as u32).collect();
 
         TiledViewLayoutCompilationArg {
@@ -265,4 +265,4 @@ impl ViewLayoutLaunchArg for TiledViewLayout {
 
 /// View type alias for a tiled buffer seen through its logical coordinates.
 pub type TiledView<'a, E> = View<'a, E, CoordsDyn>;
-pub type TiledViewLaunch<R> = ViewArg<CoordsDyn, R>;
+pub type TiledViewLaunch = ViewArg<CoordsDyn>;

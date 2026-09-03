@@ -1,6 +1,7 @@
 #![allow(clippy::approx_constant)]
 
 use core::fmt::Display;
+use cubecl_runtime::runtime::Runtime;
 
 use crate::{self as cubecl, as_type};
 use cubecl_environment::sync::LazyLock;
@@ -13,8 +14,8 @@ use cubecl_runtime::server::Handle;
 const ULPS_ALLOWED: f32 = 32.0;
 
 #[track_caller]
-pub(crate) fn assert_equals_approx<R: Runtime, F: num_traits::Float + CubeElement + Display>(
-    client: &ComputeClient<R>,
+pub(crate) fn assert_equals_approx<F: num_traits::Float + CubeElement + Display>(
+    client: &Client,
     output: Handle,
     expected: &[F],
     epsilon: f32,
@@ -68,7 +69,7 @@ macro_rules! test_binary_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
             #[cube(launch_unchecked, fast_math = *FAST_MATH)]
             fn test_function<$float_type: Float, In: Size, Out: Size>(
                 lhs: &[Vector<$float_type, In>],
@@ -89,7 +90,7 @@ macro_rules! test_binary_impl {
                 let rhs_handle = client.create_from_slice($float_type::as_bytes(rhs));
 
                 unsafe {
-                    test_function::launch_unchecked::<$float_type, R>(
+                    test_function::launch_unchecked::<$float_type>(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
@@ -101,7 +102,7 @@ macro_rules! test_binary_impl {
                     )
                 };
 
-                assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
+                assert_equals_approx::<F>(&client, output_handle, $expected, 0.001);
             }
             )*
         }
@@ -275,7 +276,7 @@ macro_rules! test_powi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
             $(
             {
                 let lhs = $lhs;
@@ -285,7 +286,7 @@ macro_rules! test_powi_impl {
                 let rhs_handle = client.create_from_slice(i32::as_bytes(rhs));
 
                 unsafe {
-                    test_powi_kernel::launch_unchecked::<F, R>(
+                    test_powi_kernel::launch_unchecked::<F>(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
@@ -296,7 +297,7 @@ macro_rules! test_powi_impl {
                     )
                 };
 
-                assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
+                assert_equals_approx::<F>(&client, output_handle, $expected, 0.001);
             }
             )*
         }
@@ -373,7 +374,7 @@ fn test_minus_product_kernel<F: Float, N: Size>(
 /// `c - a * b` negates a factor rather than the product, which is the same number only
 /// because flipping one factor flips the product exactly.
 pub fn test_fma_from_sub<R: Runtime, F: Float + num_traits::Float + CubeElement + Display>(
-    client: ComputeClient<R>,
+    client: Client,
 ) {
     let a = as_type![F: 1., -3.1, -2.4, 15.1];
     let b = as_type![F: -1., 23.1, -1.4, 5.1];
@@ -389,9 +390,9 @@ pub fn test_fma_from_sub<R: Runtime, F: Float + num_traits::Float + CubeElement 
             let b_handle = client.create_from_slice(F::as_bytes(b));
             let c_handle = client.create_from_slice(F::as_bytes(c));
             let launch = if kernel == 0 {
-                test_product_minus_kernel::launch_unchecked::<F, R>
+                test_product_minus_kernel::launch_unchecked::<F>
             } else {
-                test_minus_product_kernel::launch_unchecked::<F, R>
+                test_minus_product_kernel::launch_unchecked::<F>
             };
             unsafe {
                 launch(
@@ -405,7 +406,7 @@ pub fn test_fma_from_sub<R: Runtime, F: Float + num_traits::Float + CubeElement 
                     BufferArg::from_raw_parts(output_handle.clone(), expected.len()),
                 )
             };
-            assert_equals_approx::<R, F>(&client, output_handle, expected, 0.001);
+            assert_equals_approx::<F>(&client, output_handle, expected, 0.001);
         }
     }
 }
@@ -421,7 +422,7 @@ macro_rules! test_fma_impl {
             c: $c:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: Client) {
             $(
             {
                 let a = $a;
@@ -433,7 +434,7 @@ macro_rules! test_fma_impl {
                 let c_handle = client.create_from_slice($float_type::as_bytes(c));
 
                 unsafe {
-                    test_fma_kernel::launch_unchecked::<F, R>(
+                    test_fma_kernel::launch_unchecked::<F>(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((a.len() / $input_vectorization as usize) as u32),
@@ -445,7 +446,7 @@ macro_rules! test_fma_impl {
                     )
                 };
 
-                assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
+                assert_equals_approx::<F>(&client, output_handle, $expected, 0.001);
 
                 let a = $a;
                 let b = $b;
@@ -455,7 +456,7 @@ macro_rules! test_fma_impl {
                 let b_handle = client.create_from_slice($float_type::as_bytes(b));
                 let c_handle = client.create_from_slice($float_type::as_bytes(c));
                 unsafe {
-                    test_manual_fma_kernel::launch_unchecked::<F, R>(
+                    test_manual_fma_kernel::launch_unchecked::<F>(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((a.len() / $input_vectorization as usize) as u32),
@@ -466,7 +467,7 @@ macro_rules! test_fma_impl {
                         BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
-                assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
+                assert_equals_approx::<F>(&client, output_handle, $expected, 0.001);
             }
             )*
         }
@@ -521,7 +522,7 @@ macro_rules! test_mulhi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+        pub fn $test_name<R: Runtime>(client: Client) {
             $(
             {
                 let lhs = $lhs;
@@ -593,7 +594,7 @@ fn reference_dp4a(a: i32, b: i32, c: i32) -> i32 {
         })
 }
 
-pub fn test_dp4a<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_dp4a<R: Runtime>(client: Client) {
     let a = [
         i32::from_le_bytes([1, 2, 3, 4]),
         i32::from_le_bytes([255, 254, 253, 252]),
@@ -611,7 +612,7 @@ pub fn test_dp4a<R: Runtime>(client: ComputeClient<R>) {
     let b = client.create_from_slice(i32::as_bytes(&b));
     let c = client.create_from_slice(i32::as_bytes(&c));
     let output = client.empty(expected.len() * size_of::<i32>());
-    test_dp4a_kernel::launch::<R>(
+    test_dp4a_kernel::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(expected.len() as u32),
@@ -667,10 +668,10 @@ fn kernel_self_div(output: &mut [u32]) {
     }
 }
 
-pub fn test_self_div<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_self_div<R: Runtime>(client: Client) {
     let handle = client.create_from_slice(u32::as_bytes(&[7u32, 1, 255, 42]));
 
-    kernel_self_div::launch::<R>(
+    kernel_self_div::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(4),

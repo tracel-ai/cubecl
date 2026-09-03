@@ -2,52 +2,51 @@ use crate::{
     config::memory::MemoryPoolsConfig,
     config::{TypeNameFormatLevel, type_name_format},
     id::GraphId,
-    kernel::KernelMetadata,
+    kernel::CubeKernel,
     logging::ProfileLevel,
     memory_management::{
         InstallMemoryPoolsError, MemoryAllocationMode, MemoryConfiguration, MemoryReport,
         MemoryUsage,
     },
-    runtime::Runtime,
     server::{
-        BufferBinding, CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle,
-        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
-        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
-        ServerUtilities,
+        BufferBinding, CommunicationId, CopyDescriptor, CubeCount, Handle, KernelArguments,
+        KernelResource, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutStrategy, ProfileError,
+        ReduceOperation, Server, ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
         ThroughputBenchmarker, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
     },
 };
-use alloc::{format, sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
+use core::any::{Any, TypeId};
 
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
-    device::{Device, DeviceId},
+    device::{DeviceId, ServiceId},
     device_handle::{CallResultExt, DeviceHandle},
     profile::ProfileDuration,
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
-use cubecl_ir::{DeviceProperties, ElemType, VectorSize, features::Features};
+use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 use cubecl_environment::stream::StreamId;
 
-/// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
+/// The `Client` is the entry point to require tasks from the `Server`.
 /// It should be obtained for a specific device via the Compute struct.
-pub struct ComputeClient<R: Runtime> {
-    device: DeviceHandle<R::Server>,
-    utilities: Arc<ServerUtilities<R::Server>>,
+pub struct Client {
+    device: DeviceHandle<dyn Server>,
+    utilities: Arc<ServerUtilities>,
     stream_id: Option<StreamId>,
 }
 
-/// A captured graph produced by [`ComputeClient::stop_capture`]: a recorded
+/// A captured graph produced by [`Client::stop_capture`]: a recorded
 /// launch sequence that [`replay`](Graph::replay) re-runs against its original
 /// buffers, skipping the launch path it was recorded from. Cheap to clone
 /// (shares one backend graph).
@@ -58,21 +57,21 @@ pub struct ComputeClient<R: Runtime> {
 /// device buffers used during capture. The caller keeps those input/output
 /// [`Handle`]s alive and, each iteration, writes fresh inputs into the input
 /// handles (same device pointers) and reads the output handles after replaying —
-/// see [`ComputeClient::stop_capture`].
+/// see [`Client::stop_capture`].
 ///
 /// **Stream ordering.** [`replay`](Graph::replay) always dispatches on the
 /// stream the graph was captured on, but input writes and output reads go on the
 /// *writing client's* current stream. They are ordered against the replay only
 /// when they land on that same stream, so keep the client pinned to the capture
-/// stream (via [`set_stream`](ComputeClient::set_stream)) — or issue all writes,
+/// stream (via [`set_stream`](Client::set_stream)) — or issue all writes,
 /// replays, and reads from the same unpinned client — for the whole decode loop.
 /// Refreshing inputs from a client on a different stream races the replay and
 /// silently feeds it stale data.
-pub struct Graph<R: Runtime> {
-    inner: Arc<GraphHandle<R>>,
+pub struct Graph {
+    inner: Arc<GraphHandle>,
 }
 
-impl<R: Runtime> core::fmt::Debug for Graph<R> {
+impl core::fmt::Debug for Graph {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Graph")
             .field("id", &self.inner.id)
@@ -84,13 +83,13 @@ impl<R: Runtime> core::fmt::Debug for Graph<R> {
 /// Reference-counted owner of a backend graph. Its [`Drop`] ships the release to
 /// the server actor, so the last [`Graph`] clone frees the backend graph on the
 /// thread that owns it.
-struct GraphHandle<R: Runtime> {
+struct GraphHandle {
     id: GraphId,
-    device: DeviceHandle<R::Server>,
+    device: DeviceHandle<dyn Server>,
     stream_id: StreamId,
 }
 
-impl<R: Runtime> Graph<R> {
+impl Graph {
     /// Replay the captured launch sequence — every recorded kernel re-run
     /// against the buffers it was captured with, on the stream it was captured
     /// on. Self-contained (the handle owns its device handle); no client
@@ -132,7 +131,7 @@ impl<R: Runtime> Graph<R> {
     ///   only against work on its capture stream.
     /// - **Same-stream refreshes** — input writes and output reads are issued on
     ///   the capture stream (keep the client pinned to it via
-    ///   [`set_stream`](ComputeClient::set_stream), or do everything from the
+    ///   [`set_stream`](Client::set_stream), or do everything from the
     ///   one client), so they order against the replay instead of racing it.
     pub unsafe fn replay(&self) -> Result<(), ServerError> {
         let id = self.inner.id;
@@ -144,7 +143,7 @@ impl<R: Runtime> Graph<R> {
     }
 }
 
-impl<R: Runtime> Clone for Graph<R> {
+impl Clone for Graph {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -152,7 +151,7 @@ impl<R: Runtime> Clone for Graph<R> {
     }
 }
 
-impl<R: Runtime> Drop for GraphHandle<R> {
+impl Drop for GraphHandle {
     fn drop(&mut self) {
         let id = self.id;
         let stream_id = self.stream_id;
@@ -165,7 +164,16 @@ impl<R: Runtime> Drop for GraphHandle<R> {
     }
 }
 
-impl<R: Runtime> Clone for ComputeClient<R> {
+/// The state a `DeviceHandle` reaches, seen as the server it is. A client
+/// keeps this cast, not the server type, so every operation reads the same
+/// whatever backend is underneath.
+fn as_server<S: Server>(state: &mut dyn Any) -> &mut dyn Server {
+    state
+        .downcast_mut::<S>()
+        .expect("State type mismatch in the device registry")
+}
+
+impl Clone for Client {
     fn clone(&self) -> Self {
         Self {
             device: self.device.clone(),
@@ -175,17 +183,18 @@ impl<R: Runtime> Clone for ComputeClient<R> {
     }
 }
 
-impl<R: Runtime> ComputeClient<R> {
-    /// Get the info of the current backend.
-    pub fn info(&self) -> &<R::Server as ComputeServer>::Info {
-        &self.utilities.info
+impl Client {
+    /// The runtime name on this device, as logs and cache keys show it.
+    pub fn name(&self) -> &'static str {
+        self.utilities.name
     }
 
     /// Create a new client with a new server.
-    pub fn init<D: Device>(device: &D, server: R::Server) -> Self {
-        let utilities = server.utilities();
-        let context = DeviceHandle::<R::Server>::insert(device.to_id(), server)
-            .expect("Can't create a new client on an already registered server");
+    pub fn init<S: ServerStorage>(device_id: DeviceId, server: S) -> Self {
+        let utilities = Server::utilities(&server);
+        let context = DeviceHandle::<S>::insert(device_id, server)
+            .expect("Can't create a new client on an already registered server")
+            .seen_as(as_server::<S>);
 
         Self {
             device: context,
@@ -194,14 +203,15 @@ impl<R: Runtime> ComputeClient<R> {
         }
     }
 
-    /// Load the client for the given device.
-    pub fn load<D: Device>(device: &D) -> Self {
-        let context = DeviceHandle::<R::Server>::new(device.to_id());
+    /// Load the client for the given device, starting a server of type `S`
+    /// there if none runs yet.
+    pub fn load<S: ServerStorage>(device_id: DeviceId) -> Self {
+        let context = DeviceHandle::<S>::new(device_id).seen_as(as_server::<S>);
 
         // This is safe because we now know the return type of [`DeviceHandle::utilities()`].
         let utilities = context
             .utilities()
-            .downcast::<ServerUtilities<R::Server>>()
+            .downcast::<ServerUtilities>()
             .expect("Can downcast to `ServerUtilities`");
 
         Self {
@@ -218,6 +228,43 @@ impl<R: Runtime> ComputeClient<R> {
         }
     }
 
+    /// The service this client reaches: what its handles are stamped with.
+    pub fn service_id(&self) -> ServiceId {
+        self.device.service_id()
+    }
+
+    /// Whether the server behind this client is an `S`. The client is erased
+    /// over its server type, so a caller naming one has to be checked here,
+    /// before a downcast on the device thread turns the mismatch into a panic.
+    fn is_service<S: 'static>(&self) -> bool {
+        TypeId::of::<S>() == self.service_id().service
+    }
+
+    /// Whether `binding` addresses this client's device. Memory coordinates
+    /// mean nothing on another device, so a foreign binding is refused here,
+    /// before anything is submitted, rather than read there.
+    fn local(&self, binding: &BufferBinding) -> Result<(), ServerError> {
+        let client = self.service_id();
+        if binding.service == client {
+            return Ok(());
+        }
+        Err(ServerError::ForeignHandle {
+            handle: format!("{}", binding.service),
+            client: format!("{client}"),
+            backtrace: BackTrace::capture(),
+        })
+    }
+
+    /// [`local`](Self::local) for a call that has no error to return: a
+    /// foreign handle is a bug in the caller, and the alternative to stopping
+    /// here is reading another device's memory.
+    #[track_caller]
+    fn expect_local(&self, binding: &BufferBinding) {
+        if let Err(err) = self.local(binding) {
+            panic!("{err}");
+        }
+    }
+
     /// Set the stream in which the current client is operating on.
     ///
     /// # Safety
@@ -228,6 +275,12 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        if let Some(err) = descriptors
+            .iter()
+            .find_map(|descriptor| self.local(&descriptor.handle).err())
+        {
+            return Box::pin(core::future::ready(Err(err)));
+        }
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
@@ -296,14 +349,14 @@ impl<R: Runtime> ComputeClient<R> {
     /// the one created by the runtime (i.e. padded on only the last dimension). A way to check
     /// stride compatibility on the runtime will be added in the future.
     ///
-    /// Also see [`ComputeClient::create_tensor`].
+    /// Also see [`Client::create_tensor`].
     pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor>) -> Vec<Bytes> {
         cubecl_environment::future::reader::read_sync(self.read_tensor_async(descriptors))
             .expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
-    /// See [`ComputeClient::read_tensor`]
+    /// See [`Client::read_tensor`]
     pub fn read_one_tensor_async(
         &self,
         descriptor: CopyDescriptor,
@@ -318,7 +371,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// # Remarks
     ///
     /// Panics if the read operation fails.
-    /// See [`ComputeClient::read_tensor`]
+    /// See [`Client::read_tensor`]
     pub fn read_one_unchecked_tensor(&self, descriptor: CopyDescriptor) -> Bytes {
         self.read_tensor(vec![descriptor]).remove(0)
     }
@@ -334,6 +387,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// between this call and the first read.
     #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy(&self, descriptor: CopyDescriptor) -> Bytes {
+        self.expect_local(&descriptor.handle);
         let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
         let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
         // SAFETY: the controller materializes exactly `len` bytes on first access.
@@ -349,6 +403,9 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         descriptor: CopyDescriptor,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+        if let Err(err) = self.local(&descriptor.handle) {
+            return core::future::ready(Err(err));
+        }
         let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
         let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
         // SAFETY: the controller materializes exactly `len` bytes on first access.
@@ -370,18 +427,28 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Given a resource handle, returns the storage resource.
-    pub fn get_resource(
+    pub fn get_resource<S: ServerStorage>(
         &self,
         handle: Handle,
-    ) -> Result<
-        ManagedResource<<<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource>,
-        ServerError,
-    > {
+    ) -> Result<ManagedResource<<S::Storage as ComputeStorage>::Resource>, ServerError> {
         let stream_id = self.stream_id();
         let binding = handle.binding();
+        self.local(&binding)?;
+        if !self.is_service::<S>() {
+            return Err(ServerError::ServiceMismatch {
+                client: format!("{}", self.service_id()),
+                requested: String::from(core::any::type_name::<S>()),
+                backtrace: BackTrace::capture(),
+            });
+        }
 
         self.device
-            .submit_blocking(move |state| state.get_resource(binding, stream_id))
+            .submit_blocking(move |server| {
+                let server = (server as &mut dyn Any)
+                    .downcast_mut::<S>()
+                    .expect("is_service passed, so this is the server's type");
+                server.get_resource(binding, stream_id)
+            })
             .unwrap_or_resume()
     }
 
@@ -391,7 +458,10 @@ impl<R: Runtime> ComputeClient<R> {
         slices: Vec<Vec<u8>>,
     ) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
-        let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
+        let (handle_base, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.service_id(), stream_id, &descriptors);
 
         let descriptors = descriptors
             .into_iter()
@@ -425,7 +495,10 @@ impl<R: Runtime> ComputeClient<R> {
         data: Vec<Bytes>,
     ) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
-        let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
+        let (handle_base, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.service_id(), stream_id, &descriptors);
 
         let descriptors = descriptors
             .into_iter()
@@ -538,6 +611,7 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let descriptor =
             CopyDescriptor::new(handle.clone().binding(), [data.len()].into(), [1].into(), 1);
+        self.expect_local(&descriptor.handle);
         self.device.submit(move |server| {
             server.write(vec![(descriptor, data)], stream_id);
         });
@@ -571,7 +645,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// also take cache lines into account.
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
-    /// (also see [`ComputeClient::read_tensor`]).
+    /// (also see [`Client::read_tensor`]).
     ///
     /// # Notes
     ///
@@ -605,7 +679,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// also take cache lines into account.
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
-    /// (also see [`ComputeClient::read_tensor`]).
+    /// (also see [`Client::read_tensor`]).
     pub fn create_tensor(&self, bytes: Bytes, shape: Shape, elem_size: usize) -> MemoryLayout {
         self.do_create(
             vec![MemoryLayoutDescriptor::new(
@@ -620,7 +694,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
-    /// See [`ComputeClient::create_tensor`]
+    /// See [`Client::create_tensor`]
     ///
     /// # Notes
     ///
@@ -641,7 +715,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
-    /// See [`ComputeClient::create_tensor`]
+    /// See [`Client::create_tensor`]
     pub fn create_tensors(
         &self,
         descriptors: Vec<(MemoryLayoutDescriptor, Bytes)>,
@@ -653,7 +727,10 @@ impl<R: Runtime> ComputeClient<R> {
 
     fn do_empty(&self, descriptors: Vec<MemoryLayoutDescriptor>) -> Vec<MemoryLayout> {
         let stream_id = self.stream_id();
-        let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
+        let (handle_base, layouts) =
+            self.utilities
+                .layout_policy
+                .apply(self.service_id(), stream_id, &descriptors);
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
@@ -671,7 +748,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
-    /// See [`ComputeClient::create_tensor`]
+    /// See [`Client::create_tensor`]
     pub fn empty_tensor(&self, shape: Shape, elem_size: usize) -> MemoryLayout {
         let descriptor =
             MemoryLayoutDescriptor::new(MemoryLayoutStrategy::Optimized, shape, elem_size);
@@ -679,7 +756,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Reserves all `shapes` in a single storage buffer, and returns the handles for them.
-    /// See [`ComputeClient::create_tensor`]
+    /// See [`Client::create_tensor`]
     pub fn empty_tensors(&self, descriptors: Vec<MemoryLayoutDescriptor>) -> Vec<MemoryLayout> {
         self.do_empty(descriptors)
     }
@@ -738,16 +815,22 @@ impl<R: Runtime> ComputeClient<R> {
             });
     }
 
-    /// Transfer data from one client to another
+    /// Transfer data from one client to another.
+    ///
+    /// `src` must be this client's. The bytes go device to device when both
+    /// clients are of the same runtime and it has a collective transport;
+    /// otherwise, and always across runtimes, they go through the host.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
     pub fn to_client(&mut self, src: Handle, dst_server: &Self, dtype: ElemType) -> Handle {
+        self.expect_local(&src.clone().binding());
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
-        if R::Server::SERVER_COMM_ENABLED {
+        let same_runtime = dst_server.service_id().service == self.service_id().service;
+        if self.utilities.server_comm_enabled && same_runtime {
             self.to_client_tensor(src_descriptor, dst_server, dtype)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
@@ -781,7 +864,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// Wait on the communication stream.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
-        if DeviceHandle::<R::Server>::is_blocking() {
+        if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `sync_collective` with a blocking device handle");
         }
         let stream_id = self.stream_id();
@@ -813,13 +896,15 @@ impl<R: Runtime> ComputeClient<R> {
         device_ids: Vec<DeviceId>,
         op: ReduceOperation,
     ) {
-        if DeviceHandle::<R::Server>::is_blocking() {
+        if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `all_reduce` with a blocking device handle");
         }
 
         let stream_id = self.stream_id();
         let src = src.binding();
         let dst = dst.binding();
+        self.expect_local(&src);
+        self.expect_local(&dst);
 
         self.ensure_init_collective(device_ids.clone());
 
@@ -848,6 +933,7 @@ impl<R: Runtime> ComputeClient<R> {
         dst_server: &Self,
         dtype: ElemType,
     ) -> Handle {
+        self.expect_local(&src_descriptor.handle);
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
 
@@ -855,7 +941,11 @@ impl<R: Runtime> ComputeClient<R> {
         let device_id_dst = dst_server.device.device_id();
 
         let mut dst_server = dst_server.clone();
-        let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
+        let handle = Handle::new(
+            dst_server.service_id(),
+            stream_id_dst,
+            src_descriptor.handle.size_in_used(),
+        );
         let handle_cloned = handle.clone();
 
         let device_ids = vec![device_id_src, device_id_dst];
@@ -909,7 +999,7 @@ impl<R: Runtime> ComputeClient<R> {
     ))]
     unsafe fn launch_inner(
         &self,
-        kernel: <R::Server as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -919,6 +1009,15 @@ impl<R: Runtime> ComputeClient<R> {
             && (*x == 0 || *y == 0 || *z == 0)
         {
             return;
+        }
+        if let CubeCount::Dynamic(binding) = &count {
+            self.expect_local(binding);
+        }
+        for resource in &bindings.resources {
+            self.expect_local(match resource {
+                KernelResource::Buffer(binding) => binding,
+                KernelResource::TensorMap(map) => &map.binding,
+            });
         }
 
         // Decided here, on the issuing thread, because that is the only place
@@ -1075,12 +1174,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Launches the `kernel` with the given `bindings`.
     #[track_caller]
-    pub fn launch(
-        &self,
-        kernel: <R::Server as ComputeServer>::Kernel,
-        count: CubeCount,
-        bindings: KernelArguments,
-    ) {
+    pub fn launch(&self, kernel: Box<dyn CubeKernel>, count: CubeCount, bindings: KernelArguments) {
         unsafe { self.launch_inner(kernel, count, bindings, self.stream_id()) }
     }
 
@@ -1103,7 +1197,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         handles: impl IntoIterator<Item = &'a Handle>,
     ) -> Result<(), ServerError> {
-        let bindings = Self::bindings(handles);
+        let bindings = self.bindings(handles)?;
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.check(bindings, stream_id))
@@ -1120,7 +1214,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Prepare this client's stream for a graph capture (see
-    /// [`ComputeServer::graph_prepare`]) — enable the persistent pool + capture
+    /// [`Server::graph_prepare`]) — enable the persistent pool + capture
     /// recording. Call this **before** the warmup run, then
     /// [`start_capture`](Self::start_capture) around the run to record.
     pub fn graph_prepare(&self) -> Result<(), ServerError> {
@@ -1131,7 +1225,7 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Begin recording launches on this client's stream into a graph rather
-    /// than executing them (see [`ComputeServer::begin_capture`]). Pin the
+    /// than executing them (see [`Server::begin_capture`]). Pin the
     /// client to a dedicated stream with [`set_stream`](Self::set_stream), then
     /// [`graph_prepare`](Self::graph_prepare) and warm up first.
     ///
@@ -1154,7 +1248,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Stop recording and return the captured graph, ready to
     /// [`replay`](Graph::replay).
-    pub fn stop_capture(&self) -> Result<Graph<R>, ServerError> {
+    pub fn stop_capture(&self) -> Result<Graph, ServerError> {
         let stream_id = self.stream_id();
         let id = self
             .device
@@ -1197,7 +1291,10 @@ impl<R: Runtime> ComputeClient<R> {
         handles: impl IntoIterator<Item = &'a Handle>,
     ) -> DynFut<Result<(), ServerError>> {
         let stream_id = self.stream_id();
-        let bindings = Self::bindings(handles);
+        let bindings = match self.bindings(handles) {
+            Ok(bindings) => bindings,
+            Err(err) => return Box::pin(core::future::ready(Err(err))),
+        };
 
         let fut = self
             .device
@@ -1212,10 +1309,17 @@ impl<R: Runtime> ComputeClient<R> {
     /// The bindings `handles` name, which is what crosses to the device
     /// thread: a `Handle` borrows, and the closure that answers for it runs
     /// somewhere else.
-    fn bindings<'a>(handles: impl IntoIterator<Item = &'a Handle>) -> Vec<BufferBinding> {
+    fn bindings<'a>(
+        &self,
+        handles: impl IntoIterator<Item = &'a Handle>,
+    ) -> Result<Vec<BufferBinding>, ServerError> {
         handles
             .into_iter()
-            .map(|handle| handle.clone().binding())
+            .map(|handle| {
+                let binding = handle.clone().binding();
+                self.local(&binding)?;
+                Ok(binding)
+            })
             .collect()
     }
 
@@ -1229,11 +1333,28 @@ impl<R: Runtime> ComputeClient<R> {
         &self.utilities.properties.features
     }
 
-    /// # Warning
+    /// The device properties, shared: what a kernel keeps to expand itself
+    /// on the device thread without holding the client.
+    pub fn properties_shared(&self) -> Arc<DeviceProperties> {
+        self.utilities.properties.clone()
+    }
+
+    /// What the target this client compiles for guarantees about its own
+    /// instructions, resolved once when the device came up.
+    pub fn target_properties(&self) -> &TargetProperties {
+        &self.utilities.target_properties
+    }
+
+    /// The target properties, shared: the other half of what a kernel keeps to
+    /// expand itself on the device thread without naming a runtime.
     ///
-    /// For private use only.
-    pub fn properties_mut(&mut self) -> Option<&mut DeviceProperties> {
-        Arc::get_mut(&mut self.utilities).map(|state| &mut state.properties)
+    /// Cloning this is one atomic increment, which is why the generated launch
+    /// functions can afford to do it per launch where calling
+    /// [`Runtime::target_properties`] again would not be.
+    ///
+    /// [`Runtime::target_properties`]: crate::runtime::Runtime::target_properties
+    pub fn target_properties_shared(&self) -> Arc<TargetProperties> {
+        self.utilities.target_properties.clone()
     }
 
     /// Total memory usage across all streams on this client's device.
@@ -1271,26 +1392,6 @@ impl<R: Runtime> ComputeClient<R> {
         self.device
             .submit_blocking(move |server| server.memory_report(stream_id))
             .unwrap_or_resume()
-    }
-
-    /// Get all devices of a specific type available to this runtime
-    pub fn enumerate_devices(&self, type_id: u16) -> Vec<DeviceId> {
-        R::enumerate_devices(type_id, self.info())
-    }
-
-    /// Get all devices available to this runtime
-    pub fn enumerate_all_devices(&self) -> Vec<DeviceId> {
-        R::enumerate_all_devices(self.info())
-    }
-
-    /// Get the number of devices of a specific type available to this runtime
-    pub fn device_count(&self, type_id: u16) -> usize {
-        self.enumerate_devices(type_id).len()
-    }
-
-    /// Get the number of devices of a specific type available to this runtime
-    pub fn device_count_total(&self) -> usize {
-        self.enumerate_all_devices().len()
     }
 
     /// Change the memory allocation mode.
@@ -1493,19 +1594,25 @@ impl<R: Runtime> ComputeClient<R> {
     ) -> MemoryLayout {
         let shape = src_descriptor.shape.clone();
         let elem_size = src_descriptor.elem_size;
-        let stream_id = self.stream_id();
+        let stream_id_src = self.stream_id();
+        let stream_id_dst = dst_server.stream_id();
 
         let read = self
             .device
-            .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id))
+            .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id_src))
             .unwrap_or_resume();
 
         let mut data = cubecl_environment::future::block_on(read).unwrap();
 
-        let (handle_base, mut layouts) = self
-            .utilities
-            .layout_policy
-            .apply(stream_id, &[alloc_descriptor]);
+        // The allocation belongs to the destination: it is initialized and
+        // written there, so it takes that device's layout policy, stream and
+        // `ServiceId`. Stamping it from `self` would hand back a handle the
+        // destination refuses as foreign.
+        let (handle_base, mut layouts) = dst_server.utilities.layout_policy.apply(
+            dst_server.service_id(),
+            stream_id_dst,
+            &[alloc_descriptor],
+        );
         let alloc = layouts.remove(0);
 
         let desc_descriptor = CopyDescriptor {
@@ -1517,8 +1624,8 @@ impl<R: Runtime> ComputeClient<R> {
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         dst_server.device.submit(move |server| {
-            server.initialize_memory(memory, size, stream_id);
-            server.write(vec![(desc_descriptor, data.remove(0))], stream_id)
+            server.initialize_memory(memory, size, stream_id_dst);
+            server.write(vec![(desc_descriptor, data.remove(0))], stream_id_dst)
         });
 
         alloc
@@ -1550,7 +1657,7 @@ impl<R: Runtime> ComputeClient<R> {
         key: ThroughputKey,
         probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
     ) -> Result<ThroughputValue, ThroughputError> {
-        let cache = ThroughputCache::get_for_device(R::name(self), &self.properties().identity);
+        let cache = ThroughputCache::get_for_device(self.name(), &self.properties().identity);
         let mut throughputs = ThroughputBenchmarker::new(cache);
         throughputs.measure(key, probe)
     }

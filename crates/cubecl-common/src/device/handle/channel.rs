@@ -10,7 +10,6 @@ use std::{
     any::{Any, TypeId},
     boxed::Box,
     cell::RefCell,
-    marker::PhantomData,
     panic::{AssertUnwindSafe, catch_unwind},
     vec::Vec,
 };
@@ -29,38 +28,32 @@ use custom_channel::DeviceClient;
 ///
 /// The `ChannelDeviceHandle` acts as a proxy; it doesn't hold the state `S`
 /// itself, but rather a communication channel to the thread where `S` lives.
-pub struct ChannelDeviceHandle<S: DeviceService> {
+pub struct ChannelDeviceHandle {
     state: ChannelDeviceState,
-    // fn(S) makes this Send+Sync regardless of S, since the handle
-    // never actually holds an S — it only sends closures to the runner thread.
-    _phantom: PhantomData<fn(S)>,
 }
 
-impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> {
+impl DeviceHandleSpec for ChannelDeviceHandle {
     const BLOCKING: bool = false;
 
     /// Registers a new service instance for the device and returns a handle.
     ///
     /// If the service type `S` is already initialized on the device's runner thread,
     /// this will return an error.
-    fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError> {
+    fn insert<S: DeviceService>(
+        device_id: DeviceId,
+        service: S,
+    ) -> Result<Self, ServiceCreationError> {
         let state = ChannelDeviceState::init(device_id, Some(service))?;
 
-        Ok(Self {
-            state,
-            _phantom: PhantomData,
-        })
+        Ok(Self { state })
     }
 
     /// Creates a handle for an existing device or starts a new `DeviceRunner` if one
     /// does not exist for the given `device_id`.
-    fn new(device_id: DeviceId) -> Self {
+    fn new<S: DeviceService>(device_id: DeviceId) -> Self {
         let state = ChannelDeviceState::init::<S>(device_id, None).unwrap();
 
-        Self {
-            state,
-            _phantom: PhantomData,
-        }
+        Self { state }
     }
 
     fn device_id(&self) -> DeviceId {
@@ -72,24 +65,17 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     }
 
     /// Runs `task` on the device thread, blocking until it returns.
-    fn submit_blocking<'a, R: Send, T: FnOnce(&mut S) -> R + Send + 'a>(
+    fn submit_blocking<'a, R: Send, T: FnOnce(&mut dyn Any) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
         let state = self.state.service.clone();
         let current = StreamId::current();
-        self.run_scoped(move || {
-            state.act_on(|s| {
-                let s = s
-                    .downcast_mut::<S>()
-                    .expect("State type mismatch in Thread Local Storage");
-                current.executes(|| task(s))
-            })
-        })
+        self.run_scoped(move || state.act_on(|s| current.executes(|| task(s.as_mut()))))
     }
 
     /// Asynchronously dispatches a task to the device thread.
-    fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
+    fn submit<T: FnOnce(&mut dyn Any) + Send + 'static>(&self, task: T) {
         self.submit_inner::<_, SEND_NO_FLUSH>(task)
             .expect("Can't have an error when submitting a task");
     }
@@ -115,9 +101,9 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
 const SEND_FLUSH: bool = true;
 const SEND_NO_FLUSH: bool = false;
 
-impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
+impl ChannelDeviceHandle {
     /// Asynchronously dispatches a task to the device thread.
-    fn submit_inner<T: FnOnce(&mut S) + Send + 'static, const FLUSH: bool>(
+    fn submit_inner<T: FnOnce(&mut dyn Any) + Send + 'static, const FLUSH: bool>(
         &self,
         task: T,
     ) -> Result<(), CallError> {
@@ -126,13 +112,7 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         let current = StreamId::current();
 
         let func_init = move || {
-            state.act_on(|state| {
-                let state = state
-                    .downcast_mut::<S>()
-                    .expect("State type mismatch in Thread Local Storage");
-
-                current.executes(|| task(state));
-            });
+            state.act_on(|state| current.executes(|| task(state.as_mut())));
         };
 
         self.send::<_, FLUSH>(func_init)
@@ -628,11 +608,10 @@ fn wait_for_device_shutdown(device_id: DeviceId) {
     }
 }
 
-impl<S: DeviceService> Clone for ChannelDeviceHandle<S> {
+impl Clone for ChannelDeviceHandle {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
-            _phantom: self._phantom,
         }
     }
 }
@@ -1176,8 +1155,8 @@ mod custom_channel {
 
 #[cfg(test)]
 mod tests {
-    use crate::device::handle::CallResultExt;
     use crate::device::handle::DeviceFixture;
+    use crate::device::handle::{CallResultExt, DeviceHandle};
     // Only the `cfg(not(miri))` flushing test uses this.
     #[cfg(not(miri))]
     use crate::device::handle::channel::custom_channel::CHANNEL_MAX_TASK;
@@ -1205,8 +1184,11 @@ mod tests {
 
     /// A [`MockService`] handle on a device of its own, whose runner is shut down when
     /// the returned value drops.
-    fn mock_fixture() -> DeviceFixture<ChannelDeviceHandle<MockService>> {
-        DeviceFixture::new(ChannelDeviceHandle::<MockService>::new, shutdown_device)
+    fn mock_fixture() -> DeviceFixture<DeviceHandle<MockService, ChannelDeviceHandle>> {
+        DeviceFixture::new(
+            DeviceHandle::<MockService, ChannelDeviceHandle>::new,
+            shutdown_device,
+        )
     }
 
     #[test]
@@ -1287,7 +1269,7 @@ mod tests {
         });
 
         // This would hang forever if flush() didn't fill the buffer with no-ops
-        handle.state.client.flush();
+        handle.handle.handle.state.client.flush();
 
         let received = rx
             .recv_timeout(Duration::from_secs(1))
@@ -1328,7 +1310,7 @@ mod tests {
             handle.device_id()
         };
 
-        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let handle = DeviceHandle::<MockService, ChannelDeviceHandle>::new(device_id);
         let counter = handle.submit_blocking(|state| state.counter).unwrap();
         assert_eq!(counter, 0, "the new runner must start from a fresh service");
 
@@ -1459,8 +1441,10 @@ mod tests {
         const THREADS: usize = 4;
         // The fixture's own handle is one of the racing callers, so it is created after
         // `INIT_CALLS` is reset and counts towards the single expected init.
-        let fixture =
-            DeviceFixture::new(ChannelDeviceHandle::<CountingService>::new, shutdown_device);
+        let fixture = DeviceFixture::new(
+            DeviceHandle::<CountingService, ChannelDeviceHandle>::new,
+            shutdown_device,
+        );
         let device_id = fixture.device_id();
 
         let barrier = Arc::new(Barrier::new(THREADS));
@@ -1469,7 +1453,7 @@ mod tests {
             let b = barrier.clone();
             handles.push(thread::spawn(move || {
                 b.wait();
-                ChannelDeviceHandle::<CountingService>::new(device_id)
+                DeviceHandle::<CountingService, ChannelDeviceHandle>::new(device_id)
             }));
         }
         for h in handles {

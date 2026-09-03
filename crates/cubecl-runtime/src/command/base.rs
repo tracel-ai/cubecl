@@ -22,7 +22,7 @@ use crate::stream::ResolvedStreams;
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::bytes::Bytes;
+use cubecl_common::{bytes::Bytes, device::ServiceId};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
@@ -36,12 +36,23 @@ use cubecl_ir::MemoryDeviceProperties;
 pub struct Command<'a, D: Driver> {
     ctx: &'a mut D::Context,
     streams: ResolvedStreams<'a, D::Backend>,
+    /// The service issuing the command: what the handles it allocates are
+    /// stamped with.
+    service: ServiceId,
 }
 
 impl<'a, D: Driver> Command<'a, D> {
     /// A command against `ctx` over the streams `streams` resolved.
-    pub fn new(ctx: &'a mut D::Context, streams: ResolvedStreams<'a, D::Backend>) -> Self {
-        Self { ctx, streams }
+    pub fn new(
+        ctx: &'a mut D::Context,
+        streams: ResolvedStreams<'a, D::Backend>,
+        service: ServiceId,
+    ) -> Self {
+        Self {
+            ctx,
+            streams,
+            service,
+        }
     }
 
     /// The stream this command is issued on.
@@ -175,7 +186,7 @@ impl<'a, D: Driver> Command<'a, D> {
     ///
     /// Whatever the allocation or the bind reports.
     pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
-        let handle = Handle::new(self.streams.current, size);
+        let handle = Handle::new(self.service, self.streams.current, size);
         let reserved = self.reserve(size)?;
         self.bind(reserved, handle.memory.clone())?;
 

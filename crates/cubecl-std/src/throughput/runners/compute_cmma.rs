@@ -4,8 +4,8 @@ use cubecl_runtime::throughput::{CmmaDims, ComputeCmmaConfig, KernelConfig, Thro
 
 use crate::throughput::LaunchConfig;
 
-pub fn build_kernel<R: Runtime>(
-    client: &ComputeClient<R>,
+pub fn build_kernel(
+    client: &Client,
     key: ThroughputKey,
     cmma_config: ComputeCmmaConfig,
     config: LaunchConfig,

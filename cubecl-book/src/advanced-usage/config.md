@@ -136,7 +136,7 @@ The `[memory]` section controls memory-related logging and the persistent-memory
 such as model weights.
 
 - `enabled` (default): used only when explicitly requested (e.g.
-  `ComputeClient::memory_persistent_allocation`).
+  `Client::memory_persistent_allocation`).
 - `disabled`: requests to switch to persistent allocation are ignored.
 - `enforced`: every allocation is persistent. May cause out-of-memory errors when tensor sizes
   vary.

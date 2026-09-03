@@ -1,5 +1,4 @@
 use crate::{
-    MetalCompiler,
     compute::context::MetalContext,
     compute::stream::MetalStreamBackend,
     memory::{MetalBufferHandle, MetalStorage},
@@ -8,6 +7,7 @@ use cubecl_common::{
     bytes::Bytes,
     profile::{Duration, Instant, ProfileDuration, ProfileTicks},
 };
+use cubecl_core::server::ServerStorage;
 use cubecl_core::{
     MemoryConfiguration,
     prelude::*,
@@ -19,12 +19,11 @@ use cubecl_core::{
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
-    allocator::ContiguousMemoryLayoutPolicy,
-    compiler::CubeTask,
     dry_run::LaunchMode,
+    kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{InstallMemoryPoolsError, ManagedMemoryHandle},
-    server::ComputeServer,
+    server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{
         EventStreamBackend, ExecuteScope, FailureStore, MultiStream, ResolvedStreams, WriteScoped,
@@ -47,7 +46,7 @@ enum DispatchInfo {
 pub struct MetalServer {
     context: MetalContext,
     streams: MultiStream<MetalStreamBackend>,
-    pub(crate) utilities: Arc<ServerUtilities<Self>>,
+    pub(crate) utilities: Arc<ServerUtilities>,
     timestamps: TimestampProfiler,
 }
 
@@ -56,7 +55,7 @@ impl MetalServer {
         device: Retained<ProtocolObject<dyn MTLDevice>>,
         mem_props: cubecl_ir::MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
-        utilities: Arc<ServerUtilities<Self>>,
+        utilities: Arc<ServerUtilities>,
     ) -> Self {
         let logger = utilities.logger.clone();
 
@@ -157,9 +156,7 @@ impl MetalServer {
     }
 }
 
-impl ServerCommunication for MetalServer {
-    const SERVER_COMM_ENABLED: bool = false;
-}
+impl ServerCommunication for MetalServer {}
 
 impl WriteScoped for MetalServer {
     type Streams = MultiStream<MetalStreamBackend>;
@@ -175,17 +172,12 @@ impl WriteScoped for MetalServer {
     }
 }
 
-impl ComputeServer for MetalServer {
-    type Kernel = Box<dyn CubeTask<MetalCompiler>>;
-    type Storage = MetalStorage;
-    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
-    type Info = ();
-
+impl Server for MetalServer {
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -323,7 +315,7 @@ impl ComputeServer for MetalServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -662,28 +654,6 @@ impl ComputeServer for MetalServer {
         Ok(ProfileDuration::new_device_time(async move { ticks }))
     }
 
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        stream_id: StreamId,
-    ) -> Result<ManagedResource<<MetalStorage as ComputeStorage>::Resource>, ServerError> {
-        // The same claim check a read makes: a buffer a failed launch never
-        // filled reports the failure rather than handing back a pointer to
-        // whatever was there before.
-        self.streams.ensure_written([&binding].into_iter())?;
-        let mut resolved = self.streams.resolve(stream_id, std::iter::once(&binding));
-        // Resolve from the binding's origin stream; see `resolve_origin_resource`.
-        let stream = resolved.get(&binding.stream);
-
-        let memory = binding.memory.clone();
-        let resource = stream
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .map_err(ServerError::from)?;
-
-        Ok(ManagedResource::new(memory, resource))
-    }
-
     fn memory_usage(
         &mut self,
         stream_id: StreamId,
@@ -753,5 +723,31 @@ mod pitched_tests {
 
         let read_back = read_pitched(buffer.as_ptr(), &shape, &strides, 1);
         assert_eq!(read_back, packed);
+    }
+}
+
+impl ServerStorage for MetalServer {
+    type Storage = MetalStorage;
+
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        stream_id: StreamId,
+    ) -> Result<ManagedResource<<MetalStorage as ComputeStorage>::Resource>, ServerError> {
+        // The same claim check a read makes: a buffer a failed launch never
+        // filled reports the failure rather than handing back a pointer to
+        // whatever was there before.
+        self.streams.ensure_written([&binding].into_iter())?;
+        let mut resolved = self.streams.resolve(stream_id, std::iter::once(&binding));
+        // Resolve from the binding's origin stream; see `resolve_origin_resource`.
+        let stream = resolved.get(&binding.stream);
+
+        let memory = binding.memory.clone();
+        let resource = stream
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .map_err(ServerError::from)?;
+
+        Ok(ManagedResource::new(memory, resource))
     }
 }

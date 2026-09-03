@@ -21,10 +21,7 @@ pub fn kernel_absolute_pos_cube(output1: &mut [u32]) {
     output1[ABSOLUTE_POS] = CUBE_POS as u32;
 }
 
-pub fn test_kernel_topology_absolute_pos<R: Runtime>(
-    client: ComputeClient<R>,
-    addr_type: AddressType,
-) {
+pub fn test_kernel_topology_absolute_pos(client: Client, addr_type: AddressType) {
     if !client.properties().supports_address(addr_type) {
         return;
     }
@@ -56,10 +53,7 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(
 ///
 /// The bijectivity the test above checks holds under any ordering, so it cannot
 /// see a cube whose units are scattered across the grid.
-pub fn test_kernel_topology_absolute_pos_is_cube_major<R: Runtime>(
-    client: ComputeClient<R>,
-    addr_type: AddressType,
-) {
+pub fn test_kernel_topology_absolute_pos_is_cube_major(client: Client, addr_type: AddressType) {
     if !client.properties().supports_address(addr_type) {
         return;
     }
@@ -100,11 +94,11 @@ macro_rules! testgen_topology {
         #[$crate::runtime_tests::test_log::test]
         fn test_topology_scalar() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos::<TestRuntime>(
+            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos(
                 client.clone(),
                 AddressType::U32,
             );
-            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos::<TestRuntime>(
+            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos(
                 client,
                 AddressType::U64,
             );
@@ -112,12 +106,14 @@ macro_rules! testgen_topology {
         #[$crate::runtime_tests::test_log::test]
         fn test_topology_absolute_pos_is_cube_major() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos_is_cube_major::<
-                TestRuntime,
-            >(client.clone(), AddressType::U32);
-            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos_is_cube_major::<
-                TestRuntime,
-            >(client, AddressType::U64);
+            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos_is_cube_major(
+                client.clone(),
+                AddressType::U32,
+            );
+            cubecl_core::runtime_tests::topology::test_kernel_topology_absolute_pos_is_cube_major(
+                client,
+                AddressType::U64,
+            );
         }
     };
 }

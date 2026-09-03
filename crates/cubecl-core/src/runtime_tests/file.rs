@@ -2,10 +2,11 @@ use crate::{self as cubecl};
 use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::bytes::Bytes;
+use cubecl_runtime::runtime::Runtime;
 use std::io::Write;
 
 const MB: usize = 1024 * 1024;
-pub fn test_file_memory<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_file_memory<R: Runtime>(client: Client) {
     let dir = tempfile::tempdir().unwrap();
     let file_name = dir.path().join("test");
     let data_init = (0i32..MB as i32).collect::<Vec<i32>>();

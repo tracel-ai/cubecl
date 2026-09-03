@@ -5,7 +5,8 @@ use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_runtime::kernel::BufferIOAttr;
 use cubecl_runtime::{
-    compiler::{CubeTask, KernelCacheKey, build_id_hash},
+    compiler::{KernelCacheKey, build_id_hash},
+    kernel::CubeKernel,
     logging::ServerLogger,
 };
 use objc2::rc::Retained;
@@ -94,7 +95,7 @@ impl MetalContext {
     pub fn compile_kernel(
         &mut self,
         kernel_id: &KernelId,
-        kernel: Box<dyn CubeTask<MetalCompiler>>,
+        kernel: Box<dyn CubeKernel>,
         max_shared_memory_size: usize,
         logger: Arc<ServerLogger>,
     ) -> Result<CompiledKernel, LaunchError> {
@@ -124,9 +125,10 @@ impl MetalContext {
         log::trace!("Compiling kernel to MSL");
 
         let definition = kernel.define();
-        let mut kernel_compiled = kernel.compile(
+        let mut kernel_compiled = cubecl_runtime::kernel::CompiledKernel::compile(
+            &*kernel,
             definition,
-            &mut Default::default(),
+            &mut MetalCompiler::default(),
             &self.compilation_options,
         )?;
 

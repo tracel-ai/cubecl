@@ -7,7 +7,7 @@ use cubecl_common::{
     profile::TimingMethod,
 };
 use cubecl_core::{
-    MemoryConfiguration, Runtime,
+    MemoryConfiguration,
     cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
@@ -33,9 +33,8 @@ use cubecl_cpp::{
     },
     target::Cuda,
 };
-use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
-};
+use cubecl_runtime::runtime::Runtime;
+use cubecl_runtime::{allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger};
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -349,7 +348,15 @@ impl DeviceService for CudaServer {
         let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let utilities = ServerUtilities::new(device_props, logger, (), policy);
+        let mut utilities = ServerUtilities::new(
+            cubecl_common::device::ServiceId::of::<Self>(device_id),
+            "cuda",
+            device_props,
+            CudaRuntime::target_properties(),
+            logger,
+            policy,
+        );
+        utilities.server_comm_enabled = true;
 
         CudaServer::new(
             cuda_ctx,
@@ -381,25 +388,8 @@ fn tensor_cores_per_sm(arch: &CudaArchitecture) -> Option<u32> {
 }
 
 impl Runtime for CudaRuntime {
-    type Compiler = CudaCompiler;
     type Server = CudaServer;
     type Device = CudaDevice;
-
-    fn client(device: &Self::Device) -> ComputeClient<Self> {
-        ComputeClient::load(device)
-    }
-
-    fn name(_client: &ComputeClient<Self>) -> &'static str {
-        "cuda"
-    }
-
-    fn require_array_lengths() -> bool {
-        true
-    }
-
-    fn max_cube_count() -> (u32, u32, u32) {
-        (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
-    }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         has_pitched_row_major_strides(shape, strides)
@@ -421,10 +411,7 @@ impl Runtime for CudaRuntime {
         }
     }
 
-    fn enumerate_devices(
-        _: u16,
-        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
-    ) -> Vec<cubecl_core::device::DeviceId> {
+    fn enumerate_devices(_: u16) -> Vec<cubecl_core::device::DeviceId> {
         let count = cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize;
         (0..count)
             .map(|i| DeviceId {

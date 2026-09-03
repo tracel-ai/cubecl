@@ -1,3 +1,3 @@
 fn main() {
-    throughput::dispatch!(R => throughput::launch_overhead::<R>(&Default::default()));
+    throughput::dispatch!(device => throughput::launch_overhead(&device));
 }

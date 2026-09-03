@@ -66,7 +66,7 @@ pub struct CudaStreamBackend {
     logger: Arc<ServerLogger>,
     priority: StreamPriority,
     /// Programmatic main-GPU pool layout (see
-    /// [`ComputeServer::install_memory_pools`](cubecl_runtime::server::ComputeServer::install_memory_pools)):
+    /// [`Server::install_memory_pools`](cubecl_runtime::server::Server::install_memory_pools)):
     /// streams created after it is set build their GPU pools from it instead
     /// of the runtime default. Auxiliary pools are unaffected.
     #[new(default)]

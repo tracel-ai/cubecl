@@ -610,7 +610,7 @@ impl<E: CubePrimitive> SizedContainerExpand<usize> for SliceExpand<E> {
 impl<E: CubePrimitive> Iterable for SliceExpand<E> {
     type Item = E::ExpandType;
 
-    fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
+    fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, Self::Item)) {
         let start = scope.const_usize(0);
         let end = self.__extract_length(scope).value(scope);
         let step = scope.const_usize(1);
@@ -632,7 +632,7 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E> {
         scope.set_may_return(&[child]);
     }
 
-    fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
+    fn expand_unroll(self, _scope: &Scope, _body: &mut dyn FnMut(&Scope, Self::Item)) {
         unimplemented!("Can't unroll slice iterator")
     }
 }
@@ -640,7 +640,7 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E> {
 impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E> {
     type Item = &'a E::ExpandType;
 
-    fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
+    fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, Self::Item)) {
         let start = scope.const_usize(0);
         let end = self.__extract_length(scope).value(scope);
         let step = scope.const_usize(1);
@@ -660,7 +660,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E> {
         scope.set_may_return(&[child]);
     }
 
-    fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
+    fn expand_unroll(self, _scope: &Scope, _body: &mut dyn FnMut(&Scope, Self::Item)) {
         unimplemented!("Can't unroll slice iterator")
     }
 }
@@ -668,7 +668,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E> {
 impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
     type Item = &'a mut E::ExpandType;
 
-    fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
+    fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, Self::Item)) {
         let start = scope.const_usize(0);
         let end = self.__extract_length(scope).value(scope);
         let step = scope.const_usize(1);
@@ -688,7 +688,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
         scope.set_may_return(&[child]);
     }
 
-    fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
+    fn expand_unroll(self, _scope: &Scope, _body: &mut dyn FnMut(&Scope, Self::Item)) {
         unimplemented!("Can't unroll slice iterator")
     }
 }

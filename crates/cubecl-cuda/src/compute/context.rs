@@ -20,10 +20,7 @@ use cubecl_core::{
     server::ResourceLimitError,
 };
 use cubecl_environment::persistence::Store;
-use cubecl_runtime::{
-    compiler::{CubeTask, KernelCacheKey},
-    logging::ServerLogger,
-};
+use cubecl_runtime::{compiler::KernelCacheKey, kernel::CubeKernel, logging::ServerLogger};
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute};
@@ -153,7 +150,7 @@ impl CudaContext {
     pub fn compile_kernel(
         &mut self,
         kernel_id: &KernelId,
-        kernel: Box<dyn CubeTask<CudaCompiler>>,
+        kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
         let key = match self.try_load_cached(kernel_id)? {
@@ -167,9 +164,10 @@ impl CudaContext {
         validate_units(&self.properties, kernel_id)?;
 
         let definition = kernel.define();
-        let mut kernel_compiled = kernel.compile(
+        let mut kernel_compiled = cubecl_runtime::kernel::CompiledKernel::compile(
+            &*kernel,
             definition,
-            &mut Default::default(),
+            &mut CudaCompiler::default(),
             &self.compilation_options,
         )?;
 
@@ -264,7 +262,13 @@ impl CudaContext {
         };
 
         let io = kernel_compiled.io.take();
-        let repr = kernel_compiled.repr.unwrap();
+        // A precompiled kernel has no representation to read the size from:
+        // it declares its shared memory statically, so the launch reserves none.
+        let shared_mem_bytes = kernel_compiled
+            .repr
+            .as_ref()
+            .map(|repr| repr.shared_memory_size)
+            .unwrap_or(0);
 
         if let Some(cache) = &mut self.ptx_cache {
             let second_line_cache = self.second_line_ptx_cache.as_mut().unwrap();
@@ -274,7 +278,7 @@ impl CudaContext {
                 key,
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
-                    shared_mem_bytes: repr.shared_memory_size,
+                    shared_mem_bytes,
                     ptx: ptx.clone(),
                     io: io.clone(),
                 },
@@ -287,7 +291,7 @@ impl CudaContext {
             kernel_id.clone(),
             kernel_compiled.entrypoint_name,
             cube_dim,
-            repr.shared_memory_size,
+            shared_mem_bytes,
             io.map(Arc::from),
         )?;
         Ok(())

@@ -55,7 +55,7 @@ impl ToTokens for Launch {
 impl Launch {
     fn launch(&self) -> TokenStream {
         if self.args.launch.is_present() {
-            let compute_client = prelude_type("ComputeClient");
+            let compute_client = prelude_type("Client");
             let cube_count = prelude_type("CubeCount");
             let cube_dim = prelude_type("CubeDim");
             let address_type = prelude_type("AddressType");
@@ -77,7 +77,7 @@ impl Launch {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
                 pub fn launch #generics(
-                    __client: &#compute_client<__R>,
+                    __client: &#compute_client,
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #address_type
@@ -94,7 +94,7 @@ impl Launch {
 
     fn launch_unchecked(&self) -> TokenStream {
         if self.args.launch_unchecked.is_present() {
-            let compute_client = prelude_type("ComputeClient");
+            let compute_client = prelude_type("Client");
             let cube_count = prelude_type("CubeCount");
             let cube_dim = prelude_type("CubeDim");
             let address_type = prelude_type("AddressType");
@@ -121,7 +121,7 @@ impl Launch {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
                 pub unsafe fn launch_unchecked #generics(
-                    __client: &#compute_client<__R>,
+                    __client: &#compute_client,
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #address_type
@@ -137,6 +137,38 @@ impl Launch {
     }
 
     fn launch_body(&self, execution_mode: ExecutionMode) -> TokenStream {
+        let kernel_name = self.kernel_name();
+        let kernel_generics = self.kernel_call_generics();
+        let kernel_generics = kernel_generics.split_for_impl();
+        let kernel_generics = kernel_generics.1.as_turbofish();
+        let comptime_args = self.comptime_params().map(|it| &it.name);
+        let (setup, args) = self.launcher_setup(execution_mode, quote![__client.properties()]);
+
+        quote! {
+            #setup
+            let __kernel = #kernel_name #kernel_generics::new(
+                __settings,
+                __client.properties_shared(),
+                __client.target_properties_shared(),
+                #args #(#comptime_args),*
+            );
+        }
+    }
+
+    /// The statements every launch-shaped function opens with: `__settings`,
+    /// a `launcher` whose scope has the generic types registered, and one
+    /// `comp_arg_*` local per runtime argument. `device_properties` is the
+    /// `&DeviceProperties` expression the scope reads, since the real launch
+    /// has a client and the dummy kernel has the properties in hand.
+    ///
+    /// Returned with the argument list the kernel's constructor takes, so the
+    /// registration that produces a kernel's compilation arguments, and with
+    /// them its `KernelId`, is written once.
+    fn launcher_setup(
+        &self,
+        execution_mode: ExecutionMode,
+        device_properties: TokenStream,
+    ) -> (TokenStream, TokenStream) {
         let kernel_launcher = prelude_type("KernelLauncher");
 
         let mappings = self.func.sig.define_mappings();
@@ -144,27 +176,22 @@ impl Launch {
             self.func
                 .analysis
                 .register_types(mappings, quote![scope], false, true);
-
         let settings = self.configure_settings(execution_mode);
-        let kernel_name = self.kernel_name();
-        let kernel_generics = self.kernel_call_generics();
-        let kernel_generics = kernel_generics.split_for_impl();
-        let kernel_generics = kernel_generics.1.as_turbofish();
-        let comptime_args = self.comptime_params().map(|it| &it.name);
         let (registers, args) = self.arg_registers();
 
-        quote! {
+        let setup = quote! {
             #settings
 
-            let mut launcher = #kernel_launcher::<__R>::new(__settings.clone());
+            let mut launcher = #kernel_launcher::new(__settings.clone());
             launcher.with_scope(|scope| {
-                scope.device_properties(__client.properties());
+                scope.device_properties(#device_properties);
                 #generic_registers
             });
 
             #registers
-            let __kernel = #kernel_name #kernel_generics::new(__settings, __client.clone(), #args #(#comptime_args),*);
-        }
+        };
+
+        (setup, args)
     }
 
     fn configure_settings(&self, mode: ExecutionMode) -> TokenStream {
@@ -213,14 +240,17 @@ impl Launch {
                 "Launch the kernel [{}()] on the given runtime",
                 self.func.sig.name
             );
+            let device_properties = prelude_type("DeviceProperties");
+            let target_properties = prelude_type("TargetProperties");
+            let private = core_type("__private");
             let generics = &self.kernel_generics;
             let (_, generic_names, _) = self.kernel_generics.split_for_impl();
 
-            let settings = self.configure_settings(ExecutionMode::Checked);
             let kernel_name = self.kernel_name();
             let comptime_args = self.launch_args();
             let comptime_names = self.comptime_params().map(|it| &it.name);
-            let (compilation_args, args) = self.arg_registers();
+            let (setup, args) =
+                self.launcher_setup(ExecutionMode::Checked, quote![&__device_properties]);
 
             let address_type = match self.args.address_type {
                 AddressType::Dynamic => quote![__address_type: #address_type,],
@@ -231,15 +261,22 @@ impl Launch {
                 #[allow(clippy::too_many_arguments)]
                 #[doc = #kernel_doc]
                 pub fn create_dummy_kernel #generics(
+                    __device_properties: #private::Arc<#device_properties>,
+                    __target_properties: #private::Arc<#target_properties>,
                     __cube_count: #cube_count,
                     __cube_dim: #cube_dim,
                     #address_type
                     #(#comptime_args),*
                 ) -> #kernel_name #generic_names {
-                    #settings
-                    #compilation_args
+                    // The same registration a launch does, so the kernel's
+                    // compilation arguments, and with them its id, come out
+                    // identical. The launcher has nothing to launch here, so
+                    // it is discarded rather than dropped: see
+                    // `KernelLauncher::discard`.
+                    #setup
+                    launcher.discard();
 
-                    #kernel_name::new(__settings, #args #(#comptime_names),*)
+                    #kernel_name::new(__settings, __device_properties, __target_properties, #args #(#comptime_names),*)
                 }
             }
         } else {
@@ -257,7 +294,7 @@ impl Launch {
         for arg in args.iter_mut().filter(|it| !it.is_const) {
             let ty = strip_ref(arg.ty.clone());
             let ty = anon_lifetime_to_static(ty);
-            arg.normalized_ty = parse_quote![#runtime_arg<#ty, __R>];
+            arg.normalized_ty = parse_quote![#runtime_arg<#ty>];
             arg.mutability = None;
         }
         args

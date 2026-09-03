@@ -57,10 +57,8 @@ impl<T: CubeType> ComptimeOptionExpand<T> {
     }
 }
 
-impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>>
-    for ComptimeOptionArgs<T, R>
-{
-    fn from(value: Option<<T as LaunchArg>::RuntimeArg<R>>) -> Self {
+impl<T: LaunchArg> From<Option<<T as LaunchArg>::RuntimeArg>> for ComptimeOptionArgs<T> {
+    fn from(value: Option<<T as LaunchArg>::RuntimeArg>) -> Self {
         match value {
             Some(arg) => Self::Some(arg),
             None => Self::None,

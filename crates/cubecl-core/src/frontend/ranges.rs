@@ -36,11 +36,15 @@ impl<I: Int> RangeExpand<I> {
 impl<I: Int> Iterable for RangeExpand<I> {
     type Item = NativeExpand<I>;
 
-    fn expand_unroll(self, scope: &Scope, body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
+    fn expand_unroll(
+        self,
+        scope: &Scope,
+        body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType),
+    ) {
         iter_expand_unroll(scope, self.start, self.end, false, body);
     }
 
-    fn expand(self, scope: &Scope, body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
+    fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType)) {
         iter_expand(scope, self.start, self.end, false, body);
     }
 
@@ -128,11 +132,15 @@ impl<I: Int> RangeInclusiveExpand<I> {
 impl<I: Int> Iterable for RangeInclusiveExpand<I> {
     type Item = NativeExpand<I>;
 
-    fn expand_unroll(self, scope: &Scope, body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
+    fn expand_unroll(
+        self,
+        scope: &Scope,
+        body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType),
+    ) {
         iter_expand_unroll(scope, self.start, self.last, true, body);
     }
 
-    fn expand(self, scope: &Scope, body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
+    fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType)) {
         iter_expand(scope, self.start, self.last, true, body);
     }
 
@@ -185,12 +193,16 @@ impl<I: Int> RangeToExpand<I> {
 impl<I: Int> Iterable for RangeToExpand<I> {
     type Item = NativeExpand<I>;
 
-    fn expand_unroll(self, scope: &Scope, body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
+    fn expand_unroll(
+        self,
+        scope: &Scope,
+        body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType),
+    ) {
         let start = NativeExpand::from_lit(scope, I::new(0));
         iter_expand_unroll(scope, start, self.end, false, body);
     }
 
-    fn expand(self, scope: &Scope, body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
+    fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType)) {
         let start = NativeExpand::from_lit(scope, I::new(0));
         iter_expand(scope, start, self.end, false, body);
     }
@@ -240,12 +252,16 @@ impl<I: Int> RangeToInclusiveExpand<I> {
 impl<I: Int> Iterable for RangeToInclusiveExpand<I> {
     type Item = NativeExpand<I>;
 
-    fn expand_unroll(self, scope: &Scope, body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
+    fn expand_unroll(
+        self,
+        scope: &Scope,
+        body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType),
+    ) {
         let start = NativeExpand::from_lit(scope, I::new(0));
         iter_expand_unroll(scope, start, self.last, true, body);
     }
 
-    fn expand(self, scope: &Scope, body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
+    fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType)) {
         let start = NativeExpand::from_lit(scope, I::new(0));
         iter_expand(scope, start, self.last, true, body);
     }
@@ -315,7 +331,7 @@ fn iter_expand_unroll<I: Int>(
     start: NativeExpand<I>,
     end: NativeExpand<I>,
     inclusive: bool,
-    mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType),
+    body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType),
 ) {
     let start = start
         .expand
@@ -346,7 +362,7 @@ fn iter_expand<I: Int>(
     start: NativeExpand<I>,
     end: NativeExpand<I>,
     inclusive: bool,
-    mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType),
+    body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType),
 ) {
     let start = I::__expand_cast_from(scope, start).expand;
     let mut end = I::__expand_cast_from(scope, end);
@@ -382,7 +398,7 @@ pub struct SteppedRangeExpand<I: Int> {
 impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
     type Item = NativeExpand<I>;
 
-    fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
+    fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType)) {
         let mut end = self.end;
         if self.inclusive {
             end = end.__expand_add_method(scope, I::new(1).into());
@@ -406,7 +422,7 @@ impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
     fn expand_unroll(
         self,
         scope: &Scope,
-        mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType),
+        body: &mut dyn FnMut(&Scope, <I as CubeType>::ExpandType),
     ) {
         let start = self
             .start

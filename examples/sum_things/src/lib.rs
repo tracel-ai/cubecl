@@ -1,6 +1,6 @@
 #![allow(clippy::needless_range_loop)]
 
-use cubecl::{features::Plane, prelude::*, server::Handle};
+use cubecl::{Device, features::Plane, prelude::*, server::Handle};
 use std::marker::PhantomData;
 
 #[cube(launch_unchecked)]
@@ -99,9 +99,9 @@ impl<K: SumKind> CreateSeries for SumThenMul<K> {
     }
 }
 
-fn launch_basic<R: Runtime>(client: &ComputeClient<R>, input: Handle, output: Handle, len: usize) {
+fn launch_basic(client: &Client, input: Handle, output: Handle, len: usize) {
     unsafe {
-        sum_basic::launch_unchecked::<f32, R>(
+        sum_basic::launch_unchecked::<f32>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
@@ -112,14 +112,9 @@ fn launch_basic<R: Runtime>(client: &ComputeClient<R>, input: Handle, output: Ha
     }
 }
 
-fn launch_subgroup<R: Runtime>(
-    client: &ComputeClient<R>,
-    input: Handle,
-    output: Handle,
-    len: usize,
-) {
+fn launch_subgroup(client: &Client, input: Handle, output: Handle, len: usize) {
     unsafe {
-        sum_subgroup::launch_unchecked::<f32, R>(
+        sum_subgroup::launch_unchecked::<f32>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
@@ -131,14 +126,9 @@ fn launch_subgroup<R: Runtime>(
     }
 }
 
-fn launch_trait<R: Runtime, K: SumKind>(
-    client: &ComputeClient<R>,
-    input: Handle,
-    output: Handle,
-    len: usize,
-) {
+fn launch_trait<K: SumKind>(client: &Client, input: Handle, output: Handle, len: usize) {
     unsafe {
-        sum_trait::launch_unchecked::<f32, K, R>(
+        sum_trait::launch_unchecked::<f32, K>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
@@ -149,14 +139,9 @@ fn launch_trait<R: Runtime, K: SumKind>(
     }
 }
 
-fn launch_series<R: Runtime, S: CreateSeries>(
-    client: &ComputeClient<R>,
-    input: Handle,
-    output: Handle,
-    len: usize,
-) {
+fn launch_series<S: CreateSeries>(client: &Client, input: Handle, output: Handle, len: usize) {
     unsafe {
-        series::launch_unchecked::<f32, S, R>(
+        series::launch_unchecked::<f32, S>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
@@ -175,8 +160,8 @@ enum KernelKind {
     SeriesSumThenMul,
 }
 
-pub fn launch<R: Runtime>(device: &R::Device) {
-    let client = R::client(device);
+pub fn launch(device: &Device) {
+    let client = device.client();
     let input = &[-1., 10., 1., 5.];
     let len = input.len();
 
@@ -196,21 +181,21 @@ pub fn launch<R: Runtime>(device: &R::Device) {
                 // When using trait, it's normally a good idea to check if the variation can be
                 // executed.
                 if client.features().plane.contains(Plane::Ops) {
-                    launch_trait::<R, SumPlane>(&client, input.clone(), output.clone(), len)
+                    launch_trait::<SumPlane>(&client, input.clone(), output.clone(), len)
                 } else {
-                    launch_trait::<R, SumBasic>(&client, input.clone(), output.clone(), len)
+                    launch_trait::<SumBasic>(&client, input.clone(), output.clone(), len)
                 }
             }
             KernelKind::SeriesSumThenMul => {
                 if client.features().plane.contains(Plane::Ops) {
-                    launch_series::<R, SumThenMul<SumPlane>>(
+                    launch_series::<SumThenMul<SumPlane>>(
                         &client,
                         input.clone(),
                         output.clone(),
                         len,
                     )
                 } else {
-                    launch_series::<R, SumThenMul<SumBasic>>(
+                    launch_series::<SumThenMul<SumBasic>>(
                         &client,
                         input.clone(),
                         output.clone(),
@@ -222,6 +207,6 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         let bytes = client.read_one(output.clone()).unwrap();
         let output = f32::from_bytes(&bytes);
 
-        println!("[{:?} - {kind:?}]\n {output:?}", R::name(&client));
+        println!("[{:?} - {kind:?}]\n {output:?}", client.name());
     }
 }

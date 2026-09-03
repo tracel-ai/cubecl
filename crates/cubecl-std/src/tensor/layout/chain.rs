@@ -45,7 +45,6 @@ impl<L0: Layout, L1: Layout<SourceCoordinates = L0::Coordinates>> Layout for Cha
 
 pub use launch::*;
 mod launch {
-    use core::marker::PhantomData;
 
     use crate::tensor::launch::{MemoryArg, ViewLayoutLaunchArg};
 
@@ -54,24 +53,17 @@ mod launch {
     pub struct ChainLaunch<
         L0: Layout + ViewLayoutLaunchArg,
         L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
-        R: Runtime,
     > {
-        _phantom_runtime: PhantomData<R>,
-        l0: L0::RuntimeArg<R>,
-        l1: L1::RuntimeArg<R>,
+        l0: L0::RuntimeArg,
+        l1: L1::RuntimeArg,
     }
     impl<
         L0: Layout + ViewLayoutLaunchArg,
         L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
-        R: Runtime,
-    > ChainLaunch<L0, L1, R>
+    > ChainLaunch<L0, L1>
     {
-        pub fn new(l0: L0::RuntimeArg<R>, l1: L1::RuntimeArg<R>) -> Self {
-            Self {
-                _phantom_runtime: PhantomData,
-                l0,
-                l1,
-            }
+        pub fn new(l0: L0::RuntimeArg, l1: L1::RuntimeArg) -> Self {
+            Self { l0, l1 }
         }
     }
 
@@ -138,14 +130,14 @@ mod launch {
         L1: Layout<SourceCoordinates = L0::Coordinates> + ViewLayoutLaunchArg,
     > ViewLayoutLaunchArg for Chain<L0, L1>
     {
-        type RuntimeArg<R: Runtime> = ChainLaunch<L0, L1, R>;
+        type RuntimeArg = ChainLaunch<L0, L1>;
         type CompilationArg = ChainCompilationArg<L0, L1>;
 
-        fn register<R: Runtime, B: MemoryArg>(
-            arg: Self::RuntimeArg<R>,
+        fn register<B: MemoryArg>(
+            arg: Self::RuntimeArg,
             buffer: &B,
             ty: Type,
-            launcher: &mut KernelLauncher<R>,
+            launcher: &mut KernelLauncher,
         ) -> Self::CompilationArg {
             ChainCompilationArg {
                 l0: L0::register(arg.l0, buffer, ty, launcher),
