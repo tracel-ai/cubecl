@@ -18,7 +18,8 @@
 //! is why the table below is keyed only on the fragment and its element type.
 
 use cubecl_core::ir::dialect::matrix::{
-    CastOp, ColIndexOp, FillOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RowIndexOp, StoreOp,
+    CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RowIndexOp,
+    StMatrixOp, StoreOp,
 };
 use cubecl_core::ir::types::matrix::MatrixType;
 use cubecl_core::ir::types::{MatrixIdent, MatrixLayout, MatrixShape};
@@ -28,6 +29,10 @@ use pliron::printable::Printable;
 use pliron_llvm::types::{StructLayout, StructType};
 use thiserror::Error;
 
+use crate::shared::matrix::{
+    registers_array_ty, registers_as_vector, registers_value, vector_into_array,
+};
+use crate::shared::plane::bitcast;
 use crate::shared::to_llvm::prelude::*;
 
 /// A fragment element type no WMMA instruction takes.
@@ -262,17 +267,26 @@ fn call_returning_registers(
     args: Vec<Value>,
 ) -> Vec<Value> {
     let count = reg_tys.len();
-    let result_ty: TypeHandle =
-        StructType::get_unnamed(ctx, (reg_tys, StructLayout::Unpacked)).into();
+    // An intrinsic returning one value returns it bare; only several become a struct. Wrapping
+    // a single one anyway would name a signature LLVM does not have -- `ldmatrix.x1` is the
+    // one that reaches this -- so the two cases are built differently.
+    let result_ty: TypeHandle = if count == 1 {
+        reg_tys[0]
+    } else {
+        StructType::get_unnamed(ctx, (reg_tys, StructLayout::Unpacked)).into()
+    };
 
     let arg_tys = args.iter().map(|arg| arg.get_type(ctx)).collect();
     let fn_ty = FuncType::get(ctx, result_ty, arg_tys, false);
     let call = llvm::CallIntrinsicOp::new(ctx, name.into(), fn_ty, args);
-    let aggregate = insert(ctx, rw, &call);
+    let result = insert(ctx, rw, &call);
 
+    if count == 1 {
+        return vec![result];
+    }
     (0..count)
         .map(|field| {
-            let op = llvm::ExtractValueOp::new(ctx, aggregate, vec![field as u32])
+            let op = llvm::ExtractValueOp::new(ctx, result, vec![field as u32])
                 .expect("a constant index into the returned registers");
             insert(ctx, rw, &op)
         })
@@ -612,28 +626,329 @@ fn fragment_name(ident: MatrixIdent) -> &'static str {
     }
 }
 
-/// Lowers the manual `mma.sync` operations, which this backend does not implement.
+/// The manual `mma.sync` API.
 ///
-/// The cooperative API above goes through `wmma`, whose fragments are opaque; the manual API is
-/// the other family, where a kernel addresses the registers itself against the documented
-/// `mma.sync` layouts. The runtime does not advertise it (see `restrict_to_llvm_backend`), so
-/// these report rather than emitting something that would compile and be wrong.
-macro_rules! unsupported_manual_op {
+/// The other matrix family, and the opposite of the cooperative one above in every way that
+/// matters here: the fragment layout is documented rather than opaque, a kernel addresses its
+/// own registers against it (see the `row_index`/`col_index` polyfill in
+/// [`shared::matrix`](crate::shared::matrix)), and the shapes are the narrow `m16n8k*` ones
+/// the tensor cores actually execute rather than the wide ones `wmma` composes out of them.
+///
+/// So there is nothing to move here: the registers arrive as the array the frontend built and
+/// go straight into the instruction.
+///
+/// How a fragment's registers are read out of the vector holding them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RegisterForm {
+    /// One register is `n` elements of the fragment's own type, which is how the 16 bit floats
+    /// are passed: `<2 x half>`.
+    Packed(usize),
+    /// One register is one element, which is how a 32 bit accumulator is passed.
+    Scalar,
+    /// One register is an opaque `i32` the fragment is reinterpreted into, which is how the
+    /// narrow integers are passed -- four `i8` to a register, with no vector type for them.
+    Word,
+}
+
+/// The PTX type name `elem` goes by in an `mma.sync`, and how its registers are read.
+fn mma_type(ctx: &Context, elem: TypeHandle) -> Option<(&'static str, RegisterForm)> {
+    if elem.is_float16(ctx) {
+        Some(("f16", RegisterForm::Packed(2)))
+    } else if elem.is_float32(ctx) {
+        Some(("f32", RegisterForm::Scalar))
+    } else if elem.is_int(ctx) && elem.size_bits(ctx) == 8 {
+        // Whether the eight bits are read as signed or unsigned is part of the instruction's
+        // name, so the two are different `mma.sync`s over the same registers.
+        let name = if elem.is_signed_int(ctx) { "s8" } else { "u8" };
+        Some((name, RegisterForm::Word))
+    } else if elem.is_int(ctx) && elem.size_bits(ctx) == 32 {
+        Some(("s32", RegisterForm::Scalar))
+    } else {
+        None
+    }
+}
+
+/// A signless `i32`, which is what an opaque register is.
+fn word_ty(ctx: &mut Context) -> TypeHandle {
+    IntegerType::get(ctx, 32, Signedness::Signless).into()
+}
+
+/// The registers of `vector`, as `form` says to read them.
+fn registers_of(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    vector: Value,
+    form: RegisterForm,
+) -> Vec<Value> {
+    let (elems, elem) = {
+        let ty = vector.get_type(ctx);
+        let ty = ty.deref(ctx);
+        let vec = ty
+            .downcast_ref::<LlvmVectorType>()
+            .expect("a fragment is held in a vector");
+        (vec.num_elements() as usize, vec.elem_type())
+    };
+
+    match form {
+        RegisterForm::Scalar => (0..elems)
+            .map(|i| extract_lane(ctx, rw, vector, i))
+            .collect(),
+        RegisterForm::Packed(per_reg) => {
+            let reg_ty =
+                LlvmVectorType::get(ctx, elem, per_reg as u32, VectorTypeKind::Fixed).into();
+            let frag = Fragment {
+                regs: elems / per_reg,
+                per_reg,
+            };
+            to_registers(ctx, rw, vector, frag, reg_ty)
+        }
+        RegisterForm::Word => {
+            // No vector type covers four `i8` in a register, so the whole fragment is
+            // reinterpreted into words and read element-wise.
+            let word = word_ty(ctx);
+            let bits = elems * elem.size_bits(ctx);
+            let words = bits / 32;
+            let words_ty =
+                LlvmVectorType::get(ctx, word, words as u32, VectorTypeKind::Fixed).into();
+            let as_words = bitcast(ctx, rw, vector, words_ty);
+            (0..words)
+                .map(|i| extract_lane(ctx, rw, as_words, i))
+                .collect()
+        }
+    }
+}
+
+/// The inverse of [`registers_of`]: `regs` gathered back into a vector of `vector_ty`.
+fn registers_into(
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    regs: &[Value],
+    vector_ty: TypeHandle,
+    form: RegisterForm,
+) -> Value {
+    let (elems, elem) = {
+        let ty = vector_ty.deref(ctx);
+        let vec = ty
+            .downcast_ref::<LlvmVectorType>()
+            .expect("a fragment is held in a vector");
+        (vec.num_elements() as usize, vec.elem_type())
+    };
+
+    match form {
+        RegisterForm::Scalar => {
+            let mut acc = poison(ctx, rw, vector_ty);
+            for (i, &reg) in regs.iter().enumerate() {
+                acc = insert_lane(ctx, rw, acc, reg, i);
+            }
+            acc
+        }
+        RegisterForm::Packed(per_reg) => {
+            let frag = Fragment {
+                regs: elems / per_reg,
+                per_reg,
+            };
+            from_registers(ctx, rw, regs, frag, vector_ty)
+        }
+        RegisterForm::Word => {
+            let word = word_ty(ctx);
+            let words_ty =
+                LlvmVectorType::get(ctx, word, regs.len() as u32, VectorTypeKind::Fixed).into();
+            let mut acc = poison(ctx, rw, words_ty);
+            for (i, &reg) in regs.iter().enumerate() {
+                acc = insert_lane(ctx, rw, acc, reg, i);
+            }
+            let _ = elem;
+            bitcast(ctx, rw, acc, vector_ty)
+        }
+    }
+}
+
+/// The part of an `mma.sync` intrinsic's name that says which types it multiplies.
+///
+/// LLVM identifies these ops by whichever fragments actually distinguish them, which is not
+/// always the operands: with `f16` inputs the accumulator and result do it, since the same
+/// instruction takes either accumulator width. Getting this wrong names an intrinsic that does
+/// not exist, so it follows `MMA_SIGNATURE` in `IntrinsicsNVVM.td` exactly.
+fn mma_signature(a: &str, b: &str, cd: &str) -> String {
+    if a == "f16" {
+        // Identified by the accumulator and the result, which CubeCL gives one type.
+        format!("{cd}.{cd}")
+    } else if a != b {
+        format!("{a}.{b}")
+    } else {
+        a.to_string()
+    }
+}
+
+pub(crate) fn mma_manual(
+    op: &MmaManualOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let (a, b, c, d) = (
+        op.registers_a(ctx),
+        op.registers_b(ctx),
+        op.registers_c(ctx),
+        op.registers_d(ctx),
+    );
+
+    let (a_vec_ty, a_elem) = registers_as_vector(ctx, operands_info, a);
+    let (b_vec_ty, b_elem) = registers_as_vector(ctx, operands_info, b);
+    let (cd_vec_ty, cd_elem) = registers_as_vector(ctx, operands_info, c);
+
+    let (Some((a_name, a_form)), Some((b_name, b_form)), Some((cd_name, cd_form))) = (
+        mma_type(ctx, a_elem),
+        mma_type(ctx, b_elem),
+        mma_type(ctx, cd_elem),
+    ) else {
+        let culprit = [a_elem, b_elem, cd_elem]
+            .into_iter()
+            .find(|&elem| mma_type(ctx, elem).is_none())
+            .expect("one of the three has no form");
+        return input_err!(op.loc(ctx), unsupported_elem(ctx, culprit));
+    };
+
+    let a_val = registers_value(ctx, rw, a, a_vec_ty);
+    let b_val = registers_value(ctx, rw, b, b_vec_ty);
+    let c_val = registers_value(ctx, rw, c, cd_vec_ty);
+
+    let mut args = registers_of(ctx, rw, a_val, a_form);
+    args.extend(registers_of(ctx, rw, b_val, b_form));
+    let c_regs = registers_of(ctx, rw, c_val, cd_form);
+    let result_count = c_regs.len();
+    let reg_tys: Vec<TypeHandle> = c_regs.iter().map(|reg| reg.get_type(ctx)).collect();
+    args.extend(c_regs);
+
+    // A and B are always row- and column-major here: that is the one layout `mma.sync` takes
+    // for these shapes, and what `TargetProperties::mma` tells a kernel to arrange its
+    // registers for.
+    let MatrixShape { m, n, k } = *op.shape(ctx).clone();
+    let name = format!(
+        "llvm.nvvm.mma.m{m}n{n}k{k}.row.col.{}",
+        mma_signature(a_name, b_name, cd_name),
+    );
+    let regs = call_returning_registers(ctx, rw, &name, reg_tys, args);
+    debug_assert_eq!(regs.len(), result_count);
+
+    let result = registers_into(ctx, rw, &regs, cd_vec_ty, cd_form);
+    let d_array_ty = registers_array_ty(ctx, operands_info, d);
+    let result = vector_into_array(ctx, rw, result, d_array_ty);
+    store_fragment(ctx, rw, d, result);
+
+    rw.erase_operation(ctx, old_op);
+    Ok(())
+}
+
+/// The address space `ldmatrix` and `stmatrix` read and write.
+///
+/// Both are shared-memory instructions -- `.shared::cta` in PTX -- so the generic pointer the
+/// rest of the pipeline carries is cast down to it, which is what the C++ backend's
+/// `generic_to_shared` does before its inline asm.
+const SHARED_ADDRESS_SPACE: u32 = 3;
+
+/// `ptr` in the shared address space, which is the only one these instructions take.
+fn as_shared(ctx: &mut Context, rw: &mut DialectConversionRewriter, ptr: Value) -> Value {
+    let shared_ty: TypeHandle = LlvmPointerType::get(ctx, SHARED_ADDRESS_SPACE).into();
+    if ptr.get_type(ctx) == shared_ty {
+        return ptr;
+    }
+    let op = llvm::AddrSpaceCastOp::new(ctx, ptr, shared_ty);
+    insert(ctx, rw, &op)
+}
+
+/// The `.trans` qualifier, which swaps the rows and columns of each 8x8 tile as it moves.
+fn transpose_name(transpose: bool) -> &'static str {
+    if transpose { ".trans" } else { "" }
+}
+
+pub(crate) fn ld_matrix(
+    op: &LdMatrixOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let ptr = op.ptr(ctx);
+    let out_arr = op.out_arr(ctx);
+    let factor = op.factor(ctx).0;
+    let transpose = op.transpose(ctx).0;
+
+    let (out_vec_ty, _) = registers_as_vector(ctx, operands_info, out_arr);
+    let source = as_shared(ctx, rw, ptr);
+    let word = word_ty(ctx);
+
+    // One instruction moves `factor` 8x8 tiles of 16 bit elements, a register per tile per
+    // lane, whatever the elements stand for -- `b16` is a width, not a type.
+    let name = format!(
+        "llvm.nvvm.ldmatrix.sync.aligned.m8n8.x{factor}{}.b16.{}",
+        transpose_name(transpose),
+        llvm_mangled_ty(ctx, source.get_type(ctx)),
+    );
+    let regs = call_returning_registers(ctx, rw, &name, vec![word; factor], vec![source]);
+
+    let value = registers_into(ctx, rw, &regs, out_vec_ty, RegisterForm::Word);
+    let out_array_ty = registers_array_ty(ctx, operands_info, out_arr);
+    let value = vector_into_array(ctx, rw, value, out_array_ty);
+    store_fragment(ctx, rw, out_arr, value);
+
+    rw.erase_operation(ctx, old_op);
+    Ok(())
+}
+
+pub(crate) fn st_matrix(
+    op: &StMatrixOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let registers = op.registers(ctx);
+    let destination = op.destination(ctx);
+    let factor = op.factor(ctx).0;
+    let transpose = op.transpose(ctx).0;
+
+    let (vec_ty, _) = registers_as_vector(ctx, operands_info, registers);
+    let value = registers_value(ctx, rw, registers, vec_ty);
+    let regs = registers_of(ctx, rw, value, RegisterForm::Word);
+    let target = as_shared(ctx, rw, destination);
+
+    let name = format!(
+        "llvm.nvvm.stmatrix.sync.aligned.m8n8.x{factor}{}.b16.{}",
+        transpose_name(transpose),
+        llvm_mangled_ty(ctx, target.get_type(ctx)),
+    );
+    let mut args = vec![target];
+    args.extend(regs);
+    call_void(ctx, rw, &name, args);
+
+    rw.erase_operation(ctx, old_op);
+    Ok(())
+}
+
+/// `row_index` and `col_index` are answered before this conversion runs, by the polyfill in
+/// [`shared::matrix`](crate::shared::matrix) that expands `CubeCL`'s own formulas. Reaching here
+/// means that pass did not run, which is a bug in the pipeline rather than in the kernel.
+macro_rules! lowered_by_the_polyfill {
     ($fn_name:ident, $cube_op:ty) => {
         pub(crate) fn $fn_name(
-            op: &$cube_op,
-            ctx: &mut Context,
+            _op: &$cube_op,
+            _ctx: &mut Context,
             _rw: &mut DialectConversionRewriter,
             _operands_info: &OperandsInfo,
         ) -> Result<()> {
-            input_err!(op.loc(ctx), MatrixManualUnsupported(stringify!($cube_op)))
+            unreachable!(
+                "`{}` is expanded by `LowerComplexOpPass` on the NVPTX target, which runs \
+                 before this conversion",
+                stringify!($cube_op)
+            )
         }
     };
 }
 
-unsupported_manual_op!(row_index, RowIndexOp);
-unsupported_manual_op!(col_index, ColIndexOp);
-unsupported_manual_op!(mma_manual, MmaManualOp);
+lowered_by_the_polyfill!(row_index, RowIndexOp);
+lowered_by_the_polyfill!(col_index, ColIndexOp);
 
 #[cfg(test)]
 mod tests {

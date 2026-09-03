@@ -13,8 +13,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, TargetProperties,
-        Type, VectorSize,
+        HardwareProperties, IntKind, MemoryDeviceProperties, MmaProperties, OpaqueType,
+        TargetProperties, Type, UIntKind, VectorSize,
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
         nvidia::SmArch,
     },
@@ -399,16 +399,22 @@ impl DeviceService for CudaServer {
 /// Each of these comes back as its lowering lands; see the matrix and TMA work in
 /// `cubecl-llvm`'s `nvptx` module.
 fn restrict_to_llvm_backend(props: &mut DeviceProperties, comp_opts: &mut CompilationOptions) {
-    // The cooperative matrix API is lowered through `wmma`, which reaches the tensor cores;
-    // the manual `mma.sync` API is not lowered at all, and `ldmatrix`/`stmatrix` and the
-    // scaled variants belong to it. What survives is the `cmma` set, narrowed to the element
-    // types the lowering has fragments for: `f16` operands with an `f16` or `f32`
-    // accumulator. `bf16` is not among them for the same reason it is dropped below -- there
-    // is no `bf16` in the dialect this backend lowers through -- and the integer combinations
-    // wait on their own fragment shapes.
+    // Both matrix families are lowered: the cooperative one through `wmma`, the manual one
+    // through `mma.sync`. Each is narrowed to the element types its lowering has register
+    // shapes for -- `f16` operands throughout, plus the narrow integers on the manual side,
+    // which pass their registers as opaque words. `bf16` and `tf32` are in neither for the
+    // same reason `bf16` is dropped below: the dialect this backend lowers through has no type
+    // for them, so there is nothing to put in a register.
+    let half = ElemType::Float(FloatKind::F16);
+    let byte = |ty: ElemType| {
+        matches!(
+            ty,
+            ElemType::Int(IntKind::I8) | ElemType::UInt(UIntKind::U8)
+        )
+    };
+
     let matmul = &mut props.features.matmul;
     matmul.cmma.retain(|config| {
-        let half = ElemType::Float(FloatKind::F16);
         config.a_type == half
             && config.b_type == half
             && matches!(
@@ -416,13 +422,28 @@ fn restrict_to_llvm_backend(props: &mut DeviceProperties, comp_opts: &mut Compil
                 ElemType::Float(FloatKind::F16) | ElemType::Float(FloatKind::F32)
             )
     });
+    matmul.mma.retain(|config| {
+        let floats = config.a_type == half
+            && config.b_type == half
+            && config.cd_type == ElemType::Float(FloatKind::F32);
+        // The four signed/unsigned pairings are four instructions over the same registers, so
+        // the operands are taken independently.
+        let integers = byte(config.a_type)
+            && byte(config.b_type)
+            && config.cd_type == ElemType::Int(IntKind::I32);
+        floats || integers
+    });
+    // `ldmatrix` and `stmatrix` move 16 bit tiles, whatever those bits stand for, so what they
+    // are offered for is whichever operand types survived above.
+    matmul.ldmatrix.retain(|elem| *elem == half);
+    matmul.stmatrix.retain(|elem| *elem == half);
+
+    // Still on the manual side and still unimplemented: the cube-level API, and the scaled
+    // instructions with their `block_scale` operands.
     matmul.cube_mma = Default::default();
-    matmul.mma = Default::default();
     matmul.scaled_mma = Default::default();
-    matmul.ldmatrix = Default::default();
-    matmul.stmatrix = Default::default();
     matmul.cmma_tensor_addressing = false;
-    if matmul.cmma.is_empty() {
+    if matmul.cmma.is_empty() && matmul.mma.is_empty() {
         props.hardware.num_tensor_cores = None;
         props.hardware.min_tensor_cores_dim = None;
     }
