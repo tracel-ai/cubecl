@@ -101,6 +101,9 @@ fn col_index(
 }
 
 pub fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombinations {
+    if !arch.tensor_cores {
+        return vec![];
+    }
     let mut result: SupportedMmaCombinations = vec![];
     // Higher than WMMA because we only support the newest shapes. Other shapes would make things
     // very complicated.
@@ -201,6 +204,9 @@ pub fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombin
 pub fn supported_scaled_mma_combinations(
     arch: &CudaArchitecture,
 ) -> SupportedScaledMmaCombinations {
+    if !arch.tensor_cores {
+        return vec![];
+    }
     let mut result: SupportedScaledMmaCombinations = vec![];
     // sm_120f
     if arch.get_version() >= 120 && arch.get_version() < 130 {
@@ -262,5 +268,24 @@ pub fn contiguous_elements_cuda(
     match ident {
         MatrixIdent::A | MatrixIdent::B => 32 / elem.size_bits(ctx),
         MatrixIdent::Accumulator => 2,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::supported_mma_combinations;
+    use crate::cuda::arch::CudaArchitecture;
+
+    /// A die with no tensor cores offers no MMA at all, so nothing downstream can pick a tile
+    /// and measure the FP16 pipeline in units that claim tensor hardware.
+    #[test]
+    fn a_turing_die_without_tensor_cores_offers_no_mma() {
+        let turing = |name: &str| CudaArchitecture {
+            version: 75,
+            tensor_cores: CudaArchitecture::has_tensor_cores(75, name),
+        };
+
+        assert!(supported_mma_combinations(&turing("NVIDIA GeForce GTX 1660 SUPER")).is_empty());
+        assert!(!supported_mma_combinations(&turing("NVIDIA GeForce RTX 2060")).is_empty());
     }
 }
