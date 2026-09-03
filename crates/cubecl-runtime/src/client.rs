@@ -17,10 +17,10 @@ use crate::{
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
-        KernelConfig, ThroughputBenchmarker, ThroughputCache, ThroughputKey, ThroughputValue,
+        ThroughputBenchmarker, ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue,
     },
 };
-use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
+use alloc::{format, sync::Arc, vec, vec::Vec};
 
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
@@ -1540,19 +1540,18 @@ impl<R: Runtime> ComputeClient<R> {
         (0..num_candidates).map(|i| 2usize.pow(i)).rev()
     }
 
-    /// Stable per-device identity, used to key device-level measurement caches.
-    fn device_key(&self) -> String {
-        format!("{}_dev{}", R::name(self), self.device.device_id().index_id)
-    }
-
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
+    ///
+    /// # Errors
+    ///
+    /// Whatever `probe` reports.
     pub fn measure_throughput(
         &self,
         key: ThroughputKey,
-        kernel_config: KernelConfig,
-    ) -> ThroughputValue {
-        let cache = ThroughputCache::get_for_device(&self.device_key());
+        probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
+    ) -> Result<ThroughputValue, ThroughputError> {
+        let cache = ThroughputCache::get_for_device(R::name(self), &self.properties().identity);
         let mut throughputs = ThroughputBenchmarker::new(cache);
-        throughputs.measure(key, kernel_config)
+        throughputs.measure(key, probe)
     }
 }

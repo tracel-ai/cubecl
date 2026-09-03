@@ -4,14 +4,16 @@ use cubecl_runtime::{
     runtime::Runtime,
     server::CubeDim,
     throughput::{
-        DEFAULT_BUFFER_BYTES, MemoryAccess, MemoryCurve, MemoryPoint, MemorySpec, ThroughputKey,
-        ThroughputMode, ThroughputValue, sweep_size, working_set_sweep,
+        ComputeCmmaConfig, KernelConfig, MemoryAccess, MemoryCurve, MemoryPoint, MemorySpec,
+        ThroughputBenchmarker, ThroughputError, ThroughputKey, ThroughputMode, ThroughputValue,
+        sweep_size, working_set_sweep,
     },
     tune::{Bounds, Thresholds, Work, calculate_bounds},
 };
 
 use crate::throughput::{
-    compute_cmma, compute_direct, launch_overhead, memory_direct, memory_read, memory_write,
+    compute_cmma, compute_direct, launch_overhead, memory_direct, memory_probe, memory_read,
+    memory_write,
 };
 
 /// Independent cube positions each CPU worker interleaves, so a compute
@@ -23,11 +25,15 @@ use crate::throughput::{
 /// [`MemoryProbe::new`](crate::throughput::memory_probe::MemoryProbe::new)).
 const CPU_CHAIN_DEPTH: usize = 64;
 
+/// Units a GPU probe asks for. A wider cube measures no faster, and makes the
+/// memory probes report several times the bus rate.
+const PROBE_UNITS_PER_CUBE: u32 = 256;
+
 /// Measure peak throughput on `device` for each of the given `keys`.
 pub fn device_throughput<R: Runtime>(
     device: &R::Device,
     keys: &[ThroughputKey],
-) -> alloc::vec::Vec<ThroughputValue> {
+) -> alloc::vec::Vec<Result<ThroughputValue, ThroughputError>> {
     let client = R::client(device);
     keys.iter()
         .map(|key| measure_peak_throughput::<R>(&client, *key))
@@ -64,28 +70,38 @@ fn sweep<R: Runtime>(
 ) -> alloc::vec::Vec<MemoryPoint> {
     working_set_sweep(working_set_cap(client, access))
         .into_iter()
-        .map(|bytes| MemoryPoint {
-            bytes,
-            value: measure_peak_throughput::<R>(client, ThroughputKey { mode: mode(bytes) }),
+        .filter_map(|bytes| {
+            let key = ThroughputKey { mode: mode(bytes) };
+
+            Some(MemoryPoint {
+                bytes,
+                value: measure_peak_throughput::<R>(client, key).ok()?,
+            })
         })
         .collect()
 }
 
-/// The largest working set `access` can be probed at: as much as one buffer can
-/// hold, times the buffers the access touches.
+/// The largest working set `access` can be probed at: the largest window one
+/// buffer holds, times the buffers the access touches.
 fn working_set_cap<R: Runtime>(client: &ComputeClient<R>, access: MemoryAccess) -> u64 {
     let max_alloc = client.properties().memory.max_page_size;
 
-    DEFAULT_BUFFER_BYTES.min(max_alloc) * access.buffers()
+    memory_probe::window_cap(max_alloc) * access.buffers()
 }
 
 /// Computes the peak throughput for a given runtime and key.
 ///
 /// Native only, panics on WASM
+///
+/// # Errors
+///
+/// [`Unsupported`](ThroughputError::Unsupported) where the device implements
+/// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
+/// and reported no elapsed time.
 pub fn measure_peak_throughput<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
-) -> ThroughputValue {
+) -> Result<ThroughputValue, ThroughputError> {
     // A throughput probe is a measurement: inside a dry run its launches must
     // still execute, or they would be timed anyway and cache a garbage peak in
     // the device-level throughput store. The guard is read where the launch is
@@ -94,28 +110,49 @@ pub fn measure_peak_throughput<R: Runtime>(
 
     let launch_config = launch_config(client, key.dtype());
 
-    let kernel_config = match key.mode {
-        ThroughputMode::ComputeDirect { .. } => {
-            compute_direct::build_kernel(client, key, launch_config)
+    let candidates = match key.mode {
+        ThroughputMode::ComputeDirect { dtype } => {
+            // A type the backend cannot lower panics rather than answering.
+            if !client.properties().features.supports_type(dtype) {
+                return Err(ThroughputError::Unsupported);
+            }
+
+            arithmetic_widths(client, dtype)
+                .into_iter()
+                .map(|vector_size| {
+                    let config = LaunchConfig {
+                        vector_size,
+                        ..launch_config
+                    };
+                    compute_direct::build_kernel(client, key, config)
+                })
+                .collect()
         }
         ThroughputMode::ComputeCmma {
+            dtype,
             config: cmma_config,
-            ..
         } => {
-            if client.properties().features.matmul.cmma.is_empty() {
-                return ThroughputValue::ZERO;
+            if !implements_cmma(client, dtype, cmma_config) {
+                return Err(ThroughputError::Unsupported);
             }
-            compute_cmma::build_kernel(client, key, cmma_config, launch_config)
+            alloc::vec![compute_cmma::build_kernel(
+                client,
+                key,
+                cmma_config,
+                launch_config
+            )]
         }
-        ThroughputMode::Memory(spec) => match spec.access {
+        ThroughputMode::Memory(spec) => alloc::vec![match spec.access {
             MemoryAccess::Copy => memory_direct::build_kernel(client, key, launch_config, spec),
             MemoryAccess::Read => memory_read::build_kernel(client, key, launch_config, spec),
             MemoryAccess::Write => memory_write::build_kernel(client, key, launch_config, spec),
-        },
-        ThroughputMode::Launch => launch_overhead::build_kernel(client, key, launch_config),
+        }],
+        ThroughputMode::Launch => {
+            alloc::vec![launch_overhead::build_kernel(client, key, launch_config)]
+        }
     };
 
-    let value = client.measure_throughput(key, kernel_config);
+    let value = client.measure_throughput(key, || fastest_shape(candidates));
 
     client.memory_cleanup();
 
@@ -142,23 +179,79 @@ pub fn roofline_bounds<R: Runtime>(
         mode: ThroughputMode::Launch,
     };
 
+    // No ceiling to bound against, which `time_at_peak` already declines.
+    let no_ceiling = ThroughputValue::ZERO;
+
     Bounds {
         bounds: calculate_bounds(
             work,
             thresholds,
-            &measure_peak_throughput(client, compute_key),
-            &measure_peak_throughput(client, memory_key),
+            &measure_peak_throughput(client, compute_key).unwrap_or(no_ceiling),
+            &measure_peak_throughput(client, memory_key).unwrap_or(no_ceiling),
             &memory_key,
         ),
-        launch_overhead: measure_peak_throughput(client, launch_key).duration_per_op(),
+        launch_overhead: measure_peak_throughput(client, launch_key)
+            .map(|value| value.duration_per_op())
+            .unwrap_or_default(),
     }
+}
+
+/// What the device answers fastest, of the shapes a probe can be launched in.
+///
+/// A rate that is not finite is a shape that did not run, not a slow one.
+fn fastest_shape(
+    candidates: alloc::vec::Vec<KernelConfig>,
+) -> Result<ThroughputValue, ThroughputError> {
+    candidates
+        .into_iter()
+        .map(ThroughputBenchmarker::sample)
+        .filter(|value| value.ops_per_s().is_finite())
+        .max_by(|a, b| a.ops_per_s().total_cmp(&b.ops_per_s()))
+        .ok_or(ThroughputError::NoTiming)
+}
+
+/// The vector widths an arithmetic probe is measured at.
+///
+/// `io_optimized_vector_sizes` is ordered for the loads and stores this probe
+/// issues none of, and its widest is not the fastest on every device.
+fn arithmetic_widths<R: Runtime>(
+    client: &ComputeClient<R>,
+    dtype: ElemType,
+) -> alloc::vec::Vec<usize> {
+    let widths: alloc::vec::Vec<usize> = client.io_optimized_vector_sizes(dtype.size()).collect();
+
+    if widths.is_empty() {
+        alloc::vec![1]
+    } else {
+        widths
+    }
+}
+
+/// Whether the device implements the cooperative matrix the probe launches.
+///
+/// A non-empty capability list says the device has tensor hardware, not this
+/// shape of it. `mma` is not consulted: the probe issues `cmma::execute`.
+fn implements_cmma<R: Runtime>(
+    client: &ComputeClient<R>,
+    dtype: ElemType,
+    config: ComputeCmmaConfig,
+) -> bool {
+    client.properties().features.matmul.cmma.iter().any(|it| {
+        it.a_type == dtype
+            && it.b_type == dtype
+            && it.cd_type == config.accumulator_type
+            && it.m as usize == config.cmma_dims.m
+            && it.n as usize == config.cmma_dims.n
+            && it.k as usize == config.cmma_dims.k
+    })
 }
 
 /// Hardware execution parameters for launching a compute kernel.
 #[derive(Clone, Copy)]
 pub struct LaunchConfig {
-    /// The number of threads per cube.
-    pub cube_dim: usize,
+    /// The cube the probe launches, resolved once so `ops_count` cannot
+    /// describe a launch that did not happen.
+    pub cube_dim: CubeDim,
     /// The total number of cubes to dispatch.
     pub cube_count: usize,
     /// The vectorization factor (e.g., 4 for `vec4` operations).
@@ -180,26 +273,19 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
     // a cube's units are its real dispatched workers here, while its cube
     // count is only a loop inside each of them. `num_cpu_cores` units, one
     // per core, is the real worker count.
-    if let Some(cores) = hardware.num_cpu_cores {
-        return LaunchConfig {
-            cube_dim: cores as usize,
-            cube_count: CPU_CHAIN_DEPTH,
-            vector_size,
-            plane_size: plane_size as usize,
-        };
-    }
-
-    let requested = (hardware.max_units_per_cube / plane_size * plane_size)
-        .max(plane_size)
-        .min(hardware.max_cube_dim.0);
-
-    let cube_dim = CubeDim::new(client, requested as usize).num_elems();
-
-    let sms = hardware.num_streaming_multiprocessors.unwrap_or(64);
-    let cube_count = (sms * 32).min(hardware.max_cube_count.0);
+    let (units, cube_count) = match hardware.num_cpu_cores {
+        Some(cores) => (cores, CPU_CHAIN_DEPTH as u32),
+        None => {
+            let sms = hardware.num_streaming_multiprocessors.unwrap_or(64);
+            (
+                PROBE_UNITS_PER_CUBE,
+                (sms * 32).min(hardware.max_cube_count.0),
+            )
+        }
+    };
 
     LaunchConfig {
-        cube_dim: cube_dim as usize,
+        cube_dim: CubeDim::new(client, units as usize),
         cube_count: cube_count as usize,
         vector_size,
         plane_size: plane_size as usize,
