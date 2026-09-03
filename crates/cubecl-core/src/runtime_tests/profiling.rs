@@ -30,6 +30,34 @@ fn busy_kernel(output: &mut [f32]) {
     }
 }
 
+/// Launch counts sixteen times apart, both long enough to fill several command
+/// passes on a backend that batches launches into them.
+const FEW_LAUNCHES: usize = 32;
+const MANY_LAUNCHES: usize = 512;
+
+/// A quarter of the sixteen those counts differ by, leaving room for timer noise
+/// and the fixed cost of a window, and still far above the ratio of one that a
+/// window pinned to its first pass reports.
+const MIN_GROWTH: u32 = 4;
+
+#[cube(launch_unchecked)]
+fn touch_kernel(output: &mut [f32]) {
+    if ABSOLUTE_POS == 0 {
+        output[0] += 1.0;
+    }
+}
+
+fn touch<R: Runtime>(client: &ComputeClient<R>, output: &Handle) {
+    unsafe {
+        touch_kernel::launch_unchecked::<R>(
+            client,
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            BufferArg::from_raw_parts(output.clone(), 1),
+        );
+    }
+}
+
 fn launch<R: Runtime>(client: &ComputeClient<R>, output: &Handle) {
     unsafe {
         busy_kernel::launch_unchecked::<R>(
@@ -79,6 +107,43 @@ pub fn test_kernel_window_reports_positive_device_time<R: Runtime>(client: Compu
     assert!(
         duration < Duration::from_secs(5),
         "implausibly large: {duration:?}"
+    );
+}
+
+/// A window measures every command pass it spans, not just the first.
+///
+/// A backend batches launches into passes of a fixed size, so a loop long
+/// enough to fill several is the ordinary case rather than an edge one. Marking
+/// only the pass that opened the window reports the same figure however long
+/// the loop runs, which reads as launches getting cheaper the more of them
+/// there are, and autotune prices a candidate's launches off it.
+pub fn test_window_spans_every_pass_in_it<R: Runtime>(client: ComputeClient<R>) {
+    let output = client.empty(core::mem::size_of::<f32>());
+
+    // Compiling the kernel would otherwise land inside the first window.
+    touch::<R>(&client, &output);
+    cubecl_environment::future::block_on(client.sync()).unwrap();
+
+    let window = |launches: usize| {
+        let (_, profile) = client
+            .profile(
+                || {
+                    for _ in 0..launches {
+                        touch::<R>(&client, &output);
+                    }
+                },
+                "touch",
+            )
+            .unwrap();
+        resolve(profile)
+    };
+
+    let few = window(FEW_LAUNCHES);
+    let many = window(MANY_LAUNCHES);
+
+    assert!(
+        many > few * MIN_GROWTH,
+        "{MANY_LAUNCHES} launches measured {many:?} against {few:?} for {FEW_LAUNCHES}"
     );
 }
 
@@ -154,6 +219,14 @@ macro_rules! testgen_profiling {
         fn test_kernel_window_reports_positive_device_time() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::profiling::test_kernel_window_reports_positive_device_time::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_window_spans_every_pass_in_it() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::profiling::test_window_spans_every_pass_in_it::<
                 TestRuntime,
             >(client);
         }

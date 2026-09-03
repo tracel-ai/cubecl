@@ -37,8 +37,8 @@ use cubecl_ir::{
 };
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
-    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, mem2reg::Mem2RegPass, sccp::SCCPPass,
-    simple_cse::SimpleCSEPass, sroa::SROAPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
+    mem2reg::Mem2RegPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::CompilationError;
 use pliron::{
@@ -229,6 +229,7 @@ impl SpirvCompiler {
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
         func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(InstCombinePass::default());
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);

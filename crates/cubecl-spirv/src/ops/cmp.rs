@@ -3,34 +3,12 @@ use pliron::irbuild::inserter::Inserter;
 use pliron_spirv::{ext::gl, ops};
 
 use crate::{
-    ops::{base::binop_to_spirv_dialect, to_spirv_dialect::ToSpirvDialectOp},
+    ops::{
+        base::{binop_to_spirv_dialect, ternop_to_spirv_dialect},
+        to_spirv_dialect::ToSpirvDialectOp,
+    },
     types::ty_to_spirv_dialect,
 };
-
-macro_rules! clamp_to_spirv_dialect {
-    ($ty: ty => $new_ty: ty) => {
-        #[op_interface_impl]
-        impl ToSpirvDialectOp for $ty {
-            fn to_spirv_dialect(
-                &self,
-                ctx: &mut Context,
-                rewriter: &mut DialectConversionRewriter,
-                _operands_info: &OperandsInfo,
-            ) -> Result<()> {
-                let op = self.get_operation();
-                let inp = op.operand(ctx, 0);
-                let min = op.operand(ctx, 1);
-                let max = op.operand(ctx, 2);
-                let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
-                let new_op = <$new_ty>::new(ctx, out_ty, inp, min, max);
-                rewriter.append_op(ctx, &new_op);
-                rewriter.replace_operation(ctx, op, new_op.get_operation());
-
-                Ok(())
-            }
-        }
-    };
-}
 
 binop_to_spirv_dialect!(cmp::SMinOp => gl::SMinOp);
 binop_to_spirv_dialect!(cmp::UMinOp => gl::UMinOp);
@@ -40,9 +18,9 @@ binop_to_spirv_dialect!(cmp::SMaxOp => gl::SMaxOp);
 binop_to_spirv_dialect!(cmp::UMaxOp => gl::UMaxOp);
 binop_to_spirv_dialect!(cmp::FMaxOp => gl::FMaxOp);
 
-clamp_to_spirv_dialect!(cmp::SClampOp => gl::SClampOp);
-clamp_to_spirv_dialect!(cmp::UClampOp => gl::UClampOp);
-clamp_to_spirv_dialect!(cmp::FClampOp => gl::FClampOp);
+ternop_to_spirv_dialect!(cmp::SClampOp => gl::SClampOp);
+ternop_to_spirv_dialect!(cmp::UClampOp => gl::UClampOp);
+ternop_to_spirv_dialect!(cmp::FClampOp => gl::FClampOp);
 
 binop_to_spirv_dialect!(cmp::IEqualOp => ops::IEqualOp);
 binop_to_spirv_dialect!(cmp::FEqualOp => ops::FOrdEqualOp);

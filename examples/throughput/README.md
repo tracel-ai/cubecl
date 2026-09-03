@@ -2,13 +2,16 @@
 
 Small benchmarks that measure a device's **peak throughput** for a few workloads:
 
-| example           | measures                                          |
-| ----------------- | ------------------------------------------------- |
-| `compute_direct`  | peak arithmetic throughput (non-CMMA, f32)        |
-| `compute_cmma`    | peak tensor-core (CMMA) throughput (f16 → f32)    |
-| `memory`          | peak memory (copy) bandwidth                      |
-| `launch_overhead` | peak launch throughput (dispatch rate)          |
-| `all`             | runs all of the above and prints them as a table  |
+| example           | measures                                                     |
+| ----------------- | ------------------------------------------------------------ |
+| `compute_direct`  | peak arithmetic throughput, per float type the device supports |
+| `compute_cmma`    | peak cooperative-matrix throughput, per accumulator width      |
+| `memory`          | peak memory (copy) bandwidth                                   |
+| `memory_read`     | peak read-only streaming bandwidth                             |
+| `memory_write`    | peak write-only streaming bandwidth                            |
+| `memory_curve`    | bandwidth against working set size, for each access pattern    |
+| `launch_overhead` | the fixed cost of a single kernel launch                       |
+| `all`             | every single-size probe above, as one table                    |
 
 ## Running
 
@@ -26,15 +29,37 @@ Always use `--release`; a debug build measures the wrong thing.
 Example output:
 
 ```
-Peak throughput — wgpu<wgsl>
-  compute-direct f32                          6.4877 TOPS/s
-  compute-cmma   f16→f16 16×16×16               unsupported
-  memory                                  131.5563 Gbytes/s
-  launch                                       32.4µs/launch
+Peak throughput — cuda / NVIDIA GeForce RTX 4070 Ti SUPER
+  compute-direct f32                         46.0146 TOPS/s
+  compute-direct f16                         48.5997 TOPS/s
+  compute-direct bf16                        48.5997 TOPS/s
+  compute-cmma   f16→f16 32×8×16            192.7744 TOPS/s
+  compute-cmma   f16→f32 32×8×16             96.3201 TOPS/s
+  memory         copy    1 GiB            601.4902 Gbytes/s
+  memory         read    512 MiB          660.2920 Gbytes/s
+  memory         write   512 MiB          748.0780 Gbytes/s
+  launch                                     3.502µs/launch
 ```
 
-CMMA needs a tensor-core backend. On backends without it (e.g. WGSL) it prints
-`unsupported` and is skipped.
+A row reads `unsupported` where the device implements no such thing: a
+cooperative matrix on a card without tensor hardware, a type it cannot compute
+in. It reads `no timing` where the device does implement it and reported no
+elapsed time for any shape of the probe — which is every wgpu backend's launch
+row, since that is the one probe timed on the device rather than on the host.
+The two are different answers, and neither is a slow one.
+
+## Reading the numbers
+
+The two accumulator rows are separate because consumer parts halve their tensor
+rate for f32 accumulation, and that is the rate a matmul runs on.
+
+Memory counts the bytes a kernel asks for, not the traffic that reaches DRAM: an
+ordinary store also pays read-for-ownership where the hardware does, so on a CPU
+the write and copy figures land near half the bus while read lands near all of
+it. Comparing any of them against a vendor bus figure needs that in mind.
+
+`memory` reports one working set. `memory_curve` reports the whole sweep, and a
+kernel moving far less than the top of it cannot reach the top of it.
 
 ## Backends
 
@@ -65,4 +90,3 @@ CUBECL_THROUGHPUT_CACHE=off cargo run --release -p throughput --example all --fe
 
 Accepted values: `on` / `1` / `true` to enable (the default), `off` / `0` /
 `false` to disable.
-
