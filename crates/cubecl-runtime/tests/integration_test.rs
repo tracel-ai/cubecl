@@ -189,7 +189,7 @@ fn autotune_basic_addition_execution() {
     let out = client.empty(3);
     let handles = vec![lhs, rhs, out.clone()];
 
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set(client, shapes)
@@ -216,7 +216,7 @@ fn autotune_basic_multiplication_execution() {
     let out = client.empty(3);
     let handles = vec![lhs, rhs, out.clone()];
 
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::multiplication_set(client, shapes)
@@ -311,7 +311,7 @@ fn autotune_bounds_short_circuit_accepts_first_within_limit() {
     let out = client.empty(3);
     let handles = vec![lhs, rhs, out.clone()];
 
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         // time_limit = (1 / 1.0) / 1.0 = 1s, far above the ~few-ms slow kernel, so the
@@ -344,7 +344,7 @@ fn autotune_bounds_unreachable_limit_benchmarks_all() {
     let out = client.empty(3);
     let handles = vec![lhs, rhs, out.clone()];
 
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         // time_limit = (1 / 1e12) / 1.0 ≈ 1ps, below any real median, so nothing qualifies.
@@ -373,7 +373,7 @@ fn autotune_short_circuit_disabled_benchmarks_all() {
     let out = client.empty(3);
     let handles = vec![lhs, rhs, out.clone()];
 
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::bounded_addition_set_no_short_circuit(client, shapes)
@@ -482,7 +482,7 @@ fn autotune_stops_sampling_a_rejected_candidate() {
 
     let uid = fresh_tune_key_uid();
 
-    let test_set = TUNER.init(move || {
+    let test_set = TUNER.init(&"test".to_string(), move || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set_with_rejected_candidate(client, shapes, uid.clone(), calls_set.clone())
@@ -519,7 +519,7 @@ fn autotune_skips_a_candidate_that_fails_compilation() {
 
     let uid = fresh_tune_key_uid();
 
-    let test_set = TUNER.init(move || {
+    let test_set = TUNER.init(&"test".to_string(), move || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set_with_failing_compilation(client, shapes, uid.clone())
@@ -567,7 +567,7 @@ fn autotune_survives_a_failing_candidate_ahead_of_the_winner() {
 
     let uid = fresh_tune_key_uid();
 
-    let test_set = TUNER.init(move || {
+    let test_set = TUNER.init(&"test".to_string(), move || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set_with_failing_compilation_first(client, shapes, uid.clone())
@@ -623,7 +623,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
 
     let uid = fresh_tune_key_uid();
 
-    let test_set = TUNER.init(move || {
+    let test_set = TUNER.init(&"test".to_string(), move || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set_with_slow_candidate(
@@ -723,7 +723,7 @@ fn a_dry_run_still_autotunes() {
     static TUNER: LocalTuner<String, String> = local_tuner!("a_dry_run_still_autotunes");
 
     let client = test_client(&DummyDevice);
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set(test_client(&DummyDevice), shapes)
     });
@@ -821,4 +821,70 @@ fn a_dry_run_reserves_without_mapping() {
     );
 
     drop(dry_run);
+}
+
+/// A tunable set is built from the device it will run on — a closure captures
+/// that device's client to ask what it supports, or reads its hardware
+/// properties to decide what is worth offering. So the set cache is keyed by
+/// device as well as by initializer: keyed by the initializer alone, whichever
+/// device tuned first would answer for every device after it.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_set_is_built_once_per_device_not_once_per_process() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_set_is_built_once_per_device_not_once_per_process");
+    static BUILDS: AtomicUsize = AtomicUsize::new(0);
+
+    let client = test_client(&DummyDevice);
+
+    let build = |device: &str| {
+        TUNER.init(&device.to_string(), || {
+            BUILDS.fetch_add(1, Ordering::Relaxed);
+            let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+            dummy::addition_set(test_client(&DummyDevice), shapes)
+        })
+    };
+
+    let first = build("gpu-0");
+    assert_eq!(BUILDS.load(Ordering::Relaxed), 1);
+
+    // Same device again: the cached set, no rebuild.
+    let first_again = build("gpu-0");
+    assert_eq!(
+        BUILDS.load(Ordering::Relaxed),
+        1,
+        "the same device must reuse its set rather than rebuild it"
+    );
+    assert!(
+        std::sync::Arc::ptr_eq(&first, &first_again),
+        "the same device must get the very same set back"
+    );
+
+    // A second device: its own set, built against itself.
+    let second = build("gpu-1");
+    assert_eq!(
+        BUILDS.load(Ordering::Relaxed),
+        2,
+        "a device that has not tuned yet must build its own set"
+    );
+    assert!(
+        !std::sync::Arc::ptr_eq(&first, &second),
+        "one device's set must not answer for another's"
+    );
+
+    // Both remain usable and independently cached.
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    TUNER.execute(
+        &"gpu-1".to_string(),
+        &client,
+        second,
+        vec![lhs, rhs, out.clone()],
+    );
+    assert_eq!(client.read_one(out).unwrap().to_vec(), Vec::from([4, 5, 6]));
+    assert_eq!(BUILDS.load(Ordering::Relaxed), 2);
 }

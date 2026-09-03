@@ -12,12 +12,18 @@ use core::{
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::{Mutex, RwLock};
 
+/// The tunable sets a [`LocalTuner`] has built, keyed by device as well as by
+/// initializer: a set is built from the device it will run on — its client, its
+/// hardware properties — so one device's set cannot answer for another's. See
+/// [`LocalTuner::init`].
+type Sets<ID> = RwLock<Option<HashMap<(TypeId, ID), Arc<dyn Any + Send + Sync>>>>;
+
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
 pub struct LocalTuner<AK: AutotuneKey, ID> {
     state: Mutex<Option<HashMap<ID, Arc<Tuner<AK>>>>>,
     name: &'static str,
-    sets: RwLock<Option<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
+    sets: Sets<ID>,
 }
 
 /// Create a local tuner with the provided name.
@@ -47,23 +53,33 @@ where
         }
     }
 
-    /// Get or initialize the [`TunableSet`] for this tuner.
+    /// Get or initialize the [`TunableSet`] for `id`.
     ///
-    /// Returns a cached `Arc<TunableSet>` keyed by the `TypeId` of `init_set`. The
-    /// initializer runs at most once per process.
-    pub fn init<I, Out, F>(&self, init_set: F) -> Arc<TunableSet<AK, I, Out>>
+    /// Returns a cached `Arc<TunableSet>` keyed by the `TypeId` of `init_set`
+    /// *and* by `id`, so the initializer runs once per device rather than once
+    /// per process.
+    ///
+    /// The device is part of the key because a set is routinely built from the
+    /// device it will run on: a closure captures that device's
+    /// [`ComputeClient`] to ask what it supports, or reads its hardware
+    /// properties to decide which tunables are worth offering at all. Keyed by
+    /// the initializer alone, whichever device tuned first would answer those
+    /// questions for every device that followed — promoting kernels onto
+    /// hardware that cannot run them, or withholding kernels from hardware
+    /// that can.
+    pub fn init<I, Out, F>(&self, id: &ID, init_set: F) -> Arc<TunableSet<AK, I, Out>>
     where
         F: Fn() -> TunableSet<AK, I, Out> + 'static + Send + Sync,
         I: TuneInputs,
         Out: AutotuneOutput,
     {
+        let key = (TypeId::of::<F>(), id.clone());
         let sets = self.sets.read();
-        let type_id = TypeId::of::<F>();
 
         static DOWNCAST_ERROR: &str = "Local tuner only support one set of tunable that must work on the same input and output declared with the init function.";
 
         if let Some(sets) = sets.as_ref()
-            && let Some(set) = sets.get(&type_id)
+            && let Some(set) = sets.get(&key)
         {
             return set.clone().downcast().expect(DOWNCAST_ERROR);
         };
@@ -73,7 +89,7 @@ where
         let mut sets = self.sets.write();
 
         if let Some(sets) = sets.as_ref()
-            && let Some(set) = sets.get(&type_id)
+            && let Some(set) = sets.get(&key)
         {
             return set.clone().downcast().expect(DOWNCAST_ERROR);
         };
@@ -81,10 +97,10 @@ where
         let content = Arc::new(init_set());
 
         if let Some(sets) = sets.as_mut() {
-            sets.insert(type_id, content.clone());
+            sets.insert(key, content.clone());
         } else {
-            let mut map = HashMap::<TypeId, Arc<dyn Any + Send + Sync>>::new();
-            map.insert(type_id, content.clone());
+            let mut map = HashMap::<(TypeId, ID), Arc<dyn Any + Send + Sync>>::new();
+            map.insert(key, content.clone());
             *sets = Some(map);
         };
 
