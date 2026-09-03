@@ -1,4 +1,5 @@
 use crate::{
+    compiler::{CudaBackend, CudaCompilationOptions},
     compute::{CudaServer, context::CudaContext},
     device::CudaDevice,
 };
@@ -15,12 +16,12 @@ use cubecl_core::{
         HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, TargetProperties,
         Type, VectorSize,
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
+        nvidia::SmArch,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
-    ComputeKernel,
     cuda::{
         self,
         arch::CudaArchitecture,
@@ -28,10 +29,9 @@ use cubecl_cpp::{
     },
     register_supported_types,
     shared::{
-        CompilationOptions, CppCompiler, CppSupportedFeatures, register_mma_features,
+        CompilationOptions, CppSupportedFeatures, register_mma_features,
         register_scaled_mma_features, register_wmma_features,
     },
-    target::Cuda,
 };
 use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::{allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger};
@@ -345,7 +345,19 @@ impl DeviceService for CudaServer {
         register_mma_features(supported_mma_combinations, &mut device_props);
         register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
-        let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch);
+        // Which backend compiles here decides what may be advertised: the two are not at the
+        // same point, and a feature the selected one cannot honour is a kernel that fails to
+        // compile rather than a slower one.
+        let backend = CudaBackend::default();
+        if backend == CudaBackend::Llvm {
+            restrict_to_llvm_backend(&mut device_props, &mut comp_opts);
+        }
+
+        let comp_opts = CudaCompilationOptions {
+            cpp: comp_opts,
+            arch: Some(SmArch::new(arch_version, arch.tensor_cores)),
+        };
+        let cuda_ctx = CudaContext::new(comp_opts, device_props.clone(), ctx, arch, backend);
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let mut utilities = ServerUtilities::new(
@@ -373,8 +385,69 @@ impl DeviceService for CudaServer {
     }
 }
 
-pub type CudaCompiler = CppCompiler<Cuda>;
-pub type CudaComputeKernel = ComputeKernel;
+
+/// Narrows what the device advertises to what the LLVM backend actually lowers.
+///
+/// The properties above are the C++ backend's, which has had every generation of NVIDIA's
+/// hardware features added to it as they shipped. The LLVM backend is at the point of running
+/// ordinary kernels: arithmetic, memory, shared memory, the plane operations and the two
+/// barriers. Everything it does not lower is taken away here rather than left to fail at
+/// compile time, because a consumer picks its algorithm off these properties — cubek's matmul
+/// selectors ask for `mma` before they ask anything else — and an advertisement that cannot be
+/// honoured is a launch that fails rather than one that falls back.
+///
+/// Each of these comes back as its lowering lands; see the matrix and TMA work in
+/// `cubecl-llvm`'s `nvptx` module.
+fn restrict_to_llvm_backend(props: &mut DeviceProperties, comp_opts: &mut CompilationOptions) {
+    // No matrix lowering yet, so nothing that reaches a tensor core.
+    props.features.matmul = Default::default();
+    props.hardware.num_tensor_cores = None;
+    props.hardware.min_tensor_cores_dim = None;
+
+    // No TMA, no clusters, no async copy, and no `mbarrier` behind them.
+    props.features.tma = Default::default();
+    props.features.cube_cluster = false;
+    props.features.copy_async = false;
+    props.features.types.opaque.remove(&OpaqueType::TensorMap);
+    props.features.types.opaque.remove(&OpaqueType::Barrier);
+
+    // The shuffles go through `shfl.sync` with a full member mask, which requires the plane to
+    // be converged. The C++ backend advertises this because its own plane lowering handles a
+    // partial mask; until this one does, a diverged plane operation would be undefined rather
+    // than merely slow.
+    props.features.plane.remove(Plane::NonUniformControlFlow);
+
+    // `bf16` has no type in the LLVM dialect this backend lowers through -- pliron has
+    // `builtin.fp16`, `fp32` and `fp64` and nothing between -- so a `bf16` kernel compiles to
+    // something that quietly computes zeros. Until it is either given a type or carried as an
+    // `i16` the way the minifloats are, it must not be offered.
+    let bf16 = ElemType::Float(FloatKind::BF16);
+    props.features.types.elem.remove(&bf16);
+    props
+        .features
+        .types
+        .atomic
+        .retain(|ty, _| ty.elem_type() != bf16);
+
+    // Complex arithmetic is lowered by the C++ backends, not by this one.
+    props.features.types.complex.clear();
+    for kind in [ComplexKind::C32, ComplexKind::C64] {
+        props.features.types.elem.remove(&ElemType::Complex(kind));
+    }
+
+    // Vectorized float atomics: the shared atomic lowering handles the scalar widths, and a
+    // vector `atomicrmw` is not one instruction on this target.
+    props
+        .features
+        .types
+        .atomic
+        .retain(|ty, _| ty.vector_size() == 1);
+
+    // Scalars and static metadata ride in a device buffer, not in the kernel's parameter
+    // block: the PTX entry ABI presents buffers as pointers in binding order and nothing else,
+    // which is the layout `PtxKernelParams` lowers to.
+    comp_opts.supports_features.grid_constants = false;
+}
 
 fn tensor_cores_per_sm(arch: &CudaArchitecture) -> Option<u32> {
     if !arch.tensor_cores {

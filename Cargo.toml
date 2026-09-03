@@ -183,7 +183,10 @@ llvm-sys = { version = "231", features = [
     "no-llvm-linking",
     "disable-alltargets-init",
 ] }
-tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "809d73e1a49bba4c7fbe858ade27a983921b1ca8" }
+# NVPTX is not in the released bundle; developing against the local checkout that adds it.
+# Back to the git rev once tracel-llvm cuts 23.1.0-2.
+# tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "809d73e1a49bba4c7fbe858ade27a983921b1ca8" }
+tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
 
 cudarc = { version = "0.19.6", features = [
     "std",

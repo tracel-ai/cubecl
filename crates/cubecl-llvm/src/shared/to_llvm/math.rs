@@ -344,7 +344,10 @@ impl ToLLVMDialect for BoolNotOp {
 /// the kernel wrote.
 fn fma_contraction(ctx: &Context) -> FastmathFlagsAttr {
     match ctx.target() {
-        LlvmTarget::AmdGpu => FastmathFlagsAttr(FastmathFlags::CONTRACT),
+        // Both GPUs fuse a multiply into the addition consuming it, which is what the
+        // vendors' own compilers do by default and what the C++ backends therefore measure
+        // against.
+        LlvmTarget::AmdGpu | LlvmTarget::Nvptx => FastmathFlagsAttr(FastmathFlags::CONTRACT),
         LlvmTarget::Cpu => FastmathFlagsAttr::default(),
     }
 }
