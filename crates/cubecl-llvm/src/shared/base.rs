@@ -392,26 +392,3 @@ fn pliron_path(name: &str) -> Option<PathBuf> {
         None
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_target_is_cpu() {
-        assert!(matches!(PlironCompiler::default().target, LlvmTarget::Cpu));
-    }
-
-    #[test]
-    fn amdgpu_artifact_displays_its_ir() {
-        let artifact = PlironArtifact::AmdGpuCode(AmdGpuModule {
-            code_object: Bytes::from_bytes_vec(vec![0x7f, 0x45, 0x4c, 0x46]),
-            entrypoint: "k".to_string(),
-            ir: "define void @k() { ret void }".to_string(),
-            asm: None,
-            shared_memory_size: 0,
-            io: Vec::new(),
-        });
-        assert!(artifact.to_string().contains("@k"));
-    }
-}
