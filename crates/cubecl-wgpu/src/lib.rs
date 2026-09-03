@@ -36,6 +36,7 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f32);
+    cubecl_core::testgen_profiling!();
 
     /// A kernel that brings its own WGSL, the way a template kernel downstream
     /// does: no representation for the runtime to read, only text for naga.
@@ -203,6 +204,7 @@ mod tests_spirv {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);
+    cubecl_core::testgen_profiling!();
 }
 
 #[cfg(all(test, feature = "msl"))]

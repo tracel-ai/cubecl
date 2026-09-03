@@ -347,6 +347,70 @@ fn test_manual_fma_kernel<F: Float, N: Size>(
     }
 }
 
+#[cube(launch_unchecked)]
+fn test_product_minus_kernel<F: Float, N: Size>(
+    a: &[Vector<F, N>],
+    b: &[Vector<F, N>],
+    c: &[Vector<F, N>],
+    output: &mut [Vector<F, N>],
+) {
+    if ABSOLUTE_POS < c.len() {
+        output[ABSOLUTE_POS] = a[ABSOLUTE_POS] * b[ABSOLUTE_POS] - c[ABSOLUTE_POS];
+    }
+}
+
+#[cube(launch_unchecked)]
+fn test_minus_product_kernel<F: Float, N: Size>(
+    a: &[Vector<F, N>],
+    b: &[Vector<F, N>],
+    c: &[Vector<F, N>],
+    output: &mut [Vector<F, N>],
+) {
+    if ABSOLUTE_POS < c.len() {
+        output[ABSOLUTE_POS] = c[ABSOLUTE_POS] - a[ABSOLUTE_POS] * b[ABSOLUTE_POS];
+    }
+}
+
+/// `c - a * b` negates a factor rather than the product, which is the same number only
+/// because flipping one factor flips the product exactly.
+pub fn test_fma_from_sub<R: Runtime, F: Float + num_traits::Float + CubeElement + Display>(
+    client: ComputeClient,
+) {
+    let a = as_type![F: 1., -3.1, -2.4, 15.1];
+    let b = as_type![F: -1., 23.1, -1.4, 5.1];
+    let c = as_type![F: 2., 0.5, -1., -8.];
+
+    for vectorization in [1usize, 2, 4] {
+        for (kernel, expected) in [
+            (0, as_type![F: -3., -72.11, 4.36, 85.01]),
+            (1, as_type![F: 3., 72.11, -4.36, -85.01]),
+        ] {
+            let output_handle = client.empty(expected.len() * core::mem::size_of::<F>());
+            let a_handle = client.create_from_slice(F::as_bytes(a));
+            let b_handle = client.create_from_slice(F::as_bytes(b));
+            let c_handle = client.create_from_slice(F::as_bytes(c));
+            let launch = if kernel == 0 {
+                test_product_minus_kernel::launch_unchecked::<F>
+            } else {
+                test_minus_product_kernel::launch_unchecked::<F>
+            };
+            unsafe {
+                launch(
+                    &client,
+                    CubeCount::Static(1, 1, 1),
+                    CubeDim::new_1d((a.len() / vectorization) as u32),
+                    vectorization,
+                    BufferArg::from_raw_parts(a_handle, a.len()),
+                    BufferArg::from_raw_parts(b_handle, b.len()),
+                    BufferArg::from_raw_parts(c_handle, c.len()),
+                    BufferArg::from_raw_parts(output_handle.clone(), expected.len()),
+                )
+            };
+            assert_equals_approx::<F>(&client, output_handle, expected, 0.001);
+        }
+    }
+}
+
 macro_rules! test_fma_impl {
     (
         $test_name:ident,
@@ -588,6 +652,7 @@ macro_rules! testgen_binary {
             add_test!(test_powi);
             add_test!(test_atan2);
             add_test!(test_fma);
+            add_test!(test_fma_from_sub);
         }
     };
 }

@@ -1,6 +1,6 @@
 use crate::{
     config::CubeClRuntimeConfig,
-    throughput::{ThroughputCache, ThroughputKey, ThroughputValue},
+    throughput::{ThroughputCache, ThroughputError, ThroughputKey, ThroughputValue},
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -14,6 +14,10 @@ type Cache = Arc<Mutex<ThroughputCache>>;
 /// the tens of milliseconds a converging one needs, and the only thing bounding
 /// a probe whose timer is too coarse to ever reach the target.
 const WARMUP_BUDGET: Duration = Duration::from_secs(2);
+
+/// Wall clock a plateau must hold across before it is accepted, sized against a
+/// clock transition, which takes hundreds of milliseconds.
+const PLATEAU_FLOOR: Duration = Duration::from_millis(250);
 
 /// Configuration and payload for a benchmarkable compute kernel.
 pub struct KernelConfig {
@@ -42,31 +46,42 @@ impl ThroughputBenchmarker {
         }
     }
 
-    /// Measure the maximum compute throughput of the given kernel.
-    /// Warms up the kernel until it plateaus,
-    /// then measures the throughput over multiple iterations taking the minimum time per iteration (peak attained).
-    pub fn measure(&mut self, key: ThroughputKey, kernel_config: KernelConfig) -> ThroughputValue {
+    /// The value for `key`, measured by `probe` unless the cache holds one.
+    ///
+    /// # Errors
+    ///
+    /// Whatever `probe` reports. Only a measurement is cached.
+    pub fn measure(
+        &mut self,
+        key: ThroughputKey,
+        probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
+    ) -> Result<ThroughputValue, ThroughputError> {
         if self.cache_enabled
             && let Some(cached_value) = self.cache.lock().get(&key)
         {
-            return *cached_value;
+            return Ok(*cached_value);
         }
 
-        let sample = kernel_config.sample;
-
-        let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
-        let duration = Self::sample_peak_duration(iterations, &sample);
-
-        let value = ThroughputValue {
-            ops_count: kernel_config.ops_count,
-            duration,
-        };
+        let value = probe()?;
 
         if self.cache_enabled {
             self.cache.lock().insert(key, value);
         }
 
-        value
+        Ok(value)
+    }
+
+    /// Warm one shape of a kernel up to its plateau, then keep its fastest sample.
+    pub fn sample(kernel_config: KernelConfig) -> ThroughputValue {
+        let sample = kernel_config.sample;
+
+        let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
+        let duration = Self::sample_peak_duration(iterations, &sample);
+
+        ThroughputValue {
+            ops_count: kernel_config.ops_count,
+            duration,
+        }
     }
 
     /// Warms up the device by running the kernel multiple times
@@ -97,6 +112,7 @@ impl ThroughputBenchmarker {
         let mut stable = 0;
         let mut iterations = min_iterations.max(1);
         let start = Instant::now();
+        let mut plateau_start = start;
 
         for _ in 0..MAX_WARMUP {
             let duration = sample(iterations).as_secs_f64() * 1000.0;
@@ -125,10 +141,12 @@ impl ThroughputBenchmarker {
             if duration_per_iter < best * (1.0 - PLATEAU_TOL) {
                 best = duration_per_iter;
                 stable = 0;
+                // Growth clears `best`, so the window restarts at the settled count.
+                plateau_start = Instant::now();
             } else {
                 best = best.min(duration_per_iter);
                 stable += 1;
-                if stable >= PATIENCE {
+                if stable >= PATIENCE && plateau_start.elapsed() >= PLATEAU_FLOOR {
                     break;
                 }
             }
@@ -186,6 +204,21 @@ mod tests {
     use super::*;
     use core::cell::Cell;
 
+    fn spin(duration: Duration) {
+        let start = Instant::now();
+        while start.elapsed() < duration {}
+    }
+
+    /// A device that takes as long as it reports, at whatever rate it is asked for.
+    fn timed_device(per_iter_nanos: impl Fn() -> u64) -> impl Fn(usize) -> Duration {
+        move |iterations| {
+            let duration = Duration::from_nanos(per_iter_nanos() * iterations as u64);
+            spin(duration);
+
+            duration
+        }
+    }
+
     /// One iteration of the launch probe is a real launch, so a device whose
     /// timer reads zero must not be answered by doubling toward the ceiling the
     /// duration target drives.
@@ -212,8 +245,7 @@ mod tests {
     #[test]
     fn a_timer_that_never_reaches_the_target_stops_growing_on_the_budget() {
         let iterations = ThroughputBenchmarker::warmup(1, Duration::from_millis(12), |_| {
-            let start = Instant::now();
-            while start.elapsed() < Duration::from_millis(5) {}
+            spin(Duration::from_millis(5));
 
             Duration::from_millis(1)
         });
@@ -230,6 +262,62 @@ mod tests {
         });
 
         assert!(calls.get() < 200, "ran {} samples", calls.get());
+    }
+
+    /// Passes at one iteration count sit microseconds apart, so a plateau of
+    /// them is evidence about a moment rather than about the device.
+    #[test]
+    fn a_clock_that_lifts_inside_the_floor_does_not_release_the_warmup() {
+        let lift = Duration::from_millis(100);
+        let clock = Instant::now();
+        let lifts_once = timed_device(move || if clock.elapsed() < lift { 3000 } else { 1000 });
+
+        let start = Instant::now();
+        ThroughputBenchmarker::warmup(1, WARMUP_BUDGET, lifts_once);
+
+        assert!(
+            start.elapsed() >= lift + PLATEAU_FLOOR,
+            "released after {:?}",
+            start.elapsed()
+        );
+    }
+
+    /// A probe runs on first use of every key, so the quiet device is the cost
+    /// every one of them pays.
+    #[test]
+    fn a_steady_device_pays_the_floor_and_nothing_more() {
+        let passes = Cell::new(0);
+        let steady = timed_device(|| {
+            passes.set(passes.get() + 1);
+            1000
+        });
+
+        let start = Instant::now();
+        ThroughputBenchmarker::warmup(1, WARMUP_BUDGET, steady);
+
+        assert!(
+            start.elapsed() >= PLATEAU_FLOOR,
+            "left after {:?}",
+            start.elapsed()
+        );
+        assert!(passes.get() <= 20, "ran {} passes", passes.get());
+    }
+
+    /// Contention that outlasts the whole warmup is measured, not rejected: a
+    /// device that is genuinely slow answers the same however long it is held.
+    #[test]
+    fn a_device_slow_for_the_whole_measurement_reports_its_slow_rate() {
+        let value = ThroughputBenchmarker::sample(KernelConfig {
+            sample: Box::new(timed_device(|| 3000)),
+            ops_count: 1,
+            min_iterations: 1,
+        });
+
+        assert!(
+            (Duration::from_nanos(2900)..Duration::from_nanos(3100)).contains(&value.duration),
+            "kept {:?}",
+            value.duration
+        );
     }
 
     /// A working timer still drives the count to the duration target.

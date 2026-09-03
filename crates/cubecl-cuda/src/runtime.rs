@@ -151,7 +151,7 @@ impl DeviceService for CudaServer {
             let num_streaming_multiprocessors = Some(
                 get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
             );
-            let num_tensor_cores = tensor_cores_per_sm(arch_version);
+            let num_tensor_cores = tensor_cores_per_sm(&arch);
 
             comp_opts.warp_size = warp_size as usize;
 
@@ -376,8 +376,11 @@ impl DeviceService for CudaServer {
 pub type CudaCompiler = CppCompiler<Cuda>;
 pub type CudaComputeKernel = ComputeKernel;
 
-fn tensor_cores_per_sm(version: u32) -> Option<u32> {
-    match version {
+fn tensor_cores_per_sm(arch: &CudaArchitecture) -> Option<u32> {
+    if !arch.tensor_cores {
+        return None;
+    }
+    match arch.version {
         70 | 75 => Some(8),                           // Volta, Turing
         80 | 86 | 89 | 90 | 91 | 92 | 100 => Some(4), // Ampere, Hopper, Blackwell
         _ => None,                                    // Unknown or unsupported architecture
