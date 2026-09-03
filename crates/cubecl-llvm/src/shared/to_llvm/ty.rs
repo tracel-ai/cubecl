@@ -132,6 +132,9 @@ impl_llvm_type_to_mangled_overload!(IntegerType, self, _ctx => format!("i{}", se
 impl_llvm_type_to_mangled_overload!(FP16Type, self, _ctx => "f16".to_string());
 impl_llvm_type_to_mangled_overload!(FP32Type, self, _ctx => "f32".to_string());
 impl_llvm_type_to_mangled_overload!(FP64Type, self, _ctx => "f64".to_string());
+// A pointer mangles as its address space, which is how the intrinsics overloaded on one --
+// the NVPTX matrix loads and stores -- tell `p0` from `p3`.
+impl_llvm_type_to_mangled_overload!(LlvmPointerType, self, _ctx => format!("p{}", self.address_space()));
 impl_llvm_type_to_mangled_overload!(LlvmVectorType, self, ctx => {
     let prefix = if self.is_scalable() {
         "nx"

@@ -460,4 +460,70 @@ entry:
         assert!(ptx.contains("shfl.sync.idx"), "{ptx}");
         assert!(ptx.contains("vote.sync.ballot"), "{ptx}");
     }
+
+    /// The matrix instructions reach the PTX, in the shape the lowering names them.
+    ///
+    /// Getting an intrinsic's name or its register count wrong fails to select rather than
+    /// computing a wrong answer, and needs no device to catch, so the three the cooperative
+    /// path goes through are pinned here: the load, the multiply and the store. The register
+    /// counts are the ones `nvptx::matrix` builds its fragments from.
+    #[test]
+    fn the_matrix_instructions_reach_the_ptx() {
+        let list = |ty: &str| [ty; 8].join(", ");
+        let (half8, float8) = (list("<2 x half>"), list("float"));
+        let named = |ty: &str, prefix: &str| {
+            (0..8)
+                .map(|i| format!("{ty} %{prefix}{i}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let extract = |ty: &str, from: &str, prefix: &str| {
+            (0..8)
+                .map(|i| format!("  %{prefix}{i} = extractvalue {{{ty}}} %{from}, {i}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let zeros = list("float 0.0");
+
+        let ir = format!(
+            "declare {{{half8}}} @llvm.nvvm.wmma.m16n16k16.load.a.row.stride.f16.p0(ptr, i32)\n\
+             declare {{{float8}}} @llvm.nvvm.wmma.m16n16k16.mma.row.col.f32.f32({half8}, \
+             {half8}, {float8})\n\
+             declare void @llvm.nvvm.wmma.m16n16k16.store.d.row.stride.f32.p0(ptr, {float8}, \
+             i32)\n\
+             define void @k(ptr %src, ptr %dst) {{\n\
+             entry:\n\
+               %a = call {{{half8}}} \
+             @llvm.nvvm.wmma.m16n16k16.load.a.row.stride.f16.p0(ptr %src, i32 16)\n\
+             {a_regs}\n\
+               %d = call {{{float8}}} @llvm.nvvm.wmma.m16n16k16.mma.row.col.f32.f32({a_args}, \
+             {a_args}, {zeros})\n\
+             {d_regs}\n\
+               call void @llvm.nvvm.wmma.m16n16k16.store.d.row.stride.f32.p0(ptr %dst, \
+             {d_args}, i32 16)\n\
+               ret void\n\
+             }}\n",
+            a_regs = extract(&half8, "a", "a"),
+            d_regs = extract(&float8, "d", "d"),
+            a_args = named("<2 x half>", "a"),
+            d_args = named("float", "d"),
+        );
+
+        let arch = SmArch::new(86, true);
+        let finalized = finalize_ir(&ir, "k", &arch, 32).unwrap();
+        let ptx = compile_to_ptx(&finalized, &arch).unwrap();
+
+        assert!(
+            ptx.contains("wmma.load.a.sync.aligned.row.m16n16k16.f16"),
+            "{ptx}"
+        );
+        assert!(
+            ptx.contains("wmma.mma.sync.aligned.row.col.m16n16k16.f32.f32"),
+            "{ptx}"
+        );
+        assert!(
+            ptx.contains("wmma.store.d.sync.aligned.row.m16n16k16.f32"),
+            "{ptx}"
+        );
+    }
 }

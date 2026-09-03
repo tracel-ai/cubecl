@@ -399,10 +399,33 @@ impl DeviceService for CudaServer {
 /// Each of these comes back as its lowering lands; see the matrix and TMA work in
 /// `cubecl-llvm`'s `nvptx` module.
 fn restrict_to_llvm_backend(props: &mut DeviceProperties, comp_opts: &mut CompilationOptions) {
-    // No matrix lowering yet, so nothing that reaches a tensor core.
-    props.features.matmul = Default::default();
-    props.hardware.num_tensor_cores = None;
-    props.hardware.min_tensor_cores_dim = None;
+    // The cooperative matrix API is lowered through `wmma`, which reaches the tensor cores;
+    // the manual `mma.sync` API is not lowered at all, and `ldmatrix`/`stmatrix` and the
+    // scaled variants belong to it. What survives is the `cmma` set, narrowed to the element
+    // types the lowering has fragments for: `f16` operands with an `f16` or `f32`
+    // accumulator. `bf16` is not among them for the same reason it is dropped below -- there
+    // is no `bf16` in the dialect this backend lowers through -- and the integer combinations
+    // wait on their own fragment shapes.
+    let matmul = &mut props.features.matmul;
+    matmul.cmma.retain(|config| {
+        let half = ElemType::Float(FloatKind::F16);
+        config.a_type == half
+            && config.b_type == half
+            && matches!(
+                config.cd_type,
+                ElemType::Float(FloatKind::F16) | ElemType::Float(FloatKind::F32)
+            )
+    });
+    matmul.cube_mma = Default::default();
+    matmul.mma = Default::default();
+    matmul.scaled_mma = Default::default();
+    matmul.ldmatrix = Default::default();
+    matmul.stmatrix = Default::default();
+    matmul.cmma_tensor_addressing = false;
+    if matmul.cmma.is_empty() {
+        props.hardware.num_tensor_cores = None;
+        props.hardware.min_tensor_cores_dim = None;
+    }
 
     // No TMA, no clusters, no async copy, and no `mbarrier` behind them.
     props.features.tma = Default::default();
