@@ -9,7 +9,8 @@
 use cubecl_core::ir::ContextExt;
 use cubecl_core::ir::amd::AmdWmma;
 use cubecl_core::ir::dialect::matrix::{
-    CastOp, ColIndexOp, FillOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RowIndexOp, StoreOp,
+    CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RowIndexOp,
+    StMatrixOp, StoreOp,
 };
 use cubecl_core::ir::types::matrix::MatrixType;
 use cubecl_core::ir::types::{MatrixIdent, MatrixLayout, MatrixShape};
@@ -19,6 +20,7 @@ use pliron::printable::Printable;
 use thiserror::Error;
 
 use crate::amdgpu::plane::lane_id;
+use crate::shared::matrix::{registers_as_vector, registers_value};
 use crate::shared::to_llvm::prelude::*;
 use crate::shared::to_llvm::ty::scalar_alignment;
 
@@ -842,96 +844,6 @@ macro_rules! lower_axis_index {
 lower_axis_index!(row_index, RowIndexOp, Axis::Row);
 lower_axis_index!(col_index, ColIndexOp, Axis::Col);
 
-/// The LLVM vector holding the registers `value` points at.
-///
-/// The manual ops carry their operands as arrays rather than fragments, but the registers are
-/// the same ones, so the array is read as the vector the instruction expects.
-fn registers_as_vector(
-    ctx: &Context,
-    info: &OperandsInfo,
-    value: Value,
-) -> (TypeHandle, TypeHandle) {
-    // The inputs are array values and the output a pointer to one, so both shapes are looked
-    // for and the registers read accordingly.
-    let array = info
-        .lookup_operand_history(value)
-        .into_iter()
-        .rev()
-        .chain(core::iter::once(value.get_type(ctx)))
-        .find_map(|ty| {
-            let ty = ty.deref(ctx);
-            if let Some(array) = ty.downcast_ref::<CubeArrayType>() {
-                return Some(*array);
-            }
-            let ptr = ty.downcast_ref::<CubePointerType>()?;
-            let inner = ptr.inner.deref(ctx);
-            inner.downcast_ref::<CubeArrayType>().copied()
-        })
-        .expect("a manual matrix operand is an array of registers");
-
-    // The registers are packed as vectors, so the array is flattened into the one vector the
-    // instruction takes.
-    let (scalar, per_register) = match array.inner.deref(ctx).downcast_ref::<CubeVectorType>() {
-        Some(vector) => (vector.inner, vector.vectorization),
-        None => (array.inner, 1),
-    };
-    let elem = cube_type_to_llvm(ctx, scalar);
-    let lanes = (array.length * per_register) as u32;
-    let vector = LlvmVectorType::get(ctx, elem, lanes, VectorTypeKind::Fixed).into();
-    (vector, scalar)
-}
-
-/// The registers of `value` as the one vector the instruction takes.
-///
-/// The registers arrive as an array, of vectors where several share a register. An array is not
-/// a vector as far as a bitcast is concerned, so it is taken apart and rebuilt.
-fn registers_value(
-    ctx: &mut Context,
-    rw: &mut DialectConversionRewriter,
-    value: Value,
-    vector_ty: TypeHandle,
-) -> Value {
-    let ty = value.get_type(ctx);
-    if ty.deref(ctx).is::<LlvmPointerType>() {
-        return load_fragment(ctx, rw, value, vector_ty);
-    }
-
-    let (count, packed) = {
-        let ty = ty.deref(ctx);
-        let array = ty
-            .downcast_ref::<LlvmArrayType>()
-            .expect("registers are an array");
-        (array.size(), array.elem_type())
-    };
-    let per_register = match packed.deref(ctx).downcast_ref::<LlvmVectorType>() {
-        Some(vector) => vector.num_elements() as u64,
-        None => 1,
-    };
-
-    let poison = llvm::PoisonOp::new(ctx, vector_ty);
-    let mut acc = insert(ctx, rw, &poison);
-
-    for register in 0..count {
-        let op = llvm::ExtractValueOp::new(ctx, value, vec![register as u32])
-            .expect("a constant index into the register array");
-        let element = insert(ctx, rw, &op);
-
-        for lane in 0..per_register {
-            let value = if per_register == 1 {
-                element
-            } else {
-                let from = insert_i32_const(ctx, rw, lane as i32);
-                let op = llvm::ExtractElementOp::new(ctx, element, from);
-                insert(ctx, rw, &op)
-            };
-            let to = insert_i32_const(ctx, rw, (register * per_register + lane) as i32);
-            let op = llvm::InsertElementOp::new(ctx, acc, value, to);
-            acc = insert(ctx, rw, &op);
-        }
-    }
-    acc
-}
-
 pub(crate) fn mma_manual(
     op: &MmaManualOp,
     ctx: &mut Context,
@@ -1115,3 +1027,28 @@ mod tests {
         ));
     }
 }
+
+/// A matrix load or store that moves a tile between shared memory and the registers of a
+/// wavefront in one instruction, which AMD has no equivalent of at the shapes `CubeCL` asks for.
+#[derive(Debug, Error)]
+#[error(
+    "`{0}` is `ldmatrix`/`stmatrix`, an NVIDIA instruction; the AMDGPU backend does not \
+     advertise it and has nothing to lower it to"
+)]
+pub struct MatrixTileMoveUnsupported(&'static str);
+
+macro_rules! unsupported_tile_move {
+    ($fn_name:ident, $cube_op:ty) => {
+        pub(crate) fn $fn_name(
+            op: &$cube_op,
+            ctx: &mut Context,
+            _rw: &mut DialectConversionRewriter,
+            _operands_info: &OperandsInfo,
+        ) -> Result<()> {
+            input_err!(op.loc(ctx), MatrixTileMoveUnsupported(stringify!($cube_op)))
+        }
+    };
+}
+
+unsupported_tile_move!(ld_matrix, LdMatrixOp);
+unsupported_tile_move!(st_matrix, StMatrixOp);

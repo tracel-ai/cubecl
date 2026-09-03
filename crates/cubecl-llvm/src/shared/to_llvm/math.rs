@@ -292,7 +292,15 @@ impl ToLLVMDialect for ShiftRightOp {
     ) -> Result<()> {
         let lhs = self.lhs(ctx);
         let rhs = self.rhs(ctx);
-        let original_lhs_ty = *operands_info.lookup_operand_history(lhs).first().unwrap();
+        // Whether the shift is arithmetic or logical is decided by the signedness the operand
+        // had before the conversion started erasing it. A value the conversion never saw --
+        // one a polyfill built during this same pass, as the `mma.sync` index formulas do --
+        // has no history, and then its current type is still the original one.
+        let original_lhs_ty = operands_info
+            .lookup_operand_history(lhs)
+            .first()
+            .copied()
+            .unwrap_or_else(|| lhs.get_type(ctx));
         let op: &dyn OneResultInterface = if original_lhs_ty.is_signed_int(ctx) {
             &llvm::AShrOp::new(ctx, lhs, rhs)
         } else {

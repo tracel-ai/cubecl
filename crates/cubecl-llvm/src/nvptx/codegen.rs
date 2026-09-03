@@ -30,10 +30,13 @@ const TRIPLE: &CStr = c"nvptx64-nvidia-cuda";
 /// way left to say it.
 const PTX_KERNEL_CC: u32 = 71;
 
-/// The PTX ISA version to emit for. Kept a little behind the newest so the driver on a machine
-/// that has not been updated in step with the toolkit still accepts the module; the driver
-/// rejects a `.version` above what it knows.
-const PTX_VERSION: &str = "+ptx78";
+/// No subtarget features are asked for, which is deliberate: the one that would go here is the
+/// PTX ISA version, and LLVM already picks the lowest that supports the `-mcpu` -- 7.1 for
+/// `sm_86`. That is both the most compatible answer, since the driver rejects a `.version`
+/// above what it knows, and the only safe one: an architecture needs a minimum ISA version to
+/// be nameable at all, and pinning one below it is a hard `LLVM ERROR` rather than a
+/// diagnostic. `sm_90a` needs 8.0, and the Blackwell parts more again.
+const NO_FEATURES: &CStr = c"";
 
 /// The pipeline run before machine-code emission. The same one the AMDGPU path runs, handed
 /// the target machine, which is what makes it target-aware.
@@ -106,7 +109,6 @@ fn finalize_ir(ir: &str, entrypoint: &str, arch: &SmArch, cube_dim: u32) -> Resu
     let max_threads = cube_dim.to_string();
     let attributes = [
         ("target-cpu", target_cpu.as_str()),
-        ("target-features", PTX_VERSION),
         ("nvvm.maxntid", max_threads.as_str()),
     ];
 
@@ -159,7 +161,7 @@ fn compile_to_ptx(ir: &str, arch: &SmArch) -> Result<String, String> {
     let target_cpu = arch.target_cpu();
     let cpu = CString::new(target_cpu.clone())
         .map_err(|_| format!("arch '{target_cpu}' contains a NUL"))?;
-    let features = CString::new(PTX_VERSION).expect("static feature string");
+    let features = NO_FEATURES;
 
     unsafe {
         let mut target = std::ptr::null_mut();
@@ -523,6 +525,85 @@ entry:
         );
         assert!(
             ptx.contains("wmma.store.d.sync.aligned.row.m16n16k16.f32"),
+            "{ptx}"
+        );
+    }
+
+    /// The manual `mma.sync` family reaches the PTX: the multiply itself, and the two tile
+    /// moves that feed it.
+    ///
+    /// `test_cmma_manual` covers the multiply end to end on a device, but nothing in the suite
+    /// reaches `ldmatrix` without a barrier to stage through, and `stmatrix` is `sm_90` and up
+    /// where this machine is `sm_86`. So the names are pinned here, where no device is needed:
+    /// a wrong one fails to select rather than computing a wrong answer.
+    #[test]
+    fn the_manual_matrix_instructions_reach_the_ptx() {
+        let half2 = |n: usize| vec!["<2 x half>"; n].join(", ");
+        let float4 = ["float"; 4].join(", ");
+        let named = |ty: &str, prefix: &str, n: usize| {
+            (0..n)
+                .map(|i| format!("{ty} %{prefix}{i}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        // `mma.sync` at the shape the manual API is built around, on `sm_86`.
+        let ir = format!(
+            "declare {{{float4}}} @llvm.nvvm.mma.m16n8k16.row.col.f32.f32({a}, {b}, {float4})\n\
+             define void @k(ptr %dst, {a_named}, {b_named}) {{\n\
+             entry:\n\
+               %d = call {{{float4}}} @llvm.nvvm.mma.m16n8k16.row.col.f32.f32({a_args}, \
+             {b_args}, float 0.0, float 0.0, float 0.0, float 0.0)\n\
+               %d0 = extractvalue {{{float4}}} %d, 0\n\
+               store float %d0, ptr %dst\n\
+               ret void\n\
+             }}\n",
+            a = half2(4),
+            b = half2(2),
+            a_named = named("<2 x half>", "a", 4),
+            b_named = named("<2 x half>", "b", 2),
+            a_args = named("<2 x half>", "a", 4),
+            b_args = named("<2 x half>", "b", 2),
+        );
+        let arch = SmArch::new(86, true);
+        let ptx = compile_to_ptx(&finalize_ir(&ir, "k", &arch, 32).unwrap(), &arch).unwrap();
+        assert!(
+            ptx.contains("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"),
+            "{ptx}"
+        );
+
+        // `ldmatrix` reads its tiles out of shared memory, which is why the pointer is cast
+        // into address space 3 before the call.
+        let ir = "\
+declare {i32, i32} @llvm.nvvm.ldmatrix.sync.aligned.m8n8.x2.b16.p3(ptr addrspace(3))
+define void @k(ptr addrspace(3) %src, ptr %dst) {
+entry:
+  %r = call {i32, i32} @llvm.nvvm.ldmatrix.sync.aligned.m8n8.x2.b16.p3(ptr addrspace(3) %src)
+  %r0 = extractvalue {i32, i32} %r, 0
+  store i32 %r0, ptr %dst
+  ret void
+}
+";
+        let ptx = compile_to_ptx(&finalize_ir(ir, "k", &arch, 32).unwrap(), &arch).unwrap();
+        assert!(
+            ptx.contains("ldmatrix.sync.aligned.m8n8.x2.shared"),
+            "{ptx}"
+        );
+
+        // `stmatrix` only exists from `sm_90`, which is also the only architecture the runtime
+        // advertises it on.
+        let ir = "\
+declare void @llvm.nvvm.stmatrix.sync.aligned.m8n8.x2.b16.p3(ptr addrspace(3), i32, i32)
+define void @k(ptr addrspace(3) %dst, i32 %a, i32 %b) {
+entry:
+  call void @llvm.nvvm.stmatrix.sync.aligned.m8n8.x2.b16.p3(ptr addrspace(3) %dst, i32 %a, i32 %b)
+  ret void
+}
+";
+        let hopper = SmArch::new(90, true);
+        let ptx = compile_to_ptx(&finalize_ir(ir, "k", &hopper, 32).unwrap(), &hopper).unwrap();
+        assert!(
+            ptx.contains("stmatrix.sync.aligned.m8n8.x2.shared"),
             "{ptx}"
         );
     }
