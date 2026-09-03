@@ -90,8 +90,8 @@ pub struct MemoryDeviceProperties {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct DeviceIdentity {
     /// The device as it names itself — `AMD Radeon 8060S Graphics`,
-    /// `NVIDIA H100 PCIe`. Display only: distinct parts may share a name, so
-    /// nothing may gate on it.
+    /// `NVIDIA H100 PCIe`. Distinct parts may share a name, so no capability
+    /// and no compiled artifact may be keyed to it.
     pub name: String,
     /// What this runtime compiles *for* — `hip-kernel_gfx1151`, `ptx_sm90`.
     /// Verbatim the `compilation_store` fingerprint, so a namespace read back

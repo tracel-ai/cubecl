@@ -2,10 +2,16 @@ use crate::throughput::{CmmaDims, ComputeCmmaConfig};
 use alloc::{format, string::String};
 use core::time::Duration;
 use cubecl_ir::{ElemType, FloatKind};
+use thiserror::Error;
 
-/// Bytes per buffer of a [`ThroughputMode::Memory`] probe left at its default
-/// working set. Clamped to the device's maximum allocation when the probe runs.
-pub const DEFAULT_BUFFER_BYTES: u64 = 512 * 1024 * 1024;
+/// What the probes measure, as opposed to which release ran them. Bump it when
+/// a probe changes what it reports.
+pub const PROBE_VERSION: u32 = 1;
+
+/// Bytes one buffer of a [`ThroughputMode::Memory`] probe moves per pass at its
+/// default working set. The probe's buffer is a multiple of this, and both are
+/// clamped to the device's maximum allocation when the probe runs.
+pub const DEFAULT_WORKING_SET_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Which directions of traffic a memory probe issues.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
@@ -39,9 +45,9 @@ impl MemoryAccess {
     }
 
     /// The working set of the single-size probe for this access, in bytes moved
-    /// per pass: [`DEFAULT_BUFFER_BYTES`] per buffer touched.
+    /// per pass: [`DEFAULT_WORKING_SET_BYTES`] per buffer touched.
     pub const fn default_working_set(&self) -> u64 {
-        DEFAULT_BUFFER_BYTES * self.buffers()
+        DEFAULT_WORKING_SET_BYTES * self.buffers()
     }
 }
 
@@ -125,6 +131,17 @@ impl ThroughputKey {
             ThroughputMode::Memory(_) | ThroughputMode::Launch => ElemType::Float(FloatKind::F32),
         }
     }
+}
+
+/// Why a device has no peak to report for a probe.
+#[derive(Error, Eq, PartialEq, Clone, Copy, Debug)]
+pub enum ThroughputError {
+    /// The device implements no such operation.
+    #[error("unsupported")]
+    Unsupported,
+    /// The device's timer reported no elapsed time for any shape of the probe.
+    #[error("no timing")]
+    NoTiming,
 }
 
 /// Represents the throughput of a computation, including the number of operations and the duration.

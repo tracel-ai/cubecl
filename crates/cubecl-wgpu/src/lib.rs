@@ -36,6 +36,7 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f32);
+    cubecl_core::testgen_profiling!();
 
     /// WGSL packs fp8 four lanes to a `u32` and has no type for anything narrower. Rejecting
     /// that has to reach the caller: a panic on the device thread is caught there, logged as a
@@ -127,6 +128,7 @@ mod tests_spirv {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);
+    cubecl_core::testgen_profiling!();
 }
 
 #[cfg(all(test, feature = "msl"))]
