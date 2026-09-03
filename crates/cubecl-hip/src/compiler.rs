@@ -134,9 +134,7 @@ impl Compiler for HipCompiler {
                     cubecl_llvm::PlironArtifact::AmdGpuCode(module) => {
                         Ok(HipRepresentation::Llvm(module))
                     }
-                    cubecl_llvm::PlironArtifact::Jit(_) => {
-                        unreachable!("the HIP runtime always configures LlvmTarget::AmdGpu")
-                    }
+                    _ => unreachable!("the HIP runtime always configures LlvmTarget::AmdGpu"),
                 }
             }
         }

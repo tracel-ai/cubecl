@@ -29,6 +29,7 @@ impl LowerOp for SyncOp {
                 LlvmTarget::Cpu => {}
                 #[cfg(feature = "amdgpu")]
                 LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_plane(scope),
+                LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_plane(scope),
             },
             // A device wide barrier is a cube barrier on the GPU, as it is in the C++ backends:
             // a kernel cannot synchronize past its own cube.
@@ -39,6 +40,7 @@ impl LowerOp for SyncOp {
                 LlvmTarget::Cpu => crate::cpu::synchronization::lower_sync_cube(scope, op),
                 #[cfg(feature = "amdgpu")]
                 LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_cube(scope),
+                LlvmTarget::Nvptx => crate::nvptx::synchronization::lower_sync_cube(scope),
             },
         }
         vec![]

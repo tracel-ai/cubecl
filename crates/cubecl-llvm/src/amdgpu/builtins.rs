@@ -16,7 +16,8 @@ use cubecl_core::{self as cubecl};
 use pliron::builtin::ops::FuncOp;
 use pliron::builtin::types::{IntegerType, Signedness};
 
-use crate::amdgpu::intrinsic::{call_op, i32_ty, lane_id_ops};
+use crate::amdgpu::intrinsic::lane_id_ops;
+use crate::shared::intrinsic::{call_op, i32_ty};
 use pliron_llvm::ops::{GepIndex, GetElementPtrOp, LoadOp};
 use pliron_llvm::types::PointerType as LlvmPointerType;
 

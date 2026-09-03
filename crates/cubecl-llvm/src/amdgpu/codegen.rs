@@ -10,9 +10,10 @@ use std::sync::Once;
 
 use crate::amdgpu::device_libs::{DeviceLibs, link_device_libs};
 use crate::amdgpu::lld::link_relocatable;
-use crate::amdgpu::ocml::redirect_intrinsics_to_ocml;
+use crate::amdgpu::ocml::Ocml;
 use crate::amdgpu::printf::lower_printf_to_hostcall;
 use crate::shared::AmdGpuModule;
+use crate::shared::math_library::redirect_intrinsics;
 use cubecl_core::ir::amd::GfxArch;
 use cubecl_core::ir::attributes::BufferIOAttr;
 use cubecl_environment::bytes::Bytes;
@@ -254,7 +255,7 @@ unsafe fn lower_to_device_libs(
 ) -> Result<(), String> {
     unsafe {
         let needs = DeviceLibs {
-            math: redirect_intrinsics_to_ocml(module)?,
+            math: redirect_intrinsics(module, &Ocml)?,
             printf: lower_printf_to_hostcall(module),
         };
 
@@ -442,11 +443,11 @@ entry:
     #[test]
     fn shared_memory_becomes_lds() {
         let ir = r#"
-@cube_lds = external addrspace(3) global [0 x i8], align 16
+@cube_shared = external addrspace(3) global [0 x i8], align 16
 declare void @llvm.amdgcn.s.barrier()
 define void @k(ptr addrspace(1) %out, i32 %tid) {
 entry:
-  %slice = getelementptr i8, ptr addrspace(3) @cube_lds, i32 64
+  %slice = getelementptr i8, ptr addrspace(3) @cube_shared, i32 64
   %flat = addrspacecast ptr addrspace(3) %slice to ptr
   %idx = getelementptr float, ptr %flat, i32 %tid
   store float 1.0, ptr %idx, align 4

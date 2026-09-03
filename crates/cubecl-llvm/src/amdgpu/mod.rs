@@ -9,7 +9,5 @@ pub mod lld;
 pub mod matrix;
 pub mod ocml;
 pub mod plane;
-pub mod plane_reduce;
 pub mod printf;
-pub mod shared_memory;
 pub mod synchronization;
