@@ -1,5 +1,15 @@
 pub use cubecl_core::*;
 
+use cubecl_core::client::ComputeClient;
+#[cfg(any(
+    feature = "cuda",
+    feature = "hip",
+    feature = "metal-native",
+    feature = "wgpu",
+    feature = "cpu"
+))]
+use cubecl_runtime::runtime::Runtime;
+
 pub use cubecl_ir::features;
 pub use cubecl_runtime::config;
 pub use cubecl_runtime::memory_management::MemoryAllocationMode;
@@ -61,6 +71,101 @@ pub use cubecl_runtime::dry_run;
 /// [`LaunchObservation`](cubecl_runtime::logging::LaunchObservation) and has no
 /// other reason to depend on `cubecl-runtime` directly.
 pub use cubecl_runtime::logging;
+
+/// A device of any runtime this build enables.
+///
+/// Each runtime has its own device type, and until now the only way to reach a
+/// [`ComputeClient`] was through the runtime, `R::client(&device)`. This enum
+/// is the runtime-independent way: a value names both the runtime and the
+/// device on it, and [`client`](Device::client) hands back the client for it.
+///
+/// The variants follow the runtime features, so a match on this type needs a
+/// wildcard arm.
+///
+/// ```no_run
+/// # #[cfg(feature = "cuda")]
+/// # fn main() {
+/// use cubecl::Device;
+///
+/// let device = Device::Cuda(cubecl::cuda::CudaDevice::new(0));
+/// let client = device.client();
+/// println!("running on {}", client.name());
+/// # }
+/// # #[cfg(not(feature = "cuda"))]
+/// # fn main() {}
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Device {
+    /// A device of the CUDA runtime.
+    #[cfg(feature = "cuda")]
+    Cuda(cubecl_cuda::CudaDevice),
+    /// A device of the HIP runtime.
+    #[cfg(feature = "hip")]
+    Hip(cubecl_hip::AmdDevice),
+    /// A device of the native Metal runtime.
+    #[cfg(feature = "metal-native")]
+    Metal(cubecl_metal::MetalDevice),
+    /// A device of the wgpu runtime, on its default compiler.
+    #[cfg(feature = "wgpu")]
+    Wgpu(cubecl_wgpu::WgpuDevice),
+    /// The device of the CPU runtime.
+    #[cfg(feature = "cpu")]
+    Cpu(cubecl_cpu::CpuDevice),
+}
+
+impl Device {
+    /// The compute client of this device, initialized on first use.
+    pub fn client(&self) -> ComputeClient {
+        match *self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::client(device),
+            #[cfg(feature = "hip")]
+            Self::Hip(ref device) => cubecl_hip::HipRuntime::client(device),
+            #[cfg(feature = "metal-native")]
+            Self::Metal(ref device) => cubecl_metal::MetalRuntime::client(device),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::client(device),
+            #[cfg(feature = "cpu")]
+            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::client(device),
+        }
+    }
+}
+
+#[cfg(feature = "cuda")]
+impl From<cubecl_cuda::CudaDevice> for Device {
+    fn from(device: cubecl_cuda::CudaDevice) -> Self {
+        Self::Cuda(device)
+    }
+}
+
+#[cfg(feature = "hip")]
+impl From<cubecl_hip::AmdDevice> for Device {
+    fn from(device: cubecl_hip::AmdDevice) -> Self {
+        Self::Hip(device)
+    }
+}
+
+#[cfg(feature = "metal-native")]
+impl From<cubecl_metal::MetalDevice> for Device {
+    fn from(device: cubecl_metal::MetalDevice) -> Self {
+        Self::Metal(device)
+    }
+}
+
+#[cfg(feature = "wgpu")]
+impl From<cubecl_wgpu::WgpuDevice> for Device {
+    fn from(device: cubecl_wgpu::WgpuDevice) -> Self {
+        Self::Wgpu(device)
+    }
+}
+
+#[cfg(feature = "cpu")]
+impl From<cubecl_cpu::CpuDevice> for Device {
+    fn from(device: cubecl_cpu::CpuDevice) -> Self {
+        Self::Cpu(device)
+    }
+}
 
 #[cfg(feature = "wgpu")]
 pub use cubecl_wgpu as wgpu;

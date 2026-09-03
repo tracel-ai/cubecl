@@ -1,8 +1,7 @@
-use core::marker::PhantomData;
 use cubecl_core::zspace::metadata::Metadata;
-use cubecl_core::{Runtime, server, zspace::strides};
 use cubecl_core::{calculate_cube_count_elemwise, server::MemoryLayout};
 use cubecl_core::{prelude::*, server::CopyDescriptor};
+use cubecl_core::{server, zspace::strides};
 use cubecl_core::{
     tensor_vector_size_parallel,
     zspace::{Shape, Strides},
@@ -10,22 +9,15 @@ use cubecl_core::{
 use cubecl_runtime::server::Handle;
 
 /// Tensor representation containing a [server handle](Handle) as well as basic tensor metadata.,
-pub struct TensorHandle<R>
-where
-    R: Runtime,
-{
+pub struct TensorHandle {
     /// The buffer where the data are stored.
     pub handle: server::Handle,
     pub metadata: Box<Metadata>,
     /// The type used as storage.
     pub dtype: ElemType,
-    runtime: PhantomData<R>,
 }
 
-impl<R> core::fmt::Debug for TensorHandle<R>
-where
-    R: Runtime,
-{
+impl core::fmt::Debug for TensorHandle {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!(
             "Tensor {{ shape: {:?}, strides: {:?}, dtype: {}}}",
@@ -36,24 +28,17 @@ where
     }
 }
 
-impl<R> Clone for TensorHandle<R>
-where
-    R: Runtime,
-{
+impl Clone for TensorHandle {
     fn clone(&self) -> Self {
         Self {
             handle: self.handle.clone(),
             metadata: self.metadata.clone(),
             dtype: self.dtype,
-            runtime: PhantomData,
         }
     }
 }
 
-impl<R> TensorHandle<R>
-where
-    R: Runtime,
-{
+impl TensorHandle {
     /// Create a new tensor.
     pub fn new(
         handle: server::Handle,
@@ -65,12 +50,11 @@ where
             handle,
             metadata: Box::new(Metadata::new(shape, strides)),
             dtype: storage.into().elem_type(),
-            runtime: PhantomData,
         }
     }
 
     pub fn empty(
-        client: &ComputeClient<R>,
+        client: &ComputeClient,
         shape: impl Into<Shape>,
         storage: impl Into<Type>,
     ) -> Self {
@@ -94,7 +78,6 @@ where
             handle,
             metadata: Box::new(Metadata::new(shape, strides)),
             dtype: storage,
-            runtime: PhantomData,
         }
     }
 
@@ -103,14 +86,14 @@ where
         self.handle.can_mut()
     }
 
-    pub fn binding(self) -> TensorBinding<R> {
+    pub fn binding(self) -> TensorBinding {
         unsafe {
             TensorBinding::from_raw_parts(self.handle, self.metadata.strides, self.metadata.shape)
         }
     }
 
     /// Return the reference to a tensor argument.
-    pub fn into_arg(self) -> TensorArg<R> {
+    pub fn into_arg(self) -> TensorArg {
         self.binding().into_tensor_arg()
     }
 
@@ -148,15 +131,8 @@ where
         strides
     }
 }
-impl<R> TensorHandle<R>
-where
-    R: Runtime,
-{
-    pub fn zeros(
-        client: &ComputeClient<R>,
-        shape: impl Into<Shape>,
-        dtype: impl Into<Type>,
-    ) -> Self {
+impl TensorHandle {
+    pub fn zeros(client: &ComputeClient, shape: impl Into<Shape>, dtype: impl Into<Type>) -> Self {
         let dtype = dtype.into();
         let shape = shape.into();
         let num_elements: usize = shape.iter().product();

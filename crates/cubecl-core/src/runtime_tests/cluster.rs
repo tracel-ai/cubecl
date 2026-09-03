@@ -1,4 +1,5 @@
 use alloc::{vec, vec::Vec};
+use cubecl_runtime::runtime::Runtime;
 
 use crate::prelude::*;
 use crate::{self as cubecl};
@@ -22,7 +23,7 @@ fn cluster_meta_kernel(out: &mut [u32]) {
     }
 }
 
-pub fn test_cluster_meta<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_cluster_meta<R: Runtime>(client: ComputeClient) {
     if !client.features().cube_cluster {
         return;
     }

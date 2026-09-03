@@ -1,3 +1,4 @@
+use cubecl_core::server::ServerStorage;
 use cubecl_runtime::kernel::BufferIOAttr;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -5,6 +6,7 @@ use std::marker::PhantomData;
 use super::graph::WgpuGraph;
 use super::storage::{WgpuResource, WgpuStorage};
 use crate::WgpuCompiler;
+use crate::backend::ModuleSource;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
 use cubecl_common::pool::LeasePool;
@@ -29,17 +31,17 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::persistence::Store;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(feature = "spirv")]
 use cubecl_runtime::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_runtime::memory_management::{
     InstallMemoryPoolsError, ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
 };
 use cubecl_runtime::{
-    compiler::{CompilationCache, CubeTask},
+    compiler::CompilationCache,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
+    kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
@@ -94,7 +96,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pub(crate) build_id: cubecl_common::hash::StableHash,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
-    pub(crate) utilities: Arc<ServerUtilities<Self>>,
+    pub(crate) utilities: Arc<ServerUtilities>,
     /// Reusable buffers for the cross-stream input bindings of each launch.
     shared_bindings_pool: LeasePool<SharedMemoryBindings>,
     /// Captured graphs owned by this server, keyed by the [`GraphId`] handed to
@@ -104,9 +106,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     _compiler: PhantomData<C>,
 }
 
-impl<C: WgpuCompiler> ServerCommunication for WgpuServer<C> {
-    const SERVER_COMM_ENABLED: bool = false;
-}
+impl<C: WgpuCompiler> ServerCommunication for WgpuServer<C> {}
 
 impl<C: WgpuCompiler> WriteScoped for WgpuServer<C> {
     type Streams = SchedulerMultiStream<ScheduledWgpuBackend>;
@@ -138,7 +138,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         tasks_max: usize,
         backend: wgpu::Backend,
         timing_method: TimingMethod,
-        utilities: ServerUtilities<Self>,
+        utilities: ServerUtilities,
     ) -> Self {
         #[cfg(feature = "spirv")]
         let adapter_info = device.adapter_info();
@@ -225,7 +225,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
     fn pipeline(
         &mut self,
-        kernel: <Self as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         bindings: &KernelArguments,
     ) -> Result<PipelineEntry, LaunchError> {
         let kernel_id = kernel.id();
@@ -294,8 +294,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         let module = self.create_module(
             &compiled.entrypoint_name,
             kernel_id.cube_dim.into(),
-            repr,
-            &compiled.source,
+            ModuleSource::resolve(repr, compiler.lang_tag(), &compiled.source)?,
             mode,
         )?;
         let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings);
@@ -321,16 +320,11 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 }
 
 impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
-    type Kernel = Box<dyn CubeTask<C>>;
-    type Storage = WgpuStorage;
-    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
-    type Info = wgpu::Backend;
-
     fn logger(&self) -> Arc<ServerLogger> {
         self.scheduler.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -491,30 +485,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.scheduler.ensure_written(handles.iter())
     }
 
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        stream_id: StreamId,
-    ) -> Result<ManagedResource<WgpuResource>, ServerError> {
-        // The same claim check a read makes: a buffer a failed launch never
-        // filled reports the failure rather than handing back a pointer to
-        // whatever was there before.
-        self.scheduler.ensure_written([&binding].into_iter())?;
-        let mut streams = vec![stream_id];
-        if binding.stream != stream_id {
-            streams.push(binding.stream);
-        }
-        self.scheduler.execute_streams(streams);
-        let stream = self.scheduler.stream(&binding.stream);
-        let memory = binding.memory.clone();
-        let resource = stream.mem_manage.get_resource(binding)?;
-
-        Ok(ManagedResource::new(memory, resource))
-    }
-
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         args: KernelArguments,
         stream_id: StreamId,
@@ -923,4 +896,29 @@ pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
+}
+
+impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
+    type Storage = WgpuStorage;
+
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        stream_id: StreamId,
+    ) -> Result<ManagedResource<WgpuResource>, ServerError> {
+        // The same claim check a read makes: a buffer a failed launch never
+        // filled reports the failure rather than handing back a pointer to
+        // whatever was there before.
+        self.scheduler.ensure_written([&binding].into_iter())?;
+        let mut streams = vec![stream_id];
+        if binding.stream != stream_id {
+            streams.push(binding.stream);
+        }
+        self.scheduler.execute_streams(streams);
+        let stream = self.scheduler.stream(&binding.stream);
+        let memory = binding.memory.clone();
+        let resource = stream.mem_manage.get_resource(binding)?;
+
+        Ok(ManagedResource::new(memory, resource))
+    }
 }

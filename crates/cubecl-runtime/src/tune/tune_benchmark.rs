@@ -1,5 +1,5 @@
 use super::{AutotuneError, TuneFn, TuneInputs};
-use crate::{client::ComputeClient, runtime::Runtime};
+use crate::client::ComputeClient;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
@@ -23,10 +23,10 @@ impl AutotuneOutput for () {
 /// Benchmark how long this operation takes for a number of samples.
 ///
 /// Returns at least one duration, otherwise an error is returned.
-pub fn tune_benchmark<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+pub fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
-    client: ComputeClient<R>,
+    client: ComputeClient,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // `scoped` holds exclusive device access for the whole benchmark loop and
     // accepts non-`'static` closures.
@@ -44,10 +44,10 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
     ///
     /// Expects to already hold exclusive device access; the adaptive driver takes it once for
     /// the whole round robin rather than once per candidate.
-    pub(crate) fn warmup_once<'a, R: Runtime>(
+    pub(crate) fn warmup_once<'a>(
         &self,
         inputs: <F as TuneInputs>::At<'a>,
-        client: &ComputeClient<R>,
+        client: &ComputeClient,
     ) -> Result<(), AutotuneError> {
         // We make sure the server is in a correct state.
         let _errs = client.flush();
@@ -58,10 +58,10 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
     }
 
     /// Queue a single measured execution. See [`Self::warmup_once`] for the locking expectation.
-    pub(crate) fn sample_once<'a, R: Runtime>(
+    pub(crate) fn sample_once<'a>(
         &self,
         inputs: <F as TuneInputs>::At<'a>,
-        client: &ComputeClient<R>,
+        client: &ComputeClient,
     ) -> Result<ProfileDuration, AutotuneError> {
         // The output is returned so dead code elimination can't drop the work being profiled.
         let profiled = client.profile(move || self.execute(inputs), &self.name);
@@ -77,10 +77,10 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
     }
 }
 
-fn profile_exclusive<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
-    client: ComputeClient<R>,
+    client: ComputeClient,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // These launches are the measurement, so they run even inside a dry run:
     // that mode exists to skip the *workload*, not the tuning it is there to
@@ -121,10 +121,10 @@ fn profile_exclusive<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
     }
 }
 
-fn warmup<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+fn warmup<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
-    client: ComputeClient<R>,
+    client: ComputeClient,
 ) -> Result<(), AutotuneError> {
     let num_warmup = 3;
 

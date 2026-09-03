@@ -1,3 +1,4 @@
+use cubecl_runtime::runtime::Runtime;
 use std::{boxed::Box, println};
 
 use alloc::string::{String, ToString};
@@ -81,7 +82,7 @@ pub fn kernel_resource_errors(output: &mut [u32], #[comptime] shared_size: usize
     output[0] = shared[0];
 }
 
-pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient) {
     let handle = client.create_from_slice(f32::as_bytes(&[5.0]));
     let array_arg = unsafe { BufferArg::from_raw_parts(handle.clone(), 1) };
 
@@ -113,10 +114,10 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(actual[0], f32::new(1.0));
 }
 
-pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
-    kernel_with_generics::launch::<F, R>(
+    kernel_with_generics::launch::<F>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
@@ -129,7 +130,7 @@ pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(client: Com
     assert_eq!(actual[0], F::new(5.0));
 }
 
-pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient) {
     let handle = client.create_from_slice(f32::as_bytes(&[0.0, 1.0]));
 
     kernel_without_generics::launch(
@@ -145,7 +146,7 @@ pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(actual[0], 5.0);
 }
 
-pub fn test_kernel_inplace<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_kernel_inplace<R: Runtime>(client: ComputeClient) {
     let handle = client.create_from_slice(f32::as_bytes(&[0.0, 1.0]));
 
     kernel_inplace::launch(
@@ -162,7 +163,7 @@ pub fn test_kernel_inplace<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(actual[0], 5.0);
 }
 
-pub fn test_kernel_zero_cube_count<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_kernel_zero_cube_count<R: Runtime>(client: ComputeClient) {
     // A zero-element fill resolves to `Static(0, 0, 0)`. Launching it is a no-op.
     let handle = client.create_from_slice(f32::as_bytes(&[7.0, 8.0]));
 
@@ -179,7 +180,7 @@ pub fn test_kernel_zero_cube_count<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(actual, &[7.0, 8.0]);
 }
 
-pub fn test_kernel_dynamic_zero_cube_count<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_kernel_dynamic_zero_cube_count<R: Runtime>(client: ComputeClient) {
     // The (0, 0, 0) count lives in a buffer, so the client guard can't see it.
     // Scoped to CUDA/HIP because wgpu can't bind a storage buffer for indirect
     // dispatch.
@@ -199,7 +200,7 @@ pub fn test_kernel_dynamic_zero_cube_count<R: Runtime>(client: ComputeClient<R>)
     assert_eq!(actual, &[7.0, 8.0]);
 }
 
-pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient) {
     let total_shared_size = client.properties().hardware.max_shared_memory_size;
 
     let handle = client.create_from_slice(u32::as_bytes(&[0, 1, 2, 3, 4, 5, 6, 7]));
@@ -230,7 +231,7 @@ pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
 /// unwritten, and the claim on those bytes is what carries the reason. So the
 /// read is the assertion: it must fail, and it must fail on the limit that
 /// stopped the launch rather than on anything the runtime invented.
-fn resource_error<R: Runtime>(client: &ComputeClient<R>, out: Handle) -> ResourceLimitError {
+fn resource_error(client: &ComputeClient, out: Handle) -> ResourceLimitError {
     let err = client
         .read_one(out)
         .expect_err("a refused launch never wrote the buffer, so the read must fail");
@@ -247,7 +248,7 @@ fn resource_error<R: Runtime>(client: &ComputeClient<R>, out: Handle) -> Resourc
     }
 }
 
-pub fn test_shared_memory_error<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_shared_memory_error<R: Runtime>(client: ComputeClient) {
     // A CPU runtime emulates the cube model rather than dispatching it, so it
     // enforces none of these limits and refuses nothing.
     if client.properties().hardware.num_cpu_cores.is_some() {
@@ -283,7 +284,7 @@ pub fn test_shared_memory_error<R: Runtime>(client: ComputeClient<R>) {
     }
 }
 
-pub fn test_cube_dim_error<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_cube_dim_error<R: Runtime>(client: ComputeClient) {
     // A CPU runtime emulates the cube model rather than dispatching it, so it
     // enforces none of these limits and refuses nothing. Same reason the
     // shared-memory case skips it.
@@ -321,7 +322,7 @@ pub fn test_cube_dim_error<R: Runtime>(client: ComputeClient<R>) {
     }
 }
 
-pub fn test_max_units_error<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_max_units_error<R: Runtime>(client: ComputeClient) {
     // A CPU runtime emulates the cube model rather than dispatching it, so it
     // enforces none of these limits and refuses nothing. Same reason the
     // shared-memory case skips it.
@@ -358,7 +359,7 @@ pub fn test_max_units_error<R: Runtime>(client: ComputeClient<R>) {
 }
 
 pub fn test_kernel_dynamic_addressing<R: Runtime>(
-    client: ComputeClient<R>,
+    client: ComputeClient,
     address_type: AddressType,
 ) {
     let handle = client.create_from_slice(f32::as_bytes(&[0.0, 1.0]));

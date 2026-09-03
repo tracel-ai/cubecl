@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use crate::{self as cubecl, debug_print};
+use cubecl_runtime::runtime::Runtime;
 
 #[cube]
 fn helper_fn<F: Float>(num: F) -> F {
@@ -13,10 +14,10 @@ fn simple_call_kernel<F: Float>(out: &mut [F]) {
     }
 }
 
-pub fn test_simple_call<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_simple_call<R: Runtime>(client: ComputeClient) {
     let handle = client.create_from_slice(f32::as_bytes(&[10.0, 1.0]));
 
-    simple_call_kernel::launch::<f32, R>(
+    simple_call_kernel::launch::<f32>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
@@ -41,10 +42,10 @@ fn nested_call_kernel<F: Float>(out: &mut [F]) {
     }
 }
 
-pub fn test_nested_call<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_nested_call<R: Runtime>(client: ComputeClient) {
     let handle = client.create_from_slice(f32::as_bytes(&[10.0, 1.0]));
 
-    nested_call_kernel::launch::<f32, R>(
+    nested_call_kernel::launch::<f32>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
@@ -67,11 +68,11 @@ fn debug_print_kernel<F: Float>(out: &mut [F]) {
 }
 
 #[cfg(not(all(target_os = "macos")))]
-pub fn test_debug_print<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_debug_print<R: Runtime>(client: ComputeClient) {
     //let logger = MemoryLogger::setup(log::Level::Info);
     let handle = client.create_from_slice(f32::as_bytes(&[10.0, 1.0]));
 
-    debug_print_kernel::launch::<f32, R>(
+    debug_print_kernel::launch::<f32>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),

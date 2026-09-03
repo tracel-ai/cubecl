@@ -62,7 +62,7 @@ mod tests {
             .collect();
 
         unsafe {
-            transcendentals::launch_unchecked::<TestRuntime>(
+            transcendentals::launch_unchecked(
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d((n / width) as u32),
@@ -308,7 +308,7 @@ mod tests {
         let out = client.empty(core::mem::size_of::<f32>());
 
         unsafe {
-            barrier_smoke::launch::<TestRuntime>(
+            barrier_smoke::launch(
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(1),
@@ -327,7 +327,7 @@ mod tests {
         let out = client.empty(4 * core::mem::size_of::<u32>());
 
         unsafe {
-            sync_cube_magic::launch::<TestRuntime>(
+            sync_cube_magic::launch(
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(4),
@@ -346,7 +346,7 @@ mod tests {
         let out = client.empty(4 * core::mem::size_of::<u32>());
 
         unsafe {
-            sync_cube_two_phase::launch::<TestRuntime>(
+            sync_cube_two_phase::launch(
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(4),
@@ -365,7 +365,7 @@ mod tests {
         let out = client.empty(4 * core::mem::size_of::<u32>());
 
         unsafe {
-            sync_cube_two_shared::launch::<TestRuntime>(
+            sync_cube_two_shared::launch(
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(4),
@@ -385,7 +385,7 @@ mod tests {
         let out = client.empty(8 * core::mem::size_of::<u32>());
 
         unsafe {
-            sync_cube_all_reduce::launch::<TestRuntime>(
+            sync_cube_all_reduce::launch(
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(8),
@@ -408,7 +408,7 @@ mod tests {
         let out = client.empty(n * core::mem::size_of::<f32>());
 
         unsafe {
-            shared_scatter_gather::launch::<TestRuntime>(
+            shared_scatter_gather::launch(
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_1d(1),
@@ -448,7 +448,7 @@ mod tests {
         let output = client_a.empty(core::mem::size_of::<u32>());
 
         unsafe {
-            delayed_copy::launch_unchecked::<TestRuntime>(
+            delayed_copy::launch_unchecked(
                 &client_a,
                 CubeCount::new_single(),
                 CubeDim::new_1d(1),

@@ -6,6 +6,7 @@
 //! near-zero must stay accurate, and large-negative must underflow toward `-1`.
 
 use cubecl_core::{self as cubecl, prelude::*};
+use cubecl_runtime::runtime::Runtime;
 
 type R = crate::MetalRuntime;
 
@@ -47,7 +48,7 @@ fn expm1_handles_large_and_extreme_inputs() {
     let output_handle = client.empty(n * core::mem::size_of::<f32>());
 
     unsafe {
-        expm1_kernel::launch_unchecked::<R>(
+        expm1_kernel::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(n as u32),

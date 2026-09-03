@@ -1,12 +1,10 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::driver::Cuda;
-use crate::{
-    CudaCompiler,
-    compute::{
-        Captures, Command, Window, context::CudaContext, events::Fence, stream::CudaStreamBackend,
-    },
+use crate::compute::{
+    Captures, Command, Window, context::CudaContext, events::Fence, stream::CudaStreamBackend,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
+use cubecl_core::server::ServerStorage;
 use cubecl_core::{
     MemoryConfiguration,
     device::DeviceId,
@@ -24,11 +22,10 @@ use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::command::{CollectiveDriver, Collectives, Refused};
 use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy,
-    compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
+    kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{
         InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
@@ -84,7 +81,7 @@ pub struct CudaServer {
     ctx: CudaContext,
     device_id: DeviceId,
     streams: MultiStream<CudaStreamBackend>,
-    utilities: Arc<ServerUtilities<Self>>,
+    utilities: Arc<ServerUtilities>,
     comm_stream: *mut CUstream_st,
     /// The groups this device has joined — see [`Collectives`].
     collectives: Collectives<Cuda>,
@@ -102,11 +99,6 @@ pub struct CudaServer {
 unsafe impl Send for CudaServer {}
 
 impl ComputeServer for CudaServer {
-    type Kernel = Box<dyn CubeTask<CudaCompiler>>;
-    type Storage = GpuStorage;
-    type MemoryLayoutPolicy = PitchedMemoryLayoutPolicy;
-    type Info = ();
-
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()
     }
@@ -120,7 +112,7 @@ impl ComputeServer for CudaServer {
             .collect())
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -180,7 +172,7 @@ impl ComputeServer for CudaServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -380,22 +372,6 @@ impl ComputeServer for CudaServer {
         self.ctx.profiler.stop(sys, token)
     }
 
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        stream_id: StreamId,
-    ) -> Result<ManagedResource<GpuResource>, ServerError> {
-        // The same claim check a read makes: a buffer a failed launch never
-        // filled reports the failure rather than handing back a pointer to
-        // whatever was there before.
-        self.streams.ensure_written([&binding].into_iter())?;
-        let mut command = self.command(stream_id, [&binding].into_iter());
-        let memory = binding.memory.clone();
-        let resource = command.resource(binding)?;
-
-        Ok(ManagedResource::new(memory, resource))
-    }
-
     fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
         self.command_no_inputs(stream_id).memory_usage()
     }
@@ -436,8 +412,6 @@ impl ComputeServer for CudaServer {
 }
 
 impl ServerCommunication for CudaServer {
-    const SERVER_COMM_ENABLED: bool = true;
-
     fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
         // A group already joined is joined once, so the membership is
         // announced once too.
@@ -586,7 +560,7 @@ impl CudaServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
         device_id: DeviceId,
-        utilities: ServerUtilities<Self>,
+        utilities: ServerUtilities,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
@@ -634,7 +608,7 @@ impl CudaServer {
     ) -> Command<'_> {
         self.unsafe_set_current();
         let streams = self.streams.resolve(stream_id, handles);
-        Command::new(&mut self.ctx, streams)
+        Command::new(&mut self.ctx, streams, self.utilities.service)
     }
 
     /// Compile `kernel` if this is the first launch of it, and say whether
@@ -655,7 +629,7 @@ impl CudaServer {
     fn compile_failed(
         &mut self,
         kernel_id: &KernelId,
-        kernel: <Self as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         bindings: &KernelArguments,
         stream_id: StreamId,
         launch_mode: LaunchMode,
@@ -940,7 +914,7 @@ impl CudaServer {
         Ok(())
     }
 
-    pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    pub(crate) fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 }
@@ -1364,4 +1338,24 @@ fn pair(this: DeviceId, peer: DeviceId) -> (Vec<DeviceId>, CommunicationId) {
     devices.sort();
     let id = CommunicationId::from(devices.clone());
     (devices, id)
+}
+
+impl ServerStorage for CudaServer {
+    type Storage = GpuStorage;
+
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        stream_id: StreamId,
+    ) -> Result<ManagedResource<GpuResource>, ServerError> {
+        // The same claim check a read makes: a buffer a failed launch never
+        // filled reports the failure rather than handing back a pointer to
+        // whatever was there before.
+        self.streams.ensure_written([&binding].into_iter())?;
+        let mut command = self.command(stream_id, [&binding].into_iter());
+        let memory = binding.memory.clone();
+        let resource = command.resource(binding)?;
+
+        Ok(ManagedResource::new(memory, resource))
+    }
 }

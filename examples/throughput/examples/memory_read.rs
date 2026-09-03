@@ -1,3 +1,3 @@
 fn main() {
-    throughput::dispatch!(R => throughput::memory_read::<R>(&Default::default()));
+    throughput::dispatch!(device => throughput::memory_read(&device));
 }

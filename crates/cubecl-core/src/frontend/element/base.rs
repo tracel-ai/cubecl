@@ -13,7 +13,6 @@ use cubecl_ir::{
     pliron::{printable::Printable, r#type::Typed, value::Value},
     types::PointerType,
 };
-use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
 use pliron::{builtin::given_names::set_operation_result_name, r#type::TypeHandle};
 use variadics_please::{all_tuples, all_tuples_enumerated};
@@ -454,14 +453,11 @@ impl<T: Clone + PartialEq + Eq + core::hash::Hash + core::fmt::Debug + Send + Sy
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeLaunch)]` on `{Self}`")]
 pub trait LaunchArg: CubeType + 'static {
     /// The runtime argument for the kernel.
-    type RuntimeArg<R: Runtime>: Send + Sync;
+    type RuntimeArg: Send + Sync;
     /// Compilation argument.
     type CompilationArg: CompilationArg;
 
-    fn register<R: Runtime>(
-        arg: Self::RuntimeArg<R>,
-        launcher: &mut KernelLauncher<R>,
-    ) -> Self::CompilationArg;
+    fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg;
 
     /// Register a variable during compilation that fill the [`KernelBuilder`].
     fn expand(
@@ -473,12 +469,12 @@ pub trait LaunchArg: CubeType + 'static {
 macro_rules! impl_launch_arg_ref {
     ($ty: ty) => {
         impl<T: LaunchArg + ?Sized + 'static> LaunchArg for $ty {
-            type RuntimeArg<R: Runtime> = T::RuntimeArg<R>;
+            type RuntimeArg = T::RuntimeArg;
             type CompilationArg = T::CompilationArg;
 
-            fn register<R: Runtime>(
-                arg: Self::RuntimeArg<R>,
-                launcher: &mut KernelLauncher<R>,
+            fn register(
+                arg: Self::RuntimeArg,
+                launcher: &mut KernelLauncher,
             ) -> Self::CompilationArg {
                 T::register(arg, launcher)
             }
@@ -502,10 +498,10 @@ impl_launch_arg_ref!(*mut T);
 macro_rules! launch_tuple {
     ($(($T:ident, $t:ident)),*) => {
         impl<$($T: LaunchArg),*> LaunchArg for ($($T,)*) {
-            type RuntimeArg<R: Runtime> = ($($T::RuntimeArg<R>,)*);
+            type RuntimeArg = ($($T::RuntimeArg,)*);
             type CompilationArg = ($($T::CompilationArg,)*);
 
-            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) -> Self::CompilationArg {
+            fn register(runtime_arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
                 let ($($t,)*) = runtime_arg;
                 ($($T::register($t, launcher),)*)
             }
@@ -933,10 +929,10 @@ impl CubeType for () {
 }
 
 impl LaunchArg for () {
-    type RuntimeArg<R: Runtime> = ();
+    type RuntimeArg = ();
     type CompilationArg = ();
 
-    fn register<R: Runtime>(_runtime_arg: Self::RuntimeArg<R>, _launcher: &mut KernelLauncher<R>) {
+    fn register(_runtime_arg: Self::RuntimeArg, _launcher: &mut KernelLauncher) {
         // nothing to do
     }
 

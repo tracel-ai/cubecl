@@ -153,6 +153,14 @@ where
     fn extension(&self) -> &'static str {
         "cpp"
     }
+
+    fn lang_tag(&self) -> &'static str {
+        match T::target() {
+            Target::Cuda => "cuda",
+            Target::Hip => "hip",
+            Target::Metal => "msl",
+        }
+    }
 }
 
 impl<T: CppTarget> CppCompiler<T>

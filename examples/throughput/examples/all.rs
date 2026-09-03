@@ -1,3 +1,3 @@
 fn main() {
-    throughput::dispatch!(R => throughput::all::<R>(&Default::default()));
+    throughput::dispatch!(device => throughput::all(&device));
 }

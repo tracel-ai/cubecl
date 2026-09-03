@@ -2,10 +2,10 @@
 //! programmatic layout applies to the calling stream in place, its hard cap
 //! is enforced, and a later reconfigure (at a quiescent point) replaces it.
 
-use cubecl_core::Runtime;
 use cubecl_hip::HipRuntime;
 use cubecl_runtime::config::memory::{MemoryPoolConfig, MemoryPoolsConfig};
 use cubecl_runtime::config::size::MemorySize;
+use cubecl_runtime::runtime::Runtime;
 
 const MIB: u64 = 1024 * 1024;
 

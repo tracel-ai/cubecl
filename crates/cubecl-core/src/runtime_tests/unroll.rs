@@ -1,5 +1,6 @@
 use crate::{self as cubecl, as_bytes, as_type};
 use cubecl::prelude::*;
+use cubecl_runtime::runtime::Runtime;
 
 #[cube(launch)]
 pub fn unroll_add<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
@@ -50,10 +51,10 @@ pub fn unroll_reinterpret<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     output[0] = Vector::cast_from(Vector::<f32, N>::reinterpret(scaled));
 }
 
-pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
     let handle = client.empty(4 * size_of::<F>());
 
-    unroll_add::launch::<F, R>(
+    unroll_add::launch::<F>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
@@ -67,10 +68,10 @@ pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(client: ComputeClient
     assert_eq!(actual[0], F::new(3.0));
 }
 
-pub fn test_unroll_load_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_unroll_load_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
     let handle = client.create_from_slice(as_bytes!(F: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0));
 
-    unroll_load_store::launch::<F, R>(
+    unroll_load_store::launch::<F>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
@@ -84,10 +85,10 @@ pub fn test_unroll_load_store<R: Runtime, F: Float + CubeElement>(client: Comput
     assert_eq!(actual, as_type!(F: 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0));
 }
 
-pub fn test_unroll_reinterpret<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+pub fn test_unroll_reinterpret<R: Runtime, F: Float + CubeElement>(client: ComputeClient) {
     let handle = client.create_from_slice(as_bytes!(F: 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0));
 
-    unroll_reinterpret::launch::<F, R>(
+    unroll_reinterpret::launch::<F>(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),

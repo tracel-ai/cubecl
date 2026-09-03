@@ -1,27 +1,26 @@
 use super::DummyKernel;
-use crate::dummy::DummyCompiler;
-use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
+use cubecl_common::{bytes::Bytes, device::ServiceId, profile::ProfileDuration};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
     AddressType, DeviceIdentity, DeviceProperties, ElemType, HardwareProperties,
-    MemoryDeviceProperties, UIntKind, VectorSize,
+    MemoryDeviceProperties, TargetProperties, UIntKind, VectorSize,
     features::Features,
     metadata::Info,
     settings::{Dim3, ExecutionMode, KernelSettings},
 };
+use cubecl_runtime::server::ServerStorage;
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
-    compiler::{CompilationError, CubeTask},
     id::KernelId,
-    kernel::{CompiledKernel, KernelMetadata},
+    kernel::{CubeKernel, KernelMetadata},
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage,
     },
     server::{
-        BufferBinding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, Handle, KernelArguments,
+        BufferBinding, ComputeServer, CopyDescriptor, CubeCount, Handle, KernelArguments,
         KernelResource, ProfileError, ProfilingToken, ServerCommunication, ServerError,
         ServerUtilities,
     },
@@ -39,11 +38,16 @@ pub static REFUSE_PROFILES: core::sync::atomic::AtomicBool =
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.
 /// It uses simple memory management with a bytes storage on CPU, without asynchronous tasks.
+///
+/// `M` is a marker with no behavior: a `DummyServer<Other>` is a second
+/// runtime as far as the client can tell, since the service type is what
+/// tells runtimes apart.
 #[derive(Debug)]
-pub struct DummyServer {
+pub struct DummyServer<M = ()> {
+    _marker: core::marker::PhantomData<M>,
     memory_management: MemoryManagement<BytesStorage>,
     timestamps: TimestampProfiler,
-    utilities: Arc<ServerUtilities<Self>>,
+    utilities: Arc<ServerUtilities>,
     /// The failures the server's tainted allocations still point at.
     ///
     /// Errors live on the memory here as they do on a real server: a failed
@@ -52,6 +56,14 @@ pub struct DummyServer {
     /// and no call "drains" anything.
     failures: ErrorGraph,
 }
+
+/// What a [`DummyServer`]'s marker has to be: nothing but a distinct type.
+pub trait Marker: Send + Sync + core::fmt::Debug + 'static {}
+impl<M: Send + Sync + core::fmt::Debug + 'static> Marker for M {}
+
+/// A marker for a second dummy runtime, distinct from the default one.
+#[derive(Debug)]
+pub enum Other {}
 
 #[derive(Debug, Clone)]
 pub struct KernelTask {
@@ -78,9 +90,9 @@ impl core::fmt::Display for KernelTask {
     }
 }
 
-impl CubeTask<DummyCompiler> for KernelTask {
+impl CubeKernel for KernelTask {
     fn define(&self) -> cubecl_runtime::kernel::KernelDefinition {
-        // The dummy server compiles directly and never keys a cache, so nothing here is observed.
+        // The dummy server runs the kernel directly and never keys a cache, so nothing here is observed.
         let settings =
             KernelSettings::new(Dim3::new_single(), ExecutionMode::Checked, AddressType::U32);
         cubecl_runtime::kernel::KernelDefinition {
@@ -88,27 +100,6 @@ impl CubeTask<DummyCompiler> for KernelTask {
             settings,
             info: Info::default(),
         }
-    }
-
-    fn compile(
-        &self,
-        _definition: cubecl_runtime::kernel::KernelDefinition,
-        _compiler: &mut DummyCompiler,
-        _compilation_options: &<DummyCompiler as cubecl_runtime::compiler::Compiler>::CompilationOptions,
-    ) -> Result<cubecl_runtime::kernel::CompiledKernel<DummyCompiler>, CompilationError> {
-        if let Some(err) = self.kernel.compilation_error() {
-            return Err(err);
-        }
-
-        Ok(CompiledKernel {
-            entrypoint_name: self.kernel.name().to_string(),
-            debug_name: None,
-            source: String::new(),
-            repr: Some(self.clone()),
-            io: None,
-            cube_dim: CubeDim::new_single(),
-            debug_info: None,
-        })
     }
 }
 
@@ -124,21 +115,14 @@ impl KernelTask {
     }
 }
 
-impl ServerCommunication for DummyServer {
-    const SERVER_COMM_ENABLED: bool = false;
-}
+impl<M: Marker> ServerCommunication for DummyServer<M> {}
 
-impl ComputeServer for DummyServer {
-    type Kernel = Box<dyn CubeTask<DummyCompiler>>;
-    type Storage = BytesStorage;
-    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
-    type Info = ();
-
+impl<M: Marker> ComputeServer for DummyServer<M> {
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<cubecl_runtime::server::ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<cubecl_runtime::server::ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -213,31 +197,20 @@ impl ComputeServer for DummyServer {
         Box::pin(async move { result })
     }
 
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        _stream_id: StreamId,
-    ) -> Result<ManagedResource<BytesResource>, ServerError> {
-        let resource = self.memory_management.get_resource(
-            binding.memory.clone(),
-            binding.offset_start,
-            binding.offset_end,
-        )?;
-
-        Ok(ManagedResource::new(binding.memory, resource))
-    }
-
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         _count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
         launch_mode: cubecl_runtime::dry_run::LaunchMode,
     ) {
-        let kernel = match kernel.compile(kernel.define(), &mut DummyCompiler, &()) {
-            Ok(kernel) => kernel,
-            Err(err) => {
+        let kernel = (&*kernel as &dyn core::any::Any)
+            .downcast_ref::<KernelTask>()
+            .expect("the dummy server only runs its own kernels");
+        let kernel = match kernel.kernel.compilation_error() {
+            None => kernel.clone(),
+            Some(err) => {
                 // No IR, so no compiled answer about what the kernel writes:
                 // the caller's declared IO decides, exactly as on a real
                 // server — only the declared outputs carry the failure, and
@@ -286,7 +259,7 @@ impl ComputeServer for DummyServer {
             })
             .collect();
         let data = bytemuck::cast_slice(&bindings.info.data);
-        let metadata = Handle::new(stream_id, data.len() as u64);
+        let metadata = Handle::new(self.utilities.service, stream_id, data.len() as u64);
         self.bind_with_data(data, metadata.clone(), stream_id);
 
         resources.push({
@@ -301,7 +274,7 @@ impl ComputeServer for DummyServer {
 
         let mut resources: Vec<_> = resources.iter_mut().collect();
 
-        kernel.repr.unwrap().compute(resources.as_mut_slice());
+        kernel.compute(resources.as_mut_slice());
 
         // The work ran: its write set has a writer again, which is what
         // releases an earlier failure's claim on those buffers — a relaunch
@@ -370,8 +343,9 @@ impl ComputeServer for DummyServer {
     }
 }
 
-impl DummyServer {
+impl<M: Marker> DummyServer<M> {
     pub fn new(
+        service: ServiceId,
         memory_management: MemoryManagement<BytesStorage>,
         mem_props: MemoryDeviceProperties,
     ) -> Self {
@@ -407,13 +381,16 @@ impl DummyServer {
         let logger = Arc::new(ServerLogger::default());
 
         let utilities = Arc::new(ServerUtilities::new(
+            service,
+            "dummy",
             props,
+            TargetProperties::default(),
             logger,
-            (),
             ContiguousMemoryLayoutPolicy::new(4),
         ));
 
         Self {
+            _marker: core::marker::PhantomData,
             memory_management,
             utilities,
             timestamps: TimestampProfiler::default(),
@@ -469,5 +446,23 @@ impl DummyServer {
             )],
             stream_id,
         );
+    }
+}
+
+impl<M: Marker> ServerStorage for DummyServer<M> {
+    type Storage = BytesStorage;
+
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        _stream_id: StreamId,
+    ) -> Result<ManagedResource<BytesResource>, ServerError> {
+        let resource = self.memory_management.get_resource(
+            binding.memory.clone(),
+            binding.offset_start,
+            binding.offset_end,
+        )?;
+
+        Ok(ManagedResource::new(binding.memory, resource))
     }
 }

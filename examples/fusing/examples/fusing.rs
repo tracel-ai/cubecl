@@ -1,6 +1,6 @@
 fn main() {
     #[cfg(feature = "cuda")]
-    fusing::launch::<cubecl::cuda::CudaRuntime>(&Default::default());
+    fusing::launch(&cubecl::Device::Cuda(Default::default()));
     #[cfg(feature = "wgpu")]
-    fusing::launch::<cubecl::wgpu::WgpuRuntime>(&Default::default());
+    fusing::launch(&cubecl::Device::Wgpu(Default::default()));
 }

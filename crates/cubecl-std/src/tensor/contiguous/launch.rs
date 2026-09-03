@@ -1,12 +1,12 @@
 use crate::tensor::{TensorHandle, copy_gpu_ref, launch_copy_perpendicular_ref};
-use cubecl_core::{Runtime, client::ComputeClient, ir::ElemType, prelude::TensorBinding};
+use cubecl_core::{client::ComputeClient, ir::ElemType, prelude::TensorBinding};
 
 /// Make a jit tensor contiguous.
-pub fn into_contiguous<R: Runtime>(
-    client: &ComputeClient<R>,
-    input: TensorBinding<R>,
+pub fn into_contiguous(
+    client: &ComputeClient,
+    input: TensorBinding,
     dtype: ElemType,
-) -> TensorHandle<R> {
+) -> TensorHandle {
     let num_elems: usize = input.shape.iter().product();
 
     let handle = client.empty(num_elems * dtype.size());
@@ -19,11 +19,11 @@ pub fn into_contiguous<R: Runtime>(
 
 /// Make a jit tensor contiguous, using the pitched allocator if available.
 /// See [`create_tensor`](cubecl_runtime::client::ComputeClient::create_tensor).
-pub fn into_contiguous_pitched<R: Runtime>(
-    client: &ComputeClient<R>,
-    input: TensorBinding<R>,
+pub fn into_contiguous_pitched(
+    client: &ComputeClient,
+    input: TensorBinding,
     dtype: ElemType,
-) -> TensorHandle<R> {
+) -> TensorHandle {
     if input.shape.len() <= 1 {
         return into_contiguous(client, input, dtype);
     }
@@ -36,10 +36,10 @@ pub fn into_contiguous_pitched<R: Runtime>(
 }
 
 /// Copies the input tensor into the output tensor following the strides.
-pub fn copy_into<R: Runtime>(
-    client: &ComputeClient<R>,
-    input: TensorBinding<R>,
-    output: TensorBinding<R>,
+pub fn copy_into(
+    client: &ComputeClient,
+    input: TensorBinding,
+    output: TensorBinding,
     dtype: ElemType,
 ) {
     let rank = input.strides.len();

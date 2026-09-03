@@ -5,6 +5,7 @@ use crate::{
     },
 };
 use alloc::vec::Vec;
+use cubecl_common::device::ServiceId;
 use cubecl_environment::stream::StreamId;
 use cubecl_zspace::{Shape, Strides, strides};
 
@@ -21,6 +22,7 @@ pub struct PitchedMemoryLayoutPolicy {
 impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
     fn apply(
         &self,
+        service: ServiceId,
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
     ) -> (Handle, Vec<MemoryLayout>) {
@@ -60,7 +62,7 @@ impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
             })
             .unzip();
 
-        let base_handle = Handle::new(stream_id, total_size);
+        let base_handle = Handle::new(service, stream_id, total_size);
 
         let layouts = offset_handles(base_handle.clone(), &sizes, self.mem_alignment)
             .into_iter()
@@ -88,6 +90,7 @@ impl PitchedMemoryLayoutPolicy {
 impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
     fn apply(
         &self,
+        service: ServiceId,
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
     ) -> (Handle, Vec<MemoryLayout>) {
@@ -101,7 +104,7 @@ impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
             })
             .unzip();
 
-        let base_handle = Handle::new(stream_id, total_size);
+        let base_handle = Handle::new(service, stream_id, total_size);
 
         let layouts = offset_handles(base_handle.clone(), &sizes, self.mem_alignment)
             .into_iter()

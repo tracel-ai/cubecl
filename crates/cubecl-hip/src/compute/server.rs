@@ -8,11 +8,9 @@
 
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::{Captures, Window};
-use crate::{
-    compiler::HipCompiler,
-    compute::{Command, context::HipContext, stream::HipStreamBackend},
-};
+use crate::compute::{Command, context::HipContext, stream::HipStreamBackend};
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
+use cubecl_core::server::ServerStorage;
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
@@ -28,11 +26,10 @@ use cubecl_environment::stream::StreamId;
 use cubecl_runtime::command::Refused;
 use cubecl_runtime::metadata_cache::Lookup;
 use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy,
-    compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
+    kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{
         InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
@@ -48,7 +45,7 @@ use std::sync::Arc;
 pub struct HipServer {
     ctx: HipContext,
     streams: MultiStream<HipStreamBackend>,
-    utilities: Arc<ServerUtilities<Self>>,
+    utilities: Arc<ServerUtilities>,
     /// The graphs this server has captured — see [`Captures`].
     graphs: Captures,
 }
@@ -60,16 +57,11 @@ pub struct HipServer {
 unsafe impl Send for HipServer {}
 
 impl ComputeServer for HipServer {
-    type Kernel = Box<dyn CubeTask<HipCompiler>>;
-    type Storage = GpuStorage;
-    type MemoryLayoutPolicy = PitchedMemoryLayoutPolicy;
-    type Info = ();
-
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -138,7 +130,7 @@ impl ComputeServer for HipServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -338,22 +330,6 @@ impl ComputeServer for HipServer {
         self.ctx.profiler.stop(sys, token)
     }
 
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        stream_id: StreamId,
-    ) -> Result<ManagedResource<GpuResource>, ServerError> {
-        // The same claim check a read makes: a buffer a failed launch never
-        // filled reports the failure rather than handing back a pointer to
-        // whatever was there before.
-        self.streams.ensure_written([&binding].into_iter())?;
-        let mut command = self.command(stream_id, [&binding].into_iter());
-        let memory = binding.memory.clone();
-        let resource = command.resource(binding)?;
-
-        Ok(ManagedResource::new(memory, resource))
-    }
-
     fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
         self.command_no_inputs(stream_id).memory_usage()
     }
@@ -392,9 +368,7 @@ impl ComputeServer for HipServer {
     }
 }
 
-impl ServerCommunication for HipServer {
-    const SERVER_COMM_ENABLED: bool = false;
-}
+impl ServerCommunication for HipServer {}
 
 impl WriteScoped for HipServer {
     type Streams = MultiStream<HipStreamBackend>;
@@ -422,7 +396,7 @@ impl HipServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
         is_integrated: bool,
-        utilities: ServerUtilities<Self>,
+        utilities: ServerUtilities,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
@@ -455,7 +429,7 @@ impl HipServer {
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Command<'_> {
         let streams = self.streams.resolve(stream_id, handles);
-        Command::new(&mut self.ctx, streams)
+        Command::new(&mut self.ctx, streams, self.utilities.service)
     }
 
     /// Compile `kernel` if this is the first launch of it, and say whether
@@ -476,7 +450,7 @@ impl HipServer {
     fn compile_failed(
         &mut self,
         kernel_id: &KernelId,
-        kernel: <Self as ComputeServer>::Kernel,
+        kernel: Box<dyn CubeKernel>,
         bindings: &KernelArguments,
         stream_id: StreamId,
         launch_mode: LaunchMode,
@@ -645,5 +619,25 @@ fn info_buffer(command: &mut Command<'_>, words: Vec<u64>) -> Result<Handle, Ser
             }
             Ok(handle)
         }
+    }
+}
+
+impl ServerStorage for HipServer {
+    type Storage = GpuStorage;
+
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        stream_id: StreamId,
+    ) -> Result<ManagedResource<GpuResource>, ServerError> {
+        // The same claim check a read makes: a buffer a failed launch never
+        // filled reports the failure rather than handing back a pointer to
+        // whatever was there before.
+        self.streams.ensure_written([&binding].into_iter())?;
+        let mut command = self.command(stream_id, [&binding].into_iter());
+        let memory = binding.memory.clone();
+        let resource = command.resource(binding)?;
+
+        Ok(ManagedResource::new(memory, resource))
     }
 }

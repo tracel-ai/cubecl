@@ -147,4 +147,11 @@ impl Compiler for HipCompiler {
             HipCompiler::Llvm(_) => "ll",
         }
     }
+
+    fn lang_tag(&self) -> &'static str {
+        match self {
+            HipCompiler::Cpp(compiler) => compiler.lang_tag(),
+            HipCompiler::Llvm(compiler) => compiler.lang_tag(),
+        }
+    }
 }

@@ -1,6 +1,6 @@
 fn main() {
     #[cfg(feature = "cuda")]
-    sum_things::launch::<cubecl::cuda::CudaRuntime>(&Default::default());
+    sum_things::launch(&cubecl::Device::Cuda(Default::default()));
     #[cfg(feature = "wgpu")]
-    sum_things::launch::<cubecl::wgpu::WgpuRuntime>(&Default::default());
+    sum_things::launch(&cubecl::Device::Wgpu(Default::default()));
 }

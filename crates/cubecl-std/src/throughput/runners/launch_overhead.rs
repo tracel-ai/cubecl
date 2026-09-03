@@ -1,8 +1,8 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-pub fn build_kernel<R: cubecl_runtime::runtime::Runtime>(
-    client: &cubecl_runtime::client::ComputeClient<R>,
+pub fn build_kernel(
+    client: &cubecl_runtime::client::ComputeClient,
     _key: cubecl_runtime::throughput::ThroughputKey,
     _config: super::super::LaunchConfig,
 ) -> cubecl_runtime::throughput::KernelConfig {
@@ -15,7 +15,7 @@ pub fn build_kernel<R: cubecl_runtime::runtime::Runtime>(
             .profile(
                 || unsafe {
                     for _ in 0..iterations {
-                        launch_overhead::launch_unchecked::<R>(
+                        launch_overhead::launch_unchecked(
                             &client,
                             cubecl_core::CubeCount::new_single(),
                             cubecl_core::server::CubeDim::new_single(),

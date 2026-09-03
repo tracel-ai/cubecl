@@ -1,11 +1,8 @@
-use alloc::boxed::Box;
-use core::marker::PhantomData;
-
 use crate::{
     frontend::container::{buffer_len::expand_buffer_length_native, slice},
     prelude::*,
 };
-use cubecl_runtime::runtime::Runtime;
+use alloc::boxed::Box;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
@@ -14,17 +11,16 @@ pub struct BufferCompilationArg {
 }
 
 /// Buffer representation with a reference to the [server handle](cubecl_runtime::server::Handle).
-pub struct BufferBinding<R: Runtime> {
+pub struct BufferBinding {
     pub handle: cubecl_runtime::server::BufferBinding,
     pub(crate) length: [usize; 1],
-    runtime: PhantomData<R>,
 }
 
-pub enum BufferArg<R: Runtime> {
+pub enum BufferArg {
     /// The buffer is passed with a buffer handle.
     Handle {
         /// The buffer handle.
-        handle: BufferBinding<R>,
+        handle: BufferBinding,
     },
     /// The buffer is aliasing another input buffer.
     Alias {
@@ -35,7 +31,7 @@ pub enum BufferArg<R: Runtime> {
     },
 }
 
-impl<R: Runtime> BufferArg<R> {
+impl BufferArg {
     /// Create a new buffer argument.
     ///
     /// # Safety
@@ -99,7 +95,7 @@ impl<R: Runtime> BufferArg<R> {
     }
 }
 
-impl<R: Runtime> BufferBinding<R> {
+impl BufferBinding {
     /// Create a new buffer handle reference.
     ///
     /// # Safety
@@ -121,31 +117,26 @@ impl<R: Runtime> BufferBinding<R> {
         Self {
             handle,
             length: [length],
-            runtime: PhantomData,
         }
     }
 
     /// Return the handle as a tensor instead of a buffer.
-    pub fn into_tensor(self) -> TensorBinding<R> {
+    pub fn into_tensor(self) -> TensorBinding {
         let shape = self.length.into();
 
         TensorBinding {
             handle: self.handle,
             strides: [1].into(),
             shape,
-            runtime: PhantomData,
         }
     }
 }
 
 impl<C: CubePrimitive> LaunchArg for Box<[C]> {
-    type RuntimeArg<R: Runtime> = BufferArg<R>;
+    type RuntimeArg = BufferArg;
     type CompilationArg = BufferCompilationArg;
 
-    fn register<R: Runtime>(
-        arg: Self::RuntimeArg<R>,
-        launcher: &mut KernelLauncher<R>,
-    ) -> Self::CompilationArg {
+    fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
         <[C]>::register(arg, launcher)
     }
 
@@ -155,13 +146,10 @@ impl<C: CubePrimitive> LaunchArg for Box<[C]> {
 }
 
 impl<C: CubePrimitive> LaunchArg for [C] {
-    type RuntimeArg<R: Runtime> = BufferArg<R>;
+    type RuntimeArg = BufferArg;
     type CompilationArg = BufferCompilationArg;
 
-    fn register<R: Runtime>(
-        arg: Self::RuntimeArg<R>,
-        launcher: &mut KernelLauncher<R>,
-    ) -> Self::CompilationArg {
+    fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
         let elem_size = launcher.with_scope(|scope| C::__expand_size(scope));
         let inplace = match &arg {
             BufferArg::Handle { .. } => None,

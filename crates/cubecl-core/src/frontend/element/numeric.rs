@@ -1,5 +1,4 @@
 use cubecl_ir::{ConstantValue, ElemType, ExpandValue, dialect::general::ReadScalarOp};
-use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
 use crate::unexpanded;
@@ -90,7 +89,7 @@ pub trait Numeric:
 /// trait.
 pub trait ScalarArgSettings: Send + Sync + Scalar {
     /// Register the information to the [`KernelLauncher`].
-    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
+    fn register(&self, launcher: &mut KernelLauncher);
     fn expand_scalar(builder: &mut KernelBuilder) -> NativeExpand<Self> {
         let storage_ty = Self::elem_type(&builder.scope);
         let id = builder.scalar(storage_ty);
@@ -101,20 +100,20 @@ pub trait ScalarArgSettings: Send + Sync + Scalar {
 }
 
 impl<E: ScalarArgType> ScalarArgSettings for E {
-    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(&self, launcher: &mut KernelLauncher) {
         launcher.register_scalar(*self);
     }
 }
 
 impl ScalarArgSettings for usize {
-    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(&self, launcher: &mut KernelLauncher) {
         let value = InputScalar::new(*self, launcher.settings.address_type.unsigned_type());
         launcher.register_scalar_raw(value.as_bytes(), ElemType::Index);
     }
 }
 
 impl ScalarArgSettings for isize {
-    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(&self, launcher: &mut KernelLauncher) {
         let value = InputScalar::new(*self, launcher.settings.address_type.signed_type());
         InputScalar::register(value, launcher);
     }
@@ -123,10 +122,10 @@ impl ScalarArgSettings for isize {
 macro_rules! impl_scalar_launch {
     ($ty: ty) => {
         impl LaunchArg for $ty {
-            type RuntimeArg<R: Runtime> = $ty;
+            type RuntimeArg = $ty;
             type CompilationArg = ();
 
-            fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+            fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) {
                 arg.register(launcher);
             }
 

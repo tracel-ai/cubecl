@@ -469,11 +469,16 @@ mod tests {
     use crate::memory_management::ManagedMemoryId;
     use crate::server::Handle;
 
+    /// A service for handles that never reach a device.
+    fn service() -> cubecl_common::device::ServiceId {
+        cubecl_common::device::ServiceId::of::<()>(cubecl_common::device::DeviceId::new(0, 0))
+    }
+
     const OWNER: StreamId = StreamId { value: 7 };
 
     /// A distinct buffer per call, on the owner's stream.
     fn buffer() -> BufferBinding {
-        Handle::new(OWNER, 8).binding()
+        Handle::new(service(), OWNER, 8).binding()
     }
 
     fn ids(bindings: &[BufferBinding]) -> Vec<ManagedMemoryId> {
@@ -643,7 +648,7 @@ mod tests {
     /// clean ones.
     #[test]
     fn a_capture_names_every_range_of_a_batched_allocation() {
-        let handle = Handle::new(OWNER, 8);
+        let handle = Handle::new(service(), OWNER, 8);
         let mut front = handle.clone().binding();
         front.offset_end = Some(4);
         let mut back = handle.clone().binding();

@@ -1,9 +1,7 @@
 use darling::{FromDeriveInput, util::Flag};
 use proc_macro2::Span;
 use quote::format_ident;
-use syn::{Expr, ExprLit, Generics, Ident, Lit, parse_quote, spanned::Spanned};
-
-use crate::paths::prelude_type;
+use syn::{Expr, ExprLit, Generics, Ident, Lit, spanned::Spanned};
 
 #[derive(Debug)]
 pub struct CubeTypeEnum {
@@ -114,23 +112,7 @@ impl FromDeriveInput for CubeTypeEnum {
 
 impl CubeTypeEnum {
     pub fn expanded_generics(&self) -> Generics {
-        let runtime = prelude_type("Runtime");
-        let mut generics = self.generics.clone();
-        if !self.is_empty() {
-            generics.params.push(parse_quote![R: #runtime]);
-        }
-        generics
-    }
-
-    pub fn assoc_generics(&self) -> Generics {
-        let runtime = prelude_type("Runtime");
-        parse_quote![<R: #runtime>]
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.variants
-            .iter()
-            .all(|it| matches!(it.kind, VariantKind::Empty))
+        self.generics.clone()
     }
 }
 
