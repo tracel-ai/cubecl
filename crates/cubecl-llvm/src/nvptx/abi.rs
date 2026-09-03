@@ -18,10 +18,15 @@ use pliron::builtin::ops::FuncOp;
 use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
 use pliron::pass::{OpPass, Passes};
 
+use pliron_llvm::types::PointerType as LlvmPointerType;
+
 use crate::nvptx::builtins::InsertNvptxBuiltinsPass;
 use crate::shared::lowering::TargetLowering;
 use crate::shared::metadata::{EntryArgLayout, rebuild_func_type};
 use crate::shared::shared_memory::SharedDeclarations;
+
+/// Address space 1 is NVPTX's global address space, where a kernel's buffers live.
+const GLOBAL_ADDRESS_SPACE: u32 = 1;
 
 #[derive(Debug, Default)]
 pub struct PtxKernelParams;
@@ -52,10 +57,28 @@ impl EntryArgLayout for PtxKernelParams {
             buffers.iter().map(|(i, p, _)| (*i, *p)).collect::<Vec<_>>()
         );
 
-        // The arguments already carry the generic pointer type the rest of the pipeline works
-        // with, and that is the type the entry keeps, so nothing is retyped here. The function
-        // type is still rebuilt: the shared half of the entry ABI appended the `%info`
-        // pointer, and the signature has to grow with it.
+        // Retype the buffers, and the `%info` pointer the shared half appended, into the
+        // global address space.
+        //
+        // Not cosmetic: `NVPTXTagInvariantLoads` only marks a load invariant -- which is the
+        // whole of how a load reaches the read-only cache as `ld.global.nc` -- when its
+        // pointer is already in the global space *in the IR*, and inference runs too late to
+        // give it that. Leaving them generic also leaves every access to be proven global
+        // again downstream. `InferAddressSpaces` folds away the casts this leaves behind.
+        //
+        // Bind each argument before calling `set_type`: `get_argument` holds a `Ref` on the
+        // entry block and `set_type` re-borrows it mutably, so chaining the two keeps the
+        // guard alive across the statement and panics with "RefCell already borrowed".
+        let global_ptr = LlvmPointerType::get(ctx, GLOBAL_ADDRESS_SPACE).into();
+        let entry = func.get_entry_block(ctx);
+        for (arg_idx, _, _) in buffers {
+            let arg = entry.deref(ctx).get_argument(*arg_idx);
+            arg.set_type(ctx, global_ptr);
+        }
+        let info_idx = entry.deref(ctx).get_num_arguments() - 1;
+        let info_arg = entry.deref(ctx).get_argument(info_idx);
+        info_arg.set_type(ctx, global_ptr);
+
         rebuild_func_type(ctx, func);
     }
 }
