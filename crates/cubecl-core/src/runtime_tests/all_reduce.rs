@@ -1,6 +1,7 @@
-use crate::{Runtime, prelude::*};
+use crate::prelude::*;
 use alloc::vec::Vec;
 use cubecl_common::device::Device;
+use cubecl_runtime::runtime::Runtime;
 
 pub fn test_all_reduce_sync_collective<R: Runtime>() {
     let type_id = 0;

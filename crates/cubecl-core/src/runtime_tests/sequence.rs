@@ -1,5 +1,6 @@
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
+use cubecl_runtime::runtime::Runtime;
 
 #[cube(launch)]
 pub fn sequence_for_loop<F: Float>(output: &mut [F]) {

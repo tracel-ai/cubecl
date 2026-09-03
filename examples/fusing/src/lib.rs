@@ -1,4 +1,4 @@
-use cubecl::{comptime, prelude::*};
+use cubecl::{Device, comptime, prelude::*};
 
 #[derive(CubeType, Clone, Debug, Hash, PartialEq, Eq)]
 enum OperationKind {
@@ -32,8 +32,8 @@ fn fusing<F: Float, N: Size>(
     }
 }
 
-pub fn launch<R: Runtime>(device: &R::Device) {
-    let client = R::client(device);
+pub fn launch(device: &Device) {
+    let client = device.client();
     let input = &[-1., 0., 1., 5.];
     let vector_size = 4;
     let output_handle_1 = client.empty(input.len() * core::mem::size_of::<f32>());

@@ -1,3 +1,4 @@
+use cubecl_runtime::runtime::Runtime;
 use std::{boxed::Box, println};
 
 use alloc::string::{String, ToString};

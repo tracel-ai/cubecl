@@ -1,4 +1,5 @@
 use alloc::{vec, vec::Vec};
+use cubecl_runtime::runtime::Runtime;
 use std::println;
 
 use crate::{self as cubecl, as_type};

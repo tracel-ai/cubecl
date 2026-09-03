@@ -7,7 +7,7 @@ use cubecl_common::{
     profile::TimingMethod,
 };
 use cubecl_core::{
-    MemoryConfiguration, Runtime,
+    MemoryConfiguration,
     cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
@@ -33,9 +33,8 @@ use cubecl_cpp::{
     },
     target::Cuda,
 };
-use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
-};
+use cubecl_runtime::runtime::Runtime;
+use cubecl_runtime::{allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger};
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -388,10 +387,6 @@ fn tensor_cores_per_sm(version: u32) -> Option<u32> {
 impl Runtime for CudaRuntime {
     type Server = CudaServer;
     type Device = CudaDevice;
-
-    fn client(device: &Self::Device) -> ComputeClient {
-        ComputeClient::load::<CudaServer>(device.to_id())
-    }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         has_pitched_row_major_strides(shape, strides)

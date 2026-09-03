@@ -2,6 +2,7 @@ use crate::{self as cubecl, prelude::barrier::Barrier};
 use alloc::{fmt::Debug, vec, vec::Vec};
 use cubecl::prelude::*;
 use cubecl_ir::features::Tma;
+use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::{
     server::{CopyDescriptor, MemoryLayout, ServerStorage},
     storage::ComputeStorage,

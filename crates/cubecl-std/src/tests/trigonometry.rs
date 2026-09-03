@@ -1,6 +1,7 @@
 use core::f32::consts::{PI, TAU};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+use cubecl_runtime::runtime::Runtime;
 
 use crate::trigonometry::*;
 

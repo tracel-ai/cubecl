@@ -2,6 +2,7 @@ use crate::{self as cubecl};
 use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::bytes::{AccessError, AllocationProperty, Reader};
+use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::MemoryLayout;
 use cubecl_zspace::shape;
 

@@ -262,7 +262,13 @@ impl CudaContext {
         };
 
         let io = kernel_compiled.io.take();
-        let repr = kernel_compiled.repr.unwrap();
+        // A precompiled kernel has no representation to read the size from:
+        // it declares its shared memory statically, so the launch reserves none.
+        let shared_mem_bytes = kernel_compiled
+            .repr
+            .as_ref()
+            .map(|repr| repr.shared_memory_size)
+            .unwrap_or(0);
 
         if let Some(cache) = &mut self.ptx_cache {
             let second_line_cache = self.second_line_ptx_cache.as_mut().unwrap();
@@ -272,7 +278,7 @@ impl CudaContext {
                 key,
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
-                    shared_mem_bytes: repr.shared_memory_size,
+                    shared_mem_bytes,
                     ptx: ptx.clone(),
                     io: io.clone(),
                 },
@@ -285,7 +291,7 @@ impl CudaContext {
             kernel_id.clone(),
             kernel_compiled.entrypoint_name,
             cube_dim,
-            repr.shared_memory_size,
+            shared_mem_bytes,
             io.map(Arc::from),
         )?;
         Ok(())

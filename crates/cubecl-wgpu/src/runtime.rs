@@ -8,16 +8,16 @@ use crate::{
 use cubecl_common::device::{Device, DeviceService, ServiceId};
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
+use cubecl_core::ir::TargetProperties;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
-use cubecl_core::{Runtime, ir::TargetProperties};
 use cubecl_environment::future;
-use cubecl_environment::sync::RwLock;
 use cubecl_ir::{DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(not(feature = "vulkan-validate"))]
 use cubecl_runtime::logging::ProfileLevel;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
+use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
@@ -50,10 +50,6 @@ impl<C: WgpuCompiler> DeviceService for WgpuServer<C> {
 impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
     type Server = WgpuServer<C>;
     type Device = WgpuDevice;
-
-    fn client(device: &Self::Device) -> ComputeClient {
-        ComputeClient::load::<WgpuServer<C>>(device.to_id())
-    }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         if shape.is_empty() {
@@ -113,7 +109,10 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
                 backends: wgpu::Backends::all(),
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
             });
-            adapter_device_ids(enumerate_all_adapters(instance, active_backend()))
+            // What `WgpuServer::init` resolves these ids against: a device
+            // brought up on another graphics API through `init_setup` is
+            // reached through the client that call hands back, not here.
+            adapter_device_ids(enumerate_all_adapters(instance, AutoGraphicsApi::backend()))
         }
     }
 }
@@ -233,6 +232,11 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
 
 /// Like [`init_setup_async`], but synchronous.
 /// On wasm, it is necessary to use [`init_setup_async`] instead.
+///
+/// A device brought up on a `G` other than [`AutoGraphicsApi`] is reached
+/// through the client this initializes, and is not among the devices
+/// [`Runtime::enumerate_devices`] lists: those ids index the auto backend's
+/// adapters, which is what a client created lazily resolves them against.
 pub fn init_setup<G: GraphicsApi>(device: &WgpuDevice, options: RuntimeOptions) -> WgpuSetup {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
@@ -277,35 +281,6 @@ fn runtime_name(backend: wgpu::Backend) -> &'static str {
         }
         _ => "wgpu<wgsl>",
     }
-}
-
-/// The backend the first server was brought up on.
-///
-/// `enumerate_devices` is a static call with no client to ask, but the
-/// `DeviceId`s it hands out only mean anything against the adapter list the
-/// live servers were created from. `init_setup`/`init_setup_async` let a caller
-/// pick a `GraphicsApi` other than [`AutoGraphicsApi`], so the auto backend is
-/// not always that list. Every init path funnels through [`create_server`], so
-/// the choice is recorded there and read back here.
-///
-/// First one wins: a process that mixes backends across devices has no single
-/// adapter list to enumerate, and the backend brought up first is the one
-/// callers have a client for.
-static ACTIVE_BACKEND: RwLock<Option<wgpu::Backend>> = RwLock::new(None);
-
-/// Record the backend a server was created on, if none is recorded yet.
-fn record_active_backend(backend: wgpu::Backend) {
-    let mut active = ACTIVE_BACKEND.write();
-    active.get_or_insert(backend);
-}
-
-/// The backend to enumerate adapters from: what the runtime is actually
-/// running on, falling back to the auto backend before any server exists.
-#[cfg(not(target_family = "wasm"))]
-fn active_backend() -> wgpu::Backend {
-    ACTIVE_BACKEND
-        .read()
-        .unwrap_or_else(AutoGraphicsApi::backend)
 }
 
 pub(crate) fn create_server<C: WgpuCompiler>(
@@ -422,8 +397,6 @@ pub(crate) fn create_server<C: WgpuCompiler>(
     );
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
-
-    record_active_backend(setup.backend);
 
     let allocator = ContiguousMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
     WgpuServer::new(

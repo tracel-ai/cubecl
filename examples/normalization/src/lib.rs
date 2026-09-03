@@ -1,4 +1,4 @@
-use cubecl::prelude::*;
+use cubecl::{Device, prelude::*};
 
 // These functions aren't implemented on Vector, need to fix this at some point
 #[cube(launch_unchecked)]
@@ -14,8 +14,8 @@ fn norm_test<F: Float, N: Size>(
     }
 }
 
-pub fn launch<R: Runtime>(device: &R::Device) {
-    let client = R::client(device);
+pub fn launch(device: &Device) {
+    let client = device.client();
     let input = &[-1., 0., 1., 5.];
     let input_handle = client.create_from_slice(f32::as_bytes(input));
     let output_a_handle = client.empty(input.len() * core::mem::size_of::<f32>());

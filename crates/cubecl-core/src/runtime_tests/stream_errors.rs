@@ -24,6 +24,7 @@ use cubecl::prelude::*;
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::Handle;
 
 /// Fills every element with `value`, so a buffer says which write reached it

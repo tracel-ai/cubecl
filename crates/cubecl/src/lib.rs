@@ -1,6 +1,14 @@
 pub use cubecl_core::*;
 
 use cubecl_core::client::ComputeClient;
+#[cfg(any(
+    feature = "cuda",
+    feature = "hip",
+    feature = "metal-native",
+    feature = "wgpu",
+    feature = "cpu"
+))]
+use cubecl_runtime::runtime::Runtime;
 
 pub use cubecl_ir::features;
 pub use cubecl_runtime::config;

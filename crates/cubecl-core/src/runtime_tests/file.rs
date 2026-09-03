@@ -2,6 +2,7 @@ use crate::{self as cubecl};
 use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::bytes::Bytes;
+use cubecl_runtime::runtime::Runtime;
 use std::io::Write;
 
 const MB: usize = 1024 * 1024;

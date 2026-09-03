@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use crate::{self as cubecl, debug_print};
+use cubecl_runtime::runtime::Runtime;
 
 #[cube]
 fn helper_fn<F: Float>(num: F) -> F {

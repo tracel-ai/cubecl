@@ -1,6 +1,7 @@
 #![allow(clippy::approx_constant)]
 
 use core::fmt::Display;
+use cubecl_runtime::runtime::Runtime;
 
 use crate::{self as cubecl, as_type};
 use cubecl_environment::sync::LazyLock;

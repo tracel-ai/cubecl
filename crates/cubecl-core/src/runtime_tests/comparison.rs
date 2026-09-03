@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use crate::{self as cubecl};
+use cubecl_runtime::runtime::Runtime;
 
 macro_rules! test_binary_impl {
     (

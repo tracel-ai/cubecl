@@ -39,7 +39,6 @@ pub mod prelude;
 mod pod;
 
 pub use codegen::*;
-pub use cubecl_runtime::runtime::*;
 pub use pod::*;
 
 pub use cubecl_macros::*;
@@ -72,6 +71,7 @@ pub use id::*;
 pub mod __private {
     pub use alloc::sync::Arc;
     pub use alloc::{format, vec};
+    pub use cubecl_runtime::runtime::Runtime;
     pub use paste::paste;
 }
 

@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 use barrier::Barrier;
 use cubecl::prelude::*;
 use cubecl_ir::OpaqueType;
+use cubecl_runtime::runtime::Runtime;
 use num_traits::Zero;
 
 #[cube(launch)]

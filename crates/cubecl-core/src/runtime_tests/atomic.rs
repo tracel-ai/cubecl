@@ -1,3 +1,4 @@
+use cubecl_runtime::runtime::Runtime;
 use std::{println, vec::Vec};
 
 use crate::{self as cubecl};

@@ -1,5 +1,6 @@
 use crate::{self as cubecl, as_bytes, as_type};
 use cubecl::prelude::*;
+use cubecl_runtime::runtime::Runtime;
 
 #[cube(launch)]
 pub fn slice_select<F: Float>(input: &[F], output: &mut [F]) {

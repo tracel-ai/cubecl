@@ -3,6 +3,7 @@ use crate::{self as cubecl};
 use alloc::{fmt::Display, vec, vec::Vec};
 use cubecl::prelude::*;
 use cubecl_ir::features::Plane;
+use cubecl_runtime::runtime::Runtime;
 
 #[cube(launch)]
 pub fn kernel_sum<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {

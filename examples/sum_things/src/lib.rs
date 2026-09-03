@@ -1,6 +1,6 @@
 #![allow(clippy::needless_range_loop)]
 
-use cubecl::{features::Plane, prelude::*, server::Handle};
+use cubecl::{Device, features::Plane, prelude::*, server::Handle};
 use std::marker::PhantomData;
 
 #[cube(launch_unchecked)]
@@ -165,8 +165,8 @@ enum KernelKind {
     SeriesSumThenMul,
 }
 
-pub fn launch<R: Runtime>(device: &R::Device) {
-    let client = R::client(device);
+pub fn launch(device: &Device) {
+    let client = device.client();
     let input = &[-1., 10., 1., 5.];
     let len = input.len();
 

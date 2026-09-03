@@ -137,32 +137,15 @@ impl Launch {
     }
 
     fn launch_body(&self, execution_mode: ExecutionMode) -> TokenStream {
-        let kernel_launcher = prelude_type("KernelLauncher");
-
-        let mappings = self.func.sig.define_mappings();
-        let generic_registers =
-            self.func
-                .analysis
-                .register_types(mappings, quote![scope], false, true);
-
-        let settings = self.configure_settings(execution_mode);
         let kernel_name = self.kernel_name();
         let kernel_generics = self.kernel_call_generics();
         let kernel_generics = kernel_generics.split_for_impl();
         let kernel_generics = kernel_generics.1.as_turbofish();
         let comptime_args = self.comptime_params().map(|it| &it.name);
-        let (registers, args) = self.arg_registers();
+        let (setup, args) = self.launcher_setup(execution_mode, quote![__client.properties()]);
 
         quote! {
-            #settings
-
-            let mut launcher = #kernel_launcher::new(__settings.clone());
-            launcher.with_scope(|scope| {
-                scope.device_properties(__client.properties());
-                #generic_registers
-            });
-
-            #registers
+            #setup
             let __kernel = #kernel_name #kernel_generics::new(
                 __settings,
                 __client.properties_shared(),
@@ -170,6 +153,45 @@ impl Launch {
                 #args #(#comptime_args),*
             );
         }
+    }
+
+    /// The statements every launch-shaped function opens with: `__settings`,
+    /// a `launcher` whose scope has the generic types registered, and one
+    /// `comp_arg_*` local per runtime argument. `device_properties` is the
+    /// `&DeviceProperties` expression the scope reads, since the real launch
+    /// has a client and the dummy kernel has the properties in hand.
+    ///
+    /// Returned with the argument list the kernel's constructor takes, so the
+    /// registration that produces a kernel's compilation arguments, and with
+    /// them its `KernelId`, is written once.
+    fn launcher_setup(
+        &self,
+        execution_mode: ExecutionMode,
+        device_properties: TokenStream,
+    ) -> (TokenStream, TokenStream) {
+        let kernel_launcher = prelude_type("KernelLauncher");
+
+        let mappings = self.func.sig.define_mappings();
+        let generic_registers =
+            self.func
+                .analysis
+                .register_types(mappings, quote![scope], false, true);
+        let settings = self.configure_settings(execution_mode);
+        let (registers, args) = self.arg_registers();
+
+        let setup = quote! {
+            #settings
+
+            let mut launcher = #kernel_launcher::new(__settings.clone());
+            launcher.with_scope(|scope| {
+                scope.device_properties(#device_properties);
+                #generic_registers
+            });
+
+            #registers
+        };
+
+        (setup, args)
     }
 
     fn configure_settings(&self, mode: ExecutionMode) -> TokenStream {
@@ -220,22 +242,15 @@ impl Launch {
             );
             let device_properties = prelude_type("DeviceProperties");
             let target_properties = prelude_type("TargetProperties");
-            let kernel_launcher = prelude_type("KernelLauncher");
             let private = core_type("__private");
             let generics = &self.kernel_generics;
             let (_, generic_names, _) = self.kernel_generics.split_for_impl();
 
-            let settings = self.configure_settings(ExecutionMode::Checked);
             let kernel_name = self.kernel_name();
             let comptime_args = self.launch_args();
             let comptime_names = self.comptime_params().map(|it| &it.name);
-            let (compilation_args, args) = self.arg_registers();
-
-            let mappings = self.func.sig.define_mappings();
-            let generic_registers =
-                self.func
-                    .analysis
-                    .register_types(mappings, quote![scope], false, true);
+            let (setup, args) =
+                self.launcher_setup(ExecutionMode::Checked, quote![&__device_properties]);
 
             let address_type = match self.args.address_type {
                 AddressType::Dynamic => quote![__address_type: #address_type,],
@@ -253,20 +268,12 @@ impl Launch {
                     #address_type
                     #(#comptime_args),*
                 ) -> #kernel_name #generic_names {
-                    #settings
-
-                    // Same registration the launch functions do — it is what
-                    // turns the runtime arguments into the kernel's
-                    // compilation arguments. The launcher itself has nothing
-                    // to launch here, so it is discarded rather than dropped:
-                    // see `KernelLauncher::discard`.
-                    let mut launcher = #kernel_launcher::new(__settings.clone());
-                    launcher.with_scope(|scope| {
-                        scope.device_properties(&__device_properties);
-                        #generic_registers
-                    });
-
-                    #compilation_args
+                    // The same registration a launch does, so the kernel's
+                    // compilation arguments, and with them its id, come out
+                    // identical. The launcher has nothing to launch here, so
+                    // it is discarded rather than dropped: see
+                    // `KernelLauncher::discard`.
+                    #setup
                     launcher.discard();
 
                     #kernel_name::new(__settings, __device_properties, __target_properties, #args #(#comptime_names),*)

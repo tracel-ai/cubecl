@@ -1,74 +1,75 @@
 use cubecl::{
+    Device,
     ir::{ElemType, FloatKind},
-    prelude::*,
     std::throughput::{measure_memory_curve, measure_peak_throughput},
     throughput::{
         CmmaDims, ComputeCmmaConfig, MemoryAccess, MemoryCurve, ThroughputKey, ThroughputMode,
     },
 };
 
-/// Binds the runtime selected by the enabled cargo feature to a type alias and runs `$body`.
+/// Binds the default device of each runtime selected by the enabled cargo features to
+/// `$device` and runs `$body` on it.
 ///
 /// Keeps backend selection in one place so binaries don't each repeat the `cfg` block:
-/// `dispatch!(R => throughput::compute_direct::<R>(&Default::default()))`.
+/// `dispatch!(device => throughput::compute_direct(&device))`.
 #[macro_export]
 macro_rules! dispatch {
-    ($runtime:ident => $body:expr) => {{
+    ($device:ident => $body:expr) => {{
         #[cfg(feature = "cuda")]
         {
-            type $runtime = cubecl::cuda::CudaRuntime;
+            let $device = cubecl::Device::Cuda(Default::default());
             $body;
         }
         #[cfg(feature = "hip")]
         {
-            type $runtime = cubecl::hip::HipRuntime;
+            let $device = cubecl::Device::Hip(Default::default());
             $body;
         }
         #[cfg(feature = "cpu")]
         {
-            type $runtime = cubecl::cpu::CpuRuntime;
+            let $device = cubecl::Device::Cpu(Default::default());
             $body;
         }
         #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
         {
-            type $runtime = cubecl::metal::MetalRuntime;
+            let $device = cubecl::Device::Metal(Default::default());
             $body;
         }
         // All wgpu sub-backends (WGSL, Vulkan/SPIR-V, Metal/MSL, WebGPU) share `WgpuRuntime`;
         // the compiler is chosen by the enabled `cubecl` sub-feature and the adapter.
         #[cfg(feature = "wgpu")]
         {
-            type $runtime = cubecl::wgpu::WgpuRuntime;
+            let $device = cubecl::Device::Wgpu(Default::default());
             $body;
         }
     }};
 }
 
 /// Peak direct (non-CMMA) compute throughput.
-pub fn compute_direct<R: Runtime>(device: &R::Device) {
-    run::<R>(device, &[compute_direct_key()]);
+pub fn compute_direct(device: &Device) {
+    run(device, &[compute_direct_key()]);
 }
 
 /// Peak CMMA (tensor-core) compute throughput.
-pub fn compute_cmma<R: Runtime>(device: &R::Device) {
-    run::<R>(device, &[compute_cmma_key()]);
+pub fn compute_cmma(device: &Device) {
+    run(device, &[compute_cmma_key()]);
 }
 
 /// Peak memory (copy) throughput, reads and writes both counted.
-pub fn memory<R: Runtime>(device: &R::Device) {
-    run::<R>(device, &[memory_key()]);
+pub fn memory(device: &Device) {
+    run(device, &[memory_key()]);
 }
 
 /// Peak read-only streaming throughput. Expect this to exceed
 /// [`memory`], which pays for a store the read-only case never issues.
-pub fn memory_read<R: Runtime>(device: &R::Device) {
-    run::<R>(device, &[memory_read_key()]);
+pub fn memory_read(device: &Device) {
+    run(device, &[memory_read_key()]);
 }
 
 /// Peak write-only streaming throughput. Expect this to exceed
 /// [`memory`], which pays for a read the write-only case never issues.
-pub fn memory_write<R: Runtime>(device: &R::Device) {
-    run::<R>(device, &[memory_write_key()]);
+pub fn memory_write(device: &Device) {
+    run(device, &[memory_write_key()]);
 }
 
 /// Peak memory throughput as a function of working set size, for both access
@@ -76,8 +77,8 @@ pub fn memory_write<R: Runtime>(device: &R::Device) {
 ///
 /// The single-size probes above report the last row of each table; the rows
 /// above it are what a kernel moving that much can actually hit.
-pub fn memory_curve<R: Runtime>(device: &R::Device) {
-    let client = R::client(device);
+pub fn memory_curve(device: &Device) {
+    let client = device.client();
 
     println!("Memory curve — {}", client.name());
 
@@ -114,13 +115,13 @@ fn bytes_label(bytes: u64) -> String {
 }
 
 /// Measures the fixed cost of a single kernel launch.
-pub fn launch_overhead<R: Runtime>(device: &R::Device) {
-    run::<R>(device, &[launch_overhead_key()]);
+pub fn launch_overhead(device: &Device) {
+    run(device, &[launch_overhead_key()]);
 }
 
 /// Runs every throughput benchmark and prints them as a table.
-pub fn all<R: Runtime>(device: &R::Device) {
-    run::<R>(
+pub fn all(device: &Device) {
+    run(
         device,
         &[
             compute_direct_key(),
@@ -133,8 +134,8 @@ pub fn all<R: Runtime>(device: &R::Device) {
     );
 }
 
-fn run<R: Runtime>(device: &R::Device, keys: &[ThroughputKey]) {
-    let client = R::client(device);
+fn run(device: &Device, keys: &[ThroughputKey]) {
+    let client = device.client();
 
     println!("Peak throughput — {}", client.name());
     for &key in keys {

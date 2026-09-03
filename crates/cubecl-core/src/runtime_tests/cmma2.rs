@@ -1,3 +1,4 @@
+use cubecl_runtime::runtime::Runtime;
 use std::{println, vec, vec::Vec};
 
 use cubecl_ir::{ElemType, FloatKind};

@@ -1,5 +1,6 @@
 use core::fmt::Debug;
 use core::hash;
+use cubecl_runtime::runtime::Runtime;
 
 use crate::{self as cubecl, as_bytes};
 

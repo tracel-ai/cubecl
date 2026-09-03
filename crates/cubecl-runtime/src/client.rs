@@ -20,7 +20,7 @@ use crate::{
     },
 };
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
-use core::any::Any;
+use core::any::{Any, TypeId};
 
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
@@ -234,6 +234,13 @@ impl ComputeClient {
         self.device.service_id()
     }
 
+    /// Whether the server behind this client is an `S`. The client is erased
+    /// over its server type, so a caller naming one has to be checked here,
+    /// before a downcast on the device thread turns the mismatch into a panic.
+    fn is_service<S: 'static>(&self) -> bool {
+        TypeId::of::<S>() == self.service_id().service
+    }
+
     /// Whether `binding` addresses this client's device. Memory coordinates
     /// mean nothing on another device, so a foreign binding is refused here,
     /// before anything is submitted, rather than read there.
@@ -428,12 +435,19 @@ impl ComputeClient {
         let stream_id = self.stream_id();
         let binding = handle.binding();
         self.local(&binding)?;
+        if !self.is_service::<S>() {
+            return Err(ServerError::ServiceMismatch {
+                client: format!("{}", self.service_id()),
+                requested: String::from(core::any::type_name::<S>()),
+                backtrace: BackTrace::capture(),
+            });
+        }
 
         self.device
             .submit_blocking(move |server| {
                 let server = (server as &mut dyn Any)
                     .downcast_mut::<S>()
-                    .expect("the client was not built from this server type");
+                    .expect("is_service passed, so this is the server's type");
                 server.get_resource(binding, stream_id)
             })
             .unwrap_or_resume()
@@ -802,16 +816,22 @@ impl ComputeClient {
             });
     }
 
-    /// Transfer data from one client to another
+    /// Transfer data from one client to another.
+    ///
+    /// `src` must be this client's. The bytes go device to device when both
+    /// clients are of the same runtime and it has a collective transport;
+    /// otherwise, and always across runtimes, they go through the host.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
     pub fn to_client(&mut self, src: Handle, dst_server: &Self, dtype: ElemType) -> Handle {
+        self.expect_local(&src.clone().binding());
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
-        if self.utilities.server_comm_enabled {
+        let same_runtime = dst_server.service_id().service == self.service_id().service;
+        if self.utilities.server_comm_enabled && same_runtime {
             self.to_client_tensor(src_descriptor, dst_server, dtype)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
@@ -1312,22 +1332,6 @@ impl ComputeClient {
     /// Get the features supported by the compute server.
     pub fn features(&self) -> &Features {
         &self.utilities.properties.features
-    }
-
-    /// # Warning
-    ///
-    /// For private use only, and only before the client has been used.
-    ///
-    /// Returns `None` unless this client is the sole owner of *both* Arcs it
-    /// has to reach through: the [`ServerUtilities`] every clone of the client
-    /// shares, and the [`DeviceProperties`] inside it. The second one is the
-    /// easy one to miss — every kernel built by a launch keeps a clone of that
-    /// `Arc` (see [`properties_shared`](Self::properties_shared)), so a caller
-    /// that edits properties after a first launch gets a silent no-op rather
-    /// than a mutable reference. Edit properties while the device is coming
-    /// up, or not at all.
-    pub fn properties_mut(&mut self) -> Option<&mut DeviceProperties> {
-        Arc::get_mut(&mut self.utilities).and_then(|state| Arc::get_mut(&mut state.properties))
     }
 
     /// The device properties, shared: what a kernel keeps to expand itself

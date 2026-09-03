@@ -167,6 +167,16 @@ impl Compiler for AutoCompiler {
             AutoCompiler::Msl(_) => "msl",
         }
     }
+
+    fn lang_tag(&self) -> &'static str {
+        match self {
+            AutoCompiler::Wgsl(compiler) => compiler.lang_tag(),
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(compiler) => compiler.lang_tag(),
+            #[cfg(feature = "msl")]
+            AutoCompiler::Msl(compiler) => compiler.lang_tag(),
+        }
+    }
 }
 
 impl WgpuCompiler for AutoCompiler {
@@ -201,16 +211,6 @@ impl WgpuCompiler for AutoCompiler {
             AutoCompiler::Msl(_) => {
                 CompiledKernel::compile(&*kernel, definition, self, &server.compilation_options)
             }
-        }
-    }
-
-    fn lang_tag(&self) -> &'static str {
-        match self {
-            AutoCompiler::Wgsl(_) => "wgsl",
-            #[cfg(feature = "spirv")]
-            AutoCompiler::SpirV(_) => "spirv",
-            #[cfg(feature = "msl")]
-            AutoCompiler::Msl(_) => "msl",
         }
     }
 
@@ -265,10 +265,6 @@ impl WgpuCompiler for WgslCompiler {
         CompiledKernel::compile(&*kernel, definition, self, &server.compilation_options)
     }
 
-    fn lang_tag(&self) -> &'static str {
-        "wgsl"
-    }
-
     fn validate_ir(
         &self,
         repr: &Option<Self::Representation>,
@@ -303,10 +299,6 @@ impl WgpuCompiler for MslCompiler {
         CompiledKernel::compile(&*kernel, definition, self, &compilation_options)
     }
 
-    fn lang_tag(&self) -> &'static str {
-        "msl"
-    }
-
     fn validate_ir(
         &self,
         repr: &Option<Self::Representation>,
@@ -337,10 +329,6 @@ impl WgpuCompiler for cubecl_spirv::SpirvCompiler {
         definition: KernelDefinition,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         crate::vulkan::compile(self, server, kernel, definition)
-    }
-
-    fn lang_tag(&self) -> &'static str {
-        "spirv"
     }
 
     fn validate_ir(
@@ -422,11 +410,6 @@ pub trait WgpuCompiler: Compiler {
         kernel: Box<dyn CubeKernel>,
         definition: KernelDefinition,
     ) -> Result<CompiledKernel<Self>, CompilationError>;
-
-    /// Short identifier of the shader language produced by this compiler (e.g. `"wgsl"`).
-    ///
-    /// Used for logging and debug-info tagging.
-    fn lang_tag(&self) -> &'static str;
 
     /// Normalize the backend-specific representation into the [`AutoRepresentation`] shared
     /// by every wgpu compiler, and report the [`CompilerInfo`] derived from it.

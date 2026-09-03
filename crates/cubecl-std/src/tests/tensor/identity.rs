@@ -1,9 +1,7 @@
 use core::fmt::Display;
+use cubecl_runtime::runtime::Runtime;
 
-use cubecl_core::{
-    CubeElement,
-    prelude::{Numeric, Runtime},
-};
+use cubecl_core::{CubeElement, prelude::Numeric};
 
 use super::test_utils::identity_cpu;
 use crate::tensor::{self, TensorHandle};

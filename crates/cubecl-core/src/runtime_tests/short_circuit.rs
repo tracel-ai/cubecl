@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use crate::{self as cubecl};
+use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::Handle;
 
 // Pin `||` / `&&` short-circuit semantics. The RHS mutates a side-channel.

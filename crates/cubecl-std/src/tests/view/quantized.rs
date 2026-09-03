@@ -5,6 +5,7 @@ use cubecl_common::{
 };
 use cubecl_core::ir::{ElemType, FloatKind, features::TypeUsage};
 use cubecl_core::{self as cubecl};
+use cubecl_runtime::runtime::Runtime;
 use half::f16;
 
 use crate::{

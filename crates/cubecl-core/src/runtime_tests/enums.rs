@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use cubecl_runtime::runtime::Runtime;
 
 use crate::{self as cubecl, IntoRuntime, as_bytes};
 use cubecl::prelude::*;

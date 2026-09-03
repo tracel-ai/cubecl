@@ -1,9 +1,7 @@
 use crate::{compute::affinity, compute::server::CpuServer, device::CpuDevice};
-use cubecl_common::device::Device;
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
-    MemoryConfiguration, Runtime,
-    client::ComputeClient,
+    MemoryConfiguration,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
@@ -14,6 +12,7 @@ use cubecl_core::{
     zspace::{Shape, Strides},
 };
 use cubecl_llvm::PlironCompiler;
+use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
@@ -173,10 +172,6 @@ impl DeviceService for CpuServer {
 impl Runtime for CpuRuntime {
     type Server = CpuServer;
     type Device = CpuDevice;
-
-    fn client(device: &Self::Device) -> ComputeClient {
-        ComputeClient::load::<CpuServer>(device.to_id())
-    }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         is_contiguous(shape, strides)

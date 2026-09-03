@@ -1,7 +1,6 @@
 use crate::{MetalDevice, compute::MetalServer};
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_core::{
-    Runtime,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
@@ -15,7 +14,7 @@ use cubecl_cpp::{
     shared::register_wmma_features,
 };
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_runtime::client::ComputeClient;
+use cubecl_runtime::runtime::Runtime;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLDevice, MTLGPUFamily};
 
@@ -133,10 +132,6 @@ impl DeviceService for MetalServer {
 impl Runtime for MetalRuntime {
     type Server = MetalServer;
     type Device = MetalDevice;
-
-    fn client(device: &Self::Device) -> ComputeClient {
-        ComputeClient::load::<MetalServer>(device.to_id())
-    }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         has_pitched_row_major_strides(shape, strides)

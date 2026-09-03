@@ -156,6 +156,17 @@ impl CpuServer {
             &mut CpuCompiler::default(),
             &PlironOptions::default(),
         )?;
+        // The executable artifact here is the JIT engine the compiler built,
+        // not the text. A precompiled kernel brings text and no engine.
+        if compiled.repr.is_none() {
+            return Err(CompilationError::Generic {
+                reason: format!(
+                    "the CPU runtime cannot load the precompiled kernel `{}`: it runs compiled IR, not source text",
+                    kernel.name()
+                ),
+                backtrace: BackTrace::capture(),
+            });
+        }
         self.compilation_cache
             .insert(kernel_id, CpuKernel::new(compiled));
         Ok(())
@@ -175,7 +186,12 @@ impl CpuServer {
 
         let cube_dim = kernel.mlir.cube_dim;
 
-        let mlir_engine = kernel.mlir.repr.clone().unwrap().expect_jit();
+        let mlir_engine = kernel
+            .mlir
+            .repr
+            .clone()
+            .expect("compile_only refuses a kernel without a representation")
+            .expect_jit();
 
         let task = ScheduleTask::Execute {
             stream_id,

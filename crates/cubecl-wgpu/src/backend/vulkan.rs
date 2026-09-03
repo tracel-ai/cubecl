@@ -772,5 +772,16 @@ where
     log::debug!("Compiling {}", kernel.name());
     let compiled =
         CompiledKernel::compile(&*kernel, definition, dyn_comp, &server.compilation_options)?;
+    // SPIR-V reaches the device as an assembled module, never as text, so a
+    // precompiled kernel has nothing this path can load.
+    if compiled.repr.is_none() {
+        return Err(CompilationError::Generic {
+            reason: format!(
+                "the SPIR-V compiler cannot load the precompiled kernel `{}`: SPIR-V has no text passthrough",
+                kernel.name()
+            ),
+            backtrace: BackTrace::capture(),
+        });
+    }
     Ok(compiled)
 }

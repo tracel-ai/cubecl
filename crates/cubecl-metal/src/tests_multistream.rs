@@ -7,6 +7,7 @@
 //! and synchronization.
 
 use cubecl_core::{self as cubecl, prelude::*};
+use cubecl_runtime::runtime::Runtime;
 
 type R = crate::MetalRuntime;
 

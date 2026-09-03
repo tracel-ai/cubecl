@@ -3,8 +3,8 @@ use std::println;
 
 use cubecl_common::device::{Device, DeviceId};
 
-use crate::Runtime;
 use crate::prelude::*;
+use cubecl_runtime::runtime::Runtime;
 
 pub fn test_to_client<R: Runtime>() {
     // Every device the runtime can reach, not just one type: a machine with a

@@ -5,6 +5,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
 use cubecl_cuda::CudaRuntime;
+use cubecl_runtime::runtime::Runtime;
 use std::sync::Mutex;
 
 /// Graph capture toggles device-global allocation state (persistent mode) on

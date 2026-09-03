@@ -257,4 +257,11 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
     /// The default extension for the runtime's kernel/shader code.
     /// Might change based on which compiler is used.
     fn extension(&self) -> &'static str;
+
+    /// Short identifier of the language this compiler produces, such as
+    /// `"wgsl"` or `"cuda"`.
+    ///
+    /// What a [`PrecompiledSource`](crate::kernel::PrecompiledSource) has to
+    /// name to be accepted by this compiler.
+    fn lang_tag(&self) -> &'static str;
 }

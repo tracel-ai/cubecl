@@ -6,6 +6,7 @@
 //! near-zero must stay accurate, and large-negative must underflow toward `-1`.
 
 use cubecl_core::{self as cubecl, prelude::*};
+use cubecl_runtime::runtime::Runtime;
 
 type R = crate::MetalRuntime;
 

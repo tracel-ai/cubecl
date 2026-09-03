@@ -17,7 +17,6 @@ pub use cubecl_runtime::{
     client::ComputeClient,
     id::KernelId,
     kernel::*,
-    runtime::Runtime,
     server::{CubeCount, CubeDim, LaunchError},
 };
 

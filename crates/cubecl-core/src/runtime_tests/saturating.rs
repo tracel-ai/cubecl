@@ -1,6 +1,7 @@
 use crate::{self as cubecl};
 use alloc::vec;
 use cubecl::prelude::*;
+use cubecl_runtime::runtime::Runtime;
 
 #[cube(launch_unchecked)]
 pub fn kernel_saturating_add<I: Int, N: Size>(

@@ -6,6 +6,7 @@ use core::{
 };
 
 use cubecl_common::format::format_str;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{
     ElemType, Scope,
     metadata::Info,
@@ -136,11 +137,31 @@ pub struct DebugInformation {
 
 /// A hand-written kernel's own compiled text, standing in for what the
 /// compiler would have produced from a [`KernelDefinition`].
+///
+/// The text goes to the backend as is, so two things the compiler would have
+/// settled are the kernel's to settle:
+///
+/// - `lang` names the language the text is written in, and must equal the
+///   [`lang_tag`](crate::compiler::Compiler::lang_tag) of the compiler the
+///   client runs. [`CompiledKernel::compile`] refuses a mismatch, so CUDA C++
+///   handed to a wgpu client is a [`CompilationError`], not a naga parse
+///   error at first launch.
+/// - The kernel's [`id`](crate::kernel::KernelMetadata::id) must cover the
+///   text, for instance through [`KernelId::info`](crate::id::KernelId::info)
+///   with a hash of it. Every compilation cache, in memory and on disk, is
+///   keyed by that id and never sees the source, so two kernels with the
+///   same id and different text would share one compiled artifact.
+///
+/// There is no representation to read a dynamic shared memory size from, so
+/// a precompiled kernel is launched with none: what it needs, it declares
+/// statically in the text.
 pub struct PrecompiledSource {
     /// The compiled source, in the target language.
     pub source: String,
     /// The name of the entrypoint within `source`.
     pub entrypoint_name: String,
+    /// The language `source` is written in, as the target compiler tags it.
+    pub lang: &'static str,
 }
 
 /// Kernel that can be defined
@@ -174,6 +195,17 @@ impl<C: Compiler> CompiledKernel<C> {
         // `io: None` reads as every buffer both read and written, which is the
         // conservative direction.
         if let Some(precompiled) = kernel.source() {
+            if precompiled.lang != compiler.lang_tag() {
+                return Err(CompilationError::Generic {
+                    reason: alloc::format!(
+                        "kernel `{}` carries {} source, but this compiler expects {}",
+                        kernel.name(),
+                        precompiled.lang,
+                        compiler.lang_tag()
+                    ),
+                    backtrace: BackTrace::capture(),
+                });
+            }
             return Ok(CompiledKernel {
                 entrypoint_name: precompiled.entrypoint_name,
                 debug_name: Some(kernel.name()),

@@ -1,4 +1,4 @@
-use super::DummyServer;
+use super::{DummyServer, Marker};
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::server::ComputeServer;
@@ -32,7 +32,7 @@ impl Device for DummyDevice {
 
 pub type DummyClient = ComputeClient;
 
-impl DeviceService for DummyServer {
+impl<M: Marker> DeviceService for DummyServer<M> {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         init_server(cubecl_common::device::ServiceId::of::<Self>(device_id))
     }
@@ -42,7 +42,7 @@ impl DeviceService for DummyServer {
     }
 }
 
-fn init_server(service: cubecl_common::device::ServiceId) -> DummyServer {
+fn init_server<M: Marker>(service: cubecl_common::device::ServiceId) -> DummyServer<M> {
     let storage = BytesStorage::default();
     let mem_properties = MemoryDeviceProperties {
         max_page_size: 1024 * 1024 * 512,
@@ -70,10 +70,6 @@ impl Runtime for DummyRuntime {
     type Server = DummyServer;
 
     type Device = DummyDevice;
-
-    fn client(device: &Self::Device) -> ComputeClient {
-        ComputeClient::load::<DummyServer>(device.to_id())
-    }
 
     fn can_read_tensor(_shape: &Shape, _strides: &Strides) -> bool {
         unimplemented!()

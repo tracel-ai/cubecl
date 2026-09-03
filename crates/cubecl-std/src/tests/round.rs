@@ -1,6 +1,7 @@
 use cubecl_common::quant::scheme::ScaleDtype;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_runtime::runtime::Runtime;
 
 use crate::quant::round::round_up_to_dtype;
 

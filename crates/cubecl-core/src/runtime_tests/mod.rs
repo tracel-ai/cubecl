@@ -46,7 +46,7 @@ pub mod vector;
 #[macro_export]
 macro_rules! testgen_all {
     () => {
-        use $crate::Runtime;
+        use $crate::__private::Runtime;
 
         type FloatType = f32;
         type IntType = i32;
@@ -58,7 +58,7 @@ macro_rules! testgen_all {
         $crate::testgen_untyped!();
     };
     ($f_def:ident: [$($float:ident),*], $i_def:ident: [$($int:ident),*], $u_def:ident: [$($uint:ident),*]) => {
-        use $crate::Runtime;
+        use $crate::__private::Runtime;
 
         ::paste::paste! {
             $(mod [<$float _ty>] {

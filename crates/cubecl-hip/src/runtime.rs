@@ -4,6 +4,7 @@ use crate::{
     device::AmdDevice,
 };
 use core::ffi::c_int;
+use cubecl_runtime::runtime::Runtime;
 use std::sync::OnceLock;
 
 use cubecl_common::{
@@ -11,7 +12,7 @@ use cubecl_common::{
     profile::TimingMethod,
 };
 use cubecl_core::{
-    MemoryConfiguration, Runtime,
+    MemoryConfiguration,
     cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
@@ -39,8 +40,7 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, driver::checked,
-    logging::ServerLogger,
+    allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger,
 };
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
@@ -225,10 +225,6 @@ impl DeviceService for HipServer {
 impl Runtime for HipRuntime {
     type Server = HipServer;
     type Device = AmdDevice;
-
-    fn client(device: &Self::Device) -> ComputeClient {
-        ComputeClient::load::<HipServer>(device.to_id())
-    }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         if shape.is_empty() {

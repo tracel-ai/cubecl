@@ -2,6 +2,7 @@ use crate::{self as cubecl};
 use alloc::{format, vec};
 use core::fmt::{Debug, Display};
 use cubecl::prelude::*;
+use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::ServerError;
 
 fn assert_exact_eq<E: CubeElement + Debug + PartialEq>(

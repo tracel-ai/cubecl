@@ -1,4 +1,5 @@
-use cubecl_core::{CubeElement, prelude::Runtime};
+use cubecl_core::CubeElement;
+use cubecl_runtime::runtime::Runtime;
 
 use crate::tensor::{TensorHandle, copy_into, into_contiguous_packed};
 

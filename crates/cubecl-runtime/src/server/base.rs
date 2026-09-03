@@ -332,6 +332,20 @@ pub enum ServerError {
         backtrace: BackTrace,
     },
 
+    /// A caller named a server type the client does not reach. The client is
+    /// erased over its server, so the type it is asked for is checked against
+    /// the one it was built from, and nothing was run.
+    #[error("The client reaches {client}, not a {requested}\nBacktrace:\n{backtrace}")]
+    ServiceMismatch {
+        /// The service the client reaches.
+        client: String,
+        /// The server type the caller asked for.
+        requested: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// A launch error happened
     #[error("A launch error happened\nCaused by:\n  {0}")]
     Launch(#[from] LaunchError),

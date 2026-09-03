@@ -179,25 +179,44 @@ impl ReentrantMutexDeviceHandle {
                 .take()
         };
 
-        let mut entry = entry.unwrap_or_else(|| {
+        let entry = entry.unwrap_or_else(|| {
             panic!(
                 "State {} is already borrowed by the current thread",
                 self.type_name,
             )
         });
 
-        let result = f(&mut *entry);
+        // Put the entry back when `f` returns, and just the same when it
+        // unwinds: a panic inside a task is the task's to report, not a
+        // reason for every later call on this device to find the service
+        // "already borrowed". The panic itself keeps propagating.
+        let mut restore = Restore {
+            map: &state.map,
+            key,
+            entry: Some(entry),
+        };
 
-        // Put the entry back.
-        state
-            .map
+        f(&mut **restore.entry.as_mut().expect("taken back only on drop"))
+    }
+}
+
+/// Returns a service taken out of its [`DeviceStateMap`] on drop, whether the
+/// task holding it returned or unwound.
+struct Restore<'a> {
+    map: &'a RefCell<HashMap<TypeId, ReentrantMutexDeviceState>>,
+    key: TypeId,
+    entry: Option<Box<dyn Any + Send>>,
+}
+
+impl Drop for Restore<'_> {
+    fn drop(&mut self) {
+        let entry = self.entry.take().expect("restored once");
+        self.map
             .borrow()
-            .get(&key)
+            .get(&self.key)
             .expect("Entry still exists")
             .service
             .replace(Some(entry));
-
-        result
     }
 }
 

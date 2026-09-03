@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use super::graph::WgpuGraph;
 use super::storage::{WgpuResource, WgpuStorage};
 use crate::WgpuCompiler;
+use crate::backend::ModuleSource;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
 use cubecl_common::pool::LeasePool;
@@ -293,8 +294,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         let module = self.create_module(
             &compiled.entrypoint_name,
             kernel_id.cube_dim.into(),
-            repr,
-            &compiled.source,
+            ModuleSource::resolve(repr, compiler.lang_tag(), &compiled.source)?,
             mode,
         )?;
         let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings);

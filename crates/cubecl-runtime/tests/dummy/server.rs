@@ -38,8 +38,13 @@ pub static REFUSE_PROFILES: core::sync::atomic::AtomicBool =
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.
 /// It uses simple memory management with a bytes storage on CPU, without asynchronous tasks.
+///
+/// `M` is a marker with no behavior: a `DummyServer<Other>` is a second
+/// runtime as far as the client can tell, since the service type is what
+/// tells runtimes apart.
 #[derive(Debug)]
-pub struct DummyServer {
+pub struct DummyServer<M = ()> {
+    _marker: core::marker::PhantomData<M>,
     memory_management: MemoryManagement<BytesStorage>,
     timestamps: TimestampProfiler,
     utilities: Arc<ServerUtilities>,
@@ -51,6 +56,14 @@ pub struct DummyServer {
     /// and no call "drains" anything.
     failures: ErrorGraph,
 }
+
+/// What a [`DummyServer`]'s marker has to be: nothing but a distinct type.
+pub trait Marker: Send + Sync + core::fmt::Debug + 'static {}
+impl<M: Send + Sync + core::fmt::Debug + 'static> Marker for M {}
+
+/// A marker for a second dummy runtime, distinct from the default one.
+#[derive(Debug)]
+pub enum Other {}
 
 #[derive(Debug, Clone)]
 pub struct KernelTask {
@@ -102,9 +115,9 @@ impl KernelTask {
     }
 }
 
-impl ServerCommunication for DummyServer {}
+impl<M: Marker> ServerCommunication for DummyServer<M> {}
 
-impl ComputeServer for DummyServer {
+impl<M: Marker> ComputeServer for DummyServer<M> {
     fn logger(&self) -> Arc<ServerLogger> {
         self.utilities.logger.clone()
     }
@@ -330,7 +343,7 @@ impl ComputeServer for DummyServer {
     }
 }
 
-impl DummyServer {
+impl<M: Marker> DummyServer<M> {
     pub fn new(
         service: ServiceId,
         memory_management: MemoryManagement<BytesStorage>,
@@ -377,6 +390,7 @@ impl DummyServer {
         ));
 
         Self {
+            _marker: core::marker::PhantomData,
             memory_management,
             utilities,
             timestamps: TimestampProfiler::default(),
@@ -435,7 +449,7 @@ impl DummyServer {
     }
 }
 
-impl ServerStorage for DummyServer {
+impl<M: Marker> ServerStorage for DummyServer<M> {
     type Storage = BytesStorage;
 
     fn get_resource(

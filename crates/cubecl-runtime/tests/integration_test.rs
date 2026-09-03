@@ -5,6 +5,8 @@ use crate::dummy::{DummyDevice, DummyElementwiseAddition, test_client};
 use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
+use cubecl_ir::{ElemType, UIntKind};
+use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::server::{CubeCount, Handle, KernelArguments, ServerError};
 use cubecl_runtime::{local_tuner, tune::LocalTuner};
 use dummy::*;
@@ -86,6 +88,67 @@ fn writing_through_a_foreign_handle_panics() {
     let handle = handle_of(ServiceId::of::<()>(DeviceId::new(0, 0)));
 
     client.write(&handle, Bytes::from_bytes_vec(vec![0; 8]));
+}
+
+/// The transfer reads the source on this client's server, so a handle from
+/// elsewhere is refused before the read, on either transfer path.
+#[test_log::test]
+#[should_panic(expected = "was used on")]
+fn transferring_a_foreign_handle_to_another_client_panics() {
+    let mut client = test_client(&DummyDevice);
+    let destination = client.clone();
+    let handle = handle_of(ServiceId::of::<()>(DeviceId::new(0, 0)));
+
+    client.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+}
+
+#[test_log::test]
+fn a_transfer_between_devices_of_the_same_runtime_round_trips() {
+    let mut source = test_client(&DummyDevice);
+    let destination = ComputeClient::load::<DummyServer>(DeviceId::new(0, 1));
+    let bytes = [1u8, 2, 3, 4];
+    let handle = source.create_from_slice(&bytes);
+
+    let transferred = source.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+
+    assert_eq!(transferred.service, destination.service_id());
+    assert_eq!(destination.read_one(transferred).unwrap().to_vec(), bytes);
+}
+
+/// Two clients of different runtimes are the same type now, so nothing but
+/// this check keeps a transfer from taking a collective path the destination
+/// does not have. The bytes go through the host instead.
+#[test_log::test]
+fn a_transfer_across_runtimes_goes_through_the_host() {
+    let mut source = test_client(&DummyDevice);
+    let destination = ComputeClient::load::<DummyServer<Other>>(DeviceId::new(0, 0));
+    let bytes = [5u8, 6, 7, 8];
+    let handle = source.create_from_slice(&bytes);
+
+    let transferred = source.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+
+    assert_eq!(transferred.service, destination.service_id());
+    assert_eq!(destination.read_one(transferred).unwrap().to_vec(), bytes);
+}
+
+/// Naming a server type the client was not built from is an error on the
+/// calling thread, not a failed downcast on the device thread. The client
+/// keeps working afterwards.
+#[test_log::test]
+fn asking_for_the_resource_of_another_server_type_is_refused() {
+    let client = test_client(&DummyDevice);
+    let handle = client.create_from_slice(&[1u8, 2, 3, 4]);
+
+    let err = client
+        .get_resource::<DummyServer<Other>>(handle.clone())
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ServerError::ServiceMismatch { .. }),
+        "expected the server type to be refused, got: {err}"
+    );
+    assert!(client.get_resource::<DummyServer>(handle.clone()).is_ok());
+    assert_eq!(client.read_one(handle).unwrap().to_vec(), [1, 2, 3, 4]);
 }
 // only excludes the `serial` ones.
 #[test_log::test]

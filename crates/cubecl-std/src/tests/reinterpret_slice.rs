@@ -1,5 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+use cubecl_runtime::runtime::Runtime;
 
 use crate::{ReinterpretSlice, ReinterpretSliceMut};
 use half::f16;

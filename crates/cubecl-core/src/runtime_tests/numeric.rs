@@ -1,6 +1,7 @@
 use crate::{self as cubecl};
 use cubecl::prelude::*;
 use cubecl_ir::{ElemType, FloatKind, UIntKind};
+use cubecl_runtime::runtime::Runtime;
 
 #[cube(launch)]
 pub fn kernel_define<N: Numeric>(array: &mut [N], #[define(N)] _elem: ElemType) {

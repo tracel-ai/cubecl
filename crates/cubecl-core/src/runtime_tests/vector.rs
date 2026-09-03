@@ -1,6 +1,7 @@
 #![allow(clippy::needless_range_loop)]
 
 use alloc::{vec, vec::Vec};
+use cubecl_runtime::runtime::Runtime;
 
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;

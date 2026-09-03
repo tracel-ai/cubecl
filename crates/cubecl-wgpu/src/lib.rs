@@ -37,6 +37,81 @@ mod tests {
     cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f32);
 
+    /// A kernel that brings its own WGSL, the way a template kernel downstream
+    /// does: no representation for the runtime to read, only text for naga.
+    mod precompiled {
+        use cubecl_core::prelude::*;
+        use cubecl_ir::{UIntKind, metadata::Info, settings::Dim3};
+        use cubecl_runtime::kernel::{
+            CubeKernel, KernelDefinition, KernelMetadata, PrecompiledSource,
+        };
+        use cubecl_runtime::runtime::Runtime;
+        use cubecl_runtime::server::KernelArguments;
+
+        use super::TestRuntime;
+
+        const SOURCE: &str = r#"
+@group(0) @binding(0) var<storage, read_write> data: array<f32>;
+
+@compute @workgroup_size(1)
+fn double(@builtin(global_invocation_id) id: vec3<u32>) {
+    data[id.x] = data[id.x] * 2.0;
+}
+"#;
+
+        struct Double;
+
+        impl KernelMetadata for Double {
+            fn id(&self) -> KernelId {
+                KernelId::new::<Self>()
+            }
+
+            fn address_type(&self) -> ElemType {
+                ElemType::UInt(UIntKind::U32)
+            }
+        }
+
+        impl CubeKernel for Double {
+            fn define(&self) -> KernelDefinition {
+                let settings = KernelSettings::new(
+                    Dim3::new_single(),
+                    ExecutionMode::Checked,
+                    AddressType::U32,
+                );
+                KernelDefinition {
+                    body: Scope::root(settings.clone()),
+                    settings,
+                    info: Info::default(),
+                }
+            }
+
+            fn source(&self) -> Option<PrecompiledSource> {
+                Some(PrecompiledSource {
+                    source: SOURCE.to_string(),
+                    entrypoint_name: "double".to_string(),
+                    lang: "wgsl",
+                })
+            }
+        }
+
+        #[test]
+        fn a_hand_written_wgsl_kernel_launches() {
+            let client = TestRuntime::client(&Default::default());
+            let input = [1.0f32, 2.0, 3.0, 4.0];
+            let handle = client.create_from_slice(bytemuck::cast_slice(&input));
+
+            client.launch(
+                Box::new(Double),
+                CubeCount::Static(input.len() as u32, 1, 1),
+                KernelArguments::new().with_buffer(handle.clone().binding()),
+            );
+
+            let bytes = client.read_one(handle).expect("the launch ran");
+            let output: &[f32] = bytemuck::cast_slice(&bytes);
+            assert_eq!(output, [2.0, 4.0, 6.0, 8.0]);
+        }
+    }
+
     /// WGSL packs fp8 four lanes to a `u32` and has no type for anything narrower. Rejecting
     /// that has to reach the caller: a panic on the device thread is caught there, logged as a
     /// warning, and the caller reads back a zeroed buffer as if the launch had succeeded.
@@ -44,6 +119,7 @@ mod tests {
         use cubecl_common::e4m3;
         use cubecl_core::prelude::*;
         use cubecl_core::{self as cubecl};
+        use cubecl_runtime::runtime::Runtime;
         use cubecl_runtime::server::Handle;
 
         use super::TestRuntime;

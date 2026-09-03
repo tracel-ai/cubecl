@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_runtime::runtime::Runtime;
 
 use crate::tensor::ErasedTensor;
 

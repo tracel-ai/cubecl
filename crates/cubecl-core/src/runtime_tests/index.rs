@@ -1,4 +1,5 @@
 use crate::{self as cubecl};
+use cubecl_runtime::runtime::Runtime;
 
 use alloc::vec;
 use cubecl::prelude::*;
