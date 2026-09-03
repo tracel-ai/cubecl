@@ -218,10 +218,9 @@ impl CudaContext {
             None => match CudaBackend::default() {
                 CudaBackend::Cpp => self.load_transpiled(kernel_id, key, jitc_kernel, logger),
                 CudaBackend::Llvm => Err(CompilationError::Generic {
-                    reason:
-                        "the LLVM backend cannot load a precompiled kernel: it has no text to \
+                    reason: "the LLVM backend cannot load a precompiled kernel: it has no text to \
                          compile from"
-                            .to_string(),
+                        .to_string(),
                     backtrace: BackTrace::capture(),
                 }
                 .into()),
