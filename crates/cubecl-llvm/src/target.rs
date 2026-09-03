@@ -11,6 +11,7 @@ use pliron::context::Context;
 pub enum LlvmTarget {
     #[default]
     Cpu,
+    #[cfg(feature = "amdgpu")]
     AmdGpu,
 }
 

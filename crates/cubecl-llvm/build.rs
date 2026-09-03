@@ -6,7 +6,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rustc-cfg=feature=\"pliron-dump\"");
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(feature = "amdgpu")]
     {
         println!("cargo::rerun-if-changed=src/amdgpu/cpp_shims/lld.cpp");
         println!("cargo::rerun-if-changed=src/amdgpu/cpp_shims/device_libs.cpp");

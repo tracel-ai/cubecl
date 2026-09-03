@@ -22,6 +22,7 @@ pliron-dump = []
 std = ["cubecl-core/std", "cubecl-runtime/std"]
 
 tracing = ["cubecl-core/tracing", "cubecl-runtime/tracing", "cubecl-opt/tracing"]
+amdgpu = []
 
 
 [dependencies]

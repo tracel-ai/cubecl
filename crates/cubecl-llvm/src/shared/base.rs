@@ -3,6 +3,7 @@ use cubecl_runtime::kernel::BufferIOAttr;
 use std::rc::Rc;
 
 use cubecl_environment::backtrace::BackTrace;
+#[cfg(feature = "amdgpu")]
 use cubecl_environment::bytes::Bytes;
 use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 #[cfg(feature = "pliron-dump")]
@@ -35,10 +36,10 @@ use pliron::{
     printable::Printable,
 };
 
-use crate::amdgpu::abi::AmdGpuLowering;
-use crate::amdgpu::matrix::CtxWmma;
-use crate::amdgpu::plane::CtxPlaneDim;
-use crate::amdgpu::shared_memory::CtxSharedMemory;
+#[cfg(feature = "amdgpu")]
+use crate::amdgpu::{
+    abi::AmdGpuLowering, matrix::CtxWmma, plane::CtxPlaneDim, shared_memory::CtxSharedMemory,
+};
 use crate::cpu::{
     abi::CpuLowering,
     jit::engine::{KernelRequirements, PlironEngine},
@@ -63,6 +64,7 @@ pub struct PlironOptions {
     pub arch: Option<GfxArch>,
 }
 
+#[cfg(feature = "amdgpu")]
 /// A finished AMD code object, compiled and linked by this crate.
 #[derive(Clone, Debug)]
 pub struct AmdGpuModule {
@@ -87,6 +89,7 @@ pub struct AmdGpuModule {
 #[derive(Clone)]
 pub enum PlironArtifact {
     Jit(PlironEngine),
+    #[cfg(feature = "amdgpu")]
     AmdGpuCode(AmdGpuModule),
 }
 
@@ -95,6 +98,7 @@ impl PlironArtifact {
     pub fn expect_jit(self) -> PlironEngine {
         match self {
             PlironArtifact::Jit(engine) => engine,
+            #[cfg(feature = "amdgpu")]
             PlironArtifact::AmdGpuCode(_) => {
                 panic!("expected a JIT engine, got an AMDGPU code object")
             }
@@ -106,6 +110,7 @@ impl core::fmt::Display for PlironArtifact {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             PlironArtifact::Jit(engine) => write!(f, "{engine}"),
+            #[cfg(feature = "amdgpu")]
             PlironArtifact::AmdGpuCode(module) => write!(f, "{}", module.ir),
         }
     }
@@ -119,6 +124,7 @@ impl Compiler for PlironCompiler {
     fn buffer_io(repr: &Self::Representation) -> Option<Vec<BufferIOAttr>> {
         match repr {
             PlironArtifact::Jit(engine) => Some(engine.buffer_io().to_vec()),
+            #[cfg(feature = "amdgpu")]
             PlironArtifact::AmdGpuCode(module) => Some(module.io.clone()),
         }
     }
@@ -148,6 +154,7 @@ impl Compiler for PlironCompiler {
     fn extension(&self) -> &'static str {
         match self.target {
             LlvmTarget::Cpu => "plir",
+            #[cfg(feature = "amdgpu")]
             LlvmTarget::AmdGpu => "ll",
         }
     }
@@ -157,12 +164,13 @@ impl PlironCompiler {
     fn compile_ir(
         self,
         kernel: KernelDefinition,
-        options: &PlironOptions,
+        _options: &PlironOptions,
     ) -> Result<PlironArtifact, CompilationError> {
         match self.target {
             LlvmTarget::Cpu => Ok(PlironArtifact::Jit(self.compile_cpu(kernel)?)),
+            #[cfg(feature = "amdgpu")]
             LlvmTarget::AmdGpu => {
-                let arch = options.arch.as_ref().ok_or_else(|| {
+                let arch = _options.arch.as_ref().ok_or_else(|| {
                     generic("the AMDGPU target needs the device it compiles for".to_string())
                 })?;
                 Ok(PlironArtifact::AmdGpuCode(
@@ -197,6 +205,7 @@ impl PlironCompiler {
     }
 
     /// Lowers `kernel` for `arch` and compiles it into a linked AMD code object.
+    #[cfg(feature = "amdgpu")]
     fn compile_amdgpu(
         self,
         kernel: KernelDefinition,
