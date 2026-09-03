@@ -16,13 +16,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .file("src/amdgpu/cpp_shims/device_libs.cpp")
         .file("src/amdgpu/cpp_shims/printf.cpp");
 
-    for flag in tracel_llvm_bundler::config::get_cxxflags(Some(&prefix))?.split_whitespace() {
-        match flag.strip_prefix("-I") {
-            Some(dir) => shim.flag("-isystem").flag(dir),
-            None => shim.flag(flag),
-        };
-    }
+    shim.flags(tracel_llvm_bundler::config::get_cxxflags_args(Some(
+        &prefix,
+    ))?);
 
+    // The LLVM headers have multiple warning under `cc`'s default `-Wall -Wextra`
+    shim.warnings(false);
     shim.opt_level(3);
 
     shim.compile("cubecl_llvm_shim");

@@ -8,7 +8,53 @@ use cubecl_core::ir::types::{
 };
 use pliron::printable::Printable;
 
-/// LLVM width of a `cube.index`. `IndexType` is `size_of::<u64>()`, so it maps to `i64`.
+/// LLVM width of a `cube.index`, in bits.
+///
+/// Fixed at 64 **on purpose**, and not from the kernel's
+/// [`AddressType`](cubecl_core::ir::AddressType) as one might expect — note
+/// that `IndexType::size` does read `ctx.address_type()`, which defaults to
+/// `U32`, so the two genuinely disagree and this is the one that decides the
+/// emitted IR.
+///
+/// Narrowing it to follow the address type was tried and measured on gfx1151.
+/// It is a pessimisation, because the pointer is 64-bit whatever the index is:
+///
+/// ```text
+/// index i64                           index i32
+/// ---------                           ---------
+/// v_lshlrev_b64   v[10:11], 4, ...    v_ashrrev_i32 v9, 31, v8   <- extra
+/// v_add_co_u32    v10, s0, v10        v_lshlrev_b64 v[8:9], 4, ...
+/// v_add_co_ci_u32 v11, s1, v11        v_add_co_u32  v8, s0, v8
+/// global_load_b128                    v_add_co_ci_u32 v9, s1, v9
+///                                     global_load_b128
+/// ```
+///
+/// The 32-bit form still does the 64-bit shift and add to form the address, and
+/// pays one more VALUE op to widen the index first. A decode benchmark measured
+/// flat to slightly worse across three runs, and the memory probe did not move.
+///
+/// It is also **not correct as-is**: that widening is `v_ashrrev`, an
+/// *arithmetic* shift, so the backend sign-extends the GEP index. The index
+/// arithmetic itself is emitted unsigned (`udiv`, `icmp ult`), but an index at
+/// or above 2^31 would address negatively — while `required_address_type` only
+/// promotes to `U64` past `u32::MAX`. Narrowing would need an explicit `zext`
+/// at the GEP, and would still not pay.
+///
+/// # The disagreement is not harmless, and is not fixed here
+///
+/// Keeping 64 is right for the *arithmetic*, but `IndexType::size` still
+/// answers 4, and other code believes it. `shared_memory.rs` reserves a block
+/// from `SizedType::size`, and `ArrayType::size` multiplies the inner one — so
+/// a shared `[n x cube.index]` reserves `4n` bytes for a type this backend
+/// emits as `[n x i64]` and writes `8n` into, overrunning whatever block was
+/// laid out next. Nothing in tree allocates shared memory of index type today,
+/// which is the only reason it has not bitten.
+///
+/// Fixing it properly means either sizing shared memory from the *converted*
+/// LLVM type rather than the cube type, or making `IndexType::size` agree with
+/// what this backend emits. Both are the owners' call; this comment exists so
+/// the next reader does not conclude, as the old one invited, that two numbers
+/// disagreeing is merely untidy.
 pub const INDEX_WIDTH: u32 = 64;
 
 macro_rules! impl_cube_to_llvm_type {

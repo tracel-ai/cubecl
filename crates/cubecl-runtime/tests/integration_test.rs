@@ -391,6 +391,7 @@ fn autotune_short_circuit_disabled_benchmarks_all() {
 /// the *original* panic (the issue's symptom), instead of an opaque `CallError`.
 #[test_log::test]
 #[cfg(feature = "std")]
+#[serial_test::parallel]
 fn profile_reraises_panic_from_profiled_closure() {
     let client = test_client(&DummyDevice);
 
@@ -413,6 +414,7 @@ fn profile_reraises_panic_from_profiled_closure() {
 /// `unwrap_or_resume` swap turning a normal result into a panic).
 #[test_log::test]
 #[cfg(feature = "std")]
+#[serial_test::parallel]
 fn profile_returns_ok_on_success() {
     let client = test_client(&DummyDevice);
 

@@ -113,7 +113,6 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
     // compiler is free to hoist such a load out of the loop — leaving the probe
     // reporting the speed of adding a register to itself.
     let mut start = 0;
-    let mut wrap = 0;
 
     for _ in 0..n_iter {
         for step in 0..steps {
@@ -137,16 +136,12 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
             }
         }
 
+        // Step to the next window, modulo the pool — see
+        // [`MemoryProbe`](super::memory_probe::MemoryProbe) on why it is
+        // modulo and not a wrap counter.
         start += window;
-        // One line further along each round, so a window filling the whole
-        // buffer still moves. The index wraps, so a cycle's last position
-        // straddles the end rather than being skipped.
         if start >= len {
-            wrap += 1;
-            if wrap >= window {
-                wrap = 0;
-            }
-            start = wrap;
+            start -= len;
         }
     }
 

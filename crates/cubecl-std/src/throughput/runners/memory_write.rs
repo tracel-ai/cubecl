@@ -99,7 +99,6 @@ pub fn memory_write_throughput<I: Numeric, N: Size>(
     // compiler is free to sink such a store out of the loop and perform it
     // once, leaving the probe reporting a bandwidth the hardware never moved.
     let mut start = 0;
-    let mut wrap = 0;
 
     for _ in 0..n_iter {
         for step in 0..steps {
@@ -123,16 +122,12 @@ pub fn memory_write_throughput<I: Numeric, N: Size>(
             }
         }
 
+        // Step to the next window, modulo the pool — see
+        // [`MemoryProbe`](super::memory_probe::MemoryProbe) on why it is
+        // modulo and not a wrap counter.
         start += window;
-        // One line further along each round, so a window filling the whole
-        // buffer still moves. The index wraps, so a cycle's last position
-        // straddles the end rather than being skipped.
         if start >= len {
-            wrap += 1;
-            if wrap >= window {
-                wrap = 0;
-            }
-            start = wrap;
+            start -= len;
         }
     }
 }

@@ -82,6 +82,28 @@ macro_rules! ext_attribute {
     };
 }
 
+#[macro_export]
+macro_rules! typed_vec_attr {
+    ($ty: ty, $name: literal) => {
+        paste::paste! {
+             /// A vector of other attributes.
+            #[pliron::derive::pliron_attr(
+                name = $name,
+                format = "`[` vec($0, CharSpace(`,`)) `]`",
+                verifier = "succ"
+            )]
+            #[derive(PartialEq, Eq, Clone, Debug, Hash, Default, derive_more::From)]
+            pub struct [<$ty VecAttr>](pub Vec<$ty>);
+
+            impl [<$ty VecAttr>] {
+                pub fn new(value: alloc::vec::Vec<$ty>) -> Self {
+                    [<$ty VecAttr>](value)
+                }
+            }
+        }
+    };
+}
+
 /// A zero-value attribute, used for zero-initializing arbitrary types with whatever "zero" means
 /// for it. Arrays get all fields zero-initialized, floats and ints initialize to zero, booleans
 /// to false, etc.

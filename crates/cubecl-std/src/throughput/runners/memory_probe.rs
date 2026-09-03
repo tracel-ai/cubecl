@@ -22,6 +22,33 @@ use crate::throughput::LaunchConfig;
 /// the data cold — by the time the window comes back around, a whole buffer of
 /// traffic has evicted it — so what varies across the sweep is how much a pass
 /// moves, which is the thing being measured.
+/// # The window steps modulo the pool
+///
+/// Between passes a kernel advances `start` by one window and subtracts the
+/// pool where that runs past the end. It used to land instead on a counter
+/// incremented once per cycle, so that a window which does not divide the pool
+/// would eventually cover every line rather than always stopping at the same
+/// boundary. Stepping modularly covers them anyway, and the counter had a
+/// degenerate case that cost real bandwidth.
+///
+/// When the window *is* the pool — the top of every sweep, and the single-size
+/// probe every peak is read from — `start += window` reaches `len` on the very
+/// first pass, so the counter sent it to 1, then 2, then 3. Every pass after
+/// the first read the whole buffer offset by a line or two, unaligned against
+/// every cache line and page boundary it crossed, and gained nothing for it: a
+/// window that is the pool has nowhere to rotate to.
+///
+/// Measured on a Radeon 8060S reading a 512 MiB window, best of nine, varying
+/// only the passes folded into one launch:
+///
+/// | passes | counter | modulo |
+/// |---|---|---|
+/// | 1 | 218-224 GB/s | 213-226 |
+/// | 4 | 203-209 | 228 |
+/// | 16 | 191 | 232-234 |
+///
+/// The counter fell the longer the launch ran; modulo rises to the sustained
+/// rate. The warmup targets 20 ms a sample, about eight passes at this size.
 #[derive(Clone, Copy, Debug)]
 pub struct MemoryProbe {
     /// Lines of each buffer the probe walks: what the window is cold against,
