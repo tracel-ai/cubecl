@@ -10,7 +10,7 @@ use itertools::Itertools;
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
-    builtin::attributes::{IntegerAttr, VecAttr},
+    builtin::attributes::IntegerAttr,
     combine::{
         Parser, optional,
         parser::char::{self, spaces},
@@ -30,7 +30,7 @@ use pliron::{
 };
 
 use crate::{
-    attributes::{BoolAttr, ZeroAttr},
+    attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     dialect::{
         BlockPtrExt,
         branch::{self, ConditionOp, YieldOp, block_side_effects},
@@ -315,7 +315,7 @@ impl CanonicalizeInterface for IfOp {
 #[pliron_op(
     name = "scf.switch",
     format,
-    attributes = (scf_switch_cases: VecAttr),
+    attributes = (scf_switch_cases: IntegerVecAttr),
     verifier = "succ"
 )]
 #[op_interfaces(NOpdsInterface<1>, SingleBlockRegionInterface)]
@@ -372,7 +372,7 @@ impl SwitchOp {
     pub fn cases(&self, ctx: &Context) -> Vec<(IntegerAttr, Ptr<BasicBlock>)> {
         let cases = self.get_attr_scf_switch_cases(ctx).unwrap().clone().0;
         let out = (0..cases.len()).map(|i| {
-            let value = cases[i].downcast_ref::<IntegerAttr>().unwrap().clone();
+            let value = cases[i].clone();
             let block = self.get_body(ctx, i + 1);
             (value, block)
         });
@@ -382,7 +382,7 @@ impl SwitchOp {
     pub fn cases_regions(&self, ctx: &Context) -> Vec<(IntegerAttr, Ptr<Region>)> {
         let cases = self.get_attr_scf_switch_cases(ctx).unwrap().clone().0;
         let out = (0..cases.len()).map(|i| {
-            let value = cases[i].downcast_ref::<IntegerAttr>().unwrap().clone();
+            let value = cases[i].clone();
             let block = self.get_operation().deref(ctx).get_region(i + 1);
             (value, block)
         });
@@ -390,12 +390,7 @@ impl SwitchOp {
     }
 
     pub fn cases_values(&self, ctx: &Context) -> Vec<IntegerAttr> {
-        self.get_attr_scf_switch_cases(ctx)
-            .unwrap()
-            .0
-            .iter()
-            .map(|it| it.downcast_ref::<IntegerAttr>().unwrap().clone())
-            .collect()
+        self.get_attr_scf_switch_cases(ctx).unwrap().0.clone()
     }
 
     pub fn get_case_destinations(&self, ctx: &Context) -> Vec<Ptr<BasicBlock>> {
@@ -405,8 +400,8 @@ impl SwitchOp {
             .collect()
     }
 
-    pub fn set_attr_cases(&self, ctx: &Context, cases: impl IntoIterator<Item = AttrObj>) {
-        self.set_attr_scf_switch_cases(ctx, VecAttr(cases.into_iter().collect()));
+    pub fn set_attr_cases(&self, ctx: &Context, cases: impl IntoIterator<Item = IntegerAttr>) {
+        self.set_attr_scf_switch_cases(ctx, IntegerVecAttr(cases.into_iter().collect()));
     }
 
     pub fn results(&self, ctx: &Context) -> Vec<Value> {

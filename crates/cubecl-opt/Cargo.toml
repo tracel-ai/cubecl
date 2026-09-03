@@ -33,15 +33,14 @@ pliron = { workspace = true }
 derive-new = { workspace = true }
 derive_more = { workspace = true }
 downcast-rs = { workspace = true }
+foldhash = { workspace = true }
 hashbrown = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
-foldhash = { workspace = true }
 smallvec = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 env_logger = { workspace = true }
 expect-test = { workspace = true }
-pliron-llvm = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }

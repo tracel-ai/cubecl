@@ -15,6 +15,7 @@ use cubecl_ir::{
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
+    builtin::attributes::VecAttr,
     irbuild::inserter::{BlockInsertionPoint, Inserter},
     opts::constants::BranchOpFoldInterface,
 };
@@ -248,7 +249,7 @@ impl ToSpirvCFDialect for scf::SwitchOp {
             self.value(ctx),
             default_block,
             vec![],
-            cases,
+            VecAttr(cases.0.into_iter().map(Into::into).collect()),
             case_dests.clone(),
             vec![Vec::new(); case_dests.len()],
         );

@@ -1,6 +1,6 @@
 use core::{cell::Ref, fmt};
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 
 use derive_more::From;
 use derive_new::new;
@@ -84,26 +84,21 @@ macro_rules! ext_attribute {
 
 #[macro_export]
 macro_rules! typed_vec_attr {
-    ($ty: ty, $name: literal) => {
-        paste::paste! {
-             /// A vector of other attributes.
-            #[pliron::derive::pliron_attr(
-                name = $name,
-                format = "`[` vec($0, CharSpace(`,`)) `]`",
-                verifier = "succ"
-            )]
-            #[derive(PartialEq, Eq, Clone, Debug, Hash, Default, derive_more::From)]
-            pub struct [<$ty VecAttr>](pub Vec<$ty>);
+    ($ty: ty, $name: literal, $vec_ty: ident) => {
+        /// A vector of other attributes.
+        #[pliron::derive::def_attribute($name)]
+        #[pliron::derive::format_attribute("`[` vec($0, CharSpace(`,`)) `]`")]
+        #[pliron::derive::verify_succ]
+        #[derive(PartialEq, Eq, Clone, Debug, Hash, Default, derive_more::From)]
+        pub struct $vec_ty(pub Vec<$ty>);
 
-            impl [<$ty VecAttr>] {
-                pub fn new(value: alloc::vec::Vec<$ty>) -> Self {
-                    [<$ty VecAttr>](value)
-                }
+        impl $vec_ty {
+            pub fn new(value: alloc::vec::Vec<$ty>) -> Self {
+                $vec_ty(value)
             }
         }
     };
 }
-
 /// A zero-value attribute, used for zero-initializing arbitrary types with whatever "zero" means
 /// for it. Arrays get all fields zero-initialized, floats and ints initialize to zero, booleans
 /// to false, etc.
@@ -301,6 +296,8 @@ impl ConstantAttr for IntegerAttr {
         Some(self.value())
     }
 }
+
+typed_vec_attr!(IntegerAttr, "cube.integer_vec", IntegerVecAttr);
 
 #[pliron_attr(name = "cube.float", verifier = "succ")]
 #[derive(new, PartialEq, Clone, Debug, Hash)]

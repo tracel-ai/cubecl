@@ -4,15 +4,11 @@ use core::{
     hash::Hash,
     sync::atomic::{AtomicI8, Ordering},
 };
+use pliron::derive::format;
 
 use cubecl_common::format::format_str;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_ir::{
-    ElemType, Scope,
-    metadata::Info,
-    pliron::{format, value::Value},
-    settings::KernelSettings,
-};
+use cubecl_ir::{ElemType, Scope, metadata::Info, pliron::value::Value, settings::KernelSettings};
 use serde::{Deserialize, Serialize};
 
 use crate::{

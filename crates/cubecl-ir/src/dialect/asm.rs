@@ -46,8 +46,8 @@ pub struct InputSpec {
     pub class: RegSpec,
 }
 
-typed_vec_attr!(RegSpec, "asm.reg_specs");
-typed_vec_attr!(InputSpec, "asm.input_specs");
+typed_vec_attr!(RegSpec, "asm.reg_specs", RegSpecsAttr);
+typed_vec_attr!(InputSpec, "asm.input_specs", InputSpecsAttr);
 
 #[pliron_attr(name = "asm.memory_clobbers", format, verifier = "succ")]
 #[derive(PartialEq, Eq, Hash, Clone, Debug, From)]
@@ -71,8 +71,8 @@ pub enum MemoryClobbers {
         cube_asm_asm: StringAttr,
         cube_asm_pure: UnitAttr,
         cube_asm_memory_clobbers: MemoryClobbersAttr,
-        cube_asm_out_spec: RegSpecVecAttr,
-        cube_asm_in_spec: InputSpecVecAttr,
+        cube_asm_out_spec: RegSpecsAttr,
+        cube_asm_in_spec: InputSpecsAttr,
     ),
     verifier = "succ"
 )]
