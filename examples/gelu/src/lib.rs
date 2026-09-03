@@ -1,4 +1,4 @@
-use cubecl::{num_traits::One, prelude::*};
+use cubecl::{Device, num_traits::One, prelude::*};
 
 #[cube(launch_unchecked)]
 /// A [Vector] represents a contiguous series of elements where SIMD operations may be available.
@@ -18,8 +18,8 @@ fn gelu_scalar<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     x * (Vector::erf(tmp) + Vector::one()) / Vector::new(F::new(2.0f32))
 }
 
-pub fn launch<R: Runtime>(device: &R::Device) {
-    let client = R::client(device);
+pub fn launch(device: &Device) {
+    let client = device.client();
     let input = &[-1., 0., 1., 5.];
     let vector_size = 4;
     let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());

@@ -1,8 +1,10 @@
+use cubecl::Device;
+
 fn main() {
     #[cfg(feature = "cuda")]
-    gelu::launch::<cubecl::cuda::CudaRuntime>(&Default::default());
+    gelu::launch(&Device::Cuda(Default::default()));
     #[cfg(feature = "wgpu")]
-    gelu::launch::<cubecl::wgpu::WgpuRuntime>(&Default::default());
+    gelu::launch(&Device::Wgpu(Default::default()));
     #[cfg(feature = "cpu")]
-    gelu::launch::<cubecl::cpu::CpuRuntime>(&Default::default());
+    gelu::launch(&Device::Cpu(Default::default()));
 }
