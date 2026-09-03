@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_runtime::runtime::Runtime;
 
 use cubecl_common::e2m1;
 
@@ -48,11 +49,11 @@ fn kernel_decode_packed<N: Size>(words: &[u32], out: &mut [Vector<f32, N>]) {
 ///
 /// No capability gate. The kernel names no 4-bit type — codes ride in `u32` and values in `f32` —
 /// which is exactly the property that lets a backend with no `e2m1` decode one.
-pub fn test_e2m1_codec_matches_host<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_e2m1_codec_matches_host<R: Runtime>(client: Client) {
     // Every code, then every code again under garbage upper bits: a caller may hand over an
     // unmasked field, and the decoder promises to ignore what is above the nibble.
     let codes: Vec<u32> = (0..16u32).chain((0..16u32).map(|c| c | 0xFFF0)).collect();
-    let decoded = launch_decode::<R>(&client, &codes);
+    let decoded = launch_decode(&client, &codes);
 
     let mut bad = vec![];
     for (i, &code) in codes.iter().enumerate() {
@@ -68,7 +69,7 @@ pub fn test_e2m1_codec_matches_host<R: Runtime>(client: ComputeClient<R>) {
     }
 
     let values = encode_inputs();
-    let encoded = launch_encode::<R>(&client, &values);
+    let encoded = launch_encode(&client, &values);
     for (i, &value) in values.iter().enumerate() {
         // `e2m1` has no NaN code, so the two codecs pick differently — the kernel counts cleared
         // thresholds and reaches zero, `e2m1` saturates to its maximum. Neither answer is the
@@ -94,7 +95,7 @@ pub fn test_e2m1_codec_matches_host<R: Runtime>(client: ComputeClient<R>) {
     // The packed decoder against the same reference, one nibble at a time. This is the entry
     // point `cast_masked_plain` reaches for, so it is the one a quantized read depends on.
     let words: Vec<u32> = (0..=0xFFu32).collect();
-    let packed = launch_decode_packed::<R>(&client, &words);
+    let packed = launch_decode_packed(&client, &words);
     for (i, &word) in words.iter().enumerate() {
         for lane in 0..2 {
             let expected = decode(word >> (4 * lane));
@@ -144,7 +145,7 @@ fn encode_inputs() -> Vec<f32> {
     values
 }
 
-fn launch_decode<R: Runtime>(client: &ComputeClient<R>, codes: &[u32]) -> Vec<f32> {
+fn launch_decode(client: &Client, codes: &[u32]) -> Vec<f32> {
     let handle_in = client.create_from_slice(u32::as_bytes(codes));
     let handle_out = client.empty(size_of_val(codes));
 
@@ -152,7 +153,7 @@ fn launch_decode<R: Runtime>(client: &ComputeClient<R>, codes: &[u32]) -> Vec<f3
     let cube_dim = 256u32;
 
     unsafe {
-        kernel_decode::launch_unchecked::<R>(
+        kernel_decode::launch_unchecked(
             client,
             CubeCount::Static((codes.len() as u32).div_ceil(cube_dim), 1, 1),
             CubeDim::new_1d(cube_dim),
@@ -165,14 +166,14 @@ fn launch_decode<R: Runtime>(client: &ComputeClient<R>, codes: &[u32]) -> Vec<f3
     f32::from_bytes(&client.read_one_unchecked(handle_out)).to_vec()
 }
 
-fn launch_encode<R: Runtime>(client: &ComputeClient<R>, values: &[f32]) -> Vec<u32> {
+fn launch_encode(client: &Client, values: &[f32]) -> Vec<u32> {
     let handle_in = client.create_from_slice(f32::as_bytes(values));
     let handle_out = client.empty(size_of_val(values));
 
     let cube_dim = 256u32;
 
     unsafe {
-        kernel_encode::launch_unchecked::<R>(
+        kernel_encode::launch_unchecked(
             client,
             CubeCount::Static((values.len() as u32).div_ceil(cube_dim), 1, 1),
             CubeDim::new_1d(cube_dim),
@@ -186,7 +187,7 @@ fn launch_encode<R: Runtime>(client: &ComputeClient<R>, values: &[f32]) -> Vec<u
 }
 
 /// Returns two floats per word, the low nibble first.
-fn launch_decode_packed<R: Runtime>(client: &ComputeClient<R>, words: &[u32]) -> Vec<f32> {
+fn launch_decode_packed(client: &Client, words: &[u32]) -> Vec<f32> {
     let lanes = 2;
     let handle_in = client.create_from_slice(u32::as_bytes(words));
     let handle_out = client.empty(words.len() * lanes * size_of::<f32>());
@@ -194,7 +195,7 @@ fn launch_decode_packed<R: Runtime>(client: &ComputeClient<R>, words: &[u32]) ->
     let cube_dim = 256u32;
 
     unsafe {
-        kernel_decode_packed::launch_unchecked::<R>(
+        kernel_decode_packed::launch_unchecked(
             client,
             CubeCount::Static((words.len() as u32).div_ceil(cube_dim), 1, 1),
             CubeDim::new_1d(cube_dim),

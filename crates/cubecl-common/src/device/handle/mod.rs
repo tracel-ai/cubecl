@@ -2,7 +2,8 @@ mod base;
 
 pub use base::*;
 
-use crate::device::{DeviceId, DeviceService, ServerUtilitiesHandle};
+use crate::device::{DeviceId, DeviceService, ServerUtilitiesHandle, ServiceId};
+use core::any::Any;
 
 #[cfg(feature = "std")]
 #[allow(dead_code)]
@@ -16,46 +17,85 @@ mod mutex;
 mod reentrant;
 
 #[cfg(all(feature = "std", multi_threading))]
-type Inner<S> = channel::ChannelDeviceHandle<S>;
-// type Inner<S> = mutex::MutexDeviceHandle<S>;
+type Inner = channel::ChannelDeviceHandle;
+// type Inner = mutex::MutexDeviceHandle;
 #[cfg(all(feature = "std", not(multi_threading)))]
-type Inner<S> = reentrant::ReentrantMutexDeviceHandle<S>;
+type Inner = reentrant::ReentrantMutexDeviceHandle;
 #[cfg(all(not(feature = "std"), not(multi_threading)))]
-type Inner<S> = mutex::MutexDeviceHandle<S>;
+type Inner = mutex::MutexDeviceHandle;
 
-/// TODO: Docs
-pub struct DeviceHandle<S: DeviceService> {
-    handle: Inner<S>,
+/// A handle to one service, reached as `S`.
+///
+/// `S` is the concrete service for a handle built with [`insert`](Self::insert)
+/// or [`new`](Self::new), and a trait object for one built with
+/// [`seen_as`](Self::seen_as). Either way the service lives where the
+/// transport `I` put it; the handle only knows how to see it as `S`.
+pub struct DeviceHandle<S: ?Sized, I: DeviceHandleSpec = Inner> {
+    handle: I,
+    service: ServiceId,
+    cast: fn(&mut dyn Any) -> &mut S,
 }
 
-impl<S: DeviceService> Clone for DeviceHandle<S> {
+impl<S: ?Sized, I: DeviceHandleSpec> Clone for DeviceHandle<S, I> {
     fn clone(&self) -> Self {
         Self {
             handle: self.handle.clone(),
+            service: self.service,
+            cast: self.cast,
+        }
+    }
+}
+
+/// The state the transport holds is `S`, or the registry is broken.
+fn downcast<S: 'static>(state: &mut dyn Any) -> &mut S {
+    state
+        .downcast_mut::<S>()
+        .expect("State type mismatch in the device registry")
+}
+
+#[allow(missing_docs)]
+impl<S: DeviceService, I: DeviceHandleSpec> DeviceHandle<S, I> {
+    pub fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError> {
+        Ok(Self {
+            handle: I::insert::<S>(device_id, service)?,
+            service: ServiceId::of::<S>(device_id),
+            cast: downcast::<S>,
+        })
+    }
+
+    pub fn new(device_id: DeviceId) -> Self {
+        Self {
+            handle: I::new::<S>(device_id),
+            service: ServiceId::of::<S>(device_id),
+            cast: downcast::<S>,
         }
     }
 }
 
 #[allow(missing_docs)]
-impl<S: DeviceService> DeviceHandle<S> {
+impl<S: ?Sized + 'static, I: DeviceHandleSpec> DeviceHandle<S, I> {
     pub const fn is_blocking() -> bool {
-        Inner::<S>::BLOCKING
+        I::BLOCKING
     }
 
-    pub fn insert(device_id: super::DeviceId, service: S) -> Result<Self, ServiceCreationError> {
-        Ok(Self {
-            handle: <Inner<S> as DeviceHandleSpec<S>>::insert(device_id, service)?,
-        })
-    }
-
-    pub fn new(device_id: super::DeviceId) -> Self {
-        Self {
-            handle: <Inner<S> as DeviceHandleSpec<S>>::new(device_id),
+    /// The same service, seen as `T`: `cast` turns the state this handle
+    /// already reaches into a `T`, once per task, on the thread that runs it.
+    pub fn seen_as<T: ?Sized>(self, cast: fn(&mut dyn Any) -> &mut T) -> DeviceHandle<T, I> {
+        DeviceHandle {
+            handle: self.handle,
+            service: self.service,
+            cast,
         }
     }
 
     pub fn device_id(&self) -> DeviceId {
         self.handle.device_id()
+    }
+
+    /// The service this handle reaches: its device and its concrete type,
+    /// whatever it is seen as.
+    pub fn service_id(&self) -> ServiceId {
+        self.service
     }
 
     pub fn utilities(&self) -> ServerUtilitiesHandle {
@@ -66,11 +106,13 @@ impl<S: DeviceService> DeviceHandle<S> {
         &self,
         task: T,
     ) -> Result<R, CallError> {
-        self.handle.submit_blocking(task)
+        let cast = self.cast;
+        self.handle.submit_blocking(move |state| task(cast(state)))
     }
 
     pub fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
-        self.handle.submit(task)
+        let cast = self.cast;
+        self.handle.submit(move |state| task(cast(state)))
     }
 
     pub fn flush_queue(&self) {
@@ -100,7 +142,7 @@ impl<S: DeviceService> DeviceHandle<S> {
     /// device from one runtime can therefore tear down another runtime's services
     /// on the colliding id, and block while that runtime's handles are still live.
     pub fn shutdown(device_id: DeviceId) {
-        <Inner<S> as DeviceHandleSpec<S>>::shutdown(device_id)
+        I::shutdown(device_id)
     }
 }
 
@@ -186,7 +228,7 @@ impl<H> core::ops::Deref for DeviceFixture<H> {
 
 #[cfg(test)]
 mod tests_channel {
-    type DeviceHandle<S> = channel::ChannelDeviceHandle<S>;
+    type DeviceHandle<S> = super::DeviceHandle<S, channel::ChannelDeviceHandle>;
 
     include!("./tests.rs");
     include!("./tests_recursive.rs");
@@ -194,14 +236,14 @@ mod tests_channel {
 
 #[cfg(test)]
 mod tests_mutex {
-    type DeviceHandle<S> = mutex::MutexDeviceHandle<S>;
+    type DeviceHandle<S> = super::DeviceHandle<S, mutex::MutexDeviceHandle>;
 
     include!("./tests.rs");
 }
 
 #[cfg(test)]
 mod tests_reentrant {
-    type DeviceHandle<S> = reentrant::ReentrantMutexDeviceHandle<S>;
+    type DeviceHandle<S> = super::DeviceHandle<S, reentrant::ReentrantMutexDeviceHandle>;
 
     include!("./tests.rs");
     include!("./tests_recursive.rs");

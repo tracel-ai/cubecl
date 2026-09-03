@@ -1,3 +1,4 @@
+use cubecl_common::device::ServiceId;
 use cubecl_environment::stream::StreamId;
 use cubecl_zspace::{Shape, Strides};
 
@@ -10,6 +11,11 @@ use crate::{
 pub struct Handle {
     /// Memory handle.
     pub memory: ManagedMemoryHandle,
+    /// The service whose memory this handle addresses. A client checks it
+    /// before handing the handle to its device: memory coordinates mean
+    /// nothing on another device, and reading them there is not an error
+    /// but garbage.
+    pub service: ServiceId,
     /// Memory offset in bytes.
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
@@ -24,6 +30,7 @@ impl core::fmt::Debug for Handle {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Handle")
             .field("id", &self.memory)
+            .field("service", &self.service)
             .field("offset_start", &self.offset_start)
             .field("offset_end", &self.offset_end)
             .field("stream", &self.stream)
@@ -36,6 +43,7 @@ impl Clone for Handle {
     fn clone(&self) -> Self {
         Self {
             memory: self.memory.clone(),
+            service: self.service,
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             stream: self.stream,
@@ -46,9 +54,15 @@ impl Clone for Handle {
 
 impl Handle {
     /// Creates a new handle of the given size.
-    pub fn from_memory(id: ManagedMemoryHandle, stream: StreamId, size: u64) -> Self {
+    pub fn from_memory(
+        id: ManagedMemoryHandle,
+        service: ServiceId,
+        stream: StreamId,
+        size: u64,
+    ) -> Self {
         Self {
             memory: id,
+            service,
             offset_start: None,
             offset_end: None,
             stream,
@@ -56,9 +70,10 @@ impl Handle {
         }
     }
     /// Creates a new handle of the given size.
-    pub fn new(stream: StreamId, size: u64) -> Self {
+    pub fn new(service: ServiceId, stream: StreamId, size: u64) -> Self {
         Self {
             memory: ManagedMemoryHandle::new(),
+            service,
             offset_start: None,
             offset_end: None,
             stream,
@@ -74,6 +89,7 @@ impl Handle {
     pub fn binding(self) -> BufferBinding {
         BufferBinding {
             memory: self.memory.binding(),
+            service: self.service,
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             stream: self.stream,
@@ -139,7 +155,7 @@ pub enum KernelResource {
 /// A buffer binding represents a [Handle] that is bound to managed memory.
 ///
 /// The memory used is known by the compute server.
-/// A buffer binding is only valid after being initlized with [`super::ComputeServer::initialize_bindings`]
+/// A buffer binding is only valid after being initlized with [`super::Server::initialize_bindings`]
 ///
 /// # Notes
 ///
@@ -148,6 +164,8 @@ pub enum KernelResource {
 pub struct BufferBinding {
     /// The id of the handle the binding is bound to.
     pub memory: ManagedMemoryBinding,
+    /// The service whose memory this binding addresses; see [`Handle::service`].
+    pub service: ServiceId,
     /// Memory offset in bytes.
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.

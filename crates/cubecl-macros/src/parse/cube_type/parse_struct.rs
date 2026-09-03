@@ -1,8 +1,8 @@
 use darling::{FromDeriveInput, FromField, ast::Data, uses_type_params, util::Flag};
 use quote::format_ident;
-use syn::{Generics, Ident, Type, Visibility, parse_quote};
+use syn::{Generics, Ident, Type, Visibility};
 
-use crate::{generate::RuntimeField, paths::prelude_type};
+use crate::generate::RuntimeField;
 
 #[derive(FromDeriveInput, Debug)]
 #[darling(supports(struct_named, struct_unit), attributes(expand, cube, launch), map = unwrap_fields)]
@@ -54,14 +54,6 @@ fn unwrap_fields(mut ty: CubeTypeStruct) -> CubeTypeStruct {
 
 impl CubeTypeStruct {
     pub fn expanded_generics(&self) -> Generics {
-        let runtime = prelude_type("Runtime");
-        let mut generics = self.generics.clone();
-        generics.params.push(parse_quote![R: #runtime]);
-        generics
-    }
-
-    pub fn assoc_generics(&self) -> Generics {
-        let runtime = prelude_type("Runtime");
-        parse_quote![<R: #runtime>]
+        self.generics.clone()
     }
 }

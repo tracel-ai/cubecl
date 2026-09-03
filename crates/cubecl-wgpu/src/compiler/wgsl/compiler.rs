@@ -31,8 +31,8 @@ use cubecl_ir::{
     settings::Dim3,
 };
 use cubecl_opt::passes::{
-    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, sccp::SCCPPass,
-    simple_cse::SimpleCSEPass, sroa::SROAPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
+    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
@@ -70,6 +70,10 @@ impl cubecl_core::Compiler for WgslCompiler {
     }
 
     fn extension(&self) -> &'static str {
+        "wgsl"
+    }
+
+    fn lang_tag(&self) -> &'static str {
         "wgsl"
     }
 }
@@ -150,6 +154,7 @@ impl WgslCompiler {
         func_passes.add_pass(LowerBuiltinsPass);
 
         func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(InstCombinePass::default());
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);

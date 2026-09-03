@@ -114,7 +114,7 @@ impl Drop for DryRun {
 ///
 /// Thread-local, and the thread that matters is the one issuing the launches,
 /// which is not always the one that asked for them: a task handed to
-/// [`ComputeClient::exclusive`](crate::client::ComputeClient::exclusive) runs on
+/// [`Client::exclusive`](crate::client::Client::exclusive) runs on
 /// the device thread. The guard has to live inside that task, alongside the
 /// launches it covers, not around the call that submits it.
 #[derive(Debug)]

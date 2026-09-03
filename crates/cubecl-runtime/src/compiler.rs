@@ -1,7 +1,4 @@
-use crate::{
-    id::KernelId,
-    kernel::{CompiledKernel, KernelDefinition, KernelMetadata},
-};
+use crate::{id::KernelId, kernel::KernelDefinition};
 use alloc::string::{String, ToString};
 use core::hash::Hash;
 use cubecl_common::hash::{StableHash, StableHasher};
@@ -65,25 +62,6 @@ pub fn store_compiled<K: StoreKey, V: StoreValue>(store: &mut Store<K, V>, key: 
     if let Err(err) = store.insert(key, value) {
         log::warn!("Unable to cache the compiled kernel: {}", err.reason());
     }
-}
-
-/// Kernel trait with the `ComputeShader` that will be compiled and cached based on the
-/// provided id.
-pub trait CubeTask<C: Compiler>: KernelMetadata + Send + Sync {
-    /// Expand the kernel into its [definition](KernelDefinition).
-    ///
-    /// Kept separate from [`CubeTask::compile`] so a server can hash the definition to key the
-    /// compilation cache, then hand the same definition back on a miss instead of expanding twice.
-    fn define(&self) -> KernelDefinition;
-
-    /// Compile a kernel definition and return the compiled form with an optional non-text
-    /// representation.
-    fn compile(
-        &self,
-        definition: KernelDefinition,
-        compiler: &mut C,
-        compilation_options: &C::CompilationOptions,
-    ) -> Result<CompiledKernel<C>, CompilationError>;
 }
 
 /// Key for an entry in the persistent compilation cache.
@@ -279,4 +257,11 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
     /// The default extension for the runtime's kernel/shader code.
     /// Might change based on which compiler is used.
     fn extension(&self) -> &'static str;
+
+    /// Short identifier of the language this compiler produces, such as
+    /// `"wgsl"` or `"cuda"`.
+    ///
+    /// What a [`PrecompiledSource`](crate::kernel::PrecompiledSource) has to
+    /// name to be accepted by this compiler.
+    fn lang_tag(&self) -> &'static str;
 }

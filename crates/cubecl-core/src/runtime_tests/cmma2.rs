@@ -1,3 +1,4 @@
+use cubecl_runtime::runtime::Runtime;
 use std::{println, vec, vec::Vec};
 
 use cubecl_ir::{ElemType, FloatKind};
@@ -32,7 +33,7 @@ pub fn kernel_simple_f16_workgroup_gmem(
     cmma::store(out, &matrix, n as u32, cmma::MatrixLayout::RowMajor);
 }
 
-pub fn test_elemwise_cube<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u32) {
+pub fn test_elemwise_cube<R: Runtime>(client: Client, cube_dimensions: u32) {
     let cd_ty = ElemType::Float(FloatKind::F32);
     let config = client.features().matmul.cube_mma.iter().find(|cfg| {
         cfg.cd_type == cd_ty

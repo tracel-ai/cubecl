@@ -22,8 +22,8 @@ use crate::throughput::{
 /// by one thread, to keep the loads from being eliminated (see the kernel); at
 /// hundreds of megabytes read that is not worth counting and is deliberately
 /// left out of `ops_count` rather than approximated.
-pub fn build_kernel<R: Runtime>(
-    client: &ComputeClient<R>,
+pub fn build_kernel(
+    client: &Client,
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,
@@ -45,7 +45,7 @@ pub fn build_kernel<R: Runtime>(
             memory_read_throughput::launch_unchecked(
                 &client,
                 CubeCount::Static(probe.cube_count as u32, 1, 1),
-                CubeDim::new(&client, config.cube_dim),
+                config.cube_dim,
                 config.vector_size,
                 BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines),
                 BufferArg::from_raw_parts(out_handle.clone(), 1),
@@ -136,9 +136,6 @@ pub fn memory_read_throughput<I: Numeric, N: Size>(
             }
         }
 
-        // Step to the next window, modulo the pool — see
-        // [`MemoryProbe`](super::memory_probe::MemoryProbe) on why it is
-        // modulo and not a wrap counter.
         start += window;
         if start >= len {
             start -= len;

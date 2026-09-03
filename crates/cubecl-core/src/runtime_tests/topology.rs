@@ -1,5 +1,6 @@
 use crate as cubecl;
 use alloc::vec::Vec;
+use cubecl_runtime::runtime::Runtime;
 
 use cubecl::prelude::*;
 
@@ -12,10 +13,7 @@ pub fn kernel_absolute_pos(output1: &mut [u32]) {
     output1[ABSOLUTE_POS] = ABSOLUTE_POS as u32;
 }
 
-pub fn test_kernel_topology_absolute_pos<R: Runtime>(
-    client: ComputeClient<R>,
-    addr_type: AddressType,
-) {
+pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: Client, addr_type: AddressType) {
     if !client.properties().supports_address(addr_type) {
         return;
     }

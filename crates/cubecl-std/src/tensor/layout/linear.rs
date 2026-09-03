@@ -48,14 +48,14 @@ pub struct LinearViewLayoutLaunch {
 }
 
 impl ViewLayoutLaunchArg for LinearViewLayout {
-    type RuntimeArg<R: Runtime> = LinearViewLayoutLaunch;
+    type RuntimeArg = LinearViewLayoutLaunch;
     type CompilationArg = LinearLayoutCompilationArg;
 
-    fn register<R: Runtime, B: MemoryArg>(
-        runtime_arg: Self::RuntimeArg<R>,
+    fn register<B: MemoryArg>(
+        runtime_arg: Self::RuntimeArg,
         buffer: &B,
         ty: Type,
-        launcher: &mut KernelLauncher<R>,
+        launcher: &mut KernelLauncher,
     ) -> Self::CompilationArg {
         let shape = buffer.shape();
         match runtime_arg.reference_shape {
@@ -120,7 +120,7 @@ impl LinearViewLayoutLaunch {
     }
 
     /// Construct a possibly broadcast linear layout from a tensor handle and reference handle
-    pub fn from_reference_handle<R: Runtime>(reference: TensorBinding<R>) -> Self {
+    pub fn from_reference_handle(reference: TensorBinding) -> Self {
         Self::from_reference_shape(reference.shape)
     }
 }
@@ -160,20 +160,17 @@ impl Layout for LinearViewLayout {
 
 /// Concrete version of the layout, so it can be launched on its own
 pub type LinearLayout = ConcreteLayout<LinearViewLayout>;
-pub type LinearLayoutLaunch<R> = ConcreteLayoutLaunch<LinearViewLayout, R>;
+pub type LinearLayoutLaunch = ConcreteLayoutLaunch<LinearViewLayout>;
 
 /// [`View`] with a linear layout inferred from the shape/strides at launch.
 /// Useful for elementwise kernels.
 pub type LinearView<'a, E> = View<'a, E, Coords1d>;
 pub type LinearViewMut<'a, E> = ViewMut<'a, E, Coords1d>;
 /// Launch type for [`LinearView`].
-pub type LinearViewLaunch<R> = ViewArg<Coords1d, R>;
+pub type LinearViewLaunch = ViewArg<Coords1d>;
 
 /// Create a linear layout from a handle and vector size
-pub fn linear_layout<R: Runtime>(
-    handle: &TensorBinding<R>,
-    vector_size: VectorSize,
-) -> LinearLayoutLaunch<R> {
+pub fn linear_layout(handle: &TensorBinding, vector_size: VectorSize) -> LinearLayoutLaunch {
     LinearLayoutLaunch::from_handle(
         handle,
         // Don't care about type size, only vector size
@@ -183,21 +180,21 @@ pub fn linear_layout<R: Runtime>(
 }
 
 /// Create a linear tensor view from a handle
-pub fn linear_view<R: Runtime>(handle: TensorBinding<R>) -> LinearViewLaunch<R> {
+pub fn linear_view(handle: TensorBinding) -> LinearViewLaunch {
     let layout = LinearViewLayoutLaunch::new();
     LinearViewLaunch::new_tensor::<LinearViewLayout>(handle.into_tensor_arg(), layout)
 }
 
 /// Create a possibly broadcast linear tensor view from a handle and reference handle
-pub fn linear_view_with_reference<R: Runtime>(
-    handle: TensorBinding<R>,
-    reference: TensorBinding<R>,
-) -> LinearViewLaunch<R> {
+pub fn linear_view_with_reference(
+    handle: TensorBinding,
+    reference: TensorBinding,
+) -> LinearViewLaunch {
     let layout = LinearViewLayoutLaunch::from_reference_handle(reference);
     LinearViewLaunch::new_tensor::<LinearViewLayout>(handle.into_tensor_arg(), layout)
 }
 
-pub fn linear_view_alias<R: Runtime>(handle: &TensorBinding<R>, pos: usize) -> LinearViewLaunch<R> {
+pub fn linear_view_alias(handle: &TensorBinding, pos: usize) -> LinearViewLaunch {
     let layout = LinearViewLayoutLaunch::new();
     LinearViewLaunch::new_tensor::<LinearViewLayout>(handle.as_alias(pos), layout)
 }

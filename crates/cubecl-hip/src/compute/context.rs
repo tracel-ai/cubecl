@@ -26,8 +26,8 @@ use cubecl_runtime::{
     validation::{validate_cube_dim, validate_units},
 };
 use cubecl_runtime::{
-    compiler::{CubeTask, KernelCacheKey},
-    kernel::CompiledKernel,
+    compiler::KernelCacheKey,
+    kernel::{CompiledKernel, CubeKernel},
     logging::ServerLogger,
 };
 use serde::Deserialize;
@@ -169,7 +169,7 @@ impl HipContext {
     pub fn compile_kernel(
         &mut self,
         kernel_id: &KernelId,
-        cube_kernel: Box<dyn CubeTask<HipCompiler>>,
+        cube_kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
         let key = match self.try_load_cached(kernel_id)? {
@@ -183,9 +183,10 @@ impl HipContext {
         // CubeCL compilation
         // jitc = just-in-time compiled
         let definition = cube_kernel.define();
-        let jitc_kernel = cube_kernel.compile(
+        let jitc_kernel = CompiledKernel::compile(
+            &*cube_kernel,
             definition,
-            &mut Default::default(),
+            &mut HipCompiler::default(),
             &self.compilation_options,
         )?;
 
@@ -209,11 +210,20 @@ impl HipContext {
             Some(HipRepresentation::Llvm(_)) => {
                 self.load_code_object(kernel_id, key, jitc_kernel, logger)
             }
-            None => Err(CompilationError::Generic {
-                reason: "the compiler returned no kernel to load".to_string(),
-                backtrace: BackTrace::capture(),
-            }
-            .into()),
+            // A precompiled kernel: its text passed the language check in
+            // `CompiledKernel::compile`, so it is whatever the default backend
+            // reads. HIP C++ goes through HIP RTC like a transpiled kernel;
+            // the LLVM backend produces linked code objects and has no route
+            // for text.
+            None => match HipBackend::default() {
+                HipBackend::Cpp => self.load_transpiled(kernel_id, key, jitc_kernel, logger),
+                HipBackend::Llvm => Err(CompilationError::Generic {
+                    reason: "the LLVM backend cannot load a precompiled kernel: it has no text to compile from"
+                        .to_string(),
+                    backtrace: BackTrace::capture(),
+                }
+                .into()),
+            },
         }
     }
 
@@ -314,8 +324,13 @@ impl HipContext {
         let code = compile_to_binary(&jitc_kernel.source)?;
 
         let io = jitc_kernel.io.take();
-        let repr = jitc_kernel.repr.unwrap();
-        let shared_mem_bytes = repr.shared_memory_size();
+        // A precompiled kernel has no representation to read the size from:
+        // it declares its shared memory statically, so the launch reserves none.
+        let shared_mem_bytes = jitc_kernel
+            .repr
+            .as_ref()
+            .map(|repr| repr.shared_memory_size())
+            .unwrap_or(0);
         let entrypoint_name = jitc_kernel.entrypoint_name.clone();
 
         self.load_compiled_binary(

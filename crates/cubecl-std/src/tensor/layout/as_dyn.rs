@@ -60,16 +60,16 @@ pub struct IntoDynLayout<L: Layout<SourceCoordinates: IntoDyn> + ViewLayoutLaunc
 impl<L: Layout<SourceCoordinates: IntoDyn> + ViewLayoutLaunchArg> ViewLayoutLaunchArg
     for IntoDynLayout<L>
 {
-    type RuntimeArg<R: Runtime> = L::RuntimeArg<R>;
+    type RuntimeArg = L::RuntimeArg;
     type CompilationArg = L::CompilationArg;
 
-    fn register<R: Runtime, B: MemoryArg>(
-        arg: Self::RuntimeArg<R>,
+    fn register<B: MemoryArg>(
+        arg: Self::RuntimeArg,
         buffer: &B,
         ty: Type,
-        launcher: &mut KernelLauncher<R>,
+        launcher: &mut KernelLauncher,
     ) -> Self::CompilationArg {
-        L::register::<R, B>(arg, buffer, ty, launcher)
+        L::register::<B>(arg, buffer, ty, launcher)
     }
     fn expand(
         arg: &Self::CompilationArg,
@@ -103,16 +103,16 @@ pub struct IntoDyn2Layout<
 impl<L: Layout<SourceCoordinates = (P, O)> + ViewLayoutLaunchArg, P: IntoDyn, O: IntoDyn>
     ViewLayoutLaunchArg for IntoDyn2Layout<L, P, O>
 {
-    type RuntimeArg<R: Runtime> = L::RuntimeArg<R>;
+    type RuntimeArg = L::RuntimeArg;
     type CompilationArg = L::CompilationArg;
 
-    fn register<R: Runtime, B: MemoryArg>(
-        arg: Self::RuntimeArg<R>,
+    fn register<B: MemoryArg>(
+        arg: Self::RuntimeArg,
         buffer: &B,
         ty: Type,
-        launcher: &mut KernelLauncher<R>,
+        launcher: &mut KernelLauncher,
     ) -> Self::CompilationArg {
-        L::register::<R, B>(arg, buffer, ty, launcher)
+        L::register::<B>(arg, buffer, ty, launcher)
     }
     fn expand(
         arg: &Self::CompilationArg,

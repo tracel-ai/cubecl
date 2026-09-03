@@ -9,6 +9,7 @@ use cubecl_core::{
     Runtime,
     server::{LaunchError, ResourceLimitError, ServerError},
 };
+use cubecl_runtime::runtime::Runtime;
 
 type R = crate::MetalRuntime;
 
@@ -30,7 +31,7 @@ fn oversized_shared_memory_is_a_resource_limit_error() {
     let requested_bytes = shared_size * size_of::<u32>();
 
     let handle = client.create_from_slice(u32::as_bytes(&[0]));
-    oversized_smem_kernel::launch::<R>(
+    oversized_smem_kernel::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
