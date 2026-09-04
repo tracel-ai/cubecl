@@ -1,4 +1,5 @@
 use alloc::string::String;
+use core::sync::atomic::{AtomicBool, Ordering};
 use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_environment::{collections::HashMap, sync::Mutex};
 use cubecl_runtime::{
@@ -57,9 +58,16 @@ pub fn device_throughput<R: Runtime>(
 ///
 /// Native only, panics on WASM
 pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurve {
-    let points = sweep(client, access, |bytes| {
-        ThroughputMode::Memory(MemorySpec::new(access, bytes))
-    });
+    let points = {
+        // Every point of a sweep asks for the same pool, so the sweep holds one.
+        let _pooled = PooledProbes::enter();
+
+        sweep(client, access, |bytes| {
+            ThroughputMode::Memory(MemorySpec::new(access, bytes))
+        })
+    };
+
+    client.memory_cleanup();
 
     MemoryCurve::new(access, points)
 }
@@ -114,9 +122,36 @@ pub fn measure_peak_throughput(
 
     let value = client.measure_throughput(key, || probe(client, key));
 
-    client.memory_cleanup();
+    if !POOLED_PROBES.load(Ordering::Relaxed) {
+        client.memory_cleanup();
+    }
 
     value
+}
+
+/// Probes measured while one of these is alive leave their pools with the
+/// allocator instead of returning them.
+///
+/// Releasing a pool makes the next probe fault a gigabyte of fresh pages back
+/// in, which costs more than twice what measuring it does: 1.2 s against 0.5 s
+/// a point. The shapes of one sweep already share a pool this way, since
+/// nothing is released until the probe returns.
+struct PooledProbes;
+
+static POOLED_PROBES: AtomicBool = AtomicBool::new(false);
+
+impl PooledProbes {
+    fn enter() -> Self {
+        POOLED_PROBES.store(true, Ordering::Relaxed);
+
+        Self
+    }
+}
+
+impl Drop for PooledProbes {
+    fn drop(&mut self) {
+        POOLED_PROBES.store(false, Ordering::Relaxed);
+    }
 }
 
 /// Measures `key`, in the fastest shape its probe can be launched in.
