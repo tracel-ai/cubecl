@@ -432,19 +432,15 @@ fn restrict_to_llvm_backend(props: &mut DeviceProperties, comp_opts: &mut Compil
             && config.cd_type == ElemType::Int(IntKind::I32);
         floats || integers
     });
-    // The manual `mma.sync` family is lowered and correct on its own -- CubeCL's
-    // `test_cmma_manual` checks all five operand combinations element by element, and the
-    // emitted PTX is the right instruction -- but a real matmul built on it comes out wrong:
-    // cubek's `multi_level::basic::plane_accelerated::*_mma` mismatch about a third of their
-    // elements, where the same kernels are correct through the C++ backend and the
-    // cooperative path above is correct here. Something those kernels do beyond one tile is
-    // not lowered right, and until that is found the feature stays unadvertised: a wrong
-    // answer is worse than a missing one, and a consumer picks these off the properties.
-    matmul.mma = Default::default();
-    // `ldmatrix` and `stmatrix` only feed the manual API, so they go with it. Disabling them
-    // alone does not fix those kernels, so they are not the cause.
-    matmul.ldmatrix = Default::default();
-    matmul.stmatrix = Default::default();
+    // The manual `mma.sync` family, `ldmatrix` and `stmatrix` are advertised: the lowering is
+    // correct, which `test_cmma_manual` checks element by element and cubek's
+    // `multi_level::basic::plane_accelerated::*_mma` matmuls now agree with.
+    //
+    // Those matmuls did come out wrong here for a while, and it is worth saying why they were
+    // not this backend's fault: they published an accumulator tile to shared memory and read it
+    // back across the plane with no barrier, which works on a backend whose optimizer takes the
+    // code at its word and does not survive one that does not. The barrier belongs in the
+    // kernel and is now there.
 
     // Still on the manual side and still unimplemented: the cube-level API, and the scaled
     // instructions with their `block_scale` operands.
