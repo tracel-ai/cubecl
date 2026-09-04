@@ -47,9 +47,11 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
 
     /// Add this tunable to a [`TuneGroup`] with the given intra-group priority.
     ///
-    /// Groups are autotuned in order of their priority; within each group, tunables are
-    /// tried in order of `priority(key)`. A negative priority skips the tunable for this
-    /// key.
+    /// Groups are autotuned in order of their priority. Within a group the priority is a
+    /// cutoff: the highest `priority(key)` whose tunables run is the round, and lower ones
+    /// are never tried. Within an [ordered](TuneGroup::ordered) group it is an order
+    /// instead: every tunable is in the round, tried from the highest `priority(key)`
+    /// down. A negative priority skips the tunable for this key in either kind of group.
     pub fn group(
         mut self,
         group: &TuneGroup<K>,
@@ -68,6 +70,8 @@ pub struct TuneGroup<K> {
     id: u32,
     name: Arc<String>,
     pub(crate) priority: PriorityFunc<K>,
+    /// Whether a member's priority orders the round rather than cutting it off.
+    ordered: bool,
 }
 
 impl<K> core::fmt::Debug for TuneGroup<K> {
@@ -82,19 +86,44 @@ impl<K> Clone for TuneGroup<K> {
             id: self.id,
             name: self.name.clone(),
             priority: self.priority.clone(),
+            ordered: self.ordered,
         }
     }
 }
 
 impl<K> TuneGroup<K> {
     /// Create a new group based on a priority function.
+    ///
+    /// A member's own priority ([`Tunable::group`]) is a cutoff within it.
     pub fn new(name: &str, f: impl Fn(&K) -> i8 + Send + Sync + 'static) -> Self {
+        Self::build(name, f, false)
+    }
+
+    /// Create a group whose members' priorities **order** the round rather than cut it
+    /// off: every member with a non-negative priority is planned in one batch, highest
+    /// first, and a lower priority means later, never left out.
+    ///
+    /// What that buys is a round that stops early on the strength of a bound. Candidates
+    /// are benchmarked in batch order and a candidate confirmed under the
+    /// [bounds](super::Bounds)' time limit ends the batch before the ones after it are
+    /// compiled — so a priority that says which candidate is *likeliest* to be close
+    /// enough decides how much of the group is ever compiled, while a priority that is
+    /// wrong costs a compile rather than the winner.
+    ///
+    /// Members of ordered and cutoff groups planned at one group priority share a
+    /// batch only at cutoff priority `0`, where the ordered members sit.
+    pub fn ordered(name: &str, f: impl Fn(&K) -> i8 + Send + Sync + 'static) -> Self {
+        Self::build(name, f, true)
+    }
+
+    fn build(name: &str, f: impl Fn(&K) -> i8 + Send + Sync + 'static, ordered: bool) -> Self {
         let id = GROUP_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         Self {
             id,
             name: Arc::new(name.into()),
             priority: Arc::new(f),
+            ordered,
         }
     }
 }
@@ -111,7 +140,16 @@ pub(crate) struct TunePlan {
 #[derive(Default, Debug)]
 struct GroupPlan {
     priorities: Vec<i8>,
-    indices: HashMap<i8, Vec<(usize, Arc<String>)>>,
+    indices: HashMap<i8, Vec<Planned>>,
+}
+
+/// One tunable's place in a [`GroupPlan`]: which tunable, through which group, and the
+/// priority that orders it within its batch.
+#[derive(Debug)]
+struct Planned {
+    index: usize,
+    group: Arc<String>,
+    priority: i8,
 }
 
 #[derive(Debug)]
@@ -150,18 +188,27 @@ impl TunePlan {
                         }
                     };
                     let priority = within_group_priority_fn(key);
+                    // An ordered group plans every member that is in the round as one
+                    // batch; the priority then orders the batch (`group_plan_next`).
+                    let level = match group.ordered && priority >= 0 {
+                        true => 0,
+                        false => priority,
+                    };
+                    let planned = Planned {
+                        index,
+                        group: group.name.clone(),
+                        priority,
+                    };
 
-                    if group_priorities.priorities.contains(&priority) {
+                    if group_priorities.priorities.contains(&level) {
                         group_priorities
                             .indices
-                            .get_mut(&priority)
+                            .get_mut(&level)
                             .unwrap()
-                            .push((index, group.name.clone()));
+                            .push(planned);
                     } else {
-                        group_priorities.priorities.push(priority);
-                        group_priorities
-                            .indices
-                            .insert(priority, vec![(index, group.name.clone())]);
+                        group_priorities.priorities.push(level);
+                        group_priorities.indices.insert(level, vec![planned]);
                     }
                 }
             }
@@ -253,6 +300,9 @@ impl TunePlan {
         let group_plan = self.groups.get_mut(&priority).expect("To be filled");
         let within_group_prio = group_plan.priorities.pop().unwrap();
         let mut next_indices = group_plan.indices.remove(&within_group_prio).unwrap();
+        // Highest priority first, registration order among equals. A cutoff level holds
+        // one priority, so this only ever reorders an ordered group's batch.
+        next_indices.sort_by_key(|planned| (core::cmp::Reverse(planned.priority), planned.index));
 
         let mut cleanup_groups = Vec::new();
         let mut cleanup_tunables = Vec::new();
@@ -263,9 +313,11 @@ impl TunePlan {
 
             for (pt, indices) in group.indices.iter_mut() {
                 for n in &next_indices {
-                    let entry = indices.iter().enumerate().find(|p| *p.1 == *n);
+                    let entry = indices
+                        .iter()
+                        .position(|p| p.index == n.index && p.group == n.group);
                     if let Some(entry) = entry {
-                        indices.remove(entry.0);
+                        indices.remove(entry);
                     }
                 }
 
@@ -286,7 +338,10 @@ impl TunePlan {
         }
 
         (
-            next_indices,
+            next_indices
+                .into_iter()
+                .map(|planned| (planned.index, planned.group))
+                .collect(),
             Cleanup {
                 groups: cleanup_groups,
                 tunables: cleanup_tunables,
@@ -580,6 +635,52 @@ mod tests {
         // returned). Without the fix this returns [] and the autotuner aborts. With the fix
         // the plan recurses and yields tunable1.
         assert_eq!(plan.next(), vec![1]);
+        assert!(plan.next().is_empty());
+    }
+
+    #[test_log::test]
+    fn test_plan_ordered_group_is_one_batch_best_first() {
+        // Every member is in the round, highest priority first and registration order
+        // among equals; a negative priority still skips.
+        let group = TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1);
+
+        let tunable0 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group, |_| 1);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group, |_| 3);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group, |_| -1);
+        let tunable3 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group, |_| 3);
+        let tunable4 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&group, |_| 2);
+
+        let key = FakeAutotuneKey;
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
+
+        assert_eq!(plan.next(), vec![1, 3, 4, 0]);
+        assert!(plan.next().is_empty());
+    }
+
+    #[test_log::test]
+    fn test_plan_ordered_group_keeps_the_group_cutoff() {
+        // The order is within the group; a lower-priority group is still a fallback
+        // reached only when the ordered batch fails.
+        let first = TuneGroup::<FakeAutotuneKey>::ordered("first", |_| 2);
+        let fallback = TuneGroup::<FakeAutotuneKey>::new("fallback", |_| 1);
+
+        let tunable0 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&first, |_| 1);
+        let tunable1 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&first, |_| 2);
+        let tunable2 =
+            Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel).group(&fallback, |_| 1);
+
+        let key = FakeAutotuneKey;
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
+
+        assert_eq!(plan.next(), vec![1, 0]);
+        assert_eq!(plan.next(), vec![2]);
         assert!(plan.next().is_empty());
     }
 

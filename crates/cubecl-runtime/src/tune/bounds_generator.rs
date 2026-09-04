@@ -2,6 +2,7 @@ use core::time::Duration;
 
 use alloc::vec::Vec;
 
+use crate::config::autotune::AutotuneLevel;
 use crate::throughput::{ThroughputKey, ThroughputValue};
 use crate::tune::TuneInputs;
 
@@ -96,6 +97,25 @@ impl Thresholds {
         Self {
             compute: fraction,
             memory: fraction,
+        }
+    }
+
+    /// The fraction of peak an [`AutotuneLevel`] settles for, or `None` where the level
+    /// measures every candidate.
+    ///
+    /// A higher threshold is a *tighter* time limit, since the limit is the roofline time
+    /// divided by the threshold: a candidate has to land closer to peak before autotune
+    /// stops looking. `Minimal` settles for the first decent candidate, `Extensive` keeps
+    /// searching, and `Full` sets no limit at all.
+    ///
+    /// The fractions come from small ad-hoc observations rather than a systematic sweep;
+    /// nothing should depend on the exact values.
+    pub const fn for_level(level: &AutotuneLevel) -> Option<Self> {
+        match level {
+            AutotuneLevel::Minimal => Some(Self::uniform(0.6)),
+            AutotuneLevel::Balanced => Some(Self::uniform(0.8)),
+            AutotuneLevel::Extensive => Some(Self::uniform(0.95)),
+            AutotuneLevel::Full => None,
         }
     }
 }
@@ -248,6 +268,14 @@ mod tests {
         assert_eq!(bounds[0].threshold, 0.5);
         assert_eq!(bounds[1].resource.amount, 16);
         assert_eq!(bounds[1].threshold, 1.0);
+    }
+
+    #[test]
+    fn a_level_tightens_the_limit_as_it_rises() {
+        let limit = |level| Thresholds::for_level(&level).map(|t| t.compute);
+        assert!(limit(AutotuneLevel::Minimal) < limit(AutotuneLevel::Balanced));
+        assert!(limit(AutotuneLevel::Balanced) < limit(AutotuneLevel::Extensive));
+        assert_eq!(limit(AutotuneLevel::Full), None, "full measures everything");
     }
 
     #[test]
