@@ -113,19 +113,26 @@ pub struct ServiceCreationError {
     reason: alloc::string::String,
 }
 
-pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
+/// How a service's state is reached: the transport under a [`DeviceHandle`].
+///
+/// A transport holds no service type. It hands a task the boxed state as
+/// `&mut dyn Any`; the handle above it knows what that is.
+pub trait DeviceHandleSpec: Sized + Clone {
     /// If functions block the current thread even if they are non-blocking.
     const BLOCKING: bool;
 
-    /// Creates or retrieves a context for the given device ID.
+    /// Registers `service` for the device and returns a transport to it.
     ///
     /// If a runner thread for this `device_id` does not exist, it will be spawned.
-    fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError>;
+    fn insert<S: DeviceService>(
+        device_id: DeviceId,
+        service: S,
+    ) -> Result<Self, ServiceCreationError>;
 
-    /// Creates or retrieves a context for the given device ID.
+    /// Creates or retrieves a transport for the given device ID.
     ///
     /// If a runner thread for this `device_id` does not exist, it will be spawned.
-    fn new(device_id: DeviceId) -> Self;
+    fn new<S: DeviceService>(device_id: DeviceId) -> Self;
 
     /// Retrieves the device ID for this handle.
     fn device_id(&self) -> DeviceId;
@@ -138,32 +145,18 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     ///
     /// # Notes
     ///
-    /// This is often not necessary, except for distributed operations.
+    /// This is a no-op for blocking handles.
     fn flush_queue(&self);
 
-    /// Executes a task on the dedicated device thread and returns the result of the task.
-    ///
-    /// # Notes
-    ///
-    /// Prefer using [`Self::submit`] if you don't need to wait for a returned type.
-    fn submit_blocking<'a, R: Send, T: FnOnce(&mut S) -> R + Send + 'a>(
+    fn submit_blocking<'a, R: Send, T: FnOnce(&mut dyn Any) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> Result<R, CallError>;
 
-    /// Submit a task for execution on the dedicated device thread.
-    fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T);
+    fn submit<T: FnOnce(&mut dyn Any) + Send + 'static>(&self, task: T);
 
-    /// TODO: Docs.
     fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError>;
 
-    /// Stops any background runner this implementation keeps for `device_id`,
-    /// blocking until it exits. Queued tasks run before the runner stops, and
-    /// live handles keep it alive, so all handles for the device should be
-    /// dropped first. No-op for implementations without background threads.
-    ///
-    /// The scope is the whole device, not the service `S`: every service running on
-    /// `device_id`, across every stage, goes down with it.
     fn shutdown(device_id: DeviceId) {
         let _ = device_id;
     }

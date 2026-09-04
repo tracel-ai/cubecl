@@ -22,19 +22,19 @@ pub enum FastDivmod<I: FastDivmodInt> {
 }
 
 pub trait FastDivmodInt: Int + MulHi + ScalarArgSettings + LaunchArg<CompilationArg = ()> {
-    fn size<R: Runtime>(launcher: &KernelLauncher<R>) -> usize;
+    fn size(launcher: &KernelLauncher) -> usize;
 }
 
 // Could potentially support signed, but that needs more handling
 
 impl FastDivmodInt for u32 {
-    fn size<R: Runtime>(_launcher: &KernelLauncher<R>) -> usize {
+    fn size(_launcher: &KernelLauncher) -> usize {
         size_of::<u32>()
     }
 }
 
 impl FastDivmodInt for usize {
-    fn size<R: Runtime>(launcher: &KernelLauncher<R>) -> usize {
+    fn size(launcher: &KernelLauncher) -> usize {
         launcher.settings.address_type.size()
     }
 }
@@ -114,12 +114,12 @@ mod launch {
     where
         I: LaunchArg<CompilationArg = ()>,
     {
-        type RuntimeArg<R: Runtime> = I;
+        type RuntimeArg = I;
         type CompilationArg = FastDivmodCompilationArg;
 
-        fn register<R: Runtime>(
-            divisor: Self::RuntimeArg<R>,
-            launcher: &mut KernelLauncher<R>,
+        fn register(
+            divisor: Self::RuntimeArg,
+            launcher: &mut KernelLauncher,
         ) -> Self::CompilationArg {
             let props =
                 launcher.with_scope(|scope| scope.state().device_properties.clone().unwrap());

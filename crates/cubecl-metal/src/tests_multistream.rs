@@ -1,12 +1,13 @@
 //! Cross-stream correctness tests for the native Metal backend.
 //!
-//! `StreamId` is derived from the OS thread, so a single [`ComputeClient`] drives a
+//! `StreamId` is derived from the OS thread, so a single [`Client`] drives a
 //! different stream per thread, and each stream owns its own `memory_management`. A
 //! buffer therefore lives only in its origin stream's manager. These tests allocate a
 //! binding on one stream and consume it on another to exercise cross-stream resolution
 //! and synchronization.
 
 use cubecl_core::{self as cubecl, prelude::*};
+use cubecl_runtime::runtime::Runtime;
 
 type R = crate::MetalRuntime;
 
@@ -24,7 +25,7 @@ fn copy_kernel(input: &[u32], output: &mut [u32]) {
     }
 }
 
-fn client() -> ComputeClient<R> {
+fn client() -> Client {
     let device = Default::default();
     R::client(&device)
 }
@@ -47,7 +48,7 @@ fn cross_thread_binding_read_on_other_stream() {
     let output = client.empty(n * core::mem::size_of::<u32>());
 
     unsafe {
-        add_one_kernel::launch_unchecked::<R>(
+        add_one_kernel::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(64),
@@ -85,7 +86,7 @@ fn cross_thread_producer_consumer_dependency() {
         let output = client.empty(n * core::mem::size_of::<u32>());
 
         unsafe {
-            copy_kernel::launch_unchecked::<R>(
+            copy_kernel::launch_unchecked(
                 &client,
                 CubeCount::Static(n.div_ceil(64) as u32, 1, 1),
                 CubeDim::new_1d(64),
@@ -128,7 +129,7 @@ fn cross_thread_dynamic_cube_count() {
         let output = client.empty(n * core::mem::size_of::<u32>());
 
         unsafe {
-            copy_kernel::launch_unchecked::<R>(
+            copy_kernel::launch_unchecked(
                 &client,
                 CubeCount::Dynamic(count.binding()),
                 CubeDim::new_1d(64),

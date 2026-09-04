@@ -4,9 +4,8 @@ use core::time::Duration;
 
 use cubecl_common::profile::{Instant, ProfileDuration, TimingMethod};
 
-use crate::client::ComputeClient;
+use crate::client::Client;
 use crate::config::autotune::BenchConfig;
-use crate::runtime::Runtime;
 use crate::tune::sampler::SampleSet;
 use crate::tune::{
     AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, TuneFn, TuneInputs, TunePlan,
@@ -52,12 +51,12 @@ impl Schedule {
     /// Takes exclusive device access for the entire round robin: candidates are interleaved, so
     /// releasing the device between them would let unrelated work land in the middle of a
     /// measurement.
-    pub(crate) fn run_batch<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+    pub(crate) fn run_batch<'a, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         indices: Vec<usize>,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
-        client: &ComputeClient<R>,
+        client: &Client,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
@@ -90,12 +89,12 @@ impl Schedule {
         }
     }
 
-    async fn drive<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+    async fn drive<'a, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         indices: Vec<usize>,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
-        client: &ComputeClient<R>,
+        client: &Client,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone,
@@ -254,11 +253,11 @@ impl Schedule {
 
     /// Warm up a candidate and take its first sample, confirming on the spot if it already
     /// looks close enough to peak throughput. Returns whether the batch can stop here.
-    async fn first_pass<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+    async fn first_pass<'a, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
-        client: &ComputeClient<R>,
+        client: &Client,
         candidate: &mut Candidate,
     ) -> bool
     where
@@ -292,11 +291,11 @@ impl Schedule {
     }
 
     /// Queue one sample and resolve it immediately. Returns whether the candidate survived.
-    async fn take_sample<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
+    async fn take_sample<'a, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
-        client: &ComputeClient<R>,
+        client: &Client,
         candidate: &mut Candidate,
     ) -> bool
     where
@@ -370,18 +369,17 @@ impl Schedule {
     }
 
     /// Walk the plan batch by batch until one produces a usable measurement.
-    pub(crate) fn run_plan<'a, K, R, F, Out>(
+    pub(crate) fn run_plan<'a, K, F, Out>(
         &self,
         key: &K,
         plan: &mut TunePlan,
         autotunables: &[&TuneFn<F, Out>],
         inputs: &<F as TuneInputs>::At<'a>,
-        client: &ComputeClient<R>,
+        client: &Client,
         results: &mut [AutotuneResult],
     ) -> PlanOutcome
     where
         K: core::fmt::Debug,
-        R: Runtime,
         F: TuneInputs,
         Out: AutotuneOutput,
         <F as TuneInputs>::At<'a>: Clone + Send,

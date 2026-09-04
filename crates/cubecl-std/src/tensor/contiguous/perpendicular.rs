@@ -99,11 +99,11 @@ fn copy_perpendicular<T: Numeric, N: Size>(
 /// This is used when the input tensor's memory layout is such that the last dimension
 /// is not the one with a stride of 1 (the vectorized dimension). It optimizes
 /// the copy by using hardware vectorization (Vectors) and an in-register transpose.
-pub fn launch_into_contiguous_perpendicular<R: Runtime>(
-    client: &ComputeClient<R>,
-    input: TensorBinding<R>,
+pub fn launch_into_contiguous_perpendicular(
+    client: &Client,
+    input: TensorBinding,
     dtype: ElemType,
-) -> TensorHandle<R> {
+) -> TensorHandle {
     // Fallback for 1D tensors where perpendicularity doesn't apply.
     if input.shape.len() <= 1 {
         return into_contiguous(client, input, dtype);
@@ -120,10 +120,10 @@ pub fn launch_into_contiguous_perpendicular<R: Runtime>(
 /// This is used when the input tensor's memory layout is such that the last dimension
 /// is not the one with a stride of 1 (the vectorized dimension). It optimizes
 /// the copy by using hardware vectorization (Vectors) and an in-register transpose.
-pub fn launch_copy_perpendicular_ref<R: Runtime>(
-    client: &ComputeClient<R>,
-    input: TensorBinding<R>,
-    output: TensorBinding<R>,
+pub fn launch_copy_perpendicular_ref(
+    client: &Client,
+    input: TensorBinding,
+    output: TensorBinding,
     dtype: ElemType,
 ) {
     let mut axis = 0;
@@ -170,7 +170,7 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
         .max(output.required_address_type(dtype.size()));
 
     unsafe {
-        copy_perpendicular::launch_unchecked::<R>(
+        copy_perpendicular::launch_unchecked(
             client,
             cube_count,
             cube_dim,

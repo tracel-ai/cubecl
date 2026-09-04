@@ -1,11 +1,9 @@
-use super::DummyServer;
-use crate::dummy::KernelTask;
+use super::{DummyServer, Marker};
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::server::ComputeServer;
+use cubecl_runtime::server::Server;
 use cubecl_runtime::{
-    client::ComputeClient,
-    compiler::{CompilationError, Compiler},
+    client::Client,
     logging::ServerLogger,
     memory_management::{MemoryConfiguration, MemoryManagement, MemoryManagementOptions},
     runtime::Runtime,
@@ -32,19 +30,19 @@ impl Device for DummyDevice {
     }
 }
 
-pub type DummyClient = ComputeClient<DummyRuntime>;
+pub type DummyClient = Client;
 
-impl DeviceService for DummyServer {
-    fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
-        init_server()
+impl<M: Marker> DeviceService for DummyServer<M> {
+    fn init(device_id: cubecl_common::device::DeviceId) -> Self {
+        init_server(cubecl_common::device::ServiceId::of::<Self>(device_id))
     }
 
     fn utilities(&self) -> Arc<dyn std::any::Any + Send + Sync> {
-        ComputeServer::utilities(self) as Arc<dyn std::any::Any + Send + Sync>
+        Server::utilities(self) as Arc<dyn std::any::Any + Send + Sync>
     }
 }
 
-fn init_server() -> DummyServer {
+fn init_server<M: Marker>(service: cubecl_common::device::ServiceId) -> DummyServer<M> {
     let storage = BytesStorage::default();
     let mem_properties = MemoryDeviceProperties {
         max_page_size: 1024 * 1024 * 512,
@@ -58,55 +56,20 @@ fn init_server() -> DummyServer {
         Arc::new(ServerLogger::default()),
         MemoryManagementOptions::new("Main CPU Memory"),
     );
-    DummyServer::new(memory_management, mem_properties)
+    DummyServer::new(service, memory_management, mem_properties)
 }
 
 pub fn test_client(device: &DummyDevice) -> DummyClient {
-    ComputeClient::load(device)
-}
-
-#[derive(Debug, Clone)]
-pub struct DummyCompiler;
-
-impl Compiler for DummyCompiler {
-    type Representation = KernelTask;
-
-    type CompilationOptions = ();
-
-    fn compile(
-        &mut self,
-        _kernel: cubecl_runtime::kernel::KernelDefinition,
-        _compilation_options: &Self::CompilationOptions,
-    ) -> Result<Self::Representation, CompilationError> {
-        unimplemented!()
-    }
-
-    fn extension(&self) -> &'static str {
-        unimplemented!()
-    }
+    DummyRuntime::client(device)
 }
 
 #[derive(Debug, Clone)]
 pub struct DummyRuntime;
 
 impl Runtime for DummyRuntime {
-    type Compiler = DummyCompiler;
-
     type Server = DummyServer;
 
     type Device = DummyDevice;
-
-    fn client(device: &Self::Device) -> ComputeClient<Self> {
-        ComputeClient::load(device)
-    }
-
-    fn name(_client: &ComputeClient<Self>) -> &'static str {
-        unimplemented!()
-    }
-
-    fn max_cube_count() -> (u32, u32, u32) {
-        unimplemented!()
-    }
 
     fn can_read_tensor(_shape: &Shape, _strides: &Strides) -> bool {
         unimplemented!()
@@ -116,10 +79,7 @@ impl Runtime for DummyRuntime {
         unimplemented!()
     }
 
-    fn enumerate_devices(
-        _: u16,
-        _: &<Self::Server as ComputeServer>::Info,
-    ) -> Vec<cubecl_common::device::DeviceId> {
+    fn enumerate_devices(_: u16) -> Vec<cubecl_common::device::DeviceId> {
         vec![cubecl_common::device::DeviceId {
             type_id: 0,
             index_id: 0,

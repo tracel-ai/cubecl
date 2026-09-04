@@ -20,14 +20,14 @@ impl PlainLayout {
 }
 
 impl ViewLayoutLaunchArg for PlainLayout {
-    type RuntimeArg<R: Runtime> = ();
+    type RuntimeArg = ();
     type CompilationArg = ();
 
-    fn register<R: Runtime, B: MemoryArg>(
-        _: Self::RuntimeArg<R>,
+    fn register<B: MemoryArg>(
+        _: Self::RuntimeArg,
         buffer: &B,
         ty: Type,
-        launcher: &mut KernelLauncher<R>,
+        launcher: &mut KernelLauncher,
     ) {
         <usize as LaunchArg>::register(buffer.len() / ty.vector_size(), launcher);
     }

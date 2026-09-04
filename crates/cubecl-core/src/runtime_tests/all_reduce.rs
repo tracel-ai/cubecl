@@ -1,11 +1,11 @@
-use crate::{Runtime, prelude::*};
+use crate::prelude::*;
 use alloc::vec::Vec;
 use cubecl_common::device::Device;
+use cubecl_runtime::runtime::Runtime;
 
 pub fn test_all_reduce_sync_collective<R: Runtime>() {
     let type_id = 0;
-    let client = R::client(&Default::default());
-    let device_ids = client.enumerate_devices(type_id);
+    let device_ids = R::enumerate_devices(type_id);
     let device_count = device_ids.len();
 
     if device_count < 2 {

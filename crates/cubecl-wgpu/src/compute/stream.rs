@@ -776,16 +776,9 @@ impl WgpuStream {
         device: &wgpu::Device,
     ) -> &'a mut wgpu::ComputePass<'static> {
         compute_pass.get_or_insert_with(|| {
-            let writes = if let Timings::Device(query_time) = timings {
-                query_time.register_profile_device(device).map(|query_set| {
-                    wgpu::ComputePassTimestampWrites {
-                        query_set,
-                        beginning_of_pass_write_index: Some(0),
-                        end_of_pass_write_index: Some(1),
-                    }
-                })
-            } else {
-                None
+            let writes = match timings {
+                Timings::Device(query_time) => query_time.register_profile_device(device),
+                Timings::System(_) => None,
             };
             encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {

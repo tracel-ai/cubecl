@@ -202,19 +202,6 @@ fn derive_positions(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3)
     builtins.set(Builtin::AbsolutePosY, abs_y);
     builtins.set(Builtin::AbsolutePosZ, abs_z);
 
-    let absolute_pos = absolute_pos::expand(
-        scope,
-        abs_x.into(),
-        abs_y.into(),
-        abs_z.into(),
-        cube_count_x.into(),
-        cube_count_y.into(),
-        cube_dim.x,
-        cube_dim.y,
-    )
-    .value(scope);
-    builtins.set(Builtin::AbsolutePos, absolute_pos);
-
     let cube_pos = cube_pos::expand(
         scope,
         cube_pos_x.into(),
@@ -225,6 +212,15 @@ fn derive_positions(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3)
     )
     .value(scope);
     builtins.set(Builtin::CubePos, cube_pos);
+
+    let absolute_pos = absolute_pos::expand(
+        scope,
+        cube_pos.into(),
+        unit_pos.into(),
+        cube_dim.num_elems(),
+    )
+    .value(scope);
+    builtins.set(Builtin::AbsolutePos, absolute_pos);
 }
 
 /// The lane's index within its wavefront.

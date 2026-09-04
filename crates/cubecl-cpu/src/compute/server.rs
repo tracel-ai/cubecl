@@ -8,13 +8,13 @@ use crate::{
     },
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
+use cubecl_core::server::ServerStorage;
 use cubecl_core::{
     CompilationError, CubeCount, MemoryConfiguration, MemoryUsage,
     ir::MemoryDeviceProperties,
     server::{
-        BufferBinding, ComputeServer, CopyDescriptor, IoError, KernelArguments, KernelResource,
-        LaunchError, ProfileError, ProfilingToken, ServerCommunication, ServerError,
-        ServerUtilities,
+        BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, LaunchError,
+        ProfileError, ProfilingToken, Server, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -22,11 +22,10 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
-    allocator::ContiguousMemoryLayoutPolicy,
-    compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::KernelId,
+    kernel::{CompiledKernel, CubeKernel},
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
     storage::{BytesStorage, ComputeStorage, ManagedResource},
@@ -38,7 +37,7 @@ use std::{collections::HashMap, sync::Arc};
 #[derive(Debug)]
 pub struct CpuServer {
     scheduler: SchedulerMultiStream<ScheduledCpuBackend>,
-    utilities: Arc<ServerUtilities<CpuServer>>,
+    utilities: Arc<ServerUtilities>,
     compilation_cache: HashMap<KernelId, CpuKernel>,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
@@ -62,7 +61,7 @@ impl CpuServer {
     pub fn new(
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
-        utilities: Arc<ServerUtilities<CpuServer>>,
+        utilities: Arc<ServerUtilities>,
     ) -> Self {
         let backend =
             ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
@@ -144,17 +143,29 @@ impl CpuServer {
 
     /// Compile and cache `kernel` without scheduling anything — everything a
     /// skipped launch owes the caches, touching no buffer.
-    fn compile_only(&mut self, kernel: &dyn CubeTask<CpuCompiler>) -> Result<(), CompilationError> {
+    fn compile_only(&mut self, kernel: &dyn CubeKernel) -> Result<(), CompilationError> {
         let kernel_id = kernel.id();
         if self.compilation_cache.contains_key(&kernel_id) {
             return Ok(());
         }
         let definition = kernel.define();
-        let compiled = kernel.compile(
+        let compiled = CompiledKernel::compile(
+            kernel,
             definition,
-            &mut Default::default(),
+            &mut CpuCompiler::default(),
             &PlironOptions::default(),
         )?;
+        // The executable artifact here is the JIT engine the compiler built,
+        // not the text. A precompiled kernel brings text and no engine.
+        if compiled.repr.is_none() {
+            return Err(CompilationError::Generic {
+                reason: format!(
+                    "the CPU runtime cannot load the precompiled kernel `{}`: it runs compiled IR, not source text",
+                    kernel.name()
+                ),
+                backtrace: BackTrace::capture(),
+            });
+        }
         self.compilation_cache
             .insert(kernel_id, CpuKernel::new(compiled));
         Ok(())
@@ -174,7 +185,12 @@ impl CpuServer {
 
         let cube_dim = kernel.mlir.cube_dim;
 
-        let mlir_engine = kernel.mlir.repr.clone().unwrap().expect_jit();
+        let mlir_engine = kernel
+            .mlir
+            .repr
+            .clone()
+            .expect("compile_only refuses a kernel without a representation")
+            .expect_jit();
 
         let task = ScheduleTask::Execute {
             stream_id,
@@ -187,17 +203,12 @@ impl CpuServer {
         Ok(task)
     }
 
-    pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    pub(crate) fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 }
 
-impl ComputeServer for CpuServer {
-    type Kernel = Box<dyn CubeTask<CpuCompiler>>;
-    type Storage = BytesStorage;
-    type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
-    type Info = ();
-
+impl Server for CpuServer {
     fn logger(&self) -> Arc<ServerLogger> {
         self.scheduler.logger.clone()
     }
@@ -213,7 +224,7 @@ impl ComputeServer for CpuServer {
         .into())
     }
 
-    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+    fn utilities(&self) -> Arc<ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -349,7 +360,7 @@ impl ComputeServer for CpuServer {
 
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -487,6 +498,26 @@ impl ComputeServer for CpuServer {
         stream.end_profile(token, stream_id)
     }
 
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
+        let stream = self.scheduler.stream(&stream_id);
+        stream.allocation_mode(mode);
+    }
+}
+
+impl ServerCommunication for CpuServer {}
+
+pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
+    let rank = shape.len();
+    let mut strides = strides![1; rank];
+    for i in (0..rank - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    strides
+}
+
+impl ServerStorage for CpuServer {
+    type Storage = BytesStorage;
+
     fn get_resource(
         &mut self,
         binding: BufferBinding,
@@ -508,22 +539,4 @@ impl ComputeServer for CpuServer {
 
         Ok(ManagedResource::new(memory, resource))
     }
-
-    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
-        let stream = self.scheduler.stream(&stream_id);
-        stream.allocation_mode(mode);
-    }
-}
-
-impl ServerCommunication for CpuServer {
-    const SERVER_COMM_ENABLED: bool = false;
-}
-
-pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
-    let rank = shape.len();
-    let mut strides = strides![1; rank];
-    for i in (0..rank - 1).rev() {
-        strides[i] = strides[i + 1] * shape[i + 1];
-    }
-    strides
 }

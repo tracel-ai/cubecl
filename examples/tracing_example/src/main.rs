@@ -1,5 +1,5 @@
 use clap::{Parser, ValueEnum};
-use cubecl::prelude::*;
+use cubecl::{Device, prelude::*};
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
@@ -87,10 +87,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     assert_eq!(count, 1, "exactly one backend must be enabled");
 
     #[cfg(feature = "cuda")]
-    launch::<cubecl::cuda::CudaRuntime>(&args, &Default::default())?;
+    launch(&args, &Device::Cuda(Default::default()))?;
 
     #[cfg(feature = "wgpu")]
-    launch::<cubecl::wgpu::WgpuRuntime>(&args, &Default::default())?;
+    launch(&args, &Device::Wgpu(Default::default()))?;
 
     if let Some(provider) = tracing_provider {
         provider.shutdown()?;
@@ -101,11 +101,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
 
 #[allow(unused)]
 #[tracing::instrument(level = "trace", skip(args, device))]
-pub fn launch<R: Runtime>(
-    args: &Args,
-    device: &R::Device,
-) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-    let client = R::client(device);
+pub fn launch(args: &Args, device: &Device) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+    let client = device.client();
 
     let input = [-1., 10., 1., 5.];
     let device_handle = client.create_from_slice(f32::as_bytes(&input));

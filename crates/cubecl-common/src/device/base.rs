@@ -1,4 +1,7 @@
-use core::{any::Any, cmp::Ordering};
+use core::{
+    any::{Any, TypeId},
+    cmp::Ordering,
+};
 use cubecl_environment::sync::Arc;
 
 /// The device id.
@@ -48,7 +51,9 @@ pub type ServerUtilitiesHandle = Arc<dyn Any + Send + Sync>;
 /// Represent a service that runs on a device.
 pub trait DeviceService: Send + 'static {
     /// Initializes the service. It is only called once per device.
-    fn init(device_id: DeviceId) -> Self;
+    fn init(device_id: DeviceId) -> Self
+    where
+        Self: Sized;
     /// Get the service utilities.
     fn utilities(&self) -> ServerUtilitiesHandle;
     /// Which pipeline stage this service runs on.
@@ -56,7 +61,10 @@ pub trait DeviceService: Send + 'static {
     /// Services on [`DeviceServiceStage::Upstream`] produce work ahead of time (e.g. autodiff graph
     /// construction, kernel fusion) that is consumed by [`DeviceServiceStage::Downstream`] services,
     /// which stream kernels to the device.
-    fn stage() -> DeviceServiceStage {
+    fn stage() -> DeviceServiceStage
+    where
+        Self: Sized,
+    {
         DeviceServiceStage::Downstream
     }
 }
@@ -69,4 +77,31 @@ pub enum DeviceServiceStage {
     Upstream = 0,
     /// Consumes upstream work and streams kernels to the device.
     Downstream = 1,
+}
+
+/// One service instance: the device it runs on and the type of service running
+/// there. This pair is what the device registry keys on, so two instances never
+/// share one, whatever [`DeviceId`] two runtimes happen to hand out.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct ServiceId {
+    /// The device the service runs on.
+    pub device: DeviceId,
+    /// The service type, as the registry keys it.
+    pub service: TypeId,
+}
+
+impl ServiceId {
+    /// The service of type `S` on `device`.
+    pub fn of<S: 'static>(device: DeviceId) -> Self {
+        Self {
+            device,
+            service: TypeId::of::<S>(),
+        }
+    }
+}
+
+impl core::fmt::Display for ServiceId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("{} ({:?})", self.device, self.service))
+    }
 }

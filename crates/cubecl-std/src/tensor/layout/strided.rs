@@ -27,14 +27,14 @@ pub struct StridedLayoutCompilationArg {
 }
 
 impl ViewLayoutLaunchArg for StridedLayout {
-    type RuntimeArg<R: Runtime> = ();
+    type RuntimeArg = ();
     type CompilationArg = StridedLayoutCompilationArg;
 
-    fn register<R: Runtime, B: MemoryArg>(
-        _: Self::RuntimeArg<R>,
+    fn register<B: MemoryArg>(
+        _: Self::RuntimeArg,
         buffer: &B,
         ty: Type,
-        launcher: &mut KernelLauncher<R>,
+        launcher: &mut KernelLauncher,
     ) -> Self::CompilationArg {
         let shape = buffer.shape();
         let strides = buffer.strides();

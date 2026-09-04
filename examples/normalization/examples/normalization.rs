@@ -1,6 +1,6 @@
 fn main() {
     #[cfg(feature = "cuda")]
-    normalization::launch::<cubecl::cuda::CudaRuntime>(&Default::default());
+    normalization::launch(&cubecl::Device::Cuda(Default::default()));
     #[cfg(feature = "wgpu")]
-    normalization::launch::<cubecl::wgpu::WgpuRuntime>(&Default::default());
+    normalization::launch(&cubecl::Device::Wgpu(Default::default()));
 }

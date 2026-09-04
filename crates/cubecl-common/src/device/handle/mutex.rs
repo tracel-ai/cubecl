@@ -3,21 +3,15 @@ use crate::device::{
     handle::{CallError, DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError},
 };
 use alloc::boxed::Box;
-use core::{
-    any::{Any, TypeId},
-    marker::PhantomData,
-};
+use core::any::{Any, TypeId};
 use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::{Arc, Mutex, RwLock};
 use hashbrown::HashMap;
 
 /// A handle to a specific device context (no-std version).
-pub struct MutexDeviceHandle<S: DeviceService> {
+pub struct MutexDeviceHandle {
     state: MutexDeviceState,
     device_id: DeviceId,
-    // fn(S) makes this Send+Sync regardless of S, since the handle
-    // never holds an S — it only accesses it through the Mutex.
-    _phantom: PhantomData<fn(S)>,
 }
 
 #[derive(Clone)]
@@ -35,10 +29,10 @@ static DEVICE_REGISTRY: spin::Mutex<Option<HashMap<DeviceId, DeviceRegistry>>> =
 /// Maps `TypeId` to the actual Service instance.
 type DeviceRegistry = HashMap<TypeId, MutexDeviceState>;
 
-impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
+impl DeviceHandleSpec for MutexDeviceHandle {
     const BLOCKING: bool = true;
 
-    fn new(device_id: DeviceId) -> Self {
+    fn new<S: DeviceService>(device_id: DeviceId) -> Self {
         let mut guard = DEVICE_REGISTRY.lock();
         if guard.is_none() {
             *guard = Some(HashMap::new());
@@ -63,11 +57,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
             })
             .clone();
 
-        Self {
-            state,
-            device_id,
-            _phantom: PhantomData,
-        }
+        Self { state, device_id }
     }
 
     fn device_id(&self) -> DeviceId {
@@ -80,24 +70,25 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
 
     fn flush_queue(&self) {}
 
-    fn submit_blocking<'a, R: Send, T: FnOnce(&mut S) -> R + Send + 'a>(
+    fn submit_blocking<'a, R: Send, T: FnOnce(&mut dyn Any) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
         let mut guard = self.state.service.lock();
-        let state = guard.downcast_mut::<S>().expect("State type mismatch");
 
-        Ok(task(state))
+        Ok(task(&mut **guard))
     }
 
-    fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
+    fn submit<T: FnOnce(&mut dyn Any) + Send + 'static>(&self, task: T) {
         let mut guard = self.state.service.lock();
-        let state = guard.downcast_mut::<S>().expect("State type mismatch");
 
-        task(state);
+        task(&mut **guard);
     }
 
-    fn insert(device_id: DeviceId, service: S) -> Result<Self, ServiceCreationError> {
+    fn insert<S: DeviceService>(
+        device_id: DeviceId,
+        service: S,
+    ) -> Result<Self, ServiceCreationError> {
         let mut guard = DEVICE_REGISTRY.lock();
         if guard.is_none() {
             *guard = Some(HashMap::new());
@@ -125,11 +116,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
             })
             .clone();
 
-        Ok(Self {
-            state,
-            device_id,
-            _phantom: PhantomData,
-        })
+        Ok(Self { state, device_id })
     }
 
     fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
@@ -196,7 +183,7 @@ impl DeviceLock {
     }
 }
 
-impl<S: DeviceService> MutexDeviceHandle<S> {
+impl MutexDeviceHandle {
     fn device_lock(&self) -> Arc<DeviceLock> {
         let mut guard = DEVICE_LOCK.lock();
         if guard.is_none() {
@@ -218,12 +205,11 @@ impl<S: DeviceService> MutexDeviceHandle<S> {
             .clone()
     }
 }
-impl<S: DeviceService> Clone for MutexDeviceHandle<S> {
+impl Clone for MutexDeviceHandle {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
             device_id: self.device_id,
-            _phantom: PhantomData,
         }
     }
 }

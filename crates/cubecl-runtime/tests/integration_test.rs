@@ -2,8 +2,12 @@ mod dummy;
 
 use crate::dummy::{DummyDevice, DummyElementwiseAddition, test_client};
 
-use cubecl_runtime::server::CubeCount;
-use cubecl_runtime::server::KernelArguments;
+use cubecl_common::bytes::Bytes;
+use cubecl_common::device::{DeviceId, ServiceId};
+use cubecl_environment::stream::StreamId;
+use cubecl_ir::{ElemType, UIntKind};
+use cubecl_runtime::client::Client;
+use cubecl_runtime::server::{CubeCount, Handle, KernelArguments, ServerError};
 use cubecl_runtime::{local_tuner, tune::LocalTuner};
 use dummy::*;
 
@@ -30,6 +34,122 @@ fn empty_allocates_memory() {
 
 // Dry runs are process-wide, so a test asserting that a launch really ran must
 // not overlap one. `parallel` still runs alongside the other parallel tests; it
+
+/// A handle stamped for `service`, never allocated: what a caller holding a
+/// handle from another client has.
+fn handle_of(service: ServiceId) -> Handle {
+    Handle::new(service, StreamId::current(), 8)
+}
+
+#[test_log::test]
+fn a_handle_of_this_client_passes_the_check() {
+    let client = test_client(&DummyDevice);
+    let handle = client.empty(8);
+
+    assert!(client.check(&[handle]).is_ok());
+}
+
+#[test_log::test]
+fn a_handle_from_another_device_of_the_same_runtime_is_refused() {
+    let client = test_client(&DummyDevice);
+    let other_device = DeviceId::new(0, 1);
+    let handle = handle_of(ServiceId::of::<DummyServer>(other_device));
+
+    let err = client.check(&[handle]).unwrap_err();
+
+    assert!(
+        matches!(err, ServerError::ForeignHandle { .. }),
+        "expected the handle to be refused, got: {err}"
+    );
+}
+
+/// Two runtimes can hand out the same [`DeviceId`]; the service type is what
+/// tells their devices apart.
+#[test_log::test]
+fn a_handle_from_another_runtime_on_the_same_device_id_is_refused() {
+    let client = test_client(&DummyDevice);
+    let same_device = client.service_id().device;
+    let handle = handle_of(ServiceId::of::<()>(same_device));
+
+    let err = client.check(&[handle]).unwrap_err();
+
+    assert!(
+        matches!(err, ServerError::ForeignHandle { .. }),
+        "expected the handle to be refused, got: {err}"
+    );
+}
+
+/// A call with no error to return stops instead of reading another device's
+/// memory.
+#[test_log::test]
+#[should_panic(expected = "was used on")]
+fn writing_through_a_foreign_handle_panics() {
+    let client = test_client(&DummyDevice);
+    let handle = handle_of(ServiceId::of::<()>(DeviceId::new(0, 0)));
+
+    client.write(&handle, Bytes::from_bytes_vec(vec![0; 8]));
+}
+
+/// The transfer reads the source on this client's server, so a handle from
+/// elsewhere is refused before the read, on either transfer path.
+#[test_log::test]
+#[should_panic(expected = "was used on")]
+fn transferring_a_foreign_handle_to_another_client_panics() {
+    let mut client = test_client(&DummyDevice);
+    let destination = client.clone();
+    let handle = handle_of(ServiceId::of::<()>(DeviceId::new(0, 0)));
+
+    client.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+}
+
+#[test_log::test]
+fn a_transfer_between_devices_of_the_same_runtime_round_trips() {
+    let mut source = test_client(&DummyDevice);
+    let destination = Client::load::<DummyServer>(DeviceId::new(0, 1));
+    let bytes = [1u8, 2, 3, 4];
+    let handle = source.create_from_slice(&bytes);
+
+    let transferred = source.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+
+    assert_eq!(transferred.service, destination.service_id());
+    assert_eq!(destination.read_one(transferred).unwrap().to_vec(), bytes);
+}
+
+/// Two clients of different runtimes are the same type now, so nothing but
+/// this check keeps a transfer from taking a collective path the destination
+/// does not have. The bytes go through the host instead.
+#[test_log::test]
+fn a_transfer_across_runtimes_goes_through_the_host() {
+    let mut source = test_client(&DummyDevice);
+    let destination = Client::load::<DummyServer<Other>>(DeviceId::new(0, 0));
+    let bytes = [5u8, 6, 7, 8];
+    let handle = source.create_from_slice(&bytes);
+
+    let transferred = source.to_client(handle, &destination, ElemType::UInt(UIntKind::U8));
+
+    assert_eq!(transferred.service, destination.service_id());
+    assert_eq!(destination.read_one(transferred).unwrap().to_vec(), bytes);
+}
+
+/// Naming a server type the client was not built from is an error on the
+/// calling thread, not a failed downcast on the device thread. The client
+/// keeps working afterwards.
+#[test_log::test]
+fn asking_for_the_resource_of_another_server_type_is_refused() {
+    let client = test_client(&DummyDevice);
+    let handle = client.create_from_slice(&[1u8, 2, 3, 4]);
+
+    let err = client
+        .get_resource::<DummyServer<Other>>(handle.clone())
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ServerError::ServiceMismatch { .. }),
+        "expected the server type to be refused, got: {err}"
+    );
+    assert!(client.get_resource::<DummyServer>(handle.clone()).is_ok());
+    assert_eq!(client.read_one(handle).unwrap().to_vec(), [1, 2, 3, 4]);
+}
 // only excludes the `serial` ones.
 #[test_log::test]
 #[serial_test::parallel]
@@ -132,7 +252,7 @@ fn autotune_basic_addition_execution() {
     let out = client.empty(3);
     let handles = vec![lhs, rhs, out.clone()];
 
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set(client, shapes)
@@ -159,7 +279,7 @@ fn autotune_basic_multiplication_execution() {
     let out = client.empty(3);
     let handles = vec![lhs, rhs, out.clone()];
 
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::multiplication_set(client, shapes)
@@ -254,7 +374,7 @@ fn autotune_bounds_short_circuit_accepts_first_within_limit() {
     let out = client.empty(3);
     let handles = vec![lhs, rhs, out.clone()];
 
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         // time_limit = (1 / 1.0) / 1.0 = 1s, far above the ~few-ms slow kernel, so the
@@ -287,7 +407,7 @@ fn autotune_bounds_unreachable_limit_benchmarks_all() {
     let out = client.empty(3);
     let handles = vec![lhs, rhs, out.clone()];
 
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         // time_limit = (1 / 1e12) / 1.0 ≈ 1ps, below any real median, so nothing qualifies.
@@ -316,7 +436,7 @@ fn autotune_short_circuit_disabled_benchmarks_all() {
     let out = client.empty(3);
     let handles = vec![lhs, rhs, out.clone()];
 
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::bounded_addition_set_no_short_circuit(client, shapes)
@@ -330,10 +450,11 @@ fn autotune_short_circuit_disabled_benchmarks_all() {
     assert_eq!(obtained, vec![4, 5, 6]);
 }
 
-/// 2-I1 — A panic inside a profiled closure surfaces at the `ComputeClient` caller as
+/// 2-I1 — A panic inside a profiled closure surfaces at the `Client` caller as
 /// the *original* panic (the issue's symptom), instead of an opaque `CallError`.
 #[test_log::test]
 #[cfg(feature = "std")]
+#[serial_test::parallel]
 fn profile_reraises_panic_from_profiled_closure() {
     let client = test_client(&DummyDevice);
 
@@ -356,6 +477,7 @@ fn profile_reraises_panic_from_profiled_closure() {
 /// `unwrap_or_resume` swap turning a normal result into a panic).
 #[test_log::test]
 #[cfg(feature = "std")]
+#[serial_test::parallel]
 fn profile_returns_ok_on_success() {
     let client = test_client(&DummyDevice);
 
@@ -365,7 +487,7 @@ fn profile_returns_ok_on_success() {
     assert_eq!(value, 123);
 }
 
-/// 2-I3 — Design guard: the public `ComputeClient::exclusive` stays *recoverable* — a
+/// 2-I3 — Design guard: the public `Client::exclusive` stays *recoverable* — a
 /// task panic becomes `Err(ServerError::Generic)` (so autotune can skip a failing
 /// candidate) rather than re-raising. The original message is still preserved in the
 /// error string thanks to the `CallError` payload.
@@ -425,7 +547,7 @@ fn autotune_stops_sampling_a_rejected_candidate() {
 
     let uid = fresh_tune_key_uid();
 
-    let test_set = TUNER.init(move || {
+    let test_set = TUNER.init(&"test".to_string(), move || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set_with_rejected_candidate(client, shapes, uid.clone(), calls_set.clone())
@@ -462,7 +584,7 @@ fn autotune_skips_a_candidate_that_fails_compilation() {
 
     let uid = fresh_tune_key_uid();
 
-    let test_set = TUNER.init(move || {
+    let test_set = TUNER.init(&"test".to_string(), move || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set_with_failing_compilation(client, shapes, uid.clone())
@@ -510,7 +632,7 @@ fn autotune_survives_a_failing_candidate_ahead_of_the_winner() {
 
     let uid = fresh_tune_key_uid();
 
-    let test_set = TUNER.init(move || {
+    let test_set = TUNER.init(&"test".to_string(), move || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set_with_failing_compilation_first(client, shapes, uid.clone())
@@ -566,7 +688,7 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
 
     let uid = fresh_tune_key_uid();
 
-    let test_set = TUNER.init(move || {
+    let test_set = TUNER.init(&"test".to_string(), move || {
         let client = test_client(&DummyDevice);
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set_with_slow_candidate(
@@ -666,7 +788,7 @@ fn a_dry_run_still_autotunes() {
     static TUNER: LocalTuner<String, String> = local_tuner!("a_dry_run_still_autotunes");
 
     let client = test_client(&DummyDevice);
-    let test_set = TUNER.init(|| {
+    let test_set = TUNER.init(&"test".to_string(), || {
         let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
         dummy::addition_set(test_client(&DummyDevice), shapes)
     });
@@ -764,4 +886,70 @@ fn a_dry_run_reserves_without_mapping() {
     );
 
     drop(dry_run);
+}
+
+/// A tunable set is built from the device it will run on — a closure captures
+/// that device's client to ask what it supports, or reads its hardware
+/// properties to decide what is worth offering. So the set cache is keyed by
+/// device as well as by initializer: keyed by the initializer alone, whichever
+/// device tuned first would answer for every device after it.
+#[test_log::test]
+#[cfg(feature = "std")]
+#[serial_test::serial]
+fn a_set_is_built_once_per_device_not_once_per_process() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TUNER: LocalTuner<String, String> =
+        local_tuner!("a_set_is_built_once_per_device_not_once_per_process");
+    static BUILDS: AtomicUsize = AtomicUsize::new(0);
+
+    let client = test_client(&DummyDevice);
+
+    let build = |device: &str| {
+        TUNER.init(&device.to_string(), || {
+            BUILDS.fetch_add(1, Ordering::Relaxed);
+            let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+            dummy::addition_set(test_client(&DummyDevice), shapes)
+        })
+    };
+
+    let first = build("gpu-0");
+    assert_eq!(BUILDS.load(Ordering::Relaxed), 1);
+
+    // Same device again: the cached set, no rebuild.
+    let first_again = build("gpu-0");
+    assert_eq!(
+        BUILDS.load(Ordering::Relaxed),
+        1,
+        "the same device must reuse its set rather than rebuild it"
+    );
+    assert!(
+        std::sync::Arc::ptr_eq(&first, &first_again),
+        "the same device must get the very same set back"
+    );
+
+    // A second device: its own set, built against itself.
+    let second = build("gpu-1");
+    assert_eq!(
+        BUILDS.load(Ordering::Relaxed),
+        2,
+        "a device that has not tuned yet must build its own set"
+    );
+    assert!(
+        !std::sync::Arc::ptr_eq(&first, &second),
+        "one device's set must not answer for another's"
+    );
+
+    // Both remain usable and independently cached.
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    TUNER.execute(
+        &"gpu-1".to_string(),
+        &client,
+        second,
+        vec![lhs, rhs, out.clone()],
+    );
+    assert_eq!(client.read_one(out).unwrap().to_vec(), Vec::from([4, 5, 6]));
+    assert_eq!(BUILDS.load(Ordering::Relaxed), 2);
 }

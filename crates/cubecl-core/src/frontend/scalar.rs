@@ -139,13 +139,10 @@ impl InputScalar {
 }
 
 impl LaunchArg for InputScalar {
-    type RuntimeArg<R: Runtime> = InputScalar;
+    type RuntimeArg = InputScalar;
     type CompilationArg = InputScalarCompilationArg;
 
-    fn register<R: Runtime>(
-        arg: Self::RuntimeArg<R>,
-        launcher: &mut KernelLauncher<R>,
-    ) -> Self::CompilationArg {
+    fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
         let dtype = arg.dtype;
 
         launcher.register_scalar_raw(arg.as_bytes(), dtype);

@@ -1,7 +1,6 @@
 //! Allocation controller that lazily reads a device resource into host memory.
 
-use super::ComputeClient;
-use crate::runtime::Runtime;
+use super::Client;
 use crate::server::CopyDescriptor;
 use alloc::boxed::Box;
 use alloc::format;
@@ -15,7 +14,7 @@ use cubecl_zspace::striding::has_contiguous_row_major_strides;
 
 /// Allocation controller that lazily copies a device resource into host memory on first access.
 ///
-/// Constructing the [`Bytes`] is cheap: it only captures the [`ComputeClient`] and a
+/// Constructing the [`Bytes`] is cheap: it only captures the [`Client`] and a
 /// [`CopyDescriptor`], whose [`Binding`](crate::server::Binding) keeps the device allocation
 /// alive. The device-to-host copy — going through the regular read path, including pinned
 /// staging — only happens the first time the bytes are read (e.g. during serialization), and
@@ -30,16 +29,16 @@ use cubecl_zspace::striding::has_contiguous_row_major_strides;
 /// therefore only sound for buffers that are not mutated between [`read_lazy`] and the first
 /// read. This matches the typical use case of serializing frozen weights.
 ///
-/// [`read_lazy`]: ComputeClient::read_lazy
-pub struct LazyDeviceController<R: Runtime> {
-    client: ComputeClient<R>,
+/// [`read_lazy`]: Client::read_lazy
+pub struct LazyDeviceController {
+    client: Client,
     descriptor: Arc<CopyDescriptor>,
     /// Host bytes, materialized from the device on first access.
     materialized: Once<Bytes>,
 }
 
-impl<R: Runtime> LazyDeviceController<R> {
-    pub(super) fn new(client: ComputeClient<R>, descriptor: Arc<CopyDescriptor>) -> Self {
+impl LazyDeviceController {
+    pub(super) fn new(client: Client, descriptor: Arc<CopyDescriptor>) -> Self {
         Self {
             client,
             descriptor,
@@ -86,7 +85,7 @@ impl<R: Runtime> LazyDeviceController<R> {
     }
 }
 
-impl<R: Runtime> AllocationController for LazyDeviceController<R> {
+impl AllocationController for LazyDeviceController {
     fn alloc_align(&self) -> usize {
         // Avoid materializing just to answer. `try_detach` is never implemented, so this is not
         // used for `Vec` reconstruction; a conservative value is fine before materialization.

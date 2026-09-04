@@ -246,13 +246,10 @@ impl<T: CubePrimitive> TensorViewBuilderExpand<T> {
 }
 
 impl<T: CubePrimitive> LaunchArg for TensorView<T> {
-    type RuntimeArg<R: Runtime> = TensorViewBuilderLaunch<T, R>;
+    type RuntimeArg = TensorViewBuilderLaunch<T>;
     type CompilationArg = TensorViewBuilderCompilationArg<T>;
 
-    fn register<R: Runtime>(
-        arg: Self::RuntimeArg<R>,
-        launcher: &mut KernelLauncher<R>,
-    ) -> Self::CompilationArg {
+    fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
         TensorViewBuilder::<T>::register(arg, launcher)
     }
 
