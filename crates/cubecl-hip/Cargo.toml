@@ -42,7 +42,6 @@ tracing = [
     "cubecl-core/tracing",
 ]
 
-
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
@@ -62,6 +61,7 @@ cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.3", default-featur
 cubecl-hip-sys = { version = "7.1.5280200" }
 cubecl-llvm = { path = "../cubecl-llvm", version = "=0.11.0-pre.3", default-features = false, features = [
     "std",
+    "amdgpu",
 ] }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.3", default-features = false, features = [
     "channel-mutex",

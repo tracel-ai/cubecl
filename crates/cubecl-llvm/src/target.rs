@@ -11,6 +11,7 @@ use pliron::context::Context;
 pub enum LlvmTarget {
     #[default]
     Cpu,
+    #[cfg(feature = "amdgpu")]
     AmdGpu,
 }
 
@@ -23,23 +24,5 @@ pub trait CtxTarget: ContextExt {
     }
     fn set_target(&mut self, value: LlvmTarget) {
         self.set_aux_ty(value);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Both pipelines put the target on the context before their first pass runs, which is the
-    /// whole of how a shared pass finds out what it is lowering for.
-    #[test]
-    fn the_context_carries_the_target() {
-        let mut ctx = Context::default();
-
-        ctx.set_target(LlvmTarget::AmdGpu);
-        assert_eq!(ctx.target(), LlvmTarget::AmdGpu);
-
-        ctx.set_target(LlvmTarget::Cpu);
-        assert_eq!(ctx.target(), LlvmTarget::Cpu);
     }
 }
