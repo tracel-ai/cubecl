@@ -401,9 +401,11 @@ pub(crate) fn load(
     let reg_ty = register_ty(ctx, frag, elem);
     let stride = stride_as_i32(ctx, rw, stride);
 
-    // The intrinsic is overloaded on the pointer, so the mangled name carries its address
-    // space. Everything reaching here is generic: the shared-memory lowering casts its slices
-    // back to the generic space and `InferAddressSpaces` puts them back afterwards.
+    // The intrinsic is overloaded on the pointer, and both the mangled name and the qualifier
+    // on the instruction it selects come from that pointer's address space. See
+    // [`origin_address_space`] for why the generic pointer the rest of the pipeline carries is
+    // narrowed here rather than left to `InferAddressSpaces`.
+    let source = in_origin_space(ctx, rw, source);
     let name = format!(
         "llvm.nvvm.wmma.{}.load.{}.{layout}.stride.{elem_name}.{}",
         geometry(ty.shape),
@@ -456,6 +458,8 @@ pub(crate) fn store(
     let value = load_fragment(ctx, rw, matrix, frag_ty);
     let regs = to_registers(ctx, rw, value, frag, reg_ty);
 
+    // Narrowed for the same reason as the load's source.
+    let destination = in_origin_space(ctx, rw, destination);
     let name = format!(
         "llvm.nvvm.wmma.{}.store.d.{layout}.stride.{elem_name}.{}",
         geometry(ty.shape),
@@ -847,6 +851,80 @@ pub(crate) fn mma_manual(
 /// rest of the pipeline carries is cast down to it, which is what the C++ backend's
 /// `generic_to_shared` does before its inline asm.
 const SHARED_ADDRESS_SPACE: u32 = 3;
+
+/// The address space a buffer lives in, i.e. what a kernel argument is retyped to in
+/// [`abi`](super::abi).
+const GLOBAL_ADDRESS_SPACE: u32 = 1;
+
+/// The generic space, which is where the rest of the pipeline carries every pointer.
+const GENERIC_ADDRESS_SPACE: u32 = 0;
+
+/// The address space of `value`, when it is a pointer at all.
+fn address_space(ctx: &Context, value: Value) -> Option<u32> {
+    value
+        .get_type(ctx)
+        .deref(ctx)
+        .downcast_ref::<LlvmPointerType>()
+        .map(LlvmPointerType::address_space)
+}
+
+/// The address space `ptr` provably points into, looked through the generic space.
+///
+/// A `wmma` load or store picks its `.shared` / `.global` qualifier from the address space of
+/// the pointer it is *given* -- see `AS_match` in LLVM's `NVPTXIntrinsics.td` -- and nothing
+/// puts a generic one back: `InferAddressSpaces` only rewrites intrinsics the target lists in
+/// `collectFlatAddressOperands`, which for NVPTX is `isspacep` and `prefetch.tensormap` and
+/// not these. So a generic pointer here costs the qualifier, and the qualifier is most of the
+/// instruction. On one cmma GEMM the eighty generic fragment loads came out of `ptxas` as 320
+/// scalar `LD.E` and 256 `MOVM` transposes assembling the tiles by hand, against 64 `LDSM`
+/// once the pointers were shared.
+///
+/// Recovering it is a walk back to whatever the address was derived from, through the
+/// `getelementptr`s that offset into a tile and the `addrspacecast` that
+/// [`SliceSharedOp`](crate::shared::shared_memory) inserts, stopping at the first pointer that
+/// is already in a real address space. `None` for a pointer whose origin is not one of those,
+/// which is the answer that leaves the call generic and correct.
+fn origin_address_space(ctx: &Context, ptr: Value) -> Option<u32> {
+    let mut ptr = ptr;
+    // Bounded by the length of the chain, which is acyclic: every step is to an operand of the
+    // op defining the current value.
+    loop {
+        match address_space(ctx, ptr) {
+            // Generic says nothing about where it came from, so keep walking.
+            Some(GENERIC_ADDRESS_SPACE) => {}
+            space => return space,
+        }
+        let op = ptr.defining_op()?;
+        let derives_from_its_pointer = Operation::get_op::<llvm::GetElementPtrOp>(op, ctx)
+            .is_some()
+            || Operation::get_op::<llvm::AddrSpaceCastOp>(op, ctx).is_some();
+        if !derives_from_its_pointer {
+            return None;
+        }
+        // Operand 0 of both: the base of the `getelementptr`, the argument of the cast.
+        ptr = op.deref(ctx).get_operand(0);
+    }
+}
+
+/// `ptr` in the address space it provably points into, when that is one a `wmma` load or store
+/// has a qualifier for.
+///
+/// The cast is a single `cvta.to.shared` / `cvta.to.global`, and usually not even that: it
+/// undoes an `addrspacecast` the pointer already went through, which LLVM folds. What it buys
+/// is the qualifier on the instruction it feeds.
+fn in_origin_space(ctx: &mut Context, rw: &mut DialectConversionRewriter, ptr: Value) -> Value {
+    match origin_address_space(ctx, ptr) {
+        Some(space @ (SHARED_ADDRESS_SPACE | GLOBAL_ADDRESS_SPACE)) => {
+            let ty: TypeHandle = LlvmPointerType::get(ctx, space).into();
+            if ptr.get_type(ctx) == ty {
+                return ptr;
+            }
+            let op = llvm::AddrSpaceCastOp::new(ctx, ptr, ty);
+            insert(ctx, rw, &op)
+        }
+        _ => ptr,
+    }
+}
 
 /// `ptr` in the shared address space, which is the only one these instructions take.
 fn as_shared(ctx: &mut Context, rw: &mut DialectConversionRewriter, ptr: Value) -> Value {
