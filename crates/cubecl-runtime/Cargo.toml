@@ -1,7 +1,7 @@
 [package]
 authors = ["louisfd <louisfd94@gmail.com>", "Nathaniel Simard"]
 categories = ["science"]
-description = "Crate that helps creating high performance async runtimes for CubeCL."
+description = "The runtime API of CubeCL: clients, devices, handles and everything a kernel launch needs."
 edition.workspace = true
 keywords = ["deep-learning", "machine-learning", "data"]
 license.workspace = true
@@ -26,13 +26,11 @@ default = [
     "channel-mutex",
     "channel-mpsc",
     "channel-cell",
-    "storage-bytes",
     "cubecl-common/default",
 ]
 exclusive-memory-only = []
 profile-tracy = ["dep:tracy-client"]
 std = ["cubecl-common/std", "cubecl-environment/std", "toml", "thiserror/std"]
-storage-bytes = []
 tokio = ["cubecl-environment/tokio"]
 
 tracing = ["dep:tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
@@ -99,11 +97,3 @@ test-log = { workspace = true, features = ["trace"] }
 
 [build-dependencies]
 cfg_aliases = { workspace = true }
-
-[[bench]]
-harness = false
-name = "dynamic"
-
-[[bench]]
-harness = false
-name = "write_scope"

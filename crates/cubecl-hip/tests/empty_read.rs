@@ -6,7 +6,7 @@
 
 use cubecl_core::prelude::*;
 use cubecl_hip::HipRuntime;
-use cubecl_runtime::runtime::Runtime;
+use cubecl_server::runtime::Runtime;
 
 #[test]
 fn read_empty_buffer() {

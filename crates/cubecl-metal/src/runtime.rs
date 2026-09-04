@@ -13,8 +13,8 @@ use cubecl_cpp::{
     metal::{arch::MetalArchitecture, supported_cmma_combinations_metal},
     shared::register_wmma_features,
 };
-use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_runtime::runtime::Runtime;
+use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
+use cubecl_server::runtime::Runtime;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLDevice, MTLGPUFamily};
 
@@ -108,7 +108,7 @@ impl DeviceService for MetalServer {
 
         register_metal_features(&mut device_props);
 
-        let logger = std::sync::Arc::new(cubecl_runtime::logging::ServerLogger::default());
+        let logger = std::sync::Arc::new(cubecl_server::logging::ServerLogger::default());
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
         let utilities = std::sync::Arc::new(cubecl_core::server::ServerUtilities::new(
             cubecl_common::device::ServiceId::of::<Self>(device_id),

@@ -509,8 +509,8 @@ pub trait Server:
     /// write one of these buffers failed, whichever stream it ran on — copying
     /// bytes out would hand back whatever was in memory before. Every
     /// implementation asks
-    /// [`FailureStore::ensure_written`](crate::stream::FailureStore::ensure_written)
-    /// before it copies anything.
+    /// `FailureStore::ensure_written` (in `cubecl-server`) before it copies
+    /// anything.
     fn read(
         &mut self,
         descriptors: Vec<CopyDescriptor>,
@@ -609,7 +609,7 @@ pub trait Server:
     /// which `graph_prepare` plus a warmup run is what avoids. Whether an
     /// operation the window cannot record fails the call or fails
     /// `end_capture`, and whether a mid-window allocation is fatal, is the
-    /// backend's to say; see [`StreamCapture`](crate::stream::StreamCapture).
+    /// backend's to say; see `StreamCapture` in `cubecl-server`.
     ///
     /// The default is unsupported. Two shapes of backend override it: a
     /// **hardware graph** (CUDA, HIP), where the driver records a replayable
@@ -663,7 +663,7 @@ pub trait Server:
     /// Structured per-pool report of the given stream's **main GPU** memory:
     /// each pool's shape, usage, and high-water marks, in allocation-routing
     /// order. The read side of a measured memory plan — see
-    /// [`MemoryManagement::memory_report`](crate::memory_management::MemoryManagement::memory_report).
+    /// `MemoryManagement::memory_report` in `cubecl-server`.
     fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport;
 
     /// Stream ids the client should iterate to aggregate across the device.
@@ -681,7 +681,7 @@ pub trait Server:
     /// Install a new dynamic-pool layout for the device's **main GPU** memory.
     ///
     /// The calling stream's pools are rebuilt in place (see
-    /// [`MemoryManagement::install_pools`](crate::memory_management::MemoryManagement::install_pools)
+    /// `MemoryManagement::install_pools` in `cubecl-server`
     /// — a rebuild only happens when nothing is live in them), and the layout
     /// becomes the one every stream created afterwards is built with. Pool
     /// layouts are a purely programmatic, runtime setting — there is no
@@ -776,7 +776,7 @@ pub enum ReduceOperation {
 /// the same two answers the rest of the server gives: ask whether the source
 /// carries a failure on the way in (as [`read`](Server::read) does
 /// through
-/// [`FailureStore::ensure_written`](crate::stream::FailureStore::ensure_written)),
+/// `FailureStore::ensure_written` in `cubecl-server`),
 /// and taint the destination on the way out when the operation fails (as a
 /// failed [`launch`](Server::launch) does). Skipping either lets a
 /// collective reduce stale bytes across every device in the group, or leave a

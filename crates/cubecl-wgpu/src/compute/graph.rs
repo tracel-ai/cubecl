@@ -19,7 +19,7 @@
 use crate::WgpuResource;
 use crate::schedule::Addresses;
 use cubecl_core::server::BufferBinding;
-use cubecl_runtime::memory_management::{ManagedMemoryHandle, SharedMemoryBindings};
+use cubecl_server::memory_management::{ManagedMemoryHandle, SharedMemoryBindings};
 use std::sync::Arc;
 use wgpu::ComputePipeline;
 
@@ -27,7 +27,7 @@ use wgpu::ComputePipeline;
 /// [module docs](self)).
 ///
 /// Owned by the [`WgpuServer`](super::server::WgpuServer) registry and
-/// referenced by [`GraphId`](cubecl_runtime::id::GraphId); the client
+/// referenced by [`GraphId`](cubecl_server::id::GraphId); the client
 /// references the graph by id and, on the last drop, asks the server to
 /// release it.
 #[derive(Debug)]
@@ -64,7 +64,7 @@ pub(crate) struct ReplayTask {
     /// Addresses into slices the capture window allocated stay valid because
     /// `_retained` pins them. An address into a buffer the *caller* owns is the
     /// caller's to keep alive, which is what
-    /// [`Graph::replay`](cubecl_runtime::client::Graph::replay)'s liveness
+    /// [`Graph::replay`](cubecl_server::client::Graph::replay)'s liveness
     /// requirement is about — the same contract that lets a replay pick up
     /// bytes rewritten between replays.
     pub(crate) immediates: Option<Addresses>,

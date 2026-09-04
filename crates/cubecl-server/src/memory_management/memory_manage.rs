@@ -1,5 +1,7 @@
 use super::{
-    MemoryConfiguration, MemoryPoolOptions, MemoryReport, MemoryUsage, PoolType,
+    InstallMemoryPoolsError, ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId,
+    MemoryAllocationMode, MemoryConfiguration, MemoryPoolOptions, MemoryReport, MemoryUsage,
+    PERSISTENT_POOL_POS, PoolType,
     memory_pool::{
         DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool,
     },
@@ -7,10 +9,7 @@ use super::{
 use crate::{
     config::{
         CubeClRuntimeConfig, RuntimeConfig,
-        memory::{
-            MemoryLogLevel, MemoryPoolConfig, MemoryPoolsConfig, MemoryPoolsPreset,
-            PersistentMemory,
-        },
+        memory::{MemoryLogLevel, PersistentMemory},
     },
     logging::ServerLogger,
     memory_management::{BytesFormat, ErrorGraph, FailureId, memory_pool::Slice},
@@ -28,8 +27,6 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashSet;
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
-
-pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 
 // These are 288 bytes vs 64 bytes. Adding boxing isn't really worth
 // saving the 200 bytes.
@@ -159,17 +156,6 @@ impl DynamicPool {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug)]
-/// The mode of allocation used.
-pub enum MemoryAllocationMode {
-    /// Use the automatic memory management strategy for allocation.
-    #[default]
-    Auto,
-    /// Use a persistent memory management strategy, meaning that all allocations are for data that is
-    /// likely never going to be freed.
-    Persistent,
-}
-
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
 pub struct MemoryManagement<Storage> {
     name: String,
@@ -283,458 +269,6 @@ enum MemoryAllocationOption {
     FromConfig,
     /// Use the provided [`MemoryAllocationMode`].
     Provided(MemoryAllocationMode),
-}
-
-/// Why a `memory.pools` config could not be turned into a pool layout.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PoolConfigError {
-    /// `memory.pools` was an empty list.
-    EmptyPoolList,
-    /// A size field that must be non-zero was zero.
-    ZeroSize {
-        /// The offending field.
-        field: &'static str,
-    },
-    /// `max_slice_size` exceeds `page_size` (a slice can never span pages).
-    SliceLargerThanPage {
-        /// The page size in bytes (after alignment).
-        page_size: u64,
-        /// The maximum slice size in bytes (after alignment).
-        max_slice_size: u64,
-    },
-    /// `max_pool_size` is smaller than `page_size` (the cap can't fit one page).
-    CapSmallerThanPage {
-        /// The page size in bytes (after alignment).
-        page_size: u64,
-        /// The pool capacity in bytes.
-        max_pool_size: u64,
-    },
-    /// `max_pool_size` spans more pages of `page_size` than a pool can hold.
-    TooManyPages {
-        /// The number of pages the configuration asks for.
-        pages: u64,
-    },
-    /// The pool list has more entries than the pool routing can address.
-    TooManyPools {
-        /// The number of entries in the configuration.
-        count: usize,
-    },
-    /// The preset is not available in this build.
-    PresetUnavailable {
-        /// The preset name.
-        preset: &'static str,
-    },
-    /// Sliced pools are not available in this build (`exclusive_memory_only`).
-    SlicedPoolsUnavailable,
-}
-
-impl core::fmt::Display for PoolConfigError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            PoolConfigError::EmptyPoolList => write!(f, "the pool list is empty"),
-            PoolConfigError::ZeroSize { field } => write!(f, "`{field}` must be non-zero"),
-            PoolConfigError::SliceLargerThanPage {
-                page_size,
-                max_slice_size,
-            } => write!(
-                f,
-                "`max_slice_size` ({max_slice_size}) exceeds `page_size` ({page_size}); a slice can never span pages"
-            ),
-            PoolConfigError::CapSmallerThanPage {
-                page_size,
-                max_pool_size,
-            } => write!(
-                f,
-                "`max_pool_size` ({max_pool_size}) is smaller than `page_size` ({page_size}); the cap can't fit a single page"
-            ),
-            PoolConfigError::TooManyPages { pages } => write!(
-                f,
-                "`max_pool_size` spans {pages} pages of `page_size`, exceeding the maximum of {}; increase `page_size` or lower the cap",
-                u16::MAX
-            ),
-            PoolConfigError::TooManyPools { count } => write!(
-                f,
-                "the pool list has {count} entries, exceeding the maximum of {} dynamic pools",
-                PERSISTENT_POOL_POS - 1
-            ),
-            PoolConfigError::PresetUnavailable { preset } => {
-                write!(f, "the `{preset}` preset is not available in this build")
-            }
-            PoolConfigError::SlicedPoolsUnavailable => {
-                write!(
-                    f,
-                    "sliced pools are not available in this build (exclusive memory only)"
-                )
-            }
-        }
-    }
-}
-
-impl core::error::Error for PoolConfigError {}
-
-/// Why installing a dynamic pool layout did not take effect.
-///
-/// The layout itself was already valid — that is
-/// [`PoolConfigError`](PoolConfigError), reported when the configuration is
-/// resolved. This is about the pools' *state* at the moment of the swap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InstallMemoryPoolsError {
-    /// The dynamic pools still hold live allocations, so the old layout was
-    /// kept. A live slice carries its pool position, and swapping the pool
-    /// list under it would leave that position pointing at a different pool.
-    ///
-    /// Transient: retry once whatever holds them drains. A cleanup that does
-    /// not clear it usually means a cache is holding slices (the metadata
-    /// info cache) or a captured graph is pinning them.
-    PoolsInUse {
-        /// Bytes still live in the dynamic pools.
-        bytes_in_use: u64,
-    },
-    /// This server has no configurable dynamic pools. Permanent — unlike
-    /// [`PoolsInUse`](Self::PoolsInUse), retrying will never succeed.
-    Unsupported,
-}
-
-impl core::fmt::Display for InstallMemoryPoolsError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            InstallMemoryPoolsError::PoolsInUse { bytes_in_use } => write!(
-                f,
-                "the dynamic pools kept their layout: {bytes_in_use} bytes are still live in them"
-            ),
-            InstallMemoryPoolsError::Unsupported => {
-                write!(f, "this server has no configurable dynamic memory pools")
-            }
-        }
-    }
-}
-
-impl core::error::Error for InstallMemoryPoolsError {}
-
-impl MemoryConfiguration {
-    /// Resolve a programmatic [`MemoryPoolsConfig`] override against the
-    /// runtime-chosen configuration for the **main GPU** pool.
-    ///
-    /// When `pools` is `None`, the runtime's own `self` is kept unchanged;
-    /// when present, it wins. There is deliberately no config-file pathway for
-    /// pool layouts — they are dynamic (set per model just before a load) and
-    /// must not freeze at startup; the override reaches the server through
-    /// [`install_memory_pools`](crate::client::Client::install_memory_pools).
-    ///
-    /// `page_size` is deliberately not validated against
-    /// [`MemoryDeviceProperties::max_page_size`]: that value is a sizing
-    /// heuristic for the default layouts (CUDA/HIP report a quarter of the
-    /// device memory), not an allocation limit, and a large arena is exactly
-    /// what an explicit pool override is for. An unallocatable page fails at
-    /// allocation time.
-    pub fn resolve(
-        self,
-        pools: Option<&MemoryPoolsConfig>,
-        properties: &MemoryDeviceProperties,
-    ) -> Result<Self, PoolConfigError> {
-        let Some(pools) = pools else {
-            return Ok(self);
-        };
-
-        match pools {
-            MemoryPoolsConfig::Preset(MemoryPoolsPreset::SubSlices) => {
-                #[cfg(exclusive_memory_only)]
-                {
-                    Err(PoolConfigError::PresetUnavailable {
-                        preset: "sub-slices",
-                    })
-                }
-                #[cfg(not(exclusive_memory_only))]
-                {
-                    Ok(MemoryConfiguration::SubSlices)
-                }
-            }
-            MemoryPoolsConfig::Preset(MemoryPoolsPreset::ExclusivePages) => {
-                Ok(MemoryConfiguration::ExclusivePages)
-            }
-            MemoryPoolsConfig::Explicit(entries) => {
-                if entries.is_empty() {
-                    return Err(PoolConfigError::EmptyPoolList);
-                }
-                // Slices route through their pool's position, and the
-                // persistent pool owns the sentinel position, so the list must
-                // stay addressable below it — checked here so the caller gets
-                // the error instead of a panic on the device thread.
-                if entries.len() >= PERSISTENT_POOL_POS as usize {
-                    return Err(PoolConfigError::TooManyPools {
-                        count: entries.len(),
-                    });
-                }
-                let pool_options = entries
-                    .iter()
-                    .map(|entry| pool_options_from_entry(entry, properties))
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(MemoryConfiguration::Custom { pool_options })
-            }
-        }
-    }
-}
-
-/// Convert one config entry into runtime pool options, aligning sizes up to
-/// the device alignment (a device constraint, not a user error).
-fn pool_options_from_entry(
-    entry: &MemoryPoolConfig,
-    properties: &MemoryDeviceProperties,
-) -> Result<MemoryPoolOptions, PoolConfigError> {
-    let alignment = properties.alignment.max(1);
-    match entry {
-        MemoryPoolConfig::Exclusive {
-            max_alloc_size,
-            dealloc_period,
-        } => {
-            // 0 stays 0: a pool dedicated to zero-sized allocations, as used by
-            // the `SubSlices` preset.
-            let max_alloc_size = max_alloc_size.bytes().next_multiple_of(alignment);
-            Ok(MemoryPoolOptions {
-                pool_type: PoolType::ExclusivePages { max_alloc_size },
-                dealloc_period: *dealloc_period,
-            })
-        }
-        MemoryPoolConfig::Direct { reclaim_at } => Ok(MemoryPoolOptions {
-            pool_type: PoolType::Direct {
-                reclaim_at: reclaim_at.map(|size| size.bytes()),
-            },
-            // `dealloc_period` has no meaning here: the pool reclaims on
-            // memory pressure, not on an allocation count.
-            dealloc_period: None,
-        }),
-        // Sliced pools break the invariant `exclusive_memory_only` builds rely
-        // on (e.g. wgpu on wasm assumes a buffer is never shared between
-        // slices), so an explicit list must be rejected just like the
-        // `sub-slices` preset is.
-        #[cfg(exclusive_memory_only)]
-        MemoryPoolConfig::Sliced { .. } => Err(PoolConfigError::SlicedPoolsUnavailable),
-        #[cfg(not(exclusive_memory_only))]
-        MemoryPoolConfig::Sliced {
-            page_size,
-            max_slice_size,
-            max_pool_size,
-            dealloc_period,
-        } => {
-            if page_size.bytes() == 0 {
-                return Err(PoolConfigError::ZeroSize { field: "page_size" });
-            }
-
-            let page_size = page_size.bytes().next_multiple_of(alignment);
-            let max_slice_size = match max_slice_size {
-                Some(size) if size.bytes() == 0 => {
-                    return Err(PoolConfigError::ZeroSize {
-                        field: "max_slice_size",
-                    });
-                }
-                Some(size) => size.bytes().next_multiple_of(alignment),
-                None => page_size,
-            };
-            if max_slice_size > page_size {
-                return Err(PoolConfigError::SliceLargerThanPage {
-                    page_size,
-                    max_slice_size,
-                });
-            }
-            if let Some(cap) = max_pool_size {
-                let cap = cap.bytes();
-                if cap == 0 {
-                    return Err(PoolConfigError::ZeroSize {
-                        field: "max_pool_size",
-                    });
-                }
-                if cap < page_size {
-                    return Err(PoolConfigError::CapSmallerThanPage {
-                        page_size,
-                        max_pool_size: cap,
-                    });
-                }
-                let pages = cap / page_size;
-                if pages > u16::MAX as u64 {
-                    return Err(PoolConfigError::TooManyPages { pages });
-                }
-            }
-
-            Ok(MemoryPoolOptions {
-                pool_type: PoolType::SlicedPages {
-                    page_size,
-                    max_slice_size,
-                    max_pool_size: max_pool_size.map(|size| size.bytes()),
-                },
-                dealloc_period: *dealloc_period,
-            })
-        }
-    }
-}
-
-/// The pool position stamped on persistent-pool slices, routing their binds
-/// and lookups to the persistent pool. A fixed sentinel (rather than "one past
-/// the dynamic pools") so live persistent slices stay routable when
-/// [`MemoryManagement::install_pools`] rebuilds the dynamic pools with a
-/// different count.
-const PERSISTENT_POOL_POS: u8 = u8::MAX;
-
-/// Build the dynamic pools for `config` — the shared core of
-/// [`MemoryManagement::from_configuration`] and
-/// [`MemoryManagement::install_pools`].
-fn build_pools(
-    properties: &MemoryDeviceProperties,
-    config: MemoryConfiguration,
-    logger: &Arc<ServerLogger>,
-    name: &str,
-) -> Vec<DynamicPool> {
-    let pool_options = match config {
-        #[cfg(not(exclusive_memory_only))]
-        MemoryConfiguration::SubSlices => {
-            // Round chunk size to be aligned.
-            let memory_alignment = properties.alignment;
-            let max_page = properties.max_page_size;
-            let mut pools = Vec::new();
-
-            const MB: u64 = 1024 * 1024;
-
-            // Add in a pool for allocations that are smaller than the min alignment,
-            // as they can't use offsets at all (on wgpu at least).
-            pools.push(MemoryPoolOptions {
-                pool_type: PoolType::ExclusivePages { max_alloc_size: 0 },
-                dealloc_period: None,
-            });
-
-            let mut current = max_page;
-            let mut max_sizes = vec![];
-            let mut page_sizes = vec![];
-            let mut base = pools.len() as u32;
-
-            while current >= 32 * MB {
-                current /= 4;
-
-                // Make sure every pool has an aligned size.
-                current = current.next_multiple_of(memory_alignment);
-
-                max_sizes.push(current / 2u64.pow(base));
-                page_sizes.push(current);
-                base += 1;
-            }
-
-            max_sizes.reverse();
-            page_sizes.reverse();
-
-            for i in 0..max_sizes.len() {
-                let max = max_sizes[i];
-                let page_size = page_sizes[i];
-
-                pools.push(MemoryPoolOptions {
-                    // Creating max slices lower than the chunk size reduces fragmentation.
-                    pool_type: PoolType::SlicedPages {
-                        page_size,
-                        max_slice_size: max,
-                        max_pool_size: None,
-                    },
-                    dealloc_period: None,
-                });
-            }
-
-            // Allocations bigger than the sliced ladder get exact-size
-            // exclusive pages. A sliced tail pool here would materialize a
-            // whole `max_page` page (a quarter of device memory) for the
-            // first allocation that lands in it — on unified-memory devices
-            // that alone can consume a large share of host RAM. Exclusive
-            // pages allocate exactly what is requested and are released once
-            // they sit unused for a full dealloc period.
-            let max_alloc = max_page / memory_alignment * memory_alignment;
-            let dealloc_period = (BASE_DEALLOC_PERIOD as f64
-                * (1.0 + max_alloc as f64 / (DEALLOC_SCALE_MB as f64)).round())
-                as u64;
-            pools.push(MemoryPoolOptions {
-                pool_type: PoolType::ExclusivePages {
-                    max_alloc_size: max_alloc,
-                },
-                dealloc_period: Some(dealloc_period),
-            });
-            pools
-        }
-        MemoryConfiguration::ExclusivePages => {
-            // Add all bin sizes. Nb: because of alignment some buckets
-            // end up as the same size, so only want unique ones,
-            // but also keep the order, so a BTree will do.
-            const MIN_BUCKET_SIZE: u64 = 1024 * 32;
-            const NUM_POOLS: usize = 24;
-
-            let sizes = generate_bucket_sizes(
-                MIN_BUCKET_SIZE,
-                properties.max_page_size,
-                NUM_POOLS,
-                properties.alignment,
-            );
-
-            sizes
-                .iter()
-                .map(|&size| {
-                    let dealloc_period = (BASE_DEALLOC_PERIOD as f64
-                        * (1.0 + size as f64 / (DEALLOC_SCALE_MB as f64)).round())
-                        as u64;
-
-                    MemoryPoolOptions {
-                        pool_type: PoolType::ExclusivePages {
-                            max_alloc_size: size,
-                        },
-                        dealloc_period: Some(dealloc_period),
-                    }
-                })
-                .collect()
-        }
-        MemoryConfiguration::Custom { pool_options } => pool_options,
-    };
-
-    logger.log_memory(
-        |level| !matches!(level, MemoryLogLevel::Disabled),
-        || {
-            let mut msg = String::new();
-            for pool in pool_options.iter() {
-                msg += &format!("[{name}] Using memory pool: \n {pool:?}\n");
-            }
-            msg
-        },
-    );
-
-    assert!(
-        pool_options.len() < PERSISTENT_POOL_POS as usize,
-        "at most {} dynamic pools are supported",
-        PERSISTENT_POOL_POS - 1
-    );
-
-    pool_options
-        .iter()
-        .enumerate()
-        .map(|(pool_pos, pool)| {
-            let pool_pos = pool_pos as u8;
-
-            match pool.pool_type {
-                PoolType::SlicedPages {
-                    page_size,
-                    max_slice_size,
-                    max_pool_size,
-                } => DynamicPool::Sliced(SlicedPool::new(
-                    page_size,
-                    max_slice_size,
-                    properties.alignment,
-                    pool_pos,
-                    max_pool_size,
-                )),
-                PoolType::ExclusivePages { max_alloc_size } => {
-                    DynamicPool::Exclusive(ExclusiveMemoryPool::new(
-                        max_alloc_size,
-                        properties.alignment,
-                        pool.dealloc_period.unwrap_or(u64::MAX),
-                        pool_pos,
-                    ))
-                }
-                PoolType::Direct { reclaim_at } => {
-                    DynamicPool::Direct(DirectPool::new(properties.alignment, pool_pos, reclaim_at))
-                }
-            }
-        })
-        .collect()
 }
 
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
@@ -1428,10 +962,177 @@ impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
     }
 }
 
+/// Build the dynamic pools for `config` — the shared core of
+/// [`MemoryManagement::from_configuration`] and
+/// [`MemoryManagement::install_pools`].
+fn build_pools(
+    properties: &MemoryDeviceProperties,
+    config: MemoryConfiguration,
+    logger: &Arc<ServerLogger>,
+    name: &str,
+) -> Vec<DynamicPool> {
+    let pool_options = match config {
+        #[cfg(not(exclusive_memory_only))]
+        MemoryConfiguration::SubSlices => {
+            // Round chunk size to be aligned.
+            let memory_alignment = properties.alignment;
+            let max_page = properties.max_page_size;
+            let mut pools = Vec::new();
+
+            const MB: u64 = 1024 * 1024;
+
+            // Add in a pool for allocations that are smaller than the min alignment,
+            // as they can't use offsets at all (on wgpu at least).
+            pools.push(MemoryPoolOptions {
+                pool_type: PoolType::ExclusivePages { max_alloc_size: 0 },
+                dealloc_period: None,
+            });
+
+            let mut current = max_page;
+            let mut max_sizes = vec![];
+            let mut page_sizes = vec![];
+            let mut base = pools.len() as u32;
+
+            while current >= 32 * MB {
+                current /= 4;
+
+                // Make sure every pool has an aligned size.
+                current = current.next_multiple_of(memory_alignment);
+
+                max_sizes.push(current / 2u64.pow(base));
+                page_sizes.push(current);
+                base += 1;
+            }
+
+            max_sizes.reverse();
+            page_sizes.reverse();
+
+            for i in 0..max_sizes.len() {
+                let max = max_sizes[i];
+                let page_size = page_sizes[i];
+
+                pools.push(MemoryPoolOptions {
+                    // Creating max slices lower than the chunk size reduces fragmentation.
+                    pool_type: PoolType::SlicedPages {
+                        page_size,
+                        max_slice_size: max,
+                        max_pool_size: None,
+                    },
+                    dealloc_period: None,
+                });
+            }
+
+            // Allocations bigger than the sliced ladder get exact-size
+            // exclusive pages. A sliced tail pool here would materialize a
+            // whole `max_page` page (a quarter of device memory) for the
+            // first allocation that lands in it — on unified-memory devices
+            // that alone can consume a large share of host RAM. Exclusive
+            // pages allocate exactly what is requested and are released once
+            // they sit unused for a full dealloc period.
+            let max_alloc = max_page / memory_alignment * memory_alignment;
+            let dealloc_period = (BASE_DEALLOC_PERIOD as f64
+                * (1.0 + max_alloc as f64 / (DEALLOC_SCALE_MB as f64)).round())
+                as u64;
+            pools.push(MemoryPoolOptions {
+                pool_type: PoolType::ExclusivePages {
+                    max_alloc_size: max_alloc,
+                },
+                dealloc_period: Some(dealloc_period),
+            });
+            pools
+        }
+        MemoryConfiguration::ExclusivePages => {
+            // Add all bin sizes. Nb: because of alignment some buckets
+            // end up as the same size, so only want unique ones,
+            // but also keep the order, so a BTree will do.
+            const MIN_BUCKET_SIZE: u64 = 1024 * 32;
+            const NUM_POOLS: usize = 24;
+
+            let sizes = generate_bucket_sizes(
+                MIN_BUCKET_SIZE,
+                properties.max_page_size,
+                NUM_POOLS,
+                properties.alignment,
+            );
+
+            sizes
+                .iter()
+                .map(|&size| {
+                    let dealloc_period = (BASE_DEALLOC_PERIOD as f64
+                        * (1.0 + size as f64 / (DEALLOC_SCALE_MB as f64)).round())
+                        as u64;
+
+                    MemoryPoolOptions {
+                        pool_type: PoolType::ExclusivePages {
+                            max_alloc_size: size,
+                        },
+                        dealloc_period: Some(dealloc_period),
+                    }
+                })
+                .collect()
+        }
+        MemoryConfiguration::Custom { pool_options } => pool_options,
+    };
+
+    logger.log_memory(
+        |level| !matches!(level, MemoryLogLevel::Disabled),
+        || {
+            let mut msg = String::new();
+            for pool in pool_options.iter() {
+                msg += &format!("[{name}] Using memory pool: \n {pool:?}\n");
+            }
+            msg
+        },
+    );
+
+    assert!(
+        pool_options.len() < PERSISTENT_POOL_POS as usize,
+        "at most {} dynamic pools are supported",
+        PERSISTENT_POOL_POS - 1
+    );
+
+    pool_options
+        .iter()
+        .enumerate()
+        .map(|(pool_pos, pool)| {
+            let pool_pos = pool_pos as u8;
+
+            match pool.pool_type {
+                PoolType::SlicedPages {
+                    page_size,
+                    max_slice_size,
+                    max_pool_size,
+                } => DynamicPool::Sliced(SlicedPool::new(
+                    page_size,
+                    max_slice_size,
+                    properties.alignment,
+                    pool_pos,
+                    max_pool_size,
+                )),
+                PoolType::ExclusivePages { max_alloc_size } => {
+                    DynamicPool::Exclusive(ExclusiveMemoryPool::new(
+                        max_alloc_size,
+                        properties.alignment,
+                        pool.dealloc_period.unwrap_or(u64::MAX),
+                        pool_pos,
+                    ))
+                }
+                PoolType::Direct { reclaim_at } => {
+                    DynamicPool::Direct(DirectPool::new(properties.alignment, pool_pos, reclaim_at))
+                }
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{memory_management::MemoryManagement, storage::BytesStorage};
+    use crate::{
+        config::memory::{MemoryPoolConfig, MemoryPoolsConfig, MemoryPoolsPreset},
+        memory_management::{MemoryManagement, PoolConfigError},
+        storage::BytesStorage,
+    };
     use alloc::vec;
 
     const DUMMY_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties {

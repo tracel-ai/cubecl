@@ -34,10 +34,10 @@ a host copy — reads normally from then on, because it has a writer again.
 
 | | what it holds |
 |---|---|
-| [`Taint`](crates/cubecl-runtime/src/memory_management/taint.rs) | which byte ranges of one allocation are flagged, and by which failure |
-| [`ErrorGraph`](crates/cubecl-runtime/src/memory_management/error_graph.rs) | the errors themselves, refcounted by the allocations carrying them, plus the skip records that make a report a path |
-| [`Failures`](crates/cubecl-runtime/src/stream/failures.rs) | one store per device: the graph, and a pooled vector the scopes stage write sets in |
-| [`ExecuteScope`](crates/cubecl-runtime/src/stream/execute_scope.rs) | the only way a backend touches any of it |
+| [`Taint`](crates/cubecl-server/src/memory_management/taint.rs) | which byte ranges of one allocation are flagged, and by which failure |
+| [`ErrorGraph`](crates/cubecl-server/src/memory_management/error_graph.rs) | the errors themselves, refcounted by the allocations carrying them, plus the skip records that make a report a path |
+| [`Failures`](crates/cubecl-server/src/stream/failures.rs) | one store per device: the graph, and a pooled vector the scopes stage write sets in |
+| [`ExecuteScope`](crates/cubecl-server/src/stream/execute_scope.rs) | the only way a backend touches any of it |
 
 `Taint` holds ranges rather than a whole-allocation bit because the grain
 matters: a host write covering one row of a tensor must not clear the flag on
@@ -189,10 +189,10 @@ coarse by necessity.
   cube count on the host, including that two workflows interleaved on one stream do
   not contaminate each other, that a read reports the root cause two hops down,
   and that a rewrite makes a stale buffer readable again.
-- `crates/cubecl-runtime/tests/taint_property.rs` — a randomised model check
+- `crates/cubecl-server/tests/taint_property.rs` — a randomised model check
   that a read returns bytes if and only if their last writer succeeded, plus
   the scope's own properties: a mid-launch panic leaves the set claimed, a
   partial host write releases only the bytes it covers, a skip mints no
   failure of its own.
-- `crates/cubecl-runtime/src/memory_management/error_graph.rs` — unit tests for
+- `crates/cubecl-server/src/memory_management/error_graph.rs` — unit tests for
   the refcount and the skip-path walk.

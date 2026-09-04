@@ -31,4 +31,15 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
     fn enumerate_all_devices() -> Vec<DeviceId> {
         Self::enumerate_devices(0)
     }
+
+    /// Whether this machine has hardware worth choosing this runtime for.
+    ///
+    /// What picking a default device walks, so the question is not "could this
+    /// runtime run at all" but "would a caller who did not choose want it".
+    /// Enumerating a device is the answer for most runtimes; one that also
+    /// exposes a software fallback answers no on a machine that has only that,
+    /// leaving a native CPU runtime to claim it.
+    fn is_available() -> bool {
+        !Self::enumerate_all_devices().is_empty()
+    }
 }

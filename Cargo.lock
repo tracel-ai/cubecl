@@ -800,7 +800,7 @@ dependencies = [
  "cubecl-core",
  "cubecl-environment",
  "cubecl-llvm",
- "cubecl-runtime",
+ "cubecl-server",
  "cubecl-std",
  "derive-new",
  "half",
@@ -823,7 +823,7 @@ dependencies = [
  "cubecl-core",
  "cubecl-cpp",
  "cubecl-environment",
- "cubecl-runtime",
+ "cubecl-server",
  "cubecl-std",
  "cudarc",
  "derive-new",
@@ -888,7 +888,7 @@ dependencies = [
  "cubecl-environment",
  "cubecl-hip-sys",
  "cubecl-llvm",
- "cubecl-runtime",
+ "cubecl-server",
  "cubecl-std",
  "derive-new",
  "half",
@@ -962,7 +962,6 @@ dependencies = [
 name = "cubecl-macros"
 version = "0.11.0-pre.3"
 dependencies = [
- "cubecl-common",
  "darling",
  "derive-new",
  "derive_more",
@@ -997,7 +996,7 @@ dependencies = [
  "cubecl-cpp",
  "cubecl-environment",
  "cubecl-ir",
- "cubecl-runtime",
+ "cubecl-server",
  "cubecl-std",
  "derive-new",
  "half",
@@ -1070,6 +1069,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "cubecl-server"
+version = "0.11.0-pre.3"
+dependencies = [
+ "buildid",
+ "bytemuck",
+ "cfg-if",
+ "cfg_aliases",
+ "cubecl-common",
+ "cubecl-environment",
+ "cubecl-ir",
+ "cubecl-runtime",
+ "cubecl-zspace",
+ "derive-new",
+ "derive_more",
+ "foldhash 0.2.0",
+ "futures-util",
+ "hashbrown 0.17.1",
+ "itertools 0.15.0",
+ "log",
+ "pliron",
+ "rand 0.10.2",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "smallvec",
+ "tempfile",
+ "test-log",
+ "thiserror",
+ "tracing",
+ "tracy-client",
+]
+
+[[package]]
 name = "cubecl-spirv"
 version = "0.11.0-pre.3"
 dependencies = [
@@ -1122,7 +1154,7 @@ dependencies = [
  "cubecl-environment",
  "cubecl-ir",
  "cubecl-opt",
- "cubecl-runtime",
+ "cubecl-server",
  "cubecl-spirv",
  "cubecl-std",
  "derive-new",

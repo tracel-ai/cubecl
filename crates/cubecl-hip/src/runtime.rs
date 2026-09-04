@@ -4,7 +4,7 @@ use crate::{
     device::AmdDevice,
 };
 use core::ffi::c_int;
-use cubecl_runtime::runtime::Runtime;
+use cubecl_server::runtime::Runtime;
 use std::sync::OnceLock;
 
 use cubecl_common::{
@@ -39,9 +39,7 @@ use cubecl_cpp::{
     },
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
-use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger,
-};
+use cubecl_server::{allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger};
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 static AMD_WMMA: OnceLock<Option<AmdWmma>> = OnceLock::new();

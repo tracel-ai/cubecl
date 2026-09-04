@@ -27,7 +27,7 @@ use cubecl_environment::stream::StreamId;
 #[cfg(renderdoc)]
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::{
+use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, ManagedMemoryHandle, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
@@ -573,7 +573,7 @@ impl WgpuStream {
     /// when a launch has already staged these exact words. The info is
     /// read-only metadata (no buffer bindings), so sharing it across launches —
     /// even of different kernels — is sound; see
-    /// [`MetadataInfoCache`](cubecl_runtime::metadata_cache::MetadataInfoCache).
+    /// [`MetadataInfoCache`](cubecl_server::metadata_cache::MetadataInfoCache).
     /// `words` is taken by value so a miss hands it to the cache as the key
     /// without cloning. A hit's buffer bytes always equal the key bytes, so it
     /// is byte-identical to what the miss path would have built and uploaded.

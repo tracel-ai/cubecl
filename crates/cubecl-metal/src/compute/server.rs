@@ -18,7 +18,7 @@ use cubecl_core::{
 };
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
-use cubecl_runtime::{
+use cubecl_server::{
     dry_run::LaunchMode,
     kernel::CubeKernel,
     logging::ServerLogger,
@@ -67,8 +67,8 @@ impl MetalServer {
         let backend = MetalStreamBackend::new(device, mem_props, mem_config, logger.clone());
 
         let config = {
-            use cubecl_runtime::config::RuntimeConfig;
-            cubecl_runtime::config::CubeClRuntimeConfig::get()
+            use cubecl_server::config::RuntimeConfig;
+            cubecl_server::config::CubeClRuntimeConfig::get()
         };
         let max_streams = config.streaming.max_streams;
 
@@ -337,8 +337,8 @@ impl Server for MetalServer {
         // fail unrelated reads of memory the run deliberately left alone.
         let kernel_id = kernel.id();
         let compiled = (|| {
-            cubecl_runtime::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)?;
-            cubecl_runtime::validation::validate_units(&self.utilities.properties, &kernel_id)?;
+            cubecl_server::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)?;
+            cubecl_server::validation::validate_units(&self.utilities.properties, &kernel_id)?;
             self.context.compile_kernel(
                 &kernel_id,
                 kernel,
@@ -657,7 +657,7 @@ impl Server for MetalServer {
     fn memory_usage(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_runtime::memory_management::MemoryUsage {
+    ) -> cubecl_server::memory_management::MemoryUsage {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         resolved.current().memory_management.memory_usage()
     }
@@ -665,7 +665,7 @@ impl Server for MetalServer {
     fn memory_report(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_runtime::memory_management::MemoryReport {
+    ) -> cubecl_server::memory_management::MemoryReport {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         resolved.current().memory_management.memory_report()
     }
@@ -678,7 +678,7 @@ impl Server for MetalServer {
 
     fn allocation_mode(
         &mut self,
-        mode: cubecl_runtime::memory_management::MemoryAllocationMode,
+        mode: cubecl_server::memory_management::MemoryAllocationMode,
         stream_id: StreamId,
     ) {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());

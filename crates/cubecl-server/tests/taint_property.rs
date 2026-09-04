@@ -28,14 +28,14 @@
 
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::id::KernelId;
-use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::{
+use cubecl_server::id::KernelId;
+use cubecl_server::logging::ServerLogger;
+use cubecl_server::memory_management::{
     ErrorGraph, FailureId, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
 };
-use cubecl_runtime::server::{BufferBinding, Handle, ServerError};
-use cubecl_runtime::storage::BytesStorage;
-use cubecl_runtime::stream::{
+use cubecl_server::server::{BufferBinding, Handle, ServerError};
+use cubecl_server::storage::BytesStorage;
+use cubecl_server::stream::{
     ExecuteScope, FailureStore, Failures, ScopedOutcome, StreamCapture, StreamFactory,
     StreamMemory, StreamPool, WriteScoped,
 };
