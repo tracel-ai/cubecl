@@ -28,13 +28,18 @@ const SAMPLE_BUDGET: Duration = Duration::from_millis(200);
 /// the ones after it can go stale.
 const SAMPLE_PATIENCE: usize = 12;
 
-/// Wall clock a shape is ranked over, which is enough to order shapes and not
-/// enough to report a peak. Shapes that matter are 10% apart or more, and ones
-/// within a couple of percent are interchangeable by definition.
-const RANK_BUDGET: Duration = Duration::from_millis(30);
+/// Wall clock one launch of a shape is grown or cut toward, so that a sweep
+/// times every shape over the same span and none of them wears a larger share
+/// of the fixed cost of a launch than the rest.
+const TARGET_DURATION: Duration = Duration::from_millis(20);
 
-/// Samples a ranking pass may spend on one shape.
-const RANK_PATIENCE: usize = 2;
+/// Samples a ranking pass keeps the fastest of, per shape.
+///
+/// A count and not a wall clock, so every shape of a sweep is ordered on the
+/// same number of draws. Under a time budget a shape whose pass happens to be
+/// short draws more of them, and the lowest of more draws is lower, which
+/// decides a close pair on how long its passes are rather than on their rate.
+const RANK_SAMPLES: usize = 3;
 
 /// Configuration and payload for a benchmarkable compute kernel.
 pub struct KernelConfig {
@@ -45,6 +50,16 @@ pub struct KernelConfig {
     /// Iterations a launch must carry however quickly they turn out to run,
     /// which a duration target cannot express.
     pub min_iterations: usize,
+}
+
+/// What a ranking pass found: how fast the shape answered, and the iteration
+/// count it settled on for the next shape to start from.
+pub struct Ranked {
+    /// The shape's rate, measured briefly enough to order it and not to report
+    /// it.
+    pub value: ThroughputValue,
+    /// What one launch of this shape was timed over.
+    pub iterations: usize,
 }
 
 /// A marker for measuring throughput of compute kernels.
@@ -136,28 +151,65 @@ impl ThroughputBenchmarker {
     }
 
     /// Times one shape briefly, to order it against the others rather than to
-    /// report its peak.
+    /// report its peak, and reports the iteration count the next shape should
+    /// start from.
     ///
-    /// Takes the iteration count from [`warm`](Self::warm) so every shape in a
-    /// sweep is timed over the same amount of work, and never fewer passes than
-    /// the shape needs to be measuring what it claims.
-    pub fn rank(kernel_config: &KernelConfig, iterations: usize) -> ThroughputValue {
-        let iterations = iterations.max(kernel_config.min_iterations).max(1);
-        // One launch discarded. The shape the sweep warmed on has its buffers
-        // and page tables settled and the rest do not, and a first launch on a
-        // freshly written pool is slow enough that they would rank on that
-        // rather than on their rate.
-        let _ = (kernel_config.sample)(iterations);
-        let duration = Self::sample_peak_duration(
-            iterations,
-            &kernel_config.sample,
-            RANK_BUDGET,
-            RANK_PATIENCE,
-        );
+    /// Two launches are spent before timing. The shape a sweep warmed on has
+    /// its buffers, its pages and its compiled kernel settled and the rest do
+    /// not, and a first launch carries all of that, enough that shapes would
+    /// rank on which of them the sweep had already touched. The second is what
+    /// this shape's own iteration count is settled from, so a shape retiring
+    /// ten times more per pass than the one before it is still timed over
+    /// [`TARGET_DURATION`] and carries the same share of a launch's fixed cost.
+    ///
+    /// `iterations` is where that starts, so passing what the previous shape
+    /// settled on keeps those two launches near the target too.
+    pub fn rank(kernel_config: &KernelConfig, iterations: usize) -> Ranked {
+        let settling = iterations.max(kernel_config.min_iterations).max(1);
+        // What a shape costs the first time is what it costs to compile and to
+        // fault in, not what a pass of it costs, so the first launch is spent
+        // and a second one is what the count is settled from. Reading the first
+        // ranks a shape the sweep has not compiled before below one it has.
+        let _ = (kernel_config.sample)(settling);
+        let took = (kernel_config.sample)(settling);
 
-        ThroughputValue {
-            ops_count: kernel_config.ops_count,
-            duration,
+        let iterations = Self::retarget(settling, took)
+            .max(kernel_config.min_iterations)
+            .max(1);
+
+        let mut fastest = Duration::MAX;
+        for _ in 0..RANK_SAMPLES {
+            fastest = fastest.min((kernel_config.sample)(iterations));
+        }
+
+        let duration = fastest / iterations as u32;
+
+        Ranked {
+            value: ThroughputValue {
+                ops_count: kernel_config.ops_count,
+                duration,
+            },
+            iterations,
+        }
+    }
+
+    /// The count that would have taken [`TARGET_DURATION`], given what
+    /// `iterations` of them took.
+    ///
+    /// A timer reading zero says nothing to scale by, so the count stands.
+    fn retarget(iterations: usize, took: Duration) -> usize {
+        let took = took.as_secs_f64();
+
+        if took <= 0.0 {
+            return iterations;
+        }
+
+        let scaled = iterations as f64 * (TARGET_DURATION.as_secs_f64() / took);
+
+        if scaled.is_finite() {
+            (scaled as usize).max(1)
+        } else {
+            iterations
         }
     }
 
@@ -183,7 +235,7 @@ impl ThroughputBenchmarker {
         const MAX_BLIND_ITERATIONS: usize = 1 << 10;
         const PLATEAU_TOL: f64 = 0.03;
         const PATIENCE: usize = 3;
-        const TARGET_DURATION_MS: f64 = 20.0;
+        let target_ms = TARGET_DURATION.as_secs_f64() * 1000.0;
 
         let mut best = f64::INFINITY;
         let mut stable = 0;
@@ -193,11 +245,11 @@ impl ThroughputBenchmarker {
 
         for _ in 0..MAX_WARMUP {
             let duration = sample(iterations).as_secs_f64() * 1000.0;
-            if duration < TARGET_DURATION_MS {
+            if duration < target_ms {
                 let (extra_iters, ceiling) = if duration > 1e-6 {
                     let duration_per_iter = duration / iterations as f64;
                     (
-                        ((TARGET_DURATION_MS - duration) / duration_per_iter).ceil() as usize,
+                        ((target_ms - duration) / duration_per_iter).ceil() as usize,
                         MAX_ITERATIONS,
                     )
                 } else {
@@ -412,8 +464,12 @@ mod tests {
 
         let iterations = ThroughputBenchmarker::warm(&fast);
         let start = Instant::now();
-        let fast_rate = ThroughputBenchmarker::rank(&fast, iterations).ops_per_s();
-        let slow_rate = ThroughputBenchmarker::rank(&slow, iterations).ops_per_s();
+        let fast_rate = ThroughputBenchmarker::rank(&fast, iterations)
+            .value
+            .ops_per_s();
+        let slow_rate = ThroughputBenchmarker::rank(&slow, iterations)
+            .value
+            .ops_per_s();
 
         assert!(fast_rate > slow_rate, "{fast_rate} against {slow_rate}");
         assert!(
@@ -421,6 +477,48 @@ mod tests {
             "ranked two shapes in {:?}",
             start.elapsed()
         );
+    }
+
+    /// Shapes of one sweep differ in what a pass costs, and timing a fast one
+    /// over a tenth of the span would make it wear ten times the share of a
+    /// launch's fixed cost. Each settles its own count toward the target.
+    #[test]
+    fn ranking_times_each_shape_over_the_same_span() {
+        let config = |per_iter_nanos: u64| KernelConfig {
+            sample: Box::new(move |iterations| {
+                Duration::from_nanos(per_iter_nanos * iterations as u64)
+            }),
+            ops_count: 1,
+            min_iterations: 1,
+        };
+
+        let slow = ThroughputBenchmarker::rank(&config(1000), 1000);
+        let fast = ThroughputBenchmarker::rank(&config(100), 1000);
+
+        assert_eq!(slow.iterations, 20_000);
+        assert_eq!(fast.iterations, 200_000);
+    }
+
+    /// A shape's first launch carries compiling and faulting it in, which is
+    /// not what a pass of it costs. Settling the count from that ranks a shape
+    /// the sweep has not seen before below one it has.
+    #[test]
+    fn ranking_settles_its_count_after_the_first_launch() {
+        let launches = Cell::new(0);
+        let config = KernelConfig {
+            sample: Box::new(move |iterations| {
+                launches.set(launches.get() + 1);
+                let per_iter = if launches.get() == 1 { 100_000 } else { 1_000 };
+
+                Duration::from_nanos(per_iter * iterations as u64)
+            }),
+            ops_count: 1,
+            min_iterations: 1,
+        };
+
+        let ranked = ThroughputBenchmarker::rank(&config, 1_000);
+
+        assert_eq!(ranked.iterations, 20_000);
     }
 
     /// Every shape of a sweep is timed over the same work, or a shape that
@@ -434,9 +532,10 @@ mod tests {
             min_iterations: needed,
         };
 
-        let value = ThroughputBenchmarker::rank(&config, 1);
+        let ranked = ThroughputBenchmarker::rank(&config, 1);
 
-        assert_eq!(value.duration, Duration::from_nanos(1));
+        assert_eq!(ranked.value.duration, Duration::from_nanos(1));
+        assert!(ranked.iterations >= needed);
     }
 
     /// A working timer still drives the count to the duration target.

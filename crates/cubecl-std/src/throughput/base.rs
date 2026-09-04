@@ -1,4 +1,4 @@
-use alloc::string::String;
+use cubecl_common::device::ServiceId;
 use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_environment::{collections::HashMap, sync::Mutex};
 use cubecl_runtime::{
@@ -66,7 +66,7 @@ pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurv
         })
     };
 
-    client.memory_cleanup();
+    cleanup_unless_pooled(client);
 
     MemoryCurve::new(access, points)
 }
@@ -121,9 +121,7 @@ pub fn measure_peak_throughput(
 
     let value = client.measure_throughput(key, || probe(client, key));
 
-    if !pooling(&device_key(client)) {
-        client.memory_cleanup();
-    }
+    cleanup_unless_pooled(client);
 
     value
 }
@@ -140,26 +138,26 @@ pub fn measure_peak_throughput(
 /// Counted per device and not as a flag, so a sweep that ends cannot release
 /// the pool another one is still measuring against.
 struct PooledProbes {
-    device: String,
+    service: ServiceId,
 }
 
 /// How many sweeps are holding each device's pools open.
-static POOLED_PROBES: Mutex<Option<HashMap<String, usize>>> = Mutex::new(None);
+static POOLED_PROBES: Mutex<Option<HashMap<ServiceId, usize>>> = Mutex::new(None);
 
 impl PooledProbes {
     fn enter(client: &Client) -> Self {
-        Self::enter_device(device_key(client))
+        Self::enter_service(client.service_id())
     }
 
-    fn enter_device(device: String) -> Self {
+    fn enter_service(service: ServiceId) -> Self {
         let mut pooled = POOLED_PROBES.lock();
 
         *pooled
             .get_or_insert_with(HashMap::new)
-            .entry(device.clone())
+            .entry(service)
             .or_insert(0) += 1;
 
-        Self { device }
+        Self { service }
     }
 }
 
@@ -170,23 +168,32 @@ impl Drop for PooledProbes {
             return;
         };
 
-        if let Some(holders) = sweeps.get_mut(&self.device) {
+        if let Some(holders) = sweeps.get_mut(&self.service) {
             *holders -= 1;
 
             if *holders == 0 {
-                sweeps.remove(&self.device);
+                sweeps.remove(&self.service);
             }
         }
     }
 }
 
-/// Whether any sweep is holding `device`'s pools open.
-fn pooling(device: &str) -> bool {
+/// Releases what `client` holds, unless a sweep is still measuring against it.
+///
+/// Decided while holding the lock: a sweep entered between reading the count
+/// and releasing would have the pool it is about to measure taken from it.
+fn cleanup_unless_pooled(client: &Client) {
     let pooled = POOLED_PROBES.lock();
 
+    if !holds(&pooled, client.service_id()) {
+        client.memory_cleanup();
+    }
+}
+
+fn holds(pooled: &Option<HashMap<ServiceId, usize>>, service: ServiceId) -> bool {
     pooled
         .as_ref()
-        .is_some_and(|sweeps| sweeps.contains_key(device))
+        .is_some_and(|sweeps| sweeps.contains_key(&service))
 }
 
 /// Measures `key`, in the fastest shape its probe can be launched in.
@@ -351,8 +358,13 @@ fn ranked_shape<S: Copy>(shapes: &[S], build: impl Fn(S) -> KernelConfig) -> Opt
 
     for shape in shapes {
         let config = build(*shape);
-        let iterations = *warmed.get_or_insert_with(|| ThroughputBenchmarker::warm(&config));
-        let rate = ThroughputBenchmarker::rank(&config, iterations).ops_per_s();
+        let start = *warmed.get_or_insert_with(|| ThroughputBenchmarker::warm(&config));
+        let ranked = ThroughputBenchmarker::rank(&config, start);
+        let rate = ranked.value.ops_per_s();
+
+        // The next shape starts from what this one settled on, so a sweep whose
+        // shapes drift in cost keeps its settling launch near the target.
+        warmed = Some(ranked.iterations);
 
         if rate.is_finite() && fastest.is_none_or(|(best, _)| rate > best) {
             fastest = Some((rate, *shape));
@@ -413,13 +425,14 @@ fn with_units(client: &Client, config: LaunchConfig, units: u32) -> LaunchConfig
 
 /// The worker count each device streams each access fastest at, once one probe
 /// of that access has swept for it.
-static SATURATING_WORKERS: Mutex<Option<HashMap<(String, MemoryAccess), u32>>> = Mutex::new(None);
+static SATURATING_WORKERS: Mutex<Option<HashMap<(ServiceId, MemoryAccess), u32>>> =
+    Mutex::new(None);
 
 fn remembered_workers(client: &Client, access: MemoryAccess) -> Option<u32> {
     let workers = SATURATING_WORKERS.lock();
     let workers = workers.as_ref()?;
 
-    workers.get(&(device_key(client), access)).copied()
+    workers.get(&(client.service_id(), access)).copied()
 }
 
 fn remember_workers(client: &Client, access: MemoryAccess, units: u32) {
@@ -427,19 +440,7 @@ fn remember_workers(client: &Client, access: MemoryAccess, units: u32) {
 
     workers
         .get_or_insert_with(HashMap::new)
-        .insert((device_key(client), access), units);
-}
-
-/// Names one device, so two of them do not share a worker count.
-fn device_key(client: &Client) -> String {
-    let identity = &client.properties().identity;
-
-    alloc::format!(
-        "{}_{}_{}",
-        client.name(),
-        identity.fingerprint,
-        identity.name
-    )
+        .insert((client.service_id(), access), units);
 }
 
 /// The element types the arithmetic ceiling for `dtype` is measured in.
@@ -549,7 +550,17 @@ fn launch_config(client: &Client, dtype: ElemType) -> LaunchConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cubecl_common::device::DeviceId;
     use cubecl_core::ir::{IntKind, UIntKind};
+
+    /// A service to key pooled state on, distinct per `index`.
+    fn service(index: u16) -> ServiceId {
+        ServiceId::of::<u8>(DeviceId::new(0, index))
+    }
+
+    fn pooled(service: ServiceId) -> bool {
+        holds(&POOLED_PROBES.lock(), service)
+    }
 
     const F32: ElemType = ElemType::Float(FloatKind::F32);
 
@@ -557,17 +568,17 @@ mod tests {
     /// other is still measuring against, which is what a single flag would do.
     #[test]
     fn a_sweep_that_ends_leaves_an_overlapping_one_pooled() {
-        let device = String::from("overlapping");
-        let held = PooledProbes::enter_device(device.clone());
+        let device = service(1);
+        let held = PooledProbes::enter_service(device);
 
         {
-            let _ends_first = PooledProbes::enter_device(device.clone());
-            assert!(pooling(&device));
+            let _ends_first = PooledProbes::enter_service(device);
+            assert!(pooled(device));
         }
 
-        assert!(pooling(&device), "one sweep is still running");
+        assert!(pooled(device), "one sweep is still running");
         drop(held);
-        assert!(!pooling(&device));
+        assert!(!pooled(device));
     }
 
     /// The same, across threads, where the two sweeps genuinely overlap rather
@@ -576,41 +587,38 @@ mod tests {
     fn a_sweep_on_another_thread_keeps_its_own_device_pooled() {
         use std::sync::{Arc, Barrier};
 
-        let device = String::from("threaded");
+        let device = service(2);
         let (entered, ended) = (Arc::new(Barrier::new(2)), Arc::new(Barrier::new(2)));
 
         let holder = std::thread::spawn({
-            let (device, entered, ended) = (device.clone(), entered.clone(), ended.clone());
+            let (entered, ended) = (entered.clone(), ended.clone());
 
             move || {
-                let _pooled = PooledProbes::enter_device(device);
+                let _pooled = PooledProbes::enter_service(device);
                 entered.wait();
                 ended.wait();
             }
         });
 
         {
-            let _pooled = PooledProbes::enter_device(device.clone());
+            let _pooled = PooledProbes::enter_service(device);
             entered.wait();
         }
 
-        assert!(
-            pooling(&device),
-            "the other thread's sweep is still running"
-        );
+        assert!(pooled(device), "the other thread's sweep is still running");
         ended.wait();
         holder.join().expect("the holding thread finishes");
-        assert!(!pooling(&device));
+        assert!(!pooled(device));
     }
 
-    /// Pools are a device's own, so one device's sweep says nothing about
-    /// another's.
+    /// Pools are a device's own, and two cards of the same model are two
+    /// devices: a sweep on one says nothing about the other.
     #[test]
     fn a_sweep_pools_only_the_device_it_measures() {
-        let _pooled = PooledProbes::enter_device(String::from("measured"));
+        let _pooled = PooledProbes::enter_service(service(3));
 
-        assert!(pooling("measured"));
-        assert!(!pooling("untouched"));
+        assert!(pooled(service(3)));
+        assert!(!pooled(service(4)));
     }
 
     /// The reported value is a full measurement of the winner, not the

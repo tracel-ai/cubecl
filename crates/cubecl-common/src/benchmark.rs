@@ -294,13 +294,25 @@ pub trait Benchmark {
             // answers at the clocks a sampled run will see.
             let budget = self.warmup_budget();
             let warmup = Instant::now();
-            let mut warmups = 0;
+            let (mut warmups, mut failures) = (0, 0);
             while warmups < MIN_WARMUP_RUNS || warmup.elapsed() < budget {
                 let warmed: Result<crate::profile::ProfileTicks, _> = execute(&args);
-                if warmed.is_err() {
-                    break;
+
+                match warmed {
+                    Ok(_) => warmups += 1,
+                    // One failure is not the device saying no: cutting the
+                    // warmup short there would leave the samples reading cold
+                    // clocks and report that as the kernel's speed. A kernel
+                    // that cannot run at all stops after the launches its
+                    // warmup owed it, rather than failing for the whole budget.
+                    Err(_) => {
+                        failures += 1;
+
+                        if failures >= MIN_WARMUP_RUNS {
+                            break;
+                        }
+                    }
                 }
-                warmups += 1;
             }
 
             // Real execution.
@@ -399,6 +411,8 @@ mod tests {
     struct TimedBench {
         per_execution: Duration,
         executions: Cell<usize>,
+        /// Launches that fail before any of them succeed.
+        failures: Cell<usize>,
     }
 
     impl TimedBench {
@@ -406,7 +420,14 @@ mod tests {
             Self {
                 per_execution,
                 executions: Cell::new(0),
+                failures: Cell::new(0),
             }
+        }
+
+        fn failing(self, launches: usize) -> Self {
+            self.failures.set(launches);
+
+            self
         }
     }
 
@@ -418,6 +439,13 @@ mod tests {
 
         fn execute(&self, _input: Self::Input) -> Result<Self::Output, String> {
             self.executions.set(self.executions.get() + 1);
+
+            if self.failures.get() > 0 {
+                self.failures.set(self.failures.get() - 1);
+
+                return Err(String::from("the launch failed"));
+            }
+
             let start = Instant::now();
             while start.elapsed() < self.per_execution {}
 
@@ -451,6 +479,30 @@ mod tests {
             start.elapsed()
         );
         assert!(bench.executions.get() > MIN_WARMUP_RUNS);
+    }
+
+    /// One launch failing is not the device saying no, and cutting the warmup
+    /// there would leave the samples reading idle clocks and report that as the
+    /// kernel's speed.
+    #[test_log::test]
+    fn one_failed_launch_does_not_end_the_warmup() {
+        let bench = TimedBench::new(Duration::ZERO).failing(1);
+        let start = Instant::now();
+
+        bench.run(TimingMethod::System).expect("the bench runs");
+
+        assert!(start.elapsed() >= bench.warmup_budget(), "left early");
+    }
+
+    /// A kernel that cannot run at all stops after the launches its warmup owed
+    /// it, rather than spending the whole budget failing.
+    #[test_log::test]
+    fn a_launch_that_always_fails_stops_the_warmup() {
+        let bench = TimedBench::new(Duration::ZERO).failing(usize::MAX);
+        let start = Instant::now();
+
+        assert!(bench.run(TimingMethod::System).is_err());
+        assert!(start.elapsed() < bench.warmup_budget(), "kept failing");
     }
 
     /// A budget that added launches to a kernel already filling it would make
