@@ -53,6 +53,23 @@ expected: {:?}",
     }
 }
 
+#[track_caller]
+fn assert_equals_exact<F: CubeElement + PartialEq + Display>(
+    client: &Client,
+    output: Handle,
+    expected: &[F],
+) {
+    let actual = client.read_one_unchecked(output);
+    let actual = F::from_bytes(&actual);
+
+    for (i, (actual, expected)) in actual.iter().zip(expected).enumerate() {
+        assert!(
+            actual == expected,
+            "Values differ: actual={actual}, expected={expected}, index={i}"
+        );
+    }
+}
+
 // Needs lazy because const trait fns aren't stable
 static FAST_MATH: LazyLock<EnumSet<FastMath>> =
     LazyLock::new(|| FastMath::all().difference(FastMath::NotNaN.into()));
@@ -322,6 +339,41 @@ test_powi_impl!(
         }
     ]
 );
+
+#[cube(launch_unchecked)]
+fn test_powi_int_kernel<N: Size>(
+    lhs: &[Vector<i32, N>],
+    rhs: &[Vector<i32, N>],
+    output: &mut [Vector<i32, N>],
+) {
+    if ABSOLUTE_POS < rhs.len() {
+        output[ABSOLUTE_POS] = Powi::powi(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+    }
+}
+
+pub fn test_powi_int<R: Runtime>(client: Client) {
+    let lhs = [3, 2, -3, 7];
+    let rhs = [2, 3, 3, 0];
+    let expected = [9, 8, -27, 1];
+    let vectorization = 4;
+    let output_handle = client.empty(expected.len() * size_of::<i32>());
+    let lhs_handle = client.create_from_slice(i32::as_bytes(&lhs));
+    let rhs_handle = client.create_from_slice(i32::as_bytes(&rhs));
+
+    unsafe {
+        test_powi_int_kernel::launch_unchecked(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d((lhs.len() / vectorization) as u32),
+            vectorization,
+            BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+            BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+            BufferArg::from_raw_parts(output_handle.clone(), expected.len()),
+        )
+    };
+
+    assert_equals_exact::<i32>(&client, output_handle, &expected);
+}
 
 #[cube(launch_unchecked)]
 fn test_fma_kernel<F: Float, N: Size>(
@@ -713,6 +765,7 @@ macro_rules! testgen_binary_untyped {
 
             add_test!(test_mulhi);
             add_test!(test_dp4a);
+            add_test!(test_powi_int);
             add_test!(test_self_div);
         }
     };

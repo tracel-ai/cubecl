@@ -211,6 +211,27 @@ pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vecto
 }
 
 #[cube]
+pub fn powi_int<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
+    let one_u = Vector::<u32, N>::new(1);
+    let one_t = Vector::<T, N>::new(T::from_int(1));
+
+    // Integer powers use an unsigned exponent, matching primitive integer `pow` semantics.
+    let mut exp = Vector::<u32, N>::cast_from(exp);
+    let mut result = one_t;
+    let mut factor = base;
+
+    #[unroll]
+    for _ in 0..32 {
+        // TODO: implement peephole optimization for masked multiplication
+        result *= select_many((exp & one_u).equal(&one_u), factor, one_t);
+        factor *= factor;
+        exp >>= one_u;
+    }
+
+    result
+}
+
+#[cube]
 pub fn recip<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     Vector::one() / input
 }
