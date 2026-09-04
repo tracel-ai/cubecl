@@ -432,6 +432,8 @@ impl CudaContext {
         shared_mem_bytes: usize,
         io: Option<Arc<[BufferIOAttr]>>,
     ) -> Result<(), CompilationError> {
+        dump_ptx(&kernel_id, &ptx);
+
         let func_name = CString::new(entrypoint_name).unwrap();
         // SAFETY: `ptx` is a valid null-terminated PTX binary from NVRTC. `func_name` is a
         // null-terminated `CString` matching the kernel entry point in the compiled module.
@@ -543,4 +545,33 @@ mod tests {
             super::cache_namespace("ptx_sm86", crate::compiler::CudaBackend::Llvm),
         );
     }
+}
+
+/// Writes the PTX for `kernel_id` under the directory named by `CUBECL_CUDA_DUMP_PTX`, if that
+/// variable is set.
+///
+/// Both backends end up here, so the two can be diffed instruction for instruction. That is the
+/// comparison worth making: the PTX is deterministic, where a wall-clock measurement on a laptop
+/// GPU is not.
+fn dump_ptx(kernel_id: &KernelId, ptx: &[c_char]) {
+    let Some(dir) = std::env::var_os("CUBECL_CUDA_DUMP_PTX") else {
+        return;
+    };
+    let dir = std::path::PathBuf::from(dir);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+
+    // The id is a type path plus its settings, so it carries every character a path cannot.
+    let name: String = kernel_id
+        .to_string()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    // ...and is long enough to blow past NAME_MAX on its own.
+    let name = &name[name.len().saturating_sub(180)..];
+
+    // SAFETY: the PTX handed to the driver is a null-terminated C string.
+    let text = unsafe { CStr::from_ptr(ptx.as_ptr()) };
+    let _ = std::fs::write(dir.join(format!("{name}.ptx")), text.to_bytes());
 }
