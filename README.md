@@ -182,12 +182,16 @@ The launch function is responsible for dispatching the right specialization base
 
 ## Getting started
 
-Add CubeCL to your Cargo.toml with the runtime feature you want.
+Add CubeCL to your Cargo.toml, and pick the runtimes your binary links through `cubecl-dispatch`.
 
 ```toml
 [dependencies]
-cubecl = { version = "*", features = ["cuda"] }   # or "wgpu", "hip", "cpu"
+cubecl = "*"
+cubecl-dispatch = { version = "*", features = ["cuda"] }   # or "wgpu", "hip", "cpu"
 ```
+
+A kernel library only needs `cubecl`.
+It never depends on a runtime, so an edit to one rebuilds no kernel.
 
 You can browse runnable kernels in the [`examples/`](./examples) directory, and the per-crate API on [docs.rs](https://docs.rs/cubecl).
 For real-world kernels built on CubeCL, see [cubek](https://github.com/tracel-ai/cubek).

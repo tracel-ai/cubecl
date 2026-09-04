@@ -7,12 +7,13 @@ publish = false
 version.workspace = true
 
 [features]
-cuda = ["cubecl/cuda"]
+cuda = ["cubecl-dispatch/cuda"]
 default = []
-wgpu = ["cubecl/wgpu"]
+wgpu = ["cubecl-dispatch/wgpu"]
 
 [dependencies]
 cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.3" }
+cubecl-dispatch = { path = "../../crates/cubecl-dispatch", version = "=0.11.0-pre.3", default-features = false }
 half = { workspace = true }
 
 sum_things = { path = "../sum_things" }

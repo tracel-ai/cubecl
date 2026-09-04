@@ -1,5 +1,6 @@
 use clap::{Parser, ValueEnum};
 use cubecl::{Device, prelude::*};
+use cubecl_dispatch::DeviceExt;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::propagation::TraceContextPropagator;

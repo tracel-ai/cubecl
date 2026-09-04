@@ -1,4 +1,5 @@
 use cubecl::{Device, num_traits::One, prelude::*};
+use cubecl_dispatch::DeviceExt;
 
 #[cube(launch_unchecked)]
 /// A [Vector] represents a contiguous series of elements where SIMD operations may be available.

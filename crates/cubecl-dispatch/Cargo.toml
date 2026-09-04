@@ -1,0 +1,74 @@
+[package]
+authors = ["nathanielsimard <nathaniel.simard.42@gmail.com>"]
+categories = ["science", "mathematics", "algorithms"]
+description = "Runtime selection for CubeCL: the crate a binary links its runtimes through."
+edition.workspace = true
+keywords = ["gpu", "cuda", "wgpu", "gpgpu", "tensor"]
+license.workspace = true
+name = "cubecl-dispatch"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-dispatch"
+version.workspace = true
+
+
+[lints]
+workspace = true
+
+
+[features]
+default = [
+    "std",
+    "cubecl/default",
+    "cubecl-cuda?/default",
+    "cubecl-cpu?/default",
+    "cubecl-hip?/default",
+    "cubecl-wgpu?/default",
+]
+exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
+std = ["cubecl/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
+
+profile-tracy = ["cubecl/profile-tracy", "cubecl-wgpu?/profile-tracy"]
+
+tracing = [
+    "cubecl/tracing",
+    "cubecl-cuda?/tracing",
+    "cubecl-cpu?/tracing",
+    "cubecl-hip?/tracing",
+    "cubecl-wgpu?/tracing",
+]
+
+# Runtimes
+cpu = ["cubecl-cpu"]
+cuda = ["cubecl-cuda"]
+cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
+hip = ["cubecl-hip"]
+# Compile HIP kernels with the C++ backend instead of the default LLVM one.
+hip-cpp = ["cubecl-hip?/cpp"]
+hip-rocwmma = ["cubecl-hip?/rocwmma"]
+metal = ["wgpu-msl"]
+metal-native = ["cubecl-metal"]
+pliron-dump = [
+    "cubecl-cuda?/pliron-dump",
+    "cubecl-hip?/pliron-dump",
+    "cubecl-metal?/pliron-dump",
+    "cubecl-wgpu?/pliron-dump",
+    "cubecl-cpu?/pliron-dump",
+]
+rocm = ["hip"]
+vulkan = ["wgpu-spirv"]
+webgpu = ["wgpu"]
+wgpu = ["cubecl-wgpu"]
+wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
+wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
+
+# By default we use wgpu.
+test-runtime = ["cubecl-wgpu"]
+
+[dependencies]
+cubecl = { path = "../cubecl", version = "=0.11.0-pre.3", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.3", default-features = false }
+cubecl-cpu = { path = "../cubecl-cpu", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-cuda = { path = "../cubecl-cuda", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-hip = { path = "../cubecl-hip", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-metal = { path = "../cubecl-metal", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.11.0-pre.3", default-features = false, optional = true }

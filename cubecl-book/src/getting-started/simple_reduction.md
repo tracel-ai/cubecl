@@ -50,7 +50,7 @@ Compared to the previous example, this function is similar but uses CubeCL's `cu
 ```
 
 ### Launching code
-Once the kernel is defined, we can launch it using CubeCL's runtime. The following code creates a 3x3 matrix, initializes the input tensor, and calls the `reduce_matrix` function to perform the reduction. The result is printed to the console. Note that this code uses the `cubecl::wgpu::WgpuRuntime` runtime, which is a CubeCL runtime for WebGPU. You can replace it with any other CubeCL runtime that you prefer.
+Once the kernel is defined, we can launch it using CubeCL's runtime. The following code creates a 3x3 matrix, initializes the input tensor, and calls the `reduce_matrix` function to perform the reduction. The result is printed to the console. Note that this code uses the `cubecl_dispatch::wgpu::WgpuRuntime` runtime, which is a CubeCL runtime for WebGPU. You can replace it with any other CubeCL runtime that you prefer.
 ```rust,ignore
 {{#rustdoc_include src/bin/v2-gpu.rs:15:}}
 ```

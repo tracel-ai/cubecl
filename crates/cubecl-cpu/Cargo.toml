@@ -52,6 +52,7 @@ cubecl-llvm = { path = "../cubecl-llvm", version = "=0.11.0-pre.3", default-feat
 cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.3", default-features = false, features = [
     "std",
     "storage-bytes",
+    "cpu",
 ] }
 cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.3", default-features = false }
 

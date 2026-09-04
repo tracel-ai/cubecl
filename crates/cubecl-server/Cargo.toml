@@ -18,6 +18,13 @@ workspace = true
 [features]
 autotune-checks = ["cubecl-runtime/autotune-checks"]
 browser-cache = ["cubecl-runtime/browser-cache"]
+# Runtime flags, forwarded so a runtime crate declares itself through the one
+# crate it depends on.
+cpu = ["cubecl-runtime/cpu"]
+cuda = ["cubecl-runtime/cuda"]
+hip = ["cubecl-runtime/hip"]
+metal = ["cubecl-runtime/metal"]
+wgpu = ["cubecl-runtime/wgpu"]
 default = ["std", "storage-bytes", "cubecl-runtime/default"]
 exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
 profile-tracy = ["cubecl-runtime/profile-tracy", "dep:tracy-client"]

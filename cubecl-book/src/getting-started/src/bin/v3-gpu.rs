@@ -76,5 +76,5 @@ pub fn launch<R: Runtime, F: Float + CubeElement>(device: &R::Device) {
 }
 
 fn main() {
-    launch::<cubecl::wgpu::WgpuRuntime, f32>(&Default::default());
+    launch::<cubecl_dispatch::wgpu::WgpuRuntime, f32>(&Default::default());
 }

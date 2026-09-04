@@ -10,18 +10,19 @@ version.workspace = true
 default = []
 
 # wgpu family — all use `WgpuRuntime`; the sub-feature selects the compiler backend.
-wgpu = ["cubecl/wgpu"] # WGSL
-vulkan = ["wgpu", "cubecl/vulkan"] # SPIR-V
-metal = ["wgpu", "cubecl/metal"] # MSL (via wgpu)
-webgpu = ["wgpu", "cubecl/webgpu"]
+wgpu = ["cubecl-dispatch/wgpu"] # WGSL
+vulkan = ["wgpu", "cubecl-dispatch/vulkan"] # SPIR-V
+metal = ["wgpu", "cubecl-dispatch/metal"] # MSL (via wgpu)
+webgpu = ["wgpu", "cubecl-dispatch/webgpu"]
 
 # Native backends.
-cuda = ["cubecl/cuda"]
-hip = ["cubecl/hip"]
+cuda = ["cubecl-dispatch/cuda"]
+hip = ["cubecl-dispatch/hip"]
 rocm = ["hip"]
-cpu = ["cubecl/cpu"]
-metal-native = ["cubecl/metal-native"]
+cpu = ["cubecl-dispatch/cpu"]
+metal-native = ["cubecl-dispatch/metal-native"]
 
 [dependencies]
 cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.3", features = ["stdlib"] }
+cubecl-dispatch = { path = "../../crates/cubecl-dispatch", version = "=0.11.0-pre.3", default-features = false }
 half = { workspace = true }

@@ -1,6 +1,7 @@
 #![allow(clippy::needless_range_loop)]
 
 use cubecl::{Device, features::Plane, prelude::*, server::Handle};
+use cubecl_dispatch::DeviceExt;
 use std::marker::PhantomData;
 
 #[cube(launch_unchecked)]

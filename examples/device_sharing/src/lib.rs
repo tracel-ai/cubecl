@@ -1,6 +1,6 @@
 #[cfg(feature = "wgpu")]
 mod device_sharing_wgpu {
-    use cubecl::wgpu::{AutoGraphicsApi, GraphicsApi, WgpuDevice, WgpuSetup};
+    use cubecl_dispatch::wgpu::{AutoGraphicsApi, GraphicsApi, WgpuDevice, WgpuSetup};
     use wgpu::Features;
 
     pub fn create_wgpu_setup_from_raw() -> WgpuSetup {
@@ -39,7 +39,7 @@ mod device_sharing_wgpu {
 
     pub fn assert_wgpu_device_existing(device: &WgpuDevice) {
         assert!(
-            matches!(device, cubecl::wgpu::WgpuDevice::Existing(_)),
+            matches!(device, cubecl_dispatch::wgpu::WgpuDevice::Existing(_)),
             "device should be WgpuDevice::Existing"
         );
     }

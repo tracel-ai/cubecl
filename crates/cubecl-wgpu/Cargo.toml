@@ -63,6 +63,7 @@ cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3"
 cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.3", default-features = false }
 cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.3", default-features = false }
 cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.3", default-features = false, features = [
+    "wgpu",
 ] }
 derive_more = { workspace = true }
 half = { workspace = true }

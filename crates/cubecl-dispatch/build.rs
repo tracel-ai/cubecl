@@ -25,9 +25,8 @@ fn main() {
         .map(|(k, _)| *k)
         .collect::<Vec<_>>();
 
-    // Whether this build has a runtime to reach at all. `Device` and everything
-    // behind it are conditional on this, rather than each item repeating the
-    // list of runtime features. `test-runtime` falls back to wgpu, so it counts.
+    // Whether this build has a runtime to reach at all. `test-runtime` falls
+    // back to wgpu, so it counts.
     if enable_runtime || !enabled_features.is_empty() {
         println!("cargo:rustc-cfg=any_runtime");
     }

@@ -109,7 +109,7 @@ pub fn kernel_enum_example(
 # }
 #
 # fn main() {
-#     launch::<cubecl::wgpu::WgpuRuntime>(&Default::default());
+#     launch::<cubecl_dispatch::wgpu::WgpuRuntime>(&Default::default());
 # }
 ```
 
@@ -206,6 +206,6 @@ pub fn kernel_enum_example(
 # }
 #
 # fn main() {
-#     launch::<cubecl::wgpu::WgpuRuntime>(&Default::default());
+#     launch::<cubecl_dispatch::wgpu::WgpuRuntime>(&Default::default());
 # }
 ```

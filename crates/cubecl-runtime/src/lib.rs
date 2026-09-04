@@ -39,6 +39,9 @@ pub mod throughput;
 /// Compute client module.
 pub mod client;
 
+/// A device of any runtime, and the runtime it belongs to.
+pub mod device;
+
 /// Autotune module
 pub mod tune;
 
