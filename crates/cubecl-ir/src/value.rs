@@ -303,16 +303,16 @@ impl ConstantValue {
         }
     }
 
-    /// Returns the value of the variable as a bool.
+    /// Returns the scalar's truthiness.
     ///
-    /// It will panic if the scalar isn't a bool.
+    /// Complex values are true when either component is nonzero.
     pub fn as_bool(&self) -> bool {
         match self {
             ConstantValue::UInt(val) => *val != 0,
             ConstantValue::Int(val) => *val != 0,
             ConstantValue::Float(val) => *val != 0.,
             ConstantValue::Bool(val) => *val,
-            ConstantValue::Complex(_, _) => panic!("Complex constants can't be converted to bool"),
+            ConstantValue::Complex(re, im) => *re != 0. || *im != 0.,
         }
     }
 
@@ -357,35 +357,40 @@ impl ConstantValue {
     }
 
     pub fn cast_to(&self, other: impl Into<Type>) -> ConstantValue {
+        let real = match self {
+            ConstantValue::Complex(re, _) => ConstantValue::Float(*re),
+            value => *value,
+        };
+
         match other.into().elem_type() {
-            ElemType::Index => self.as_u64().into(),
+            ElemType::Index => real.as_u64().into(),
             ElemType::Float(kind) => match kind {
-                FloatKind::E2M1 => e2m1::from_f64(self.as_f64()).to_f64(),
-                FloatKind::E2M1x2 => e2m1::from_f64(self.as_f64()).to_f64(),
+                FloatKind::E2M1 => e2m1::from_f64(real.as_f64()).to_f64(),
+                FloatKind::E2M1x2 => e2m1::from_f64(real.as_f64()).to_f64(),
                 FloatKind::E2M3 | FloatKind::E3M2 => {
                     unimplemented!("FP6 constants not yet supported")
                 }
-                FloatKind::E4M3 => e4m3::from_f64(self.as_f64()).to_f64(),
-                FloatKind::E5M2 => e5m2::from_f64(self.as_f64()).to_f64(),
-                FloatKind::UE8M0 => ue8m0::from_f64(self.as_f64()).to_f64(),
-                FloatKind::F16 => half::f16::from_f64(self.as_f64()).to_f64(),
-                FloatKind::BF16 => half::bf16::from_f64(self.as_f64()).to_f64(),
-                FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => self.as_f64() as f32 as f64,
-                FloatKind::F64 => self.as_f64(),
+                FloatKind::E4M3 => e4m3::from_f64(real.as_f64()).to_f64(),
+                FloatKind::E5M2 => e5m2::from_f64(real.as_f64()).to_f64(),
+                FloatKind::UE8M0 => ue8m0::from_f64(real.as_f64()).to_f64(),
+                FloatKind::F16 => half::f16::from_f64(real.as_f64()).to_f64(),
+                FloatKind::BF16 => half::bf16::from_f64(real.as_f64()).to_f64(),
+                FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => real.as_f64() as f32 as f64,
+                FloatKind::F64 => real.as_f64(),
             }
             .into(),
             ElemType::Int(kind) => match kind {
-                IntKind::I8 => self.as_i64() as i8 as i64,
-                IntKind::I16 => self.as_i64() as i16 as i64,
-                IntKind::I32 => self.as_i64() as i32 as i64,
-                IntKind::I64 => self.as_i64(),
+                IntKind::I8 => real.as_i64() as i8 as i64,
+                IntKind::I16 => real.as_i64() as i16 as i64,
+                IntKind::I32 => real.as_i64() as i32 as i64,
+                IntKind::I64 => real.as_i64(),
             }
             .into(),
             ElemType::UInt(kind) => match kind {
-                UIntKind::U8 => self.as_u64() as u8 as u64,
-                UIntKind::U16 => self.as_u64() as u16 as u64,
-                UIntKind::U32 => self.as_u64() as u32 as u64,
-                UIntKind::U64 => self.as_u64(),
+                UIntKind::U8 => real.as_u64() as u8 as u64,
+                UIntKind::U16 => real.as_u64() as u16 as u64,
+                UIntKind::U32 => real.as_u64() as u32 as u64,
+                UIntKind::U64 => real.as_u64(),
             }
             .into(),
             ElemType::Complex(kind) => {
@@ -437,5 +442,26 @@ impl Display for ExpandValue {
 impl From<&ExpandValue> for ExpandValue {
     fn from(value: &ExpandValue) -> Self {
         *value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn complex_casts_use_the_real_component_except_for_bool() {
+        let value = ConstantValue::Complex(3.5, 2.0);
+        assert_eq!(value.cast_to(FloatKind::F64), ConstantValue::Float(3.5));
+        assert_eq!(value.cast_to(IntKind::I32), ConstantValue::Int(3));
+        assert_eq!(value.cast_to(UIntKind::U32), ConstantValue::UInt(3));
+        assert_eq!(
+            ConstantValue::Complex(0.0, 1.0).cast_to(ElemType::Bool),
+            ConstantValue::Bool(true)
+        );
+        assert_eq!(
+            ConstantValue::Complex(0.0, 0.0).cast_to(ElemType::Bool),
+            ConstantValue::Bool(false)
+        );
     }
 }
