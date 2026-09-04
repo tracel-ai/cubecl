@@ -6,7 +6,7 @@ use thiserror::Error;
 
 /// What the probes measure, as opposed to which release ran them. Bump it when
 /// a probe changes what it reports.
-pub const PROBE_VERSION: u32 = 1;
+pub const PROBE_VERSION: u32 = 2;
 
 /// Bytes one buffer of a [`ThroughputMode::Memory`] probe moves per pass at its
 /// default working set. The probe's buffer is a multiple of this, and both are

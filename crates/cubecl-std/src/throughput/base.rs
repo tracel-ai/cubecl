@@ -1,4 +1,6 @@
+use alloc::string::String;
 use cubecl_core::ir::ElemType;
+use cubecl_environment::{collections::HashMap, sync::Mutex};
 use cubecl_runtime::{
     client::Client,
     runtime::Runtime,
@@ -24,6 +26,11 @@ use crate::throughput::{
 /// probes with blocked addressing pin their own count back to one (see
 /// [`MemoryProbe::new`](crate::throughput::memory_probe::MemoryProbe::new)).
 const CPU_CHAIN_DEPTH: usize = 64;
+
+/// Worker counts a memory probe is swept over before the fastest is kept, once
+/// per device and access. Five halvings reach a sixteenth of the cores, and
+/// each one costs a warmup and a sample.
+const MEMORY_WORKER_SHAPES: usize = 5;
 
 /// Units a GPU probe asks for. A wider cube measures no faster, and makes the
 /// memory probes report several times the bus rate.
@@ -105,25 +112,42 @@ pub fn measure_peak_throughput(
     // issued, which for these is this thread.
     let _measurement = cubecl_runtime::dry_run::RealRun::new();
 
+    let value = client.measure_throughput(key, || probe(client, key));
+
+    client.memory_cleanup();
+
+    value
+}
+
+/// Measures `key`, in the fastest shape its probe can be launched in.
+///
+/// # Errors
+///
+/// [`Unsupported`](ThroughputError::Unsupported) where the device implements
+/// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
+/// and reported no elapsed time.
+fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, ThroughputError> {
     let launch_config = launch_config(client, key.dtype());
 
-    let candidates = match key.mode {
+    match key.mode {
         ThroughputMode::ComputeDirect { dtype } => {
             // A type the backend cannot lower panics rather than answering.
             if !client.properties().features.supports_type(dtype) {
                 return Err(ThroughputError::Unsupported);
             }
 
-            arithmetic_widths(client, dtype)
+            let shapes = arithmetic_widths(client, dtype)
                 .into_iter()
-                .map(|vector_size| {
-                    let config = LaunchConfig {
-                        vector_size,
-                        ..launch_config
-                    };
-                    compute_direct::build_kernel(client, key, config)
+                .map(|vector_size| LaunchConfig {
+                    vector_size,
+                    ..launch_config
                 })
-                .collect()
+                .collect();
+
+            fastest_shape(shapes, |config| {
+                compute_direct::build_kernel(client, key, config)
+            })
+            .map(|(value, _)| value)
         }
         ThroughputMode::ComputeCmma {
             dtype,
@@ -132,28 +156,31 @@ pub fn measure_peak_throughput(
             if !implements_cmma(client, dtype, cmma_config) {
                 return Err(ThroughputError::Unsupported);
             }
-            alloc::vec![compute_cmma::build_kernel(
-                client,
-                key,
-                cmma_config,
-                launch_config
-            )]
+
+            fastest_shape(alloc::vec![launch_config], |config| {
+                compute_cmma::build_kernel(client, key, cmma_config, config)
+            })
+            .map(|(value, _)| value)
         }
-        ThroughputMode::Memory(spec) => alloc::vec![match spec.access {
-            MemoryAccess::Copy => memory_direct::build_kernel(client, key, launch_config, spec),
-            MemoryAccess::Read => memory_read::build_kernel(client, key, launch_config, spec),
-            MemoryAccess::Write => memory_write::build_kernel(client, key, launch_config, spec),
-        }],
-        ThroughputMode::Launch => {
-            alloc::vec![launch_overhead::build_kernel(client, key, launch_config)]
+        ThroughputMode::Memory(spec) => {
+            let (value, fastest) = fastest_shape(
+                memory_shapes(client, launch_config, spec.access),
+                |config| match spec.access {
+                    MemoryAccess::Copy => memory_direct::build_kernel(client, key, config, spec),
+                    MemoryAccess::Read => memory_read::build_kernel(client, key, config, spec),
+                    MemoryAccess::Write => memory_write::build_kernel(client, key, config, spec),
+                },
+            )?;
+
+            remember_workers(client, spec.access, fastest.cube_dim.num_elems());
+
+            Ok(value)
         }
-    };
-
-    let value = client.measure_throughput(key, || fastest_shape(candidates));
-
-    client.memory_cleanup();
-
-    value
+        ThroughputMode::Launch => fastest_shape(alloc::vec![launch_config], |config| {
+            launch_overhead::build_kernel(client, key, config)
+        })
+        .map(|(value, _)| value),
+    }
 }
 
 /// Calculates roofline autotune bounds for a given [`Work`] amount and compute throughput key.
@@ -193,18 +220,105 @@ pub fn roofline_bounds(
     }
 }
 
-/// What the device answers fastest, of the shapes a probe can be launched in.
+/// What the device answers fastest, of the shapes a probe can be launched in,
+/// and the shape that answered it.
+///
+/// Built one at a time and dropped on the way out: a memory probe's pool is a
+/// large fraction of what the device will allocate, and holding every shape's
+/// at once would ask for several of them.
 ///
 /// A rate that is not finite is a shape that did not run, not a slow one.
 fn fastest_shape(
-    candidates: alloc::vec::Vec<KernelConfig>,
-) -> Result<ThroughputValue, ThroughputError> {
-    candidates
+    shapes: alloc::vec::Vec<LaunchConfig>,
+    build: impl Fn(LaunchConfig) -> KernelConfig,
+) -> Result<(ThroughputValue, LaunchConfig), ThroughputError> {
+    shapes
         .into_iter()
-        .map(ThroughputBenchmarker::sample)
-        .filter(|value| value.ops_per_s().is_finite())
-        .max_by(|a, b| a.ops_per_s().total_cmp(&b.ops_per_s()))
+        .map(|shape| (ThroughputBenchmarker::sample(build(shape)), shape))
+        .filter(|(value, _)| value.ops_per_s().is_finite())
+        .max_by(|(a, _), (b, _)| a.ops_per_s().total_cmp(&b.ops_per_s()))
         .ok_or(ThroughputError::NoTiming)
+}
+
+/// The launch shapes a memory probe is measured in.
+///
+/// A GPU keeps the cube it was pinned to: a wider one measures no faster, and
+/// makes these probes report several times the bus rate.
+///
+/// A CPU sweeps its worker count once per access and then keeps the count that
+/// won, at every working set. That count does not move with the window: four
+/// workers win all seventeen read points of a Ryzen 7 5700X's curve, by 10 to
+/// 22%, and the whole ranking barely shifts across them. Sweeping every point
+/// instead costs the curve 2.7x for an answer it already has.
+fn memory_shapes(
+    client: &Client,
+    config: LaunchConfig,
+    access: MemoryAccess,
+) -> alloc::vec::Vec<LaunchConfig> {
+    if client.properties().hardware.num_cpu_cores.is_none() {
+        return alloc::vec![config];
+    }
+
+    if let Some(units) = remembered_workers(client, access) {
+        return alloc::vec![with_units(client, config, units)];
+    }
+
+    worker_counts(config.cube_dim.num_elems() as usize)
+        .into_iter()
+        .map(|units| with_units(client, config, units as u32))
+        .collect()
+}
+
+/// Worker counts a CPU probe is swept over, the full launch first and halvings
+/// of it after.
+///
+/// How many threads saturate the memory system is a property of the controller
+/// rather than of the core count: one per hardware thread reads 44 GB/s of a
+/// Ryzen 7 5700X's 51.2, where a quarter of them reads 50. Little's law derives
+/// the count from the bandwidth, which is the thing being measured, so it is
+/// swept instead.
+fn worker_counts(units: usize) -> alloc::vec::Vec<usize> {
+    core::iter::successors(Some(units.max(1)), |units| (*units > 1).then(|| units / 2))
+        .take(MEMORY_WORKER_SHAPES)
+        .collect()
+}
+
+fn with_units(client: &Client, config: LaunchConfig, units: u32) -> LaunchConfig {
+    LaunchConfig {
+        cube_dim: CubeDim::new(client, units as usize),
+        ..config
+    }
+}
+
+/// The worker count each device streams each access fastest at, once one probe
+/// of that access has swept for it.
+static SATURATING_WORKERS: Mutex<Option<HashMap<(String, MemoryAccess), u32>>> = Mutex::new(None);
+
+fn remembered_workers(client: &Client, access: MemoryAccess) -> Option<u32> {
+    let workers = SATURATING_WORKERS.lock();
+    let workers = workers.as_ref()?;
+
+    workers.get(&(device_key(client), access)).copied()
+}
+
+fn remember_workers(client: &Client, access: MemoryAccess, units: u32) {
+    let mut workers = SATURATING_WORKERS.lock();
+
+    workers
+        .get_or_insert_with(HashMap::new)
+        .insert((device_key(client), access), units);
+}
+
+/// Names one device, so two of them do not share a worker count.
+fn device_key(client: &Client) -> String {
+    let identity = &client.properties().identity;
+
+    alloc::format!(
+        "{}_{}_{}",
+        client.name(),
+        identity.fingerprint,
+        identity.name
+    )
 }
 
 /// The vector widths an arithmetic probe is measured at.
@@ -279,5 +393,25 @@ fn launch_config(client: &Client, dtype: ElemType) -> LaunchConfig {
         cube_count: cube_count as usize,
         vector_size,
         plane_size: plane_size as usize,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The full launch is measured first, so a device whose peak is there
+    /// keeps the shape it had before the sweep existed.
+    #[test]
+    fn the_sweep_starts_at_the_full_launch_and_halves_to_the_budget() {
+        assert_eq!(worker_counts(16), alloc::vec![16, 8, 4, 2, 1]);
+        assert_eq!(worker_counts(128), alloc::vec![128, 64, 32, 16, 8]);
+    }
+
+    /// Every count is a launch, so one core must not be handed an empty sweep
+    /// and reported as untimeable.
+    #[test]
+    fn one_core_is_still_a_shape() {
+        assert_eq!(worker_counts(1), alloc::vec![1]);
     }
 }
