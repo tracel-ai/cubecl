@@ -1,34 +1,17 @@
 //! Storage tiling: which logical dim each physical dim is a fragment of.
 //!
-//! Strides say where a tensor's dims step, not which dims are fragments of one
-//! logical dim. A `[k, n]` matrix stored as `[k/32, n/32, 32, 32]` is four
-//! independent axes to every stride-reading op; only whoever tiled it knows
-//! that dims 0 and 2 together are `k`. [`Tiling`] carries that beside the
-//! strides. The shape and strides stay physical.
+//! A `u16`, two bits per physical dim, dim `i` at bits `2i..2i + 2`, holding
+//! the logical dim it is a fragment of. `0` is untiled.
 //!
-//! # Protocol
-//!
-//! A `u16`, two bits per physical dim, dim `i` at bits `2i..2i + 2`:
-//!
-//! ```text
-//! bits  15 14 | 13 12 | 11 10 |  9 8  |  7 6  |  5 4  |  3 2  |  1 0
-//! dim     7   |   6   |   5   |   4   |   3   |   2   |   1   |   0
-//! ```
-//!
-//! Each field holds the dim's **label**: the logical dim it is a fragment of.
-//!
-//! | Rule | |
+//! | Limit | |
 //! |---|---|
-//! | Untiled is `0` | every physical dim is its own logical dim |
-//! | At most 8 physical dims | two bits each in a `u16` |
-//! | At most 4 logical dims | labels are `0..4` |
-//! | Labels are exactly `0..L` | no logical dim nobody carries |
-//! | Two or more logical dims | one logical dim's bits are all `0`, which reads as untiled |
-//! | Coarse first | fragments of one logical dim are ordered by their strides; the logical extent is their product |
+//! | Physical dims | 8 |
+//! | Logical dims | 4 |
+//! | Fragments of one logical dim | 7, so 6 levels of tiling |
 //!
-//! `[k, n]` stored `[k/32, n/32, 32, 32]` has labels `[0, 1, 0, 1]`, which is
-//! `0b01_00_01_00`. Labels no two dims share describe no fragments and are the
-//! untiled value.
+//! `[k, n]` stored `[k/32, n/32, 32, 32]` is `[0, 1, 0, 1]`. Fragments of one
+//! logical dim are ordered by their strides, coarse first, and the logical
+//! extent is their product. Labels no two dims share are the untiled value.
 
 use alloc::format;
 
