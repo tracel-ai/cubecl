@@ -29,7 +29,7 @@ mod tiling;
 /// Reexport to avoid annoying rust-analyzer bug where it imports the module instead of the macro
 pub use shape::*;
 pub use strides::*;
-pub use tiling::{MAX_TILED_DIMS, MAX_TILED_LABELS, Tiling};
+pub use tiling::{MAX_FRAGMENTS, MAX_LOGICAL_DIMS, Tiling};
 
 /// Reexport for use in macros
 pub use smallvec::{SmallVec, smallvec};

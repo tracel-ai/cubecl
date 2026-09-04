@@ -6,7 +6,7 @@ use crate::{MetadataError, shape::Shape, strides::Strides, tiling::Tiling};
 pub struct Metadata {
     pub shape: Shape,
     pub strides: Strides,
-    /// Which logical dim each physical dim is a fragment of; untiled by default.
+    /// How many fragments each logical dim is stored as; untiled by default.
     /// The shape and strides stay physical. See [`Tiling`].
     pub tiling: Tiling,
 }
@@ -34,17 +34,18 @@ impl Metadata {
     ///
     /// When `tiling` does not describe this rank: see [`Tiling::new`].
     pub fn with_tiling(mut self, tiling: Tiling) -> Result<Self, MetadataError> {
-        self.tiling = Tiling::new(&tiling.labels(self.rank()))?;
+        tiling.logical_rank(self.rank())?;
+        self.tiling = tiling;
         Ok(self)
     }
 
-    /// Whether any physical dim is a fragment of a logical one.
+    /// Whether any logical dim is stored as more than one fragment.
     pub fn is_tiled(&self) -> bool {
         self.tiling.is_tiled()
     }
 
     /// The dim-changing ops do not carry a tiling yet: they refuse rather than
-    /// return labels over dims that moved.
+    /// return counts over dims that moved.
     fn assert_untiled(&self, op: &str) {
         assert!(
             !self.is_tiled(),
