@@ -26,7 +26,7 @@ mod lazy;
 use cubecl_common::{
     bytes::{AllocationProperty, Bytes},
     device::{DeviceId, ServiceId},
-    device_handle::{CallResultExt, DeviceHandle},
+    device_handle::{CallResultExt, DeviceHandle, ServiceCreationError},
     profile::ProfileDuration,
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -205,8 +205,27 @@ impl Client {
 
     /// Load the client for the given device, starting a server of type `S`
     /// there if none runs yet.
+    ///
+    /// # Panics
+    ///
+    /// Where the server will not start — a driver that is missing, a device
+    /// that will not open. [`try_load`](Self::try_load) hands that back
+    /// instead, for the caller with somewhere else to go.
     pub fn load<S: ServerStorage>(device_id: DeviceId) -> Self {
-        let context = DeviceHandle::<S>::new(device_id).seen_as(as_server::<S>);
+        match Self::try_load::<S>(device_id) {
+            Ok(client) => client,
+            Err(err) => panic!("{err:?}"),
+        }
+    }
+
+    /// [`load`](Self::load), for the caller who can do something about a
+    /// server that will not start.
+    ///
+    /// Whether the driver is there, and whether the device opens, is only
+    /// truly answered by starting it — which is why this is worth having over
+    /// asking the runtime what it can see.
+    pub fn try_load<S: ServerStorage>(device_id: DeviceId) -> Result<Self, ServiceCreationError> {
+        let context = DeviceHandle::<S>::try_new(device_id)?.seen_as(as_server::<S>);
 
         // This is safe because we now know the return type of [`DeviceHandle::utilities()`].
         let utilities = context
@@ -214,11 +233,11 @@ impl Client {
             .downcast::<ServerUtilities>()
             .expect("Can downcast to `ServerUtilities`");
 
-        Self {
+        Ok(Self {
             device: context,
             utilities,
             stream_id: None,
-        }
+        })
     }
 
     fn stream_id(&self) -> StreamId {

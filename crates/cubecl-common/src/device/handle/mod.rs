@@ -70,6 +70,14 @@ impl<S: DeviceService, I: DeviceHandleSpec> DeviceHandle<S, I> {
             cast: downcast::<S>,
         }
     }
+
+    pub fn try_new(device_id: DeviceId) -> Result<Self, ServiceCreationError> {
+        Ok(Self {
+            handle: I::try_new::<S>(device_id)?,
+            service: ServiceId::of::<S>(device_id),
+            cast: downcast::<S>,
+        })
+    }
 }
 
 #[allow(missing_docs)]

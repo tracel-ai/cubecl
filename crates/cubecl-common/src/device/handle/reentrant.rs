@@ -5,7 +5,9 @@ use cubecl_environment::sync::reentrant::{ReentrantMutex, ReentrantMutexGuard};
 use hashbrown::HashMap;
 use std::sync::Arc;
 
-use crate::device::handle::{DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError};
+use crate::device::handle::{
+    DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError, panic_reason,
+};
 use crate::device::{DeviceId, DeviceService};
 
 /// Handle for accessing a [`DeviceState`] associated with a specific device.
@@ -40,8 +42,18 @@ impl DeviceHandleSpec for ReentrantMutexDeviceHandle {
         Self::insert::<S>(device_id, service).map_err(ServiceCreationError::new)
     }
 
-    fn new<S: DeviceService>(device_id: DeviceId) -> Self {
-        Self::locate::<S>(device_id)
+    fn try_new<S: DeviceService>(device_id: DeviceId) -> Result<Self, ServiceCreationError> {
+        // `locate` runs `S::init` on this very thread, so what a service that
+        // will not start throws is an unwind rather than a return.
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Self::locate::<S>(device_id)
+        }))
+        .map_err(|payload| {
+            ServiceCreationError::new(alloc::format!(
+                "Service initialization failed: {}",
+                panic_reason(&payload)
+            ))
+        })
     }
 
     fn device_id(&self) -> DeviceId {

@@ -140,7 +140,7 @@ impl RuntimeId {
 ///
 /// The two cases ask different things of the caller: one is a build to rebuild,
 /// the other a machine to ask something else of.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DeviceUnavailable {
     /// The build does not link this runtime. Turn on its `cubecl` feature.
     NotLinked(RuntimeId),
@@ -151,6 +151,15 @@ pub enum DeviceUnavailable {
         runtime: RuntimeId,
         /// How many devices of the asked-for kind it does have.
         available: usize,
+    },
+    /// The device is there and the server would not start on it anyway: a
+    /// driver installed but refusing, a device already spoken for. Only
+    /// starting it can find this out.
+    WouldNotStart {
+        /// The runtime that was asked.
+        runtime: RuntimeId,
+        /// What it said on the way down.
+        reason: alloc::string::String,
     },
 }
 
@@ -166,6 +175,10 @@ impl core::fmt::Display for DeviceUnavailable {
                 "the {runtime:?} runtime has no such device on this machine, \
                  which has {available} of that kind"
             ),
+            Self::WouldNotStart {
+                runtime,
+                ref reason,
+            } => write!(f, "the {runtime:?} runtime would not start here: {reason}"),
         }
     }
 }
@@ -329,9 +342,47 @@ impl Device {
 
     /// The compute client of this device, initialized on first use.
     ///
+    /// Starting the server is what settles whether this device can really be
+    /// run on. Where there is somewhere else to go if it cannot,
+    /// [`try_client`](Self::try_client) hands back the reason instead.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), Box<dyn core::error::Error>> {
+    /// # #[cfg(feature = "wgpu")]
+    /// let client = cubecl::Device::default().try_client()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn try_client(&self) -> Result<Client, DeviceUnavailable> {
+        let runtime = self.runtime();
+
+        let started = match *self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::try_client(device),
+            #[cfg(feature = "hip")]
+            Self::Hip(ref device) => cubecl_hip::HipRuntime::try_client(device),
+            #[cfg(feature = "metal-native")]
+            Self::Metal(ref device) => cubecl_metal::MetalRuntime::try_client(device),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::try_client(device),
+            #[cfg(feature = "cpu")]
+            Self::Cpu(ref device) => cubecl_cpu::CpuRuntime::try_client(device),
+            #[allow(unreachable_patterns)]
+            _ => return Err(DeviceUnavailable::NotLinked(runtime)),
+        };
+
+        started.map_err(|err| DeviceUnavailable::WouldNotStart {
+            runtime,
+            reason: alloc::format!("{err}"),
+        })
+    }
+
+    /// The compute client of this device, initialized on first use.
+    ///
     /// # Panics
     ///
-    /// Where this build does not link the device's runtime.
+    /// Where this build does not link the device's runtime, or the server
+    /// will not start on it.
     pub fn client(&self) -> Client {
         match *self {
             #[cfg(feature = "cuda")]
@@ -903,5 +954,58 @@ mod named_tests {
             ),
             false => assert_eq!(named, Err(DeviceUnavailable::NotLinked(RuntimeId::Wgpu))),
         }
+    }
+}
+
+#[cfg(all(test, any_runtime))]
+mod client_tests {
+    use super::*;
+
+    /// A server that will not start has to come back as an error the caller
+    /// can act on. It is caught on the runner thread, so the process lives.
+    #[test]
+    fn a_runtime_that_will_not_start_says_so_rather_than_dying() {
+        let Some(absent) = LINKED
+            .iter()
+            .find(|runtime| !runtime.is_available())
+            .map(|runtime| runtime.default_device())
+        else {
+            return;
+        };
+
+        match absent.try_client() {
+            Err(DeviceUnavailable::WouldNotStart { .. }) => {}
+            Err(other) => panic!("{absent:?} gave {other} rather than refusing to start"),
+            Ok(_) => panic!("{absent:?} was expected not to start"),
+        }
+    }
+
+    /// And the reason travels with it, or the caller learns only that
+    /// something went wrong somewhere.
+    #[test]
+    fn the_reason_a_runtime_would_not_start_travels_with_the_error() {
+        let Some(absent) = LINKED
+            .iter()
+            .find(|runtime| !runtime.is_available())
+            .map(|runtime| runtime.default_device())
+        else {
+            return;
+        };
+
+        let Err(DeviceUnavailable::WouldNotStart { reason, .. }) = absent.try_client() else {
+            return;
+        };
+
+        assert!(!reason.is_empty(), "the failure came back with no reason");
+    }
+
+    /// Whatever the walk settled on has to start, where anything can.
+    #[test]
+    fn the_default_device_starts() {
+        if !LINKED.iter().any(|runtime| runtime.is_available()) {
+            return;
+        }
+
+        assert!(Device::default().try_client().is_ok());
     }
 }
