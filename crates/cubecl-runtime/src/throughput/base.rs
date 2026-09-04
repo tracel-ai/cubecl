@@ -6,7 +6,7 @@ use thiserror::Error;
 
 /// What the probes measure, as opposed to which release ran them. Bump it when
 /// a probe changes what it reports.
-pub const PROBE_VERSION: u32 = 1;
+pub const PROBE_VERSION: u32 = 2;
 
 /// Bytes one buffer of a [`ThroughputMode::Memory`] probe moves per pass at its
 /// default working set. The probe's buffer is a multiple of this, and both are
@@ -56,6 +56,10 @@ impl MemoryAccess {
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum ThroughputMode {
     /// Compute direct calculation without special hardware acceleration.
+    ///
+    /// The ceiling is for operands of `dtype`, not for arithmetic a device
+    /// performs in it: where converting to f32 retires more of them, that is
+    /// the rate a kernel of this type reaches, and what the probe reports.
     ComputeDirect {
         /// The data type of the computation.
         dtype: ElemType,
