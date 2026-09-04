@@ -19,6 +19,7 @@ use cubecl_core::{
     ir::amd::GfxArch,
     ir::dialect::scf::BranchToSCFPass,
     ir::metadata::Info,
+    ir::nvidia::SmArch,
     ir::rewrite::SimplifyOpsPass,
     post_processing::bitwise::PromoteBitwisePass,
     post_processing::minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
@@ -37,17 +38,22 @@ use pliron::{
 
 use crate::amdgpu::abi::AmdGpuLowering;
 use crate::amdgpu::matrix::CtxWmma;
-use crate::amdgpu::plane::CtxPlaneDim;
-use crate::amdgpu::shared_memory::CtxSharedMemory;
 use crate::cpu::{
     abi::CpuLowering,
     jit::engine::{KernelRequirements, PlironEngine},
     shared_memory::SharedMemories,
     synchronization::uses_cube_barrier,
 };
+use crate::nvptx::abi::NvptxLowering;
+use crate::nvptx::codegen::{MetadataParams, NvptxEntry};
 use crate::shared::{
-    branch::SCFToLlvmCf, lowering::TargetLowering, metadata::LowerEntryAbiPass,
-    polyfill::LowerComplexOpPass, shared_memory::declares_shared_memory, to_llvm::CubeToLLVMPass,
+    branch::SCFToLlvmCf,
+    lowering::TargetLowering,
+    metadata::{CtxGridConstants, LowerEntryAbiPass},
+    plane::CtxPlaneDim,
+    polyfill::LowerComplexOpPass,
+    shared_memory::{CtxSharedMemory, declares_shared_memory},
+    to_llvm::CubeToLLVMPass,
 };
 use crate::target::{CtxTarget, LlvmTarget};
 
@@ -61,6 +67,15 @@ pub struct PlironOptions {
     /// The device [`LlvmTarget::AmdGpu`] compiles for. `None` on the CPU, which has no gfx
     /// architecture to name.
     pub arch: Option<GfxArch>,
+    /// The device [`LlvmTarget::Nvptx`] compiles for, likewise `None` elsewhere. A separate
+    /// field rather than an enum because a process is only ever compiling for one of them and
+    /// the runtime that fills this in knows which.
+    pub sm_arch: Option<SmArch>,
+    /// Whether the scalars and static metadata ride in the kernel's own parameter block rather
+    /// than in a device buffer the launch uploads. The host decides -- it is the side that has
+    /// to push the parameters in the matching order -- so this is passed in rather than chosen
+    /// here. See [`LowerEntryAbiPass`](crate::shared::metadata::LowerEntryAbiPass).
+    pub grid_constants: bool,
 }
 
 /// A finished AMD code object, compiled and linked by this crate.
@@ -82,12 +97,35 @@ pub struct AmdGpuModule {
     pub io: Vec<BufferIOAttr>,
 }
 
-/// What [`PlironCompiler`] produces. Both targets yield something directly
-/// runnable: the CPU a JIT'd function, the GPU a linked code object.
+/// A finished PTX module, ready for `cuModuleLoadData`.
+///
+/// Not a code object as the AMDGPU side produces: the CUDA driver JITs PTX when it loads a
+/// module, which is the same thing it does with what NVRTC hands back today, so there is
+/// nothing left for this crate to link.
+#[derive(Clone, Debug)]
+pub struct NvptxModule {
+    /// PTX assembly, NUL terminated because `cuModuleLoadData` reads to the terminator.
+    pub ptx: Vec<core::ffi::c_char>,
+    /// Symbol name of the `.entry` the module defines.
+    pub entrypoint: String,
+    /// Textual IR, kept for logging and for hashing into the compilation cache.
+    pub ir: String,
+    /// Bytes of shared memory a launch must reserve, which the kernel takes as dynamic
+    /// shared memory.
+    pub shared_memory_size: usize,
+    /// What the kernel does with each buffer binding, by buffer position, as stamped by
+    /// `AnnotateGlobalVisibilityPass` before the entry ABI lowering folded the buffer
+    /// arguments away.
+    pub io: Vec<BufferIOAttr>,
+}
+
+/// What [`PlironCompiler`] produces. Every target yields something directly runnable: the CPU
+/// a JIT'd function, AMD a linked code object, NVIDIA the PTX its driver JITs.
 #[derive(Clone)]
 pub enum PlironArtifact {
     Jit(PlironEngine),
     AmdGpuCode(AmdGpuModule),
+    NvptxCode(NvptxModule),
 }
 
 impl PlironArtifact {
@@ -98,6 +136,7 @@ impl PlironArtifact {
             PlironArtifact::AmdGpuCode(_) => {
                 panic!("expected a JIT engine, got an AMDGPU code object")
             }
+            PlironArtifact::NvptxCode(_) => panic!("expected a JIT engine, got a PTX module"),
         }
     }
 }
@@ -107,6 +146,7 @@ impl core::fmt::Display for PlironArtifact {
         match self {
             PlironArtifact::Jit(engine) => write!(f, "{engine}"),
             PlironArtifact::AmdGpuCode(module) => write!(f, "{}", module.ir),
+            PlironArtifact::NvptxCode(module) => write!(f, "{}", module.ir),
         }
     }
 }
@@ -120,6 +160,7 @@ impl Compiler for PlironCompiler {
         match repr {
             PlironArtifact::Jit(engine) => Some(engine.buffer_io().to_vec()),
             PlironArtifact::AmdGpuCode(module) => Some(module.io.clone()),
+            PlironArtifact::NvptxCode(module) => Some(module.io.clone()),
         }
     }
 
@@ -148,14 +189,14 @@ impl Compiler for PlironCompiler {
     fn extension(&self) -> &'static str {
         match self.target {
             LlvmTarget::Cpu => "plir",
-            LlvmTarget::AmdGpu => "ll",
+            LlvmTarget::AmdGpu | LlvmTarget::Nvptx => "ll",
         }
     }
 
     fn lang_tag(&self) -> &'static str {
         match self.target {
             LlvmTarget::Cpu => "mlir",
-            LlvmTarget::AmdGpu => "llvm",
+            LlvmTarget::AmdGpu | LlvmTarget::Nvptx => "llvm",
         }
     }
 }
@@ -176,6 +217,16 @@ impl PlironCompiler {
                     self.compile_amdgpu(kernel, arch)?,
                 ))
             }
+            LlvmTarget::Nvptx => {
+                let arch = options.sm_arch.ok_or_else(|| {
+                    generic("the NVPTX target needs the device it compiles for".to_string())
+                })?;
+                Ok(PlironArtifact::NvptxCode(self.compile_nvptx(
+                    kernel,
+                    arch,
+                    options.grid_constants,
+                )?))
+            }
         }
     }
 
@@ -186,6 +237,8 @@ impl PlironCompiler {
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
         ctx.set_target(LlvmTarget::Cpu);
+        // No parameter block to put them in: neither of these targets presents one.
+        ctx.set_grid_constants(false);
 
         let needs_parallelism = kernel.settings.cube_dim.num_elems() > 1
             && (uses_cube_barrier(&ctx, module_op) || declares_shared_memory(&ctx, module_op));
@@ -223,6 +276,8 @@ impl PlironCompiler {
         })?;
 
         ctx.set_target(LlvmTarget::AmdGpu);
+        // No parameter block to put them in: neither of these targets presents one.
+        ctx.set_grid_constants(false);
         // Left at zero for the kernels that never declare any.
         ctx.set_shared_memory_size(0);
         ctx.set_plane_dim(plane_dim);
@@ -247,6 +302,61 @@ impl PlironCompiler {
                 "compiling '{}' for {}: {err}",
                 kernel.settings.kernel_name,
                 arch.name()
+            ))
+        })
+    }
+
+    /// Lowers `kernel` for `arch` and compiles it into PTX.
+    fn compile_nvptx(
+        self,
+        kernel: KernelDefinition,
+        arch: SmArch,
+        grid_constants: bool,
+    ) -> Result<NvptxModule, CompilationError> {
+        let module = kernel.body.state().module;
+        let ir = KernelIr::of(&kernel);
+        let mut ctx = kernel.body.into_context().expect("Should be owned scope");
+
+        ctx.set_target(LlvmTarget::Nvptx);
+        // Left at zero for the kernels that never declare any.
+        ctx.set_shared_memory_size(0);
+        ctx.set_grid_constants(grid_constants);
+        let plane_dim = arch.plane_dim();
+        ctx.set_plane_dim(plane_dim);
+
+        let io = lower(&mut ctx, &ir, &NvptxLowering { plane_dim })?;
+
+        // Filled in by the block's lowering, which is the last point it is known.
+        let shared_memory_size = ctx.shared_memory_size();
+
+        // Matches what the entry ABI pass appended; `has_info` is what decides there whether
+        // there is a block to put in the parameter space at all.
+        let metadata = if grid_constants && ir.info.has_info() {
+            MetadataParams::GridConstant {
+                bytes: ir.info.dynamic_meta_offset,
+                dynamic_buffer: ir.info.has_dynamic_meta,
+            }
+        } else {
+            MetadataParams::Buffer
+        };
+
+        crate::nvptx::codegen::emit_ptx(
+            &ctx,
+            module,
+            &kernel.settings.kernel_name,
+            &arch,
+            NvptxEntry {
+                cube_dim: kernel.settings.cube_dim.num_elems(),
+                shared_memory_size,
+                io,
+                metadata,
+            },
+        )
+        .map_err(|err| {
+            generic(format!(
+                "compiling '{}' for sm_{}: {err}",
+                kernel.settings.kernel_name,
+                arch.version()
             ))
         })
     }

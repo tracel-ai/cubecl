@@ -1,4 +1,4 @@
-use crate::shared::to_llvm::{constant::constant_op, ty::scalar_alignment};
+use crate::shared::to_llvm::{constant::constant_op, ty::type_alignment};
 
 use super::prelude::*;
 use cubecl_core::ir::{
@@ -72,6 +72,35 @@ fn enclosing_entry_block(ctx: &Context, op: Ptr<Operation>) -> Ptr<BasicBlock> {
     }
 }
 
+/// `index` at the width a `getelementptr` operand is taken at.
+///
+/// A target whose `cube.index` is already that wide gets the value back untouched. A narrower
+/// one is *zero*-extended: the operand is signed where `cube.index` is not, so leaving the
+/// widening to the `getelementptr` itself would address negatively from 2^31 up. See
+/// [`index_width`] for why a target would narrow it in the first place.
+fn widen_gep_index(
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+    index: Value,
+) -> Value {
+    let width = index
+        .get_type(ctx)
+        .deref(ctx)
+        .downcast_ref::<IntegerType>()
+        .map(|int| int.width());
+    // Anything but a narrower integer is handed back as it is -- a wider index, or a type that
+    // is not an integer at all, is not this function's to reinterpret, and the
+    // `getelementptr` verifier is the right place for it to be caught.
+    if width.is_none_or(|width| width >= GEP_INDEX_WIDTH) {
+        return index;
+    }
+
+    let wide_ty = IntegerType::get(ctx, GEP_INDEX_WIDTH, Signedness::Signless).into();
+    let zext = llvm::ZExtOp::new_with_nneg(ctx, index, wide_ty, false);
+    rewriter.insert_op(ctx, &zext);
+    zext.get_result(ctx)
+}
+
 #[op_interface_impl]
 impl ToLLVMDialect for IndexOp {
     fn rewrite(
@@ -93,6 +122,7 @@ impl ToLLVMDialect for IndexOp {
         };
         let elem_ty = cube_type_to_llvm(ctx, elem_ty);
 
+        let index = widen_gep_index(ctx, rewriter, index);
         let gep =
             llvm::GetElementPtrOp::new(ctx, base, vec![llvm::GepIndex::Value(index)], elem_ty);
         rewriter.insert_op(ctx, &gep);
@@ -118,7 +148,7 @@ impl ToLLVMDialect for LoadOp {
         let res_cube_ty = operands_info
             .lookup_most_recent_type(result)
             .unwrap_or_else(|| result.get_type(ctx));
-        let align = scalar_alignment(ctx, res_cube_ty);
+        let align = type_alignment(ctx, res_cube_ty);
         let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
 
         let load = llvm::LoadOp::new(ctx, ptr, res_ty);
@@ -146,7 +176,7 @@ impl ToLLVMDialect for StoreOp {
         let value_cube_ty = operands_info
             .lookup_most_recent_type(value)
             .unwrap_or_else(|| value.get_type(ctx));
-        let align = scalar_alignment(ctx, value_cube_ty);
+        let align = type_alignment(ctx, value_cube_ty);
 
         let store = llvm::StoreOp::new(ctx, value, ptr);
         store.set_alignment(ctx, align);

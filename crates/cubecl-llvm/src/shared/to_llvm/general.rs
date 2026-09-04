@@ -32,7 +32,7 @@ fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
     } else if ty.is::<BoolType>() {
         Some((1, false))
     } else if ty.is::<IndexType>() {
-        Some((64, false))
+        Some((index_width(ctx), false))
     } else {
         None
     }
