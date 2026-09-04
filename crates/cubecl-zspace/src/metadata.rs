@@ -34,10 +34,7 @@ impl Metadata {
     ///
     /// When `tiling` does not describe this rank: see [`Tiling::new`].
     pub fn with_tiling(mut self, tiling: Tiling) -> Result<Self, MetadataError> {
-        if tiling.is_tiled() {
-            Tiling::new(&tiling.labels(self.rank()))?;
-        }
-        self.tiling = tiling;
+        self.tiling = Tiling::new(&tiling.labels(self.rank()))?;
         Ok(self)
     }
 
@@ -48,7 +45,7 @@ impl Metadata {
 
     /// The dim-changing ops do not carry a tiling yet: they refuse rather than
     /// return labels over dims that moved.
-    fn untiled_for(&self, op: &str) {
+    fn assert_untiled(&self, op: &str) {
         assert!(
             !self.is_tiled(),
             "Metadata::{op} on a storage-tiled tensor is not supported: {:?}",
@@ -91,7 +88,7 @@ impl Metadata {
     }
 
     pub fn swap(&mut self, dim0: usize, dim1: usize) {
-        self.untiled_for("swap");
+        self.assert_untiled("swap");
         debug_assert!(dim0 < self.rank(), "dim0 is out of bounds");
         debug_assert!(dim1 < self.rank(), "dim1 is out of bounds");
         self.shape.swap(dim0, dim1);
@@ -100,7 +97,7 @@ impl Metadata {
 
     /// Reorder the shape dimensions according to the permutation of `axes`.
     pub fn permute(&mut self, axes: &[usize]) -> Result<(), MetadataError> {
-        self.untiled_for("permute");
+        self.assert_untiled("permute");
         self.shape.permute(axes)?;
         self.strides.permute(axes)?;
 
@@ -114,14 +111,14 @@ impl Metadata {
 
     /// Insert a dimension of `shape` with `stride` at position `index`.
     pub fn insert(&mut self, index: usize, shape: usize, stride: usize) {
-        self.untiled_for("insert");
+        self.assert_untiled("insert");
         self.shape.insert(index, shape);
         self.strides.insert(index, stride);
     }
 
     /// Remove and return the dimension at position `index` from the metadata.
     pub fn remove(&mut self, index: usize) -> (usize, usize) {
-        self.untiled_for("remove");
+        self.assert_untiled("remove");
         let shape = self.shape.remove(index);
         let stride = self.strides.remove(index);
         (shape, stride)
@@ -129,7 +126,7 @@ impl Metadata {
 
     /// Appends a dimension of `shape` with `stride` to the back of the metadata.
     pub fn push(&mut self, shape: usize, stride: usize) {
-        self.untiled_for("push");
+        self.assert_untiled("push");
         self.shape.push(shape);
         self.strides.push(stride);
     }
