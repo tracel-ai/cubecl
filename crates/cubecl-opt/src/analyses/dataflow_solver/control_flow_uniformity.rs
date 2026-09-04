@@ -1,6 +1,7 @@
 use core::{any::TypeId, cell::RefCell};
 
 use cubecl_ir::{
+    attributes::EntrypointInterface,
     interfaces::{
         control_flow::{CallableOpInterface, RegionPredecessor, RegionSuccessor},
         uniformity::{UniformRegionOpInterface, UniformRegionTerminatorOpInterface, Uniformity},
@@ -38,7 +39,12 @@ impl Printable for BlockUniformity {
         _state: &pliron::printable::State,
         f: &mut core::fmt::Formatter<'_>,
     ) -> core::fmt::Result {
-        write!(f, "{}: {:?}", self.anchor.label(ctx), self.value)
+        write!(
+            f,
+            "{}: BlockUniformity::{:?}",
+            self.anchor.label(ctx),
+            self.value
+        )
     }
 }
 
@@ -294,6 +300,16 @@ impl BlockUniformityAnalysis {
     ) {
         let callable_region = callable.callable_region(ctx).unwrap();
         let entry_block = callable_region.deref(ctx).get_entry_block().unwrap();
+        let lattice = solver.get_or_create_mut::<BlockUniformity>(entry_block);
+
+        // Entry point starts out as uniform
+        if let Some(maybe_entry) = op_cast::<dyn EntrypointInterface>(callable as &dyn Op)
+            && maybe_entry.get_entrypoint_abi(ctx).is_some()
+        {
+            solver.update_state(ctx, &lattice, |it| it.join(Uniformity::Device));
+            return;
+        }
+
         let entry_start = ProgramPoint::at_block_start(ctx, entry_block);
         let callsites = solver.get_or_create_for::<Self, PredecessorState>(
             entry_start,
@@ -305,7 +321,6 @@ impl BlockUniformityAnalysis {
             return self.set_all_blocks_to_entry_states(solver, ctx, callable.get_operation());
         }
 
-        let lattice = solver.get_or_create_mut::<BlockUniformity>(entry_block);
         for &callsite in callsites.deref().known_predecessors() {
             let block = callsite.deref(ctx).get_parent_block().unwrap();
             let callsite_lattice =

@@ -2,7 +2,7 @@ use core::{cell::Ref, fmt};
 
 use alloc::{boxed::Box, vec::Vec};
 
-use derive_more::From;
+use derive_more::{From, Into};
 use derive_new::new;
 use num_traits::{AsPrimitive, NumCast};
 use pliron::{
@@ -27,7 +27,7 @@ use pliron::{
 use crate::{
     ConstantValue,
     apfloat::{APFloat, APFloatType},
-    interfaces::{ConstantAttr, TypedExt},
+    interfaces::{ConstantAttr, TypedExt, control_flow::SymbolVisiblity},
     settings::Dim3,
     try_cast_ty,
     types::scalar::*,
@@ -499,3 +499,8 @@ literal!(half::f16, Float16Type);
 literal!(half::bf16, BFloat16Type);
 literal!(f32, Float32Type);
 literal!(f64, Float64Type);
+
+/// A boolean attribute
+#[pliron_attr(name = "cube.sym_visibility", format = "$0", verifier = "succ")]
+#[derive(new, PartialEq, Eq, Clone, Copy, Debug, Hash, From, Into)]
+pub struct SymbolVisibilityAttr(pub SymbolVisiblity);

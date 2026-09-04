@@ -1,6 +1,8 @@
 use crate::{dialect::RegionPtrExt, prelude::*};
 use derive_more::From;
-use pliron::{attribute::AttrObj, linked_list::ContainsLinkedList, region::Region};
+use pliron::{
+    attribute::AttrObj, builtin::ops::FuncOp, linked_list::ContainsLinkedList, region::Region,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RegionPredecessor {
@@ -56,6 +58,55 @@ pub trait CallableOpInterface {
     fn callable_region(&self, ctx: &Context) -> Option<Ptr<Region>>;
     fn argument_types(&self, ctx: &Context) -> Vec<TypeHandle>;
     fn result_types(&self, ctx: &Context) -> Vec<TypeHandle>;
+}
+
+#[op_interface_impl]
+impl CallableOpInterface for FuncOp {
+    fn callable_region(&self, ctx: &Context) -> Option<Ptr<Region>> {
+        Some(self.get_region(ctx))
+    }
+
+    fn argument_types(&self, ctx: &Context) -> Vec<TypeHandle> {
+        let ty = self.get_attr_func_type(ctx).unwrap().get_type(ctx);
+        type_cast::<dyn FunctionTypeInterface>(&*ty.deref(ctx))
+            .unwrap()
+            .arg_types()
+    }
+
+    fn result_types(&self, ctx: &Context) -> Vec<TypeHandle> {
+        let ty = self.get_attr_func_type(ctx).unwrap().get_type(ctx);
+        type_cast::<dyn FunctionTypeInterface>(&*ty.deref(ctx))
+            .unwrap()
+            .res_types()
+    }
+}
+
+#[format]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum SymbolVisiblity {
+    Public,
+    Private,
+    Nested,
+}
+
+#[op_interface]
+pub trait SymbolOpInterface: pliron::builtin::op_interfaces::SymbolOpInterface {
+    verify_op_succ!();
+
+    fn get_visibility(&self, ctx: &Context) -> SymbolVisiblity;
+    fn set_visibility(&self, ctx: &mut Context, visibility: SymbolVisiblity);
+
+    fn is_public(&self, ctx: &Context) -> bool {
+        matches!(self.get_visibility(ctx), SymbolVisiblity::Public)
+    }
+
+    fn is_private(&self, ctx: &Context) -> bool {
+        matches!(self.get_visibility(ctx), SymbolVisiblity::Private)
+    }
+
+    fn is_nested(&self, ctx: &Context) -> bool {
+        matches!(self.get_visibility(ctx), SymbolVisiblity::Nested)
+    }
 }
 
 /// This interface provides information for region-holding operations that

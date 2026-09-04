@@ -1,3 +1,8 @@
+use pliron::{
+    builtin::ops::{FuncOp, ModuleOp},
+    dict_key,
+};
+
 #[macro_export]
 macro_rules! Pure {
     ($ty: ty) => {
@@ -121,3 +126,46 @@ macro_rules! NoSideEffects {
         }
     };
 }
+
+dict_key!(
+    /// Key for symbol visibility attribute when the operation defines a symbol visibility.
+    ATTR_KEY_SYM_VISIBILITY,
+    "sym_visibility"
+);
+
+#[macro_export]
+macro_rules! SymbolVisibility {
+    ($ty: ty) => {
+        #[$crate::pliron::derive::op_interface_impl]
+        impl $crate::interfaces::control_flow::SymbolOpInterface for $ty {
+            fn get_visibility(
+                &self,
+                ctx: &$crate::pliron::context::Context,
+            ) -> $crate::interfaces::control_flow::SymbolVisiblity {
+                use $crate::pliron::op::Op;
+                let op = self.get_operation().deref(ctx);
+                let attr: Option<&$crate::attributes::SymbolVisibilityAttr> = op
+                    .attributes
+                    .get(&$crate::interfaces::traits::ATTR_KEY_SYM_VISIBILITY);
+                attr.map(|it| it.0)
+                    .unwrap_or($crate::interfaces::control_flow::SymbolVisiblity::Public)
+            }
+
+            fn set_visibility(
+                &self,
+                ctx: &mut $crate::pliron::context::Context,
+                visibility: $crate::interfaces::control_flow::SymbolVisiblity,
+            ) {
+                use $crate::pliron::op::Op;
+                let mut op = self.get_operation().deref_mut(ctx);
+                op.attributes.set(
+                    $crate::interfaces::traits::ATTR_KEY_SYM_VISIBILITY.clone(),
+                    $crate::attributes::SymbolVisibilityAttr(visibility),
+                );
+            }
+        }
+    };
+}
+
+SymbolVisibility!(ModuleOp);
+SymbolVisibility!(FuncOp);

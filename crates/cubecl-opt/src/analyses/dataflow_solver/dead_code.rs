@@ -8,7 +8,7 @@ use cubecl_ir::{
         ReturnLike,
         control_flow::{
             CallableOpInterface, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
-            RegionSuccessor,
+            RegionSuccessor, SymbolOpInterface,
         },
     },
     prelude::*,
@@ -29,9 +29,12 @@ use pliron::{
 };
 use smallvec::SmallVec;
 
-use crate::analyses::dataflow_solver::{
-    AnalysisState, ChangeResult, DataflowAnalysis, ProgramPoint, SolverWorkItem,
-    sccp::{ConstantLattice, ConstantValue, SparseConstantPropagationAnalysis},
+use crate::analyses::{
+    dataflow_solver::{
+        AnalysisState, ChangeResult, DataflowAnalysis, ProgramPoint, SolverWorkItem,
+        sccp::{ConstantLattice, ConstantValue, SparseConstantPropagationAnalysis},
+    },
+    symbol_table::walk_symbol_tables,
 };
 
 use super::DataflowSolver;
@@ -290,11 +293,13 @@ impl DeadCodeAnalysis {
         root: Ptr<Operation>,
     ) {
         self.analysis_scope = Some(root);
-        visit_all_ops_with_interface::<dyn SymbolTableInterface, _>(
+        let all_uses_visible = root.deref(ctx).get_parent_block().is_none();
+        walk_symbol_tables(
             ctx,
             &mut (self, solver),
             root,
-            |ctx, (this, solver), symbol_table| {
+            all_uses_visible,
+            |ctx, (this, solver), symbol_table, all_uses_visible| {
                 this.symbol_table
                     .borrow_mut()
                     .get_symbol_table(ctx, dyn_clone::clone_box(symbol_table));
@@ -307,15 +312,16 @@ impl DeadCodeAnalysis {
                     let Some(_callable_region) = callable.callable_region(ctx) else {
                         continue;
                     };
-                    let Some(_symbol) = op_cast::<dyn SymbolOpInterface>(callable.dyn_op()) else {
+                    let Some(symbol) = op_cast::<dyn SymbolOpInterface>(callable.dyn_op()) else {
                         continue;
                     };
 
-                    // All symbols are currently considered public in Pliron. This should be more
-                    // fine-grained eventually, but since symbols are currently only resolved in
-                    // the symbol table's nested scope we don't need to exclude anything.
-                    // If symbols ever become globally visible then globally-visible symbols must
-                    // be considered as having unknown predecessors.
+                    if symbol.is_public(ctx) || (!all_uses_visible && symbol.is_nested(ctx)) {
+                        let state = solver.get_or_create_mut::<PredecessorState>(
+                            ProgramPoint::after_op(ctx, callable.get_operation()),
+                        );
+                        solver.update_state(ctx, &state, |it| it.set_has_unknown_predecessors());
+                    }
                     found_symbol_callable = true;
                 }
 

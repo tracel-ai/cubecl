@@ -1,9 +1,10 @@
 use core::fmt;
 
 use cubecl_ir::{
+    attributes::EntrypointInterface,
     dialect::BlockPtrExt,
     interfaces::{
-        control_flow::{RegionBranchOpInterface, RegionSuccessor},
+        control_flow::{CallableOpInterface, RegionBranchOpInterface, RegionSuccessor},
         uniformity::{UniformOpInterface, UniformRegionOpInterface, Uniformity},
     },
     prelude::*,
@@ -27,7 +28,7 @@ impl Printable for StrictUniformity {
         _state: &printable::State,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        write!(f, "StrictUniformity::{:?}", self.0)
     }
 }
 
@@ -47,7 +48,7 @@ impl Printable for DynamicUniformity {
         _state: &printable::State,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        write!(f, "DynamicUniformity::{:?}", self.0)
     }
 }
 
@@ -58,7 +59,10 @@ impl LatticeValue for DynamicUniformity {
 }
 
 pub type DynamicUniformityLattice = SparseLattice<DynamicUniformity>;
+pub type DynamicUniformityAnalysis = SparseForward<DynamicValueUniformity>;
+
 pub type StrictUniformityLattice = SparseLattice<StrictUniformity>;
+pub type StrictUniformityAnalysis = SparseForward<StrictValueUniformity>;
 
 pub struct DynamicValueUniformity;
 
@@ -94,6 +98,25 @@ impl SparseForwardDataflowAnalysis for DynamicValueUniformity {
             this.set_all_to_entry_states(solver, ctx, results);
         }
         Ok(())
+    }
+
+    fn visit_callable_operation(
+        this: &SparseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        callable: &dyn CallableOpInterface,
+        arg_lattices: &[WriteRef<SparseLattice<Self::LatticeValue>>],
+    ) {
+        // All entrypoint args are uniform across the device by default
+        if let Some(maybe_entry) = op_cast::<dyn EntrypointInterface>(callable as &dyn Op)
+            && maybe_entry.get_entrypoint_abi(ctx).is_some()
+        {
+            for arg in arg_lattices {
+                solver.update_state(ctx, arg, |it| it.join(&Uniformity::Device.into()));
+            }
+        } else {
+            this.visit_callable_operation(solver, ctx, callable, arg_lattices);
+        }
     }
 
     fn visit_region_successors(
@@ -163,10 +186,10 @@ impl SparseForwardDataflowAnalysis for StrictValueUniformity {
             return Ok(());
         }
 
-        let block_lattice = solver.get_or_create::<BlockUniformity>(block);
-        block_lattice
-            .deref()
-            .block_content_subscribe::<SparseForward<Self>>();
+        let block_lattice = solver.get_or_create_for::<SparseForward<Self>, BlockUniformity>(
+            ProgramPoint::after_op(ctx, op),
+            block,
+        );
         let block_uniformity = block_lattice.deref().value();
 
         for (result, lattice) in op.deref(ctx).operands().zip(results) {
@@ -176,6 +199,26 @@ impl SparseForwardDataflowAnalysis for StrictValueUniformity {
             solver.update_state(ctx, lattice, |it| it.join(&uniformity.into()));
         }
         Ok(())
+    }
+
+    fn visit_callable_operation(
+        this: &SparseForward<Self>,
+        solver: &DataflowSolver,
+        ctx: &Context,
+        callable: &dyn CallableOpInterface,
+        arg_lattices: &[WriteRef<SparseLattice<Self::LatticeValue>>],
+    ) {
+        // All entrypoint args are uniform across the device by default, but for strict uniformity
+        // the largest meaningful scope is `Cube`
+        if let Some(maybe_entry) = op_cast::<dyn EntrypointInterface>(callable as &dyn Op)
+            && maybe_entry.get_entrypoint_abi(ctx).is_some()
+        {
+            for arg in arg_lattices {
+                solver.update_state(ctx, arg, |it| it.join(&Uniformity::Cube.into()));
+            }
+        } else {
+            this.visit_callable_operation(solver, ctx, callable, arg_lattices);
+        }
     }
 
     fn visit_region_successors(

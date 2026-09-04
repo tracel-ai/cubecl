@@ -41,6 +41,7 @@ use crate::{
             InvocationBounds, RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
         },
         memory_slot::PromotableRegionOpInterface,
+        uniformity::{UniformRegionOpInterface, Uniformity},
     },
     prelude::*,
     types::scalar::BoolType,
@@ -258,6 +259,21 @@ impl RegionBranchOpInterface for IfOp {
         } else {
             vec![InvocationBounds::zero_or_one(); 2]
         }
+    }
+}
+
+#[op_interface_impl]
+impl UniformRegionOpInterface for IfOp {
+    fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
+        operands[0]
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        _ctx: &Context,
+        operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        vec![operands[0], operands[0]]
     }
 }
 
@@ -542,6 +558,22 @@ impl RegionBranchOpInterface for SwitchOp {
         let mut bounds = vec![InvocationBounds::never(); num_regions];
         bounds[executed_idx] = InvocationBounds::once();
         bounds
+    }
+}
+
+#[op_interface_impl]
+impl UniformRegionOpInterface for SwitchOp {
+    fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
+        operands[0]
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        ctx: &Context,
+        operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        let num_regions = self.get_operation().deref(ctx).num_regions();
+        vec![operands[0]; num_regions]
     }
 }
 
@@ -887,6 +919,22 @@ impl RegionBranchOpInterface for RangeLoopOp {
 }
 
 #[op_interface_impl]
+impl UniformRegionOpInterface for RangeLoopOp {
+    fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
+        operands[0]
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        _ctx: &Context,
+        operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        let uniformity = operands[0].min(operands[1]).min(operands[2]);
+        vec![uniformity, uniformity]
+    }
+}
+
+#[op_interface_impl]
 impl CanonicalizeInterface for RangeLoopOp {
     fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
         let results = self.get_operation().results(ctx);
@@ -1120,6 +1168,21 @@ impl RegionBranchOpInterface for WhileOp {
             RegionSuccessor::Region(_) => self.after_block(ctx).arguments(ctx),
             RegionSuccessor::AfterOp => self.results(ctx),
         }
+    }
+}
+
+#[op_interface_impl]
+impl UniformRegionOpInterface for WhileOp {
+    fn result_uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        Uniformity::Device
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        _ctx: &Context,
+        _operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        vec![Uniformity::Device]
     }
 }
 
