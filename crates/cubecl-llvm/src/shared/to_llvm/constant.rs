@@ -68,7 +68,7 @@ pub fn convert_attr(ctx: &mut Context, value: AttrObj) -> AttrObj {
     } else if let Some(bool_attr) = value.downcast_ref::<BoolAttr>() {
         int_attr(ctx, 1, bool_attr.0 as i128).into()
     } else if let Some(index_attr) = value.downcast_ref::<IndexAttr>() {
-        int_attr(ctx, INDEX_WIDTH, index_attr.0 as i128).into()
+        int_attr(ctx, index_width(ctx), index_attr.0 as i128).into()
     } else if let Some(float) = value.downcast_ref::<FloatAttr>() {
         // fp8 is an 8-bit integer to LLVM, so its constants are their codes.
         if Fp8Format::of_type(ctx, float.ty).is_some() {
