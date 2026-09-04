@@ -9,12 +9,13 @@ use ash::vk::{
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
-    prelude::{CompiledKernel, CubeKernel, KernelDefinition, Visibility},
-    server::{IoError, KernelArguments, Server},
+    prelude::{CubeKernel, KernelDefinition, Visibility},
+    server::{IoError, KernelArguments},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{DeviceProperties, Type, features::*};
 use cubecl_server::compiler::CompilationError;
+use cubecl_server::kernel::CompiledKernel;
 use cubecl_spirv::{SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
 use tracel_ash::{

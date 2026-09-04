@@ -66,6 +66,26 @@ impl GraphicsApi for WebGpu {
     }
 }
 
+impl AutoGraphicsApi {
+    /// The graphics APIs to try on this machine, best first.
+    ///
+    /// Vulkan leads wherever it exists: it is the one that compiles to
+    /// `SPIR-V`, and the rest are what a machine without it still offers.
+    /// Backends this machine has no driver for enumerate nothing, so a list
+    /// costs only the asking.
+    pub fn chain() -> alloc::vec::Vec<Backend> {
+        cfg_if::cfg_if! {
+            if #[cfg(target_family = "wasm")] {
+                alloc::vec![Backend::BrowserWebGpu]
+            } else if #[cfg(target_os = "macos")] {
+                alloc::vec![Backend::Metal]
+            } else {
+                alloc::vec![Backend::Vulkan, Backend::Dx12, Backend::Gl]
+            }
+        }
+    }
+}
+
 impl GraphicsApi for AutoGraphicsApi {
     fn backend() -> Backend {
         // Allow overriding AutoGraphicsApi backend with ENV var in std test environments

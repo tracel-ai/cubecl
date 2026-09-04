@@ -15,6 +15,6 @@ pub use cpu::CpuDevice;
 pub use cuda::CudaDevice;
 pub use hip::AmdDevice;
 pub use metal::MetalDevice;
-pub use wgpu::WgpuDevice;
+pub use wgpu::{WgpuBackend, WgpuDevice, WgpuDeviceKind};
 
 pub use cubecl_common::device::DeviceId;

@@ -16,7 +16,9 @@ use cubecl_core::zspace::{Shape, Strides};
 use cubecl_runtime::runtime::Runtime;
 
 pub use cubecl_core::device::DeviceId;
-pub use cubecl_runtime::device::{AmdDevice, CpuDevice, CudaDevice, MetalDevice, WgpuDevice};
+pub use cubecl_runtime::device::{
+    AmdDevice, CpuDevice, CudaDevice, MetalDevice, WgpuBackend, WgpuDevice, WgpuDeviceKind,
+};
 
 /// A device of any runtime.
 ///
@@ -222,11 +224,71 @@ impl Device {
     /// machine offers. There is deliberately no `vulkan` next to this: it
     /// would hand back this very device, and a constructor that looks like a
     /// choice should be one.
-    pub fn wgpu(kind: WgpuDevice) -> Result<Self, DeviceUnavailable> {
-        match kind {
+    pub fn wgpu(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
+        let device = WgpuDevice::new(kind);
+
+        match device.kind {
             // Registered from outside, so enumeration cannot see it.
-            WgpuDevice::Existing(_) => Self::linked(RuntimeId::Wgpu, Self::Wgpu(kind)),
-            kind => Self::named(RuntimeId::Wgpu, Self::Wgpu(kind)),
+            WgpuDeviceKind::Existing(_) => Self::linked(RuntimeId::Wgpu, Self::Wgpu(device)),
+            _ => Self::named(RuntimeId::Wgpu, Self::Wgpu(device)),
+        }
+    }
+
+    /// The same wgpu device, pinned to Vulkan — and so to `SPIR-V`, where the
+    /// build and the adapter allow it.
+    ///
+    /// Pinning is a promise the machine has to keep: this fails where the
+    /// device is not reachable on Vulkan, rather than quietly coming up on
+    /// something else. It is the same device on a different graphics API, so
+    /// it has an id of its own and a client of its own.
+    ///
+    /// ```no_run
+    /// use cubecl::{Device, device::WgpuDeviceKind};
+    ///
+    /// # fn main() -> Result<(), Box<dyn core::error::Error>> {
+    /// let client = Device::wgpu(WgpuDeviceKind::default())?.vulkan()?.client();
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn vulkan(self) -> Result<Self, DeviceUnavailable> {
+        self.on(WgpuBackend::Vulkan)
+    }
+
+    /// The same wgpu device, pinned to Metal — and so to MSL where the build
+    /// allows it. See [`vulkan`](Self::vulkan) for what pinning promises.
+    ///
+    /// This is wgpu's Metal backend. The native Metal runtime is
+    /// [`Device::metal`], and is a different device altogether.
+    pub fn metal_msl(self) -> Result<Self, DeviceUnavailable> {
+        self.on(WgpuBackend::Metal)
+    }
+
+    /// The same wgpu device, pinned to `DirectX` 12. See
+    /// [`vulkan`](Self::vulkan) for what pinning promises.
+    pub fn dx12(self) -> Result<Self, DeviceUnavailable> {
+        self.on(WgpuBackend::Dx12)
+    }
+
+    /// The same wgpu device, pinned to `OpenGL`. See [`vulkan`](Self::vulkan)
+    /// for what pinning promises.
+    pub fn gl(self) -> Result<Self, DeviceUnavailable> {
+        self.on(WgpuBackend::Gl)
+    }
+
+    /// The same wgpu device, pinned to `WebGPU`. See [`vulkan`](Self::vulkan)
+    /// for what pinning promises.
+    pub fn webgpu(self) -> Result<Self, DeviceUnavailable> {
+        self.on(WgpuBackend::WebGpu)
+    }
+
+    /// The same wgpu device on `backend`, where the machine has it there.
+    fn on(self, backend: WgpuBackend) -> Result<Self, DeviceUnavailable> {
+        match self {
+            Self::Wgpu(device) => Self::named(RuntimeId::Wgpu, Self::Wgpu(device.on(backend))),
+            other => Err(DeviceUnavailable::NoSuchDevice {
+                runtime: other.runtime(),
+                available: 0,
+            }),
         }
     }
 
@@ -627,7 +689,7 @@ mod tests {
     /// id comes back as a different device — on a different runtime, even.
     #[test]
     fn a_device_id_round_trips_through_its_runtime() {
-        let device = Device::Wgpu(WgpuDevice::DiscreteGpu(1));
+        let device = Device::Wgpu(WgpuDevice::new(WgpuDeviceKind::DiscreteGpu(1)));
 
         let restored = Device::from_id(device.to_id());
 
@@ -638,7 +700,7 @@ mod tests {
     /// what keeps two runtimes' devices from colliding on one id.
     #[test]
     fn a_device_id_names_its_runtime() {
-        let device = Device::Wgpu(WgpuDevice::DiscreteGpu(1));
+        let device = Device::Wgpu(WgpuDevice::new(WgpuDeviceKind::DiscreteGpu(1)));
 
         let id = device.to_id();
 
@@ -649,7 +711,7 @@ mod tests {
     /// still names its runtime and still restores its device.
     #[test]
     fn a_nested_high_byte_does_not_change_what_an_id_names() {
-        let device = Device::Wgpu(WgpuDevice::DiscreteGpu(1));
+        let device = Device::Wgpu(WgpuDevice::new(WgpuDeviceKind::DiscreteGpu(1)));
         let id = device.to_id();
 
         let nested = DeviceId::new(id.type_id | 0xAB00, id.index_id);
@@ -758,7 +820,7 @@ mod named_tests {
         for named in [
             Device::cuda(far_past_any_machine),
             Device::rocm(far_past_any_machine),
-            Device::wgpu(WgpuDevice::DiscreteGpu(far_past_any_machine)),
+            Device::wgpu(WgpuDeviceKind::DiscreteGpu(far_past_any_machine)),
         ] {
             assert!(
                 matches!(
@@ -785,21 +847,58 @@ mod named_tests {
             Device::Cuda(device) => Device::cuda(device.index),
             Device::Hip(device) => Device::rocm(device.index),
             Device::Metal(kind) => Device::metal(kind),
-            Device::Wgpu(kind) => Device::wgpu(kind),
+            Device::Wgpu(device) => {
+                Device::wgpu(device.kind).and_then(|named| named.on(device.backend))
+            }
             Device::Cpu(_) => Device::cpu(),
         };
 
         assert_eq!(named, Ok(Device::default()));
     }
 
+    /// Pinning a graphics API is a wgpu question. Asking it of a device of
+    /// some other runtime is a miss, not a device that quietly ignores it.
+    #[test]
+    fn only_a_wgpu_device_can_be_pinned_to_a_backend() {
+        let pinned = Device::Cuda(CudaDevice::new(0)).vulkan();
+
+        assert!(matches!(
+            pinned,
+            Err(DeviceUnavailable::NoSuchDevice {
+                runtime: RuntimeId::Cuda,
+                ..
+            })
+        ));
+    }
+
+    /// The same device on two graphics APIs must not be the same device, or
+    /// one client serves both and the second caller gets the first's backend.
+    #[test]
+    fn a_pinned_device_is_a_device_of_its_own() {
+        let Ok(auto) = Device::wgpu(WgpuDeviceKind::default()) else {
+            return;
+        };
+
+        let Ok(vulkan) = auto.clone().vulkan() else {
+            return;
+        };
+
+        assert_ne!(auto, vulkan);
+        assert_ne!(auto.to_id(), vulkan.to_id());
+        assert_eq!(Device::from_id(vulkan.to_id()), vulkan);
+    }
+
     /// An externally registered device is passed through: enumeration cannot
     /// see one, so asking would always say no.
     #[test]
     fn an_existing_device_is_not_looked_for() {
-        let named = Device::wgpu(WgpuDevice::Existing(7));
+        let named = Device::wgpu(WgpuDeviceKind::Existing(7));
 
         match RuntimeId::Wgpu.is_linked() {
-            true => assert_eq!(named, Ok(Device::Wgpu(WgpuDevice::Existing(7)))),
+            true => assert_eq!(
+                named,
+                Ok(Device::Wgpu(WgpuDevice::new(WgpuDeviceKind::Existing(7))))
+            ),
             false => assert_eq!(named, Err(DeviceUnavailable::NotLinked(RuntimeId::Wgpu))),
         }
     }

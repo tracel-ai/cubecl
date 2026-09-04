@@ -1,1 +1,1 @@
-pub use cubecl_server::device::WgpuDevice;
+pub use cubecl_server::device::{WgpuBackend, WgpuDevice, WgpuDeviceKind};
