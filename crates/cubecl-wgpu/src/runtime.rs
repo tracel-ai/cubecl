@@ -96,6 +96,18 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
         }
     }
 
+    fn is_available() -> bool {
+        // A software rasterizer — lavapipe, llvmpipe, WARP — enumerates as
+        // `WgpuDevice::Cpu`. It runs, but a machine with nothing else is
+        // better served by a native CPU runtime, so wgpu does not claim it;
+        // a caller who wants it still names it.
+        let software = WgpuDevice::Cpu.to_id().type_id;
+
+        Self::enumerate_all_devices()
+            .iter()
+            .any(|device| device.type_id != software)
+    }
+
     fn enumerate_all_devices() -> Vec<DeviceId> {
         #[cfg(target_family = "wasm")]
         {

@@ -330,23 +330,23 @@ const LINKED: &[RuntimeId] = &[
 
 #[cfg(any_runtime)]
 impl RuntimeId {
-    /// Whether this runtime found any hardware to run on.
+    /// Whether this machine has hardware worth choosing this runtime for.
     ///
-    /// Every runtime answers zero devices rather than failing when its driver
-    /// is missing, so this is the question "is this machine one of yours?"
-    /// asked in the cheapest way each of them has.
+    /// Each runtime answers for itself — zero devices rather than a failure
+    /// when its driver is missing, and no claim on a machine where all it has
+    /// is a software fallback.
     fn is_available(self) -> bool {
         match self {
             #[cfg(feature = "cuda")]
-            Self::Cuda => !cubecl_cuda::CudaRuntime::enumerate_all_devices().is_empty(),
+            Self::Cuda => cubecl_cuda::CudaRuntime::is_available(),
             #[cfg(feature = "hip")]
-            Self::Hip => !cubecl_hip::HipRuntime::enumerate_all_devices().is_empty(),
+            Self::Hip => cubecl_hip::HipRuntime::is_available(),
             #[cfg(feature = "metal-native")]
-            Self::Metal => !cubecl_metal::MetalRuntime::enumerate_all_devices().is_empty(),
+            Self::Metal => cubecl_metal::MetalRuntime::is_available(),
             #[cfg(feature = "wgpu")]
-            Self::Wgpu => !<cubecl_wgpu::WgpuRuntime>::enumerate_all_devices().is_empty(),
+            Self::Wgpu => <cubecl_wgpu::WgpuRuntime>::is_available(),
             #[cfg(feature = "cpu")]
-            Self::Cpu => !cubecl_cpu::CpuRuntime::enumerate_all_devices().is_empty(),
+            Self::Cpu => cubecl_cpu::CpuRuntime::is_available(),
             #[allow(unreachable_patterns)]
             _ => false,
         }
