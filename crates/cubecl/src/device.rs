@@ -217,13 +217,12 @@ impl Device {
         }
     }
 
-    /// The wgpu device `kind` names.
+    /// The device `kind` names, on whichever graphics API this machine offers.
     ///
-    /// Which graphics API it comes up on — and so which shader compiler it is
-    /// fed — is the runtime's to settle from the enabled features and what the
-    /// machine offers. There is deliberately no `vulkan` next to this: it
-    /// would hand back this very device, and a constructor that looks like a
-    /// choice should be one.
+    /// The portable one: which API it comes up on — and so which shader
+    /// compiler it is fed — is the runtime's to settle, best first, from the
+    /// enabled features and what the machine has. Naming the API instead is
+    /// [`vulkan`](Self::vulkan) and its siblings.
     pub fn wgpu(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
         let device = WgpuDevice::new(kind);
 
@@ -234,55 +233,58 @@ impl Device {
         }
     }
 
-    /// The same wgpu device, pinned to Vulkan — and so to `SPIR-V`, where the
-    /// build and the adapter allow it.
+    /// The Vulkan device `kind` names — and so `SPIR-V`, where the build and
+    /// the adapter allow it.
     ///
-    /// Pinning is a promise the machine has to keep: this fails where the
-    /// device is not reachable on Vulkan, rather than quietly coming up on
-    /// something else. It is the same device on a different graphics API, so
-    /// it has an id of its own and a client of its own.
+    /// Naming a graphics API is a promise the machine has to keep: this fails
+    /// where the device is not reachable on Vulkan, rather than quietly
+    /// coming up on something else. The same device on two APIs is two
+    /// devices, each with an id and a client of its own.
     ///
     /// ```no_run
     /// use cubecl::{Device, device::WgpuDeviceKind};
     ///
     /// # fn main() -> Result<(), Box<dyn core::error::Error>> {
-    /// let client = Device::wgpu(WgpuDeviceKind::default())?.vulkan()?.client();
+    /// let client = Device::vulkan(WgpuDeviceKind::default())?.client();
     /// # Ok(())
     /// # }
     /// ```
-    pub fn vulkan(self) -> Result<Self, DeviceUnavailable> {
-        self.on(WgpuBackend::Vulkan)
+    pub fn vulkan(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
+        Self::wgpu(kind)?.on(WgpuBackend::Vulkan)
     }
 
-    /// The same wgpu device, pinned to Metal — and so to MSL where the build
-    /// allows it. See [`vulkan`](Self::vulkan) for what pinning promises.
+    /// The `DirectX` 12 device `kind` names. See [`vulkan`](Self::vulkan) for
+    /// what naming an API promises.
+    pub fn dx12(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
+        Self::wgpu(kind)?.on(WgpuBackend::Dx12)
+    }
+
+    /// The `OpenGL` device `kind` names. See [`vulkan`](Self::vulkan) for what
+    /// naming an API promises.
+    pub fn gl(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
+        Self::wgpu(kind)?.on(WgpuBackend::Gl)
+    }
+
+    /// The `WebGPU` device `kind` names — the browser's own. See
+    /// [`vulkan`](Self::vulkan) for what naming an API promises.
+    pub fn webgpu(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
+        Self::wgpu(kind)?.on(WgpuBackend::WebGpu)
+    }
+
+    /// The device `kind` names on Metal's own API, reached through wgpu — and
+    /// so MSL, where the build allows it.
     ///
-    /// This is wgpu's Metal backend. The native Metal runtime is
-    /// [`Device::metal`], and is a different device altogether.
-    pub fn metal_msl(self) -> Result<Self, DeviceUnavailable> {
-        self.on(WgpuBackend::Metal)
+    /// Not the native Metal runtime, which is [`Device::metal`] and a
+    /// different device altogether.
+    pub fn metal_msl(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
+        Self::wgpu(kind)?.on(WgpuBackend::Metal)
     }
 
-    /// The same wgpu device, pinned to `DirectX` 12. See
-    /// [`vulkan`](Self::vulkan) for what pinning promises.
-    pub fn dx12(self) -> Result<Self, DeviceUnavailable> {
-        self.on(WgpuBackend::Dx12)
-    }
-
-    /// The same wgpu device, pinned to `OpenGL`. See [`vulkan`](Self::vulkan)
-    /// for what pinning promises.
-    pub fn gl(self) -> Result<Self, DeviceUnavailable> {
-        self.on(WgpuBackend::Gl)
-    }
-
-    /// The same wgpu device, pinned to `WebGPU`. See [`vulkan`](Self::vulkan)
-    /// for what pinning promises.
-    pub fn webgpu(self) -> Result<Self, DeviceUnavailable> {
-        self.on(WgpuBackend::WebGpu)
-    }
-
-    /// The same wgpu device on `backend`, where the machine has it there.
-    fn on(self, backend: WgpuBackend) -> Result<Self, DeviceUnavailable> {
+    /// This device on `backend`, where the machine has it there.
+    ///
+    /// What the constructors above are written in terms of, for the caller
+    /// holding a device already and wanting it on a particular API.
+    pub fn on(self, backend: WgpuBackend) -> Result<Self, DeviceUnavailable> {
         match self {
             Self::Wgpu(device) => Self::named(RuntimeId::Wgpu, Self::Wgpu(device.on(backend))),
             other => Err(DeviceUnavailable::NoSuchDevice {
@@ -860,7 +862,7 @@ mod named_tests {
     /// some other runtime is a miss, not a device that quietly ignores it.
     #[test]
     fn only_a_wgpu_device_can_be_pinned_to_a_backend() {
-        let pinned = Device::Cuda(CudaDevice::new(0)).vulkan();
+        let pinned = Device::Cuda(CudaDevice::new(0)).on(WgpuBackend::Vulkan);
 
         assert!(matches!(
             pinned,
@@ -879,7 +881,7 @@ mod named_tests {
             return;
         };
 
-        let Ok(vulkan) = auto.clone().vulkan() else {
+        let Ok(vulkan) = Device::vulkan(WgpuDeviceKind::default()) else {
             return;
         };
 
