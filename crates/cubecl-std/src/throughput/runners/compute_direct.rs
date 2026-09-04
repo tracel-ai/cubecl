@@ -1,12 +1,11 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, frontend::fma, ir::ElemType};
-use cubecl_runtime::throughput::{KernelConfig, ThroughputKey};
+use cubecl_runtime::throughput::KernelConfig;
 
 use crate::throughput::LaunchConfig;
 
-pub fn build_kernel(client: &Client, key: ThroughputKey, config: LaunchConfig) -> KernelConfig {
+pub fn build_kernel(client: &Client, dtype: ElemType, config: LaunchConfig) -> KernelConfig {
     let client = client.clone();
-    let dtype = key.dtype();
 
     let use_fma = matches!(dtype, ElemType::Float(_));
 

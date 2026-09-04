@@ -1,5 +1,5 @@
 use alloc::string::String;
-use cubecl_core::ir::ElemType;
+use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_environment::{collections::HashMap, sync::Mutex};
 use cubecl_runtime::{
     client::Client,
@@ -136,16 +136,25 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
                 return Err(ThroughputError::Unsupported);
             }
 
-            let shapes = arithmetic_widths(client, dtype)
+            let shapes = arithmetic_dtypes(client, dtype)
                 .into_iter()
-                .map(|vector_size| LaunchConfig {
-                    vector_size,
-                    ..launch_config
+                .flat_map(|dtype| {
+                    arithmetic_widths(client, dtype)
+                        .into_iter()
+                        .map(move |vector_size| {
+                            (
+                                dtype,
+                                LaunchConfig {
+                                    vector_size,
+                                    ..launch_config
+                                },
+                            )
+                        })
                 })
                 .collect();
 
-            fastest_shape(shapes, |config| {
-                compute_direct::build_kernel(client, key, config)
+            fastest_shape(shapes, |(dtype, config)| {
+                compute_direct::build_kernel(client, dtype, config)
             })
             .map(|(value, _)| value)
         }
@@ -228,10 +237,10 @@ pub fn roofline_bounds(
 /// at once would ask for several of them.
 ///
 /// A rate that is not finite is a shape that did not run, not a slow one.
-fn fastest_shape(
-    shapes: alloc::vec::Vec<LaunchConfig>,
-    build: impl Fn(LaunchConfig) -> KernelConfig,
-) -> Result<(ThroughputValue, LaunchConfig), ThroughputError> {
+fn fastest_shape<S: Copy>(
+    shapes: alloc::vec::Vec<S>,
+    build: impl Fn(S) -> KernelConfig,
+) -> Result<(ThroughputValue, S), ThroughputError> {
     shapes
         .into_iter()
         .map(|shape| (ThroughputBenchmarker::sample(build(shape)), shape))
@@ -321,6 +330,34 @@ fn device_key(client: &Client) -> String {
     )
 }
 
+/// The element types the arithmetic ceiling for `dtype` is measured in.
+///
+/// A device emulating `dtype`'s fma retires a ninth of its f32 rate on a Ryzen
+/// 7 5700X, and a kernel with those operands converts and accumulates in f32
+/// rather than pay that, so the emulated rate is no ceiling. Both are measured:
+/// packed f16 retires two per f32 lane and wins where the hardware has it.
+fn arithmetic_dtypes(client: &Client, dtype: ElemType) -> alloc::vec::Vec<ElemType> {
+    let mut dtypes = alloc::vec![dtype];
+
+    if let Some(accumulator) = promoted_dtype(dtype)
+        && client.properties().features.supports_type(accumulator)
+    {
+        dtypes.push(accumulator);
+    }
+
+    dtypes
+}
+
+/// What a kernel with `dtype` operands accumulates in when the device has no
+/// arithmetic of its own for them, or `None` where `dtype` is already the
+/// widest of the two.
+fn promoted_dtype(dtype: ElemType) -> Option<ElemType> {
+    let accumulator = ElemType::Float(FloatKind::F32);
+    let narrower_float = matches!(dtype, ElemType::Float(_)) && dtype.size() < accumulator.size();
+
+    narrower_float.then_some(accumulator)
+}
+
 /// The vector widths an arithmetic probe is measured at.
 ///
 /// `io_optimized_vector_sizes` is ordered for the loads and stores this probe
@@ -399,6 +436,9 @@ fn launch_config(client: &Client, dtype: ElemType) -> LaunchConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cubecl_core::ir::{IntKind, UIntKind};
+
+    const F32: ElemType = ElemType::Float(FloatKind::F32);
 
     /// The full launch is measured first, so a device whose peak is there
     /// keeps the shape it had before the sweep existed.
@@ -413,5 +453,27 @@ mod tests {
     #[test]
     fn one_core_is_still_a_shape() {
         assert_eq!(worker_counts(1), alloc::vec![1]);
+    }
+
+    /// Where the device does the arithmetic itself, its rate is the ceiling and
+    /// a second measurement of the same thing costs a probe for nothing.
+    #[test]
+    fn nothing_as_wide_as_the_accumulator_is_promoted() {
+        assert_eq!(promoted_dtype(F32), None);
+        assert_eq!(promoted_dtype(ElemType::Float(FloatKind::F64)), None);
+    }
+
+    /// The probe retires a multiply for an integer, which no float rate bounds.
+    #[test]
+    fn an_integer_is_not_promoted() {
+        assert_eq!(promoted_dtype(ElemType::Int(IntKind::I8)), None);
+        assert_eq!(promoted_dtype(ElemType::UInt(UIntKind::U16)), None);
+    }
+
+    #[test]
+    fn every_float_narrower_than_the_accumulator_is_promoted() {
+        for dtype in [FloatKind::F16, FloatKind::BF16, FloatKind::E4M3] {
+            assert_eq!(promoted_dtype(ElemType::Float(dtype)), Some(F32));
+        }
     }
 }

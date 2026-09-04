@@ -56,6 +56,10 @@ impl MemoryAccess {
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum ThroughputMode {
     /// Compute direct calculation without special hardware acceleration.
+    ///
+    /// The ceiling is for operands of `dtype`, not for arithmetic a device
+    /// performs in it: where converting to f32 retires more of them, that is
+    /// the rate a kernel of this type reaches, and what the probe reports.
     ComputeDirect {
         /// The data type of the computation.
         dtype: ElemType,
