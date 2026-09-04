@@ -18,13 +18,13 @@ workspace = true
 [features]
 default = [
     "std",
-    "cubecl-runtime/default",
+    "cubecl-server/default",
     "cubecl-common/default",
     "cubecl-core/default",
 ]
 
 std = [
-    "cubecl-runtime/std",
+    "cubecl-server/std",
     "cubecl-common/std",
     "cubecl-core/std",
     "cubecl-cpp/std",
@@ -37,7 +37,7 @@ rocwmma = []
 
 tracing = [
     "dep:tracing",
-    "cubecl-runtime/tracing",
+    "cubecl-server/tracing",
     "cubecl-common/tracing",
     "cubecl-core/tracing",
 ]
@@ -63,8 +63,7 @@ cubecl-hip-sys = { version = "7.1.5280200" }
 cubecl-llvm = { path = "../cubecl-llvm", version = "=0.11.0-pre.3", default-features = false, features = [
     "std",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.3", default-features = false, features = [
-    "channel-mutex",
+cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.3", default-features = false, features = [
 ] }
 
 bytemuck = { workspace = true }

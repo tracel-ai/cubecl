@@ -14,7 +14,7 @@ use cubecl_core::{
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{DeviceProperties, Type, features::*};
-use cubecl_runtime::compiler::CompilationError;
+use cubecl_server::compiler::CompilationError;
 use cubecl_spirv::{SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
 use tracel_ash::{

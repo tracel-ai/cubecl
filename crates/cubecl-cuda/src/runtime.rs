@@ -33,8 +33,8 @@ use cubecl_cpp::{
     },
     target::Cuda,
 };
-use cubecl_runtime::runtime::Runtime;
-use cubecl_runtime::{allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger};
+use cubecl_server::runtime::Runtime;
+use cubecl_server::{allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger};
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 

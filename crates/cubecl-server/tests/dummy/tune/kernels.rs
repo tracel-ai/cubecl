@@ -1,7 +1,7 @@
 use std::{thread::sleep, time::Duration};
 
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_runtime::{compiler::CompilationError, id::KernelId, storage::BytesResource};
+use cubecl_server::{compiler::CompilationError, id::KernelId, storage::BytesResource};
 
 use crate::dummy::DummyKernel;
 

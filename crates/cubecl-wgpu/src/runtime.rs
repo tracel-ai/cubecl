@@ -13,12 +13,12 @@ use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_environment::future;
 use cubecl_ir::{DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties};
-use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
+use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
 #[cfg(not(feature = "vulkan-validate"))]
-use cubecl_runtime::logging::ProfileLevel;
-pub use cubecl_runtime::memory_management::MemoryConfiguration;
-use cubecl_runtime::runtime::Runtime;
-use cubecl_runtime::{client::Client, logging::ServerLogger};
+use cubecl_server::logging::ProfileLevel;
+pub use cubecl_server::memory_management::MemoryConfiguration;
+use cubecl_server::runtime::Runtime;
+use cubecl_server::{client::Client, logging::ServerLogger};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.

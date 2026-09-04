@@ -12,8 +12,8 @@ use cubecl_core::{
     zspace::{Shape, Strides},
 };
 use cubecl_llvm::PlironCompiler;
-use cubecl_runtime::runtime::Runtime;
-use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
+use cubecl_server::runtime::Runtime;
+use cubecl_server::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
 use sysinfo::System;

@@ -6,9 +6,9 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, UIntKind};
-use cubecl_runtime::client::Client;
-use cubecl_runtime::server::{CubeCount, Handle, KernelArguments, ServerError};
-use cubecl_runtime::{local_tuner, tune::LocalTuner};
+use cubecl_server::client::Client;
+use cubecl_server::server::{CubeCount, Handle, KernelArguments, ServerError};
+use cubecl_server::{local_tuner, tune::LocalTuner};
 use dummy::*;
 
 #[test_log::test]
@@ -176,13 +176,13 @@ fn execute_elementwise_addition() {
 
 /// A profile the server refuses — as one is inside a graph capture window —
 /// must cost the observer its timing and nothing else: the kernel still runs,
-/// [`launched`](cubecl_runtime::logging::LaunchObserver::launched) still
+/// [`launched`](cubecl_server::logging::LaunchObserver::launched) still
 /// arrives, and `timed` is skipped. `serial` because the observer slot, the
 /// refusal toggle, and dry runs are all process-wide.
 #[test_log::test]
 #[serial_test::serial]
 fn a_refused_profile_degrades_to_an_untimed_launch() {
-    use cubecl_runtime::logging::{Duration, LaunchObservation, LaunchObserver, TimingMethod};
+    use cubecl_server::logging::{Duration, LaunchObservation, LaunchObserver, TimingMethod};
 
     #[derive(Default)]
     struct WantsTiming {
@@ -300,7 +300,7 @@ fn autotune_basic_multiplication_execution() {
 #[cfg(all(feature = "std", autotune_persistence))]
 #[serial_test::serial]
 fn autotune_resets_when_the_environment_switches() {
-    use cubecl_runtime::tune::{TuneCacheResult, Tuner};
+    use cubecl_server::tune::{TuneCacheResult, Tuner};
 
     let first = tempfile::tempdir().unwrap();
     let second = tempfile::tempdir().unwrap();
@@ -494,7 +494,7 @@ fn profile_returns_ok_on_success() {
 #[test_log::test]
 #[cfg(feature = "std")]
 fn exclusive_stays_recoverable_on_task_panic() {
-    use cubecl_runtime::server::ServerError;
+    use cubecl_server::server::ServerError;
 
     let client = test_client(&DummyDevice);
 
@@ -662,7 +662,7 @@ fn autotune_survives_a_failing_candidate_ahead_of_the_winner() {
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 #[serial_test::serial]
 fn autotune_stops_sampling_an_eliminated_candidate() {
-    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+    use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -735,14 +735,14 @@ fn autotune_stops_sampling_an_eliminated_candidate() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_dry_run_drops_an_ordinary_launch() {
-    use cubecl_runtime::dry_run::DryRun;
+    use cubecl_server::dry_run::DryRun;
 
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);
     let rhs = client.create_from_slice(&[4, 4, 4]);
     let out = client.create_from_slice(&[9, 9, 9]);
 
-    let add = |out: &cubecl_runtime::server::Handle| {
+    let add = |out: &cubecl_server::server::Handle| {
         client.launch(
             Box::new(KernelTask::new(DummyElementwiseAddition)),
             CubeCount::Static(1, 1, 1),
@@ -783,7 +783,7 @@ fn a_dry_run_drops_an_ordinary_launch() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_dry_run_still_autotunes() {
-    use cubecl_runtime::dry_run::DryRun;
+    use cubecl_server::dry_run::DryRun;
 
     static TUNER: LocalTuner<String, String> = local_tuner!("a_dry_run_still_autotunes");
 
@@ -831,8 +831,8 @@ fn a_dry_run_still_autotunes() {
 #[cfg(feature = "std")]
 #[serial_test::serial]
 fn a_dry_run_reserves_without_mapping() {
-    use cubecl_runtime::dry_run::DryRun;
-    use cubecl_runtime::memory_management::MemoryPoolReport;
+    use cubecl_server::dry_run::DryRun;
+    use cubecl_server::memory_management::MemoryPoolReport;
 
     let client = test_client(&DummyDevice);
     let dry_run = DryRun::new();
@@ -845,7 +845,7 @@ fn a_dry_run_reserves_without_mapping() {
     // The pool the reservation actually landed in — self-identified by the
     // high-water it left, so the test tracks `accept`'s routing instead of
     // predicting it.
-    fn arena(report: &cubecl_runtime::memory_management::MemoryReport) -> MemoryPoolReport {
+    fn arena(report: &cubecl_server::memory_management::MemoryReport) -> MemoryPoolReport {
         report
             .dynamic
             .iter()

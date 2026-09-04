@@ -5,7 +5,7 @@ use cubecl_core::{
 };
 use cubecl_environment::stream::StreamId;
 use cubecl_llvm::PlironEngine;
-use cubecl_runtime::{
+use cubecl_server::{
     logging::ServerLogger,
     memory_management::ErrorGraph,
     storage::{BytesResource, ManagedResource},

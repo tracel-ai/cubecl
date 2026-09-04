@@ -1,20 +1,10 @@
-pub(crate) mod memory_pool;
-
 mod base;
-mod error_graph;
-mod taint;
-
-/// Export utilities to keep track of CPU buffers when performing async data copies.
-#[cfg(multi_threading)]
-pub mod drop_queue;
+mod config;
+mod handle;
 
 pub use base::*;
-pub use error_graph::*;
-pub use taint::*;
-
-/// Dynamic memory management strategy.
-mod memory_manage;
-pub use memory_manage::*;
+pub use config::*;
+pub use handle::*;
 
 use alloc::vec::Vec;
 
@@ -104,3 +94,53 @@ impl Default for MemoryConfiguration {
         }
     }
 }
+
+#[derive(Default, Clone, Copy, Debug)]
+/// The mode of allocation used.
+pub enum MemoryAllocationMode {
+    /// Use the automatic memory management strategy for allocation.
+    #[default]
+    Auto,
+    /// Use a persistent memory management strategy, meaning that all allocations are for data that is
+    /// likely never going to be freed.
+    Persistent,
+}
+
+/// Why installing a dynamic pool layout did not take effect.
+///
+/// The layout itself was already valid — that is
+/// [`PoolConfigError`](PoolConfigError), reported when the configuration is
+/// resolved. This is about the pools' *state* at the moment of the swap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallMemoryPoolsError {
+    /// The dynamic pools still hold live allocations, so the old layout was
+    /// kept. A live slice carries its pool position, and swapping the pool
+    /// list under it would leave that position pointing at a different pool.
+    ///
+    /// Transient: retry once whatever holds them drains. A cleanup that does
+    /// not clear it usually means a cache is holding slices (the metadata
+    /// info cache) or a captured graph is pinning them.
+    PoolsInUse {
+        /// Bytes still live in the dynamic pools.
+        bytes_in_use: u64,
+    },
+    /// This server has no configurable dynamic pools. Permanent — unlike
+    /// [`PoolsInUse`](Self::PoolsInUse), retrying will never succeed.
+    Unsupported,
+}
+
+impl core::fmt::Display for InstallMemoryPoolsError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            InstallMemoryPoolsError::PoolsInUse { bytes_in_use } => write!(
+                f,
+                "the dynamic pools kept their layout: {bytes_in_use} bytes are still live in them"
+            ),
+            InstallMemoryPoolsError::Unsupported => {
+                write!(f, "this server has no configurable dynamic memory pools")
+            }
+        }
+    }
+}
+
+impl core::error::Error for InstallMemoryPoolsError {}

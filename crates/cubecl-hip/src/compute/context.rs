@@ -16,16 +16,15 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::Store;
 use cubecl_hip_sys::get_hip_include_path;
-use cubecl_runtime::compiler::{
-    CompilationCache, build_id_hash, compilation_store, store_compiled,
-};
-use cubecl_runtime::driver::checked;
-use cubecl_runtime::kernel::BufferIOAttr;
-use cubecl_runtime::{
+use cubecl_server::compiler::{CompilationCache, build_id_hash, compilation_store, store_compiled};
+use cubecl_server::driver::checked;
+use cubecl_server::kernel::BufferIOAttr;
+use cubecl_server::kernel::DebugInformation;
+use cubecl_server::{
     compiler::CompilationError,
     validation::{validate_cube_dim, validate_units},
 };
-use cubecl_runtime::{
+use cubecl_server::{
     compiler::KernelCacheKey,
     kernel::{CompiledKernel, CubeKernel},
     logging::ServerLogger,

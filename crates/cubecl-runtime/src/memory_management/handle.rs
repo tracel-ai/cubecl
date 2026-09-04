@@ -43,8 +43,10 @@ impl Clone for ManagedMemoryHandle {
 ///
 /// An alternative would be `spin::Mutex<MemoryLocation>` which avoids the
 /// `unsafe impl Sync` at the cost of a lock on every access.
-pub(crate) struct ManagedMemoryDescriptor {
-    pub(crate) id: ManagedMemoryId,
+#[doc(hidden)]
+pub struct ManagedMemoryDescriptor {
+    #[doc(hidden)]
+    pub id: ManagedMemoryId,
     location: Cell<MemoryLocation>,
 }
 
@@ -67,7 +69,8 @@ impl core::fmt::Debug for ManagedMemoryDescriptor {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 /// Managed memory unique identifier.
 pub struct ManagedMemoryId {
-    pub(crate) value: usize,
+    #[doc(hidden)]
+    pub value: usize,
 }
 
 impl PartialEq for ManagedMemoryDescriptor {
@@ -80,7 +83,8 @@ impl Eq for ManagedMemoryDescriptor {}
 
 #[derive(Clone, Copy, Debug)]
 /// Defines where the [`ManagedMemoryId`] is located.
-pub(crate) struct MemoryLocation {
+#[doc(hidden)]
+pub struct MemoryLocation {
     /// The memory pool index in the global memory management.
     pub pool: u8,
     /// The memory page index in a memory pool.
@@ -93,12 +97,14 @@ pub(crate) struct MemoryLocation {
 
 impl ManagedMemoryDescriptor {
     /// Update the memory location for the given [`ManagedMemoryId`].
-    pub(crate) fn update_location(&self, location: MemoryLocation) {
+    #[doc(hidden)]
+    pub fn update_location(&self, location: MemoryLocation) {
         self.location.set(location);
     }
 
     /// Update only the slice position for the given [`ManagedMemoryId`].
-    pub(crate) fn update_slice(&self, slice: u32) {
+    #[doc(hidden)]
+    pub fn update_slice(&self, slice: u32) {
         self.location.update(|mut loc| {
             loc.slice = slice;
             loc
@@ -114,22 +120,26 @@ impl ManagedMemoryDescriptor {
     }
 
     /// Retrieves the current location.
-    pub(crate) fn location(&self) -> MemoryLocation {
+    #[doc(hidden)]
+    pub fn location(&self) -> MemoryLocation {
         self.location.get()
     }
 
-    pub(crate) fn slice(&self) -> usize {
+    #[doc(hidden)]
+    pub fn slice(&self) -> usize {
         self.location.get().slice as usize
     }
 
-    pub(crate) fn page(&self) -> usize {
+    #[doc(hidden)]
+    pub fn page(&self) -> usize {
         self.location.get().page as usize
     }
 }
 
 impl MemoryLocation {
     /// Creates a new memory location.
-    pub(crate) fn new(pool: u8, page: u16, slice: u32) -> Self {
+    #[doc(hidden)]
+    pub fn new(pool: u8, page: u16, slice: u32) -> Self {
         Self {
             pool,
             page,
@@ -139,7 +149,8 @@ impl MemoryLocation {
     }
 
     /// Creates a new uninitialized memory location.
-    pub(crate) fn uninit() -> Self {
+    #[doc(hidden)]
+    pub fn uninit() -> Self {
         Self {
             pool: 0,
             page: 0,
@@ -164,7 +175,8 @@ impl ManagedMemoryHandle {
     }
 
     /// Retrieves the descriptor for the current handle.
-    pub(crate) fn descriptor(&self) -> &ManagedMemoryDescriptor {
+    #[doc(hidden)]
+    pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
         &self.descriptor
     }
 
@@ -197,7 +209,8 @@ impl ManagedMemoryHandle {
 
 impl ManagedMemoryBinding {
     /// Retrieves the descriptor for the current binding.
-    pub(crate) fn descriptor(&self) -> &ManagedMemoryDescriptor {
+    #[doc(hidden)]
+    pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
         &self.descriptor
     }
 

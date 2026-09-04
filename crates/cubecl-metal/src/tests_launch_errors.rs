@@ -9,7 +9,7 @@ use cubecl_core::{
     Runtime,
     server::{LaunchError, ResourceLimitError, ServerError},
 };
-use cubecl_runtime::runtime::Runtime;
+use cubecl_server::runtime::Runtime;
 
 type R = crate::MetalRuntime;
 

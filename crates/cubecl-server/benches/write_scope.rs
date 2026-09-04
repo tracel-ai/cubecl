@@ -9,7 +9,7 @@
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
-use cubecl_runtime::memory_management::{ErrorGraph, Taint};
+use cubecl_server::memory_management::{ErrorGraph, Taint};
 use std::time::Instant;
 
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
@@ -34,7 +34,7 @@ static ALLOCATOR: Counting = Counting;
 /// One launch's worth of bookkeeping over `buffers` write-set entries: mint
 /// the provisional failure, claim every buffer, then release them all.
 fn cycle(taints: &mut [Taint], graph: &mut ErrorGraph) {
-    let provisional = graph.insert(cubecl_runtime::server::ServerError::TornDown);
+    let provisional = graph.insert(cubecl_server::server::ServerError::TornDown);
     for taint in taints.iter_mut() {
         taint.taint(0..4096, provisional, graph);
     }
