@@ -4,11 +4,7 @@ use cubecl_runtime::throughput::{KernelConfig, ThroughputKey};
 
 use crate::throughput::LaunchConfig;
 
-pub fn build_kernel<R: Runtime>(
-    client: &ComputeClient<R>,
-    key: ThroughputKey,
-    config: LaunchConfig,
-) -> KernelConfig {
+pub fn build_kernel(client: &Client, key: ThroughputKey, config: LaunchConfig) -> KernelConfig {
     let client = client.clone();
     let dtype = key.dtype();
 

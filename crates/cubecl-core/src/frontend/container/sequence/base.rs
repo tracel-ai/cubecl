@@ -187,14 +187,14 @@ pub struct SequenceExpand<T: CubeType> {
 impl<T: CubeType> Iterable for SequenceExpand<T> {
     type Item = T::ExpandType;
 
-    fn expand(self, scope: &Scope, func: impl FnMut(&Scope, <T as CubeType>::ExpandType)) {
+    fn expand(self, scope: &Scope, func: &mut dyn FnMut(&Scope, <T as CubeType>::ExpandType)) {
         self.expand_unroll(scope, func);
     }
 
     fn expand_unroll(
         self,
         scope: &Scope,
-        mut func: impl FnMut(&Scope, <T as CubeType>::ExpandType),
+        func: &mut dyn FnMut(&Scope, <T as CubeType>::ExpandType),
     ) {
         for elem in self {
             func(scope, elem);

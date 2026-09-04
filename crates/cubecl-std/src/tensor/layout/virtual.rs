@@ -202,20 +202,17 @@ mod launch {
     type ExpandFn<C, S> =
         Rc<RefCell<dyn FnMut(&mut KernelBuilder) -> VirtualLayoutExpand<C, S> + Send>>;
 
-    pub struct VirtualLayoutLaunch<C: Coordinates, S: Coordinates, R: Runtime> {
-        _phantom_runtime: core::marker::PhantomData<R>,
+    pub struct VirtualLayoutLaunch<C: Coordinates, S: Coordinates> {
         #[allow(clippy::type_complexity)]
-        register: Box<
-            dyn FnOnce(&mut KernelLauncher<R>) -> VirtualLayoutCompilationArg<C, S> + Send + Sync,
-        >,
+        register:
+            Box<dyn FnOnce(&mut KernelLauncher) -> VirtualLayoutCompilationArg<C, S> + Send + Sync>,
     }
 
-    impl<C: Coordinates, S: Coordinates, R: Runtime> VirtualLayoutLaunch<C, S, R> {
+    impl<C: Coordinates, S: Coordinates> VirtualLayoutLaunch<C, S> {
         pub fn new<L: Layout<Coordinates = C, SourceCoordinates = S> + LaunchArg>(
-            layout: L::RuntimeArg<R>,
+            layout: L::RuntimeArg,
         ) -> Self {
             Self {
-                _phantom_runtime: PhantomData,
                 register: Box::new(move |launcher| {
                     let comp_arg = L::register(layout, launcher);
                     let comp_arg_2 = comp_arg.clone();
@@ -281,13 +278,10 @@ mod launch {
     }
 
     impl<C: Coordinates + 'static, S: Coordinates + 'static> LaunchArg for VirtualLayout<C, S> {
-        type RuntimeArg<R: Runtime> = VirtualLayoutLaunch<C, S, R>;
+        type RuntimeArg = VirtualLayoutLaunch<C, S>;
         type CompilationArg = VirtualLayoutCompilationArg<C, S>;
 
-        fn register<R: Runtime>(
-            arg: Self::RuntimeArg<R>,
-            launcher: &mut KernelLauncher<R>,
-        ) -> Self::CompilationArg {
+        fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
             let func = arg.register;
             func(launcher)
         }

@@ -22,8 +22,8 @@ use crate::throughput::{
 /// by one thread, to keep the loads from being eliminated (see the kernel); at
 /// hundreds of megabytes read that is not worth counting and is deliberately
 /// left out of `ops_count` rather than approximated.
-pub fn build_kernel<R: Runtime>(
-    client: &ComputeClient<R>,
+pub fn build_kernel(
+    client: &Client,
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,

@@ -15,7 +15,7 @@ where
 {
     type Item = <T::Output as CubeType>::ExpandType;
 
-    fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
+    fn expand(self, scope: &Scope, body: &mut dyn FnMut(&Scope, Self::Item)) {
         let len = self.__expand_len_method(scope);
 
         let start = scope.const_usize(0);
@@ -39,7 +39,7 @@ where
         scope.set_may_return(&[child]);
     }
 
-    fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
+    fn expand_unroll(self, _scope: &Scope, _body: &mut dyn FnMut(&Scope, Self::Item)) {
         unimplemented!("Can't unroll array iterator")
     }
 }

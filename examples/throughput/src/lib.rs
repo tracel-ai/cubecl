@@ -1,6 +1,7 @@
 use cubecl::{
+    Device,
     ir::{ElemType, FloatKind},
-    prelude::*,
+    prelude::Client,
     std::throughput::{measure_memory_curve, measure_peak_throughput},
     throughput::{
         CmmaDims, ComputeCmmaConfig, MemoryAccess, MemoryCurve, ThroughputError, ThroughputKey,
@@ -8,68 +9,69 @@ use cubecl::{
     },
 };
 
-/// Binds the runtime selected by the enabled cargo feature to a type alias and runs `$body`.
+/// Binds the default device of each runtime selected by the enabled cargo features to
+/// `$device` and runs `$body` on it.
 ///
 /// Keeps backend selection in one place so binaries don't each repeat the `cfg` block:
-/// `dispatch!(R => throughput::compute_direct::<R>(&Default::default()))`.
+/// `dispatch!(device => throughput::compute_direct(&device))`.
 #[macro_export]
 macro_rules! dispatch {
-    ($runtime:ident => $body:expr) => {{
+    ($device:ident => $body:expr) => {{
         #[cfg(feature = "cuda")]
         {
-            type $runtime = cubecl::cuda::CudaRuntime;
+            let $device = cubecl::Device::Cuda(Default::default());
             $body;
         }
         #[cfg(feature = "hip")]
         {
-            type $runtime = cubecl::hip::HipRuntime;
+            let $device = cubecl::Device::Hip(Default::default());
             $body;
         }
         #[cfg(feature = "cpu")]
         {
-            type $runtime = cubecl::cpu::CpuRuntime;
+            let $device = cubecl::Device::Cpu(Default::default());
             $body;
         }
         #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
         {
-            type $runtime = cubecl::metal::MetalRuntime;
+            let $device = cubecl::Device::Metal(Default::default());
             $body;
         }
         // All wgpu sub-backends (WGSL, Vulkan/SPIR-V, Metal/MSL, WebGPU) share `WgpuRuntime`;
         // the compiler is chosen by the enabled `cubecl` sub-feature and the adapter.
         #[cfg(feature = "wgpu")]
         {
-            type $runtime = cubecl::wgpu::WgpuRuntime;
+            let $device = cubecl::Device::Wgpu(Default::default());
             $body;
         }
     }};
 }
 
 /// Peak arithmetic throughput, per float type the device supports.
-pub fn compute_direct<R: Runtime>(device: &R::Device) {
-    report::<R>(device, compute_direct_rows);
+pub fn compute_direct(device: &Device) {
+    report(device, compute_direct_rows);
 }
 
 /// Peak cooperative-matrix throughput, per accumulator width.
-pub fn compute_cmma<R: Runtime>(device: &R::Device) {
-    report::<R>(device, compute_cmma_rows);
+pub fn compute_cmma(device: &Device) {
+    report(device, compute_cmma_rows);
 }
 
 /// Peak memory (copy) throughput, reads and writes both counted.
-pub fn memory<R: Runtime>(device: &R::Device) {
-    report::<R>(device, |_| vec![memory_row(MemoryAccess::Copy)]);
+pub fn memory(device: &Device) {
+    report(device, |_| vec![memory_row(MemoryAccess::Copy)]);
 }
 
 /// Peak read-only streaming throughput. Expect this to exceed
 /// [`memory`], which pays for a store the read-only case never issues.
-pub fn memory_read<R: Runtime>(device: &R::Device) {
-    report::<R>(device, |_| vec![memory_row(MemoryAccess::Read)]);
+pub fn memory_read(device: &Device) {
+    report(device, |_| vec![memory_row(MemoryAccess::Read)]);
 }
 
 /// Peak write-only streaming throughput. Expect this to exceed
 /// [`memory`], which pays for a read the write-only case never issues.
-pub fn memory_write<R: Runtime>(device: &R::Device) {
-    report::<R>(device, |_| vec![memory_row(MemoryAccess::Write)]);
+pub fn memory_write(device: &Device) {
+    report(device, |_| vec![memory_row(MemoryAccess::Write)]);
 }
 
 /// Peak memory throughput as a function of working set size, for both access
@@ -77,13 +79,13 @@ pub fn memory_write<R: Runtime>(device: &R::Device) {
 ///
 /// The single-size probes above report the last row of each table; the rows
 /// above it are what a kernel moving that much can actually hit.
-pub fn memory_curve<R: Runtime>(device: &R::Device) {
-    let client = R::client(device);
+pub fn memory_curve(device: &Device) {
+    let client = device.client();
 
-    println!("Memory curve — {}", R::name(&client));
+    println!("Memory curve — {}", client.name());
 
     for access in [MemoryAccess::Read, MemoryAccess::Write, MemoryAccess::Copy] {
-        print_curve(access, &measure_memory_curve::<R>(&client, access));
+        print_curve(access, &measure_memory_curve(&client, access));
     }
 }
 
@@ -101,13 +103,13 @@ fn print_curve(access: MemoryAccess, curve: &MemoryCurve) {
 }
 
 /// Measures the fixed cost of a single kernel launch.
-pub fn launch_overhead<R: Runtime>(device: &R::Device) {
-    report::<R>(device, |_| vec![launch_row()]);
+pub fn launch_overhead(device: &Device) {
+    report(device, |_| vec![launch_row()]);
 }
 
 /// Runs every throughput benchmark and prints them as a table.
-pub fn all<R: Runtime>(device: &R::Device) {
-    report::<R>(device, |client| {
+pub fn all(device: &Device) {
+    report(device, |client| {
         let mut rows = compute_direct_rows(client);
         rows.extend(compute_cmma_rows(client));
         rows.extend([MemoryAccess::Copy, MemoryAccess::Read, MemoryAccess::Write].map(memory_row));
@@ -123,12 +125,12 @@ struct Row {
     key: Option<ThroughputKey>,
 }
 
-fn report<R: Runtime>(device: &R::Device, rows: impl FnOnce(&ComputeClient<R>) -> Vec<Row>) {
-    let client = R::client(device);
+fn report(device: &Device, rows: impl FnOnce(&Client) -> Vec<Row>) {
+    let client = device.client();
 
     println!(
         "Peak throughput — {} / {}",
-        R::name(&client),
+        client.name(),
         client.properties().identity.name
     );
 
@@ -145,7 +147,7 @@ fn report<R: Runtime>(device: &R::Device, rows: impl FnOnce(&ComputeClient<R>) -
     }
 }
 
-fn compute_direct_rows<R: Runtime>(client: &ComputeClient<R>) -> Vec<Row> {
+fn compute_direct_rows(client: &Client) -> Vec<Row> {
     [FloatKind::F32, FloatKind::F16, FloatKind::BF16]
         .into_iter()
         .map(|kind| {
@@ -167,7 +169,7 @@ fn compute_direct_rows<R: Runtime>(client: &ComputeClient<R>) -> Vec<Row> {
 ///
 /// Consumer parts halve their tensor rate for f32 accumulation, which is the
 /// one a matmul runs on.
-fn compute_cmma_rows<R: Runtime>(client: &ComputeClient<R>) -> Vec<Row> {
+fn compute_cmma_rows(client: &Client) -> Vec<Row> {
     let dtype = ElemType::Float(FloatKind::F16);
 
     [FloatKind::F16, FloatKind::F32]
@@ -205,11 +207,7 @@ fn compute_cmma_rows<R: Runtime>(client: &ComputeClient<R>) -> Vec<Row> {
 ///
 /// Read from `cmma` rather than through `select_cmma_tile`, which answers from
 /// `mma` as well: a shape only that instruction has does not run here.
-fn largest_cmma<R: Runtime>(
-    client: &ComputeClient<R>,
-    dtype: ElemType,
-    accumulator_type: ElemType,
-) -> Option<CmmaDims> {
+fn largest_cmma(client: &Client, dtype: ElemType, accumulator_type: ElemType) -> Option<CmmaDims> {
     client
         .properties()
         .features

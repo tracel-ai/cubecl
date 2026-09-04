@@ -1,18 +1,17 @@
 use super::Handle;
 use crate::kernel::BufferIOAttr;
 use crate::{
-    client::ComputeClient,
+    client::Client,
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
     dry_run::LaunchMode,
     id::GraphId,
-    kernel::KernelMetadata,
+    kernel::CubeKernel,
     logging::ServerLogger,
     memory_management::{
         InstallMemoryPoolsError, ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode,
         MemoryConfiguration, MemoryReport, MemoryUsage,
     },
-    runtime::Runtime,
     server::{BufferBinding, KernelResource},
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
@@ -29,7 +28,7 @@ use core::{
 };
 use cubecl_common::{
     bytes::Bytes,
-    device::{self, DeviceId},
+    device::{self, DeviceId, ServiceId},
     profile::ProfileDuration,
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -37,7 +36,7 @@ use cubecl_environment::collections::HashSet;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::RwLock;
-use cubecl_ir::{DeviceProperties, ElemType, settings::Dim3};
+use cubecl_ir::{DeviceProperties, ElemType, TargetProperties, settings::Dim3};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use derive_more::{Deref, DerefMut, From};
 use foldhash::fast::FixedState;
@@ -93,23 +92,40 @@ impl core::fmt::Debug for ProfileError {
 }
 
 /// Contains many different types that are useful for server implementations and compute clients.
-pub struct ServerUtilities<Server: ComputeServer> {
+pub struct ServerUtilities {
     /// The time when `profile-tracy` is activated.
     #[cfg(feature = "profile-tracy")]
     pub epoch_time: cubecl_environment::time::Instant,
     /// The GPU client when `profile-tracy` is activated.
     #[cfg(feature = "profile-tracy")]
     pub gpu_client: tracy_client::GpuContext,
+    /// The service these utilities belong to: what the handles it allocates
+    /// are stamped with, and what a client compares them against.
+    pub service: ServiceId,
+    /// The runtime name on this device, as logs and cache keys show it:
+    /// `cuda`, `wgpu<spirv>`.
+    pub name: &'static str,
     /// Information shared between all servers.
-    pub properties: DeviceProperties,
+    pub properties: Arc<DeviceProperties>,
     /// Stable hash of the device properties
     pub properties_hash: u64,
-    /// Information specific to the current server.
-    pub info: Server::Info,
+    /// What the target the server compiles for guarantees about its own
+    /// instructions — [`Runtime::target_properties`](crate::runtime::Runtime::target_properties)
+    /// resolved once, when the device came up, rather than on every launch.
+    ///
+    /// A kernel keeps a clone of this `Arc` so it can expand itself on the
+    /// device thread without naming a runtime, so building it per launch
+    /// would put a `TargetProperties` construction — and the allocations
+    /// inside it — on the hot path of every already-compiled kernel.
+    pub target_properties: Arc<TargetProperties>,
     /// The logger based on global cubecl configs.
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
-    pub layout_policy: Server::MemoryLayoutPolicy,
+    pub layout_policy: Box<dyn MemoryLayoutPolicy>,
+    /// Whether the server can move data to a peer server of the same runtime
+    /// directly, without a round trip through the host. Off unless the
+    /// backend turns it on at init.
+    pub server_comm_enabled: bool,
     /// How to enforce bounds checking on kernels.
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
@@ -124,47 +140,49 @@ pub trait MemoryLayoutPolicy: Send + Sync + 'static {
     /// single `Binding`.
     fn apply(
         &self,
+        service: ServiceId,
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
     ) -> (Handle, Vec<MemoryLayout>);
 }
 
-impl<Server: core::fmt::Debug> core::fmt::Debug for ServerUtilities<Server>
-where
-    Server: ComputeServer,
-    Server::Info: core::fmt::Debug,
-{
+impl core::fmt::Debug for ServerUtilities {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("ServerUtilities")
             .field("properties", &self.properties)
-            .field("info", &self.info)
+            .field("name", &self.name)
             .field("logger", &self.logger)
             .finish()
     }
 }
 
-impl<S: ComputeServer> ServerUtilities<S> {
+impl ServerUtilities {
     /// Creates a new server utilities.
     pub fn new(
+        service: ServiceId,
+        name: &'static str,
         properties: DeviceProperties,
+        target_properties: TargetProperties,
         logger: Arc<ServerLogger>,
-        info: S::Info,
-        allocator: S::MemoryLayoutPolicy,
+        allocator: impl MemoryLayoutPolicy,
     ) -> Self {
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
 
         Self {
+            service,
+            name,
             properties_hash: properties.checksum(),
-            properties,
+            properties: Arc::new(properties),
+            target_properties: Arc::new(target_properties),
             logger,
             // Create the GPU client if needed.
             #[cfg(feature = "profile-tracy")]
             gpu_client: client
                 .clone()
                 .new_gpu_context(
-                    Some(&format!("{info:?}")),
+                    Some(name),
                     // In the future should ask the server what makes sense here. 'Invalid' atm is a generic stand-in (Tracy doesn't have CUDA/RocM atm anyway).
                     tracy_client::GpuContextType::Invalid,
                     0,   // Timestamps are manually aligned to this epoch so start at 0.
@@ -173,8 +191,8 @@ impl<S: ComputeServer> ServerUtilities<S> {
                 .unwrap(),
             #[cfg(feature = "profile-tracy")]
             epoch_time: cubecl_environment::time::Instant::now(),
-            info,
-            layout_policy: allocator,
+            layout_policy: Box::new(allocator),
+            server_comm_enabled: false,
             check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
         }
@@ -296,6 +314,33 @@ pub enum ServerError {
     Generic {
         /// The details of the generic error.
         reason: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// A handle from one service was handed to a client of another: memory
+    /// coordinates mean nothing there, so nothing was run.
+    #[error("A handle of {handle} was used on {client}\nBacktrace:\n{backtrace}")]
+    ForeignHandle {
+        /// The service whose memory the handle addresses.
+        handle: String,
+        /// The service the client reaches.
+        client: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// A caller named a server type the client does not reach. The client is
+    /// erased over its server, so the type it is asked for is checked against
+    /// the one it was built from, and nothing was run.
+    #[error("The client reaches {client}, not a {requested}\nBacktrace:\n{backtrace}")]
+    ServiceMismatch {
+        /// The service the client reaches.
+        client: String,
+        /// The server type the caller asked for.
+        requested: String,
         /// The backtrace for this error.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
@@ -431,21 +476,10 @@ impl ServerError {
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
-/// [`ComputeClient`] for thread safety.
-pub trait ComputeServer:
-    Send + core::fmt::Debug + ServerCommunication + device::DeviceService + 'static
-where
-    Self: Sized,
+/// [`Client`] for thread safety.
+pub trait Server:
+    core::any::Any + Send + core::fmt::Debug + ServerCommunication + device::DeviceService + 'static
 {
-    /// The kernel type defines the computation algorithms.
-    type Kernel: KernelMetadata;
-    /// Information that can be retrieved for the runtime.
-    type Info: Debug + Send + Sync;
-    /// Manages how allocations are performed for a server.
-    type MemoryLayoutPolicy: MemoryLayoutPolicy;
-    /// The [storage](ComputeStorage) type defines how data is stored and accessed.
-    type Storage: ComputeStorage;
-
     /// Initializes [memory](ManagedMemoryHandle) on the given [stream](StreamId) with the given size.
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId);
 
@@ -465,7 +499,7 @@ where
     fn logger(&self) -> Arc<ServerLogger>;
 
     /// Retrieve the server utilities.
-    fn utilities(&self) -> Arc<ServerUtilities<Self>>;
+    fn utilities(&self) -> Arc<ServerUtilities>;
 
     /// Given bindings, returns the owned resources as bytes.
     ///
@@ -508,18 +542,6 @@ where
         stream_id: StreamId,
     ) -> Result<(), ServerError>;
 
-    /// Given a resource handle, returns the storage resource.
-    ///
-    /// The same claim check a read makes guards this too: a buffer a failed
-    /// launch never filled reports the failure rather than handing back a
-    /// pointer to whatever was there before. It costs a field read on a slice
-    /// the resolution walks anyway.
-    fn get_resource(
-        &mut self,
-        binding: BufferBinding,
-        stream_id: StreamId,
-    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
-
     /// Executes the `kernel` over the given memory `handles`.
     ///
     /// Kernels have mutable access to every resource they are given
@@ -536,7 +558,7 @@ where
     /// When executing with mode [`ExecutionMode::Unchecked`], out-of-bound reads and writes can happen.
     unsafe fn launch(
         &mut self,
-        kernel: Self::Kernel,
+        kernel: Box<dyn CubeKernel>,
         count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
@@ -554,7 +576,7 @@ where
 
     /// Prepare `stream_id` for an upcoming graph capture: route allocations
     /// into a stable pool and snapshot it, so every buffer allocated between
-    /// here and [`end_capture`](ComputeServer::end_capture) can be pinned for
+    /// here and [`end_capture`](Server::end_capture) can be pinned for
     /// the graph's lifetime. Call this **before** the warmup run so the capture
     /// window reuses the slices warmup left in the pool rather than allocating
     /// its own — which a hardware-graph backend cannot do at all (a device
@@ -578,10 +600,10 @@ where
 
     /// Begin recording the launches issued on `stream_id` into a graph instead
     /// of executing them, so the sequence can later be
-    /// [replayed](ComputeServer::replay) without paying the launch path again.
-    /// Call [`graph_prepare`](ComputeServer::graph_prepare) and warm up first.
+    /// [replayed](Server::replay) without paying the launch path again.
+    /// Call [`graph_prepare`](Server::graph_prepare) and warm up first.
     ///
-    /// Between this call and [`end_capture`](ComputeServer::end_capture) the
+    /// Between this call and [`end_capture`](Server::end_capture) the
     /// stream must not synchronize — a read, a sync or a profile either aborts
     /// the capture or is refused — and should not allocate fresh device memory,
     /// which `graph_prepare` plus a warmup run is what avoids. Whether an
@@ -598,9 +620,9 @@ where
         Err(ServerError::graph_capture_unsupported())
     }
 
-    /// Stop recording (see [`begin_capture`](ComputeServer::begin_capture)),
+    /// Stop recording (see [`begin_capture`](Server::begin_capture)),
     /// store the captured graph in the backend's registry, and return its
-    /// [`GraphId`], ready to [replay](ComputeServer::replay).
+    /// [`GraphId`], ready to [replay](Server::replay).
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let _ = stream_id;
         Err(ServerError::graph_capture_unsupported())
@@ -618,7 +640,7 @@ where
     /// there. A failure also leaves the graph's write set carrying it, so a
     /// read of those buffers fails until a replay lands. Unsupported by
     /// default: a [`GraphId`] can only come from
-    /// [`end_capture`](ComputeServer::end_capture).
+    /// [`end_capture`](Server::end_capture).
     fn replay(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = (graph, stream_id);
         Err(ServerError::graph_capture_unsupported())
@@ -700,6 +722,26 @@ where
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
 
+/// The storage a server allocates from, and the native resources it hands
+/// out. Kept off [`Server`] so that trait is object-safe: a resource's
+/// type is the backend's own, and only a caller that names the backend can
+/// receive one.
+pub trait ServerStorage: Server {
+    /// The [storage](ComputeStorage) type defines how data is stored and accessed.
+    type Storage: ComputeStorage;
+    /// Given a resource handle, returns the storage resource.
+    ///
+    /// The same claim check a read makes guards this too: a buffer a failed
+    /// launch never filled reports the failure rather than handing back a
+    /// pointer to whatever was there before. It costs a field read on a slice
+    /// the resolution walks anyway.
+    fn get_resource(
+        &mut self,
+        binding: BufferBinding,
+        stream_id: StreamId,
+    ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
+}
+
 /// An ID unique to any unordered combination of devices.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct CommunicationId {
@@ -732,17 +774,14 @@ pub enum ReduceOperation {
 ///
 /// A collective reads a source buffer and produces a destination one, and owes
 /// the same two answers the rest of the server gives: ask whether the source
-/// carries a failure on the way in (as [`read`](ComputeServer::read) does
+/// carries a failure on the way in (as [`read`](Server::read) does
 /// through
 /// [`FailureStore::ensure_written`](crate::stream::FailureStore::ensure_written)),
 /// and taint the destination on the way out when the operation fails (as a
-/// failed [`launch`](ComputeServer::launch) does). Skipping either lets a
+/// failed [`launch`](Server::launch) does). Skipping either lets a
 /// collective reduce stale bytes across every device in the group, or leave a
 /// destination that reads back clean when nothing wrote it.
 pub trait ServerCommunication {
-    /// Indicates whether server-to-server communication is enabled for this implementation.
-    const SERVER_COMM_ENABLED: bool;
-
     /// Ensure that all queued collective operations have been executed.
     ///
     /// # Arguments
@@ -1308,7 +1347,7 @@ impl KernelArguments {
 
 /// Binding of a set of scalars of the same type to execute a kernel.
 ///
-/// The [`ComputeServer`] is responsible to convert those info into actual [`Binding`] when launching
+/// The [`Server`] is responsible to convert those info into actual [`Binding`] when launching
 /// kernels.
 #[derive(new, Debug, Default)]
 pub struct MetadataBindingInfo {
@@ -1392,7 +1431,7 @@ pub enum CubeCountSelection {
 
 impl CubeCountSelection {
     /// Creates a [`CubeCount`] while respecting the hardware limits.
-    pub fn new<R: Runtime>(client: &ComputeClient<R>, num_cubes: u32) -> Self {
+    pub fn new(client: &Client, num_cubes: u32) -> Self {
         let cube_count = cube_count_spread(&client.properties().hardware.max_cube_count, num_cubes);
 
         let num_cubes_actual = cube_count[0] * cube_count[1] * cube_count[2];
@@ -1486,7 +1525,7 @@ impl CubeDim {
     ///
     /// For complex problems, you probably want to have your own logic function to create the
     /// [`CubeDim`], but for simpler problems such as elemwise-operation, this is a great default.
-    pub fn new<R: Runtime>(client: &ComputeClient<R>, working_units: usize) -> Self {
+    pub fn new(client: &Client, working_units: usize) -> Self {
         let properties = client.properties();
         let plane_size = properties.hardware.plane_size_max;
         let plane_count = Self::calculate_plane_count_per_cube(
@@ -1607,6 +1646,11 @@ mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
 
+    /// A service for handles that never reach a device.
+    fn service() -> cubecl_common::device::ServiceId {
+        cubecl_common::device::ServiceId::of::<()>(cubecl_common::device::DeviceId::new(0, 0))
+    }
+
     #[test_log::test]
     fn safe_num_cubes_even() {
         let max = (32, 32, 32);
@@ -1636,10 +1680,10 @@ mod tests {
 
         let stream = StreamId { value: 0 };
         let args = KernelArguments::new().with_buffers(vec![
-            Handle::new(stream, 8).binding(),
-            Handle::new(stream, 8).binding(),
-            Handle::new(stream, 8).binding(),
-            Handle::new(stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
         ]);
         let io = [
             BufferIOAttr::ReadOnly,
@@ -1728,8 +1772,8 @@ mod tests {
 
         let stream = StreamId { value: 0 };
         let args = KernelArguments::new().with_buffers(vec![
-            Handle::new(stream, 8).binding(),
-            Handle::new(stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
+            Handle::new(service(), stream, 8).binding(),
         ]);
 
         assert_eq!(args.buffers_written(None).count(), 2);
@@ -1756,9 +1800,18 @@ mod tests {
 
         let stream = StreamId { value: 0 };
         let args = KernelArguments::new()
-            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::ReadOnly)
-            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::ReadOnly)
-            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::WriteOnly);
+            .with_buffer_io(
+                Handle::new(service(), stream, 8).binding(),
+                BufferIOAttr::ReadOnly,
+            )
+            .with_buffer_io(
+                Handle::new(service(), stream, 8).binding(),
+                BufferIOAttr::ReadOnly,
+            )
+            .with_buffer_io(
+                Handle::new(service(), stream, 8).binding(),
+                BufferIOAttr::WriteOnly,
+            );
 
         // No compiled answer: the declaration decides. The inputs are not
         // written, so a failed compile leaves them readable.
@@ -1786,8 +1839,11 @@ mod tests {
 
         let stream = StreamId { value: 0 };
         let args = KernelArguments::new()
-            .with_buffer(Handle::new(stream, 8).binding())
-            .with_buffer_io(Handle::new(stream, 8).binding(), BufferIOAttr::ReadOnly);
+            .with_buffer(Handle::new(service(), stream, 8).binding())
+            .with_buffer_io(
+                Handle::new(service(), stream, 8).binding(),
+                BufferIOAttr::ReadOnly,
+            );
 
         let written: Vec<_> = args.buffers_written(None).collect();
         assert_eq!(written.len(), 1, "the undeclared resource reads as written");

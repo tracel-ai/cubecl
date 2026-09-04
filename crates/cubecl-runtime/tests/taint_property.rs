@@ -41,6 +41,11 @@ use cubecl_runtime::stream::{
 };
 use std::sync::Arc;
 
+/// A service for handles that never reach a device.
+fn service() -> cubecl_common::device::ServiceId {
+    cubecl_common::device::ServiceId::of::<()>(cubecl_common::device::DeviceId::new(0, 0))
+}
+
 const MAX_STREAMS: u8 = 4;
 const OPS_PER_RUN: usize = 300;
 const SEEDS: u64 = 40;
@@ -232,7 +237,7 @@ impl Harness {
     fn alloc(&mut self) {
         let id = self.stream_id();
         let size = 32 * (1 + self.rng.below(64)) as u64;
-        let handle = Handle::new(id, size);
+        let handle = Handle::new(service(), id, size);
 
         let device = &mut self.device;
         let stream = device.pool.get_mut(&id);

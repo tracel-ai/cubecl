@@ -7,6 +7,7 @@
 
 use crate as cubecl;
 use alloc::vec::Vec;
+use cubecl_runtime::runtime::Runtime;
 
 use cubecl::prelude::*;
 use cubecl_common::profile::{Duration, ProfileDuration, TimingMethod};
@@ -47,9 +48,9 @@ fn touch_kernel(output: &mut [f32]) {
     }
 }
 
-fn touch<R: Runtime>(client: &ComputeClient<R>, output: &Handle) {
+fn touch(client: &Client, output: &Handle) {
     unsafe {
-        touch_kernel::launch_unchecked::<R>(
+        touch_kernel::launch_unchecked(
             client,
             CubeCount::new_single(),
             CubeDim::new_single(),
@@ -58,9 +59,9 @@ fn touch<R: Runtime>(client: &ComputeClient<R>, output: &Handle) {
     }
 }
 
-fn launch<R: Runtime>(client: &ComputeClient<R>, output: &Handle) {
+fn launch(client: &Client, output: &Handle) {
     unsafe {
-        busy_kernel::launch_unchecked::<R>(
+        busy_kernel::launch_unchecked(
             client,
             CubeCount::Static((LEN as u32).div_ceil(256), 1, 1),
             CubeDim::new_1d(256),
@@ -80,7 +81,7 @@ fn resolve(profile: ProfileDuration) -> Duration {
 /// times the wall clock around a drained stream reports the drain here, which
 /// is milliseconds of launch latency rather than the microseconds two events
 /// recorded back to back on an idle stream are apart.
-pub fn test_empty_window_reports_no_device_time<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_empty_window_reports_no_device_time<R: Runtime>(client: Client) {
     let (_, profile) = client.profile(|| {}, "empty").unwrap();
     let duration = resolve(profile);
 
@@ -95,12 +96,10 @@ pub fn test_empty_window_reports_no_device_time<R: Runtime>(client: ComputeClien
 /// The upper bound is the one that catches a broken clock conversion: a
 /// backend reading its device's ticks as the wrong unit passes "> 0" and fails
 /// here.
-pub fn test_kernel_window_reports_positive_device_time<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_kernel_window_reports_positive_device_time<R: Runtime>(client: Client) {
     let output = client.empty(LEN * core::mem::size_of::<f32>());
 
-    let (_, profile) = client
-        .profile(|| launch::<R>(&client, &output), "busy")
-        .unwrap();
+    let (_, profile) = client.profile(|| launch(&client, &output), "busy").unwrap();
     let duration = resolve(profile);
 
     assert!(duration > Duration::ZERO, "real GPU work must measure > 0");
@@ -117,11 +116,11 @@ pub fn test_kernel_window_reports_positive_device_time<R: Runtime>(client: Compu
 /// only the pass that opened the window reports the same figure however long
 /// the loop runs, which reads as launches getting cheaper the more of them
 /// there are, and autotune prices a candidate's launches off it.
-pub fn test_window_spans_every_pass_in_it<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_window_spans_every_pass_in_it<R: Runtime>(client: Client) {
     let output = client.empty(core::mem::size_of::<f32>());
 
     // Compiling the kernel would otherwise land inside the first window.
-    touch::<R>(&client, &output);
+    touch(&client, &output);
     cubecl_environment::future::block_on(client.sync()).unwrap();
 
     let window = |launches: usize| {
@@ -129,7 +128,7 @@ pub fn test_window_spans_every_pass_in_it<R: Runtime>(client: ComputeClient<R>) 
             .profile(
                 || {
                     for _ in 0..launches {
-                        touch::<R>(&client, &output);
+                        touch(&client, &output);
                     }
                 },
                 "touch",
@@ -160,7 +159,7 @@ pub fn test_window_spans_every_pass_in_it<R: Runtime>(client: ComputeClient<R>) 
 /// profiling logger reads them: resolving one inside the outer window would
 /// stall the stream and put the stall in the outer measurement — real GPU idle
 /// time, correctly reported, but not what this is testing.
-pub fn test_nested_windows_are_contained_by_the_outer_one<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_nested_windows_are_contained_by_the_outer_one<R: Runtime>(client: Client) {
     let output = client.empty(LEN * core::mem::size_of::<f32>());
 
     let (inner, outer) = client
@@ -168,9 +167,8 @@ pub fn test_nested_windows_are_contained_by_the_outer_one<R: Runtime>(client: Co
             || {
                 (0..4)
                     .map(|_| {
-                        let (_, profile) = client
-                            .profile(|| launch::<R>(&client, &output), "busy")
-                            .unwrap();
+                        let (_, profile) =
+                            client.profile(|| launch(&client, &output), "busy").unwrap();
                         profile
                     })
                     .collect::<Vec<_>>()

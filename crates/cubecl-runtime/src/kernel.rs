@@ -1,15 +1,12 @@
-use alloc::{
-    boxed::Box,
-    string::{String, ToString},
-};
+use alloc::string::{String, ToString};
 use core::{
     fmt::Display,
     hash::Hash,
-    marker::PhantomData,
     sync::atomic::{AtomicI8, Ordering},
 };
 
 use cubecl_common::format::format_str;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{
     ElemType, Scope,
     metadata::Info,
@@ -19,14 +16,14 @@ use cubecl_ir::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    compiler::{CompilationError, Compiler, CubeTask},
+    compiler::{CompilationError, Compiler},
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
     id::KernelId,
     server::CubeDim,
 };
 
 /// Implement this trait to create a [kernel definition](KernelDefinition).
-pub trait KernelMetadata: Send + Sync + 'static {
+pub trait KernelMetadata: core::any::Any + Send + Sync + 'static {
     /// Name of the kernel for debugging.
     fn name(&self) -> &'static str {
         core::any::type_name::<Self>()
@@ -88,7 +85,7 @@ pub struct CompiledKernel<C: Compiler> {
     ///
     /// ```text
     /// #[cube(launch)]
-    /// fn gelu_array<F: Float, R: Runtime>() {}
+    /// fn gelu_array<F: Float>() {}
     /// ```
     ///
     /// would have the entrypoint name "`gelu_array`".
@@ -100,7 +97,7 @@ pub struct CompiledKernel<C: Compiler> {
     ///
     /// ```text
     /// #[cube(launch)]
-    /// fn gelu_array<F: Float, R: Runtime>() {}
+    /// fn gelu_array<F: Float>() {}
     /// ```
     ///
     /// would have a debug name such as
@@ -138,90 +135,99 @@ pub struct DebugInformation {
     pub id: KernelId,
 }
 
+/// A hand-written kernel's own compiled text, standing in for what the
+/// compiler would have produced from a [`KernelDefinition`].
+///
+/// The text goes to the backend as is, so two things the compiler would have
+/// settled are the kernel's to settle:
+///
+/// - `lang` names the language the text is written in, and must equal the
+///   [`lang_tag`](crate::compiler::Compiler::lang_tag) of the compiler the
+///   client runs. [`CompiledKernel::compile`] refuses a mismatch, so CUDA C++
+///   handed to a wgpu client is a [`CompilationError`], not a naga parse
+///   error at first launch.
+/// - The kernel's [`id`](crate::kernel::KernelMetadata::id) must cover the
+///   text, for instance through [`KernelId::info`](crate::id::KernelId::info)
+///   with a hash of it. Every compilation cache, in memory and on disk, is
+///   keyed by that id and never sees the source, so two kernels with the
+///   same id and different text would share one compiled artifact.
+///
+/// There is no representation to read a dynamic shared memory size from, so
+/// a precompiled kernel is launched with none: what it needs, it declares
+/// statically in the text.
+pub struct PrecompiledSource {
+    /// The compiled source, in the target language.
+    pub source: String,
+    /// The name of the entrypoint within `source`.
+    pub entrypoint_name: String,
+    /// The language `source` is written in, as the target compiler tags it.
+    pub lang: &'static str,
+}
+
 /// Kernel that can be defined
 pub trait CubeKernel: KernelMetadata {
     /// Define the kernel for compilation
     fn define(&self) -> KernelDefinition;
-}
 
-/// Wraps a [`CubeKernel`] to allow it be compiled.
-pub struct KernelTask<C: Compiler, K: CubeKernel> {
-    kernel_definition: K,
-    _compiler: PhantomData<C>,
-}
-
-/// Generic [`CubeTask`] for compiling kernels
-pub struct CubeTaskKernel<C: Compiler> {
-    /// The inner compilation task being wrapped
-    pub task: Box<dyn CubeTask<C>>,
-}
-
-impl<C: Compiler, K: CubeKernel> KernelTask<C, K> {
-    /// Create a new kernel task
-    pub fn new(kernel_definition: K) -> Self {
-        Self {
-            kernel_definition,
-            _compiler: PhantomData,
-        }
+    /// The kernel's own compiled source, for a hand-written kernel that
+    /// carries target-language text rather than IR to compile.
+    ///
+    /// `None`, the default, compiles what [`define`](Self::define) returns.
+    fn source(&self) -> Option<PrecompiledSource> {
+        None
     }
 }
 
-impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
-    fn define(&self) -> KernelDefinition {
-        self.kernel_definition.define()
-    }
-
-    fn compile(
-        &self,
-        gpu_ir: KernelDefinition,
+impl<C: Compiler> CompiledKernel<C> {
+    /// Compile `definition` with `compiler`, keeping `kernel`'s name as the
+    /// debug name of the result.
+    pub fn compile(
+        kernel: &dyn CubeKernel,
+        definition: KernelDefinition,
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
-    ) -> Result<CompiledKernel<C>, CompilationError> {
-        let entrypoint_name = gpu_ir.settings.kernel_name.clone();
-        let cube_dim = gpu_ir.settings.cube_dim.into();
-        let lower_level_ir = compiler.compile(gpu_ir, compilation_options)?;
+    ) -> Result<Self, CompilationError> {
+        let entrypoint_name = definition.settings.kernel_name.clone();
+        let cube_dim = definition.settings.cube_dim.into();
+
+        // A hand-written kernel is already in the target language: there is no
+        // IR to hand the compiler, so neither analysis it produces exists.
+        // `io: None` reads as every buffer both read and written, which is the
+        // conservative direction.
+        if let Some(precompiled) = kernel.source() {
+            if precompiled.lang != compiler.lang_tag() {
+                return Err(CompilationError::Generic {
+                    reason: alloc::format!(
+                        "kernel `{}` carries {} source, but this compiler expects {}",
+                        kernel.name(),
+                        precompiled.lang,
+                        compiler.lang_tag()
+                    ),
+                    backtrace: BackTrace::capture(),
+                });
+            }
+            return Ok(CompiledKernel {
+                entrypoint_name: precompiled.entrypoint_name,
+                debug_name: Some(kernel.name()),
+                source: precompiled.source,
+                io: None,
+                repr: None,
+                cube_dim,
+                debug_info: None,
+            });
+        }
+
+        let lower_level_ir = compiler.compile(definition, compilation_options)?;
 
         Ok(CompiledKernel {
             entrypoint_name,
-            debug_name: Some(core::any::type_name::<K>()),
+            debug_name: Some(kernel.name()),
             source: lower_level_ir.to_string(),
             io: C::buffer_io(&lower_level_ir),
             repr: Some(lower_level_ir),
             cube_dim,
             debug_info: None,
         })
-    }
-}
-
-impl<C: Compiler, K: CubeKernel> KernelMetadata for KernelTask<C, K> {
-    // Forward ID to underlying kernel definition.
-    fn id(&self) -> KernelId {
-        self.kernel_definition.id()
-    }
-
-    // Forward name to underlying kernel definition.
-    fn name(&self) -> &'static str {
-        self.kernel_definition.name()
-    }
-
-    fn address_type(&self) -> ElemType {
-        self.kernel_definition.address_type()
-    }
-}
-
-impl<C: Compiler> KernelMetadata for Box<dyn CubeTask<C>> {
-    // Deref and use existing ID.
-    fn id(&self) -> KernelId {
-        self.as_ref().id()
-    }
-
-    // Deref and use existing name.
-    fn name(&self) -> &'static str {
-        self.as_ref().name()
-    }
-
-    fn address_type(&self) -> ElemType {
-        self.as_ref().address_type()
     }
 }
 

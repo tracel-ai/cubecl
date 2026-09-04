@@ -18,7 +18,7 @@ cubecl = { version = "*", features = ["cpu"] }
 
 | Module                | What it does                                                        |
 | --------------------- | ------------------------------------------------------------------- |
-| `compute::server`     | The `ComputeServer` impl: allocation, launches and reads            |
+| `compute::server`     | The `Server` impl: allocation, launches and reads            |
 | `compute::threadpool` | Worker threads, and the per-unit dispatch of a launch               |
 | `compute::affinity`   | Core topology and thread pinning, per platform                      |
 | `runtime`             | `CpuRuntime`, device properties and the supported type/atomic table |

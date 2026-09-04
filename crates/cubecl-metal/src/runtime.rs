@@ -1,7 +1,6 @@
-use crate::{MetalCompiler, MetalDevice, compute::MetalServer};
+use crate::{MetalDevice, compute::MetalServer};
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_core::{
-    Runtime,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
@@ -15,7 +14,7 @@ use cubecl_cpp::{
     shared::register_wmma_features,
 };
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_runtime::client::ComputeClient;
+use cubecl_runtime::runtime::Runtime;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLDevice, MTLGPUFamily};
 
@@ -112,9 +111,11 @@ impl DeviceService for MetalServer {
         let logger = std::sync::Arc::new(cubecl_runtime::logging::ServerLogger::default());
         let allocator = ContiguousMemoryLayoutPolicy::new(mem_props.alignment as usize);
         let utilities = std::sync::Arc::new(cubecl_core::server::ServerUtilities::new(
+            cubecl_common::device::ServiceId::of::<Self>(device_id),
+            "metal",
             device_props.clone(),
+            MetalRuntime::target_properties(),
             logger,
-            (),
             allocator,
         ));
 
@@ -129,21 +130,8 @@ impl DeviceService for MetalServer {
 }
 
 impl Runtime for MetalRuntime {
-    type Compiler = MetalCompiler;
     type Server = MetalServer;
     type Device = MetalDevice;
-
-    fn client(device: &Self::Device) -> ComputeClient<Self> {
-        ComputeClient::load(device)
-    }
-
-    fn name(_client: &ComputeClient<Self>) -> &'static str {
-        "metal"
-    }
-
-    fn max_cube_count() -> (u32, u32, u32) {
-        (u32::MAX, u32::MAX, u32::MAX)
-    }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         has_pitched_row_major_strides(shape, strides)
@@ -155,10 +143,7 @@ impl Runtime for MetalRuntime {
         }
     }
 
-    fn enumerate_devices(
-        type_id: u16,
-        _info: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
-    ) -> Vec<DeviceId> {
+    fn enumerate_devices(type_id: u16) -> Vec<DeviceId> {
         // type_id matches `device.rs`: 0=Default, 1=Discrete, 2=Integrated, where
         // integrated == `hasUnifiedMemory()`. index_id is the nth device of that class,
         // as resolved by `DeviceService::init`.

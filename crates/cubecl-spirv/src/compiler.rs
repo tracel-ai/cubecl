@@ -154,6 +154,10 @@ impl Compiler for SpirvCompiler {
     fn extension(&self) -> &'static str {
         "spv"
     }
+
+    fn lang_tag(&self) -> &'static str {
+        "spirv"
+    }
 }
 
 impl Debug for SpirvCompiler {

@@ -14,7 +14,7 @@ use crate::{
         },
         signature::KernelReturns,
     },
-    paths::{frontend_type, prelude_type},
+    paths::{core_type, frontend_type, prelude_type},
 };
 
 impl ToTokens for ExecutionMode {
@@ -259,8 +259,8 @@ impl Launch {
 
         quote! {
             let mut builder = #kernel_builder::new(self.settings.clone());
-            builder.runtime_properties(__R::target_properties());
-            builder.device_properties(self.client.properties());
+            builder.runtime_properties(self.target_properties.as_ref().clone());
+            builder.device_properties(&self.device_properties);
 
             #register_type
             #io_map
@@ -374,7 +374,9 @@ impl Launch {
             let kernel_metadata = prelude_type("KernelMetadata");
             let cube_kernel = prelude_type("CubeKernel");
             let kernel_settings = prelude_type("KernelSettings");
-            let compute_client = prelude_type("ComputeClient");
+            let device_properties = prelude_type("DeviceProperties");
+            let target_properties = prelude_type("TargetProperties");
+            let private = core_type("__private");
             let kernel_definition: syn::Path = prelude_type("KernelDefinition");
             let kernel_id = prelude_type("KernelId");
             let elem_ty = prelude_type("ElemType");
@@ -414,7 +416,8 @@ impl Launch {
                 #[doc = #kernel_doc]
                 pub struct #kernel_name #generics #where_clause {
                     settings: #kernel_settings,
-                    client: #compute_client<__R>,
+                    device_properties: #private::Arc<#device_properties>,
+                    target_properties: #private::Arc<#target_properties>,
                     #(#compilation_args,)*
                     #(#const_params,)*
                     #phantom_data
@@ -426,12 +429,14 @@ impl Launch {
                 impl #generics #kernel_name #generic_names #where_clause {
                     pub fn new(
                         settings: #kernel_settings,
-                        client: #compute_client<__R>,
+                        device_properties: #private::Arc<#device_properties>,
+                        target_properties: #private::Arc<#target_properties>,
                         #(#compilation_args,)*
                         #(#const_params),*) -> Self {
                         Self {
                             settings: #settings,
-                            client,
+                            device_properties,
+                            target_properties,
                             #(#args,)*
                             #(#param_names,)*
                             #phantom_data_init

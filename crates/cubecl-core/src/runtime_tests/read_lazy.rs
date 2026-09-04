@@ -2,12 +2,13 @@ use crate::{self as cubecl};
 use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::bytes::{AccessError, AllocationProperty, Reader};
+use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::MemoryLayout;
 use cubecl_zspace::shape;
 
 /// A device resource read lazily must defer the device-to-host copy until first access, then
 /// return the same data as an eager read.
-pub fn test_read_lazy<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_read_lazy<R: Runtime>(client: Client) {
     let data = (0i32..1024).collect::<Vec<i32>>();
     let bytes_expected = i32::as_bytes(&data);
     let elem_size = size_of::<i32>();

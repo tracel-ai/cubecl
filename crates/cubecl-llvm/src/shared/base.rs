@@ -158,6 +158,13 @@ impl Compiler for PlironCompiler {
             LlvmTarget::AmdGpu => "ll",
         }
     }
+
+    fn lang_tag(&self) -> &'static str {
+        match self.target {
+            LlvmTarget::Cpu => "mlir",
+            LlvmTarget::AmdGpu => "llvm",
+        }
+    }
 }
 
 impl PlironCompiler {

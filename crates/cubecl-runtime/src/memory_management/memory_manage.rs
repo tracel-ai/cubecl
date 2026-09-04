@@ -419,7 +419,7 @@ impl MemoryConfiguration {
     /// when present, it wins. There is deliberately no config-file pathway for
     /// pool layouts — they are dynamic (set per model just before a load) and
     /// must not freeze at startup; the override reaches the server through
-    /// [`install_memory_pools`](crate::client::ComputeClient::install_memory_pools).
+    /// [`install_memory_pools`](crate::client::Client::install_memory_pools).
     ///
     /// `page_size` is deliberately not validated against
     /// [`MemoryDeviceProperties::max_page_size`]: that value is a sizing

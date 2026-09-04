@@ -83,7 +83,6 @@ impl CubeTypeStruct {
 
         quote! {
             #vis struct #name #generics #where_clause {
-                _phantom_runtime: core::marker::PhantomData<R>,
                 #(#fields),*
             }
         }
@@ -105,7 +104,6 @@ impl CubeTypeStruct {
                 #[allow(clippy::too_many_arguments)]
                 #vis fn new(#(#args),*) -> Self {
                     Self {
-                        _phantom_runtime: core::marker::PhantomData,
                         #(#fields),*
                     }
                 }
@@ -126,7 +124,7 @@ impl CubeTypeStruct {
             );
 
         quote! {
-            fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut #kernel_launcher<R>) -> Self::CompilationArg {
+            fn register(arg: Self::RuntimeArg, launcher: &mut #kernel_launcher) -> Self::CompilationArg {
                 #compilation_ty {
                     #(#fields),*
                 }
@@ -244,7 +242,6 @@ impl CubeTypeStruct {
         let register_impl = self.register_impl();
 
         let (_, compilation_generics, _) = self.generics.split_for_impl();
-        let assoc_generics = self.assoc_generics();
         let all = self.expanded_generics();
         let (_, all_generic_names, _) = all.split_for_impl();
 
@@ -255,7 +252,7 @@ impl CubeTypeStruct {
             #compilation_arg
 
             impl #type_generics #launch_arg for #name #type_generic_names #where_clause {
-                type RuntimeArg #assoc_generics = #name_launch #all_generic_names;
+                type RuntimeArg = #name_launch #all_generic_names;
                 type CompilationArg = #compilation_ident #compilation_generics;
 
                 #register_impl
@@ -370,7 +367,7 @@ impl TypeField {
         let ty = &self.ty;
 
         if !self.comptime.is_present() {
-            quote![#vis #name: <#ty as #launch_arg>::RuntimeArg<R>]
+            quote![#vis #name: <#ty as #launch_arg>::RuntimeArg]
         } else {
             quote![#vis #name: #ty]
         }
@@ -382,7 +379,7 @@ impl TypeField {
         let ty = &self.ty;
 
         if !self.comptime.is_present() {
-            quote![#name: <#ty as #launch_arg>::RuntimeArg<R>]
+            quote![#name: <#ty as #launch_arg>::RuntimeArg]
         } else {
             quote![#name: #ty]
         }

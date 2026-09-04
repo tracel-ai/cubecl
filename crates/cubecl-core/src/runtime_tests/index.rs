@@ -1,4 +1,5 @@
 use crate::{self as cubecl};
+use cubecl_runtime::runtime::Runtime;
 
 use alloc::vec;
 use cubecl::prelude::*;
@@ -45,10 +46,10 @@ fn destructurable_kernel(orders: &mut [u32]) {
 }
 
 // Regression test for invalid `CopyTransform`
-pub fn test_kernel_shuffle<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_kernel_shuffle<R: Runtime>(client: Client) {
     let handle = client.empty(4 * size_of::<u32>());
 
-    shuffle_kernel::launch::<R>(
+    shuffle_kernel::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),
@@ -62,11 +63,11 @@ pub fn test_kernel_shuffle<R: Runtime>(client: ComputeClient<R>) {
 }
 
 // Test to ensure destructuring arrays doesn't break anything
-pub fn test_kernel_destructurable<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_kernel_destructurable<R: Runtime>(client: Client) {
     let data = vec![1, 2, 3, 4, 10, 10, 10, 10];
     let handle = client.create_from_slice(u32::as_bytes(&data));
 
-    destructurable_kernel::launch::<R>(
+    destructurable_kernel::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),

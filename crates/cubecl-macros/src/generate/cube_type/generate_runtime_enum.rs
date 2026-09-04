@@ -408,7 +408,7 @@ impl CubeTypeEnum {
         );
 
         quote! {
-            fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut #kernel_launcher<R>) -> Self::CompilationArg {
+            fn register(runtime_arg: Self::RuntimeArg, launcher: &mut #kernel_launcher) -> Self::CompilationArg {
                 match runtime_arg {
                     #launch_name::Comptime(value) => {
                         let discriminant = #body_discriminant;
@@ -445,8 +445,6 @@ impl CubeTypeEnum {
 
         let (generics, generic_names, _) = self.generics.split_for_impl();
         let where_clause = self.launch_arg_where();
-
-        let assoc_generics = self.assoc_generics();
         let all = self.expanded_generics();
         let (_, all_generic_names, _) = all.split_for_impl();
 
@@ -456,7 +454,7 @@ impl CubeTypeEnum {
 
         quote! {
             impl #generics #launch_arg for #name #generic_names #where_clause {
-                type RuntimeArg #assoc_generics = #name_launch #all_generic_names;
+                type RuntimeArg = #name_launch #all_generic_names;
                 type CompilationArg = #compilation_arg #generic_names;
 
                 #register_impl_runtime

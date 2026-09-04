@@ -59,14 +59,14 @@ impl TensorMapKind for Im2colWide {
 ///
 /// The tensormap is treated as an opaque type at runtime.
 ///
-pub struct TensorMapArg<R: Runtime, K: TensorMapKind> {
-    pub tensor: TensorArg<R>,
+pub struct TensorMapArg<K: TensorMapKind> {
+    pub tensor: TensorArg,
     pub metadata: TensorMapMeta,
     pub _kind: PhantomData<K>,
 }
 
-impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
-    pub fn new(args: K::Args, tensor: TensorArg<R>, storage_ty: impl Into<ElemType>) -> Self {
+impl<K: TensorMapKind> TensorMapArg<K> {
+    pub fn new(args: K::Args, tensor: TensorArg, storage_ty: impl Into<ElemType>) -> Self {
         let storage_ty = storage_ty.into();
         let TensorArg::Handle { handle, .. } = &tensor else {
             panic!("Can't use alias for TensorMap")
@@ -153,13 +153,10 @@ impl<E: CubePrimitive, K: TensorMapKind> VectorizedExpand for NativeExpand<Tenso
 }
 
 impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
-    type RuntimeArg<R: Runtime> = TensorMapArg<R, K>;
+    type RuntimeArg = TensorMapArg<K>;
     type CompilationArg = ();
 
-    fn register<R: Runtime>(
-        arg: Self::RuntimeArg<R>,
-        launcher: &mut KernelLauncher<R>,
-    ) -> Self::CompilationArg {
+    fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
         let elem_size = launcher.with_scope(|scope| E::__expand_size(scope));
         launcher.register_tensor_map(arg, elem_size);
     }

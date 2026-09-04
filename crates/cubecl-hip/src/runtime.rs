@@ -1,9 +1,10 @@
 use crate::{
-    compiler::{HipBackend, HipCompilationOptions, HipCompiler},
+    compiler::{HipBackend, HipCompilationOptions},
     compute::{HipServer, context::HipContext},
     device::AmdDevice,
 };
 use core::ffi::c_int;
+use cubecl_runtime::runtime::Runtime;
 use std::sync::OnceLock;
 
 use cubecl_common::{
@@ -11,7 +12,7 @@ use cubecl_common::{
     profile::TimingMethod,
 };
 use cubecl_core::{
-    MemoryConfiguration, Runtime,
+    MemoryConfiguration,
     cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
@@ -39,8 +40,7 @@ use cubecl_cpp::{
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_runtime::{
-    allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, driver::checked,
-    logging::ServerLogger,
+    allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger,
 };
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
@@ -197,7 +197,14 @@ impl DeviceService for HipServer {
         );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
-        let utilities = ServerUtilities::new(device_props, logger, (), policy);
+        let utilities = ServerUtilities::new(
+            cubecl_common::device::ServiceId::of::<Self>(device_id),
+            "hip",
+            device_props,
+            HipRuntime::target_properties(),
+            logger,
+            policy,
+        );
         let options = RuntimeOptions::default();
 
         HipServer::new(
@@ -211,30 +218,13 @@ impl DeviceService for HipServer {
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
-        cubecl_core::server::ComputeServer::utilities(self) as ServerUtilitiesHandle
+        cubecl_core::server::Server::utilities(self) as ServerUtilitiesHandle
     }
 }
 
 impl Runtime for HipRuntime {
-    type Compiler = HipCompiler;
     type Server = HipServer;
     type Device = AmdDevice;
-
-    fn client(device: &Self::Device) -> ComputeClient<Self> {
-        ComputeClient::load(device)
-    }
-
-    fn name(_client: &ComputeClient<Self>) -> &'static str {
-        "hip"
-    }
-
-    fn require_array_lengths() -> bool {
-        true
-    }
-
-    fn max_cube_count() -> (u32, u32, u32) {
-        (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
-    }
 
     fn can_read_tensor(shape: &Shape, strides: &Strides) -> bool {
         if shape.is_empty() {
@@ -267,10 +257,7 @@ impl Runtime for HipRuntime {
         }
     }
 
-    fn enumerate_devices(
-        _: u16,
-        _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
-    ) -> Vec<cubecl_core::device::DeviceId> {
+    fn enumerate_devices(_: u16) -> Vec<cubecl_core::device::DeviceId> {
         fn device_count() -> usize {
             let mut device_count: c_int = 0;
             let result;

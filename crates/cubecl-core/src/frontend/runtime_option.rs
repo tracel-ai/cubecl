@@ -16,13 +16,13 @@ fn discriminant(variant_name: &'static str) -> i32 {
     OptionExpand::<u32>::discriminant_of(variant_name)
 }
 
-pub enum OptionArgs<T: LaunchArg, R: Runtime> {
-    Some(<T as LaunchArg>::RuntimeArg<R>),
+pub enum OptionArgs<T: LaunchArg> {
+    Some(<T as LaunchArg>::RuntimeArg),
     None,
 }
 
-impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>> for OptionArgs<T, R> {
-    fn from(value: Option<<T as LaunchArg>::RuntimeArg<R>>) -> Self {
+impl<T: LaunchArg> From<Option<<T as LaunchArg>::RuntimeArg>> for OptionArgs<T> {
+    fn from(value: Option<<T as LaunchArg>::RuntimeArg>) -> Self {
         match value {
             Some(arg) => Self::Some(arg),
             None => Self::None,
@@ -31,13 +31,10 @@ impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>> for
 }
 
 impl<T: LaunchArg + CubeType + Default + IntoRuntime + 'static> LaunchArg for Option<T> {
-    type RuntimeArg<R: Runtime> = OptionArgs<T, R>;
+    type RuntimeArg = OptionArgs<T>;
     type CompilationArg = OptionCompilationArg<T>;
 
-    fn register<R: Runtime>(
-        arg: Self::RuntimeArg<R>,
-        launcher: &mut KernelLauncher<R>,
-    ) -> Self::CompilationArg {
+    fn register(arg: Self::RuntimeArg, launcher: &mut KernelLauncher) -> Self::CompilationArg {
         match arg {
             OptionArgs::Some(arg) => OptionCompilationArg::Some(T::register(arg, launcher)),
             OptionArgs::None => OptionCompilationArg::None,

@@ -72,6 +72,10 @@ impl cubecl_core::Compiler for WgslCompiler {
     fn extension(&self) -> &'static str {
         "wgsl"
     }
+
+    fn lang_tag(&self) -> &'static str {
+        "wgsl"
+    }
 }
 
 impl WgslCompiler {

@@ -21,6 +21,65 @@ use super::vulkan;
 #[cfg(all(feature = "msl", target_os = "macos"))]
 use super::metal;
 
+/// What a shader module is built from: the compiler's representation and the
+/// source text, reconciled.
+///
+/// A compiled kernel carries both, and the representation says which the
+/// device wants. A precompiled kernel carries only text, so the language it
+/// was tagged with decides instead.
+pub enum ModuleSource<'a> {
+    /// An assembled SPIR-V module, handed to the driver as is.
+    #[cfg(feature = "spirv")]
+    SpirV(&'a cubecl_spirv::SpirvKernel),
+    /// Metal Shading Language text, handed to the driver as is.
+    #[cfg(all(feature = "msl", target_os = "macos"))]
+    Msl(&'a str),
+    /// WGSL text, for naga to compile.
+    Wgsl(&'a str),
+}
+
+impl<'a> ModuleSource<'a> {
+    /// Pairs `repr` with `source`, or, when there is no representation, reads
+    /// the language off `lang`, the tag the precompiled kernel was accepted
+    /// under.
+    pub fn resolve(
+        repr: Option<AutoRepresentationRef<'a>>,
+        lang: &str,
+        source: &'a str,
+    ) -> Result<Self, CompilationError> {
+        match repr {
+            #[cfg(feature = "spirv")]
+            Some(AutoRepresentationRef::SpirV(repr)) => Ok(Self::SpirV(repr)),
+            Some(AutoRepresentationRef::Wgsl(_)) => Ok(Self::Wgsl(source)),
+            #[cfg(feature = "msl")]
+            Some(AutoRepresentationRef::Msl(_)) => Self::msl(source),
+            None => match lang {
+                "wgsl" => Ok(Self::Wgsl(source)),
+                "msl" => Self::msl(source),
+                other => Err(CompilationError::Generic {
+                    reason: format!(
+                        "wgpu has no text passthrough for a precompiled `{other}` kernel"
+                    ),
+                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+                }),
+            },
+        }
+    }
+
+    #[cfg(all(feature = "msl", target_os = "macos"))]
+    fn msl(source: &'a str) -> Result<Self, CompilationError> {
+        Ok(Self::Msl(source))
+    }
+
+    #[cfg(not(all(feature = "msl", target_os = "macos")))]
+    fn msl(_source: &'a str) -> Result<Self, CompilationError> {
+        Err(CompilationError::Generic {
+            reason: "MSL passthrough is only available on macOS".to_string(),
+            backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+        })
+    }
+}
+
 impl<C: WgpuCompiler> WgpuServer<C> {
     /// Loads a cached kernel if present and creates the pipeline for it.
     /// Returns `None` if the cache isn't enabled, `Some(Ok(pipeline))` if a cache entry was found,
@@ -60,8 +119,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 let module = self.create_module(
                     &entry.entrypoint_name,
                     kernel_id.cube_dim.into(),
-                    Some(repr),
-                    "",
+                    ModuleSource::SpirV(&entry.kernel),
                     mode,
                 )?;
                 let pipeline =
@@ -86,13 +144,12 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         &self,
         entrypoint_name: &str,
         cube_dim: CubeDim,
-        repr: Option<AutoRepresentationRef<'_>>,
-        source: &str,
+        source: ModuleSource<'_>,
         mode: ExecutionMode,
     ) -> Result<ShaderModule, CompilationError> {
-        match repr {
+        match source {
             #[cfg(feature = "spirv")]
-            Some(AutoRepresentationRef::SpirV(repr)) => unsafe {
+            ModuleSource::SpirV(repr) => unsafe {
                 Ok(self.device.create_shader_module_passthrough(
                     wgpu::ShaderModuleDescriptorPassthrough {
                         label: Some(entrypoint_name),
@@ -106,7 +163,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 ))
             },
             #[cfg(all(feature = "msl", target_os = "macos"))]
-            Some(AutoRepresentationRef::Msl(_)) => unsafe {
+            ModuleSource::Msl(source) => unsafe {
                 Ok(self.device.create_shader_module_passthrough(
                     wgpu::ShaderModuleDescriptorPassthrough {
                         label: Some(entrypoint_name),
@@ -119,7 +176,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                     },
                 ))
             },
-            _ => {
+            ModuleSource::Wgsl(source) => {
                 let _ = cube_dim;
                 let checks = wgpu::ShaderRuntimeChecks {
                     // Cube does not need wgpu bounds checks - OOB behaviour is instead

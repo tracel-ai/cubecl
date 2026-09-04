@@ -23,13 +23,13 @@ impl SimpleLayout {
     }
 }
 
-impl<R: Runtime> SimpleLayoutLaunch<R> {
+impl SimpleLayoutLaunch {
     pub fn from_shape(shape: &Shape, vector_size: VectorSize) -> Self {
         let len = shape.iter().product::<usize>();
         Self::new(len, vector_size)
     }
 
-    pub fn from_handle(handle: TensorBinding<R>, vector_size: VectorSize) -> Self {
+    pub fn from_handle(handle: TensorBinding, vector_size: VectorSize) -> Self {
         Self::from_shape(&handle.shape, vector_size)
     }
 }

@@ -16,8 +16,8 @@ use crate::throughput::{LaunchConfig, memory_probe::MemoryProbe};
 /// because half of the copy's traffic is a direction they never use.
 ///
 /// Reported `ops_count` is the write count alone.
-pub fn build_kernel<R: Runtime>(
-    client: &ComputeClient<R>,
+pub fn build_kernel(
+    client: &Client,
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,

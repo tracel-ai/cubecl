@@ -24,6 +24,7 @@ use cubecl::prelude::*;
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::stream::StreamId;
 use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::server::Handle;
 
 /// Fills every element with `value`, so a buffer says which write reached it
@@ -75,9 +76,9 @@ fn sharing_one_pooled_stream(seed: u64) -> (StreamId, StreamId) {
     )
 }
 
-fn launch_rejected_into<R: Runtime>(client: &ComputeClient<R>, out: Handle, reason: &str) {
+fn launch_rejected_into(client: &Client, out: Handle, reason: &str) {
     unsafe {
-        rejected::launch_unchecked::<R>(
+        rejected::launch_unchecked(
             &client.clone(),
             CubeCount::new_single(),
             CubeDim::new_1d(1),
@@ -87,13 +88,13 @@ fn launch_rejected_into<R: Runtime>(client: &ComputeClient<R>, out: Handle, reas
     };
 }
 
-fn launch_rejected<R: Runtime>(client: &ComputeClient<R>, reason: &str) -> Handle {
+fn launch_rejected(client: &Client, reason: &str) -> Handle {
     let out = client.empty(core::mem::size_of::<u32>());
     launch_rejected_into(client, out.clone(), reason);
     out
 }
 
-fn assert_rejected<R: Runtime>(client: &ComputeClient<R>, out: Handle, reason: &str) {
+fn assert_rejected(client: &Client, out: Handle, reason: &str) {
     let err = client
         .read_one(out)
         .expect_err("the kernel pushed a validation error, the launch must fail")
@@ -117,14 +118,12 @@ fn assert_rejected<R: Runtime>(client: &ComputeClient<R>, out: Handle, reason: &
 /// can be issued on one stream without one failing case poisoning the others.
 /// Anything scoped to a stream rather than to memory — a per-stream error
 /// queue, a per-stream device fault — breaks it.
-pub fn test_two_workflows_on_one_stream_do_not_contaminate_each_other<R: Runtime>(
-    client: ComputeClient<R>,
-) {
+pub fn test_two_workflows_on_one_stream_do_not_contaminate_each_other<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_013);
     let size = core::mem::size_of::<u32>();
 
     let launch_copy = |input: &Handle, out: &Handle| {
-        copy::launch::<R>(
+        copy::launch(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(1),
@@ -141,7 +140,7 @@ pub fn test_two_workflows_on_one_stream_do_not_contaminate_each_other<R: Runtime
 
         // The healthy chain starts with a launch that runs.
         let healthy_head = client.empty(size);
-        fill::launch::<R>(
+        fill::launch(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(1),
@@ -182,7 +181,7 @@ pub fn test_two_workflows_on_one_stream_do_not_contaminate_each_other<R: Runtime
 /// The rejection belongs to the stream that launched, so the reader's own flush
 /// never sees it — and a read that does not consult the producer hands back the
 /// buffer the failed launch never wrote.
-pub fn test_a_read_surfaces_the_producers_rejection<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_a_read_surfaces_the_producers_rejection<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_002);
 
     let out = producer.executes(|| launch_rejected(&client, "producer"));
@@ -207,7 +206,7 @@ pub fn test_a_read_surfaces_the_producers_rejection<R: Runtime>(client: ComputeC
 /// and failed at nothing. Only the buffer itself connects the read to the
 /// launch that never ran.
 pub fn test_a_read_surfaces_a_rejection_on_a_buffer_it_allocated_itself<R: Runtime>(
-    client: ComputeClient<R>,
+    client: Client,
 ) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_003);
 
@@ -223,9 +222,7 @@ pub fn test_a_read_surfaces_a_rejection_on_a_buffer_it_allocated_itself<R: Runti
 /// and it lives until something writes it — under a per-task stream policy,
 /// possibly forever. A read that failed on the mere presence of a failure
 /// somewhere would refuse every unrelated buffer for exactly that long.
-pub fn test_a_buffer_the_failure_never_touched_reads_normally<R: Runtime>(
-    client: ComputeClient<R>,
-) {
+pub fn test_a_buffer_the_failure_never_touched_reads_normally<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_004);
 
     let untouched = reader.executes(|| client.create_from_slice(u32::as_bytes(&[7u32])));
@@ -247,9 +244,7 @@ pub fn test_a_buffer_the_failure_never_touched_reads_normally<R: Runtime>(
 /// drains first — and a launch that was enqueued *before* the write can land
 /// *after* it, overwriting bytes the caller had every reason to believe were the
 /// last word.
-pub fn test_a_write_lands_after_the_work_queued_on_its_buffers_stream<R: Runtime>(
-    client: ComputeClient<R>,
-) {
+pub fn test_a_write_lands_after_the_work_queued_on_its_buffers_stream<R: Runtime>(client: Client) {
     // Two ids far enough apart to land on different pooled streams for any
     // `max_streams`: one queue has to be aligned against the other for the
     // ordering to mean anything.
@@ -259,7 +254,7 @@ pub fn test_a_write_lands_after_the_work_queued_on_its_buffers_stream<R: Runtime
 
     let buf = owner.executes(|| {
         let buf = client.empty(len * core::mem::size_of::<u32>());
-        fill::launch::<R>(
+        fill::launch(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(len as u32),
@@ -302,16 +297,14 @@ pub fn test_a_write_lands_after_the_work_queued_on_its_buffers_stream<R: Runtime
 /// read-only parameter, and the launcher upgrades the aliased buffer's
 /// declaration at registration —
 /// [`test_a_failed_in_place_launch_names_the_buffer_it_aliased`] pins that.
-pub fn test_a_launch_that_never_compiled_taints_only_its_outputs<R: Runtime>(
-    client: ComputeClient<R>,
-) {
+pub fn test_a_launch_that_never_compiled_taints_only_its_outputs<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_005);
 
     let (input, out) = producer.executes(|| {
         let input = client.create_from_slice(u32::as_bytes(&[7u32]));
         let out = client.empty(core::mem::size_of::<u32>());
         unsafe {
-            rejected_with_input::launch_unchecked::<R>(
+            rejected_with_input::launch_unchecked(
                 &client.clone(),
                 CubeCount::new_single(),
                 CubeDim::new_1d(1),
@@ -350,9 +343,7 @@ pub fn test_a_launch_that_never_compiled_taints_only_its_outputs<R: Runtime>(
 /// Flushing has nothing to do with the claim, and neither does reading: the
 /// bytes stay stale until something writes them, however many flushes and
 /// failed reads come between.
-pub fn test_a_buffer_stays_unreadable_after_the_failure_was_reported<R: Runtime>(
-    client: ComputeClient<R>,
-) {
+pub fn test_a_buffer_stays_unreadable_after_the_failure_was_reported<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_007);
 
     let out = producer.executes(|| launch_rejected(&client, "reported-once"));
@@ -375,7 +366,7 @@ pub fn test_a_buffer_stays_unreadable_after_the_failure_was_reported<R: Runtime>
 /// already, and it happens before the flush that reports the failure as often
 /// as after — so a claim that only listened for writes from its report onward
 /// would refuse the buffer for good.
-pub fn test_a_host_write_makes_a_stale_buffer_readable_again<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_a_host_write_makes_a_stale_buffer_readable_again<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_008);
 
     let out = producer.executes(|| {
@@ -412,14 +403,14 @@ pub fn test_a_host_write_makes_a_stale_buffer_readable_again<R: Runtime>(client:
 /// A relaunch into the same buffer is the other way out, and it must not be
 /// refused on its way in: a pure output is not read, so the launch that would
 /// repair a buffer is never the one skipped for its being broken.
-pub fn test_a_relaunch_makes_a_stale_buffer_readable_again<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_a_relaunch_makes_a_stale_buffer_readable_again<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_009);
     let len = 4;
 
     let out = producer.executes(|| {
         let out = client.empty(len * core::mem::size_of::<u32>());
         launch_rejected_into(&client, out.clone(), "relaunched");
-        fill::launch::<R>(
+        fill::launch(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(len as u32),
@@ -445,13 +436,11 @@ pub fn test_a_relaunch_makes_a_stale_buffer_readable_again<R: Runtime>(client: C
 /// outputs on a successful launch without looking at its inputs catches the
 /// direct read of a buffer nothing wrote and misses everything computed
 /// *from* one — in a fused stack, nearly everything that matters.
-pub fn test_a_read_downstream_of_a_failure_fails_on_the_root_cause<R: Runtime>(
-    client: ComputeClient<R>,
-) {
+pub fn test_a_read_downstream_of_a_failure_fails_on_the_root_cause<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_011);
 
     let launch_copy = |input: &Handle, out: &Handle| {
-        copy::launch::<R>(
+        copy::launch(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(1),
@@ -500,7 +489,7 @@ pub fn test_a_read_downstream_of_a_failure_fails_on_the_root_cause<R: Runtime>(
 /// `check` answers whether the bytes can be trusted without reading them and
 /// without a barrier — one lookup, so a caller can recover per tensor instead
 /// of tearing down a device.
-pub fn test_check_answers_without_a_read<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_check_answers_without_a_read<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_013);
 
     let (stale, clean) = producer.executes(|| {
@@ -535,7 +524,7 @@ pub fn test_check_answers_without_a_read<R: Runtime>(client: ComputeClient<R>) {
 /// read as (x, y, z) dispatches an absurd grid or scatters into memory that
 /// carried no failure at all. The skip never reaches a dispatch, which is
 /// what lets every backend run this test, indirect dispatch support or none.
-pub fn test_a_tainted_dynamic_cube_count_skips_the_launch<R: Runtime>(client: ComputeClient<R>) {
+pub fn test_a_tainted_dynamic_cube_count_skips_the_launch<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_015);
 
     let (count, out) = producer.executes(|| {
@@ -545,7 +534,7 @@ pub fn test_a_tainted_dynamic_cube_count_skips_the_launch<R: Runtime>(client: Co
         launch_rejected_into(&client, count.clone(), "tainted-count");
 
         let out = client.empty(core::mem::size_of::<u32>());
-        fill::launch::<R>(
+        fill::launch(
             &client,
             CubeCount::Dynamic(count.clone().binding()),
             CubeDim::new_1d(1),
@@ -569,9 +558,7 @@ pub fn test_a_tainted_dynamic_cube_count_skips_the_launch<R: Runtime>(client: Co
 /// Host-readback backends only (CUDA, HIP), registered through
 /// `testgen_launch_dynamic_count`: an indirect-dispatch backend never learns
 /// the count on the host.
-pub fn test_a_zero_cube_count_launch_does_not_untaint_its_outputs<R: Runtime>(
-    client: ComputeClient<R>,
-) {
+pub fn test_a_zero_cube_count_launch_does_not_untaint_its_outputs<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_017);
 
     let (out, count) = producer.executes(|| {
@@ -580,7 +567,7 @@ pub fn test_a_zero_cube_count_launch_does_not_untaint_its_outputs<R: Runtime>(
         launch_rejected_into(&client, out.clone(), "zero-count-survivor");
         // A perfectly clean zero count: an empty tail batch, not a failure.
         let count = client.create_from_slice(u32::as_bytes(&[0, 0, 0]));
-        fill::launch::<R>(
+        fill::launch(
             &client,
             CubeCount::Dynamic(count.clone().binding()),
             CubeDim::new_1d(1),
@@ -608,15 +595,13 @@ pub fn test_a_zero_cube_count_launch_does_not_untaint_its_outputs<R: Runtime>(
 /// the alias at registration and upgrades the aliased buffer's declaration,
 /// which is what this pins: the kernel below fails to compile, so the
 /// declaration is the only answer there is.
-pub fn test_a_failed_in_place_launch_names_the_buffer_it_aliased<R: Runtime>(
-    client: ComputeClient<R>,
-) {
+pub fn test_a_failed_in_place_launch_names_the_buffer_it_aliased<R: Runtime>(client: Client) {
     let (producer, reader) = sharing_one_pooled_stream(1_000_006);
 
     let inout = producer.executes(|| {
         let inout = client.create_from_slice(u32::as_bytes(&[7u32]));
         unsafe {
-            rejected_with_input::launch_unchecked::<R>(
+            rejected_with_input::launch_unchecked(
                 &client.clone(),
                 CubeCount::new_single(),
                 CubeDim::new_1d(1),
