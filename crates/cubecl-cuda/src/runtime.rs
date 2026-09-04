@@ -412,6 +412,15 @@ impl Runtime for CudaRuntime {
     }
 
     fn enumerate_devices(_: u16) -> Vec<cubecl_core::device::DeviceId> {
+        // `device_count` loads `libcuda` on the way in and panics rather than
+        // erroring when it is not installed, so ask first. A machine with no
+        // NVIDIA driver has no CUDA devices; it is not failing the question.
+        //
+        // SAFETY: the call only tries to `dlopen` each candidate name.
+        if !unsafe { cudarc::driver::sys::is_culib_present() } {
+            return Vec::new();
+        }
+
         let count = cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize;
         (0..count)
             .map(|i| DeviceId {

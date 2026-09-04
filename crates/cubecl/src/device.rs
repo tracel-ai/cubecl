@@ -310,36 +310,121 @@ impl Device {
     }
 }
 
-/// The default device of the most capable runtime this build links.
+/// The runtimes this build links, most capable first.
 ///
-/// The order is the one a caller who did not choose would want — a discrete
-/// accelerator over the portable path over the CPU — not the order the features
-/// are declared in. A build that links no runtime has no answer to give, and
-/// has no `Default` either.
+/// A caller who did not choose wants a discrete accelerator over the portable
+/// path over the CPU, which is not the order the features are declared in.
+#[cfg(any_runtime)]
+const LINKED: &[RuntimeId] = &[
+    #[cfg(feature = "cuda")]
+    RuntimeId::Cuda,
+    #[cfg(feature = "hip")]
+    RuntimeId::Hip,
+    #[cfg(feature = "metal-native")]
+    RuntimeId::Metal,
+    #[cfg(feature = "wgpu")]
+    RuntimeId::Wgpu,
+    #[cfg(feature = "cpu")]
+    RuntimeId::Cpu,
+];
+
+#[cfg(any_runtime)]
+impl RuntimeId {
+    /// Whether this runtime found any hardware to run on.
+    ///
+    /// Every runtime answers zero devices rather than failing when its driver
+    /// is missing, so this is the question "is this machine one of yours?"
+    /// asked in the cheapest way each of them has.
+    fn is_available(self) -> bool {
+        match self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda => !cubecl_cuda::CudaRuntime::enumerate_all_devices().is_empty(),
+            #[cfg(feature = "hip")]
+            Self::Hip => !cubecl_hip::HipRuntime::enumerate_all_devices().is_empty(),
+            #[cfg(feature = "metal-native")]
+            Self::Metal => !cubecl_metal::MetalRuntime::enumerate_all_devices().is_empty(),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu => !<cubecl_wgpu::WgpuRuntime>::enumerate_all_devices().is_empty(),
+            #[cfg(feature = "cpu")]
+            Self::Cpu => !cubecl_cpu::CpuRuntime::enumerate_all_devices().is_empty(),
+            #[allow(unreachable_patterns)]
+            _ => false,
+        }
+    }
+
+    /// This runtime's own default device — which of its devices is best is the
+    /// runtime's business, not this crate's.
+    fn default_device(self) -> Device {
+        match self {
+            Self::Cuda => Device::Cuda(Default::default()),
+            Self::Hip => Device::Hip(Default::default()),
+            Self::Metal => Device::Metal(Default::default()),
+            Self::Wgpu => Device::Wgpu(Default::default()),
+            Self::Cpu => Device::Cpu(Default::default()),
+        }
+    }
+}
+
+/// No answer yet. No real id can collide with it: [`Device::to_id`] writes a
+/// runtime tag of 4 or less into bits 5 to 7, and this has all three set.
+#[cfg(any_runtime)]
+const UNPROBED: u32 = u32::MAX;
+
+/// What [`Device::default`] settled on, packed as its [`DeviceId`].
+///
+/// Two threads racing here both run the same walk and store the same answer,
+/// so the only cost of losing the race is having done the work twice.
+#[cfg(any_runtime)]
+static DEFAULT_DEVICE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(UNPROBED);
+
+/// The default device of the most capable runtime with hardware to run on.
+///
+/// Walks the runtimes this build links, most capable first, and takes the
+/// first that reports a device — so a binary that links both CUDA and wgpu
+/// lands on wgpu when it turns out there is no NVIDIA card, rather than
+/// naming a device it cannot reach.
+///
+/// The last runtime in that order is taken without asking. There is nothing
+/// left to fall back to, so its answer cannot change the outcome, and a build
+/// that links one runtime — the usual one — probes nothing at all. Where a
+/// probe does run, its result is kept for the life of the process: a device
+/// appearing or disappearing later goes unnoticed.
 #[cfg(any_runtime)]
 impl Default for Device {
     fn default() -> Self {
-        #[cfg(feature = "cuda")]
-        return Self::Cuda(Default::default());
-        #[cfg(all(feature = "hip", not(feature = "cuda")))]
-        return Self::Hip(Default::default());
-        #[cfg(all(feature = "metal-native", not(any(feature = "cuda", feature = "hip"))))]
-        return Self::Metal(Default::default());
-        #[cfg(all(
-            feature = "wgpu",
-            not(any(feature = "cuda", feature = "hip", feature = "metal-native"))
-        ))]
-        return Self::Wgpu(Default::default());
-        #[cfg(all(
-            feature = "cpu",
-            not(any(
-                feature = "cuda",
-                feature = "hip",
-                feature = "metal-native",
-                feature = "wgpu"
-            ))
-        ))]
-        return Self::Cpu(Default::default());
+        use core::sync::atomic::Ordering;
+
+        let cached = DEFAULT_DEVICE.load(Ordering::Relaxed);
+        if cached != UNPROBED {
+            return Self::from_id(DeviceId::new((cached >> 16) as u16, cached as u16));
+        }
+
+        let device = Self::probe_default();
+        let id = device.to_id();
+        DEFAULT_DEVICE.store(
+            ((id.type_id as u32) << 16) | id.index_id as u32,
+            Ordering::Relaxed,
+        );
+
+        device
+    }
+}
+
+#[cfg(any_runtime)]
+impl Device {
+    /// The walk [`Device::default`] caches the answer to.
+    fn probe_default() -> Self {
+        let (last, rest) = LINKED
+            .split_last()
+            .expect("`any_runtime` is set, so this build links at least one runtime");
+
+        for runtime in rest {
+            if runtime.is_available() {
+                return runtime.default_device();
+            }
+        }
+
+        last.default_device()
     }
 }
 
@@ -420,5 +505,50 @@ mod tests {
         assert_eq!(stamped.type_id & RuntimeId::OUTER_MASK, 0xAB00);
         assert_eq!(RuntimeId::of_device_id(stamped), Ok(RuntimeId::Cpu));
         assert_eq!(RuntimeId::strip(stamped), inner);
+    }
+}
+
+#[cfg(all(test, any_runtime))]
+mod default_tests {
+    use super::*;
+
+    /// Where this machine has hardware for any linked runtime, the walk has to
+    /// land on one of them, or the client call right after it fails on a device
+    /// nothing can reach. A build whose runtimes are all absent has no better
+    /// answer to give, and still has to give one.
+    #[test]
+    fn the_default_device_is_one_this_machine_has() {
+        let device = Device::default();
+
+        if LINKED.iter().any(|runtime| runtime.is_available()) {
+            assert!(
+                device.runtime().is_available(),
+                "{device:?} was chosen over a runtime this machine can actually run"
+            );
+        }
+    }
+
+    /// The second call reads the cache rather than walking again, so it has to
+    /// decode back to the same device.
+    #[test]
+    fn the_cached_default_decodes_back_to_the_same_device() {
+        let first = Device::default();
+        let second = Device::default();
+
+        assert_eq!(first, second);
+        assert_eq!(first.to_id(), second.to_id());
+    }
+
+    /// The sentinel has to be a value no real device can encode to, or the
+    /// first device to hit it would be re-probed on every call.
+    #[test]
+    fn no_device_encodes_to_the_unprobed_sentinel() {
+        for runtime in LINKED {
+            let id = runtime.default_device().to_id();
+
+            let encoded = ((id.type_id as u32) << 16) | id.index_id as u32;
+
+            assert_ne!(encoded, UNPROBED);
+        }
     }
 }
