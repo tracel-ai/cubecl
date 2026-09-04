@@ -53,15 +53,48 @@ fn init_nvptx() {
     });
 }
 
+/// How the kernel's metadata reaches it, which is the tail of its parameter list past the
+/// buffers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MetadataParams {
+    /// One buffer, holding the scalars, the static metadata and the shape and stride arrays.
+    Buffer,
+    /// The scalars and static metadata as a by-value block of `bytes`, which the host copies
+    /// into the parameter space instead of uploading. `dynamic_buffer` says whether the shape
+    /// and stride arrays came with it as a buffer of their own, ahead of the block.
+    GridConstant { bytes: usize, dynamic_buffer: bool },
+}
+
+impl MetadataParams {
+    /// How many of the kernel's trailing parameters they are.
+    fn count(self) -> u32 {
+        match self {
+            MetadataParams::Buffer => 1,
+            MetadataParams::GridConstant { dynamic_buffer, .. } => 1 + dynamic_buffer as u32,
+        }
+    }
+}
+
+/// What the lowering settled that the emitted kernel has to declare: everything about the entry
+/// point that is not the code itself.
+pub struct NvptxEntry {
+    /// Units per cube, which becomes `nvvm.maxntid`.
+    pub cube_dim: u32,
+    /// Bytes of shared memory a launch must reserve for the kernel's one block.
+    pub shared_memory_size: usize,
+    /// What the kernel does with each buffer binding, by binding position.
+    pub io: Vec<BufferIOAttr>,
+    /// The shape of the metadata tail.
+    pub metadata: MetadataParams,
+}
+
 /// Lowers `module` to LLVM IR and compiles it to PTX for `arch`.
 pub fn emit_ptx(
     ctx: &Context,
     module: ModuleOp,
     entrypoint: &str,
     arch: &SmArch,
-    cube_dim: u32,
-    shared_memory_size: usize,
-    io: Vec<BufferIOAttr>,
+    entry: NvptxEntry,
 ) -> Result<NvptxModule, String> {
     let llvm_ctx = LLVMContext::default();
 
@@ -71,7 +104,7 @@ pub fn emit_ptx(
     let llvm_module =
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
-    let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, cube_dim, &io)?;
+    let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, &entry)?;
     let ptx = compile_to_ptx(&ir, arch)?;
 
     #[cfg(feature = "pliron-dump")]
@@ -84,8 +117,8 @@ pub fn emit_ptx(
         ptx: as_c_chars(&ptx),
         entrypoint: entrypoint.to_string(),
         ir,
-        shared_memory_size,
-        io,
+        shared_memory_size: entry.shared_memory_size,
+        io: entry.io,
     })
 }
 
@@ -95,8 +128,7 @@ fn finalize_ir(
     ir: &str,
     entrypoint: &str,
     arch: &SmArch,
-    cube_dim: u32,
-    io: &[BufferIOAttr],
+    entry: &NvptxEntry,
 ) -> Result<String, String> {
     use llvm_sys::core::{
         LLVMAddAttributeAtIndex, LLVMContextDispose, LLVMCreateStringAttribute, LLVMDisposeMessage,
@@ -112,7 +144,7 @@ fn finalize_ir(
     // `maxntid` is what `__launch_bounds__` sets: it caps the registers the kernel may use so
     // a cube of this size can be resident, and a cube launched larger than it is rejected.
     // One number rather than three because the launch flattens the cube the same way.
-    let max_threads = cube_dim.to_string();
+    let max_threads = entry.cube_dim.to_string();
     let attributes = [
         ("target-cpu", target_cpu.as_str()),
         ("nvvm.maxntid", max_threads.as_str()),
@@ -144,7 +176,10 @@ fn finalize_ir(
             LLVMAddAttributeAtIndex(func, llvm_sys::LLVMAttributeFunctionIndex, attribute);
         }
 
-        annotate_buffer_params(ctx, func, io);
+        annotate_buffer_params(ctx, func, &entry.io, entry.metadata);
+        if let MetadataParams::GridConstant { bytes, .. } = entry.metadata {
+            mark_info_param_byval(ctx, func, bytes);
+        }
 
         let c_ir = LLVMPrintModuleToString(module);
         let finalized = CStr::from_ptr(c_ir).to_string_lossy().into_owned();
@@ -152,6 +187,57 @@ fn finalize_ir(
         LLVMDisposeModule(module);
         LLVMContextDispose(ctx);
         Ok(finalized)
+    }
+}
+
+/// Alignment of the info parameter block, which is the alignment every field in it was laid
+/// out to: `INFO_ALIGN` in `cubecl_ir::metadata`.
+const INFO_PARAM_ALIGN: u32 = 8;
+
+/// Declares the last parameter of `func` as a by-value block of `bytes`, which is how the
+/// scalars and the static metadata reach the kernel through its own parameter space rather than
+/// through a buffer the launch had to upload.
+///
+/// `byval` is the form `NVPTXLowerArgs` recognises: it rewrites a load from such a parameter
+/// into `ld.param`, so what was a dependent global load per scalar becomes a read of the
+/// constant bank. A plain aggregate parameter would not do -- the backend scalarizes those into
+/// one parameter each, which is not the single slot the host pushes.
+///
+/// # Safety
+/// `func` must be a live function in `ctx` whose last parameter is the info pointer the entry
+/// ABI lowering appended.
+unsafe fn mark_info_param_byval(
+    ctx: llvm_sys::prelude::LLVMContextRef,
+    func: llvm_sys::prelude::LLVMValueRef,
+    bytes: usize,
+) {
+    use llvm_sys::core::{
+        LLVMAddAttributeAtIndex, LLVMArrayType2, LLVMCountParams, LLVMCreateEnumAttribute,
+        LLVMCreateTypeAttribute, LLVMGetEnumAttributeKindForName, LLVMInt8TypeInContext,
+    };
+
+    unsafe {
+        let enum_kind =
+            |name: &str| LLVMGetEnumAttributeKindForName(name.as_ptr() as *const _, name.len());
+        let (byval, align) = (enum_kind("byval"), enum_kind("align"));
+        // Zero is "no such attribute", and building one from it crashes rather than
+        // diagnosing. Nothing is emitted instead: the parameter stays an ordinary pointer,
+        // which the host is not passing, so fail loudly rather than silently miscompiling.
+        assert!(
+            byval != 0 && align != 0,
+            "this LLVM has no `byval` or `align` attribute, so the grid-constant parameter \
+             cannot be declared"
+        );
+
+        // Parameter attributes are indexed from one; zero is the return value.
+        let index = LLVMCountParams(func);
+        let block = LLVMArrayType2(LLVMInt8TypeInContext(ctx), bytes as u64);
+        LLVMAddAttributeAtIndex(func, index, LLVMCreateTypeAttribute(ctx, byval, block));
+        LLVMAddAttributeAtIndex(
+            func,
+            index,
+            LLVMCreateEnumAttribute(ctx, align, INFO_PARAM_ALIGN as u64),
+        );
     }
 }
 
@@ -177,6 +263,7 @@ unsafe fn annotate_buffer_params(
     ctx: llvm_sys::prelude::LLVMContextRef,
     func: llvm_sys::prelude::LLVMValueRef,
     io: &[BufferIOAttr],
+    metadata: MetadataParams,
 ) {
     use llvm_sys::LLVMTypeKind;
     use llvm_sys::core::{
@@ -200,9 +287,8 @@ unsafe fn annotate_buffer_params(
         let may_say_readonly = !reads_atomically(func);
 
         let params = LLVMCountParams(func);
-        // The metadata pointer is the last parameter, past the buffers, and the kernel only
-        // ever reads it.
-        let info = params.saturating_sub(1);
+        // The metadata is the tail of the list, past the buffers, and the kernel only reads it.
+        let first_metadata = params.saturating_sub(metadata.count());
         for param in 0..params {
             // Both attributes are only meaningful on a pointer, and applying one to anything
             // else is rejected by the verifier rather than ignored.
@@ -216,7 +302,7 @@ unsafe fn annotate_buffer_params(
             let index = param + 1;
             enum_attr(index, "noalias");
 
-            let read_only = param == info
+            let read_only = param >= first_metadata
                 || io
                     .get(param as usize)
                     .is_some_and(|attr| *attr == BufferIOAttr::ReadOnly);
@@ -472,6 +558,18 @@ fn as_c_chars(ptx: &str) -> Vec<std::ffi::c_char> {
 mod tests {
     use super::*;
 
+    /// The entry facts a test kernel declares: a cube of `cube_dim` units, no shared memory, no
+    /// buffers with anything to say about them, and metadata in a buffer rather than the
+    /// parameter block. Tests that care about one of those set it after.
+    fn entry(cube_dim: u32) -> NvptxEntry {
+        NvptxEntry {
+            cube_dim,
+            shared_memory_size: 0,
+            io: Vec::new(),
+            metadata: MetadataParams::Buffer,
+        }
+    }
+
     /// The finalized module carries everything the NVPTX backend needs: without the calling
     /// convention the function is a device function and no entry point at all, so the module
     /// would load and `cuModuleGetFunction` would then not find it.
@@ -484,7 +582,7 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", &SmArch::new(86, true), 256, &[]).unwrap();
+        let finalized = finalize_ir(ir, "k", &SmArch::new(86, true), &entry(256)).unwrap();
         assert!(
             finalized.contains(r#"target triple = "nvptx64-nvidia-cuda""#),
             "{finalized}"
@@ -506,7 +604,7 @@ entry:
 }
 "#;
         let arch = SmArch::new(86, true);
-        let finalized = finalize_ir(ir, "k", &arch, 256, &[]).unwrap();
+        let finalized = finalize_ir(ir, "k", &arch, &entry(256)).unwrap();
         let ptx = compile_to_ptx(&finalized, &arch).unwrap();
 
         assert!(ptx.contains(".target sm_86"), "{ptx}");
@@ -538,7 +636,7 @@ entry:
 }
 "#;
         let arch = SmArch::new(86, true);
-        let finalized = finalize_ir(ir, "k", &arch, 256, &[]).unwrap();
+        let finalized = finalize_ir(ir, "k", &arch, &entry(256)).unwrap();
         let ptx = compile_to_ptx(&finalized, &arch).unwrap();
 
         assert!(
@@ -576,7 +674,7 @@ entry:
 }
 "#;
         let arch = SmArch::new(86, true);
-        let finalized = finalize_ir(ir, "k", &arch, 32, &[]).unwrap();
+        let finalized = finalize_ir(ir, "k", &arch, &entry(32)).unwrap();
         let ptx = compile_to_ptx(&finalized, &arch).unwrap();
 
         assert!(ptx.contains("%laneid"), "{ptx}");
@@ -633,7 +731,7 @@ entry:
         );
 
         let arch = SmArch::new(86, true);
-        let finalized = finalize_ir(&ir, "k", &arch, 32, &[]).unwrap();
+        let finalized = finalize_ir(&ir, "k", &arch, &entry(32)).unwrap();
         let ptx = compile_to_ptx(&finalized, &arch).unwrap();
 
         assert!(
@@ -687,7 +785,8 @@ entry:
             b_args = named("<2 x half>", "b", 2),
         );
         let arch = SmArch::new(86, true);
-        let ptx = compile_to_ptx(&finalize_ir(&ir, "k", &arch, 32, &[]).unwrap(), &arch).unwrap();
+        let ptx =
+            compile_to_ptx(&finalize_ir(&ir, "k", &arch, &entry(32)).unwrap(), &arch).unwrap();
         assert!(
             ptx.contains("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"),
             "{ptx}"
@@ -705,7 +804,7 @@ entry:
   ret void
 }
 ";
-        let ptx = compile_to_ptx(&finalize_ir(ir, "k", &arch, 32, &[]).unwrap(), &arch).unwrap();
+        let ptx = compile_to_ptx(&finalize_ir(ir, "k", &arch, &entry(32)).unwrap(), &arch).unwrap();
         assert!(
             ptx.contains("ldmatrix.sync.aligned.m8n8.x2.shared"),
             "{ptx}"
@@ -723,7 +822,7 @@ entry:
 ";
         let hopper = SmArch::new(90, true);
         let ptx =
-            compile_to_ptx(&finalize_ir(ir, "k", &hopper, 32, &[]).unwrap(), &hopper).unwrap();
+            compile_to_ptx(&finalize_ir(ir, "k", &hopper, &entry(32)).unwrap(), &hopper).unwrap();
         assert!(
             ptx.contains("stmatrix.sync.aligned.m8n8.x2.shared"),
             "{ptx}"

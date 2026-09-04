@@ -127,6 +127,8 @@ impl Compiler for HipCompiler {
             )),
             HipCompiler::Llvm(compiler) => {
                 let pliron_options = cubecl_llvm::PlironOptions {
+                    // The HIP entry ABI has no parameter block to put them in.
+                    grid_constants: false,
                     arch: options.arch.clone(),
                     sm_arch: None,
                 };

@@ -129,6 +129,9 @@ impl Compiler for CudaCompiler {
                 let pliron_options = cubecl_llvm::PlironOptions {
                     arch: None,
                     sm_arch: options.arch,
+                    // Same flag the C++ backend reads, and it has to be: the server pushes the
+                    // launch parameters from it, so both halves have to agree on the shape.
+                    grid_constants: options.cpp.supports_features.grid_constants,
                 };
                 match compiler.compile(kernel, &pliron_options)? {
                     cubecl_llvm::PlironArtifact::NvptxCode(module) => {

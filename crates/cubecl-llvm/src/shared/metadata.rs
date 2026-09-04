@@ -37,6 +37,24 @@ struct ReadScalars(Vec<(Ptr<Operation>, TypeHandle, usize, Value)>);
 #[derive(Default)]
 struct DynMetaReads(Vec<(Ptr<Operation>, usize, Value, Value)>);
 
+/// Whether the scalars and static metadata ride in the kernel's own parameter block.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GridConstants(pub bool);
+
+impl CtxGridConstants for Context {}
+
+/// The grid-constant choice on the context, put there by the target that was told it and read
+/// by the entry ABI lowering and the layout it hands off to.
+pub trait CtxGridConstants: ContextExt {
+    /// `false` on a target that never sets it, which is the layout every target started with.
+    fn grid_constants(&self) -> bool {
+        self.aux_ty::<GridConstants>().0
+    }
+    fn set_grid_constants(&mut self, value: bool) {
+        self.set_aux_ty(GridConstants(value));
+    }
+}
+
 /// How the kernel entry presents its buffers to the host.
 pub trait EntryArgLayout {
     fn present_args(
@@ -52,6 +70,12 @@ pub trait EntryArgLayout {
 /// `%metadata`, then hands the buffers and shared memories off to `layout` to present to the
 /// host. The info buffer is laid out as `[scalars | static meta | dynamic meta]`, so scalar reads
 /// index straight from its front while metadata reads must skip the scalar prefix.
+///
+/// Under [`CtxGridConstants`] the same layout is split in two, because the host does not upload
+/// the whole of it: `[scalars | static meta]` becomes the kernel's own parameter block and only
+/// the shape and stride arrays remain a device buffer, arriving as an argument of its own ahead
+/// of the parameter block. Every offset within each half is unchanged; the dynamic reads simply
+/// start from the front of their buffer rather than partway into a shared one.
 pub struct LowerEntryAbiPass {
     info: Info,
     layout: Box<dyn EntryArgLayout>,
@@ -140,7 +164,15 @@ impl Pass for LowerEntryAbiPass {
         let slot_ty = address_type.unsigned_type().to_type(ctx);
         let slot_size = address_type.size();
 
+        // The buffers are already there; these go after them, in the order the host pushes
+        // them. `CudaServer::launch_checked` uploads only the dynamic tail when the parameter
+        // block carries the rest, so on that path the two halves arrive as two arguments.
         let info_ty = ptr_to(ctx, BytesType::get(ctx).into());
+        let grid_constants = ctx.grid_constants();
+        let dyn_meta = (grid_constants && self.info.has_dynamic_meta).then(|| {
+            let idx = BasicBlock::push_argument(entry, ctx, info_ty);
+            entry.deref(ctx).get_argument(idx)
+        });
         let meta_idx = BasicBlock::push_argument(entry, ctx, info_ty);
         let info = entry.deref(ctx).get_argument(meta_idx);
 
@@ -157,7 +189,12 @@ impl Pass for LowerEntryAbiPass {
             Operation::erase(*bl_op, ctx);
         }
 
-        let dyn_base = elem_index(self.info.dynamic_meta_offset, slot_size);
+        // The shape and stride arrays sit past the scalars and static metadata in one buffer,
+        // or at the front of their own when the rest went into the parameter block.
+        let (dyn_meta_ptr, dyn_base) = match dyn_meta {
+            Some(dyn_meta) => (dyn_meta, 0),
+            None => (info, elem_index(self.info.dynamic_meta_offset, slot_size)),
+        };
         for (read_op, slot, dim, result) in &dyn_meta_reads {
             let slot = index_const(ctx, static_base + *slot, *read_op);
             let tensor_offset = load_info(ctx, info, slot_ty, slot, *read_op);
@@ -166,7 +203,7 @@ impl Pass for LowerEntryAbiPass {
             let index = index_add(ctx, tensor_offset, *dim, *read_op);
             let dyn_base = index_const(ctx, dyn_base, *read_op);
             let index = index_add(ctx, index, dyn_base, *read_op);
-            let value = load_info(ctx, info, slot_ty, index, *read_op);
+            let value = load_info(ctx, dyn_meta_ptr, slot_ty, index, *read_op);
             let value = to_index(ctx, value, *read_op);
             result.replace_all_uses_with(ctx, &value);
             Operation::erase(*read_op, ctx);

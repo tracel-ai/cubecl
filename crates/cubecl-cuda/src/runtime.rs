@@ -350,7 +350,7 @@ impl DeviceService for CudaServer {
         // compile rather than a slower one.
         let backend = CudaBackend::default();
         if backend == CudaBackend::Llvm {
-            restrict_to_llvm_backend(&mut device_props, &mut comp_opts);
+            restrict_to_llvm_backend(&mut device_props);
         }
 
         let comp_opts = CudaCompilationOptions {
@@ -397,7 +397,7 @@ impl DeviceService for CudaServer {
 ///
 /// Each of these comes back as its lowering lands; see the matrix and TMA work in
 /// `cubecl-llvm`'s `nvptx` module.
-fn restrict_to_llvm_backend(props: &mut DeviceProperties, comp_opts: &mut CompilationOptions) {
+fn restrict_to_llvm_backend(props: &mut DeviceProperties) {
     // Both matrix families are lowered: the cooperative one through `wmma`, the manual one
     // through `mma.sync`. Each is narrowed to the element types its lowering has register
     // shapes for -- `f16` operands throughout, plus the narrow integers on the manual side,
@@ -490,11 +490,6 @@ fn restrict_to_llvm_backend(props: &mut DeviceProperties, comp_opts: &mut Compil
         .types
         .atomic
         .retain(|ty, _| ty.vector_size() == 1);
-
-    // Scalars and static metadata ride in a device buffer, not in the kernel's parameter
-    // block: the PTX entry ABI presents buffers as pointers in binding order and nothing else,
-    // which is the layout `PtxKernelParams` lowers to.
-    comp_opts.supports_features.grid_constants = false;
 }
 
 fn tensor_cores_per_sm(arch: &CudaArchitecture) -> Option<u32> {
