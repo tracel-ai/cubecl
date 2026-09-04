@@ -134,7 +134,135 @@ impl RuntimeId {
     }
 }
 
+/// Why naming a device did not produce one.
+///
+/// The two cases ask different things of the caller: one is a build to rebuild,
+/// the other a machine to ask something else of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DeviceUnavailable {
+    /// The build does not link this runtime. Turn on its `cubecl` feature.
+    NotLinked(RuntimeId),
+    /// The runtime is linked, and this machine has none of the device asked
+    /// for — only `available` of that kind.
+    NoSuchDevice {
+        /// The runtime that was asked.
+        runtime: RuntimeId,
+        /// How many devices of the asked-for kind it does have.
+        available: usize,
+    },
+}
+
+impl core::fmt::Display for DeviceUnavailable {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::NotLinked(runtime) => write!(
+                f,
+                "this build does not link the {runtime:?} runtime: turn on its `cubecl` feature"
+            ),
+            Self::NoSuchDevice { runtime, available } => write!(
+                f,
+                "the {runtime:?} runtime has no such device on this machine, \
+                 which has {available} of that kind"
+            ),
+        }
+    }
+}
+
+impl core::error::Error for DeviceUnavailable {}
+
+/// Naming one device rather than taking [`Device::default`].
+///
+/// Each asks the runtime whether the machine really has what was named, so a
+/// device that would only fail at the client call is an error here instead.
+/// They are in every build: a runtime this one left out is
+/// [`DeviceUnavailable::NotLinked`], not a function that went missing.
+///
+/// ```no_run
+/// use cubecl::Device;
+///
+/// # fn main() -> Result<(), Box<dyn core::error::Error>> {
+/// // The second GPU if there is one, otherwise whatever this machine has.
+/// let device = Device::cuda(1).or_else(|_| Device::cpu())?;
+/// let client = device.client();
+/// # Ok(())
+/// # }
+/// ```
 impl Device {
+    /// The CPU device.
+    pub fn cpu() -> Result<Self, DeviceUnavailable> {
+        Self::named(RuntimeId::Cpu, Self::Cpu(CpuDevice))
+    }
+
+    /// The CUDA device at `index`, counting the GPUs CUDA reports.
+    pub fn cuda(index: usize) -> Result<Self, DeviceUnavailable> {
+        Self::named(RuntimeId::Cuda, Self::Cuda(CudaDevice::new(index)))
+    }
+
+    /// The `ROCm` device at `index`, counting the GPUs HIP reports.
+    pub fn rocm(index: usize) -> Result<Self, DeviceUnavailable> {
+        Self::named(RuntimeId::Hip, Self::Hip(AmdDevice::new(index)))
+    }
+
+    /// The native Metal device `kind` names.
+    ///
+    /// The Metal runtime proper. Reaching Metal through wgpu's MSL backend is
+    /// [`Device::wgpu`] instead, and hands back a wgpu device.
+    pub fn metal(kind: MetalDevice) -> Result<Self, DeviceUnavailable> {
+        match kind {
+            // Registered from outside, so enumeration cannot see it.
+            MetalDevice::Existing(_) => Self::linked(RuntimeId::Metal, Self::Metal(kind)),
+            kind => Self::named(RuntimeId::Metal, Self::Metal(kind)),
+        }
+    }
+
+    /// The wgpu device `kind` names.
+    ///
+    /// Which graphics API it comes up on — and so which shader compiler it is
+    /// fed — is the runtime's to settle from the enabled features and what the
+    /// machine offers. There is deliberately no `vulkan` next to this: it
+    /// would hand back this very device, and a constructor that looks like a
+    /// choice should be one.
+    pub fn wgpu(kind: WgpuDevice) -> Result<Self, DeviceUnavailable> {
+        match kind {
+            // Registered from outside, so enumeration cannot see it.
+            WgpuDevice::Existing(_) => Self::linked(RuntimeId::Wgpu, Self::Wgpu(kind)),
+            kind => Self::named(RuntimeId::Wgpu, Self::Wgpu(kind)),
+        }
+    }
+
+    /// `device` where this build links `runtime` and the machine has it.
+    ///
+    /// Asks the runtime for the devices of this one's own kind and looks for
+    /// it among them, so an index past the end of what the machine has is a
+    /// miss here rather than a device that fails at the client call.
+    fn named(runtime: RuntimeId, device: Self) -> Result<Self, DeviceUnavailable> {
+        let device = Self::linked(runtime, device)?;
+
+        let wanted = RuntimeId::strip(device.to_id());
+        let of_kind = runtime.enumerate_devices(wanted.type_id);
+
+        // A runtime's "you choose" device names no hardware of its own, so it
+        // is there as soon as the runtime found anything at all.
+        let found = of_kind.contains(&wanted)
+            || (device == runtime.default_device() && !of_kind.is_empty());
+
+        match found {
+            true => Ok(device),
+            false => Err(DeviceUnavailable::NoSuchDevice {
+                runtime,
+                available: of_kind.len(),
+            }),
+        }
+    }
+
+    /// `device` where this build links `runtime`, without asking the machine.
+    fn linked(runtime: RuntimeId, device: Self) -> Result<Self, DeviceUnavailable> {
+        match runtime.is_linked() {
+            true => Ok(device),
+            false => Err(DeviceUnavailable::NotLinked(runtime)),
+        }
+    }
+
     /// The compute client of this device, initialized on first use.
     ///
     /// # Panics
@@ -328,8 +456,45 @@ const LINKED: &[RuntimeId] = &[
     RuntimeId::Cpu,
 ];
 
-#[cfg(any_runtime)]
 impl RuntimeId {
+    /// Whether this build links this runtime at all.
+    fn is_linked(self) -> bool {
+        match self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda => true,
+            #[cfg(feature = "hip")]
+            Self::Hip => true,
+            #[cfg(feature = "metal-native")]
+            Self::Metal => true,
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu => true,
+            #[cfg(feature = "cpu")]
+            Self::Cpu => true,
+            #[allow(unreachable_patterns)]
+            _ => false,
+        }
+    }
+
+    /// The devices of one of this runtime's own device types, in its own
+    /// encoding — the ids [`RuntimeId::strip`] leaves behind.
+    #[cfg_attr(not(any_runtime), allow(unused_variables))]
+    fn enumerate_devices(self, type_id: u16) -> alloc::vec::Vec<DeviceId> {
+        match self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda => cubecl_cuda::CudaRuntime::enumerate_devices(type_id),
+            #[cfg(feature = "hip")]
+            Self::Hip => cubecl_hip::HipRuntime::enumerate_devices(type_id),
+            #[cfg(feature = "metal-native")]
+            Self::Metal => cubecl_metal::MetalRuntime::enumerate_devices(type_id),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu => <cubecl_wgpu::WgpuRuntime>::enumerate_devices(type_id),
+            #[cfg(feature = "cpu")]
+            Self::Cpu => cubecl_cpu::CpuRuntime::enumerate_devices(type_id),
+            #[allow(unreachable_patterns)]
+            _ => alloc::vec::Vec::new(),
+        }
+    }
+
     /// Whether this machine has hardware worth choosing this runtime for.
     ///
     /// Each runtime answers for itself — zero devices rather than a failure
@@ -549,6 +714,93 @@ mod default_tests {
             let encoded = ((id.type_id as u32) << 16) | id.index_id as u32;
 
             assert_ne!(encoded, UNPROBED);
+        }
+    }
+}
+
+#[cfg(test)]
+mod named_tests {
+    use super::*;
+
+    /// A runtime this build left out is an error the caller can read, not a
+    /// constructor that went missing from the API.
+    #[test]
+    fn an_unlinked_runtime_says_so() {
+        for runtime in [
+            RuntimeId::Cuda,
+            RuntimeId::Hip,
+            RuntimeId::Metal,
+            RuntimeId::Wgpu,
+            RuntimeId::Cpu,
+        ] {
+            if runtime.is_linked() {
+                continue;
+            }
+
+            let named = match runtime {
+                RuntimeId::Cuda => Device::cuda(0),
+                RuntimeId::Hip => Device::rocm(0),
+                RuntimeId::Metal => Device::metal(Default::default()),
+                RuntimeId::Wgpu => Device::wgpu(Default::default()),
+                RuntimeId::Cpu => Device::cpu(),
+            };
+
+            assert_eq!(named, Err(DeviceUnavailable::NotLinked(runtime)));
+        }
+    }
+
+    /// An index past the end is caught here rather than at the client call,
+    /// which is the whole point of these being fallible.
+    #[test]
+    fn an_index_past_the_end_is_an_error() {
+        let far_past_any_machine = 4242;
+
+        for named in [
+            Device::cuda(far_past_any_machine),
+            Device::rocm(far_past_any_machine),
+            Device::wgpu(WgpuDevice::DiscreteGpu(far_past_any_machine)),
+        ] {
+            assert!(
+                matches!(
+                    named,
+                    Err(DeviceUnavailable::NotLinked(_) | DeviceUnavailable::NoSuchDevice { .. })
+                ),
+                "{named:?} was accepted for a device no machine has"
+            );
+        }
+    }
+
+    /// Where the walk found hardware, what it settled on has to be nameable,
+    /// or the two ways of reaching a device disagree. Where it found none it
+    /// still had to answer, and hands back a device this machine cannot run —
+    /// which is exactly what the constructors exist to say no to.
+    #[cfg(any_runtime)]
+    #[test]
+    fn the_default_device_can_be_named() {
+        if !LINKED.iter().any(|runtime| runtime.is_available()) {
+            return;
+        }
+
+        let named = match Device::default() {
+            Device::Cuda(device) => Device::cuda(device.index),
+            Device::Hip(device) => Device::rocm(device.index),
+            Device::Metal(kind) => Device::metal(kind),
+            Device::Wgpu(kind) => Device::wgpu(kind),
+            Device::Cpu(_) => Device::cpu(),
+        };
+
+        assert_eq!(named, Ok(Device::default()));
+    }
+
+    /// An externally registered device is passed through: enumeration cannot
+    /// see one, so asking would always say no.
+    #[test]
+    fn an_existing_device_is_not_looked_for() {
+        let named = Device::wgpu(WgpuDevice::Existing(7));
+
+        match RuntimeId::Wgpu.is_linked() {
+            true => assert_eq!(named, Ok(Device::Wgpu(WgpuDevice::Existing(7)))),
+            false => assert_eq!(named, Err(DeviceUnavailable::NotLinked(RuntimeId::Wgpu))),
         }
     }
 }
