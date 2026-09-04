@@ -32,11 +32,32 @@ type DeviceRegistry = HashMap<TypeId, MutexDeviceState>;
 impl DeviceHandleSpec for MutexDeviceHandle {
     const BLOCKING: bool = true;
 
-    /// This transport is the `no_std` one and has no way to catch an unwind,
-    /// so a service that will not start panics rather than returning an error
-    /// here. The signature is the trait's; the promise is weaker.
-    fn try_new<S: DeviceService>(device_id: DeviceId) -> Result<Self, ServiceCreationError> {
-        Ok(Self::start::<S>(device_id))
+    fn new<S: DeviceService>(device_id: DeviceId) -> Self {
+        let mut guard = DEVICE_REGISTRY.lock();
+        if guard.is_none() {
+            *guard = Some(HashMap::new());
+        };
+        let device_map: &mut HashMap<_, _> = match guard.as_mut() {
+            Some(val) => val.entry(device_id).or_insert_with(HashMap::new),
+            None => unreachable!(),
+        };
+
+        let type_id = TypeId::of::<S>();
+
+        let state = device_map
+            .entry(type_id)
+            .or_insert_with(|| {
+                let state = S::init(device_id);
+                let utilities = state.utilities();
+                MutexDeviceState {
+                    service: Arc::new(Mutex::new(Box::new(state))),
+                    device_id,
+                    utilities,
+                }
+            })
+            .clone();
+
+        Self { state, device_id }
     }
 
     fn device_id(&self) -> DeviceId {
@@ -190,36 +211,5 @@ impl Clone for MutexDeviceHandle {
             state: self.state.clone(),
             device_id: self.device_id,
         }
-    }
-}
-
-impl MutexDeviceHandle {
-    /// Register the service for `device_id`, or hand back the one already there.
-    fn start<S: DeviceService>(device_id: DeviceId) -> Self {
-        let mut guard = DEVICE_REGISTRY.lock();
-        if guard.is_none() {
-            *guard = Some(HashMap::new());
-        };
-        let device_map: &mut HashMap<_, _> = match guard.as_mut() {
-            Some(val) => val.entry(device_id).or_insert_with(HashMap::new),
-            None => unreachable!(),
-        };
-
-        let type_id = TypeId::of::<S>();
-
-        let state = device_map
-            .entry(type_id)
-            .or_insert_with(|| {
-                let state = S::init(device_id);
-                let utilities = state.utilities();
-                MutexDeviceState {
-                    service: Arc::new(Mutex::new(Box::new(state))),
-                    device_id,
-                    utilities,
-                }
-            })
-            .clone();
-
-        Self { state, device_id }
     }
 }

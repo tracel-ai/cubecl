@@ -106,39 +106,12 @@ impl core::fmt::Debug for CallError {
     }
 }
 
-/// What a caught panic payload says, where it says anything at all.
-#[cfg(feature = "std")]
-pub(crate) fn panic_reason(payload: &alloc::boxed::Box<dyn core::any::Any + Send>) -> &str {
-    if let Some(reason) = payload.downcast_ref::<&'static str>() {
-        return reason;
-    }
-
-    match payload.downcast_ref::<alloc::string::String>() {
-        Some(reason) => reason.as_str(),
-        None => "the service panicked with a payload that is not a string",
-    }
-}
-
 #[derive(new, Clone, Debug)]
 /// Error when creating a [`DeviceService`].
 pub struct ServiceCreationError {
+    #[allow(dead_code)] // Debug uses it.
     reason: alloc::string::String,
 }
-
-impl ServiceCreationError {
-    /// What the service said on the way down.
-    pub fn reason(&self) -> &str {
-        &self.reason
-    }
-}
-
-impl core::fmt::Display for ServiceCreationError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&self.reason)
-    }
-}
-
-impl core::error::Error for ServiceCreationError {}
 
 /// How a service's state is reached: the transport under a [`DeviceHandle`].
 ///
@@ -159,25 +132,7 @@ pub trait DeviceHandleSpec: Sized + Clone {
     /// Creates or retrieves a transport for the given device ID.
     ///
     /// If a runner thread for this `device_id` does not exist, it will be spawned.
-    ///
-    /// The error is the service failing to start — a driver that is missing,
-    /// a device that will not open. A transport with no way to catch a panic
-    /// crossing back to the caller lets it through instead, so a caller that
-    /// must not die still has to be ready for one.
-    fn try_new<S: DeviceService>(device_id: DeviceId) -> Result<Self, ServiceCreationError>;
-
-    /// [`try_new`](Self::try_new), for the caller with nothing to do about a
-    /// service that will not start.
-    ///
-    /// # Panics
-    ///
-    /// Where the service fails to start.
-    fn new<S: DeviceService>(device_id: DeviceId) -> Self {
-        match Self::try_new::<S>(device_id) {
-            Ok(handle) => handle,
-            Err(err) => panic!("{err:?}"),
-        }
-    }
+    fn new<S: DeviceService>(device_id: DeviceId) -> Self;
 
     /// Retrieves the device ID for this handle.
     fn device_id(&self) -> DeviceId;

@@ -1,6 +1,5 @@
 use alloc::vec::Vec;
 use cubecl_common::device::{Device, DeviceId};
-use cubecl_common::device_handle::ServiceCreationError;
 use cubecl_ir::TargetProperties;
 use cubecl_zspace::{Shape, Strides};
 
@@ -15,24 +14,8 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
 
     /// Retrieve the compute client from the runtime device, initializing the
     /// server on first use.
-    ///
-    /// # Panics
-    ///
-    /// Where the server will not start. [`try_client`](Self::try_client) hands
-    /// that back instead.
     fn client(device: &Self::Device) -> Client {
         Client::load::<Self::Server>(device.to_id())
-    }
-
-    /// [`client`](Self::client), for the caller with somewhere else to go if
-    /// this device will not open.
-    ///
-    /// Starting the server is the only question that cannot be answered by
-    /// asking: a driver can be installed and still refuse, a device present
-    /// and already spoken for. What [`is_available`](Self::is_available) sees
-    /// is what a runtime can enumerate, which is less than this.
-    fn try_client(device: &Self::Device) -> Result<Client, ServiceCreationError> {
-        Client::try_load::<Self::Server>(device.to_id())
     }
 
     /// Whether a tensor with `shape` and `strides` can be read as is. If the result is false, the

@@ -1,6 +1,6 @@
 use crate::device::{
     DeviceId, DeviceService, DeviceServiceStage, ServerUtilitiesHandle,
-    handle::{CallError, DeviceHandleSpec, ServiceCreationError, panic_reason},
+    handle::{CallError, DeviceHandleSpec, ServiceCreationError},
 };
 use core::time::Duration;
 use cubecl_environment::future::channel::oneshot;
@@ -50,10 +50,10 @@ impl DeviceHandleSpec for ChannelDeviceHandle {
 
     /// Creates a handle for an existing device or starts a new `DeviceRunner` if one
     /// does not exist for the given `device_id`.
-    fn try_new<S: DeviceService>(device_id: DeviceId) -> Result<Self, ServiceCreationError> {
-        let state = ChannelDeviceState::init::<S>(device_id, None)?;
+    fn new<S: DeviceService>(device_id: DeviceId) -> Self {
+        let state = ChannelDeviceState::init::<S>(device_id, None).unwrap();
 
-        Ok(Self { state })
+        Self { state }
     }
 
     fn device_id(&self) -> DeviceId {
@@ -368,44 +368,29 @@ impl ChannelDeviceState {
         let (callback, recv) = oneshot::channel();
 
         // The service initialization function.
-        //
-        // What `S::init` throws is caught here rather than left to the runner
-        // thread's own guard, so the reason travels back down the channel
-        // instead of arriving as a sender that was dropped without a word.
         let initialize_service = move || {
-            let outcome = catch_unwind(AssertUnwindSafe(|| {
-                STATES.with(|state| {
-                    let mut map = match state.try_borrow_mut() {
-                        Ok(map) => map,
-                        Err(err) => panic!(
-                            "The device service {:?} is already borrowed: {err}",
-                            core::any::type_name::<S>()
-                        ),
-                    };
+            STATES.with(|state| {
+                let mut map = match state.try_borrow_mut() {
+                    Ok(map) => map,
+                    Err(err) => panic!(
+                        "The device service {:?} is already borrowed: {err}",
+                        core::any::type_name::<S>()
+                    ),
+                };
 
-                    if service.is_some() && map.contains_key(&type_id) {
-                        return Err(std::string::String::from("Service already initialized."));
-                    }
-
+                if service.is_some() && map.contains_key(&type_id) {
+                    callback.send(Err(())).unwrap();
+                } else {
                     let service = service.unwrap_or_else(|| S::init(device_id));
                     let utilities = service.utilities();
 
                     map.entry(type_id)
                         .or_insert_with(|| RefCell::new(Box::new(service)));
-
-                    Ok(ChannelService { type_id, utilities })
-                })
-            }));
-
-            let outcome = match outcome {
-                Ok(outcome) => outcome,
-                Err(payload) => Err(std::format!(
-                    "Service initialization failed: {}",
-                    panic_reason(&payload)
-                )),
-            };
-
-            let _ = callback.send(outcome);
+                    callback
+                        .send(Ok(ChannelService { type_id, utilities }))
+                        .unwrap();
+                }
+            });
         };
 
         // Same reason in [`send]` we need to call the function directly if we are on the runner
@@ -416,21 +401,19 @@ impl ChannelDeviceState {
                     "Service initialization failed: {err:?}"
                 )));
             };
-        } else if device_client.enqueue(initialize_service).is_err() {
-            return Err(ServiceCreationError::new(alloc::string::String::from(
-                "Service initialization could not be handed to the device runner",
-            )));
         } else {
+            device_client.enqueue(initialize_service).unwrap();
             device_client.flush();
         };
 
-        let service = match recv.recv() {
-            Ok(Ok(service)) => service,
-            Ok(Err(reason)) => return Err(ServiceCreationError::new(reason)),
+        let service = recv.recv().unwrap();
+
+        let service = match service {
+            Ok(service) => service,
             Err(_) => {
-                return Err(ServiceCreationError::new(std::string::String::from(
-                    "The device runner dropped the service initialization without answering",
-                )));
+                return Err(ServiceCreationError::new(
+                    "Service already initialized.".into(),
+                ));
             }
         };
 
