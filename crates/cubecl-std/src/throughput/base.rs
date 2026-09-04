@@ -232,6 +232,11 @@ pub fn roofline_bounds(
 /// What the device answers fastest, of the shapes a probe can be launched in,
 /// and the shape that answered it.
 ///
+/// The shapes are ranked against each other briefly and only the winner is
+/// measured, since a full measurement is mostly warmup and a warmup warms the
+/// device rather than the shape. Ranking orders shapes that are 10% apart or
+/// more; ones it cannot separate are interchangeable.
+///
 /// Built one at a time and dropped on the way out: a memory probe's pool is a
 /// large fraction of what the device will allocate, and holding every shape's
 /// at once would ask for several of them.
@@ -241,12 +246,50 @@ fn fastest_shape<S: Copy>(
     shapes: alloc::vec::Vec<S>,
     build: impl Fn(S) -> KernelConfig,
 ) -> Result<(ThroughputValue, S), ThroughputError> {
-    shapes
-        .into_iter()
-        .map(|shape| (ThroughputBenchmarker::sample(build(shape)), shape))
-        .filter(|(value, _)| value.ops_per_s().is_finite())
-        .max_by(|(a, _), (b, _)| a.ops_per_s().total_cmp(&b.ops_per_s()))
+    let (fastest, warmed) = match shapes.len() {
+        0 => return Err(ThroughputError::NoTiming),
+        1 => (shapes[0], None),
+        _ => {
+            let (fastest, iterations) =
+                ranked_shape(&shapes, &build).ok_or(ThroughputError::NoTiming)?;
+
+            (fastest, Some(iterations))
+        }
+    };
+
+    let config = build(fastest);
+    let value = match warmed {
+        Some(iterations) => ThroughputBenchmarker::sample_at(&config, iterations),
+        None => ThroughputBenchmarker::sample(config),
+    };
+
+    value
+        .ops_per_s()
+        .is_finite()
+        .then_some((value, fastest))
         .ok_or(ThroughputError::NoTiming)
+}
+
+/// The shape that answers fastest over a ranking pass, and the iteration count
+/// the device was warmed at, which the winner is then measured over.
+///
+/// Warmed once, on the first shape, and every shape timed over that same count,
+/// so they are ordered on what they do rather than on which of them was warmed.
+fn ranked_shape<S: Copy>(shapes: &[S], build: impl Fn(S) -> KernelConfig) -> Option<(S, usize)> {
+    let mut warmed = None;
+    let mut fastest: Option<(f64, S)> = None;
+
+    for shape in shapes {
+        let config = build(*shape);
+        let iterations = *warmed.get_or_insert_with(|| ThroughputBenchmarker::warm(&config));
+        let rate = ThroughputBenchmarker::rank(&config, iterations).ops_per_s();
+
+        if rate.is_finite() && fastest.is_none_or(|(best, _)| rate > best) {
+            fastest = Some((rate, *shape));
+        }
+    }
+
+    Some((fastest?.1, warmed?))
 }
 
 /// The launch shapes a memory probe is measured in.
@@ -439,6 +482,25 @@ mod tests {
     use cubecl_core::ir::{IntKind, UIntKind};
 
     const F32: ElemType = ElemType::Float(FloatKind::F32);
+
+    /// The reported value is a full measurement of the winner, not the
+    /// ranking pass that found it.
+    #[test]
+    fn the_shape_that_ranks_fastest_is_the_one_measured() {
+        // A shape here is its rate: the faster it is, the less time a pass takes.
+        let build = |rate: u64| KernelConfig {
+            sample: alloc::boxed::Box::new(move |iterations| {
+                core::time::Duration::from_nanos(iterations as u64 * 1000 / rate)
+            }),
+            ops_count: 1,
+            min_iterations: 1,
+        };
+
+        let (value, fastest) = fastest_shape(alloc::vec![1, 4, 2], build).expect("a shape ran");
+
+        assert_eq!(fastest, 4);
+        assert!(value.ops_per_s().is_finite());
+    }
 
     /// The full launch is measured first, so a device whose peak is there
     /// keeps the shape it had before the sweep existed.

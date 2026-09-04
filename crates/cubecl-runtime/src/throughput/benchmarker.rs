@@ -19,6 +19,23 @@ const WARMUP_BUDGET: Duration = Duration::from_secs(2);
 /// clock transition, which takes hundreds of milliseconds.
 const PLATEAU_FLOOR: Duration = Duration::from_millis(250);
 
+/// Wall clock one shape's peak is sampled over. A sample count would price a
+/// probe filling the duration target forty times one whose pass is microseconds.
+const SAMPLE_BUDGET: Duration = Duration::from_millis(200);
+
+/// Samples that may go by without improving before the peak is accepted. Also
+/// the floor on samples, since the first always improves on infinity and only
+/// the ones after it can go stale.
+const SAMPLE_PATIENCE: usize = 12;
+
+/// Wall clock a shape is ranked over, which is enough to order shapes and not
+/// enough to report a peak. Shapes that matter are 10% apart or more, and ones
+/// within a couple of percent are interchangeable by definition.
+const RANK_BUDGET: Duration = Duration::from_millis(30);
+
+/// Samples a ranking pass may spend on one shape.
+const RANK_PATIENCE: usize = 2;
+
 /// Configuration and payload for a benchmarkable compute kernel.
 pub struct KernelConfig {
     /// A closure that executes the kernel for the given number of iterations and returns the duration.
@@ -76,7 +93,67 @@ impl ThroughputBenchmarker {
         let sample = kernel_config.sample;
 
         let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
-        let duration = Self::sample_peak_duration(iterations, &sample);
+        let duration =
+            Self::sample_peak_duration(iterations, &sample, SAMPLE_BUDGET, SAMPLE_PATIENCE);
+
+        ThroughputValue {
+            ops_count: kernel_config.ops_count,
+            duration,
+        }
+    }
+
+    /// Warms the device on one shape and reports the iteration count a sample of
+    /// it should carry, for [`rank`](Self::rank) to reuse across the rest.
+    ///
+    /// A warmup is most of what timing a shape costs, and it is the device it
+    /// warms rather than the shape, so a sweep pays for one.
+    pub fn warm(kernel_config: &KernelConfig) -> usize {
+        Self::warmup(
+            kernel_config.min_iterations,
+            WARMUP_BUDGET,
+            &kernel_config.sample,
+        )
+    }
+
+    /// Keeps the fastest sample of a shape the device is already warm on, at the
+    /// iteration count [`warm`](Self::warm) settled.
+    ///
+    /// A warmup is what a measurement mostly costs, so a sweep that has already
+    /// paid one must not pay it again for the shape it picked.
+    pub fn sample_at(kernel_config: &KernelConfig, iterations: usize) -> ThroughputValue {
+        let iterations = iterations.max(kernel_config.min_iterations).max(1);
+        let duration = Self::sample_peak_duration(
+            iterations,
+            &kernel_config.sample,
+            SAMPLE_BUDGET,
+            SAMPLE_PATIENCE,
+        );
+
+        ThroughputValue {
+            ops_count: kernel_config.ops_count,
+            duration,
+        }
+    }
+
+    /// Times one shape briefly, to order it against the others rather than to
+    /// report its peak.
+    ///
+    /// Takes the iteration count from [`warm`](Self::warm) so every shape in a
+    /// sweep is timed over the same amount of work, and never fewer passes than
+    /// the shape needs to be measuring what it claims.
+    pub fn rank(kernel_config: &KernelConfig, iterations: usize) -> ThroughputValue {
+        let iterations = iterations.max(kernel_config.min_iterations).max(1);
+        // One launch discarded. The shape the sweep warmed on has its buffers
+        // and page tables settled and the rest do not, and a first launch on a
+        // freshly written pool is slow enough that they would rank on that
+        // rather than on their rate.
+        let _ = (kernel_config.sample)(iterations);
+        let duration = Self::sample_peak_duration(
+            iterations,
+            &kernel_config.sample,
+            RANK_BUDGET,
+            RANK_PATIENCE,
+        );
 
         ThroughputValue {
             ops_count: kernel_config.ops_count,
@@ -160,6 +237,8 @@ impl ThroughputBenchmarker {
     fn sample_peak_duration(
         iterations: usize,
         sample_once: impl Fn(usize) -> Duration,
+        budget: Duration,
+        patience: usize,
     ) -> Duration {
         debug_assert!(
             iterations > 0,
@@ -168,12 +247,6 @@ impl ThroughputBenchmarker {
 
         const MAX_SAMPLES: usize = 200;
         const REL_TOL: f64 = 0.01;
-        // Also the floor on samples, since the first always improves on
-        // infinity and only the ones after it can go stale.
-        const PATIENCE: usize = 12;
-        // A sample count prices them all the same, and a probe filling the
-        // duration target costs forty times one whose pass is microseconds.
-        const SAMPLE_BUDGET: Duration = Duration::from_millis(200);
 
         let mut best = f64::INFINITY;
         let mut stale = 0;
@@ -190,7 +263,7 @@ impl ThroughputBenchmarker {
                 best = best.min(s);
                 stale += 1;
             }
-            if stale >= PATIENCE || start.elapsed() >= SAMPLE_BUDGET {
+            if stale >= patience || start.elapsed() >= budget {
                 break;
             }
         }
@@ -256,10 +329,15 @@ mod tests {
     #[test]
     fn a_timer_reading_zero_still_stops_sampling() {
         let calls = Cell::new(0);
-        let _ = ThroughputBenchmarker::sample_peak_duration(1, |_| {
-            calls.set(calls.get() + 1);
-            Duration::ZERO
-        });
+        let _ = ThroughputBenchmarker::sample_peak_duration(
+            1,
+            |_| {
+                calls.set(calls.get() + 1);
+                Duration::ZERO
+            },
+            SAMPLE_BUDGET,
+            SAMPLE_PATIENCE,
+        );
 
         assert!(calls.get() < 200, "ran {} samples", calls.get());
     }
@@ -318,6 +396,47 @@ mod tests {
             "kept {:?}",
             value.duration
         );
+    }
+
+    /// A sweep ranks shapes to order them, not to report them, so it must
+    /// separate a slow shape from a fast one without paying for a measurement
+    /// of each.
+    #[test]
+    fn ranking_orders_shapes_for_less_than_one_measurement() {
+        let config = |per_iter_nanos: u64| KernelConfig {
+            sample: Box::new(timed_device(move || per_iter_nanos)),
+            ops_count: 1,
+            min_iterations: 1,
+        };
+        let (fast, slow) = (config(1000), config(3000));
+
+        let iterations = ThroughputBenchmarker::warm(&fast);
+        let start = Instant::now();
+        let fast_rate = ThroughputBenchmarker::rank(&fast, iterations).ops_per_s();
+        let slow_rate = ThroughputBenchmarker::rank(&slow, iterations).ops_per_s();
+
+        assert!(fast_rate > slow_rate, "{fast_rate} against {slow_rate}");
+        assert!(
+            start.elapsed() < PLATEAU_FLOOR + SAMPLE_BUDGET,
+            "ranked two shapes in {:?}",
+            start.elapsed()
+        );
+    }
+
+    /// Every shape of a sweep is timed over the same work, or a shape that
+    /// happened to be warmed at a different count would rank on that instead.
+    #[test]
+    fn ranking_never_carries_fewer_passes_than_a_shape_needs() {
+        let needed = 64;
+        let config = KernelConfig {
+            sample: Box::new(|iterations| Duration::from_nanos(iterations as u64)),
+            ops_count: 1,
+            min_iterations: needed,
+        };
+
+        let value = ThroughputBenchmarker::rank(&config, 1);
+
+        assert_eq!(value.duration, Duration::from_nanos(1));
     }
 
     /// A working timer still drives the count to the duration target.
