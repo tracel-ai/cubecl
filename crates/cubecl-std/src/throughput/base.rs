@@ -8,7 +8,7 @@ use cubecl_runtime::{
         ThroughputBenchmarker, ThroughputError, ThroughputKey, ThroughputMode, ThroughputValue,
         sweep_size, working_set_sweep,
     },
-    tune::{Bounds, Thresholds, Work, calculate_bounds},
+    tune::{AutotuneBound, Bounds, ResourceBound, Thresholds, Work},
 };
 
 use crate::throughput::{
@@ -158,39 +158,81 @@ pub fn measure_peak_throughput(
 
 /// Calculates roofline autotune bounds for a given [`Work`] amount and compute throughput key.
 ///
-/// Measures compute and memory peak throughputs along with launch overhead for the runtime client.
+/// Both halves of the roofline, with the memory ceiling a copy's — traffic in both
+/// directions, the bound for a kernel that reads and writes alike. A kernel bound by one
+/// resource states that half alone with [`compute_bound`] or [`memory_bound`].
 pub fn roofline_bounds(
     client: &Client,
     compute_key: ThroughputKey,
     work: Work,
     thresholds: Thresholds,
 ) -> Bounds {
+    Bounds {
+        bounds: alloc::vec![
+            compute_bound(client, compute_key, work, thresholds.compute),
+            memory_bound(client, MemoryAccess::Copy, work, thresholds.memory),
+        ],
+        launch_overhead: measure_launch_overhead(client),
+    }
+}
+
+/// The compute half of a roofline: `work`'s operations against the peak of `compute_key`,
+/// close enough to it past `threshold`.
+pub fn compute_bound(
+    client: &Client,
+    compute_key: ThroughputKey,
+    work: Work,
+    threshold: f32,
+) -> AutotuneBound {
+    // No ceiling to bound against, which `time_at_peak` already declines.
+    let peak = measure_peak_throughput(client, compute_key).unwrap_or(ThroughputValue::ZERO);
+    AutotuneBound {
+        resource: ResourceBound {
+            amount: work.compute_ops,
+            peak_per_s: peak.ops_per_s(),
+        },
+        threshold,
+    }
+}
+
+/// The memory half of a roofline: `work`'s bytes against the ceiling measured in the
+/// direction `access` names, at the work's own footprint.
+///
+/// The direction matters. A kernel whose traffic is nearly all reads — a product streaming
+/// a weight past a handful of activation rows — legitimately exceeds a copy's bandwidth,
+/// because half of a copy's traffic is a direction it never uses; bounding it by
+/// [`MemoryAccess::Copy`] would let a candidate at a fraction of what the bus serves pass
+/// for close enough to peak.
+pub fn memory_bound(
+    client: &Client,
+    access: MemoryAccess,
+    work: Work,
+    threshold: f32,
+) -> AutotuneBound {
     // Past what the device will allocate the probe measures the cap regardless,
     // so capping the ask keeps one cache entry rather than one per kernel.
-    let access = MemoryAccess::Copy;
     let footprint = (work.bytes as u64).min(working_set_cap(client, access));
     let memory_key = ThroughputKey {
         mode: ThroughputMode::Memory(MemorySpec::new(access, sweep_size(footprint))),
     };
+    let peak = measure_peak_throughput(client, memory_key).unwrap_or(ThroughputValue::ZERO);
+    AutotuneBound {
+        resource: ResourceBound {
+            amount: work.bytes,
+            peak_per_s: peak.bytes_per_s(&memory_key),
+        },
+        threshold,
+    }
+}
+
+/// What one launch costs on top of its kernel, which a time limit allows for.
+pub fn measure_launch_overhead(client: &Client) -> core::time::Duration {
     let launch_key = ThroughputKey {
         mode: ThroughputMode::Launch,
     };
-
-    // No ceiling to bound against, which `time_at_peak` already declines.
-    let no_ceiling = ThroughputValue::ZERO;
-
-    Bounds {
-        bounds: calculate_bounds(
-            work,
-            thresholds,
-            &measure_peak_throughput(client, compute_key).unwrap_or(no_ceiling),
-            &measure_peak_throughput(client, memory_key).unwrap_or(no_ceiling),
-            &memory_key,
-        ),
-        launch_overhead: measure_peak_throughput(client, launch_key)
-            .map(|value| value.duration_per_op())
-            .unwrap_or_default(),
-    }
+    measure_peak_throughput(client, launch_key)
+        .map(|value| value.duration_per_op())
+        .unwrap_or_default()
 }
 
 /// What the device answers fastest, of the shapes a probe can be launched in.
