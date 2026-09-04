@@ -1,5 +1,4 @@
 use alloc::string::String;
-use core::sync::atomic::{AtomicBool, Ordering};
 use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_environment::{collections::HashMap, sync::Mutex};
 use cubecl_runtime::{
@@ -30,7 +29,7 @@ const CPU_CHAIN_DEPTH: usize = 64;
 
 /// Worker counts a memory probe is swept over before the fastest is kept, once
 /// per device and access. Five halvings reach a sixteenth of the cores, and
-/// each one costs a warmup and a sample.
+/// each one costs a ranking pass.
 const MEMORY_WORKER_SHAPES: usize = 5;
 
 /// Units a GPU probe asks for. A wider cube measures no faster, and makes the
@@ -60,7 +59,7 @@ pub fn device_throughput<R: Runtime>(
 pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurve {
     let points = {
         // Every point of a sweep asks for the same pool, so the sweep holds one.
-        let _pooled = PooledProbes::enter();
+        let _pooled = PooledProbes::enter(client);
 
         sweep(client, access, |bytes| {
             ThroughputMode::Memory(MemorySpec::new(access, bytes))
@@ -122,36 +121,72 @@ pub fn measure_peak_throughput(
 
     let value = client.measure_throughput(key, || probe(client, key));
 
-    if !POOLED_PROBES.load(Ordering::Relaxed) {
+    if !pooling(&device_key(client)) {
         client.memory_cleanup();
     }
 
     value
 }
 
-/// Probes measured while one of these is alive leave their pools with the
-/// allocator instead of returning them.
+/// A device whose probes leave their pools with the allocator rather than
+/// returning them, for as long as one of these is alive.
 ///
-/// Releasing a pool makes the next probe fault a gigabyte of fresh pages back
-/// in, which costs more than twice what measuring it does: 1.2 s against 0.5 s
-/// a point. The shapes of one sweep already share a pool this way, since
-/// nothing is released until the probe returns.
-struct PooledProbes;
+/// Releasing a pool costs the probe that asks for the next one more than the
+/// measurement itself, since the allocation faults its pages back in one by
+/// one. The shapes of a single probe already share a pool, nothing being
+/// released until that probe returns; this widens that to a caller measuring
+/// many.
+///
+/// Counted per device and not as a flag, so a sweep that ends cannot release
+/// the pool another one is still measuring against.
+struct PooledProbes {
+    device: String,
+}
 
-static POOLED_PROBES: AtomicBool = AtomicBool::new(false);
+/// How many sweeps are holding each device's pools open.
+static POOLED_PROBES: Mutex<Option<HashMap<String, usize>>> = Mutex::new(None);
 
 impl PooledProbes {
-    fn enter() -> Self {
-        POOLED_PROBES.store(true, Ordering::Relaxed);
+    fn enter(client: &Client) -> Self {
+        Self::enter_device(device_key(client))
+    }
 
-        Self
+    fn enter_device(device: String) -> Self {
+        let mut pooled = POOLED_PROBES.lock();
+
+        *pooled
+            .get_or_insert_with(HashMap::new)
+            .entry(device.clone())
+            .or_insert(0) += 1;
+
+        Self { device }
     }
 }
 
 impl Drop for PooledProbes {
     fn drop(&mut self) {
-        POOLED_PROBES.store(false, Ordering::Relaxed);
+        let mut pooled = POOLED_PROBES.lock();
+        let Some(sweeps) = pooled.as_mut() else {
+            return;
+        };
+
+        if let Some(holders) = sweeps.get_mut(&self.device) {
+            *holders -= 1;
+
+            if *holders == 0 {
+                sweeps.remove(&self.device);
+            }
+        }
     }
+}
+
+/// Whether any sweep is holding `device`'s pools open.
+fn pooling(device: &str) -> bool {
+    let pooled = POOLED_PROBES.lock();
+
+    pooled
+        .as_ref()
+        .is_some_and(|sweeps| sweeps.contains_key(device))
 }
 
 /// Measures `key`, in the fastest shape its probe can be launched in.
@@ -332,11 +367,9 @@ fn ranked_shape<S: Copy>(shapes: &[S], build: impl Fn(S) -> KernelConfig) -> Opt
 /// A GPU keeps the cube it was pinned to: a wider one measures no faster, and
 /// makes these probes report several times the bus rate.
 ///
-/// A CPU sweeps its worker count once per access and then keeps the count that
-/// won, at every working set. That count does not move with the window: four
-/// workers win all seventeen read points of a Ryzen 7 5700X's curve, by 10 to
-/// 22%, and the whole ranking barely shifts across them. Sweeping every point
-/// instead costs the curve 2.7x for an answer it already has.
+/// A CPU sweeps its worker count once per access and keeps the winner for every
+/// working set: what saturates a memory system is a property of the controller,
+/// not of the window a probe moves through it.
 fn memory_shapes(
     client: &Client,
     config: LaunchConfig,
@@ -359,9 +392,10 @@ fn memory_shapes(
 /// Worker counts a CPU probe is swept over, the full launch first and halvings
 /// of it after.
 ///
-/// How many threads saturate the memory system is a property of the controller
-/// rather than of the core count: one per hardware thread reads 44 GB/s of a
-/// Ryzen 7 5700X's 51.2, where a quarter of them reads 50. Little's law derives
+/// How many threads saturate a memory system is a property of the controller
+/// rather than of the core count, and it falls either side of the full launch:
+/// where one core nearly saturates the bus, a fraction of the threads beats all
+/// of them, and where it does not, every thread is needed. Little's law derives
 /// the count from the bandwidth, which is the thing being measured, so it is
 /// swept instead.
 fn worker_counts(units: usize) -> alloc::vec::Vec<usize> {
@@ -410,10 +444,11 @@ fn device_key(client: &Client) -> String {
 
 /// The element types the arithmetic ceiling for `dtype` is measured in.
 ///
-/// A device emulating `dtype`'s fma retires a ninth of its f32 rate on a Ryzen
-/// 7 5700X, and a kernel with those operands converts and accumulates in f32
-/// rather than pay that, so the emulated rate is no ceiling. Both are measured:
-/// packed f16 retires two per f32 lane and wins where the hardware has it.
+/// A device with no fma of its own for `dtype` emulates one per operation, at a
+/// fraction of its f32 rate, and a kernel with those operands converts and
+/// accumulates in f32 rather than pay that, so the emulated rate is no ceiling.
+/// Both are measured: packed f16 retires two per f32 lane and wins where the
+/// hardware has it.
 fn arithmetic_dtypes(client: &Client, dtype: ElemType) -> alloc::vec::Vec<ElemType> {
     let mut dtypes = alloc::vec![dtype];
 
@@ -517,6 +552,66 @@ mod tests {
     use cubecl_core::ir::{IntKind, UIntKind};
 
     const F32: ElemType = ElemType::Float(FloatKind::F32);
+
+    /// A sweep that ends while another is running must not release the pool the
+    /// other is still measuring against, which is what a single flag would do.
+    #[test]
+    fn a_sweep_that_ends_leaves_an_overlapping_one_pooled() {
+        let device = String::from("overlapping");
+        let held = PooledProbes::enter_device(device.clone());
+
+        {
+            let _ends_first = PooledProbes::enter_device(device.clone());
+            assert!(pooling(&device));
+        }
+
+        assert!(pooling(&device), "one sweep is still running");
+        drop(held);
+        assert!(!pooling(&device));
+    }
+
+    /// The same, across threads, where the two sweeps genuinely overlap rather
+    /// than nest.
+    #[test]
+    fn a_sweep_on_another_thread_keeps_its_own_device_pooled() {
+        use std::sync::{Arc, Barrier};
+
+        let device = String::from("threaded");
+        let (entered, ended) = (Arc::new(Barrier::new(2)), Arc::new(Barrier::new(2)));
+
+        let holder = std::thread::spawn({
+            let (device, entered, ended) = (device.clone(), entered.clone(), ended.clone());
+
+            move || {
+                let _pooled = PooledProbes::enter_device(device);
+                entered.wait();
+                ended.wait();
+            }
+        });
+
+        {
+            let _pooled = PooledProbes::enter_device(device.clone());
+            entered.wait();
+        }
+
+        assert!(
+            pooling(&device),
+            "the other thread's sweep is still running"
+        );
+        ended.wait();
+        holder.join().expect("the holding thread finishes");
+        assert!(!pooling(&device));
+    }
+
+    /// Pools are a device's own, so one device's sweep says nothing about
+    /// another's.
+    #[test]
+    fn a_sweep_pools_only_the_device_it_measures() {
+        let _pooled = PooledProbes::enter_device(String::from("measured"));
+
+        assert!(pooling("measured"));
+        assert!(!pooling("untouched"));
+    }
 
     /// The reported value is a full measurement of the winner, not the
     /// ranking pass that found it.

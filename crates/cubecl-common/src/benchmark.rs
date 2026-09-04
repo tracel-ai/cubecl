@@ -156,8 +156,8 @@ impl BenchmarkComputations {
     }
 }
 
-/// Launches the warmup makes however long they take: one to compile, and the
-/// four a kernel slower than the budget gets today.
+/// Launches the warmup makes however long they take: one to compile the kernel
+/// and four to settle the device.
 #[cfg(feature = "std")]
 const MIN_WARMUP_RUNS: usize = 5;
 
@@ -187,10 +187,9 @@ pub trait Benchmark {
     ///
     /// A device answers from idle clocks and takes hundreds of milliseconds to
     /// reach the ones it sustains, which a warmup counted in launches gives a
-    /// microsecond kernel no way to reach. 500 ms is where that stops showing:
-    /// a 4070 Ti SUPER under Vulkan reports every reduce row at its full rate
-    /// from there, and 12 of 36 rows below it. A sweep of thousands of rows can
-    /// buy the wall clock back with `BENCH_WARMUP_MS`, and pay in accuracy.
+    /// microsecond kernel no way to reach. Under half a second a GPU still
+    /// samples a clock step low. A sweep of thousands of rows can buy the wall
+    /// clock back with `BENCH_WARMUP_MS`, and pay in accuracy.
     fn warmup_budget(&self) -> Duration {
         const DEFAULT_MS: u64 = 500;
         #[cfg(feature = "std")]
