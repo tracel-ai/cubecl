@@ -302,10 +302,7 @@ mod layout {
 
         pub fn from_handle(handle: &TensorBinding<R>, ty: Type, value: L::RuntimeArg<R>) -> Self {
             Self {
-                meta: Metadata {
-                    shape: handle.shape.clone(),
-                    strides: handle.strides.clone(),
-                },
+                meta: Metadata::new(handle.shape.clone(), handle.strides.clone()),
                 ty,
                 value,
             }
@@ -318,7 +315,7 @@ mod layout {
             value: L::RuntimeArg<R>,
         ) -> Self {
             Self {
-                meta: Metadata { shape, strides },
+                meta: Metadata::new(shape, strides),
                 ty,
                 value,
             }
