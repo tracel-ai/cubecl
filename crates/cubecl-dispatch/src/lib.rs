@@ -202,6 +202,23 @@ pub type TestRuntime = hip::HipRuntime;
 #[cfg(test_runtime_metal)]
 pub type TestRuntime = metal::MetalRuntime;
 
+/// The client of [`test_device`], for the test that only wants one.
+///
+/// ```no_run
+/// let client = cubecl_dispatch::test_client();
+/// ```
+#[cfg(any(
+    test_runtime_default,
+    test_runtime_wgpu,
+    test_runtime_cpu,
+    test_runtime_cuda,
+    test_runtime_hip,
+    test_runtime_metal
+))]
+pub fn test_client() -> Client {
+    test_device().client()
+}
+
 /// The [`Device`] of [`TestRuntime`], the runtime this build tests on.
 ///
 /// A test reaches its client through [`DeviceExt::client`] like any other

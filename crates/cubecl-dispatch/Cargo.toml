@@ -61,8 +61,8 @@ wgpu = ["cubecl-wgpu"]
 wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
 
-# By default we use wgpu.
-test-runtime = ["cubecl-wgpu"]
+# The runtime tests run on: wgpu unless exactly one other runtime is enabled.
+test-runtime = ["wgpu"]
 
 [dependencies]
 cubecl = { path = "../cubecl", version = "=0.11.0-pre.3", default-features = false }
