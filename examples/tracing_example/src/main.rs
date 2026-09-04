@@ -1,6 +1,5 @@
 use clap::{Parser, ValueEnum};
 use cubecl::{Device, prelude::*};
-use cubecl_dispatch::DeviceExt;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
@@ -81,17 +80,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         }
     };
 
-    let count = [cfg!(feature = "cuda"), cfg!(feature = "wgpu")]
-        .iter()
-        .filter(|x| **x)
-        .count();
-    assert_eq!(count, 1, "exactly one backend must be enabled");
-
-    #[cfg(feature = "cuda")]
-    launch(&args, &Device::Cuda(Default::default()))?;
-
-    #[cfg(feature = "wgpu")]
-    launch(&args, &Device::Wgpu(Default::default()))?;
+    launch(&args, &Device::default())?;
 
     if let Some(provider) = tracing_provider {
         provider.shutdown()?;

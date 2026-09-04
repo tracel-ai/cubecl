@@ -698,10 +698,15 @@ name = "cubecl"
 version = "0.11.0-pre.3"
 dependencies = [
  "cubecl-core",
+ "cubecl-cpu",
+ "cubecl-cuda",
  "cubecl-environment",
+ "cubecl-hip",
  "cubecl-ir",
+ "cubecl-metal",
  "cubecl-runtime",
  "cubecl-std",
+ "cubecl-wgpu",
  "half",
 ]
 
@@ -828,19 +833,6 @@ dependencies = [
  "serde",
  "test-log",
  "tracing",
-]
-
-[[package]]
-name = "cubecl-dispatch"
-version = "0.11.0-pre.3"
-dependencies = [
- "cubecl",
- "cubecl-cpu",
- "cubecl-cuda",
- "cubecl-hip",
- "cubecl-metal",
- "cubecl-runtime",
- "cubecl-wgpu",
 ]
 
 [[package]]
@@ -1316,7 +1308,6 @@ name = "device_sharing"
 version = "0.11.0-pre.3"
 dependencies = [
  "cubecl",
- "cubecl-dispatch",
  "half",
  "sum_things",
  "wgpu",
@@ -1666,7 +1657,6 @@ name = "fusing"
 version = "0.11.0-pre.3"
 dependencies = [
  "cubecl",
- "cubecl-dispatch",
  "half",
 ]
 
@@ -1760,7 +1750,6 @@ name = "gelu"
 version = "0.11.0-pre.3"
 dependencies = [
  "cubecl",
- "cubecl-dispatch",
  "half",
 ]
 
@@ -2654,7 +2643,6 @@ name = "normalization"
 version = "0.11.0-pre.3"
 dependencies = [
  "cubecl",
- "cubecl-dispatch",
  "half",
 ]
 
@@ -3876,7 +3864,6 @@ name = "sum_things"
 version = "0.11.0-pre.3"
 dependencies = [
  "cubecl",
- "cubecl-dispatch",
  "half",
 ]
 
@@ -4053,7 +4040,6 @@ name = "throughput"
 version = "0.11.0-pre.3"
 dependencies = [
  "cubecl",
- "cubecl-dispatch",
  "half",
 ]
 
@@ -4461,7 +4447,6 @@ version = "0.11.0-pre.3"
 dependencies = [
  "clap",
  "cubecl",
- "cubecl-dispatch",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",

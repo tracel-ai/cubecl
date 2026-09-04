@@ -1,5 +1,4 @@
 use cubecl::{Device, prelude::*};
-use cubecl_dispatch::DeviceExt;
 
 // These functions aren't implemented on Vector, need to fix this at some point
 #[cube(launch_unchecked)]

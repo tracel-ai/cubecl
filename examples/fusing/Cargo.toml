@@ -7,11 +7,13 @@ license.workspace = true
 version.workspace = true
 
 [features]
-default = []
-wgpu = ["cubecl-dispatch/wgpu"]
-cuda = ["cubecl-dispatch/cuda"]
+# An example with no runtime linked has nothing to run on, so the
+# portable one is the default. `--no-default-features --features cuda`
+# (or hip, cpu, metal-native) picks another.
+default = ["wgpu"]
+wgpu = ["cubecl/wgpu"]
+cuda = ["cubecl/cuda"]
 
 [dependencies]
 cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.3", default-features = false }
-cubecl-dispatch = { path = "../../crates/cubecl-dispatch", version = "=0.11.0-pre.3" }
 half = { workspace = true }

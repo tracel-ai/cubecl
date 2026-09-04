@@ -1,5 +1,4 @@
 use cubecl::{Device, comptime, prelude::*};
-use cubecl_dispatch::DeviceExt;
 
 #[derive(CubeType, Clone, Debug, Hash, PartialEq, Eq)]
 enum OperationKind {

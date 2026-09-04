@@ -8,7 +8,6 @@ use cubecl::{
         ThroughputMode,
     },
 };
-use cubecl_dispatch::DeviceExt;
 
 /// Binds the default device of each runtime selected by the enabled cargo features to
 /// `$device` and runs `$body` on it.

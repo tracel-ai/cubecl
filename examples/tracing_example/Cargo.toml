@@ -8,18 +8,17 @@ rust-version.workspace = true
 version.workspace = true
 
 [features]
-cuda = ["cubecl-dispatch/cuda"]
-default = []
-wgpu = ["cubecl-dispatch/wgpu"]
+cuda = ["cubecl/cuda"]
+# An example with no runtime linked has nothing to run on, so the
+# portable one is the default. `--no-default-features --features cuda`
+# (or hip, cpu, metal-native) picks another.
+default = ["wgpu"]
+wgpu = ["cubecl/wgpu"]
 
 [dependencies]
 cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.3", features = [
     "tracing",
 ] }
-cubecl-dispatch = { path = "../../crates/cubecl-dispatch", version = "=0.11.0-pre.3", features = [
-    "tracing",
-] }
-
 clap = { workspace = true, features = ["derive"] }
 
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

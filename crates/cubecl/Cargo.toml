@@ -17,21 +17,69 @@ workspace = true
 
 [features]
 autotune-checks = ["cubecl-runtime/autotune-checks"]
-default = ["std", "stdlib", "cubecl-core/default"]
-std = ["cubecl-core/std"]
+default = [
+    "std",
+    "stdlib",
+    "cubecl-core/default",
+    "cubecl-cuda?/default",
+    "cubecl-cpu?/default",
+    "cubecl-hip?/default",
+    "cubecl-metal?/default",
+    "cubecl-wgpu?/default",
+]
+std = [
+    "cubecl-core/std",
+    "cubecl-cpu?/std",
+    "cubecl-cuda?/std",
+    "cubecl-hip?/std",
+    "cubecl-metal?/std",
+    "cubecl-wgpu?/std",
+]
 stdlib = ["cubecl-std"] # CubeCL standard library
 template = ["cubecl-core/template"]
 
-profile-tracy = ["cubecl-runtime/profile-tracy"]
+exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
+
+profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 
 browser-cache = ["cubecl-core/browser-cache"]
 tokio = ["cubecl-core/tokio"]
 
-tracing = ["cubecl-core/tracing"]
+tracing = [
+    "cubecl-core/tracing",
+    "cubecl-cuda?/tracing",
+    "cubecl-cpu?/tracing",
+    "cubecl-hip?/tracing",
+    "cubecl-wgpu?/tracing",
+]
 
-# The runtimes are not here. This crate is what a kernel library compiles
-# against, and it stays free of every runtime so that an edit to one rebuilds
-# no kernel. A binary picks its runtimes through `cubecl-dispatch`.
+# Runtimes. A kernel library depends on this crate with none of them on and
+# compiles against no runtime at all; a binary turns on the ones it links.
+cpu = ["cubecl-cpu"]
+cuda = ["cubecl-cuda"]
+cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
+hip = ["cubecl-hip"]
+# Compile HIP kernels with the C++ backend instead of the default LLVM one.
+hip-cpp = ["cubecl-hip?/cpp"]
+hip-rocwmma = ["cubecl-hip?/rocwmma"]
+metal = ["wgpu-msl"]
+metal-native = ["cubecl-metal"]
+pliron-dump = [
+    "cubecl-cuda?/pliron-dump",
+    "cubecl-hip?/pliron-dump",
+    "cubecl-metal?/pliron-dump",
+    "cubecl-wgpu?/pliron-dump",
+    "cubecl-cpu?/pliron-dump",
+]
+rocm = ["hip"]
+vulkan = ["wgpu-spirv"]
+webgpu = ["wgpu"]
+wgpu = ["cubecl-wgpu"]
+wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
+wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
+
+# The runtime tests run on: wgpu unless exactly one other runtime is enabled.
+test-runtime = ["wgpu"]
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", default-features = false }
@@ -40,3 +88,9 @@ cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.3", default-features
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.3", default-features = false }
 cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.3", optional = true }
 half = { workspace = true }
+
+cubecl-cpu = { path = "../cubecl-cpu", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-cuda = { path = "../cubecl-cuda", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-hip = { path = "../cubecl-hip", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-metal = { path = "../cubecl-metal", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.11.0-pre.3", default-features = false, optional = true }

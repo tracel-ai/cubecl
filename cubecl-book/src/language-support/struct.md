@@ -76,7 +76,7 @@ pub fn kernel_struct_example(pair: Pair<Box<[f32]>>, output: &mut [f32]) {
 # }
 #
 # fn main() {
-#     launch::<cubecl_dispatch::wgpu::WgpuRuntime>(&Default::default());
+#     launch::<cubecl::wgpu::WgpuRuntime>(&Default::default());
 # }
 ```
 
@@ -126,7 +126,7 @@ pub fn kernel_struct_mut(output: Pair<&mut [f32]>) {
 # }
 #
 # fn main() {
-#     launch::<cubecl_dispatch::wgpu::WgpuRuntime>(&Default::default());
+#     launch::<cubecl::wgpu::WgpuRuntime>(&Default::default());
 # }
 ```
 
@@ -181,7 +181,7 @@ pub fn kernel_with_tag(output: &mut TaggedSlice) {
 # }
 #
 # fn main() {
-#     launch::<cubecl_dispatch::wgpu::WgpuRuntime, f32>(&Default::default());
+#     launch::<cubecl::wgpu::WgpuRuntime, f32>(&Default::default());
 # }
 ```
 
@@ -241,6 +241,6 @@ pub fn kernel_struct_example(pair: &Pair<Box<[f32]>>, output: &mut [f32]) {
 # }
 #
 # fn main() {
-#     launch::<cubecl_dispatch::wgpu::WgpuRuntime>(&Default::default());
+#     launch::<cubecl::wgpu::WgpuRuntime>(&Default::default());
 # }
 ```

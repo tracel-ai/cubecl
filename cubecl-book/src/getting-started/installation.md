@@ -5,22 +5,20 @@ project by updating your Cargo.toml:
 
 ```toml
 [dependencies]
-cubecl = "0.11.0"  # Replace with the latest version from crates.io
-cubecl-dispatch = {
-    version = "0.11.0",
-    features = ["wgpu"]  # Enable desired runtime features (e.g., wgpu, cuda, hip)
+cubecl = {
+    version = "0.11.0",  # Replace with the latest version from crates.io
+    features = ["wgpu"]  # The runtimes to link (e.g., wgpu, cuda, hip)
 }
 ```
 
-`cubecl` is the language and the launch API, and carries no runtime.
-`cubecl-dispatch` is where a binary picks the runtimes it links, and where a `Device` turns into a `Client`.
-A kernel library only needs `cubecl`.
+The features pick the runtimes your binary links.
+A kernel library turns none of them on and compiles against no runtime at all.
 
 The more challenging aspect is ensuring that you have the necessary drivers to run the selected
 runtime.
 
 CubeCL supports multiple GPU and CPU runtimes, each requiring specific drivers or frameworks. Enable
-the appropriate feature flag on `cubecl-dispatch` in Cargo.toml and ensure the corresponding drivers are installed.
+the appropriate feature flag on `cubecl` in Cargo.toml and ensure the corresponding drivers are installed.
 
 | Platform | Device Type | Runtime  | Supported OS                | Requirements                                            | Installation/Notes                                                                                       | Feature Flag |
 | -------- | ----------- | -------- | --------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------ |
