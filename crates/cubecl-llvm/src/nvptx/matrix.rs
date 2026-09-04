@@ -912,6 +912,11 @@ fn origin_address_space(ctx: &Context, ptr: Value) -> Option<u32> {
 /// The cast is a single `cvta.to.shared` / `cvta.to.global`, and usually not even that: it
 /// undoes an `addrspacecast` the pointer already went through, which LLVM folds. What it buys
 /// is the qualifier on the instruction it feeds.
+///
+/// Shared is the space that arises in practice: a buffer is a kernel argument, and
+/// [`PtxKernelParams`](super::abi) retypes those to the global space later, in the LLVM module
+/// rather than here, so a fragment read straight out of one still looks generic at this point
+/// and stays generic. The arm is here because the answer is the same either way.
 fn in_origin_space(ctx: &mut Context, rw: &mut DialectConversionRewriter, ptr: Value) -> Value {
     match origin_address_space(ctx, ptr) {
         Some(space @ (SHARED_ADDRESS_SPACE | GLOBAL_ADDRESS_SPACE)) => {
