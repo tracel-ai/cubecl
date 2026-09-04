@@ -38,9 +38,7 @@ use pliron::{
 };
 
 #[cfg(feature = "amdgpu")]
-use crate::amdgpu::{
-    abi::AmdGpuLowering, matrix::CtxWmma,
-};
+use crate::amdgpu::{abi::AmdGpuLowering, matrix::CtxWmma};
 use cubecl_runtime::config::compilation::F16Evaluation;
 
 use crate::cpu::{
@@ -50,10 +48,11 @@ use crate::cpu::{
     synchronization::uses_cube_barrier,
 };
 use crate::nvptx::abi::NvptxLowering;
+use crate::nvptx::codegen::{MetadataParams, NvptxEntry};
 use crate::shared::{
     branch::SCFToLlvmCf,
     lowering::TargetLowering,
-    metadata::LowerEntryAbiPass,
+    metadata::{CtxGridConstants, LowerEntryAbiPass},
     plane::CtxPlaneDim,
     polyfill::LowerComplexOpPass,
     shared_memory::{CtxSharedMemory, declares_shared_memory},
@@ -78,6 +77,11 @@ pub struct PlironOptions {
     /// field rather than an enum because a process is only ever compiling for one of them and
     /// the runtime that fills this in knows which.
     pub sm_arch: Option<SmArch>,
+    /// Whether the scalars and static metadata ride in the kernel's own parameter block rather
+    /// than in a device buffer the launch uploads. The host decides -- it is the side that has
+    /// to push the parameters in the matching order -- so this is passed in rather than chosen
+    /// here. See [`LowerEntryAbiPass`](crate::shared::metadata::LowerEntryAbiPass).
+    pub grid_constants: bool,
 }
 
 #[cfg(feature = "amdgpu")]
@@ -233,7 +237,11 @@ impl PlironCompiler {
                 let arch = options.sm_arch.ok_or_else(|| {
                     generic("the NVPTX target needs the device it compiles for".to_string())
                 })?;
-                Ok(PlironArtifact::NvptxCode(self.compile_nvptx(kernel, arch)?))
+                Ok(PlironArtifact::NvptxCode(self.compile_nvptx(
+                    kernel,
+                    arch,
+                    options.grid_constants,
+                )?))
             }
         }
     }
@@ -249,6 +257,8 @@ impl PlironCompiler {
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
         ctx.set_target(LlvmTarget::Cpu);
+        // No parameter block to put them in: neither of these targets presents one.
+        ctx.set_grid_constants(false);
 
         let needs_parallelism = kernel.settings.cube_dim.num_elems() > 1
             && (uses_cube_barrier(&ctx, module_op) || declares_shared_memory(&ctx, module_op));
@@ -288,6 +298,8 @@ impl PlironCompiler {
         })?;
 
         ctx.set_target(LlvmTarget::AmdGpu);
+        // No parameter block to put them in: neither of these targets presents one.
+        ctx.set_grid_constants(false);
         // Left at zero for the kernels that never declare any.
         ctx.set_shared_memory_size(0);
         ctx.set_plane_dim(plane_dim);
@@ -321,6 +333,7 @@ impl PlironCompiler {
         self,
         kernel: KernelDefinition,
         arch: SmArch,
+        grid_constants: bool,
     ) -> Result<NvptxModule, CompilationError> {
         let module = kernel.body.state().module;
         let ir = KernelIr::of(&kernel);
@@ -329,6 +342,7 @@ impl PlironCompiler {
         ctx.set_target(LlvmTarget::Nvptx);
         // Left at zero for the kernels that never declare any.
         ctx.set_shared_memory_size(0);
+        ctx.set_grid_constants(grid_constants);
         let plane_dim = arch.plane_dim();
         ctx.set_plane_dim(plane_dim);
 
@@ -337,14 +351,28 @@ impl PlironCompiler {
         // Filled in by the block's lowering, which is the last point it is known.
         let shared_memory_size = ctx.shared_memory_size();
 
+        // Matches what the entry ABI pass appended; `has_info` is what decides there whether
+        // there is a block to put in the parameter space at all.
+        let metadata = if grid_constants && ir.info.has_info() {
+            MetadataParams::GridConstant {
+                bytes: ir.info.dynamic_meta_offset,
+                dynamic_buffer: ir.info.has_dynamic_meta,
+            }
+        } else {
+            MetadataParams::Buffer
+        };
+
         crate::nvptx::codegen::emit_ptx(
             &ctx,
             module,
             &kernel.settings.kernel_name,
             &arch,
-            kernel.settings.cube_dim.num_elems(),
-            shared_memory_size,
-            io,
+            NvptxEntry {
+                cube_dim: kernel.settings.cube_dim.num_elems(),
+                shared_memory_size,
+                io,
+                metadata,
+            },
         )
         .map_err(|err| {
             generic(format!(

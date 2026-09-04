@@ -4,6 +4,10 @@
 //! last. `CudaServer::execute` pushes resources in exactly that order and `CudaContext::
 //! execute_task` hands them to `cuLaunchKernel` as `kernelParams`.
 //!
+//! Under grid constants the tail is two arguments rather than one: the shape and stride arrays
+//! stay a device buffer, and the scalars and static metadata become a by-value parameter that
+//! `finalize_ir` marks `byval`, so `NVPTXLowerArgs` reads them straight out of `.param`.
+//!
 //! Unlike the AMDGPU layout, the pointers are left in the generic address space rather than
 //! retyped into the global one. NVPTX has a pass of its own for this — `NVPTXLowerArgs` infers
 //! which kernel parameters point into global memory and rewrites the accesses — and it sees
@@ -22,7 +26,7 @@ use pliron_llvm::types::PointerType as LlvmPointerType;
 
 use crate::nvptx::builtins::InsertNvptxBuiltinsPass;
 use crate::shared::lowering::TargetLowering;
-use crate::shared::metadata::{EntryArgLayout, rebuild_func_type};
+use crate::shared::metadata::{CtxGridConstants, EntryArgLayout, rebuild_func_type};
 use crate::shared::shared_memory::SharedDeclarations;
 
 /// Address space 1 is NVPTX's global address space, where a kernel's buffers live.
@@ -75,9 +79,18 @@ impl EntryArgLayout for PtxKernelParams {
             let arg = entry.deref(ctx).get_argument(*arg_idx);
             arg.set_type(ctx, global_ptr);
         }
-        let info_idx = entry.deref(ctx).get_num_arguments() - 1;
-        let info_arg = entry.deref(ctx).get_argument(info_idx);
-        info_arg.set_type(ctx, global_ptr);
+        // The last argument is the info pointer, and the one before it the dynamic metadata
+        // when the two were split. A parameter block is not memory the kernel points into --
+        // it becomes `byval` and then `ld.param` -- so that one keeps the generic space it was
+        // built with; the dynamic half is an ordinary buffer and is retyped like the rest.
+        let last = entry.deref(ctx).get_num_arguments() - 1;
+        if !ctx.grid_constants() {
+            let info_arg = entry.deref(ctx).get_argument(last);
+            info_arg.set_type(ctx, global_ptr);
+        } else if last > buffers.len() {
+            let dyn_meta_arg = entry.deref(ctx).get_argument(last - 1);
+            dyn_meta_arg.set_type(ctx, global_ptr);
+        }
 
         rebuild_func_type(ctx, func);
     }

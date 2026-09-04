@@ -70,7 +70,9 @@ pub fn index_width(ctx: &Context) -> u32 {
             AddressType::U32 => 32,
             AddressType::U64 => 64,
         },
-        LlvmTarget::AmdGpu | LlvmTarget::Cpu => 64,
+        #[cfg(feature = "amdgpu")]
+        LlvmTarget::AmdGpu => 64,
+        LlvmTarget::Cpu => 64,
     }
 }
 

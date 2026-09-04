@@ -42,6 +42,7 @@ pub struct MatrixOpUnsupported(LlvmTarget, &'static str);
 impl CubeToLLVMType for MatrixType {
     fn convert(&self, ctx: &Context) -> TypeHandle {
         match ctx.target() {
+            #[cfg(feature = "amdgpu")]
             LlvmTarget::AmdGpu => crate::amdgpu::matrix::fragment_ty(ctx, self),
             LlvmTarget::Nvptx => crate::nvptx::matrix::fragment_ty(ctx, self),
             // Reached only if a CPU kernel declares a matrix, which needs a device advertising
@@ -66,6 +67,7 @@ macro_rules! dispatch_matrix_op {
                 operands_info: &OperandsInfo,
             ) -> Result<()> {
                 match ctx.target() {
+                    #[cfg(feature = "amdgpu")]
                     LlvmTarget::AmdGpu => {
                         crate::amdgpu::matrix::$method(self, ctx, rewriter, operands_info)
                     }
