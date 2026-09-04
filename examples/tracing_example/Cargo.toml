@@ -16,7 +16,7 @@ wgpu = ["cubecl-dispatch/wgpu"]
 cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.3", features = [
     "tracing",
 ] }
-cubecl-dispatch = { path = "../../crates/cubecl-dispatch", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-dispatch = { path = "../../crates/cubecl-dispatch", version = "=0.11.0-pre.3", features = [
     "tracing",
 ] }
 

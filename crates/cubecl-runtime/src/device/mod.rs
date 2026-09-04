@@ -81,6 +81,8 @@ pub enum RuntimeId {
 /// widest runtime here declares.
 const RUNTIME_TYPE_ID_MASK: u16 = 0x001F;
 const RUNTIME_TYPE_ID_SHIFT: u32 = 5;
+/// The runtime tag, once shifted down: three bits, room for eight runtimes.
+const RUNTIME_MASK: u16 = 0x0007;
 
 impl TryFrom<u16> for RuntimeId {
     type Error = u16;
@@ -98,22 +100,36 @@ impl TryFrom<u16> for RuntimeId {
 }
 
 impl RuntimeId {
+    /// The bits of a [`DeviceId`]'s type id neither a runtime nor its device
+    /// types claim: the high byte, which is a caller nesting these ids in an
+    /// encoding of its own to spend. Read them off an id before handing it to
+    /// a runtime, and put them back on what comes out.
+    pub const OUTER_MASK: u16 = !(RUNTIME_TYPE_ID_MASK | (RUNTIME_MASK << RUNTIME_TYPE_ID_SHIFT));
+
     /// The runtime a [`DeviceId`] in [`Device`]'s encoding names, or the raw
     /// tag when it names none this crate knows.
+    ///
+    /// Reads the three tag bits alone, so an id carrying a caller's own bits
+    /// in the high byte names the same runtime as one without them.
     pub fn of_device_id(device_id: DeviceId) -> Result<Self, u16> {
-        Self::try_from(device_id.type_id >> RUNTIME_TYPE_ID_SHIFT)
+        Self::try_from((device_id.type_id >> RUNTIME_TYPE_ID_SHIFT) & RUNTIME_MASK)
     }
 
     /// Strip the runtime tag off a [`DeviceId`] in [`Device`]'s encoding,
-    /// leaving the id the runtime itself hands out.
+    /// leaving the id the runtime itself hands out — the low five bits, and
+    /// nothing of the high byte a caller may have spent on its own encoding.
     pub fn strip(device_id: DeviceId) -> DeviceId {
         DeviceId::new(device_id.type_id & RUNTIME_TYPE_ID_MASK, device_id.index_id)
     }
 
     /// Stamp this runtime onto an id the runtime itself handed out.
+    ///
+    /// Only the three tag bits are written, so whatever `device_id` holds in
+    /// the high byte survives the round trip.
     pub fn stamp(self, device_id: DeviceId) -> DeviceId {
+        let tag = ((self as u16) & RUNTIME_MASK) << RUNTIME_TYPE_ID_SHIFT;
         DeviceId::new(
-            ((self as u16) << RUNTIME_TYPE_ID_SHIFT) | (device_id.type_id & RUNTIME_TYPE_ID_MASK),
+            (device_id.type_id & !(RUNTIME_MASK << RUNTIME_TYPE_ID_SHIFT)) | tag,
             device_id.index_id,
         )
     }
@@ -211,8 +227,8 @@ mod tests {
         assert_eq!(device, restored);
     }
 
-    /// The runtime rides in the high byte, which is what keeps two runtimes'
-    /// devices from colliding on one id.
+    /// The runtime rides in the three bits above the device type, which is
+    /// what keeps two runtimes' devices from colliding on one id.
     #[test]
     fn a_device_id_names_its_runtime() {
         let device = Device::Wgpu(WgpuDevice::DiscreteGpu(1));
@@ -220,5 +236,32 @@ mod tests {
         let id = device.to_id();
 
         assert_eq!(RuntimeId::of_device_id(id), Ok(device.runtime()));
+    }
+
+    /// The high byte is a nesting caller's to spend, so an id carrying one
+    /// still names its runtime and still restores its device.
+    #[test]
+    fn a_nested_high_byte_does_not_change_what_an_id_names() {
+        let device = Device::Wgpu(WgpuDevice::DiscreteGpu(1));
+        let id = device.to_id();
+
+        let nested = DeviceId::new(id.type_id | 0xAB00, id.index_id);
+
+        assert_eq!(RuntimeId::of_device_id(nested), Ok(device.runtime()));
+        assert_eq!(RuntimeId::strip(nested), RuntimeId::strip(id));
+        assert_eq!(Device::from_id(nested), device);
+    }
+
+    /// And stamping a runtime on writes the tag bits alone, so the high byte
+    /// comes back out of a round trip untouched.
+    #[test]
+    fn stamping_a_runtime_leaves_the_high_byte_alone() {
+        let inner = DeviceId::new(0x03, 7);
+
+        let stamped = RuntimeId::Cpu.stamp(DeviceId::new(inner.type_id | 0xAB00, inner.index_id));
+
+        assert_eq!(stamped.type_id & RuntimeId::OUTER_MASK, 0xAB00);
+        assert_eq!(RuntimeId::of_device_id(stamped), Ok(RuntimeId::Cpu));
+        assert_eq!(RuntimeId::strip(stamped), inner);
     }
 }

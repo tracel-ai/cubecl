@@ -22,10 +22,18 @@ default = [
     "cubecl-cuda?/default",
     "cubecl-cpu?/default",
     "cubecl-hip?/default",
+    "cubecl-metal?/default",
     "cubecl-wgpu?/default",
 ]
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
-std = ["cubecl/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
+std = [
+    "cubecl/std",
+    "cubecl-cpu?/std",
+    "cubecl-cuda?/std",
+    "cubecl-hip?/std",
+    "cubecl-metal?/std",
+    "cubecl-wgpu?/std",
+]
 
 profile-tracy = ["cubecl/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 

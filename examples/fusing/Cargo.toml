@@ -13,5 +13,5 @@ cuda = ["cubecl-dispatch/cuda"]
 
 [dependencies]
 cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.3", default-features = false }
-cubecl-dispatch = { path = "../../crates/cubecl-dispatch", version = "=0.11.0-pre.3", default-features = false }
+cubecl-dispatch = { path = "../../crates/cubecl-dispatch", version = "=0.11.0-pre.3" }
 half = { workspace = true }

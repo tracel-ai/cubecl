@@ -6,7 +6,7 @@
 //! benchmark or a test suite depends on this crate with the runtime features it
 //! wants, and gets three things: the runtime crates themselves, the runtime
 //! tests run on, and the one thing `cubecl` cannot do on its own, which is to
-//! turn a [`Device`](cubecl::Device) into a [`Client`] — [`DeviceExt::client`].
+//! turn a [`Device`] into a [`Client`] — [`DeviceExt::client`].
 //!
 //! ```no_run
 //! # #[cfg(feature = "cuda")]
@@ -24,14 +24,12 @@
 
 extern crate alloc;
 
-#[cfg(any_runtime)]
 use cubecl::Device;
-#[cfg(any_runtime)]
 use cubecl::RuntimeId;
 use cubecl::client::Client;
 #[cfg(any_runtime)]
-use cubecl::device::{Device as DeviceIdentity, DeviceId};
-#[cfg(any_runtime)]
+use cubecl::device::Device as DeviceIdentity;
+use cubecl::device::DeviceId;
 use cubecl::zspace::{Shape, Strides};
 #[cfg(any_runtime)]
 use cubecl_runtime::runtime::Runtime;
@@ -51,17 +49,30 @@ pub use cubecl_cpu as cpu;
 #[cfg(feature = "metal-native")]
 pub use cubecl_metal as metal;
 
-/// What a [`Device`](cubecl::Device) can do once the runtimes are linked.
+/// What a [`Device`] can do once the runtimes are linked.
 ///
 /// `cubecl` names a device without naming its runtime, so answering for one
 /// takes the runtime crates, which are this crate's to know.
+///
+/// Every [`Device`] carries the trait in every build, so a kernel library
+/// naming one still compiles with no runtime feature on. Which runtimes are
+/// linked is only answered when a call is made: both methods panic on a device
+/// whose runtime this build left out.
 pub trait DeviceExt {
     /// The compute client of this device, initialized on first use.
+    ///
+    /// # Panics
+    ///
+    /// Where this build does not link the device's runtime.
     fn client(&self) -> Client;
 
     /// Whether a tensor with `shape` and `strides` can be read as it lies, or
     /// has to be made contiguous first. A property of the runtime, which is why
     /// it is asked of the device rather than of the client.
+    ///
+    /// # Panics
+    ///
+    /// Where this build does not link the device's runtime.
     fn can_read_tensor(
         &self,
         shape: &cubecl::zspace::Shape,
@@ -69,7 +80,6 @@ pub trait DeviceExt {
     ) -> bool;
 }
 
-#[cfg(any_runtime)]
 impl DeviceExt for Device {
     fn client(&self) -> Client {
         match *self {
@@ -88,6 +98,7 @@ impl DeviceExt for Device {
         }
     }
 
+    #[cfg_attr(not(any_runtime), allow(unused_variables))]
     fn can_read_tensor(&self, shape: &Shape, strides: &Strides) -> bool {
         match *self {
             #[cfg(feature = "cuda")]
@@ -141,13 +152,15 @@ pub fn default_device() -> Device {
 ///
 /// Takes and returns ids in [`Device`]'s own encoding, so a caller holding
 /// one id can ask what else is on that device's runtime without unpacking
-/// the runtime itself.
-#[cfg(any_runtime)]
+/// the runtime itself. Whatever `device_id` spends the high byte on comes
+/// back on every id, untouched.
 pub fn enumerate(device_id: DeviceId) -> alloc::vec::Vec<DeviceId> {
     let runtime = RuntimeId::of_device_id(device_id);
+    #[cfg_attr(not(any_runtime), allow(unused_variables))]
     let type_id = RuntimeId::strip(device_id).type_id;
+    let outer = device_id.type_id & RuntimeId::OUTER_MASK;
 
-    let ids = match runtime {
+    let ids: alloc::vec::Vec<DeviceId> = match runtime {
         #[cfg(feature = "cuda")]
         Ok(RuntimeId::Cuda) => cubecl_cuda::CudaRuntime::enumerate_devices(type_id),
         #[cfg(feature = "hip")]
@@ -162,7 +175,10 @@ pub fn enumerate(device_id: DeviceId) -> alloc::vec::Vec<DeviceId> {
     };
 
     match runtime {
-        Ok(runtime) => ids.into_iter().map(|id| runtime.stamp(id)).collect(),
+        Ok(runtime) => ids
+            .into_iter()
+            .map(|id| runtime.stamp(DeviceId::new(id.type_id | outer, id.index_id)))
+            .collect(),
         Err(_) => ids,
     }
 }
@@ -171,7 +187,6 @@ pub fn enumerate(device_id: DeviceId) -> alloc::vec::Vec<DeviceId> {
 ///
 /// What a caller listing "the devices" wants, now that one type covers them
 /// all — a runtime with no hardware present contributes nothing.
-#[cfg(any_runtime)]
 pub fn enumerate_all() -> alloc::vec::Vec<Device> {
     #[allow(unused_mut)]
     let mut devices = alloc::vec::Vec::new();

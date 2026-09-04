@@ -107,13 +107,13 @@ Args { tracing: Some(Console) }
 2025-12-18T06:30:43.291140Z TRACE launch: tracing_example: exit
 ```
 
-### RUST_LOG=off,cubeccl_runtime=trace
+### RUST_LOG=off,cubecl_server=trace
 
 - Enabling console subscriber.
-- `RUST_LOG=off,cubeccl_runtime=trace` enables tracing for the `cubeccl_runtime` crate only.
+- `RUST_LOG=off,cubecl_server=trace` enables tracing for the `cubecl_server` crate only.
 
 ```terminaloutput
-$ RUST_LOG=off,cubecl_runtime=trace cargo run -p tracing_example --features cuda,tracing/max_level_trace -- --tracing console
+$ RUST_LOG=off,cubecl_server=trace cargo run -p tracing_example --features cuda,tracing/max_level_trace -- --tracing console
 Args { tracing: Some(Console) }
 2025-12-18T06:33:06.994510Z TRACE reserve{size=512}: cubecl_server::memory_management::memory_manage: enter
 2025-12-18T06:33:06.994557Z TRACE reserve{size=512}:try_reserve{size=512}: cubecl_server::memory_management::memory_manage: enter
