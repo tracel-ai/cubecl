@@ -1,11 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{MetadataError, shape::Shape, strides::Strides};
+use crate::{MetadataError, shape::Shape, strides::Strides, tiling::Tiling};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub struct Metadata {
     pub shape: Shape,
     pub strides: Strides,
+    /// How many fragments each logical dim is stored as; untiled by default.
+    /// The shape and strides stay physical. See [`Tiling`].
+    pub tiling: Tiling,
 }
 
 impl Metadata {
@@ -18,7 +21,37 @@ impl Metadata {
             "Rank of shape and strides must be the same"
         );
 
-        Self { shape, strides }
+        Self {
+            shape,
+            strides,
+            tiling: Tiling::UNTILED,
+        }
+    }
+
+    /// This metadata with `tiling` labelling its physical dims.
+    ///
+    /// # Errors
+    ///
+    /// When `tiling` does not describe this rank: see [`Tiling::new`].
+    pub fn with_tiling(mut self, tiling: Tiling) -> Result<Self, MetadataError> {
+        tiling.logical_rank(self.rank())?;
+        self.tiling = tiling;
+        Ok(self)
+    }
+
+    /// Whether any logical dim is stored as more than one fragment.
+    pub fn is_tiled(&self) -> bool {
+        self.tiling.is_tiled()
+    }
+
+    /// The dim-changing ops do not carry a tiling yet: they refuse rather than
+    /// return counts over dims that moved.
+    fn assert_untiled(&self, op: &str) {
+        assert!(
+            !self.is_tiled(),
+            "Metadata::{op} on a storage-tiled tensor is not supported: {:?}",
+            self.tiling
+        );
     }
 
     pub fn shape(&self) -> &Shape {
@@ -56,6 +89,7 @@ impl Metadata {
     }
 
     pub fn swap(&mut self, dim0: usize, dim1: usize) {
+        self.assert_untiled("swap");
         debug_assert!(dim0 < self.rank(), "dim0 is out of bounds");
         debug_assert!(dim1 < self.rank(), "dim1 is out of bounds");
         self.shape.swap(dim0, dim1);
@@ -64,6 +98,7 @@ impl Metadata {
 
     /// Reorder the shape dimensions according to the permutation of `axes`.
     pub fn permute(&mut self, axes: &[usize]) -> Result<(), MetadataError> {
+        self.assert_untiled("permute");
         self.shape.permute(axes)?;
         self.strides.permute(axes)?;
 
@@ -77,12 +112,14 @@ impl Metadata {
 
     /// Insert a dimension of `shape` with `stride` at position `index`.
     pub fn insert(&mut self, index: usize, shape: usize, stride: usize) {
+        self.assert_untiled("insert");
         self.shape.insert(index, shape);
         self.strides.insert(index, stride);
     }
 
     /// Remove and return the dimension at position `index` from the metadata.
     pub fn remove(&mut self, index: usize) -> (usize, usize) {
+        self.assert_untiled("remove");
         let shape = self.shape.remove(index);
         let stride = self.strides.remove(index);
         (shape, stride)
@@ -90,6 +127,7 @@ impl Metadata {
 
     /// Appends a dimension of `shape` with `stride` to the back of the metadata.
     pub fn push(&mut self, shape: usize, stride: usize) {
+        self.assert_untiled("push");
         self.shape.push(shape);
         self.strides.push(stride);
     }
