@@ -17,14 +17,6 @@ workspace = true
 
 [features]
 autotune-checks = []
-# One flag per runtime, with no dependency behind it: a runtime crate turns its
-# own on, which is what makes the matching `Device` variant exist exactly when
-# the runtime is in the build.
-cpu = []
-cuda = []
-hip = []
-metal = []
-wgpu = []
 browser-cache = ["cubecl-environment/browser-cache"]
 channel-cell = []
 channel-mpsc = []

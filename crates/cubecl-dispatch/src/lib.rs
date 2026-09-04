@@ -6,7 +6,7 @@
 //! benchmark or a test suite depends on this crate with the runtime features it
 //! wants, and gets three things: the runtime crates themselves, the runtime
 //! tests run on, and the one thing `cubecl` cannot do on its own, which is to
-//! turn a [`Device`] into a [`Client`] — [`DeviceExt::client`].
+//! turn a [`Device`](cubecl::Device) into a [`Client`] — [`DeviceExt::client`].
 //!
 //! ```no_run
 //! # #[cfg(feature = "cuda")]
@@ -24,6 +24,7 @@
 
 extern crate alloc;
 
+#[cfg(any_runtime)]
 use cubecl::Device;
 #[cfg(any_runtime)]
 use cubecl::RuntimeId;
@@ -50,7 +51,7 @@ pub use cubecl_cpu as cpu;
 #[cfg(feature = "metal-native")]
 pub use cubecl_metal as metal;
 
-/// What a [`Device`] can do once the runtimes are linked.
+/// What a [`Device`](cubecl::Device) can do once the runtimes are linked.
 ///
 /// `cubecl` names a device without naming its runtime, so answering for one
 /// takes the runtime crates, which are this crate's to know.
@@ -103,6 +104,37 @@ impl DeviceExt for Device {
             ref other => panic!("{other:?} belongs to a runtime this build does not link"),
         }
     }
+}
+
+/// The default device of the most capable runtime this build links.
+///
+/// The order is the one a caller who did not choose would want — a discrete
+/// accelerator over the portable path over the CPU — not the order the
+/// features are declared in. `cubecl` itself has no `Default` for a
+/// [`Device`]: which runtimes are linked is this crate's to know.
+#[cfg(any_runtime)]
+pub fn default_device() -> Device {
+    #[cfg(feature = "cuda")]
+    return Device::Cuda(Default::default());
+    #[cfg(all(feature = "hip", not(feature = "cuda")))]
+    return Device::Hip(Default::default());
+    #[cfg(all(feature = "metal-native", not(any(feature = "cuda", feature = "hip"))))]
+    return Device::Metal(Default::default());
+    #[cfg(all(
+        feature = "wgpu",
+        not(any(feature = "cuda", feature = "hip", feature = "metal-native"))
+    ))]
+    return Device::Wgpu(Default::default());
+    #[cfg(all(
+        feature = "cpu",
+        not(any(
+            feature = "cuda",
+            feature = "hip",
+            feature = "metal-native",
+            feature = "wgpu"
+        ))
+    ))]
+    return Device::Cpu(Default::default());
 }
 
 /// The ids of every device sharing `device_id`'s runtime and device type.

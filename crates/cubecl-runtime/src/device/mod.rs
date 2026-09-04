@@ -1,13 +1,14 @@
 //! A device of any runtime, named without naming the runtime crate.
 //!
 //! Each runtime keeps its own device type — a value, nothing more — and this
-//! module owns them all, so a caller can hold a [`Device`](self::Device) without depending on
-//! any runtime. Which variants exist follows the `cuda`, `hip`, `metal`, `wgpu`
-//! and `cpu` features, and each runtime crate turns its own on, so a variant is
-//! there exactly when the runtime is in the build.
+//! module owns them all, so a caller can hold a [`Device`] without depending on
+//! any runtime. Every variant is always there, whether or not the runtime is
+//! in the build, which is what keeps this crate's shape the same in a library
+//! build and in a binary that links a runtime.
 //!
-//! Reaching a client from a device is the one thing this module cannot do on
-//! its own: that goes through the runtime, and lives one crate up.
+//! Reaching a client from a device, and choosing a default one, are the two
+//! things this module cannot do on its own: both go through the runtimes, and
+//! live in `cubecl-dispatch`.
 
 mod cpu;
 mod cuda;
@@ -21,42 +22,32 @@ pub use hip::AmdDevice;
 pub use metal::MetalDevice;
 pub use wgpu::WgpuDevice;
 
-#[cfg(any_runtime)]
 use cubecl_common::device::Device as DeviceIdentity;
 pub use cubecl_common::device::DeviceId;
 
-/// A device of any runtime this build enables.
+/// A device of any runtime.
 ///
-/// A value names both the runtime and the device on it. The variants follow
-/// the runtime features, so a match on this type needs a wildcard arm.
+/// A value names both the runtime and the device on it. A value can name a
+/// runtime the build does not link — the enum is the same in every build — and
+/// it is reaching for a client that then fails, in `cubecl-dispatch`.
 ///
-/// ```no_run
-/// # #[cfg(feature = "cuda")]
-/// # fn main() {
+/// ```
 /// use cubecl_runtime::device::{CudaDevice, Device};
 ///
 /// let device = Device::Cuda(CudaDevice::new(0));
-/// # }
-/// # #[cfg(not(feature = "cuda"))]
-/// # fn main() {}
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Device {
     /// A device of the CUDA runtime.
-    #[cfg(feature = "cuda")]
     Cuda(CudaDevice),
     /// A device of the HIP runtime.
-    #[cfg(feature = "hip")]
     Hip(AmdDevice),
     /// A device of the native Metal runtime.
-    #[cfg(feature = "metal")]
     Metal(MetalDevice),
     /// A device of the wgpu runtime, on its default compiler.
-    #[cfg(feature = "wgpu")]
     Wgpu(WgpuDevice),
     /// The device of the CPU runtime.
-    #[cfg(feature = "cpu")]
     Cpu(CpuDevice),
 }
 
@@ -132,129 +123,80 @@ impl Device {
     /// The runtime this device belongs to.
     pub fn runtime(&self) -> RuntimeId {
         match *self {
-            #[cfg(feature = "cuda")]
             Self::Cuda(_) => RuntimeId::Cuda,
-            #[cfg(feature = "hip")]
             Self::Hip(_) => RuntimeId::Hip,
-            #[cfg(feature = "metal")]
             Self::Metal(_) => RuntimeId::Metal,
-            #[cfg(feature = "wgpu")]
             Self::Wgpu(_) => RuntimeId::Wgpu,
-            #[cfg(feature = "cpu")]
             Self::Cpu(_) => RuntimeId::Cpu,
         }
     }
 }
 
-#[cfg(any_runtime)]
-impl Default for Device {
-    /// The default device of the most capable runtime this build enables.
+impl Device {
+    /// The device a [`DeviceId`] in this type's encoding names.
     ///
-    /// The order is the one a caller who did not choose would want — a discrete
-    /// accelerator over the portable path over the CPU — not the order the
-    /// features are declared in.
-    fn default() -> Self {
-        #[cfg(feature = "cuda")]
-        return Self::Cuda(Default::default());
-        #[cfg(all(feature = "hip", not(feature = "cuda")))]
-        return Self::Hip(Default::default());
-        #[cfg(all(feature = "metal", not(any(feature = "cuda", feature = "hip"))))]
-        return Self::Metal(Default::default());
-        #[cfg(all(
-            feature = "wgpu",
-            not(any(feature = "cuda", feature = "hip", feature = "metal"))
-        ))]
-        return Self::Wgpu(Default::default());
-        #[cfg(all(
-            feature = "cpu",
-            not(any(feature = "cuda", feature = "hip", feature = "metal", feature = "wgpu"))
-        ))]
-        return Self::Cpu(Default::default());
-    }
-}
-
-#[cfg(any_runtime)]
-impl DeviceIdentity for Device {
     /// # Panics
     ///
     /// Where `device_id` names a runtime this build does not enable. An id only
     /// travels between builds of the same application, so this is a build
     /// mismatch rather than input to validate.
-    fn from_id(device_id: DeviceId) -> Self {
+    pub fn from_id(device_id: DeviceId) -> Self {
         let runtime = RuntimeId::of_device_id(device_id);
         let inner = RuntimeId::strip(device_id);
 
         match runtime {
-            #[cfg(feature = "cuda")]
             Ok(RuntimeId::Cuda) => Self::Cuda(DeviceIdentity::from_id(inner)),
-            #[cfg(feature = "hip")]
             Ok(RuntimeId::Hip) => Self::Hip(DeviceIdentity::from_id(inner)),
-            #[cfg(feature = "metal")]
             Ok(RuntimeId::Metal) => Self::Metal(DeviceIdentity::from_id(inner)),
-            #[cfg(feature = "wgpu")]
             Ok(RuntimeId::Wgpu) => Self::Wgpu(DeviceIdentity::from_id(inner)),
-            #[cfg(feature = "cpu")]
             Ok(RuntimeId::Cpu) => Self::Cpu(DeviceIdentity::from_id(inner)),
-            other => panic!(
-                "device id {device_id} names the runtime {other:?}, which this build does not enable"
-            ),
+            Err(other) => {
+                panic!("device id {device_id} names the runtime tag {other}, which no runtime has")
+            }
         }
     }
 
-    fn to_id(&self) -> DeviceId {
+    /// This device's id, with its runtime stamped in the high bits so ids from
+    /// two runtimes cannot collide.
+    pub fn to_id(&self) -> DeviceId {
         let inner = match *self {
-            #[cfg(feature = "cuda")]
             Self::Cuda(ref device) => DeviceIdentity::to_id(device),
-            #[cfg(feature = "hip")]
             Self::Hip(ref device) => DeviceIdentity::to_id(device),
-            #[cfg(feature = "metal")]
             Self::Metal(ref device) => DeviceIdentity::to_id(device),
-            #[cfg(feature = "wgpu")]
             Self::Wgpu(ref device) => DeviceIdentity::to_id(device),
-            #[cfg(feature = "cpu")]
             Self::Cpu(ref device) => DeviceIdentity::to_id(device),
         };
 
         self.runtime().stamp(inner)
     }
 }
-
-#[cfg(feature = "cuda")]
 impl From<CudaDevice> for Device {
     fn from(device: CudaDevice) -> Self {
         Self::Cuda(device)
     }
 }
-
-#[cfg(feature = "hip")]
 impl From<AmdDevice> for Device {
     fn from(device: AmdDevice) -> Self {
         Self::Hip(device)
     }
 }
-
-#[cfg(feature = "metal")]
 impl From<MetalDevice> for Device {
     fn from(device: MetalDevice) -> Self {
         Self::Metal(device)
     }
 }
-
-#[cfg(feature = "wgpu")]
 impl From<WgpuDevice> for Device {
     fn from(device: WgpuDevice) -> Self {
         Self::Wgpu(device)
     }
 }
-
-#[cfg(feature = "cpu")]
 impl From<CpuDevice> for Device {
     fn from(device: CpuDevice) -> Self {
         Self::Cpu(device)
     }
 }
 
-#[cfg(all(test, any_runtime))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -262,9 +204,9 @@ mod tests {
     /// id comes back as a different device — on a different runtime, even.
     #[test]
     fn a_device_id_round_trips_through_its_runtime() {
-        let device = Device::default();
+        let device = Device::Wgpu(WgpuDevice::DiscreteGpu(1));
 
-        let restored = <Device as DeviceIdentity>::from_id(DeviceIdentity::to_id(&device));
+        let restored = Device::from_id(device.to_id());
 
         assert_eq!(device, restored);
     }
@@ -273,9 +215,9 @@ mod tests {
     /// devices from colliding on one id.
     #[test]
     fn a_device_id_names_its_runtime() {
-        let device = Device::default();
+        let device = Device::Wgpu(WgpuDevice::DiscreteGpu(1));
 
-        let id = DeviceIdentity::to_id(&device);
+        let id = device.to_id();
 
         assert_eq!(RuntimeId::of_device_id(id), Ok(device.runtime()));
     }

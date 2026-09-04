@@ -57,15 +57,12 @@ cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", default-feat
     "amd",
 ] }
 cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.3", default-features = false, features = [
-    "hip",
 ] }
 cubecl-hip-sys = { version = "7.1.5280200" }
 cubecl-llvm = { path = "../cubecl-llvm", version = "=0.11.0-pre.3", default-features = false, features = [
     "std",
 ] }
-cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.3", default-features = false, features = [
-    "hip",
-] }
+cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.3", default-features = false }
 
 bytemuck = { workspace = true }
 

@@ -11,8 +11,6 @@ fn main() {
         // Autotune results can persist: on disk (std_io) or in browser storage.
         autotune_persistence: { any(std_io, browser_cache) },
         exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
-        // Whether any runtime is in the build, which is what `Device` needs to have a variant.
-        any_runtime: { any(feature = "cuda", feature = "hip", feature = "metal", feature = "wgpu", feature = "cpu") },
         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
     }
 }
