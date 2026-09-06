@@ -47,8 +47,6 @@ requires_subgroups!(
     ShuffleXorOp,
     ShuffleUpOp,
     ShuffleDownOp,
-    UniformLoadOp,
-    AtomicUniformLoadOp,
 );
 
 // wgsl_op_with_out!(ElectOp; |_, _| "subgroupElect()".into());
