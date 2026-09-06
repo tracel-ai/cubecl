@@ -21,7 +21,6 @@ default = [
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
-    "cubecl-llvm/default",
 ]
 
 pliron-dump = ["cubecl-llvm/pliron-dump"]

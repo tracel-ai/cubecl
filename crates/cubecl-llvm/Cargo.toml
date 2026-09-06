@@ -16,7 +16,10 @@ workspace = true
 
 
 [features]
-default = ["std", "cubecl-core/default", "cubecl-runtime/default"]
+default = ["std", "amdgpu", "cubecl-core/default", "cubecl-runtime/default"]
+
+# Native AMDGPU code generation and linking; public IR and artifact types remain available.
+amdgpu = ["dep:cc"]
 
 pliron-dump = []
 std = ["cubecl-core/std", "cubecl-runtime/std"]
@@ -46,5 +49,5 @@ thiserror = { workspace = true }
 llvm-sys = { workspace = true }
 
 [build-dependencies]
-cc = { workspace = true }
+cc = { workspace = true, optional = true }
 tracel-llvm-bundler = { workspace = true }

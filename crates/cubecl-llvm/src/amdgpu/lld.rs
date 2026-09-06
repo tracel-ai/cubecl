@@ -3,21 +3,28 @@
 //! LLD exposes no C API, so `cpp_shims/lld.cpp` wraps `lld::elf::link` in an
 //! `extern "C"` entry point that `build.rs` compiles and links in.
 
+#[cfg(feature = "amdgpu")]
 use std::ffi::{CString, c_char};
+#[cfg(feature = "amdgpu")]
 use std::path::Path;
+#[cfg(feature = "amdgpu")]
 use std::sync::Mutex;
+#[cfg(feature = "amdgpu")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[cfg(feature = "amdgpu")]
 unsafe extern "C" {
     /// See `cpp_shims/lld.cpp`. Returns `true` when the link succeeded.
     fn cubecl_lld_elf_link(argv: *const *const c_char, argc: usize) -> bool;
 }
 
 /// LLD keeps global linker context, so concurrent calls corrupt each other.
+#[cfg(feature = "amdgpu")]
 static LLD_LOCK: Mutex<()> = Mutex::new(());
 
 /// Keeps temp directories unique. The pid alone collides between threads, letting one
 /// call's cleanup delete a sibling's directory.
+#[cfg(feature = "amdgpu")]
 static CALL_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// Links a relocatable AMDGPU ELF into a loadable `ET_DYN` code object.
@@ -26,6 +33,7 @@ static CALL_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// name is not part of that path: it comes from a user's own types and carries whatever
 /// `::`, `<` and `>` those spell. The pid and counter already make the directory unique, and
 /// the name is what the error says rather than what the filesystem sees.
+#[cfg(feature = "amdgpu")]
 pub fn link_relocatable(object: &[u8], name: &str) -> Result<Vec<u8>, String> {
     let unique = CALL_COUNTER.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!("cubecl-lld-{}-{unique}", std::process::id()));
@@ -34,6 +42,7 @@ pub fn link_relocatable(object: &[u8], name: &str) -> Result<Vec<u8>, String> {
     result
 }
 
+#[cfg(feature = "amdgpu")]
 fn link_in(dir: &Path, object: &[u8], name: &str) -> Result<Vec<u8>, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("temp dir: {e}"))?;
     let obj_path = dir.join("kernel.o");
@@ -60,4 +69,10 @@ fn link_in(dir: &Path, object: &[u8], name: &str) -> Result<Vec<u8>, String> {
     } else {
         Err(format!("lld failed to link '{name}'; see stderr above"))
     }
+}
+
+/// Returns an error without creating temporary files when `amdgpu` is disabled.
+#[cfg(not(feature = "amdgpu"))]
+pub fn link_relocatable(_object: &[u8], _name: &str) -> Result<Vec<u8>, String> {
+    Err(super::AMDGPU_DISABLED.into())
 }

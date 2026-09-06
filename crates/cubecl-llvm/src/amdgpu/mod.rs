@@ -13,3 +13,15 @@ pub mod plane_reduce;
 pub mod printf;
 pub mod shared_memory;
 pub mod synchronization;
+
+pub(crate) const AMDGPU_DISABLED: &str =
+    "AMDGPU code generation requires the `cubecl-llvm/amdgpu` feature";
+
+/// Shared by the compiler and direct code-generation/linking entry points.
+pub(crate) fn require_amdgpu() -> Result<(), String> {
+    if cfg!(feature = "amdgpu") {
+        Ok(())
+    } else {
+        Err(AMDGPU_DISABLED.into())
+    }
+}

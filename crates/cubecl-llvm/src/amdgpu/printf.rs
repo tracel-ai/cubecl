@@ -5,8 +5,11 @@
 //! emitter for it.
 
 use llvm_sys::core::*;
-use llvm_sys::prelude::{LLVMModuleRef, LLVMValueRef};
+use llvm_sys::prelude::LLVMModuleRef;
+#[cfg(feature = "amdgpu")]
+use llvm_sys::prelude::LLVMValueRef;
 
+#[cfg(feature = "amdgpu")]
 unsafe extern "C" {
     /// See `cpp_shims/printf.cpp`. Consumes the call, which must not be used afterwards.
     fn cubecl_emit_amdgpu_printf(call: LLVMValueRef);
@@ -16,6 +19,10 @@ unsafe extern "C" {
 ///
 /// Returns whether anything was rewritten, i.e. whether OCKL has to be linked in behind it. A
 /// kernel that never prints asks for nothing.
+///
+/// # Panics
+/// Panics before modifying the module if it contains a `printf` call and
+/// `amdgpu` is disabled. This legacy boolean API cannot return an error.
 ///
 /// # Safety
 /// `module` must be a live LLVM module.
@@ -38,6 +45,10 @@ pub unsafe fn lower_printf_to_hostcall(module: LLVMModuleRef) -> bool {
         }
 
         let lowered = !calls.is_empty();
+        if lowered {
+            super::require_amdgpu().expect("AMDGPU printf lowering should be enabled");
+        }
+        #[cfg(feature = "amdgpu")]
         for call in calls {
             cubecl_emit_amdgpu_printf(call);
         }
@@ -99,6 +110,7 @@ define void @k(double %d) {
 
     /// The call becomes the hostcall conversation, and the `printf` that a GPU has no answer
     /// for is gone from the module entirely.
+    #[cfg(feature = "amdgpu")]
     #[test]
     fn printf_becomes_the_hostcall_sequence() {
         unsafe {
@@ -118,6 +130,20 @@ define void @k(double %d) {
                 "the libc declaration should be gone:\n{ir}"
             );
 
+            LLVMDisposeModule(module);
+            LLVMContextDispose(ctx);
+        }
+    }
+
+    #[cfg(not(feature = "amdgpu"))]
+    #[test]
+    fn disabled_printf_lowering_leaves_the_module_unchanged() {
+        unsafe {
+            let (ctx, module) = parse(WITH_PRINTF);
+            let before = print(module);
+            let result = std::panic::catch_unwind(|| lower_printf_to_hostcall(module));
+            assert!(result.is_err());
+            assert_eq!(print(module), before);
             LLVMDisposeModule(module);
             LLVMContextDispose(ctx);
         }

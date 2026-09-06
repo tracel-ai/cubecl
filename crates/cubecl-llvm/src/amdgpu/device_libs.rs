@@ -3,15 +3,20 @@
 //! Only the definitions the kernel calls are taken. They arrive `linkonce_odr hidden`, so the
 //! optimization pipeline inlines them and strips the rest back out.
 
+#[cfg(feature = "amdgpu")]
 use std::collections::HashMap;
+#[cfg(feature = "amdgpu")]
 use std::ffi::{CStr, c_char};
+#[cfg(feature = "amdgpu")]
 use std::path::PathBuf;
+#[cfg(feature = "amdgpu")]
 use std::sync::{Mutex, OnceLock};
 
 use llvm_sys::prelude::LLVMModuleRef;
 
 use cubecl_core::ir::amd::GfxArch;
 
+#[cfg(feature = "amdgpu")]
 unsafe extern "C" {
     /// See `cpp_shims/device_libs.cpp`. Returns null on success, else an owned message.
     fn cubecl_link_device_bitcode(
@@ -28,11 +33,15 @@ unsafe extern "C" {
 ///
 /// `CUBECL_ROCM_DEVICE_LIB_PATH` names the directory itself and is the escape hatch for an
 /// install none of the rest find. `HIP_DEVICE_LIB_PATH` is what hipcc itself reads.
+#[cfg(feature = "amdgpu")]
 const DEVICE_LIB_PATH_VARS: [&str; 2] = ["CUBECL_ROCM_DEVICE_LIB_PATH", "HIP_DEVICE_LIB_PATH"];
+#[cfg(feature = "amdgpu")]
 const ROCM_ROOT_VARS: [&str; 2] = ["ROCM_PATH", "HIP_PATH"];
+#[cfg(feature = "amdgpu")]
 const DEFAULT_ROCM_ROOTS: [&str; 2] = ["/opt/rocm", "/usr"];
 
 /// The `amdgcn/bitcode` directory of the `ROCm` install, found once per process.
+#[cfg(feature = "amdgpu")]
 fn bitcode_dir() -> Result<&'static PathBuf, String> {
     static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
@@ -66,6 +75,7 @@ fn bitcode_dir() -> Result<&'static PathBuf, String> {
 
 /// The bitcode of `name`, read once and kept: every kernel compiled for a given device links
 /// the same few hundred kilobytes.
+#[cfg(feature = "amdgpu")]
 fn device_lib(name: &str) -> Result<&'static [u8], String> {
     static CACHE: OnceLock<Mutex<HashMap<String, &'static [u8]>>> = OnceLock::new();
     let cache = CACHE.get_or_init(Mutex::default);
@@ -105,6 +115,7 @@ impl DeviceLibs {
 /// Each library leaves control globals undefined, one bitcode file per global. The math options
 /// take the conservative side: operands are not assumed finite and reassociation is not assumed
 /// safe. The other three follow the device and the code object.
+#[cfg(any(test, feature = "amdgpu"))]
 fn device_libs_for(arch: &GfxArch, needs: DeviceLibs, code_object_version: u32) -> Vec<String> {
     let mut libs = Vec::new();
 
@@ -135,6 +146,7 @@ fn device_libs_for(arch: &GfxArch, needs: DeviceLibs, code_object_version: u32) 
 ///
 /// # Safety
 /// `module` must be a live LLVM module, already stamped with the AMDGPU triple and layout.
+#[cfg(feature = "amdgpu")]
 pub unsafe fn link_device_libs(
     module: LLVMModuleRef,
     arch: &GfxArch,
@@ -158,6 +170,24 @@ pub unsafe fn link_device_libs(
     Ok(())
 }
 
+/// Returns an error when device libraries are needed and `amdgpu` is disabled.
+/// A module that needs no device libraries remains a no-op.
+///
+/// # Safety
+/// `module` must be a live LLVM module, already stamped with the AMDGPU triple and layout.
+#[cfg(not(feature = "amdgpu"))]
+pub unsafe fn link_device_libs(
+    _module: LLVMModuleRef,
+    _arch: &GfxArch,
+    needs: DeviceLibs,
+    _code_object_version: u32,
+) -> Result<(), String> {
+    if needs.any() {
+        super::require_amdgpu()?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +200,24 @@ mod tests {
         math: false,
         printf: true,
     };
+
+    #[cfg(not(feature = "amdgpu"))]
+    #[test]
+    fn disabled_device_libraries_allow_only_the_noop_case() {
+        use llvm_sys::core::*;
+        unsafe {
+            let ctx = LLVMContextCreate();
+            let module = LLVMModuleCreateWithNameInContext(c"k".as_ptr(), ctx);
+            LLVMSetTarget(module, c"amdgcn-amd-amdhsa".as_ptr());
+            LLVMSetDataLayout(module, c"A5".as_ptr());
+            let arch = GfxArch::parse("gfx1201");
+            assert!(link_device_libs(module, &arch, DeviceLibs::default(), 500).is_ok());
+            let error = link_device_libs(module, &arch, MATH, 500).unwrap_err();
+            assert!(error.contains("cubecl-llvm/amdgpu"), "{error}");
+            LLVMDisposeModule(module);
+            LLVMContextDispose(ctx);
+        }
+    }
 
     /// The ISA control library is named by the bare architecture number, and comes along
     /// whichever library asked.

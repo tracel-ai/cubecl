@@ -6,6 +6,7 @@ use pliron_llvm::attributes::set_data_layout;
 use pliron_llvm::llvm_sys::core::LLVMContext;
 use pliron_llvm::to_llvm_ir;
 use std::ffi::{CStr, CString};
+#[cfg(feature = "amdgpu")]
 use std::sync::Once;
 
 use crate::amdgpu::device_libs::{DeviceLibs, link_device_libs};
@@ -38,15 +39,19 @@ const WAVE32: &str = "+wavefrontsize32";
 /// but handed the target machine, which is what makes it target-aware.
 const PASS_PIPELINE: &CStr = c"default<O3>";
 
+#[cfg(feature = "amdgpu")]
 static INIT_AMDGPU: Once = Once::new();
 
-fn init_amdgpu() {
+fn init_amdgpu() -> Result<(), String> {
+    super::require_amdgpu()?;
+    #[cfg(feature = "amdgpu")]
     INIT_AMDGPU.call_once(|| unsafe {
         llvm_sys::target::LLVMInitializeAMDGPUTargetInfo();
         llvm_sys::target::LLVMInitializeAMDGPUTarget();
         llvm_sys::target::LLVMInitializeAMDGPUTargetMC();
         llvm_sys::target::LLVMInitializeAMDGPUAsmPrinter();
     });
+    Ok(())
 }
 
 /// Subtarget feature string for `arch`, empty on the wave64 parts.
@@ -59,6 +64,8 @@ fn features_for(arch: &GfxArch) -> &'static str {
 }
 
 /// Lowers `module` to LLVM IR, compiles it to AMDGPU machine code, and links it.
+///
+/// Returns an error without modifying the module when `amdgpu` is disabled.
 pub fn emit_code_object(
     ctx: &Context,
     module: ModuleOp,
@@ -68,6 +75,7 @@ pub fn emit_code_object(
     shared_memory_size: usize,
     io: Vec<BufferIOAttr>,
 ) -> Result<AmdGpuModule, String> {
+    super::require_amdgpu()?;
     let llvm_ctx = LLVMContext::default();
 
     set_data_layout(ctx, module, DATA_LAYOUT.to_string());
@@ -189,7 +197,7 @@ fn compile_to_object(
         LLVMDisposeTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
     };
 
-    init_amdgpu();
+    init_amdgpu()?;
 
     let cpu =
         CString::new(arch.name()).map_err(|_| format!("arch '{}' contains a NUL", arch.name()))?;
@@ -439,6 +447,7 @@ entry:
     /// The shared memory block reaches the code object as LDS: the slices become `ds_`
     /// accesses with their offset folded in, the generic pointers the rest of the pipeline
     /// works with are inferred away, and the barrier is the hardware's own.
+    #[cfg(feature = "amdgpu")]
     #[test]
     fn shared_memory_becomes_lds() {
         let ir = r#"
@@ -488,6 +497,7 @@ entry:
     /// RDNA4 splits `k` between the halves of the wave and takes half the A/B fragment RDNA3
     /// does. Getting the fragment width wrong fails to select rather than computing the wrong
     /// answer, so this pins both.
+    #[cfg(feature = "amdgpu")]
     #[test]
     fn wmma_reaches_the_code_object() {
         for (name, ab) in [("gfx1201", "<8 x half>"), ("gfx1100", "<16 x half>")] {
@@ -525,6 +535,7 @@ entry:
     /// Codegen produces a relocatable ELF, and LLD turns it into the `ET_DYN`
     /// shared object `hipModuleLoadData` requires. `e_type` is the 16-bit LE
     /// field at offset 16: 1 = `ET_REL`, 3 = `ET_DYN`.
+    #[cfg(feature = "amdgpu")]
     #[test]
     fn emits_a_linked_shared_object() {
         let ir = r#"

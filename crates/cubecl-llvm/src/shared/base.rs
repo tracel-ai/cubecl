@@ -169,6 +169,7 @@ impl PlironCompiler {
         match self.target {
             LlvmTarget::Cpu => Ok(PlironArtifact::Jit(self.compile_cpu(kernel)?)),
             LlvmTarget::AmdGpu => {
+                crate::amdgpu::require_amdgpu().map_err(generic)?;
                 let arch = options.arch.as_ref().ok_or_else(|| {
                     generic("the AMDGPU target needs the device it compiles for".to_string())
                 })?;

@@ -1,0 +1,26 @@
+name: CPU JIT
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  macos-cpu:
+    # The Apple silicon LLVM bundle contains AArch64 but no AMDGPU target.
+    # Executables catch native link dependencies that cargo check misses.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+      - uses: tracel-ai/github-actions/install-rust@v11
+        with:
+          rust-toolchain: stable
+          cache-key: cpu-jit-macos
+      - name: Link and execute CPU kernels with default features
+        run: cargo test --locked -p cubecl-cpu --test cpu_jit
+      - name: Link and execute CPU kernels with minimal features
+        run: cargo test --locked -p cubecl-cpu --no-default-features --features std --test cpu_jit
+      - name: Check the public LLVM API without native AMDGPU support
+        run: cargo test --locked -p cubecl-llvm --no-default-features --features std --test compatibility
+      - name: Check the default AMDGPU compiler and its tests
+        run: cargo check --locked -p cubecl-llvm --tests

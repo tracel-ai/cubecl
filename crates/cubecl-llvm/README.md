@@ -15,6 +15,36 @@ Either one arrives as a `PlironArtifact`, which a runtime calls into.
 LLVM is vendored through `tracel-llvm-bundler` by this crate's `build.rs`, so
 there is no system LLVM to install.
 
+## CPU-only builds and the `amdgpu` feature
+
+`amdgpu` controls native AMDGPU code generation, the C++ shims, and LLD linking.
+It remains enabled by default for direct `cubecl-llvm` users. `cubecl-hip` enables
+it explicitly; `cubecl-cpu` uses LLVM without its default features, including
+when the CPU crate's own defaults are enabled. CPU builds therefore need only
+the host LLVM target, such as AArch64 on Apple silicon.
+
+For direct CPU-only use:
+
+```toml
+cubecl-llvm = { version = "=0.11.0-pre.3", default-features = false, features = ["std"] }
+```
+
+The public modules, `LlvmTarget` variants, `PlironOptions::arch`, `AmdGpuModule`,
+and `PlironArtifact` variants remain available in either configuration. Existing
+struct literals and exhaustive matches continue to compile. With `amdgpu`
+disabled, requesting AMDGPU compilation or object linking returns an error
+explaining which feature to enable, before changing IR or creating files.
+Device-library linking remains a no-op when no libraries are needed. The legacy
+unsafe `lower_printf_to_hostcall` helper returns a boolean, so it cannot report
+an error: without the feature, an actual printf rewrite panics before modifying
+the module; modules without printf calls remain a no-op.
+
+Cargo combines dependency features. A program that also enables HIP or depends
+on `cubecl-llvm` with its defaults needs an LLVM bundle containing AMDGPU as well
+as the host target. Disabling `amdgpu` changes native AMDGPU availability for
+existing direct users of `default-features = false`; those users must opt in if
+they need AMDGPU code generation.
+
 ## Layout
 
 | Module             | What it does                                                                  |
@@ -30,7 +60,7 @@ there is no system LLVM to install.
 
 The AMDGPU target reaches three parts of LLVM that have no C API: LLD's ELF
 driver, the bitcode linker's `--only-needed` mode, and the AMDGPU `printf`
-emitter. `build.rs` compiles `amdgpu/cpp_shims/` alongside the crate to wrap
+emitter. With `amdgpu` enabled, `build.rs` compiles `amdgpu/cpp_shims/` alongside the crate to wrap
 them.
 
 ## Debugging the compiler

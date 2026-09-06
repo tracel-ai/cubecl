@@ -6,6 +6,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rustc-cfg=feature=\"pliron-dump\"");
     }
 
+    #[cfg(feature = "amdgpu")]
+    build_amdgpu_shims()?;
+
+    tracel_llvm_bundler::llvm_sys::link()?;
+
+    Ok(())
+}
+
+#[cfg(feature = "amdgpu")]
+fn build_amdgpu_shims() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo::rerun-if-changed=src/amdgpu/cpp_shims/lld.cpp");
     println!("cargo::rerun-if-changed=src/amdgpu/cpp_shims/device_libs.cpp");
     println!("cargo::rerun-if-changed=src/amdgpu/cpp_shims/printf.cpp");
@@ -28,8 +38,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("cargo:rustc-link-lib=static=lldELF");
     println!("cargo:rustc-link-lib=static=lldCommon");
-
-    tracel_llvm_bundler::llvm_sys::link()?;
 
     Ok(())
 }
