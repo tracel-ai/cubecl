@@ -99,20 +99,15 @@ impl Thresholds {
         }
     }
 
-    /// No fraction of peak is close enough, which is [`UNBOUNDED`](Self::UNBOUNDED): a
-    /// threshold of zero is not normal, so [`AutotuneBound::time_limit`] declines to give
-    /// a limit and the short circuit stays off, leaving every candidate to be measured.
+    /// The threshold that sets no limit, so every candidate is measured.
+    /// [`AutotuneBound::time_limit`] declines it.
     pub const UNBOUNDED: Self = Self::uniform(0.0);
 
     /// The fraction of peak an [`AutotuneLevel`] settles for.
     ///
-    /// A higher threshold is a *tighter* time limit, since the limit is the roofline time
-    /// divided by the threshold: a candidate has to land closer to peak before autotune
-    /// stops looking. `Minimal` settles for the first decent candidate, `Extensive` keeps
-    /// searching, and `Full` is [`UNBOUNDED`](Self::UNBOUNDED) — it measures everything.
-    ///
-    /// The fractions come from small ad-hoc observations rather than a systematic sweep;
-    /// nothing should depend on the exact values.
+    /// A higher threshold is a tighter time limit, since the limit is the roofline time
+    /// divided by the threshold. The fractions are ad-hoc observations rather than a
+    /// systematic sweep, so nothing should depend on the exact values.
     pub const fn for_level(level: &AutotuneLevel) -> Self {
         match level {
             AutotuneLevel::Minimal => Self::uniform(0.6),
@@ -133,9 +128,8 @@ impl Default for Thresholds {
 
 impl TimeBound for AutotuneBound {
     fn time_limit(&self) -> Option<Duration> {
-        // A threshold divides the roofline time, so anything but a positive normal is no
-        // limit at all rather than a limit to compute: zero and subnormals would divide
-        // the limit out to nothing, and a negative one would panic `div_f64` outright.
+        // The threshold divides the roofline time. A negative one panics `div_f64`, and
+        // zero or a subnormal divides the limit away, so neither is a limit to compute.
         if self.threshold <= 0.0 || !self.threshold.is_normal() {
             return None;
         }
@@ -193,10 +187,9 @@ mod tests {
 
     #[test]
     fn time_limit_declines_a_negative_threshold_rather_than_panicking() {
-        // A negative threshold is normal, so the `is_normal` guard alone lets it reach
-        // `Duration::div_f64`, which panics on a negative divisor. `compute_bound` and
-        // `memory_bound` take a bare `f32` from the caller, so a computed threshold that
-        // goes negative would take the device thread down with it.
+        // A negative threshold is normal, so `is_normal` alone lets it reach
+        // `Duration::div_f64`, which panics on a negative divisor. The bound builders take
+        // the threshold straight from the caller, where it can be computed.
         assert_eq!(bound(8, 4.0, -0.5).time_limit(), None);
         assert_eq!(bound(8, 4.0, f32::NEG_INFINITY).time_limit(), None);
     }
@@ -244,8 +237,7 @@ mod tests {
 
     #[test]
     fn an_unbounded_threshold_gives_no_time_limit() {
-        // What makes `Full` safe to hand to a bound like any other threshold: it produces
-        // no limit at all, rather than the tightest one of the levels.
+        // What lets `Full` be handed to a bound like any other threshold.
         let unbounded = bound(8, 4.0, Thresholds::UNBOUNDED.compute);
         assert_eq!(unbounded.time_limit(), None);
     }

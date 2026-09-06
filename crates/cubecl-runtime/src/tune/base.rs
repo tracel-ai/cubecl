@@ -16,19 +16,17 @@ pub struct Tunable<K, F: TuneInputs, Output> {
 impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
     /// Create a tunable from a closure.
     ///
-    /// The `for<'a> Fn(F::At<'a>) -> _` bound is spelled out directly in the
-    /// `where`-clause (rather than hidden behind a helper trait) so that Rust closure
-    /// inference sees it: otherwise `move |input| …` picks a single concrete lifetime
-    /// and fails with `implementation of FnOnce is not general enough` whenever
-    /// `F::At<'a>` actually depends on `'a`.
+    /// The `for<'a> Fn(F::At<'a>) -> _` bound is spelled out in the `where`-clause rather
+    /// than hidden behind a helper trait, so that closure inference sees it: otherwise
+    /// `move |input| …` picks one concrete lifetime and fails with `implementation of
+    /// FnOnce is not general enough` wherever `F::At<'a>` depends on `'a`.
     ///
     /// For multi-input kernels, destructure a tuple:
     /// `Tunable::new("name", |(lhs, rhs, out)| body)`.
     ///
-    /// A tunable left in no [group](Tunable::group) is a candidate in the first round for
-    /// every key, but it states no priority, so it trails that round's grouped candidates
-    /// and a short circuit among them leaves it unmeasured. Give it a group to say where
-    /// in the round it belongs.
+    /// A tunable in no [group](Tunable::group) states no priority, so it trails the
+    /// grouped candidates of its round and a short circuit among them leaves it
+    /// unmeasured.
     pub fn new<Func, Err>(name: &str, func: Func) -> Self
     where
         Err: Into<String> + 'static,
@@ -52,12 +50,10 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
 
     /// Add this tunable to a [`TuneGroup`] with the given intra-group priority.
     ///
-    /// Groups are autotuned in order of their priority. Within a group the priority is a
-    /// cutoff: the highest `priority(key)` whose tunables run is the round, and a lower one
-    /// is a fallback, reached only once every tunable above it has failed. Within an
-    /// [ordered](TuneGroup::ordered) group it is an order instead: every tunable is in the
-    /// one round, tried from the highest `priority(key)` down. A negative priority skips
-    /// the tunable for this key in either kind of group.
+    /// Groups run in order of their own priority. Within a cutoff group the member
+    /// priority picks one level as the round and leaves the levels under it as fallbacks.
+    /// Within an [ordered](TuneGroup::ordered) group it orders one round that holds every
+    /// member. A negative priority skips the tunable for this key.
     pub fn group(
         mut self,
         group: &TuneGroup<K>,
@@ -103,34 +99,23 @@ impl<K> Clone for TuneGroup<K> {
 impl<K> TuneGroup<K> {
     /// Create a new group based on a priority function.
     ///
-    /// A member's own priority ([`Tunable::group`]) is a cutoff within it: only the
-    /// highest one is the round, and the ones below it are fallbacks reached in turn as
-    /// each round fails.
+    /// A member's own priority ([`Tunable::group`]) is a cutoff: the highest level is the
+    /// round, and the levels under it are fallbacks reached as each round fails.
     pub fn new(name: &str, f: impl Fn(&K) -> i8 + Send + Sync + 'static) -> Self {
         Self::build(name, f, false)
     }
 
-    /// Create a group whose members' priorities **order** the round rather than cut it
-    /// off: every member with a non-negative priority is planned in one batch, highest
-    /// first, and a lower priority means later, never left out.
+    /// Create a group whose member priorities order one round rather than cut it off:
+    /// every member with a non-negative priority is in the batch, best first.
     ///
-    /// What that buys is a round that stops early on the strength of a bound. Candidates
-    /// are benchmarked in batch order and a candidate confirmed under the
-    /// [bounds](super::Bounds)' time limit ends the batch before the ones after it are
-    /// compiled — so a priority that says which candidate is *likeliest* to be close
-    /// enough decides how much of the group is ever compiled, while a priority that is
-    /// wrong costs a compile rather than the winner.
+    /// The batch is benchmarked in that order and the short circuit ends it at the first
+    /// candidate under the [bounds](super::Bounds)' time limit, so the priority decides
+    /// how much of the group is compiled rather than which of it can win. The batch costs
+    /// its whole membership without a bounds generator, on wasm, or with the short circuit
+    /// disabled.
     ///
-    /// That early exit is the short circuit, which needs a bounds generator to give the
-    /// round a time limit and is off on wasm, where a benchmark cannot be resolved
-    /// inline, and wherever the config disables it. Without it every member of the batch
-    /// is compiled and benchmarked on a cache miss, so an ordered group costs what its
-    /// whole membership costs where a cutoff group would have stopped at one level.
-    ///
-    /// The batch is planned at the priority of its best member, so a cutoff group at the
-    /// same group priority interleaves with it the way two cutoff groups do: a cutoff
-    /// member above that priority is tried first, one at it joins the batch, and lower
-    /// ones remain fallbacks behind the whole batch.
+    /// The batch sits at the priority of its best member, so a cutoff group at the same
+    /// group priority interleaves with it by priority.
     pub fn ordered(name: &str, f: impl Fn(&K) -> i8 + Send + Sync + 'static) -> Self {
         Self::build(name, f, true)
     }
@@ -165,10 +150,9 @@ struct GroupPlan {
 /// One tunable's place in a [`GroupPlan`]: which tunable, through which group, and the
 /// priority that orders it within its batch.
 ///
-/// The group is its [id](TuneGroup::id) rather than its name, because a name is the
-/// caller's label and two groups may well share one: keying the cross-level dedup in
-/// [`TunePlan::group_plan_next`] on the name would let one group's batch strike a
-/// same-named group's candidate out of the plan entirely.
+/// The group is its id, not its name: a name is the caller's label and two groups may
+/// share one, which the cross-level dedup in [`TunePlan::group_plan_next`] would then
+/// read as a single group and strike a live candidate out of the plan.
 #[derive(Debug)]
 struct Planned {
     index: usize,
@@ -193,9 +177,9 @@ impl TunePlan {
         let mut no_groups = Vec::new();
         let mut groups = HashMap::<i8, GroupPlan>::new();
 
-        // The priority functions belong to the caller, so each is asked once and its
-        // answer carried: an [ordered](TuneGroup::ordered) group is planned as one batch
-        // at its best member's priority, which is not known until every member is priced.
+        // Each of the caller's priority functions is asked once and its answer carried:
+        // an ordered group's level is its best member's priority, which is known only
+        // once every member is priced.
         let mut priced = Vec::new();
         let mut ordered_levels = HashMap::<u32, i8>::new();
 
@@ -231,13 +215,8 @@ impl TunePlan {
                 }
             };
 
-            // An ordered group plans every member that is in the round as one batch; the
-            // priority then orders the batch (`group_plan_next`). The batch sits at the
-            // level of its best member so that a cutoff group planned at the same group
-            // priority interleaves with it: a cutoff member above that level is still
-            // tried first, one level with it joins the batch, and lower ones stay the
-            // fallback behind it. Pinning the batch to `0` instead would let any cutoff
-            // member jump ahead of the whole ordered group.
+            // An ordered group is one batch at its best member's level, so a cutoff
+            // group at the same group priority interleaves with it by priority.
             let level = match group.ordered && priority >= 0 {
                 true => ordered_levels[&group.id],
                 false => priority,
@@ -274,9 +253,8 @@ impl TunePlan {
     ///
     /// Note that if the list is empty, it means no more autotuned entry can be executed.
     pub(crate) fn next(&mut self) -> Vec<usize> {
-        // A tunable in no group states no priority, so it trails the batch rather than
-        // leading it: the group's own order decides what is compiled and benchmarked
-        // first, which is the whole point of an [ordered](TuneGroup::ordered) group.
+        // A tunable in no group states no priority, so it trails the batch: the grouped
+        // candidates decide what is compiled and benchmarked first.
         let ungrouped = core::mem::take(&mut self.no_groups);
         let mut indices = Vec::new();
         let priority = self.priorities.last();
@@ -348,9 +326,7 @@ impl TunePlan {
         let group_plan = self.groups.get_mut(&priority).expect("To be filled");
         let within_group_prio = group_plan.priorities.pop().unwrap();
         let mut next_indices = group_plan.indices.remove(&within_group_prio).unwrap();
-        // Highest priority first, registration order among equals. A level of purely
-        // cutoff members holds one priority and is already in registration order, so this
-        // only moves anything once an ordered group's batch is in the level.
+        // Highest priority first, registration order among equals.
         next_indices.sort_by_key(|planned| (core::cmp::Reverse(planned.priority), planned.index));
 
         let mut cleanup_groups = Vec::new();
@@ -690,8 +666,7 @@ mod tests {
 
     #[test_log::test]
     fn test_plan_ordered_group_is_one_batch_best_first() {
-        // Every member is in the round, highest priority first and registration order
-        // among equals; a negative priority still skips.
+        // Every member is in the round, best first, and a negative priority still skips.
         let group = TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1);
 
         let tunable0 =
@@ -714,8 +689,8 @@ mod tests {
 
     #[test_log::test]
     fn test_plan_ordered_group_keeps_the_group_cutoff() {
-        // The order is within the group; a lower-priority group is still a fallback
-        // reached only when the ordered batch fails.
+        // The order is within the group. A lower-priority group is still a fallback,
+        // reached only once the ordered batch fails.
         let first = TuneGroup::<FakeAutotuneKey>::ordered("first", |_| 2);
         let fallback = TuneGroup::<FakeAutotuneKey>::new("fallback", |_| 1);
 
@@ -736,9 +711,9 @@ mod tests {
 
     #[test_log::test]
     fn test_plan_ordered_batch_leads_the_ungrouped_tunables() {
-        // A tunable in no group has no priority to state, so it must not preempt the
-        // ordered group's best candidate: the batch is benchmarked in order and stops on
-        // the first candidate under the bound, so whatever leads it is what gets compiled.
+        // A tunable in no group must not preempt the ordered group's best candidate. The
+        // batch stops at the first candidate under the bound, so whatever leads it is
+        // what gets compiled.
         let group = TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1);
 
         let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
@@ -756,10 +731,10 @@ mod tests {
 
     #[test_log::test]
     fn test_plan_ordered_batch_is_not_jumped_by_a_cutoff_group_beside_it() {
-        // Both groups are at group priority 1. The ordered batch is planned at its best
-        // member's priority (3), so the cutoff member at 2 is a fallback behind it rather
-        // than a round of its own in front of it — which would both delay the ordered
-        // group's best candidate and let a short circuit skip the group entirely.
+        // Both groups sit at group priority 1. The ordered batch is planned at its best
+        // member's priority, so the cutoff member under it is a fallback behind the batch
+        // and cannot take a round of its own in front of it, where a short circuit would
+        // skip the ordered group whole.
         let ordered = TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1);
         let cutoff = TuneGroup::<FakeAutotuneKey>::new("cutoff", |_| 1);
 
@@ -780,9 +755,9 @@ mod tests {
 
     #[test_log::test]
     fn test_plan_cutoff_member_above_the_ordered_batch_still_leads() {
-        // The interleaving cuts both ways: a cutoff member priced above the ordered
-        // group's best member keeps its round in front, and one priced level with it
-        // joins the batch, ordered among the members by priority.
+        // The interleaving cuts both ways. A cutoff member priced above the ordered
+        // group's best keeps its round in front, and one priced level with it joins the
+        // batch, ordered among the members by priority.
         let ordered = TuneGroup::<FakeAutotuneKey>::ordered("ordered", |_| 1);
         let cutoff = TuneGroup::<FakeAutotuneKey>::new("cutoff", |_| 1);
 
@@ -805,10 +780,9 @@ mod tests {
 
     #[test_log::test]
     fn test_plan_same_named_groups_do_not_strike_each_other_out() {
-        // A name is the caller's label, not an identity: two groups may share one. The
-        // cross-level dedup must key on the group itself, or popping `hi`'s discarded
-        // negative level takes tunable1 out of `lo`'s plan with it and the only viable
-        // candidate is never benchmarked.
+        // Two groups may share a name, and the cross-level dedup must still tell them
+        // apart. Keyed on the name, popping `hi`'s discarded negative level takes
+        // tunable1 out of `lo`'s plan and the only viable candidate is never benchmarked.
         let hi = TuneGroup::<FakeAutotuneKey>::new("shared", |_| 2);
         let lo = TuneGroup::<FakeAutotuneKey>::new("shared", |_| 1);
 

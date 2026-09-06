@@ -156,11 +156,11 @@ pub fn measure_peak_throughput(
     value
 }
 
-/// Calculates roofline autotune bounds for a given [`Work`] amount and compute throughput key.
+/// Both halves of the roofline for a [`Work`] amount, with the memory ceiling a copy's.
 ///
-/// Both halves of the roofline, with the memory ceiling a copy's — traffic in both
-/// directions, the bound for a kernel that reads and writes alike. A kernel bound by one
-/// resource states that half alone with [`compute_bound`] or [`memory_bound`].
+/// A copy's traffic runs in both directions, which is the ceiling for a kernel that reads
+/// and writes alike. A kernel bound by one resource states that half alone with
+/// [`compute_bound`] or [`memory_bound`].
 pub fn roofline_bounds(
     client: &Client,
     compute_key: ThroughputKey,
@@ -184,7 +184,7 @@ pub fn compute_bound(
     work: Work,
     threshold: f32,
 ) -> AutotuneBound {
-    // No ceiling to bound against, which `time_at_peak` already declines.
+    // An unmeasurable ceiling is zero, which `time_at_peak` declines.
     let peak = measure_peak_throughput(client, compute_key).unwrap_or(ThroughputValue::ZERO);
     AutotuneBound {
         resource: ResourceBound {
@@ -195,14 +195,12 @@ pub fn compute_bound(
     }
 }
 
-/// The memory half of a roofline: `work`'s bytes against the ceiling measured in the
-/// direction `access` names, at the work's own footprint.
+/// The memory half of a roofline: `work`'s bytes against the ceiling in the direction
+/// `access` names, at the work's own footprint.
 ///
-/// The direction matters. A kernel whose traffic is nearly all reads — a product streaming
-/// a weight past a handful of activation rows — legitimately exceeds a copy's bandwidth,
-/// because half of a copy's traffic is a direction it never uses; bounding it by
-/// [`MemoryAccess::Copy`] would let a candidate at a fraction of what the bus serves pass
-/// for close enough to peak.
+/// The direction is the caller's because a read-dominated kernel exceeds a copy's
+/// bandwidth, half of which is a direction it never uses. Bounding one by
+/// [`MemoryAccess::Copy`] passes a candidate at a fraction of the bus for close to peak.
 pub fn memory_bound(
     client: &Client,
     access: MemoryAccess,
