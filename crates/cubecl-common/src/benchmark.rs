@@ -208,13 +208,12 @@ pub trait Benchmark {
         vec![]
     }
 
-    /// The work one execution performs, for scoring the run against measured
-    /// peak throughput. `None` when the benchmark has no such figure to report.
-    /// Coarse by necessity: this crate cannot name a throughput key, so
-    /// `calculate_bounds` (in `cubecl-runtime`) is what turns this single
-    /// figure into per-resource bounds, and a caller wanting the achieved
-    /// rate against each of those scores them at the client layer, which
-    /// does have keys.
+    /// The work one execution performs, for scoring the run against measured peak
+    /// throughput. `None` when the benchmark has no such figure to report.
+    ///
+    /// One figure rather than per-resource bounds because this crate cannot name a
+    /// throughput key. A bound builder that can, such as `roofline_bounds` in
+    /// `cubecl-std`, splits it.
     fn work(&self) -> Option<Work> {
         None
     }
