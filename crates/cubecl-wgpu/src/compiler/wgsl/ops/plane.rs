@@ -1,7 +1,55 @@
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{dialect::plane::*, interfaces::TypedExt, prelude::*};
 
-use crate::compiler::wgsl::{lower::LowerOp, to_wgsl::wgsl_op_with_out};
+use crate::compiler::wgsl::{
+    RequiresFeatureOp,
+    lower::LowerOp,
+    to_wgsl::{keep_wgsl_ops_linked, wgsl_op_with_out},
+};
+
+keep_wgsl_ops_linked!(AllOp);
+
+macro_rules! requires_subgroups {
+    ($($ty:ty),* $(,)?) => {
+        $(#[op_interface_impl]
+        impl RequiresFeatureOp for $ty {
+            fn required_feature(&self, _ctx: &Context) -> String {
+                "subgroups".into()
+            }
+        })*
+    };
+}
+
+requires_subgroups!(
+    AllOp,
+    AnyOp,
+    ISumOp,
+    FSumOp,
+    InclusiveISumOp,
+    InclusiveFSumOp,
+    ExclusiveISumOp,
+    ExclusiveFSumOp,
+    IProdOp,
+    FProdOp,
+    InclusiveIProdOp,
+    InclusiveFProdOp,
+    ExclusiveIProdOp,
+    ExclusiveFProdOp,
+    SMinOp,
+    UMinOp,
+    FMinOp,
+    SMaxOp,
+    UMaxOp,
+    FMaxOp,
+    BallotOp,
+    BroadcastOp,
+    ShuffleOp,
+    ShuffleXorOp,
+    ShuffleUpOp,
+    ShuffleDownOp,
+    UniformLoadOp,
+    AtomicUniformLoadOp,
+);
 
 // wgsl_op_with_out!(ElectOp; |_, _| "subgroupElect()".into());
 

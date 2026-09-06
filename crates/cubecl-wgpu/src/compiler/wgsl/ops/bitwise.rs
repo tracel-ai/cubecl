@@ -4,8 +4,10 @@ use pliron::builtin::types::{IntegerType, Signedness};
 
 use crate::compiler::wgsl::{
     lower::lower_unop,
-    to_wgsl::{TypeExtWgsl, wgsl_op_with_out},
+    to_wgsl::{TypeExtWgsl, keep_wgsl_ops_linked, wgsl_op_with_out},
 };
+
+keep_wgsl_ops_linked!(BitwiseAndOp);
 
 wgsl_op_with_out!(BitwiseAndOp; |op, ctx| {
     format!("{} & {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))

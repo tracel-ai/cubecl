@@ -53,6 +53,17 @@ macro_rules! wgsl_op_with_out {
 }
 pub(crate) use wgsl_op_with_out;
 
+macro_rules! keep_wgsl_ops_linked {
+    ($ty:ty) => {
+        #[cfg(target_family = "wasm")]
+        #[inline(never)]
+        pub(super) fn ensure_linked() {
+            core::hint::black_box(<$ty as $crate::compiler::wgsl::to_wgsl::OpToWgsl>::to_wgsl);
+        }
+    };
+}
+pub(crate) use keep_wgsl_ops_linked;
+
 pub(crate) fn closure_inference_hack<T, R>(
     val: &T,
     ctx: &Context,

@@ -84,6 +84,9 @@ impl WgslCompiler {
         value: kernel::KernelDefinition,
         compilation_options: &WgpuCompilationOptions,
     ) -> Result<wgsl::ComputeShader, CompilationError> {
+        #[cfg(target_family = "wasm")]
+        crate::compiler::wgsl::ops::ensure_linked();
+
         let errors = value.body.pop_errors();
         if !errors.is_empty() {
             let mut reason = "Can't compile wgsl kernel".to_string();
