@@ -1,8 +1,8 @@
 use cubecl_ir::dialect::synchronization::{SyncOp, SyncScope};
 
-use crate::compiler::wgsl::to_wgsl::{keep_wgsl_ops_linked, wgsl_op};
+use crate::compiler::wgsl::to_wgsl::{wasm_inventory_root, wgsl_op};
 
-keep_wgsl_ops_linked!(SyncOp);
+wasm_inventory_root!(SyncOp);
 
 wgsl_op!(SyncOp, |op, ctx| {
     match op.scope(ctx).0 {

@@ -7,10 +7,10 @@ use pliron::builtin::types::{IntegerType, Signedness};
 
 use crate::compiler::wgsl::{
     lower::{LowerOp, lower_binop, lower_unop},
-    to_wgsl::{keep_wgsl_ops_linked, wgsl_op_with_out},
+    to_wgsl::{wasm_inventory_root, wgsl_op_with_out},
 };
 
-keep_wgsl_ops_linked!(IAddOp);
+wasm_inventory_root!(IAddOp);
 
 #[op_interface_impl]
 impl LowerOp for Dp4aOp {

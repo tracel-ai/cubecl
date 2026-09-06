@@ -4,10 +4,10 @@ use cubecl_ir::{dialect::plane::*, interfaces::TypedExt, prelude::*};
 use crate::compiler::wgsl::{
     RequiresFeatureOp,
     lower::LowerOp,
-    to_wgsl::{keep_wgsl_ops_linked, wgsl_op_with_out},
+    to_wgsl::{wasm_inventory_root, wgsl_op_with_out},
 };
 
-keep_wgsl_ops_linked!(AllOp);
+wasm_inventory_root!(AllOp);
 
 macro_rules! requires_subgroups {
     ($($ty:ty),* $(,)?) => {

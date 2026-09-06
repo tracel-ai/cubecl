@@ -16,11 +16,11 @@ use pliron::{
 
 use crate::compiler::wgsl::{
     lower::lower_binop,
-    to_wgsl::{AttrToWgsl, TypeExtWgsl, keep_wgsl_ops_linked, wgsl_op, wgsl_op_with_out},
+    to_wgsl::{AttrToWgsl, TypeExtWgsl, wasm_inventory_root, wgsl_op, wgsl_op_with_out},
     value::WgslValue,
 };
 
-keep_wgsl_ops_linked!(BoolAndOp);
+wasm_inventory_root!(BoolAndOp);
 
 wgsl_op_with_out!(BoolAndOp; |op, ctx| {
     format!("{} && {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))

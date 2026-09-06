@@ -8,11 +8,11 @@ use crate::compiler::wgsl::{
     AddressOfOp, GlobalVariableOp,
     lower::LowerOp,
     ops::general::attr_to_wgsl,
-    to_wgsl::{TypeExtWgsl, keep_wgsl_ops_linked, wgsl_op, wgsl_op_with_out},
+    to_wgsl::{TypeExtWgsl, wasm_inventory_root, wgsl_op, wgsl_op_with_out},
     value::WgslValue,
 };
 
-keep_wgsl_ops_linked!(DeclareLocalOp);
+wasm_inventory_root!(DeclareLocalOp);
 
 #[cube_op(name = "wgsl.declare_local")]
 #[result_ty(argument)]

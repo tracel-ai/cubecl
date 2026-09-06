@@ -1,8 +1,8 @@
 use cubecl_ir::dialect::cmp::*;
 
-use crate::compiler::wgsl::to_wgsl::{keep_wgsl_ops_linked, wgsl_op_with_out};
+use crate::compiler::wgsl::to_wgsl::{wasm_inventory_root, wgsl_op_with_out};
 
-keep_wgsl_ops_linked!(IEqualOp);
+wasm_inventory_root!(IEqualOp);
 
 wgsl_op_with_out!(SMinOp, UMinOp, FMinOp; |op, ctx| {
     format!("min({}, {})", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))

@@ -4,11 +4,11 @@ use pliron::r#type::Typed;
 
 use crate::compiler::wgsl::{
     block_to_wgsl,
-    to_wgsl::{TypeExtWgsl, keep_wgsl_ops_linked, wgsl_op},
+    to_wgsl::{TypeExtWgsl, wasm_inventory_root, wgsl_op},
     value::WgslValue,
 };
 
-keep_wgsl_ops_linked!(IfOp);
+wasm_inventory_root!(IfOp);
 
 wgsl_op!(YieldOp, |_, _| String::new());
 wgsl_op!(ConditionOp, |op, ctx| {

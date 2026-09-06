@@ -10,17 +10,15 @@ pub mod sync;
 pub mod vector;
 
 #[cfg(target_family = "wasm")]
-pub(crate) fn ensure_linked() {
-    // Pliron uses inventory for Wasm interface registration. A concrete reference
-    // keeps each module's constructors in the final binary.
-    atomic::ensure_linked();
-    bitwise::ensure_linked();
-    branch::ensure_linked();
-    cmp::ensure_linked();
-    general::ensure_linked();
-    math::ensure_linked();
-    memory::ensure_linked();
-    plane::ensure_linked();
-    sync::ensure_linked();
-    vector::ensure_linked();
+pub(crate) fn wasm_inventory_root() {
+    atomic::wasm_inventory_root();
+    bitwise::wasm_inventory_root();
+    branch::wasm_inventory_root();
+    cmp::wasm_inventory_root();
+    general::wasm_inventory_root();
+    math::wasm_inventory_root();
+    memory::wasm_inventory_root();
+    plane::wasm_inventory_root();
+    sync::wasm_inventory_root();
+    vector::wasm_inventory_root();
 }

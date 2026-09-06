@@ -85,7 +85,7 @@ impl WgslCompiler {
         compilation_options: &WgpuCompilationOptions,
     ) -> Result<wgsl::ComputeShader, CompilationError> {
         #[cfg(target_family = "wasm")]
-        crate::compiler::wgsl::ops::ensure_linked();
+        crate::compiler::wgsl::ops::wasm_inventory_root();
 
         let errors = value.body.pop_errors();
         if !errors.is_empty() {
