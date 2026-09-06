@@ -3,7 +3,6 @@ use core::time::Duration;
 use alloc::vec::Vec;
 
 use crate::config::autotune::AutotuneLevel;
-use crate::throughput::{ThroughputKey, ThroughputValue};
 use crate::tune::TuneInputs;
 
 // A bound-builder constructs `AutotuneBound { resource: ResourceBound { .. }, .. }`
@@ -100,22 +99,26 @@ impl Thresholds {
         }
     }
 
-    /// The fraction of peak an [`AutotuneLevel`] settles for, or `None` where the level
-    /// measures every candidate.
+    /// No fraction of peak is close enough, which is [`UNBOUNDED`](Self::UNBOUNDED): a
+    /// threshold of zero is not normal, so [`AutotuneBound::time_limit`] declines to give
+    /// a limit and the short circuit stays off, leaving every candidate to be measured.
+    pub const UNBOUNDED: Self = Self::uniform(0.0);
+
+    /// The fraction of peak an [`AutotuneLevel`] settles for.
     ///
     /// A higher threshold is a *tighter* time limit, since the limit is the roofline time
     /// divided by the threshold: a candidate has to land closer to peak before autotune
     /// stops looking. `Minimal` settles for the first decent candidate, `Extensive` keeps
-    /// searching, and `Full` sets no limit at all.
+    /// searching, and `Full` is [`UNBOUNDED`](Self::UNBOUNDED) — it measures everything.
     ///
     /// The fractions come from small ad-hoc observations rather than a systematic sweep;
     /// nothing should depend on the exact values.
-    pub const fn for_level(level: &AutotuneLevel) -> Option<Self> {
+    pub const fn for_level(level: &AutotuneLevel) -> Self {
         match level {
-            AutotuneLevel::Minimal => Some(Self::uniform(0.6)),
-            AutotuneLevel::Balanced => Some(Self::uniform(0.8)),
-            AutotuneLevel::Extensive => Some(Self::uniform(0.95)),
-            AutotuneLevel::Full => None,
+            AutotuneLevel::Minimal => Self::uniform(0.6),
+            AutotuneLevel::Balanced => Self::uniform(0.8),
+            AutotuneLevel::Extensive => Self::uniform(0.95),
+            AutotuneLevel::Full => Self::UNBOUNDED,
         }
     }
 }
@@ -128,35 +131,12 @@ impl Default for Thresholds {
     }
 }
 
-/// Standardizes the creation of compute and memory [`AutotuneBound`]s.
-pub fn calculate_bounds(
-    work: Work,
-    thresholds: Thresholds,
-    compute_throughput: &ThroughputValue,
-    memory_throughput: &ThroughputValue,
-    memory_key: &ThroughputKey,
-) -> Vec<AutotuneBound> {
-    alloc::vec![
-        AutotuneBound {
-            resource: ResourceBound {
-                amount: work.compute_ops,
-                peak_per_s: compute_throughput.ops_per_s(),
-            },
-            threshold: thresholds.compute,
-        },
-        AutotuneBound {
-            resource: ResourceBound {
-                amount: work.bytes,
-                peak_per_s: memory_throughput.bytes_per_s(memory_key),
-            },
-            threshold: thresholds.memory,
-        },
-    ]
-}
-
 impl TimeBound for AutotuneBound {
     fn time_limit(&self) -> Option<Duration> {
-        if !self.threshold.is_normal() {
+        // A threshold divides the roofline time, so anything but a positive normal is no
+        // limit at all rather than a limit to compute: zero and subnormals would divide
+        // the limit out to nothing, and a negative one would panic `div_f64` outright.
+        if self.threshold <= 0.0 || !self.threshold.is_normal() {
             return None;
         }
         self.resource
@@ -181,8 +161,6 @@ impl TimeBound for Bounds {
 
 #[cfg(test)]
 mod tests {
-    use crate::throughput::{MemoryAccess, ThroughputMode};
-
     use super::*;
     use alloc::vec;
 
@@ -211,6 +189,16 @@ mod tests {
         assert_eq!(bound(8, f64::NAN, 0.5).time_limit(), None);
         assert_eq!(bound(8, f64::INFINITY, 0.5).time_limit(), None);
         assert_eq!(bound(8, 4.0, 0.0).time_limit(), None);
+    }
+
+    #[test]
+    fn time_limit_declines_a_negative_threshold_rather_than_panicking() {
+        // A negative threshold is normal, so the `is_normal` guard alone lets it reach
+        // `Duration::div_f64`, which panics on a negative divisor. `compute_bound` and
+        // `memory_bound` take a bare `f32` from the caller, so a computed threshold that
+        // goes negative would take the device thread down with it.
+        assert_eq!(bound(8, 4.0, -0.5).time_limit(), None);
+        assert_eq!(bound(8, 4.0, f32::NEG_INFINITY).time_limit(), None);
     }
 
     #[test]
@@ -243,39 +231,23 @@ mod tests {
     }
 
     #[test]
-    fn calculate_bounds_applies_a_threshold_per_resource() {
-        let work = Work {
-            compute_ops: 8,
-            bytes: 16,
-        };
-        let thresholds = Thresholds {
-            compute: 0.5,
-            memory: 1.0,
-        };
-        let key = ThroughputKey {
-            mode: ThroughputMode::memory(MemoryAccess::Copy),
-        };
-
-        let bounds = calculate_bounds(
-            work,
-            thresholds,
-            &ThroughputValue::ZERO,
-            &ThroughputValue::ZERO,
-            &key,
+    fn a_level_tightens_the_limit_as_it_rises() {
+        let threshold = |level| Thresholds::for_level(&level).compute;
+        assert!(threshold(AutotuneLevel::Minimal) < threshold(AutotuneLevel::Balanced));
+        assert!(threshold(AutotuneLevel::Balanced) < threshold(AutotuneLevel::Extensive));
+        assert_eq!(
+            Thresholds::for_level(&AutotuneLevel::Full),
+            Thresholds::UNBOUNDED,
+            "full measures everything"
         );
-
-        assert_eq!(bounds[0].resource.amount, 8);
-        assert_eq!(bounds[0].threshold, 0.5);
-        assert_eq!(bounds[1].resource.amount, 16);
-        assert_eq!(bounds[1].threshold, 1.0);
     }
 
     #[test]
-    fn a_level_tightens_the_limit_as_it_rises() {
-        let limit = |level| Thresholds::for_level(&level).map(|t| t.compute);
-        assert!(limit(AutotuneLevel::Minimal) < limit(AutotuneLevel::Balanced));
-        assert!(limit(AutotuneLevel::Balanced) < limit(AutotuneLevel::Extensive));
-        assert_eq!(limit(AutotuneLevel::Full), None, "full measures everything");
+    fn an_unbounded_threshold_gives_no_time_limit() {
+        // What makes `Full` safe to hand to a bound like any other threshold: it produces
+        // no limit at all, rather than the tightest one of the levels.
+        let unbounded = bound(8, 4.0, Thresholds::UNBOUNDED.compute);
+        assert_eq!(unbounded.time_limit(), None);
     }
 
     #[test]
