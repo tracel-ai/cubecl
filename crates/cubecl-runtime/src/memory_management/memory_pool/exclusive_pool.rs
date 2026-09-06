@@ -209,7 +209,7 @@ impl MemoryPool for ExclusiveMemoryPool {
         let (idx, page) = self.alloc_page(storage, size)?;
         let handle = page.slice.handle.clone();
         let mut location = self.location_base;
-        location.page = idx as u16;
+        location.page = idx;
         handle.descriptor().update_location(location);
         self.largest_alloc = self.largest_alloc.max(size);
 
@@ -261,10 +261,7 @@ impl MemoryPool for ExclusiveMemoryPool {
                 }
 
                 let page_index = self.pages_tmp.len();
-                page.slice
-                    .handle
-                    .descriptor()
-                    .update_page(page_index as u16);
+                page.slice.handle.descriptor().update_page(page_index);
                 self.pages_tmp.push(page);
             }
 
