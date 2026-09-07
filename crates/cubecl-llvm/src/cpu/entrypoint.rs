@@ -86,20 +86,8 @@ pub(crate) fn absolute_pos_z(cube_pos_z: u32, unit_pos_z: u32, #[comptime] cube_
 }
 
 #[cube]
-pub(crate) fn absolute_pos(
-    absolute_pos_x: u32,
-    absolute_pos_y: u32,
-    absolute_pos_z: u32,
-    cube_count_x: u32,
-    cube_count_y: u32,
-    #[comptime] cube_dim_x: u32,
-    #[comptime] cube_dim_y: u32,
-) -> usize {
-    let units_x = cube_count_x as usize * cube_dim_x as usize;
-    let units_y = cube_count_y as usize * cube_dim_y as usize;
-    absolute_pos_z as usize * units_x * units_y
-        + absolute_pos_y as usize * units_x
-        + absolute_pos_x as usize
+pub(crate) fn absolute_pos(cube_pos: usize, unit_pos: u32, #[comptime] cube_dim: u32) -> usize {
+    cube_pos * cube_dim as usize + unit_pos as usize
 }
 
 #[cube]
@@ -347,19 +335,6 @@ fn insert_skeleton(
                 .value(&scope_x);
         builtins.set(Builtin::AbsolutePosX, absolute_pos_x);
 
-        let absolute_pos = absolute_pos::expand(
-            &scope_x,
-            absolute_pos_x.into(),
-            builtins.expect(Builtin::AbsolutePosY).into(),
-            builtins.expect(Builtin::AbsolutePosZ).into(),
-            cube_count_x.into(),
-            cube_count_y.into(),
-            cube_dim.x,
-            cube_dim.y,
-        )
-        .value(&scope_x);
-        builtins.set(Builtin::AbsolutePos, absolute_pos);
-
         let cube_pos = cube_pos::expand(
             &scope_x,
             cube_pos_x.into(),
@@ -370,6 +345,15 @@ fn insert_skeleton(
         )
         .value(&scope_x);
         builtins.set(Builtin::CubePos, cube_pos);
+
+        let absolute_pos = absolute_pos::expand(
+            &scope_x,
+            cube_pos.into(),
+            builtins.expect(Builtin::UnitPos).into(),
+            cube_dim.num_elems(),
+        )
+        .value(&scope_x);
+        builtins.set(Builtin::AbsolutePos, absolute_pos);
     }
 
     scope_y.register(&loop_x);
