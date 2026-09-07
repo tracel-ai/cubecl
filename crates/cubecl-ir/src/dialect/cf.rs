@@ -241,7 +241,7 @@ impl BranchOpInterface for BranchConditionalOp {
 #[pliron_op(
     name = "cf.switch",
     operands = (value: IntegerType),
-    attributes = (switch_case_values: IntegerVecAttr)
+    attributes = (cf_switch_case_values: IntegerVecAttr)
 )]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>, OperandSegmentInterface)]
 pub struct SwitchOp;
@@ -446,7 +446,7 @@ impl SwitchOp {
         // Set the operand segment sizes attribute.
         op.set_operand_segment_sizes(ctx, segment_sizes);
         // Set the case values
-        op.set_attr_switch_case_values(ctx, IntegerVecAttr(case_values));
+        op.set_attr_cf_switch_case_values(ctx, IntegerVecAttr(case_values));
         op
     }
 
@@ -454,7 +454,7 @@ impl SwitchOp {
     /// (The default case cannot be / isn't included here).
     pub fn cases(&self, ctx: &Context) -> Vec<SwitchCase> {
         let case_values = &*self
-            .get_attr_switch_case_values(ctx)
+            .get_attr_cf_switch_case_values(ctx)
             .expect("SwitchOp missing or incorrect case values attribute");
 
         let op = self.get_operation().deref(ctx);
@@ -605,7 +605,7 @@ impl BranchOpFoldInterface for SwitchOp {
             .value();
         // Successor 0 is the default destination; successors 1..N correspond to case_values[0..N-1].
         let case_values = self
-            .get_attr_switch_case_values(ctx)
+            .get_attr_cf_switch_case_values(ctx)
             .expect("SwitchOp missing case values attribute");
         let taken = case_values
             .0
