@@ -344,7 +344,7 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'i>: Clone + Send,
     {
-        let schedule = crate::tune::schedule::Schedule {
+        let mut schedule = crate::tune::schedule::Schedule {
             config: crate::config::CubeClRuntimeConfig::get()
                 .autotune
                 .bench
@@ -352,6 +352,7 @@ impl<K: AutotuneKey> Tuner<K> {
             limit: job.limit,
             short_circuit: job.short_circuit,
             track_steps: job.log_context.is_some(),
+            evictor: job.evictor.take(),
         };
 
         let outcome = schedule.run_plan(
@@ -360,7 +361,6 @@ impl<K: AutotuneKey> Tuner<K> {
             &job.autotunables,
             &job.test_inputs,
             client,
-            job.evictor.as_deref_mut(),
             &mut job.results,
         );
 

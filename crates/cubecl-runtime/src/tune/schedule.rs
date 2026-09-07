@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::time::Duration;
@@ -38,27 +39,27 @@ pub(crate) struct BatchOutcome {
 /// past kernels a fixed pass would have accepted and stopped at. Measured at +13.6% total tuning
 /// cost on one card and −20% on another, both dominated by where the short circuit fires rather
 /// than by the sample budget.
-#[derive(Debug)]
-pub(crate) struct Schedule {
+pub(crate) struct Schedule<'i> {
     pub(crate) config: BenchConfig,
     pub(crate) limit: Option<Duration>,
     pub(crate) short_circuit: bool,
     pub(crate) track_steps: bool,
+    /// What runs before every measured sample, when the set registered one.
+    pub(crate) evictor: Option<Box<Evictor<'i>>>,
 }
 
-impl Schedule {
+impl Schedule<'_> {
     /// Benchmark one batch of candidates, blocking until the batch is decided.
     ///
     /// Takes exclusive device access for the entire round robin: candidates are interleaved, so
     /// releasing the device between them would let unrelated work land in the middle of a
     /// measurement.
     pub(crate) fn run_batch<'a, F: TuneInputs, Out: AutotuneOutput>(
-        &self,
+        &mut self,
         indices: Vec<usize>,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
         client: &Client,
-        evictor: Option<&mut Evictor<'_>>,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
@@ -67,13 +68,7 @@ impl Schedule {
         let run = || {
             let _real_run = crate::dry_run::RealRun::new();
 
-            cubecl_environment::future::block_on(self.drive(
-                indices,
-                autotunables,
-                inputs,
-                client,
-                evictor,
-            ))
+            cubecl_environment::future::block_on(self.drive(indices, autotunables, inputs, client))
         };
 
         match client.clone().exclusive(run) {
@@ -98,12 +93,11 @@ impl Schedule {
     }
 
     async fn drive<'a, F: TuneInputs, Out: AutotuneOutput>(
-        &self,
+        &mut self,
         indices: Vec<usize>,
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
         client: &Client,
-        mut evictor: Option<&mut Evictor<'_>>,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone,
@@ -124,13 +118,7 @@ impl Schedule {
             let launched = self.track_steps.then(Instant::now);
             let operation = autotunables[candidates[slot].index];
             let hit = self
-                .first_pass(
-                    operation,
-                    &inputs,
-                    client,
-                    evictor.as_deref_mut(),
-                    &mut candidates[slot],
-                )
+                .first_pass(operation, &inputs, client, &mut candidates[slot])
                 .await;
 
             if let Some(launched) = launched {
@@ -170,7 +158,7 @@ impl Schedule {
                 match autotunables[candidate.index].sample_once(
                     inputs.clone(),
                     client,
-                    evictor.as_deref_mut(),
+                    self.evictor.as_deref_mut(),
                 ) {
                     Ok(profile) => {
                         candidate.method.get_or_insert(profile.timing_method());
@@ -273,11 +261,10 @@ impl Schedule {
     /// Warm up a candidate and take its first sample, confirming on the spot if it already
     /// looks close enough to peak throughput. Returns whether the batch can stop here.
     async fn first_pass<'a, F: TuneInputs, Out: AutotuneOutput>(
-        &self,
+        &mut self,
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
-        mut evictor: Option<&mut Evictor<'_>>,
         candidate: &mut Candidate,
     ) -> bool
     where
@@ -288,10 +275,7 @@ impl Schedule {
             return false;
         }
 
-        if !self
-            .take_sample(operation, inputs, client, evictor.as_deref_mut(), candidate)
-            .await
-        {
+        if !self.take_sample(operation, inputs, client, candidate).await {
             return false;
         }
 
@@ -305,10 +289,7 @@ impl Schedule {
 
         let required = self.config.short_circuit_samples();
         while candidate.samples.len() < required {
-            if !self
-                .take_sample(operation, inputs, client, evictor.as_deref_mut(), candidate)
-                .await
-            {
+            if !self.take_sample(operation, inputs, client, candidate).await {
                 return false;
             }
         }
@@ -318,17 +299,16 @@ impl Schedule {
 
     /// Queue one sample and resolve it immediately. Returns whether the candidate survived.
     async fn take_sample<'a, F: TuneInputs, Out: AutotuneOutput>(
-        &self,
+        &mut self,
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
-        evictor: Option<&mut Evictor<'_>>,
         candidate: &mut Candidate,
     ) -> bool
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        match operation.sample_once(inputs.clone(), client, evictor) {
+        match operation.sample_once(inputs.clone(), client, self.evictor.as_deref_mut()) {
             Ok(profile) => {
                 candidate.method.get_or_insert(profile.timing_method());
                 candidate.samples.push(profile.resolve().await.duration());
@@ -396,17 +376,13 @@ impl Schedule {
     }
 
     /// Walk the plan batch by batch until one produces a usable measurement.
-    // The key is here for the diagnostics alone, and the rest is what one batch needs to run
-    // on; bundling them would buy a struct that is built once and taken apart once.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_plan<'a, K, F, Out>(
-        &self,
+        &mut self,
         key: &K,
         plan: &mut TunePlan,
         autotunables: &[&TuneFn<F, Out>],
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
-        mut evictor: Option<&mut Evictor<'_>>,
         results: &mut [AutotuneResult],
     ) -> PlanOutcome
     where
@@ -457,13 +433,7 @@ impl Schedule {
                 );
             }
 
-            let outcome = self.run_batch(
-                indices,
-                autotunables,
-                inputs.clone(),
-                client,
-                evictor.as_deref_mut(),
-            );
+            let outcome = self.run_batch(indices, autotunables, inputs.clone(), client);
 
             for (index, result) in outcome.results {
                 results[index] = result;
@@ -547,7 +517,7 @@ mod tests {
     use super::*;
     use alloc::vec;
 
-    fn schedule(speed_factor: f64) -> Schedule {
+    fn schedule(speed_factor: f64) -> Schedule<'static> {
         Schedule {
             config: BenchConfig {
                 speed_factor,
@@ -556,6 +526,7 @@ mod tests {
             limit: None,
             short_circuit: false,
             track_steps: false,
+            evictor: None,
         }
     }
 
