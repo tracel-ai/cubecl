@@ -27,7 +27,7 @@ use pliron::{
 use crate::{
     ConstantValue,
     apfloat::{APFloat, APFloatType},
-    interfaces::{ConstantAttr, TypedExt, control_flow::SymbolVisiblity},
+    interfaces::{ConstantAttr, TypedExt, control_flow::SymbolVisibility},
     settings::Dim3,
     try_cast_ty,
     types::scalar::*,
@@ -500,7 +500,7 @@ literal!(half::bf16, BFloat16Type);
 literal!(f32, Float32Type);
 literal!(f64, Float64Type);
 
-/// Symbol visibiltiy
+/// Symbol visibility
 #[pliron_attr(name = "cube.sym_visibility", format = "$0", verifier = "succ")]
 #[derive(new, PartialEq, Eq, Clone, Copy, Debug, Hash, From, Into)]
-pub struct SymbolVisibilityAttr(pub SymbolVisiblity);
+pub struct SymbolVisibilityAttr(pub SymbolVisibility);

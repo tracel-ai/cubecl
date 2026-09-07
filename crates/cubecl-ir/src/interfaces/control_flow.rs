@@ -83,7 +83,7 @@ impl CallableOpInterface for FuncOp {
 
 #[format]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum SymbolVisiblity {
+pub enum SymbolVisibility {
     Public,
     Private,
     Nested,
@@ -93,19 +93,19 @@ pub enum SymbolVisiblity {
 pub trait SymbolOpInterface: pliron::builtin::op_interfaces::SymbolOpInterface {
     verify_op_succ!();
 
-    fn get_visibility(&self, ctx: &Context) -> SymbolVisiblity;
-    fn set_visibility(&self, ctx: &mut Context, visibility: SymbolVisiblity);
+    fn get_visibility(&self, ctx: &Context) -> SymbolVisibility;
+    fn set_visibility(&self, ctx: &mut Context, visibility: SymbolVisibility);
 
     fn is_public(&self, ctx: &Context) -> bool {
-        matches!(self.get_visibility(ctx), SymbolVisiblity::Public)
+        matches!(self.get_visibility(ctx), SymbolVisibility::Public)
     }
 
     fn is_private(&self, ctx: &Context) -> bool {
-        matches!(self.get_visibility(ctx), SymbolVisiblity::Private)
+        matches!(self.get_visibility(ctx), SymbolVisibility::Private)
     }
 
     fn is_nested(&self, ctx: &Context) -> bool {
-        matches!(self.get_visibility(ctx), SymbolVisiblity::Nested)
+        matches!(self.get_visibility(ctx), SymbolVisibility::Nested)
     }
 }
 

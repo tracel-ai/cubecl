@@ -141,20 +141,20 @@ macro_rules! SymbolVisibility {
             fn get_visibility(
                 &self,
                 ctx: &$crate::pliron::context::Context,
-            ) -> $crate::interfaces::control_flow::SymbolVisiblity {
+            ) -> $crate::interfaces::control_flow::SymbolVisibility {
                 use $crate::pliron::op::Op;
                 let op = self.get_operation().deref(ctx);
                 let attr: Option<&$crate::attributes::SymbolVisibilityAttr> = op
                     .attributes
                     .get(&$crate::interfaces::traits::ATTR_KEY_SYM_VISIBILITY);
                 attr.map(|it| it.0)
-                    .unwrap_or($crate::interfaces::control_flow::SymbolVisiblity::Public)
+                    .unwrap_or($crate::interfaces::control_flow::SymbolVisibility::Public)
             }
 
             fn set_visibility(
                 &self,
                 ctx: &mut $crate::pliron::context::Context,
-                visibility: $crate::interfaces::control_flow::SymbolVisiblity,
+                visibility: $crate::interfaces::control_flow::SymbolVisibility,
             ) {
                 use $crate::pliron::op::Op;
                 let mut op = self.get_operation().deref_mut(ctx);

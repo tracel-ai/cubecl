@@ -1,6 +1,6 @@
 use crate::{
     EnumSet,
-    interfaces::control_flow::{SymbolOpInterface, SymbolVisiblity},
+    interfaces::control_flow::{SymbolOpInterface, SymbolVisibility},
 };
 use alloc::{boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::{
@@ -318,7 +318,7 @@ fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
     let entry_name = Identifier::try_new(settings.kernel_name).unwrap_or(ident("kernel_entry"));
     let abi = EntrypointAbiAttr::new(settings.cube_dim, settings.cluster_dim);
     let entry_func = FuncOp::new(&mut ctx, entry_name, entry_func_ty);
-    entry_func.set_visibility(&mut ctx, SymbolVisiblity::Public);
+    entry_func.set_visibility(&mut ctx, SymbolVisibility::Public);
     entry_func.set_entrypoint_abi(&mut ctx, abi);
     module_inserter.append_op(&ctx, &entry_func);
 
@@ -542,7 +542,7 @@ impl Scope {
     pub fn register_func(&self, func: FuncOp) {
         let ctx = self.ctx_mut();
         let state = self.state_mut();
-        func.set_visibility(ctx, SymbolVisiblity::Private);
+        func.set_visibility(ctx, SymbolVisibility::Private);
         state.module_inserter.append_op(ctx, &func);
     }
 
