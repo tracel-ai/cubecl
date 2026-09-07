@@ -271,7 +271,10 @@ impl UniformOpInterface for ReadBuiltinOp {
     }
 }
 
-#[cube_op(name = "cube.read_scalar")]
+#[cube_op(
+    name = "cube.read_scalar",
+    format = "`<` attr($ty, $TypeAttr) `>[` attr($id, $IndexAttr) `] : ` type($0)"
+)]
 #[result_ty(from_inputs = |ctx, ty: &TypeAttr, _| ty.get_type(ctx))]
 #[op_traits(Pure, CanMaterialize)]
 pub struct ReadScalarOp {
@@ -292,7 +295,10 @@ pub struct FreeOp {
     pub memory: Value,
 }
 
-#[cube_op(name = "cube.buffer_len")]
+#[cube_op(
+    name = "cube.buffer_len",
+    format = "`buffer_` attr($buffer_idx, $IndexAttr) `: ` type($0)"
+)]
 #[result_ty(fixed = IndexType::get(ctx).into())]
 #[op_traits(Pure, CanMaterialize)]
 pub struct BufferLenOp {

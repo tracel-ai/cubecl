@@ -1174,7 +1174,7 @@ impl RegionBranchOpInterface for WhileOp {
 #[op_interface_impl]
 impl UniformRegionOpInterface for WhileOp {
     fn result_uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
-        Uniformity::Device
+        Uniformity::Cube
     }
 
     fn entry_successor_region_uniformity(
@@ -1182,7 +1182,7 @@ impl UniformRegionOpInterface for WhileOp {
         _ctx: &Context,
         _operands: &[Uniformity],
     ) -> Vec<Uniformity> {
-        vec![Uniformity::Device]
+        vec![Uniformity::Cube]
     }
 }
 

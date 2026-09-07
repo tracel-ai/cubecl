@@ -1,10 +1,12 @@
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{dialect::plane, interfaces::TypedExt, prelude::*, types::scalar::BoolType};
+use cubecl_opt::passes::uniformity::op_dyn_uniformity;
 use pliron::builtin::ops::ConstantOp;
 use pliron_spirv::ops::{self, ControlBarrierOp};
 use rspirv::spirv::{GroupOperation, MemoryAccess, MemorySemantics, Scope};
 
 use crate::{
+    decorate_uniform,
     lower::LowerOp,
     ops::{atomic::semantics_r, to_spirv_dialect::ToSpirvDialectOp},
     types::ty_to_spirv_dialect,
@@ -39,9 +41,11 @@ macro_rules! plane_unop_to_spirv_dialect {
                 _operands_info: &OperandsInfo,
             ) -> Result<()> {
                 let op = self.get_operation();
+                let uniformity = cubecl_opt::passes::uniformity::op_dyn_uniformity(ctx, op);
                 let inp = op.operand(ctx, 0);
                 let out_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
                 let new_op = <$new_ty>::new(ctx, out_ty, Scope::Subgroup, inp);
+                crate::compiler::decorate_uniform(ctx, new_op.get_operation(), uniformity);
                 rewriter.append_op(ctx, &new_op);
                 rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -62,10 +66,12 @@ macro_rules! plane_binop_to_spirv_dialect {
                 _operands_info: &OperandsInfo,
             ) -> Result<()> {
                 let op = self.get_operation();
+                let uniformity = cubecl_opt::passes::uniformity::op_dyn_uniformity(ctx, op);
                 let value = op.operand(ctx, 0);
                 let lane = op.operand(ctx, 1);
                 let out_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
                 let new_op = <$new_ty>::new(ctx, out_ty, Scope::Subgroup, value, lane);
+                crate::compiler::decorate_uniform(ctx, new_op.get_operation(), uniformity);
                 rewriter.append_op(ctx, &new_op);
                 rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -86,9 +92,11 @@ macro_rules! plane_reduce_op_to_spirv_dialect {
                 _operands_info: &OperandsInfo,
             ) -> Result<()> {
                 let op = self.get_operation();
+                let uniformity = cubecl_opt::passes::uniformity::op_dyn_uniformity(ctx, op);
                 let inp = op.operand(ctx, 0);
                 let out_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
                 let new_op = <$new_ty>::new(ctx, out_ty, Scope::Subgroup, $action, inp, None);
+                crate::compiler::decorate_uniform(ctx, new_op.get_operation(), uniformity);
                 rewriter.append_op(ctx, &new_op);
                 rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -138,6 +146,7 @@ impl ToSpirvDialectOp for plane::BroadcastOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let value = self.input(ctx);
         let lane = *self.lane(ctx);
         let lane_const = ConstantOp::new(ctx, lane.into());
@@ -146,6 +155,7 @@ impl ToSpirvDialectOp for plane::BroadcastOp {
         let out_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
         let new_op =
             ops::GroupNonUniformBroadcastOp::new(ctx, out_ty, Scope::Subgroup, value, lane);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -162,6 +172,7 @@ impl ToSpirvDialectOp for plane::UniformLoadOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         // `workgroup_uniform_load` is a barrier plus a load: WGSL's
         // `workgroupUniformLoad` synchronises, and callers rely on that to
         // publish a value written by one unit before the rest read it.
@@ -176,6 +187,7 @@ impl ToSpirvDialectOp for plane::UniformLoadOp {
         let align = self.result_type(ctx).align(ctx) as u32;
         let out_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
         let new_op = ops::LoadOp::new(ctx, out_ty, ptr, MemoryAccess::ALIGNED, Some(align));
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
         Ok(())
@@ -191,6 +203,7 @@ impl ToSpirvDialectOp for plane::AtomicUniformLoadOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         // `workgroup_uniform_load` is a barrier plus a load: WGSL's
         // `workgroupUniformLoad` synchronises, and callers rely on that to
         // publish a value written by one unit before the rest read it.
@@ -205,6 +218,7 @@ impl ToSpirvDialectOp for plane::AtomicUniformLoadOp {
         let semantics = semantics_r(ctx, ptr);
         let out_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
         let new_op = ops::AtomicLoadOp::new(ctx, out_ty, ptr, Scope::Subgroup, semantics);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
         Ok(())

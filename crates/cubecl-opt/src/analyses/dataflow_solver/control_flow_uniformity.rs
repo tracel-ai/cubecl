@@ -213,13 +213,18 @@ impl BlockUniformityAnalysis {
 
         // Const-folded successors inherit uniformity
         if successors.len() == 1 {
-            let (entry, _) = successors[0];
+            let Some(entry) = successors[0].0 else {
+                return;
+            };
             let state = solver.get_or_create_mut::<BlockUniformity>(entry);
             solver.update_state(ctx, &state, |it| it.join(parent_uniformity));
             return;
         }
 
         for (entry, uniformity) in successors {
+            let Some(entry) = entry else {
+                continue;
+            };
             let uniformity = uniformity.min(parent_uniformity);
             let state = solver.get_or_create_mut::<BlockUniformity>(entry);
             solver.update_state(ctx, &state, |it| it.join(uniformity));
@@ -231,7 +236,7 @@ impl BlockUniformityAnalysis {
         ctx: &Context,
         op: Ptr<Operation>,
         successors: impl Iterator<Item = (RegionSuccessor, Uniformity)>,
-    ) -> SmallVec<[(Ptr<BasicBlock>, Uniformity); 4]> {
+    ) -> SmallVec<[(Option<Ptr<BasicBlock>>, Uniformity); 4]> {
         successors
             .filter_map(|(successor, uniformity)| match successor {
                 RegionSuccessor::Region(region) => {
@@ -241,11 +246,11 @@ impl BlockUniformityAnalysis {
                         ProgramPoint::at_block_start(ctx, entry).into(),
                     );
                     match executable.deref().is_live() {
-                        true => Some((entry, uniformity)),
+                        true => Some((Some(entry), uniformity)),
                         false => None,
                     }
                 }
-                RegionSuccessor::AfterOp => None,
+                RegionSuccessor::AfterOp => Some((None, uniformity)),
             })
             .collect()
     }
@@ -279,13 +284,18 @@ impl BlockUniformityAnalysis {
 
         // Const-folded successors inherit uniformity
         if successors.len() == 1 {
-            let (entry, _) = successors[0];
+            let Some(entry) = successors[0].0 else {
+                return;
+            };
             let state = solver.get_or_create_mut::<BlockUniformity>(entry);
             solver.update_state(ctx, &state, |it| it.join(parent_uniformity));
             return;
         }
 
         for (entry, uniformity) in successors {
+            let Some(entry) = entry else {
+                continue;
+            };
             let uniformity = uniformity.min(parent_uniformity);
             let state = solver.get_or_create_mut::<BlockUniformity>(entry);
             solver.update_state(ctx, &state, |it| it.join(uniformity));

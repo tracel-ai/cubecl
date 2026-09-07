@@ -10,7 +10,7 @@ use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CompiledKernel, CubeKernel, KernelDefinition, Visibility},
-    server::{IoError, KernelArguments, Server},
+    server::{IoError, KernelArguments},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{DeviceProperties, Type, features::*};

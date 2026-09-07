@@ -192,9 +192,12 @@ impl SparseForwardDataflowAnalysis for StrictValueUniformity {
         );
         let block_uniformity = block_lattice.deref().value();
 
-        for (result, lattice) in op.deref(ctx).operands().zip(results) {
-            let dynamic = solver.get_or_create::<DynamicUniformityLattice>(result);
-            dynamic.deref().use_def_subscribe::<SparseForward<Self>>();
+        for (result, lattice) in op.deref(ctx).results().zip(results) {
+            let dynamic = solver
+                .get_or_create_for::<SparseForward<Self>, DynamicUniformityLattice>(
+                    ProgramPoint::after_op(ctx, op),
+                    result,
+                );
             let uniformity = dynamic.deref().value().0.min(block_uniformity);
             solver.update_state(ctx, lattice, |it| it.join(&uniformity.into()));
         }

@@ -500,7 +500,7 @@ literal!(half::bf16, BFloat16Type);
 literal!(f32, Float32Type);
 literal!(f64, Float64Type);
 
-/// A boolean attribute
+/// Symbol visibiltiy
 #[pliron_attr(name = "cube.sym_visibility", format = "$0", verifier = "succ")]
 #[derive(new, PartialEq, Eq, Clone, Copy, Debug, Hash, From, Into)]
 pub struct SymbolVisibilityAttr(pub SymbolVisiblity);

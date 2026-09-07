@@ -9,9 +9,11 @@ macro_rules! unop_to_spirv_dialect {
                 _operands_info: &OperandsInfo,
             ) -> Result<()> {
                 let op = self.get_operation();
+                let uniformity = cubecl_opt::passes::uniformity::op_dyn_uniformity(ctx, op);
                 let inp = op.operand(ctx, 0);
                 let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
                 let new_op = <$new_ty>::new(ctx, out_ty, inp, $($extra),*);
+                crate::compiler::decorate_uniform(ctx, new_op.get_operation(), uniformity);
                 rewriter.append_op(ctx, &new_op);
                 rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -33,10 +35,12 @@ macro_rules! binop_to_spirv_dialect {
                 _operands_info: &OperandsInfo,
             ) -> Result<()> {
                 let op = self.get_operation();
+                let uniformity = cubecl_opt::passes::uniformity::op_dyn_uniformity(ctx, op);
                 let lhs = op.operand(ctx, 0);
                 let rhs = op.operand(ctx, 1);
                 let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
                 let new_op = <$new_ty>::new(ctx, out_ty, lhs, rhs, $($extra),*);
+                crate::compiler::decorate_uniform(ctx, new_op.get_operation(), uniformity);
                 rewriter.append_op(ctx, &new_op);
                 rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -58,11 +62,13 @@ macro_rules! ternop_to_spirv_dialect {
                 _operands_info: &OperandsInfo,
             ) -> Result<()> {
                 let op = self.get_operation();
+                let uniformity = cubecl_opt::passes::uniformity::op_dyn_uniformity(ctx, op);
                 let a = op.operand(ctx, 0);
                 let b = op.operand(ctx, 1);
                 let c = op.operand(ctx, 2);
                 let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
                 let new_op = <$new_ty>::new(ctx, out_ty, a, b, c, $($extra),*);
+                crate::compiler::decorate_uniform(ctx, new_op.get_operation(), uniformity);
                 rewriter.append_op(ctx, &new_op);
                 rewriter.replace_operation(ctx, op, new_op.get_operation());
 

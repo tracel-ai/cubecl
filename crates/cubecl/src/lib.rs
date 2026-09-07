@@ -102,7 +102,7 @@ pub enum Device {
     #[cfg(feature = "hip")]
     Hip(cubecl_hip::AmdDevice),
     /// A device of the native Metal runtime.
-    #[cfg(feature = "metal-native")]
+    #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
     Metal(cubecl_metal::MetalDevice),
     /// A device of the wgpu runtime, on its default compiler.
     #[cfg(any(feature = "wgpu", test_runtime_default))]
@@ -175,7 +175,7 @@ impl Device {
             Self::Cuda(_) => cubecl_cuda::CudaRuntime::can_read_tensor(shape, strides),
             #[cfg(feature = "hip")]
             Self::Hip(_) => cubecl_hip::HipRuntime::can_read_tensor(shape, strides),
-            #[cfg(feature = "metal-native")]
+            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
             Self::Metal(_) => cubecl_metal::MetalRuntime::can_read_tensor(shape, strides),
             #[cfg(any(feature = "wgpu", test_runtime_default))]
             Self::Wgpu(_) => <cubecl_wgpu::WgpuRuntime>::can_read_tensor(shape, strides),
@@ -199,7 +199,7 @@ impl Device {
             Ok(RuntimeId::Cuda) => cubecl_cuda::CudaRuntime::enumerate_devices(type_id),
             #[cfg(feature = "hip")]
             Ok(RuntimeId::Hip) => cubecl_hip::HipRuntime::enumerate_devices(type_id),
-            #[cfg(feature = "metal-native")]
+            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
             Ok(RuntimeId::Metal) => cubecl_metal::MetalRuntime::enumerate_devices(type_id),
             #[cfg(any(feature = "wgpu", test_runtime_default))]
             Ok(RuntimeId::Wgpu) => <cubecl_wgpu::WgpuRuntime>::enumerate_devices(type_id),
@@ -235,7 +235,7 @@ impl Device {
                 .into_iter()
                 .map(|id| Self::Hip(DeviceIdentity::from_id(id))),
         );
-        #[cfg(feature = "metal-native")]
+        #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
         devices.extend(
             cubecl_metal::MetalRuntime::enumerate_all_devices()
                 .into_iter()
@@ -264,7 +264,7 @@ impl Device {
             Self::Cuda(_) => RuntimeId::Cuda,
             #[cfg(feature = "hip")]
             Self::Hip(_) => RuntimeId::Hip,
-            #[cfg(feature = "metal-native")]
+            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
             Self::Metal(_) => RuntimeId::Metal,
             #[cfg(any(feature = "wgpu", test_runtime_default))]
             Self::Wgpu(_) => RuntimeId::Wgpu,
@@ -282,7 +282,7 @@ impl Device {
             Self::Cuda(ref device) => cubecl_cuda::CudaRuntime::client(device),
             #[cfg(feature = "hip")]
             Self::Hip(ref device) => cubecl_hip::HipRuntime::client(device),
-            #[cfg(feature = "metal-native")]
+            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
             Self::Metal(ref device) => cubecl_metal::MetalRuntime::client(device),
             #[cfg(any(feature = "wgpu", test_runtime_default))]
             Self::Wgpu(ref device) => <cubecl_wgpu::WgpuRuntime>::client(device),
@@ -341,7 +341,7 @@ impl DeviceIdentity for Device {
             Ok(RuntimeId::Cuda) => Self::Cuda(DeviceIdentity::from_id(inner)),
             #[cfg(feature = "hip")]
             Ok(RuntimeId::Hip) => Self::Hip(DeviceIdentity::from_id(inner)),
-            #[cfg(feature = "metal-native")]
+            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
             Ok(RuntimeId::Metal) => Self::Metal(DeviceIdentity::from_id(inner)),
             #[cfg(any(feature = "wgpu", test_runtime_default))]
             Ok(RuntimeId::Wgpu) => Self::Wgpu(DeviceIdentity::from_id(inner)),
@@ -359,7 +359,7 @@ impl DeviceIdentity for Device {
             Self::Cuda(ref device) => DeviceIdentity::to_id(device),
             #[cfg(feature = "hip")]
             Self::Hip(ref device) => DeviceIdentity::to_id(device),
-            #[cfg(feature = "metal-native")]
+            #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
             Self::Metal(ref device) => DeviceIdentity::to_id(device),
             #[cfg(any(feature = "wgpu", test_runtime_default))]
             Self::Wgpu(ref device) => DeviceIdentity::to_id(device),
@@ -389,7 +389,7 @@ impl From<cubecl_hip::AmdDevice> for Device {
     }
 }
 
-#[cfg(feature = "metal-native")]
+#[cfg(all(feature = "metal-native", target_vendor = "apple"))]
 impl From<cubecl_metal::MetalDevice> for Device {
     fn from(device: cubecl_metal::MetalDevice) -> Self {
         Self::Metal(device)

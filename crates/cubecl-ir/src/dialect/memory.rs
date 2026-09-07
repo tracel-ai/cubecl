@@ -365,7 +365,7 @@ pub struct UnrelatedAllocInfo;
 #[cube_op(name = "memory.load")]
 #[result_ty(from_inputs = ptr_value_ty)]
 #[op_interfaces(OperandNOfType<0, PointerType>, TriviallyUnrollable)]
-#[op_traits(CanMaterialize, NoSideEffects, PropagatesUniformity)]
+#[op_traits(CanMaterialize, NoSideEffects)]
 pub struct LoadOp {
     #[operand(ptr_read)]
     pub ptr: Value,
