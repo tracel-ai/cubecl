@@ -144,14 +144,13 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
         self.input_gen.generate(key, inputs)
     }
 
-    /// The eviction registered on this set, bound to `key`, if any: what a benchmark loop
-    /// runs before each of its samples.
-    pub fn evictor(&self, key: &K) -> Option<Evictor<F>> {
+    /// The eviction registered on this set, bound to `key` and the reference `inputs`, if
+    /// any: what a benchmark loop runs before each of its samples.
+    pub(crate) fn evictor<'i>(&self, key: &K, inputs: &F::At<'i>) -> Option<Box<Evictor<'i>>> {
         let eviction = self.eviction.clone()?;
         let key = key.clone();
-        Some(Arc::new(move |inputs: &F::At<'_>| {
-            eviction.evict(&key, inputs)
-        }))
+        let inputs = inputs.clone();
+        Some(Box::new(move || eviction.evict(&key, &inputs)))
     }
 
     /// The throughput bounds registered on this set, if any.

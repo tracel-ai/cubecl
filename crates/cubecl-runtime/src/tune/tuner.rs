@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 #[cfg(std_io)]
 use alloc::format;
 use alloc::sync::Arc;
@@ -124,8 +125,8 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     key: K,
     autotunables: Vec<&'t TuneFn<F, Out>>,
     test_inputs: <F as TuneInputs>::At<'i>,
-    /// What runs before every measured sample, bound to the key.
-    evictor: Option<crate::tune::Evictor<F>>,
+    /// What runs before every measured sample, bound to the key and the reference inputs.
+    evictor: Option<Box<crate::tune::Evictor<'i>>>,
     plan: TunePlan,
     results: Vec<AutotuneResult>,
     #[cfg(any(not(target_family = "wasm"), autotune_persistence))]
@@ -306,7 +307,7 @@ impl<K: AutotuneKey> Tuner<K> {
             key: key.clone(),
             autotunables,
             test_inputs,
-            evictor: tunables.evictor(key),
+            evictor: tunables.evictor(key, inputs),
             plan,
             results,
             #[cfg(any(not(target_family = "wasm"), autotune_persistence))]
@@ -359,7 +360,7 @@ impl<K: AutotuneKey> Tuner<K> {
             &job.autotunables,
             &job.test_inputs,
             client,
-            job.evictor.as_ref(),
+            job.evictor.as_deref_mut(),
             &mut job.results,
         );
 
@@ -421,7 +422,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     op,
                     job.test_inputs.clone(),
                     client.clone(),
-                    job.evictor.as_ref(),
+                    job.evictor.as_deref_mut(),
                 ) {
                     Ok(profiles) => {
                         let bench = PendingBench {

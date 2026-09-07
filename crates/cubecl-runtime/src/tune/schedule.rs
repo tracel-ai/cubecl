@@ -58,7 +58,7 @@ impl Schedule {
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
         client: &Client,
-        evictor: Option<&Evictor<F>>,
+        evictor: Option<&mut Evictor<'_>>,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
@@ -103,7 +103,7 @@ impl Schedule {
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
         client: &Client,
-        evictor: Option<&Evictor<F>>,
+        mut evictor: Option<&mut Evictor<'_>>,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone,
@@ -124,7 +124,13 @@ impl Schedule {
             let launched = self.track_steps.then(Instant::now);
             let operation = autotunables[candidates[slot].index];
             let hit = self
-                .first_pass(operation, &inputs, client, evictor, &mut candidates[slot])
+                .first_pass(
+                    operation,
+                    &inputs,
+                    client,
+                    evictor.as_deref_mut(),
+                    &mut candidates[slot],
+                )
                 .await;
 
             if let Some(launched) = launched {
@@ -161,7 +167,11 @@ impl Schedule {
 
                 let launched = self.track_steps.then(Instant::now);
 
-                match autotunables[candidate.index].sample_once(inputs.clone(), client, evictor) {
+                match autotunables[candidate.index].sample_once(
+                    inputs.clone(),
+                    client,
+                    evictor.as_deref_mut(),
+                ) {
                     Ok(profile) => {
                         candidate.method.get_or_insert(profile.timing_method());
                         pending.push((slot, profile));
@@ -267,7 +277,7 @@ impl Schedule {
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
-        evictor: Option<&Evictor<F>>,
+        mut evictor: Option<&mut Evictor<'_>>,
         candidate: &mut Candidate,
     ) -> bool
     where
@@ -279,7 +289,7 @@ impl Schedule {
         }
 
         if !self
-            .take_sample(operation, inputs, client, evictor, candidate)
+            .take_sample(operation, inputs, client, evictor.as_deref_mut(), candidate)
             .await
         {
             return false;
@@ -296,7 +306,7 @@ impl Schedule {
         let required = self.config.short_circuit_samples();
         while candidate.samples.len() < required {
             if !self
-                .take_sample(operation, inputs, client, evictor, candidate)
+                .take_sample(operation, inputs, client, evictor.as_deref_mut(), candidate)
                 .await
             {
                 return false;
@@ -312,7 +322,7 @@ impl Schedule {
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
-        evictor: Option<&Evictor<F>>,
+        evictor: Option<&mut Evictor<'_>>,
         candidate: &mut Candidate,
     ) -> bool
     where
@@ -386,6 +396,9 @@ impl Schedule {
     }
 
     /// Walk the plan batch by batch until one produces a usable measurement.
+    // The key is here for the diagnostics alone, and the rest is what one batch needs to run
+    // on; bundling them would buy a struct that is built once and taken apart once.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_plan<'a, K, F, Out>(
         &self,
         key: &K,
@@ -393,7 +406,7 @@ impl Schedule {
         autotunables: &[&TuneFn<F, Out>],
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
-        evictor: Option<&Evictor<F>>,
+        mut evictor: Option<&mut Evictor<'_>>,
         results: &mut [AutotuneResult],
     ) -> PlanOutcome
     where
@@ -444,7 +457,13 @@ impl Schedule {
                 );
             }
 
-            let outcome = self.run_batch(indices, autotunables, inputs.clone(), client, evictor);
+            let outcome = self.run_batch(
+                indices,
+                autotunables,
+                inputs.clone(),
+                client,
+                evictor.as_deref_mut(),
+            );
 
             for (index, result) in outcome.results {
                 results[index] = result;

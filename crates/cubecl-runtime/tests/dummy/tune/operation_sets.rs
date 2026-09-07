@@ -149,13 +149,22 @@ pub fn bounded_addition_set_no_short_circuit(
     .with_short_circuit(false)
 }
 
-/// The unbounded addition set with an eviction registered, `evictions` counting how often it
-/// ran: the tuner owes the set one eviction before every measured sample, and none for a
-/// warm-up.
+/// The addition set with an eviction registered. Both candidates count their launches in
+/// `calls` and the eviction counts its runs in `evictions`: the tuner owes the set one
+/// eviction before every measured sample, and none for a warm-up.
+///
+/// The set generates its own output for the candidates, one byte larger than the caller's, so
+/// the eviction can tell the reference inputs it is owed from the generated ones the
+/// candidates run on: a run on the latter counts in `misdirected` instead.
+///
+/// `uid` keeps the key a cache miss, as in [`addition_set_with_rejected_candidate`].
 pub fn addition_set_with_eviction(
     client: DummyClient,
     shapes: Vec<Vec<usize>>,
-    evictions: Arc<std::sync::atomic::AtomicUsize>,
+    uid: String,
+    calls: Arc<AtomicUsize>,
+    evictions: Arc<AtomicUsize>,
+    misdirected: Arc<AtomicUsize>,
 ) -> TestSet {
     let op_add_slow = OneKernelAutotuneOperation::new(
         KernelTask::new(DummyElementwiseAdditionSlowWrong),
@@ -163,17 +172,33 @@ pub fn addition_set_with_eviction(
     );
     let op_add =
         OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    let slow_calls = calls.clone();
 
     TestSet::new(
-        move |_input: &Vec<Handle>| format!("{}-{}", "add_evicted", log_shape_input_key(&shapes)),
-        CloneInputGenerator,
+        move |_input: &Vec<Handle>| format!("add_evicted-{uid}-{}", log_shape_input_key(&shapes)),
+        move |_key: &String, inputs: &Vec<Handle>| {
+            let out = client.empty(inputs[2].size() as usize + 1);
+            vec![inputs[0].clone(), inputs[1].clone(), out]
+        },
     )
     .with(Tunable::new("add_slow_wrong", move |inputs| {
+        slow_calls.fetch_add(1, Ordering::Relaxed);
         op_add_slow.run(inputs)
     }))
-    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
-    .with_eviction(Arc::new(move |_key: &String, _inputs: &Vec<Handle>| {
-        evictions.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    .with(Tunable::new("add", move |inputs| {
+        calls.fetch_add(1, Ordering::Relaxed);
+        op_add.run(inputs)
+    }))
+    .with_eviction(Arc::new(move |_key: &String, inputs: &Vec<Handle>| {
+        // The generated output is the one byte larger.
+        let on_reference = inputs[2].size() == inputs[0].size();
+        let counter = if on_reference {
+            &evictions
+        } else {
+            &misdirected
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+        Ok::<(), String>(())
     }))
 }
 

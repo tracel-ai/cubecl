@@ -27,7 +27,7 @@ pub fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
     client: Client,
-    evictor: Option<&Evictor<F>>,
+    evictor: Option<&mut Evictor<'_>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // `scoped` holds exclusive device access for the whole benchmark loop and
     // accepts non-`'static` closures.
@@ -62,17 +62,24 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
     /// Queue a single measured execution. See [`Self::warmup_once`] for the locking expectation.
     ///
     /// `evictor` runs first, outside the profiled region, so the sample reads what a real
-    /// call reads rather than what the previous launch left in cache ([`Eviction`]).
+    /// call reads rather than what the previous launch left in cache ([`Eviction`]). An
+    /// eviction that fails is logged and the sample taken warm: the measurement is still
+    /// worth more than none, and the failure is the eviction's, not the candidate's.
     ///
     /// [`Eviction`]: super::Eviction
     pub(crate) fn sample_once<'a>(
         &self,
         inputs: <F as TuneInputs>::At<'a>,
         client: &Client,
-        evictor: Option<&Evictor<F>>,
+        evictor: Option<&mut Evictor<'_>>,
     ) -> Result<ProfileDuration, AutotuneError> {
-        if let Some(evict) = evictor {
-            evict(&inputs);
+        if let Some(evict) = evictor
+            && let Err(err) = evict()
+        {
+            log::error!(
+                "The eviction before a sample of `{}` failed, so the sample is measured on a warm cache.\n{err}",
+                self.name
+            );
         }
         // The output is returned so dead code elimination can't drop the work being profiled.
         let profiled = client.profile(move || self.execute(inputs), &self.name);
@@ -92,7 +99,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
     client: Client,
-    evictor: Option<&Evictor<F>>,
+    mut evictor: Option<&mut Evictor<'_>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // These launches are the measurement, so they run even inside a dry run:
     // that mode exists to skip the *workload*, not the tuning it is there to
@@ -121,7 +128,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
         // go, so the loop stops on the first error and hands it back untouched. Sampling on
         // would only pay more device round trips to reach the same verdict, with the reason
         // for the failure replaced by `InvalidSamples`.
-        durations.push(operation.sample_once(inputs.clone(), &client, evictor)?);
+        durations.push(operation.sample_once(inputs.clone(), &client, evictor.as_deref_mut())?);
     }
 
     if durations.is_empty() {
