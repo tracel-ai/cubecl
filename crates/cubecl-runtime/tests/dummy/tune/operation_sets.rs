@@ -149,6 +149,34 @@ pub fn bounded_addition_set_no_short_circuit(
     .with_short_circuit(false)
 }
 
+/// The unbounded addition set with an eviction registered, `evictions` counting how often it
+/// ran: the tuner owes the set one eviction before every measured sample, and none for a
+/// warm-up.
+pub fn addition_set_with_eviction(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+    evictions: Arc<std::sync::atomic::AtomicUsize>,
+) -> TestSet {
+    let op_add_slow = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionSlowWrong),
+        client.clone(),
+    );
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| format!("{}-{}", "add_evicted", log_shape_input_key(&shapes)),
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add_slow_wrong", move |inputs| {
+        op_add_slow.run(inputs)
+    }))
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+    .with_eviction(Arc::new(move |_key: &String, _inputs: &Vec<Handle>| {
+        evictions.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }))
+}
+
 /// Addition set whose first candidate always rejects its own configuration, standing in for a
 /// kernel a backend refuses before compilation. `calls` counts how often the rejecting closure
 /// runs, so a test can assert the benchmark gives up on the first failure.

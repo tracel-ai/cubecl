@@ -450,6 +450,40 @@ fn autotune_short_circuit_disabled_benchmarks_all() {
     assert_eq!(obtained, vec![4, 5, 6]);
 }
 
+/// A set with an eviction registered has it run before every measured sample: a candidate
+/// whose operands fit the cache is otherwise timed reading what the previous sample left
+/// warm. Every candidate is sampled at least once, so the count is at least the candidates'.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_evicts_before_every_measured_sample() {
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_eviction");
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+
+    let evictions = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = evictions.clone();
+    let test_set = TUNER.init(&"test".to_string(), move || {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::addition_set_with_eviction(client, shapes, counted.clone())
+    });
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    let obtained = client.read_one(out).unwrap().to_vec();
+    assert_eq!(obtained, vec![4, 5, 6]);
+    let evictions = evictions.load(std::sync::atomic::Ordering::Relaxed);
+    assert!(
+        evictions >= 2,
+        "two candidates were each sampled at least once, and {evictions} evictions ran"
+    );
+}
+
 /// 2-I1 — A panic inside a profiled closure surfaces at the `Client` caller as
 /// the *original* panic (the issue's symptom), instead of an opaque `CallError`.
 #[test_log::test]

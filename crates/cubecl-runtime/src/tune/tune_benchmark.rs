@@ -1,4 +1,4 @@
-use super::{AutotuneError, TuneFn, TuneInputs};
+use super::{AutotuneError, Evictor, TuneFn, TuneInputs};
 use crate::client::Client;
 use alloc::string::ToString;
 use alloc::vec::Vec;
@@ -27,12 +27,13 @@ pub fn tune_benchmark<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
     client: Client,
+    evictor: Option<&Evictor<F>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // `scoped` holds exclusive device access for the whole benchmark loop and
     // accepts non-`'static` closures.
     client
         .clone()
-        .exclusive(move || profile_exclusive(operation, inputs, client))
+        .exclusive(move || profile_exclusive(operation, inputs, client, evictor))
         .map_err(|err| AutotuneError::Unknown {
             name: operation.name.to_string(),
             err: err.to_string(),
@@ -53,16 +54,26 @@ impl<F: TuneInputs, Out: AutotuneOutput> TuneFn<F, Out> {
         let _errs = client.flush();
 
         // The profile is dropped without being resolved: a warmup only exists to surface a
-        // failure to compile or launch, which is what the error carries.
-        self.sample_once(inputs, client).map(|_| ())
+        // failure to compile or launch, which is what the error carries — so nothing is
+        // evicted for it, either.
+        self.sample_once(inputs, client, None).map(|_| ())
     }
 
     /// Queue a single measured execution. See [`Self::warmup_once`] for the locking expectation.
+    ///
+    /// `evictor` runs first, outside the profiled region, so the sample reads what a real
+    /// call reads rather than what the previous launch left in cache ([`Eviction`]).
+    ///
+    /// [`Eviction`]: super::Eviction
     pub(crate) fn sample_once<'a>(
         &self,
         inputs: <F as TuneInputs>::At<'a>,
         client: &Client,
+        evictor: Option<&Evictor<F>>,
     ) -> Result<ProfileDuration, AutotuneError> {
+        if let Some(evict) = evictor {
+            evict(&inputs);
+        }
         // The output is returned so dead code elimination can't drop the work being profiled.
         let profiled = client.profile(move || self.execute(inputs), &self.name);
 
@@ -81,6 +92,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
     operation: &TuneFn<F, Out>,
     inputs: <F as TuneInputs>::At<'a>,
     client: Client,
+    evictor: Option<&Evictor<F>>,
 ) -> Result<Vec<ProfileDuration>, AutotuneError> {
     // These launches are the measurement, so they run even inside a dry run:
     // that mode exists to skip the *workload*, not the tuning it is there to
@@ -109,7 +121,7 @@ fn profile_exclusive<'a, F: TuneInputs, Out: AutotuneOutput>(
         // go, so the loop stops on the first error and hands it back untouched. Sampling on
         // would only pay more device round trips to reach the same verdict, with the reason
         // for the failure replaced by `InvalidSamples`.
-        durations.push(operation.sample_once(inputs.clone(), &client)?);
+        durations.push(operation.sample_once(inputs.clone(), &client, evictor)?);
     }
 
     if durations.is_empty() {

@@ -6,6 +6,7 @@ use cubecl_common::profile::{Instant, ProfileDuration, TimingMethod};
 
 use crate::client::Client;
 use crate::config::autotune::BenchConfig;
+use crate::tune::Evictor;
 use crate::tune::sampler::SampleSet;
 use crate::tune::{
     AutotuneError, AutotuneOutcome, AutotuneOutput, AutotuneResult, TuneFn, TuneInputs, TunePlan,
@@ -57,6 +58,7 @@ impl Schedule {
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
         client: &Client,
+        evictor: Option<&Evictor<F>>,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
@@ -65,7 +67,13 @@ impl Schedule {
         let run = || {
             let _real_run = crate::dry_run::RealRun::new();
 
-            cubecl_environment::future::block_on(self.drive(indices, autotunables, inputs, client))
+            cubecl_environment::future::block_on(self.drive(
+                indices,
+                autotunables,
+                inputs,
+                client,
+                evictor,
+            ))
         };
 
         match client.clone().exclusive(run) {
@@ -95,6 +103,7 @@ impl Schedule {
         autotunables: &[&TuneFn<F, Out>],
         inputs: <F as TuneInputs>::At<'a>,
         client: &Client,
+        evictor: Option<&Evictor<F>>,
     ) -> BatchOutcome
     where
         <F as TuneInputs>::At<'a>: Clone,
@@ -115,7 +124,7 @@ impl Schedule {
             let launched = self.track_steps.then(Instant::now);
             let operation = autotunables[candidates[slot].index];
             let hit = self
-                .first_pass(operation, &inputs, client, &mut candidates[slot])
+                .first_pass(operation, &inputs, client, evictor, &mut candidates[slot])
                 .await;
 
             if let Some(launched) = launched {
@@ -152,7 +161,7 @@ impl Schedule {
 
                 let launched = self.track_steps.then(Instant::now);
 
-                match autotunables[candidate.index].sample_once(inputs.clone(), client) {
+                match autotunables[candidate.index].sample_once(inputs.clone(), client, evictor) {
                     Ok(profile) => {
                         candidate.method.get_or_insert(profile.timing_method());
                         pending.push((slot, profile));
@@ -258,6 +267,7 @@ impl Schedule {
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
+        evictor: Option<&Evictor<F>>,
         candidate: &mut Candidate,
     ) -> bool
     where
@@ -268,7 +278,10 @@ impl Schedule {
             return false;
         }
 
-        if !self.take_sample(operation, inputs, client, candidate).await {
+        if !self
+            .take_sample(operation, inputs, client, evictor, candidate)
+            .await
+        {
             return false;
         }
 
@@ -282,7 +295,10 @@ impl Schedule {
 
         let required = self.config.short_circuit_samples();
         while candidate.samples.len() < required {
-            if !self.take_sample(operation, inputs, client, candidate).await {
+            if !self
+                .take_sample(operation, inputs, client, evictor, candidate)
+                .await
+            {
                 return false;
             }
         }
@@ -296,12 +312,13 @@ impl Schedule {
         operation: &TuneFn<F, Out>,
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
+        evictor: Option<&Evictor<F>>,
         candidate: &mut Candidate,
     ) -> bool
     where
         <F as TuneInputs>::At<'a>: Clone,
     {
-        match operation.sample_once(inputs.clone(), client) {
+        match operation.sample_once(inputs.clone(), client, evictor) {
             Ok(profile) => {
                 candidate.method.get_or_insert(profile.timing_method());
                 candidate.samples.push(profile.resolve().await.duration());
@@ -376,6 +393,7 @@ impl Schedule {
         autotunables: &[&TuneFn<F, Out>],
         inputs: &<F as TuneInputs>::At<'a>,
         client: &Client,
+        evictor: Option<&Evictor<F>>,
         results: &mut [AutotuneResult],
     ) -> PlanOutcome
     where
@@ -426,7 +444,7 @@ impl Schedule {
                 );
             }
 
-            let outcome = self.run_batch(indices, autotunables, inputs.clone(), client);
+            let outcome = self.run_batch(indices, autotunables, inputs.clone(), client, evictor);
 
             for (index, result) in outcome.results {
                 results[index] = result;
