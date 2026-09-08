@@ -93,9 +93,9 @@ impl ThroughputCache {
 /// whichever card was pinned. Two cards this cannot separate are one part, and
 /// share a peak.
 ///
-/// `capacity` and `parallelism` join the part because a name does not move when
-/// the hardware under it does: a machine that gains DIMMs, or a container given
-/// a fraction of its host's cores, reaches a different ceiling on the same part.
+/// `capacity` and `parallelism` join it because neither moves with the part:
+/// added DIMMs, or a container's share of its host's cores, change the ceiling
+/// under one name.
 fn device_key(runtime: &str, identity: &DeviceIdentity, capacity: u64, parallelism: u32) -> String {
     let DeviceIdentity { name, fingerprint } = identity;
     // A namespace is a path, and a runtime names itself `wgpu<spirv>`.
@@ -189,8 +189,6 @@ mod tests {
         );
     }
 
-    /// A CPU names itself the same before and after its DIMMs change, and the
-    /// memory ceiling it reaches does not.
     #[test]
     fn a_machine_that_gains_memory_does_not_reuse_its_ceiling() {
         let xeon = identity("Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz", "cpu_x86_64");
@@ -201,8 +199,6 @@ mod tests {
         );
     }
 
-    /// Two containers on one host are one part with two ceilings: the cores a
-    /// cgroup grants bound how much of the memory system a probe can reach.
     #[test]
     fn a_container_given_fewer_cores_does_not_reuse_the_host_ceiling() {
         let xeon = identity("Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz", "cpu_x86_64");

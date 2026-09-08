@@ -80,8 +80,7 @@ fn register_supported_types(props: &mut DeviceProperties) {
     }
 }
 
-/// The part, so that a measured ceiling is not served to every CPU sharing an
-/// architecture. Falls back to the architecture where a platform reports no brand.
+/// The part, so a measured ceiling is not served to every CPU of an architecture.
 fn host_cpu_name(system: &System) -> String {
     system
         .cpus()
