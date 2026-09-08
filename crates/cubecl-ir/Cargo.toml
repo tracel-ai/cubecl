@@ -21,6 +21,7 @@ workspace = true
 [features]
 amd = []
 default = ["serde"]
+nvidia = []
 
 serde = ["dep:serde", "hashbrown/serde"]
 spirv = ["dep:pliron-spirv"]

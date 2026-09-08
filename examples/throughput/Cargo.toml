@@ -16,7 +16,10 @@ metal = ["wgpu", "cubecl/metal"] # MSL (via wgpu)
 webgpu = ["wgpu", "cubecl/webgpu"]
 
 # Native backends.
+# `cuda` runs the LLVM backend, `cuda-cpp` the transpiler through NVRTC -- the same
+# split as `hip`/`hip-cpp`, and the point of comparison between the two paths.
 cuda = ["cubecl/cuda"]
+cuda-cpp = ["cuda", "cubecl/cuda-cpp"]
 hip = ["cubecl/hip"]
 rocm = ["hip"]
 cpu = ["cubecl/cpu"]

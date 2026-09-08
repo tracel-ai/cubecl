@@ -12,7 +12,7 @@ use pliron_llvm::attributes::SyncScopeAttr;
 use pliron_llvm::ops as llvm;
 use pliron_llvm::types::VoidType;
 
-use crate::amdgpu::intrinsic::call_op;
+use crate::shared::intrinsic::call_op;
 
 /// The workgroup barrier, i.e. what `__syncthreads` compiles to.
 const S_BARRIER: &str = "llvm.amdgcn.s.barrier";

@@ -9,7 +9,8 @@
 use cubecl_core::ir::ContextExt;
 use cubecl_core::ir::amd::AmdWmma;
 use cubecl_core::ir::dialect::matrix::{
-    CastOp, ColIndexOp, FillOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RowIndexOp, StoreOp,
+    CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RowIndexOp,
+    StMatrixOp, StoreOp,
 };
 use cubecl_core::ir::types::matrix::MatrixType;
 use cubecl_core::ir::types::{MatrixIdent, MatrixLayout, MatrixShape};
@@ -19,6 +20,7 @@ use pliron::printable::Printable;
 use thiserror::Error;
 
 use crate::amdgpu::plane::lane_id;
+use crate::shared::matrix::{registers_as_vector, registers_value};
 use crate::shared::to_llvm::prelude::*;
 use crate::shared::to_llvm::ty::scalar_alignment;
 
@@ -104,17 +106,10 @@ fn fragment_layout(ctx: &Context, matrix: &MatrixType) -> (usize, usize) {
 }
 
 /// The LLVM vector a fragment of `matrix` lives in.
-fn fragment_ty(ctx: &Context, matrix: &MatrixType) -> TypeHandle {
+pub(crate) fn fragment_ty(ctx: &Context, matrix: &MatrixType) -> TypeHandle {
     let (elems, step) = fragment_layout(ctx, matrix);
     let elem = cube_type_to_llvm(ctx, matrix.elem_ty);
     LlvmVectorType::get(ctx, elem, (elems * step) as u32, VectorTypeKind::Fixed).into()
-}
-
-#[type_interface_impl]
-impl CubeToLLVMType for MatrixType {
-    fn convert(&self, ctx: &Context) -> TypeHandle {
-        fragment_ty(ctx, self)
-    }
 }
 
 /// The `MatrixType` a matrix operand points at.
@@ -350,134 +345,125 @@ fn store_tile(
     rw.insert_op(ctx, &op);
 }
 
-#[op_interface_impl]
-impl ToLLVMDialect for FillOp {
-    fn rewrite(
-        &self,
-        ctx: &mut Context,
-        rw: &mut DialectConversionRewriter,
-        operands_info: &OperandsInfo,
-    ) -> Result<()> {
-        let old_op = self.get_operation();
-        let matrix = self.matrix(ctx);
-        let value = self.value(ctx);
+pub(crate) fn fill(
+    op: &FillOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let matrix = op.matrix(ctx);
+    let value = op.value(ctx);
 
-        let ty = matrix_of(ctx, operands_info, matrix);
-        let (elems, step) = fragment_layout(ctx, &ty);
-        let frag_ty = fragment_ty(ctx, &ty);
-        let lanes = elems * step;
+    let ty = matrix_of(ctx, operands_info, matrix);
+    let (elems, step) = fragment_layout(ctx, &ty);
+    let frag_ty = fragment_ty(ctx, &ty);
+    let lanes = elems * step;
 
-        let filled = insert_splat(ctx, rw, frag_ty, value, lanes);
-        store_fragment(ctx, rw, matrix, filled);
+    let filled = insert_splat(ctx, rw, frag_ty, value, lanes);
+    store_fragment(ctx, rw, matrix, filled);
 
-        rw.erase_operation(ctx, old_op);
-        Ok(())
-    }
+    rw.erase_operation(ctx, old_op);
+    Ok(())
 }
 
-#[op_interface_impl]
-impl ToLLVMDialect for LoadOp {
-    fn rewrite(
-        &self,
-        ctx: &mut Context,
-        rw: &mut DialectConversionRewriter,
-        operands_info: &OperandsInfo,
-    ) -> Result<()> {
-        let old_op = self.get_operation();
-        let matrix = self.matrix(ctx);
-        let source = self.source(ctx);
-        let stride = self.stride(ctx);
-        let layout = self.layout(ctx).0;
+pub(crate) fn load(
+    op: &LoadOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let matrix = op.matrix(ctx);
+    let source = op.source(ctx);
+    let stride = op.stride(ctx);
+    let layout = op.layout(ctx).0;
 
-        let ty = matrix_of(ctx, operands_info, matrix);
-        let (elems, step) = fragment_layout(ctx, &ty);
-        let frag_ty = fragment_ty(ctx, &ty);
-        let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
-        let align = scalar_alignment(ctx, ty.elem_ty);
-        let lane = LanePosition::current(ctx, rw);
+    let ty = matrix_of(ctx, operands_info, matrix);
+    let (elems, step) = fragment_layout(ctx, &ty);
+    let frag_ty = fragment_ty(ctx, &ty);
+    let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
+    let align = scalar_alignment(ctx, ty.elem_ty);
+    let lane = LanePosition::current(ctx, rw);
 
-        // One vector load where the elements are consecutive, at the element's alignment
-        // like the element-wise path below. The base of a tile is aligned far past that --
-        // an LDS block to 128 bytes -- so when the offset is a known multiple of the
-        // fragment width LLVM raises the alignment itself and the load becomes a single
-        // wide access. When it cannot prove that -- a padded stride, say -- it splits the
-        // vector back into element-sized ones, which is what this path would have emitted
-        // by hand anyway.
-        if fragment_is_contiguous(ctx.wmma(), &ty, layout, step) {
-            let index = element_index(ctx, rw, &ty, layout, 0, lane, stride);
-            let ptr = element_ptr(ctx, rw, source, index, elem_ty);
-            let frag = load_tile(ctx, rw, ptr, frag_ty, align);
-            store_fragment(ctx, rw, matrix, frag);
-
-            rw.erase_operation(ctx, old_op);
-            return Ok(());
-        }
-
-        let poison = llvm::PoisonOp::new(ctx, frag_ty);
-        let mut frag = insert(ctx, rw, &poison);
-
-        for i in 0..elems {
-            let index = element_index(ctx, rw, &ty, layout, i, lane, stride);
-            let ptr = element_ptr(ctx, rw, source, index, elem_ty);
-            let value = load_tile(ctx, rw, ptr, elem_ty, align);
-
-            let slot = insert_i32_const(ctx, rw, (i * step) as i32);
-            let op = llvm::InsertElementOp::new(ctx, frag, value, slot);
-            frag = insert(ctx, rw, &op);
-        }
-
+    // One vector load where the elements are consecutive, at the element's alignment
+    // like the element-wise path below. The base of a tile is aligned far past that --
+    // an LDS block to 128 bytes -- so when the offset is a known multiple of the
+    // fragment width LLVM raises the alignment itself and the load becomes a single
+    // wide access. When it cannot prove that -- a padded stride, say -- it splits the
+    // vector back into element-sized ones, which is what this path would have emitted
+    // by hand anyway.
+    if fragment_is_contiguous(ctx.wmma(), &ty, layout, step) {
+        let index = element_index(ctx, rw, &ty, layout, 0, lane, stride);
+        let ptr = element_ptr(ctx, rw, source, index, elem_ty);
+        let frag = load_tile(ctx, rw, ptr, frag_ty, align);
         store_fragment(ctx, rw, matrix, frag);
+
         rw.erase_operation(ctx, old_op);
-        Ok(())
+        return Ok(());
     }
+
+    let poison = llvm::PoisonOp::new(ctx, frag_ty);
+    let mut frag = insert(ctx, rw, &poison);
+
+    for i in 0..elems {
+        let index = element_index(ctx, rw, &ty, layout, i, lane, stride);
+        let ptr = element_ptr(ctx, rw, source, index, elem_ty);
+        let value = load_tile(ctx, rw, ptr, elem_ty, align);
+
+        let slot = insert_i32_const(ctx, rw, (i * step) as i32);
+        let op = llvm::InsertElementOp::new(ctx, frag, value, slot);
+        frag = insert(ctx, rw, &op);
+    }
+
+    store_fragment(ctx, rw, matrix, frag);
+    rw.erase_operation(ctx, old_op);
+    Ok(())
 }
 
-#[op_interface_impl]
-impl ToLLVMDialect for StoreOp {
-    fn rewrite(
-        &self,
-        ctx: &mut Context,
-        rw: &mut DialectConversionRewriter,
-        operands_info: &OperandsInfo,
-    ) -> Result<()> {
-        let old_op = self.get_operation();
-        let matrix = self.matrix(ctx);
-        let destination = self.destination(ctx);
-        let stride = self.stride(ctx);
-        let layout = self.layout(ctx).0;
+pub(crate) fn store(
+    op: &StoreOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let matrix = op.matrix(ctx);
+    let destination = op.destination(ctx);
+    let stride = op.stride(ctx);
+    let layout = op.layout(ctx).0;
 
-        let ty = matrix_of(ctx, operands_info, matrix);
-        let (elems, step) = fragment_layout(ctx, &ty);
-        let frag_ty = fragment_ty(ctx, &ty);
-        let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
-        let align = scalar_alignment(ctx, ty.elem_ty);
-        let lane = LanePosition::current(ctx, rw);
+    let ty = matrix_of(ctx, operands_info, matrix);
+    let (elems, step) = fragment_layout(ctx, &ty);
+    let frag_ty = fragment_ty(ctx, &ty);
+    let elem_ty = cube_type_to_llvm(ctx, ty.elem_ty);
+    let align = scalar_alignment(ctx, ty.elem_ty);
+    let lane = LanePosition::current(ctx, rw);
 
-        let frag = load_fragment(ctx, rw, matrix, frag_ty);
+    let frag = load_fragment(ctx, rw, matrix, frag_ty);
 
-        // The counterpart of the vector load in `LoadOp`; see the note there.
-        if fragment_is_contiguous(ctx.wmma(), &ty, layout, step) {
-            let index = element_index(ctx, rw, &ty, layout, 0, lane, stride);
-            let ptr = element_ptr(ctx, rw, destination, index, elem_ty);
-            store_tile(ctx, rw, ptr, frag, align);
-
-            rw.erase_operation(ctx, old_op);
-            return Ok(());
-        }
-
-        for i in 0..elems {
-            let slot = insert_i32_const(ctx, rw, (i * step) as i32);
-            let extract = llvm::ExtractElementOp::new(ctx, frag, slot);
-            let element = insert(ctx, rw, &extract);
-
-            let index = element_index(ctx, rw, &ty, layout, i, lane, stride);
-            let ptr = element_ptr(ctx, rw, destination, index, elem_ty);
-            store_tile(ctx, rw, ptr, element, align);
-        }
+    // The counterpart of the vector load in `LoadOp`; see the note there.
+    if fragment_is_contiguous(ctx.wmma(), &ty, layout, step) {
+        let index = element_index(ctx, rw, &ty, layout, 0, lane, stride);
+        let ptr = element_ptr(ctx, rw, destination, index, elem_ty);
+        store_tile(ctx, rw, ptr, frag, align);
 
         rw.erase_operation(ctx, old_op);
-        Ok(())
+        return Ok(());
     }
+
+    for i in 0..elems {
+        let slot = insert_i32_const(ctx, rw, (i * step) as i32);
+        let extract = llvm::ExtractElementOp::new(ctx, frag, slot);
+        let element = insert(ctx, rw, &extract);
+
+        let index = element_index(ctx, rw, &ty, layout, i, lane, stride);
+        let ptr = element_ptr(ctx, rw, destination, index, elem_ty);
+        store_tile(ctx, rw, ptr, element, align);
+    }
+
+    rw.erase_operation(ctx, old_op);
+    Ok(())
 }
 
 /// The `k` one instruction of this device's WMMA covers, for reporting a tile that does not
@@ -612,183 +598,172 @@ fn emit_wmma(
     Some(acc)
 }
 
-#[op_interface_impl]
-impl ToLLVMDialect for MultiplyAccumulateOp {
-    fn rewrite(
-        &self,
-        ctx: &mut Context,
-        rw: &mut DialectConversionRewriter,
-        operands_info: &OperandsInfo,
-    ) -> Result<()> {
-        let old_op = self.get_operation();
-        let (a, b, c, d) = (
-            self.mat_a(ctx),
-            self.mat_b(ctx),
-            self.mat_c(ctx),
-            self.mat_d(ctx),
+pub(crate) fn multiply_accumulate(
+    op: &MultiplyAccumulateOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let (a, b, c, d) = (op.mat_a(ctx), op.mat_b(ctx), op.mat_c(ctx), op.mat_d(ctx));
+
+    let a_ty = matrix_of(ctx, operands_info, a);
+    let c_ty = matrix_of(ctx, operands_info, c);
+    let ab_frag_ty = fragment_ty(ctx, &a_ty);
+    let cd_frag_ty = fragment_ty(ctx, &c_ty);
+
+    let a_val = load_fragment(ctx, rw, a, ab_frag_ty);
+    let b_val = load_fragment(ctx, rw, b, ab_frag_ty);
+    let c_val = load_fragment(ctx, rw, c, cd_frag_ty);
+
+    let (Some(ab), Some(cd)) = (
+        wmma_format(ctx, a_ty.elem_ty),
+        wmma_format(ctx, c_ty.elem_ty),
+    ) else {
+        return input_err!(
+            op.loc(ctx),
+            unsupported_elem(ctx, a_ty.elem_ty, c_ty.elem_ty)
         );
+    };
+    let k = a_ty.shape.k;
+    let call = WmmaCall {
+        shape: a_ty.shape,
+        ab,
+        cd,
+        cd_is_half: is_half(ctx, c_ty.elem_ty),
+    };
+    let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_frag_ty, cd_frag_ty)
+    else {
+        return input_err!(op.loc(ctx), MatrixDepthUnsupported(k, instruction_k(ctx)));
+    };
+    store_fragment(ctx, rw, d, result);
 
-        let a_ty = matrix_of(ctx, operands_info, a);
-        let c_ty = matrix_of(ctx, operands_info, c);
-        let ab_frag_ty = fragment_ty(ctx, &a_ty);
-        let cd_frag_ty = fragment_ty(ctx, &c_ty);
-
-        let a_val = load_fragment(ctx, rw, a, ab_frag_ty);
-        let b_val = load_fragment(ctx, rw, b, ab_frag_ty);
-        let c_val = load_fragment(ctx, rw, c, cd_frag_ty);
-
-        let (Some(ab), Some(cd)) = (
-            wmma_format(ctx, a_ty.elem_ty),
-            wmma_format(ctx, c_ty.elem_ty),
-        ) else {
-            return input_err!(
-                self.loc(ctx),
-                unsupported_elem(ctx, a_ty.elem_ty, c_ty.elem_ty)
-            );
-        };
-        let k = a_ty.shape.k;
-        let call = WmmaCall {
-            shape: a_ty.shape,
-            ab,
-            cd,
-            cd_is_half: is_half(ctx, c_ty.elem_ty),
-        };
-        let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_frag_ty, cd_frag_ty)
-        else {
-            return input_err!(self.loc(ctx), MatrixDepthUnsupported(k, instruction_k(ctx)));
-        };
-        store_fragment(ctx, rw, d, result);
-
-        rw.erase_operation(ctx, old_op);
-        Ok(())
-    }
+    rw.erase_operation(ctx, old_op);
+    Ok(())
 }
 
-#[op_interface_impl]
-impl ToLLVMDialect for CastOp {
-    fn rewrite(
-        &self,
-        ctx: &mut Context,
-        rw: &mut DialectConversionRewriter,
-        operands_info: &OperandsInfo,
-    ) -> Result<()> {
-        let old_op = self.get_operation();
-        let input = self.input(ctx);
-        let output = self.output(ctx);
+pub(crate) fn cast(
+    op: &CastOp,
+    ctx: &mut Context,
+    rw: &mut DialectConversionRewriter,
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let input = op.input(ctx);
+    let output = op.output(ctx);
 
-        let in_ty = matrix_of(ctx, operands_info, input);
-        let out_ty = matrix_of(ctx, operands_info, output);
-        let in_frag_ty = fragment_ty(ctx, &in_ty);
+    let in_ty = matrix_of(ctx, operands_info, input);
+    let out_ty = matrix_of(ctx, operands_info, output);
+    let in_frag_ty = fragment_ty(ctx, &in_ty);
 
-        let value = load_fragment(ctx, rw, input, in_frag_ty);
+    let value = load_fragment(ctx, rw, input, in_frag_ty);
 
-        // The two fragments hold the same *elements*, but not necessarily the same number of
-        // vector slots: an RDNA3 accumulator pads a 16 bit element out to one per 32 bit
-        // register, so it has two slots per element where a 32 bit one has a single slot.
-        // Casting the raw vectors would hand `fptrunc` an <8 x float> and a <16 x half>, whose
-        // shapes do not match and which it rejects. Gather to the dense elements, cast those,
-        // and re-pad for the destination.
-        let (elems, in_step) = fragment_layout(ctx, &in_ty);
-        let (out_elems, out_step) = fragment_layout(ctx, &out_ty);
+    // The two fragments hold the same *elements*, but not necessarily the same number of
+    // vector slots: an RDNA3 accumulator pads a 16 bit element out to one per 32 bit
+    // register, so it has two slots per element where a 32 bit one has a single slot.
+    // Casting the raw vectors would hand `fptrunc` an <8 x float> and a <16 x half>, whose
+    // shapes do not match and which it rejects. Gather to the dense elements, cast those,
+    // and re-pad for the destination.
+    let (elems, in_step) = fragment_layout(ctx, &in_ty);
+    let (out_elems, out_step) = fragment_layout(ctx, &out_ty);
 
-        // A and B lay their elements out the same way -- one row or column per lane, the `k`
-        // range along it -- so a cast between those two idents only reinterprets which
-        // operand the fragment is. An accumulator does not: it holds several rows per lane,
-        // in a different count and a different order, so a cast across that boundary needs a
-        // cross-lane relayout this lowering does not do. `cmma::cast_with_ident` can ask for
-        // one, and the counts sometimes even agree (RDNA4, `k` of 16), so it is refused here
-        // rather than left to write elements into the wrong positions.
-        if (in_ty.ident == MatrixIdent::Accumulator) != (out_ty.ident == MatrixIdent::Accumulator) {
-            return input_err!(
-                self.loc(ctx),
-                MatrixRelayoutUnsupported(in_ty.ident, out_ty.ident)
-            );
-        }
-        assert_eq!(
-            elems, out_elems,
-            "a cast keeps the element count and changes only their width"
+    // A and B lay their elements out the same way -- one row or column per lane, the `k`
+    // range along it -- so a cast between those two idents only reinterprets which
+    // operand the fragment is. An accumulator does not: it holds several rows per lane,
+    // in a different count and a different order, so a cast across that boundary needs a
+    // cross-lane relayout this lowering does not do. `cmma::cast_with_ident` can ask for
+    // one, and the counts sometimes even agree (RDNA4, `k` of 16), so it is refused here
+    // rather than left to write elements into the wrong positions.
+    if (in_ty.ident == MatrixIdent::Accumulator) != (out_ty.ident == MatrixIdent::Accumulator) {
+        return input_err!(
+            op.loc(ctx),
+            MatrixRelayoutUnsupported(in_ty.ident, out_ty.ident)
         );
+    }
+    assert_eq!(
+        elems, out_elems,
+        "a cast keeps the element count and changes only their width"
+    );
 
-        let dense = if in_step == 1 {
-            value
-        } else {
-            shuffle(
-                ctx,
-                rw,
-                value,
-                (0..elems).map(|i| (i * in_step) as i32).collect(),
-            )
-        };
-
-        let in_bits = in_ty.elem_ty.size_bits(ctx);
-        let out_bits = out_ty.elem_ty.size_bits(ctx);
-        let dense_out_ty: TypeHandle = LlvmVectorType::get(
+    let dense = if in_step == 1 {
+        value
+    } else {
+        shuffle(
             ctx,
-            cube_type_to_llvm(ctx, out_ty.elem_ty),
+            rw,
+            value,
+            (0..elems).map(|i| (i * in_step) as i32).collect(),
+        )
+    };
+
+    let in_bits = in_ty.elem_ty.size_bits(ctx);
+    let out_bits = out_ty.elem_ty.size_bits(ctx);
+    let dense_out_ty: TypeHandle = LlvmVectorType::get(
+        ctx,
+        cube_type_to_llvm(ctx, out_ty.elem_ty),
+        elems as u32,
+        VectorTypeKind::Fixed,
+    )
+    .into();
+    let cast = if in_bits > out_bits {
+        fptrunc(ctx, rw, dense, dense_out_ty)
+    } else if in_bits < out_bits {
+        fpext(ctx, rw, dense, dense_out_ty)
+    } else if in_ty.elem_ty == out_ty.elem_ty {
+        // Nothing to convert. The frontend folds this away, but the lowering does not
+        // depend on it having done so.
+        dense
+    } else if is_half(ctx, in_ty.elem_ty) && is_half(ctx, out_ty.elem_ty) {
+        // The one pair of the same width that LLVM holds in two different types: f16 and
+        // bf16 split their 16 bits between exponent and mantissa differently, so neither
+        // `fptrunc` nor `fpext` applies and keeping the bits would change the value they
+        // stand for. f32 holds either exactly, so the conversion goes through it.
+        let wide_ty: TypeHandle = LlvmVectorType::get(
+            ctx,
+            FP32Type::get(ctx).into(),
             elems as u32,
             VectorTypeKind::Fixed,
         )
         .into();
-        let cast = if in_bits > out_bits {
-            fptrunc(ctx, rw, dense, dense_out_ty)
-        } else if in_bits < out_bits {
-            fpext(ctx, rw, dense, dense_out_ty)
-        } else if in_ty.elem_ty == out_ty.elem_ty {
-            // Nothing to convert. The frontend folds this away, but the lowering does not
-            // depend on it having done so.
-            dense
-        } else if is_half(ctx, in_ty.elem_ty) && is_half(ctx, out_ty.elem_ty) {
-            // The one pair of the same width that LLVM holds in two different types: f16 and
-            // bf16 split their 16 bits between exponent and mantissa differently, so neither
-            // `fptrunc` nor `fpext` applies and keeping the bits would change the value they
-            // stand for. f32 holds either exactly, so the conversion goes through it.
-            let wide_ty: TypeHandle = LlvmVectorType::get(
-                ctx,
-                FP32Type::get(ctx).into(),
-                elems as u32,
-                VectorTypeKind::Fixed,
-            )
-            .into();
-            let wide = fpext(ctx, rw, dense, wide_ty);
-            fptrunc(ctx, rw, wide, dense_out_ty)
-        } else {
-            // Any other pair of the same width is two cubecl names for one LLVM type -- f32,
-            // flex32 and tf32 are all `float` -- so there is nothing to emit. Nothing could
-            // be, either: `fpext` and `fptrunc` each want a change of width, and handing one
-            // a source and a destination of the same type is invalid IR rather than a no-op.
-            // Reaching here at all takes a fragment type the device advertises, which
-            // `Matrix::uninitialized` checks before this lowering runs, so today only f16 and
-            // bf16 share a width. The arm is what keeps a future third one from silently
-            // taking the conversion above.
-            debug_assert_eq!(
-                cube_type_to_llvm(ctx, in_ty.elem_ty),
-                cube_type_to_llvm(ctx, out_ty.elem_ty),
-                "a cast of the same width between two distinct LLVM types needs a conversion, \
-                 and neither `fpext` nor `fptrunc` is one"
-            );
-            dense
-        };
+        let wide = fpext(ctx, rw, dense, wide_ty);
+        fptrunc(ctx, rw, wide, dense_out_ty)
+    } else {
+        // Any other pair of the same width is two cubecl names for one LLVM type -- f32,
+        // flex32 and tf32 are all `float` -- so there is nothing to emit. Nothing could
+        // be, either: `fpext` and `fptrunc` each want a change of width, and handing one
+        // a source and a destination of the same type is invalid IR rather than a no-op.
+        // Reaching here at all takes a fragment type the device advertises, which
+        // `Matrix::uninitialized` checks before this lowering runs, so today only f16 and
+        // bf16 share a width. The arm is what keeps a future third one from silently
+        // taking the conversion above.
+        debug_assert_eq!(
+            cube_type_to_llvm(ctx, in_ty.elem_ty),
+            cube_type_to_llvm(ctx, out_ty.elem_ty),
+            "a cast of the same width between two distinct LLVM types needs a conversion, \
+             and neither `fpext` nor `fptrunc` is one"
+        );
+        dense
+    };
 
-        // Repeating each element across its slots rather than leaving the padding undefined:
-        // only the low half of each register is ever read back, so the value there is free,
-        // and a defined one keeps the fragment printable and comparable.
-        let result = if out_step == 1 {
-            cast
-        } else {
-            shuffle(
-                ctx,
-                rw,
-                cast,
-                (0..elems * out_step)
-                    .map(|i| (i / out_step) as i32)
-                    .collect(),
-            )
-        };
-        store_fragment(ctx, rw, output, result);
+    // Repeating each element across its slots rather than leaving the padding undefined:
+    // only the low half of each register is ever read back, so the value there is free,
+    // and a defined one keeps the fragment printable and comparable.
+    let result = if out_step == 1 {
+        cast
+    } else {
+        shuffle(
+            ctx,
+            rw,
+            cast,
+            (0..elems * out_step)
+                .map(|i| (i / out_step) as i32)
+                .collect(),
+        )
+    };
+    store_fragment(ctx, rw, output, result);
 
-        rw.erase_operation(ctx, old_op);
-        Ok(())
-    }
+    rw.erase_operation(ctx, old_op);
+    Ok(())
 }
 
 /// Widens every element of `value` to `ty`.
@@ -846,166 +821,70 @@ fn axis_index(
 
 /// Lowers `row_index` and `col_index`, which differ only in the axis they ask for.
 macro_rules! lower_axis_index {
-    ($cube_op:ty, $axis:expr) => {
-        #[op_interface_impl]
-        impl ToLLVMDialect for $cube_op {
-            fn rewrite(
-                &self,
-                ctx: &mut Context,
-                rw: &mut DialectConversionRewriter,
-                _operands_info: &OperandsInfo,
-            ) -> Result<()> {
-                let old_op = self.get_operation();
-                let lane = self.lane_id(ctx);
-                let i = self.i(ctx);
-                let handle = self.matrix_ty(ctx).clone();
-                let matrix = *handle.deref(ctx);
+    ($fn_name:ident, $cube_op:ty, $axis:expr) => {
+        pub(crate) fn $fn_name(
+            op: &$cube_op,
+            ctx: &mut Context,
+            rw: &mut DialectConversionRewriter,
+            _operands_info: &OperandsInfo,
+        ) -> Result<()> {
+            let old_op = op.get_operation();
+            let lane = op.lane_id(ctx);
+            let i = op.i(ctx);
+            let handle = op.matrix_ty(ctx).clone();
+            let matrix = *handle.deref(ctx);
 
-                let index = axis_index(ctx, rw, &matrix, $axis, lane, i);
-                rw.replace_operation_with_values(ctx, old_op, vec![index]);
-                Ok(())
-            }
+            let index = axis_index(ctx, rw, &matrix, $axis, lane, i);
+            rw.replace_operation_with_values(ctx, old_op, vec![index]);
+            Ok(())
         }
     };
 }
 
-lower_axis_index!(RowIndexOp, Axis::Row);
-lower_axis_index!(ColIndexOp, Axis::Col);
+lower_axis_index!(row_index, RowIndexOp, Axis::Row);
+lower_axis_index!(col_index, ColIndexOp, Axis::Col);
 
-/// The LLVM vector holding the registers `value` points at.
-///
-/// The manual ops carry their operands as arrays rather than fragments, but the registers are
-/// the same ones, so the array is read as the vector the instruction expects.
-fn registers_as_vector(
-    ctx: &Context,
-    info: &OperandsInfo,
-    value: Value,
-) -> (TypeHandle, TypeHandle) {
-    // The inputs are array values and the output a pointer to one, so both shapes are looked
-    // for and the registers read accordingly.
-    let array = info
-        .lookup_operand_history(value)
-        .into_iter()
-        .rev()
-        .chain(core::iter::once(value.get_type(ctx)))
-        .find_map(|ty| {
-            let ty = ty.deref(ctx);
-            if let Some(array) = ty.downcast_ref::<CubeArrayType>() {
-                return Some(*array);
-            }
-            let ptr = ty.downcast_ref::<CubePointerType>()?;
-            let inner = ptr.inner.deref(ctx);
-            inner.downcast_ref::<CubeArrayType>().copied()
-        })
-        .expect("a manual matrix operand is an array of registers");
-
-    // The registers are packed as vectors, so the array is flattened into the one vector the
-    // instruction takes.
-    let (scalar, per_register) = match array.inner.deref(ctx).downcast_ref::<CubeVectorType>() {
-        Some(vector) => (vector.inner, vector.vectorization),
-        None => (array.inner, 1),
-    };
-    let elem = cube_type_to_llvm(ctx, scalar);
-    let lanes = (array.length * per_register) as u32;
-    let vector = LlvmVectorType::get(ctx, elem, lanes, VectorTypeKind::Fixed).into();
-    (vector, scalar)
-}
-
-/// The registers of `value` as the one vector the instruction takes.
-///
-/// The registers arrive as an array, of vectors where several share a register. An array is not
-/// a vector as far as a bitcast is concerned, so it is taken apart and rebuilt.
-fn registers_value(
+pub(crate) fn mma_manual(
+    op: &MmaManualOp,
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
-    value: Value,
-    vector_ty: TypeHandle,
-) -> Value {
-    let ty = value.get_type(ctx);
-    if ty.deref(ctx).is::<LlvmPointerType>() {
-        return load_fragment(ctx, rw, value, vector_ty);
-    }
+    operands_info: &OperandsInfo,
+) -> Result<()> {
+    let old_op = op.get_operation();
+    let (a, b, c, d) = (
+        op.registers_a(ctx),
+        op.registers_b(ctx),
+        op.registers_c(ctx),
+        op.registers_d(ctx),
+    );
 
-    let (count, packed) = {
-        let ty = ty.deref(ctx);
-        let array = ty
-            .downcast_ref::<LlvmArrayType>()
-            .expect("registers are an array");
-        (array.size(), array.elem_type())
+    let (ab_ty, ab_elem) = registers_as_vector(ctx, operands_info, a);
+    let (cd_ty, cd_elem) = registers_as_vector(ctx, operands_info, c);
+
+    let a_val = registers_value(ctx, rw, a, ab_ty);
+    let b_val = registers_value(ctx, rw, b, ab_ty);
+    let c_val = registers_value(ctx, rw, c, cd_ty);
+
+    let (Some(ab), Some(cd)) = (wmma_format(ctx, ab_elem), wmma_format(ctx, cd_elem)) else {
+        return input_err!(op.loc(ctx), unsupported_elem(ctx, ab_elem, cd_elem));
     };
-    let per_register = match packed.deref(ctx).downcast_ref::<LlvmVectorType>() {
-        Some(vector) => vector.num_elements() as u64,
-        None => 1,
+    let shape = *op.shape(ctx).clone();
+    let call = WmmaCall {
+        shape,
+        ab,
+        cd,
+        cd_is_half: is_half(ctx, cd_elem),
     };
-
-    let poison = llvm::PoisonOp::new(ctx, vector_ty);
-    let mut acc = insert(ctx, rw, &poison);
-
-    for register in 0..count {
-        let op = llvm::ExtractValueOp::new(ctx, value, vec![register as u32])
-            .expect("a constant index into the register array");
-        let element = insert(ctx, rw, &op);
-
-        for lane in 0..per_register {
-            let value = if per_register == 1 {
-                element
-            } else {
-                let from = insert_i32_const(ctx, rw, lane as i32);
-                let op = llvm::ExtractElementOp::new(ctx, element, from);
-                insert(ctx, rw, &op)
-            };
-            let to = insert_i32_const(ctx, rw, (register * per_register + lane) as i32);
-            let op = llvm::InsertElementOp::new(ctx, acc, value, to);
-            acc = insert(ctx, rw, &op);
-        }
-    }
-    acc
-}
-
-#[op_interface_impl]
-impl ToLLVMDialect for MmaManualOp {
-    fn rewrite(
-        &self,
-        ctx: &mut Context,
-        rw: &mut DialectConversionRewriter,
-        operands_info: &OperandsInfo,
-    ) -> Result<()> {
-        let old_op = self.get_operation();
-        let (a, b, c, d) = (
-            self.registers_a(ctx),
-            self.registers_b(ctx),
-            self.registers_c(ctx),
-            self.registers_d(ctx),
+    let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_ty, cd_ty) else {
+        return input_err!(
+            op.loc(ctx),
+            MatrixDepthUnsupported(shape.k, instruction_k(ctx))
         );
+    };
+    store_fragment(ctx, rw, d, result);
 
-        let (ab_ty, ab_elem) = registers_as_vector(ctx, operands_info, a);
-        let (cd_ty, cd_elem) = registers_as_vector(ctx, operands_info, c);
-
-        let a_val = registers_value(ctx, rw, a, ab_ty);
-        let b_val = registers_value(ctx, rw, b, ab_ty);
-        let c_val = registers_value(ctx, rw, c, cd_ty);
-
-        let (Some(ab), Some(cd)) = (wmma_format(ctx, ab_elem), wmma_format(ctx, cd_elem)) else {
-            return input_err!(self.loc(ctx), unsupported_elem(ctx, ab_elem, cd_elem));
-        };
-        let shape = *self.shape(ctx).clone();
-        let call = WmmaCall {
-            shape,
-            ab,
-            cd,
-            cd_is_half: is_half(ctx, cd_elem),
-        };
-        let Some(result) = emit_wmma(ctx, rw, call, (a_val, b_val, c_val), ab_ty, cd_ty) else {
-            return input_err!(
-                self.loc(ctx),
-                MatrixDepthUnsupported(shape.k, instruction_k(ctx))
-            );
-        };
-        store_fragment(ctx, rw, d, result);
-
-        rw.erase_operation(ctx, old_op);
-        Ok(())
-    }
+    rw.erase_operation(ctx, old_op);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1148,3 +1027,28 @@ mod tests {
         ));
     }
 }
+
+/// A matrix load or store that moves a tile between shared memory and the registers of a
+/// wavefront in one instruction, which AMD has no equivalent of at the shapes `CubeCL` asks for.
+#[derive(Debug, Error)]
+#[error(
+    "`{0}` is `ldmatrix`/`stmatrix`, an NVIDIA instruction; the AMDGPU backend does not \
+     advertise it and has nothing to lower it to"
+)]
+pub struct MatrixTileMoveUnsupported(&'static str);
+
+macro_rules! unsupported_tile_move {
+    ($fn_name:ident, $cube_op:ty) => {
+        pub(crate) fn $fn_name(
+            op: &$cube_op,
+            ctx: &mut Context,
+            _rw: &mut DialectConversionRewriter,
+            _operands_info: &OperandsInfo,
+        ) -> Result<()> {
+            input_err!(op.loc(ctx), MatrixTileMoveUnsupported(stringify!($cube_op)))
+        }
+    };
+}
+
+unsupported_tile_move!(ld_matrix, LdMatrixOp);
+unsupported_tile_move!(st_matrix, StMatrixOp);

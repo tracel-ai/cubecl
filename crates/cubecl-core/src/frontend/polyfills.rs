@@ -369,3 +369,72 @@ pub mod plane {
         select(UNIT_POS_PLANE == 0, Vector::new(T::from_int(default)), shfl)
     }
 }
+
+/// Where a lane's registers sit in the tile, for the manual `mma.sync` matrix API.
+///
+/// Unlike the cooperative API, whose fragment layout is the hardware's business, the manual one
+/// hands a kernel the registers and expects it to know which element of the tile each holds.
+/// NVIDIA documents that mapping, and every backend generating `mma.sync` has to agree with it
+/// exactly -- a kernel that indexes its own fragment differently from the way the instruction
+/// reads it computes a wrong answer rather than failing -- so it is written once here and the
+/// C++ and LLVM backends both expand it.
+///
+/// Derived from the PTX shape documentation:
+/// <https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions-for-mma>
+pub mod mma {
+    use super::*;
+    use crate::ir::types::MatrixIdent;
+
+    /// The row of the tile that `lane_id`'s `i`th element holds.
+    #[cube]
+    pub fn row_index(
+        lane_id: u32,
+        i: u32,
+        #[comptime] elems_per_reg: usize,
+        #[comptime] ident: MatrixIdent,
+    ) -> u32 {
+        let elems_per_reg = elems_per_reg as u32;
+        match ident {
+            MatrixIdent::A => {
+                let group_id = lane_id / 4;
+                let odd_register = (i / elems_per_reg) & 1;
+                group_id + odd_register * 8
+            }
+            MatrixIdent::B => {
+                let thread_id_in_group = lane_id % 4;
+                let offset = thread_id_in_group * elems_per_reg + (i % elems_per_reg);
+                let reg = i / elems_per_reg;
+                offset + elems_per_reg * 4 * reg
+            }
+            MatrixIdent::Accumulator => {
+                let group_id = lane_id / 4;
+                let offset = (i << 2) & 8;
+                group_id + offset
+            }
+        }
+    }
+
+    /// The column of the tile that `lane_id`'s `i`th element holds.
+    #[cube]
+    pub fn col_index(
+        lane_id: u32,
+        i: u32,
+        #[comptime] elems_per_reg: usize,
+        #[comptime] ident: MatrixIdent,
+    ) -> u32 {
+        let elems_per_reg = elems_per_reg as u32;
+        match ident {
+            MatrixIdent::A => {
+                let thread_id_in_group = lane_id % 4;
+                let offset = thread_id_in_group * elems_per_reg + (i % elems_per_reg);
+                let group_2 = (i / (2 * elems_per_reg)) & 1;
+                offset + 4 * elems_per_reg * group_2
+            }
+            MatrixIdent::B => lane_id >> 2,
+            MatrixIdent::Accumulator => {
+                let thread_id_in_group = lane_id % 4;
+                (thread_id_in_group * 2) + (i % 2)
+            }
+        }
+    }
+}

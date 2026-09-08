@@ -14,6 +14,7 @@ use cubecl::{
 use alloc::{vec, vec::Vec};
 use cubecl_common::{e2m1, e2m1x2, ue8m0};
 use cubecl_ir::{
+    OpaqueType,
     features::{MmaConfig, ScaledMmaConfig},
     types::{MatrixIdent, MatrixLayout},
 };
@@ -1375,6 +1376,13 @@ pub fn test_cmma_manual_ldmatrix<
             AB::cube_type(),
             CD::cube_type()
         );
+        return;
+    }
+
+    // The kernel stages both operands through shared memory with a barrier, so a runtime with
+    // the matrix instructions but not the barrier cannot run it either.
+    if !client.properties().supports_type(OpaqueType::Barrier) {
+        println!("Skipping test: the runtime has no barrier to stage the operands through");
         return;
     }
 

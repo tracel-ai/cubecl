@@ -1,8 +1,12 @@
 //! The plane reductions and scans, as folds over the shuffles.
 //!
-//! The wavefront has no reduction instruction of its own, so each of these is a logarithmic
-//! fold over [`plane`](super::plane)'s shuffles. The folds themselves are
+//! Neither GPU has a reduction instruction this lowering can reach, so each of these is a
+//! logarithmic fold over the target's own shuffles. The folds themselves are
 //! [`cubecl_core::prelude::polyfills::plane`], shared with the C++ backends.
+//!
+//! NVIDIA does have `redux.sync` for integer sums and extrema from `sm_80`, and AMD the DPP row
+//! operations; both are narrower than what is lowered here and neither covers the scans, so
+//! taking one up is a matter of specializing individual folds rather than of replacing this.
 
 use cubecl_core::ir::Scope;
 use cubecl_core::ir::dialect::plane;
@@ -13,7 +17,7 @@ use cubecl_core::prelude::polyfills::plane::{
 use cubecl_core::prelude::*;
 
 use crate::shared::polyfill::LowerOp;
-use crate::target::{CtxTarget, LlvmTarget};
+use crate::target::CtxTarget;
 
 define_scalar!(T);
 define_size!(S);
@@ -26,7 +30,7 @@ macro_rules! lower_reduction {
             fn should_lower(&self, ctx: &Context) -> bool {
                 // The CPU has a plane of one unit, so its reductions are the value itself and
                 // are lowered elsewhere.
-                ctx.target() == LlvmTarget::AmdGpu
+                ctx.target().is_gpu()
             }
 
             fn lower(&self, scope: &Scope) -> Vec<Value> {

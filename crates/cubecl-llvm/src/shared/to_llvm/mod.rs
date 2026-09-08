@@ -17,7 +17,7 @@ pub mod prelude {
         int_attr,
     };
     pub use super::insert::insert;
-    pub use super::ty::{INDEX_WIDTH, cube_type_to_llvm, llvm_mangled_ty};
+    pub use super::ty::{GEP_INDEX_WIDTH, cube_type_to_llvm, index_width, llvm_mangled_ty};
     pub use super::vector::insert_splat;
     pub use super::{CubeToLLVMType, ToLLVMDialect};
 

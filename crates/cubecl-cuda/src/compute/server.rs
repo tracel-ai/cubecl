@@ -853,6 +853,7 @@ impl CudaServer {
         let grid_constants = self
             .ctx
             .compilation_options
+            .cpp
             .supports_features
             .grid_constants;
         let mut command = self.command(stream_id, bindings.buffers());

@@ -12,6 +12,18 @@ pub enum LlvmTarget {
     #[default]
     Cpu,
     AmdGpu,
+    Nvptx,
+}
+
+impl LlvmTarget {
+    /// Whether the target *is* the launch grid, rather than emulating it.
+    ///
+    /// The two GPU targets share every lowering that only needs a cube to be a real group of
+    /// units running together: one block of shared memory, plane operations across the lanes
+    /// of a hardware plane. The CPU has neither, and answers `false`.
+    pub fn is_gpu(self) -> bool {
+        matches!(self, LlvmTarget::AmdGpu | LlvmTarget::Nvptx)
+    }
 }
 
 impl CtxTarget for Context {}
