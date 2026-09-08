@@ -210,8 +210,22 @@ pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vecto
     select_many(is_even, even_res, sel1)
 }
 
+/// Wrapping integer power, interpreting the exponent as `u32`.
 #[cube]
 pub fn powi_int<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
+    // Use unsigned arithmetic so intermediate squares wrap on C++ backends too.
+    // Narrow integers can use u32: truncating the final result preserves their low bits
+    // and avoids C++ integer promotion turning multiplication into signed arithmetic.
+    if T::size_bits().comptime() <= 32 {
+        Vector::cast_from(powi_int_unsigned::<u32, N>(Vector::cast_from(base), exp))
+    } else {
+        Vector::cast_from(powi_int_unsigned::<u64, N>(Vector::cast_from(base), exp))
+    }
+}
+
+// Only instantiate with u32 or u64 to keep multiplication unsigned on every backend.
+#[cube]
+fn powi_int_unsigned<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
     let one_u = Vector::<u32, N>::new(1);
     let one_t = Vector::<T, N>::new(T::from_int(1));
 

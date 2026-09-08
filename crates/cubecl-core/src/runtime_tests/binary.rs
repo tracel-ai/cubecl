@@ -341,38 +341,92 @@ test_powi_impl!(
 );
 
 #[cube(launch_unchecked)]
-fn test_powi_int_kernel<N: Size>(
-    lhs: &[Vector<i32, N>],
+fn test_powi_int_kernel<I: Int + Powi<i32>, N: Size>(
+    lhs: &[Vector<I, N>],
     rhs: &[Vector<i32, N>],
-    output: &mut [Vector<i32, N>],
+    output: &mut [Vector<I, N>],
 ) {
     if ABSOLUTE_POS < rhs.len() {
         output[ABSOLUTE_POS] = Powi::powi(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
     }
 }
 
+fn test_powi_int_cases<I: Int + Powi<i32> + CubeElement + Display>(
+    client: &Client,
+    lhs: &[I],
+    rhs: &[i32],
+    expected: &[I],
+) {
+    use cubecl_ir::features::TypeUsage;
+
+    let uses = I::supported_uses(client);
+    if !uses.contains(TypeUsage::Arithmetic) || !uses.contains(TypeUsage::Buffer) {
+        return;
+    }
+
+    for vectorization in [1, 4] {
+        let output_handle = client.empty(core::mem::size_of_val(expected));
+        let lhs_handle = client.create_from_slice(I::as_bytes(lhs));
+        let rhs_handle = client.create_from_slice(i32::as_bytes(rhs));
+
+        unsafe {
+            test_powi_int_kernel::launch_unchecked::<I>(
+                client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d((lhs.len() / vectorization) as u32),
+                vectorization,
+                BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+                BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+                BufferArg::from_raw_parts(output_handle.clone(), expected.len()),
+            )
+        };
+
+        assert_equals_exact::<I>(client, output_handle, expected);
+    }
+}
+
 pub fn test_powi_int<R: Runtime>(client: Client) {
-    let lhs = [3, 2, -3, 7];
-    let rhs = [2, 3, 3, 0];
-    let expected = [9, 8, -27, 1];
-    let vectorization = 4;
-    let output_handle = client.empty(expected.len() * size_of::<i32>());
-    let lhs_handle = client.create_from_slice(i32::as_bytes(&lhs));
-    let rhs_handle = client.create_from_slice(i32::as_bytes(&rhs));
+    test_powi_int_cases(&client, &[3i32, 2, -3, 7], &[2, 3, 3, 0], &[9, 8, -27, 1]);
 
-    unsafe {
-        test_powi_int_kernel::launch_unchecked(
-            &client,
-            CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d((lhs.len() / vectorization) as u32),
-            vectorization,
-            BufferArg::from_raw_parts(lhs_handle, lhs.len()),
-            BufferArg::from_raw_parts(rhs_handle, rhs.len()),
-            BufferArg::from_raw_parts(output_handle.clone(), expected.len()),
-        )
-    };
-
-    assert_equals_exact::<i32>(&client, output_handle, &expected);
+    // Exercise truncation, signed overflow, exponent bit 31, and unsigned bases.
+    macro_rules! check {
+        ($ty:ty, $lhs:expr, $rhs:expr) => {{
+            let lhs: [$ty; 8] = $lhs;
+            let rhs: [i32; 8] = $rhs;
+            let expected: [$ty; 8] = core::array::from_fn(|i| lhs[i].wrapping_pow(rhs[i] as u32));
+            test_powi_int_cases(&client, &lhs, &rhs, &expected);
+        }};
+    }
+    check!(
+        i8,
+        [-3, 127, -128, 0, 3, -1, 1, 7],
+        [3, 2, 1, 0, 7, -1, i32::MIN, 0]
+    );
+    check!(
+        u16,
+        [65535, 256, 3, 0, 1, 7, 2, 5],
+        [2, 2, 10, 0, -1, 0, 16, 3]
+    );
+    check!(
+        i32,
+        [i32::MAX, i32::MIN, -3, 0, 3, -1, 1, 7],
+        [2, 1, 3, 0, 20, -1, i32::MIN, 0]
+    );
+    check!(
+        u32,
+        [u32::MAX, 65536, 3, 0, 1, 7, 2, 5],
+        [2, 2, 20, 0, -1, 0, 32, 3]
+    );
+    check!(
+        i64,
+        [i64::MAX, i64::MIN, -3, 0, 3, -1, 3, 4294967297],
+        [2, 1, 3, 0, 40, -1, i32::MIN, 2]
+    );
+    check!(
+        u64,
+        [u64::MAX, 4294967297, 3, 0, 3, 7, 2, 5],
+        [2, 2, 40, 0, -1, 0, 64, 3]
+    );
 }
 
 #[cube(launch_unchecked)]
