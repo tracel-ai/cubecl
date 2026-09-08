@@ -7,7 +7,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::sync::Mutex;
-use cubecl_ir::DeviceIdentity;
+use cubecl_ir::{DeviceIdentity, DeviceProperties};
 
 /// The namespace segment naming which generation of probes wrote a value.
 #[cfg(std_io)]
@@ -28,8 +28,17 @@ pub struct ThroughputCache {
 
 impl ThroughputCache {
     /// Gets or creates the global `ThroughputCache` for one device.
-    pub fn get_for_device(runtime: &str, identity: &DeviceIdentity) -> Arc<Mutex<Self>> {
-        let name = device_key(runtime, identity);
+    pub fn get_for_device(runtime: &str, properties: &DeviceProperties) -> Arc<Mutex<Self>> {
+        let hardware = &properties.hardware;
+        let name = device_key(
+            runtime,
+            &properties.identity,
+            properties.memory.max_page_size,
+            hardware
+                .num_cpu_cores
+                .or(hardware.num_streaming_multiprocessors)
+                .unwrap_or(0),
+        );
         let mut cache_map = GLOBAL_CACHE.lock();
         let cache_map = cache_map.get_or_insert_with(HashMap::new);
 
@@ -83,13 +92,17 @@ impl ThroughputCache {
 /// The part, never the device index, which `CUDA_VISIBLE_DEVICES` makes 0 for
 /// whichever card was pinned. Two cards this cannot separate are one part, and
 /// share a peak.
-fn device_key(runtime: &str, identity: &DeviceIdentity) -> String {
+///
+/// `capacity` and `parallelism` join the part because a name does not move when
+/// the hardware under it does: a machine that gains DIMMs, or a container given
+/// a fraction of its host's cores, reaches a different ceiling on the same part.
+fn device_key(runtime: &str, identity: &DeviceIdentity, capacity: u64, parallelism: u32) -> String {
     let DeviceIdentity { name, fingerprint } = identity;
     // A namespace is a path, and a runtime names itself `wgpu<spirv>`.
     let segment = |text: &str| text.replace(|c: char| !c.is_ascii_alphanumeric(), "-");
 
     format!(
-        "{}_{}_{}",
+        "{}_{}_{}_mem{capacity}_par{parallelism}",
         segment(runtime),
         segment(fingerprint),
         segment(name)
@@ -152,18 +165,51 @@ mod tests {
     use super::*;
     use alloc::string::ToString;
 
+    fn identity(name: &str, fingerprint: &str) -> DeviceIdentity {
+        DeviceIdentity {
+            name: name.to_string(),
+            fingerprint: fingerprint.to_string(),
+        }
+    }
+
     /// Two cards in one machine were served each other's peaks: pinning either
     /// makes it index 0, and the index was all that told them apart.
     #[test]
     fn two_parts_of_one_architecture_do_not_share_an_entry() {
-        let turing = |name: &str| DeviceIdentity {
-            name: name.to_string(),
-            fingerprint: "ptx_sm75".to_string(),
-        };
+        let turing = |name: &str| identity(name, "ptx_sm75");
 
         assert_ne!(
-            device_key("cuda", &turing("NVIDIA GeForce RTX 2060")),
-            device_key("cuda", &turing("NVIDIA GeForce GTX 1660 SUPER")),
+            device_key("cuda", &turing("NVIDIA GeForce RTX 2060"), 6 << 30, 30),
+            device_key(
+                "cuda",
+                &turing("NVIDIA GeForce GTX 1660 SUPER"),
+                6 << 30,
+                22
+            ),
+        );
+    }
+
+    /// A CPU names itself the same before and after its DIMMs change, and the
+    /// memory ceiling it reaches does not.
+    #[test]
+    fn a_machine_that_gains_memory_does_not_reuse_its_ceiling() {
+        let xeon = identity("Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz", "cpu_x86_64");
+
+        assert_ne!(
+            device_key("cpu", &xeon, 32 << 30, 16),
+            device_key("cpu", &xeon, 64 << 30, 16),
+        );
+    }
+
+    /// Two containers on one host are one part with two ceilings: the cores a
+    /// cgroup grants bound how much of the memory system a probe can reach.
+    #[test]
+    fn a_container_given_fewer_cores_does_not_reuse_the_host_ceiling() {
+        let xeon = identity("Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz", "cpu_x86_64");
+
+        assert_ne!(
+            device_key("cpu", &xeon, 64 << 30, 16),
+            device_key("cpu", &xeon, 64 << 30, 4),
         );
     }
 
@@ -173,10 +219,9 @@ mod tests {
     fn a_device_key_is_one_path_segment() {
         let key = device_key(
             "wgpu<spirv>",
-            &DeviceIdentity {
-                name: "Intel(R) Arc(tm) B390 (PTL)".to_string(),
-                fingerprint: "spirv_32902_45184".to_string(),
-            },
+            &identity("Intel(R) Arc(tm) B390 (PTL)", "spirv_32902_45184"),
+            1 << 31,
+            0,
         );
 
         assert!(
