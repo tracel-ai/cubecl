@@ -1,6 +1,6 @@
 use cubecl_ir::AddressType;
 use cubecl_runtime::server::CopyDescriptor;
-use cubecl_zspace::{Shape, Strides};
+use cubecl_zspace::{MetadataError, Shape, Strides, Tiling};
 
 use crate::{
     self as cubecl,
@@ -41,6 +41,9 @@ pub struct TensorBinding {
     pub handle: cubecl_runtime::server::BufferBinding,
     pub strides: Strides,
     pub shape: Shape,
+    /// How many fragments each logical dim is stored as; untiled by default.
+    /// The shape and strides stay physical, as on [`Metadata`](cubecl_zspace::Metadata).
+    pub tiling: Tiling,
 }
 
 impl Clone for TensorBinding {
@@ -49,6 +52,7 @@ impl Clone for TensorBinding {
             handle: self.handle.clone(),
             strides: self.strides.clone(),
             shape: self.shape.clone(),
+            tiling: self.tiling,
         }
     }
 }
@@ -62,14 +66,36 @@ impl TensorBinding {
     pub fn required_address_type(&self, elem_size: usize) -> AddressType {
         AddressType::from_len(self.handle.size() as usize / elem_size)
     }
+
+    /// This binding with `tiling` labelling its physical dims.
+    ///
+    /// # Errors
+    ///
+    /// When `tiling` does not describe this rank: see [`Tiling::logical_rank`].
+    pub fn with_tiling(mut self, tiling: Tiling) -> Result<Self, MetadataError> {
+        tiling.logical_rank(self.shape.rank())?;
+        self.tiling = tiling;
+        Ok(self)
+    }
+
+    /// An alias reaches its tensor through another argument's dims, which carry
+    /// no tiling of their own, so a tiled binding says so rather than aliasing
+    /// as if it were plain.
+    fn assert_untiled(&self, op: &str) {
+        assert!(
+            !self.tiling.is_tiled(),
+            "TensorBinding::{op} on a storage-tiled binding is not supported: {:?}",
+            self.tiling
+        );
+    }
 }
 
 impl core::fmt::Debug for TensorBinding {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(
             f,
-            "TensorHandleRef {{ strides: {:?}, shape: {:?} }}",
-            self.strides, self.shape
+            "TensorHandleRef {{ strides: {:?}, shape: {:?}, tiling: {:?} }}",
+            self.strides, self.shape, self.tiling
         )
     }
 }
@@ -216,6 +242,7 @@ impl TensorBinding {
     }
     /// Convert the handle into a [tensor argument](TensorArg).
     pub fn into_alias(self, index: usize) -> TensorArg {
+        self.assert_untiled("into_alias");
         TensorArg::Alias {
             input_pos: index,
             strides: self.strides,
@@ -224,6 +251,7 @@ impl TensorBinding {
     }
     /// Convert the handle into a [tensor argument](TensorArg).
     pub fn as_alias(&self, index: usize) -> TensorArg {
+        self.assert_untiled("as_alias");
         TensorArg::Alias {
             input_pos: index,
             strides: self.strides.clone(),
@@ -264,6 +292,7 @@ impl TensorBinding {
             handle,
             strides,
             shape,
+            tiling: Tiling::UNTILED,
         }
     }
 
