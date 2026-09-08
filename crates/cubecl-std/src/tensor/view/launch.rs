@@ -300,7 +300,9 @@ mod layout {
 
         pub fn from_handle(handle: &TensorBinding, ty: Type, value: L::RuntimeArg) -> Self {
             Self {
-                meta: Metadata::new(handle.shape.clone(), handle.strides.clone()),
+                meta: Metadata::new(handle.shape.clone(), handle.strides.clone())
+                    .with_tiling(handle.tiling)
+                    .expect("a binding's tiling describes its own rank"),
                 ty,
                 value,
             }
