@@ -53,6 +53,21 @@ impl TensorHandle {
         }
     }
 
+    /// A tensor over `metadata` as it is, tiling included: the constructor for a handle rebuilt
+    /// from another's metadata, where [`new`](Self::new) would rebuild an untiled one from the
+    /// shape and strides alone.
+    pub fn from_metadata(
+        handle: server::Handle,
+        metadata: Metadata,
+        storage: impl Into<Type>,
+    ) -> Self {
+        Self {
+            handle,
+            metadata: Box::new(metadata),
+            dtype: storage.into().elem_type(),
+        }
+    }
+
     pub fn empty(client: &Client, shape: impl Into<Shape>, storage: impl Into<Type>) -> Self {
         let storage = storage.into();
         let shape: Shape = shape.into();
