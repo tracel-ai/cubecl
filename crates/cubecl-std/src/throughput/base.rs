@@ -33,7 +33,7 @@ pub fn device_throughput<R: Runtime>(
 /// exactly like the single-size probe, so a curve costs one probe per size on
 /// the first run and nothing afterwards.
 ///
-/// Native only, panics on WASM
+/// Returns an empty curve on WASM.
 pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurve {
     let points = {
         // Every point of a sweep asks for the same pool, so the sweep holds one.
