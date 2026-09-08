@@ -53,6 +53,12 @@ The two are different answers, and neither is a slow one.
 The two accumulator rows are separate because consumer parts halve their tensor
 rate for f32 accumulation, and that is the rate a matmul runs on.
 
+An arithmetic row is the rate a kernel with operands of that type reaches, not
+the rate the device retires that type at. A device with no fma of its own for a
+narrow float emulates one per operation, and a kernel converts and accumulates
+in f32 rather than pay that, so the row reports the f32 rate. Hardware with
+packed f16 retires two per f32 lane and reports its own.
+
 Memory counts the bytes a kernel asks for, not the traffic that reaches DRAM: an
 ordinary store also pays read-for-ownership where the hardware does, so on a CPU
 the write and copy figures land near half the bus while read lands near all of

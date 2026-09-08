@@ -1657,7 +1657,7 @@ impl Client {
         key: ThroughputKey,
         probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
     ) -> Result<ThroughputValue, ThroughputError> {
-        let cache = ThroughputCache::get_for_device(self.name(), &self.properties().identity);
+        let cache = ThroughputCache::get_for_device(self.name(), self.properties());
         let mut throughputs = ThroughputBenchmarker::new(cache);
         throughputs.measure(key, probe)
     }
