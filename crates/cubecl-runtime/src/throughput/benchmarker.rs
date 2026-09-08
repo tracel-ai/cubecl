@@ -33,12 +33,8 @@ const SAMPLE_PATIENCE: usize = 12;
 /// of the fixed cost of a launch than the rest.
 const TARGET_DURATION: Duration = Duration::from_millis(20);
 
-/// Samples a ranking pass keeps the fastest of, per shape.
-///
-/// A count and not a wall clock, so every shape of a sweep is ordered on the
-/// same number of draws. Under a time budget a shape whose pass happens to be
-/// short draws more of them, and the lowest of more draws is lower, which
-/// decides a close pair on how long its passes are rather than on their rate.
+/// Samples a ranking pass keeps the fastest of. A count and not a wall clock:
+/// under a budget a short pass draws more, and the fastest of more is faster.
 const RANK_SAMPLES: usize = 3;
 
 /// Configuration and payload for a benchmarkable compute kernel.
@@ -117,11 +113,8 @@ impl ThroughputBenchmarker {
         }
     }
 
-    /// Warms the device on one shape and reports the iteration count a sample of
-    /// it should carry, for [`rank`](Self::rank) to reuse across the rest.
-    ///
-    /// A warmup is most of what timing a shape costs, and it is the device it
-    /// warms rather than the shape, so a sweep pays for one.
+    /// Warms the device on one shape and reports the count a sample should carry.
+    /// It is the device that is warmed, not the shape, so a sweep pays once.
     pub fn warm(kernel_config: &KernelConfig) -> usize {
         Self::warmup(
             kernel_config.min_iterations,
@@ -131,10 +124,7 @@ impl ThroughputBenchmarker {
     }
 
     /// Keeps the fastest sample of a shape the device is already warm on, at the
-    /// iteration count [`warm`](Self::warm) settled.
-    ///
-    /// A warmup is what a measurement mostly costs, so a sweep that has already
-    /// paid one must not pay it again for the shape it picked.
+    /// count [`warm`](Self::warm) settled.
     pub fn sample_at(kernel_config: &KernelConfig, iterations: usize) -> ThroughputValue {
         let iterations = iterations.max(kernel_config.min_iterations).max(1);
         let duration = Self::sample_peak_duration(
@@ -151,25 +141,11 @@ impl ThroughputBenchmarker {
     }
 
     /// Times one shape briefly, to order it against the others rather than to
-    /// report its peak, and reports the iteration count the next shape should
-    /// start from.
-    ///
-    /// Two launches are spent before timing. The shape a sweep warmed on has
-    /// its buffers, its pages and its compiled kernel settled and the rest do
-    /// not, and a first launch carries all of that, enough that shapes would
-    /// rank on which of them the sweep had already touched. The second is what
-    /// this shape's own iteration count is settled from, so a shape retiring
-    /// ten times more per pass than the one before it is still timed over
-    /// [`TARGET_DURATION`] and carries the same share of a launch's fixed cost.
-    ///
-    /// `iterations` is where that starts, so passing what the previous shape
-    /// settled on keeps those two launches near the target too.
+    /// report its peak, and reports the count the next shape starts from.
     pub fn rank(kernel_config: &KernelConfig, iterations: usize) -> Ranked {
         let settling = iterations.max(kernel_config.min_iterations).max(1);
-        // What a shape costs the first time is what it costs to compile and to
-        // fault in, not what a pass of it costs, so the first launch is spent
-        // and a second one is what the count is settled from. Reading the first
-        // ranks a shape the sweep has not compiled before below one it has.
+        // A first launch is what compiling and faulting in cost, so it is spent
+        // and the count settled from a second.
         let _ = (kernel_config.sample)(settling);
         let took = (kernel_config.sample)(settling);
 
@@ -193,10 +169,8 @@ impl ThroughputBenchmarker {
         }
     }
 
-    /// The count that would have taken [`TARGET_DURATION`], given what
-    /// `iterations` of them took.
-    ///
-    /// A timer reading zero says nothing to scale by, so the count stands.
+    /// The count that would have taken [`TARGET_DURATION`]. A timer reading zero
+    /// says nothing to scale by, so the count stands.
     fn retarget(iterations: usize, took: Duration) -> usize {
         let took = took.as_secs_f64();
 

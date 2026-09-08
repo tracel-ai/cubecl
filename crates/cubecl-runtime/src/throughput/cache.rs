@@ -92,10 +92,6 @@ impl ThroughputCache {
 /// The part, never the device index, which `CUDA_VISIBLE_DEVICES` makes 0 for
 /// whichever card was pinned. Two cards this cannot separate are one part, and
 /// share a peak.
-///
-/// `capacity` and `parallelism` join it because neither moves with the part:
-/// added DIMMs, or a container's share of its host's cores, change the ceiling
-/// under one name.
 fn device_key(runtime: &str, identity: &DeviceIdentity, capacity: u64, parallelism: u32) -> String {
     let DeviceIdentity { name, fingerprint } = identity;
     // A namespace is a path, and a runtime names itself `wgpu<spirv>`.

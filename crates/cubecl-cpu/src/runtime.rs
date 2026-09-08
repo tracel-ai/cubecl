@@ -80,12 +80,12 @@ fn register_supported_types(props: &mut DeviceProperties) {
     }
 }
 
-/// The part, so a measured ceiling is not served to every CPU of an architecture.
 fn host_cpu_name(system: &System) -> String {
     system
         .cpus()
         .first()
         .map(|cpu| cpu.brand().trim())
+        // sysinfo reports no brand on Windows for ARM.
         .filter(|brand| !brand.is_empty())
         .map_or_else(|| format!("CPU {}", std::env::consts::ARCH), String::from)
 }

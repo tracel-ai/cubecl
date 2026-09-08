@@ -185,11 +185,9 @@ pub trait Benchmark {
 
     /// Wall clock the warmup holds the device for before sampling starts.
     ///
-    /// A device answers from idle clocks and takes hundreds of milliseconds to
-    /// reach the ones it sustains, which a warmup counted in launches gives a
-    /// microsecond kernel no way to reach. Under half a second a GPU still
-    /// samples a clock step low. A sweep of thousands of rows can buy the wall
-    /// clock back with `BENCH_WARMUP_MS`, and pay in accuracy.
+    /// A device takes hundreds of milliseconds to reach the clocks it sustains,
+    /// and under half a second a GPU still samples a step low. `BENCH_WARMUP_MS`
+    /// buys the wall clock back and pays in accuracy.
     fn warmup_budget(&self) -> Duration {
         const DEFAULT_MS: u64 = 500;
         #[cfg(feature = "std")]
@@ -300,11 +298,8 @@ pub trait Benchmark {
 
                 match warmed {
                     Ok(_) => warmups += 1,
-                    // One failure is not the device saying no: cutting the
-                    // warmup short there would leave the samples reading cold
-                    // clocks and report that as the kernel's speed. A kernel
-                    // that cannot run at all stops after the launches its
-                    // warmup owed it, rather than failing for the whole budget.
+                    // Stopping on one failure would leave the samples reading
+                    // cold clocks and report that as the kernel's speed.
                     Err(_) => {
                         failures += 1;
 

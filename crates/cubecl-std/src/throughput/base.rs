@@ -126,17 +126,10 @@ pub fn measure_peak_throughput(
     value
 }
 
-/// A device whose probes leave their pools with the allocator rather than
-/// returning them, for as long as one of these is alive.
-///
-/// Releasing a pool costs the probe that asks for the next one more than the
-/// measurement itself, since the allocation faults its pages back in one by
-/// one. The shapes of a single probe already share a pool, nothing being
-/// released until that probe returns; this widens that to a caller measuring
-/// many.
-///
-/// Counted per device and not as a flag, so a sweep that ends cannot release
-/// the pool another one is still measuring against.
+/// A device whose probes leave their pools with the allocator, for as long as
+/// one of these is alive, since faulting the next one back in costs more than
+/// the measurement. Counted per device, so a sweep that ends cannot release the
+/// pool another is still measuring against.
 struct PooledProbes {
     service: ServiceId,
 }
@@ -179,9 +172,8 @@ impl Drop for PooledProbes {
 }
 
 /// Releases what `client` holds, unless a sweep is still measuring against it.
-///
-/// Decided while holding the lock: a sweep entered between reading the count
-/// and releasing would have the pool it is about to measure taken from it.
+/// Decided under the lock: a sweep entering between the read and the release
+/// would lose the pool it is about to measure.
 fn cleanup_unless_pooled(client: &Client) {
     let pooled = POOLED_PROBES.lock();
 
@@ -197,12 +189,6 @@ fn holds(pooled: &Option<HashMap<ServiceId, usize>>, service: ServiceId) -> bool
 }
 
 /// Measures `key`, in the fastest shape its probe can be launched in.
-///
-/// # Errors
-///
-/// [`Unsupported`](ThroughputError::Unsupported) where the device implements
-/// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
-/// and reported no elapsed time.
 fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, ThroughputError> {
     let launch_config = launch_config(client, key.dtype());
 
@@ -306,19 +292,10 @@ pub fn roofline_bounds(
     }
 }
 
-/// What the device answers fastest, of the shapes a probe can be launched in,
-/// and the shape that answered it.
+/// What the device answers fastest, of the shapes a probe can be launched in.
 ///
-/// The shapes are ranked against each other briefly and only the winner is
-/// measured, since a full measurement is mostly warmup and a warmup warms the
-/// device rather than the shape. Ranking orders shapes that are 10% apart or
-/// more; ones it cannot separate are interchangeable.
-///
-/// Built one at a time and dropped on the way out: a memory probe's pool is a
-/// large fraction of what the device will allocate, and holding every shape's
-/// at once would ask for several of them.
-///
-/// A rate that is not finite is a shape that did not run, not a slow one.
+/// Shapes are built one at a time: a memory probe's pool is a large fraction of
+/// what the device will allocate. A rate that is not finite did not run.
 fn fastest_shape<S: Copy>(
     shapes: alloc::vec::Vec<S>,
     build: impl Fn(S) -> KernelConfig,
@@ -347,11 +324,9 @@ fn fastest_shape<S: Copy>(
         .ok_or(ThroughputError::NoTiming)
 }
 
-/// The shape that answers fastest over a ranking pass, and the iteration count
-/// the device was warmed at, which the winner is then measured over.
-///
-/// Warmed once, on the first shape, and every shape timed over that same count,
-/// so they are ordered on what they do rather than on which of them was warmed.
+/// The shape that answers fastest over a ranking pass, and the count the device
+/// was warmed at. Every shape is timed at that same count, so they are ordered
+/// on what they do rather than on which was warmed.
 fn ranked_shape<S: Copy>(shapes: &[S], build: impl Fn(S) -> KernelConfig) -> Option<(S, usize)> {
     let mut warmed = None;
     let mut fastest: Option<(f64, S)> = None;
@@ -374,14 +349,9 @@ fn ranked_shape<S: Copy>(shapes: &[S], build: impl Fn(S) -> KernelConfig) -> Opt
     Some((fastest?.1, warmed?))
 }
 
-/// The launch shapes a memory probe is measured in.
-///
-/// A GPU keeps the cube it was pinned to: a wider one measures no faster, and
-/// makes these probes report several times the bus rate.
-///
-/// A CPU sweeps its worker count once per access and keeps the winner for every
-/// working set: what saturates a memory system is a property of the controller,
-/// not of the window a probe moves through it.
+/// The launch shapes a memory probe is measured in. A GPU keeps the cube it was
+/// pinned to, since a wider one reports several times the bus rate. A CPU sweeps
+/// its worker count once per access and keeps the winner for every working set.
 fn memory_shapes(
     client: &Client,
     config: LaunchConfig,
@@ -402,14 +372,8 @@ fn memory_shapes(
 }
 
 /// Worker counts a CPU probe is swept over, the full launch first and halvings
-/// of it after.
-///
-/// How many threads saturate a memory system is a property of the controller
-/// rather than of the core count, and it falls either side of the full launch:
-/// where one core nearly saturates the bus, a fraction of the threads beats all
-/// of them, and where it does not, every thread is needed. Little's law derives
-/// the count from the bandwidth, which is the thing being measured, so it is
-/// swept instead.
+/// after. Little's law would derive the count from the bandwidth, which is the
+/// thing being measured, so it is swept instead.
 fn worker_counts(units: usize) -> alloc::vec::Vec<usize> {
     core::iter::successors(Some(units.max(1)), |units| (*units > 1).then(|| units / 2))
         .take(MEMORY_WORKER_SHAPES)
@@ -443,13 +407,9 @@ fn remember_workers(client: &Client, access: MemoryAccess, units: u32) {
         .insert((client.service_id(), access), units);
 }
 
-/// The element types the arithmetic ceiling for `dtype` is measured in.
-///
-/// A device with no fma of its own for `dtype` emulates one per operation, at a
-/// fraction of its f32 rate, and a kernel with those operands converts and
-/// accumulates in f32 rather than pay that, so the emulated rate is no ceiling.
-/// Both are measured: packed f16 retires two per f32 lane and wins where the
-/// hardware has it.
+/// The element types the arithmetic ceiling for `dtype` is measured in. Without
+/// a native fma a kernel converts and accumulates in f32 rather than pay the
+/// emulated rate, so both are measured and the faster kept.
 fn arithmetic_dtypes(client: &Client, dtype: ElemType) -> alloc::vec::Vec<ElemType> {
     let mut dtypes = alloc::vec![dtype];
 
