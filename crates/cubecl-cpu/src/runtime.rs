@@ -16,7 +16,7 @@ use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
-use sysinfo::{CpuRefreshKind, System};
+use sysinfo::System;
 
 #[derive(Default)]
 pub struct RuntimeOptions {
@@ -80,22 +80,11 @@ fn register_supported_types(props: &mut DeviceProperties) {
     }
 }
 
-fn host_cpu_name(system: &System) -> String {
-    system
-        .cpus()
-        .first()
-        .map(|cpu| cpu.brand().trim())
-        // sysinfo reports no brand on Windows for ARM.
-        .filter(|brand| !brand.is_empty())
-        .map_or_else(|| format!("CPU {}", std::env::consts::ARCH), String::from)
-}
-
 impl DeviceService for CpuServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
         let mut system = System::new();
         system.refresh_memory();
-        system.refresh_cpu_list(CpuRefreshKind::nothing());
         // Bounds the allocator's page size, not a kernel's shared memory.
         let total_memory = system
             .cgroup_limits()
@@ -158,7 +147,7 @@ impl DeviceService for CpuServer {
             // namespace to match against. The architecture is the honest
             // fingerprint: it is what the generated code is valid for.
             DeviceIdentity {
-                name: host_cpu_name(&system),
+                name: "CPU".to_string(),
                 fingerprint: format!("cpu_{}", std::env::consts::ARCH),
             },
         );
