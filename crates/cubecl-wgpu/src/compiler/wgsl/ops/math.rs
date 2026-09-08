@@ -159,7 +159,26 @@ lower_unop!(IsNanOp, is_nan);
 lower_unop!(IsInfOp, is_inf);
 
 lower_binop!(PowfOp, powf);
-lower_binop!(PowiOp, powi);
+
+#[op_interface_impl]
+impl LowerOp for PowiOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        define_scalar!(T);
+        define_size!(S);
+        let lhs = self.lhs(scope.ctx());
+        let rhs = self.rhs(scope.ctx());
+        scope.register_value_type::<T, S>(lhs);
+
+        let ty = lhs.scalar_ty(scope.ctx());
+        let result = if ty.is_int(scope.ctx()) || ty.is_index(scope.ctx()) {
+            powi_int::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)
+        } else {
+            powi::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)
+        };
+        vec![result]
+    }
+}
+
 lower_binop!(HypotOp, hypot);
 lower_binop!(RhypotOp, rhypot);
 lower_binop!(SModFloorOp, s_mod_floor);

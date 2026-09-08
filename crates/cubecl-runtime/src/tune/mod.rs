@@ -28,6 +28,7 @@
 
 mod base;
 mod bounds_generator;
+mod eviction;
 mod input_generator;
 mod key_generator;
 mod local;
@@ -46,6 +47,7 @@ mod util;
 
 pub use base::*;
 pub use bounds_generator::*;
+pub use eviction::*;
 pub use input_generator::*;
 pub use key_generator::*;
 pub use local::*;

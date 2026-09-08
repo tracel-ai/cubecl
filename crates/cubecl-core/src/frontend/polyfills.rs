@@ -210,6 +210,41 @@ pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vecto
     select_many(is_even, even_res, sel1)
 }
 
+/// Wrapping integer power, interpreting the exponent as `u32`.
+#[cube]
+pub fn powi_int<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
+    // Use unsigned arithmetic so intermediate squares wrap on C++ backends too.
+    // Narrow integers can use u32: truncating the final result preserves their low bits
+    // and avoids C++ integer promotion turning multiplication into signed arithmetic.
+    if T::size_bits().comptime() <= 32 {
+        Vector::cast_from(powi_int_unsigned::<u32, N>(Vector::cast_from(base), exp))
+    } else {
+        Vector::cast_from(powi_int_unsigned::<u64, N>(Vector::cast_from(base), exp))
+    }
+}
+
+// Only instantiate with u32 or u64 to keep multiplication unsigned on every backend.
+#[cube]
+fn powi_int_unsigned<T: Int, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
+    let one_u = Vector::<u32, N>::new(1);
+    let one_t = Vector::<T, N>::new(T::from_int(1));
+
+    // Integer powers use an unsigned exponent, matching primitive integer `pow` semantics.
+    let mut exp = Vector::<u32, N>::cast_from(exp);
+    let mut result = one_t;
+    let mut factor = base;
+
+    #[unroll]
+    for _ in 0..32 {
+        // TODO: implement peephole optimization for masked multiplication
+        result *= select_many((exp & one_u).equal(&one_u), factor, one_t);
+        factor *= factor;
+        exp >>= one_u;
+    }
+
+    result
+}
+
 #[cube]
 pub fn recip<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     Vector::one() / input
