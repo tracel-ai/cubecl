@@ -175,7 +175,25 @@ lower_binop!(math::HypotOp, hypot);
 lower_binop!(math::RhypotOp, rhypot);
 
 lower_binop!(math::PowfOp, powf);
-lower_binop!(math::PowiOp, powi);
+
+#[op_interface_impl]
+impl LowerOp for math::PowiOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        define_scalar!(T);
+        define_size!(S);
+        let lhs = self.lhs(scope.ctx());
+        let rhs = self.rhs(scope.ctx());
+        scope.register_value_type::<T, S>(lhs);
+
+        let ty = lhs.scalar_ty(scope.ctx());
+        let result = if ty.is_int(scope.ctx()) || ty.is_index(scope.ctx()) {
+            powi_int::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)
+        } else {
+            powi::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)
+        };
+        vec![result]
+    }
+}
 
 ternop_to_spirv_dialect!(math::FmaOp => gl::FmaOp);
 
