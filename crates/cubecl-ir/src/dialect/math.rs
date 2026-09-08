@@ -295,10 +295,11 @@ simplify!(SaturatingUAddOp, {
 pure_binop!("math.i_sub", ISubOp);
 const_eval!(ISubOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64), IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_sub(rhs),
-    // x - x -> 0
+    // x - x -> 0. Only for one lane: `int_attr` carries no vectorization.
     custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            Some(int_attr(ctx, self.result_type(ctx), 0))
+        let result = self.get_result(ctx);
+        if self.lhs(ctx) == self.rhs(ctx) && result.vector_size(ctx) == 1 {
+            Some(int_attr(ctx, result.get_type(ctx), 0))
         } else {
             None
         }
@@ -314,10 +315,11 @@ simplify!(ISubOp, {
 pure_binop!("math.f_sub", FSubOp);
 const_eval!(FSubOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - rhs,
-    // x - x -> 0
+    // x - x -> 0. Only for one lane: `float_attr` carries no vectorization.
     custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            Some(float_attr(ctx, self.result_type(ctx), 0.0))
+        let result = self.get_result(ctx);
+        if self.lhs(ctx) == self.rhs(ctx) && result.vector_size(ctx) == 1 {
+            Some(float_attr(ctx, result.get_type(ctx), 0.0))
         } else {
             None
         }

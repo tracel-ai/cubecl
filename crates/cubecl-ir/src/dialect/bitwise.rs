@@ -95,10 +95,11 @@ simplify!(BitwiseOrOp, {
 pure_binop!("bitwise.xor", BitwiseXorOp);
 const_eval!(BitwiseXorOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs ^ rhs,
-    // x ^ x -> 0
+    // x ^ x -> 0. Only for one lane: `int_attr` carries no vectorization.
     custom: |_, _| {
-        if self.lhs(ctx) == self.rhs(ctx) {
-            Some(int_attr(ctx, self.result_type(ctx), 0))
+        let result = self.get_result(ctx);
+        if self.lhs(ctx) == self.rhs(ctx) && result.vector_size(ctx) == 1 {
+            Some(int_attr(ctx, result.get_type(ctx), 0))
         } else {
             None
         }
