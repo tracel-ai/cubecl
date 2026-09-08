@@ -83,9 +83,16 @@ impl TensorHandle {
     }
 
     pub fn binding(self) -> TensorBinding {
-        unsafe {
-            TensorBinding::from_raw_parts(self.handle, self.metadata.strides, self.metadata.shape)
-        }
+        let Metadata {
+            shape,
+            strides,
+            tiling,
+        } = *self.metadata;
+        let mut binding = unsafe { TensorBinding::from_raw_parts(self.handle, strides, shape) };
+        // The metadata validated this tiling against this rank, and the binding
+        // carries the same dims, so it needs no second check.
+        binding.tiling = tiling;
+        binding
     }
 
     /// Return the reference to a tensor argument.
