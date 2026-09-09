@@ -206,14 +206,21 @@ impl Barrier {
         })
     }
 
-    /// Create a shared memory barrier that can be accesses by all units in the cube. Initialized
-    /// by the `is_elected` unit with an arrival count of `arrival_count`. This is the number of
-    /// times `arrive` or one of its variants needs to be called before the barrier advances.
+    /// Create a shared memory barrier that can be accessed by all units in the cube. Initialized
+    /// by the `is_elected` unit with an arrival count of `arrival_count`. Exactly one unit must be
+    /// elected; use `UNIT_POS == 0` for the usual case. A constant election is rejected because
+    /// `true` makes every unit initialize the same barrier and `false` leaves it uninitialized.
+    /// This is the number of times `arrive` or one of its variants needs to be called before the
+    /// barrier advances.
     ///
     /// If all units in the cube arrive on the barrier, use `CUBE_DIM` as the arrival count. For
     /// other purposes, only a subset may need to arrive.
     pub fn shared(arrival_count: u32, is_elected: bool) -> Shared<Barrier> {
         intrinsic!(|scope| {
+            crate::expand_assert!(
+                is_elected.expand.as_const().is_none(),
+                "shared barrier election must select exactly one unit; use `UNIT_POS == 0` instead of a constant"
+            );
             let value =
                 scope.create_shared(BarrierType::get(scope.ctx(), BarrierLevel::Cube), None);
             if_expand(scope, is_elected, |scope| {
@@ -518,5 +525,25 @@ impl Barrier {
 impl From<SharedExpand<Barrier>> for BarrierExpand {
     fn from(value: SharedExpand<Barrier>) -> Self {
         value.expand.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cubecl_ir::{
+        AddressType,
+        settings::{Dim3, ExecutionMode, KernelSettings},
+    };
+
+    #[test]
+    #[should_panic(expected = "shared barrier election must select exactly one unit")]
+    fn shared_barrier_rejects_a_constant_election() {
+        let scope = Scope::root(KernelSettings::new(
+            Dim3::new_1d(64),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ));
+        let _ = Barrier::__expand_shared(&scope, 64u32.into(), true.into());
     }
 }
