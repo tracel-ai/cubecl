@@ -214,7 +214,7 @@ impl MemoryPool for DirectPool {
             }
         };
         let mut location = self.location_base;
-        location.slice = index as u32;
+        location.slice = index;
         slice.descriptor().update_location(location);
 
         let handle = slice.handle.clone();

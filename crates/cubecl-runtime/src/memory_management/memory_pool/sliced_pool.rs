@@ -20,7 +20,7 @@ pub struct SlicedPool {
     location_base: MemoryLocation,
     /// Max number of pages (`floor(max_pool_size / page_size)`).
     /// `None` keeps unbounded growth.
-    max_pages: Option<u16>,
+    max_pages: Option<u64>,
     /// The most pages ever held at once. Pages are only freed by an explicit
     /// cleanup, so this is the pool's true high-water mark whenever one runs
     /// mid-workload.
@@ -49,7 +49,7 @@ impl SlicedPool {
                 } else {
                     page_size
                 };
-                let max_pages = (cap / page_size).min(u16::MAX as u64) as u16;
+                let max_pages = cap / page_size;
                 (page_size, Some(max_pages))
             }
             None => (page_size, None),
@@ -74,7 +74,7 @@ impl SlicedPool {
             kind: MemoryPoolKind::Sliced {
                 page_size: self.page_size,
                 max_slice_size: self.max_alloc_size,
-                max_pool_size: self.max_pages.map(|pages| pages as u64 * self.page_size),
+                max_pool_size: self.max_pages.map(|pages| pages * self.page_size),
             },
             usage: self.get_memory_usage(),
             pages: self.pages.len() as u64,
@@ -95,7 +95,7 @@ impl SlicedPool {
         mapping: PageMapping,
     ) -> Result<usize, IoError> {
         let mut location_base = self.location_base;
-        location_base.page = self.pages.len() as u16;
+        location_base.page = self.pages.len();
 
         // A lazy page gets a minted id with no device memory behind it: it
         // carves, coalesces and counts toward the high-water exactly like a
@@ -181,11 +181,11 @@ impl MemoryPool for SlicedPool {
         // found no fit, so hitting the cap here means the working set truly
         // exceeds the budget.
         if let Some(max_pages) = self.max_pages
-            && self.pages.len() >= max_pages as usize
+            && self.pages.len() as u64 >= max_pages
         {
             return Err(IoError::PoolCapacityExceeded {
                 size,
-                capacity: max_pages as u64 * self.page_size,
+                capacity: max_pages * self.page_size,
                 in_use: self.get_memory_usage().bytes_in_use,
                 backtrace: BackTrace::capture(),
             });
@@ -285,7 +285,7 @@ impl MemoryPool for SlicedPool {
                     storage.dealloc(id);
                 }
             } else {
-                let page_pos = self.pages_tmp.len() as u16;
+                let page_pos = self.pages_tmp.len();
                 page.update_page(page_pos);
                 self.pages_tmp.push((page, id));
             }
@@ -324,7 +324,7 @@ impl Display for SlicedPool {
         if let Some(max_pages) = self.max_pages {
             f.write_fmt(format_args!(
                 " max_pool_size={}",
-                BytesFormat::new(max_pages as u64 * self.page_size)
+                BytesFormat::new(max_pages * self.page_size)
             ))?;
         }
         f.write_str("\n")?;
