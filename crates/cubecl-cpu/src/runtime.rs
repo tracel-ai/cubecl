@@ -37,12 +37,19 @@ impl Default for RuntimeOptions {
 /// `None` where the variable is unset or unreadable, so a value nobody recognizes leaves the
 /// default alone rather than failing a launch.
 fn env_f16_evaluation() -> Option<F16Evaluation> {
-    match std::env::var("CUBECL_CPU_F16_EVAL").ok()?.as_str() {
-        "per-operation" => Some(F16Evaluation::PerOperation),
-        "chain" => Some(F16Evaluation::Chain),
-        "accumulators" => Some(F16Evaluation::Accumulators),
-        _ => None,
+    let requested = std::env::var("CUBECL_CPU_F16_EVAL").ok()?;
+    let mode = F16Evaluation::from_name(&requested);
+
+    if mode.is_none() {
+        let known: Vec<_> = F16Evaluation::ALL.map(|mode| mode.to_string()).into();
+        log::warn!(
+            "CUBECL_CPU_F16_EVAL={requested} is not one of {}, evaluating f16 as {} instead",
+            known.join(", "),
+            F16Evaluation::default()
+        );
     }
+
+    mode
 }
 
 #[derive(Debug, Clone)]
@@ -183,11 +190,7 @@ impl DeviceService for CpuServer {
                 fingerprint: format!(
                     "cpu_{}_f16-{}",
                     std::env::consts::ARCH,
-                    match options.f16_evaluation {
-                        F16Evaluation::PerOperation => "per-operation",
-                        F16Evaluation::Chain => "chain",
-                        F16Evaluation::Accumulators => "accumulators",
-                    }
+                    options.f16_evaluation
                 ),
             },
         );

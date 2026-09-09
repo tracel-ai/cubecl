@@ -11,6 +11,7 @@
 
 use cubecl_core::ir::AddressSpace;
 use cubecl_core::ir::attributes::IndexAttr;
+use cubecl_core::ir::dialect::branch::{RangeLoopOp, WhileOp};
 use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp};
 use cubecl_core::ir::dialect::general::CastOp;
 use cubecl_core::ir::dialect::math::{
@@ -38,6 +39,30 @@ pub enum F16Evaluation {
     /// Round at the end of a chain, and hold a loop-carried accumulator in f32 across the back
     /// edge as well. Costs vector registers, so a wide kernel may want a narrower line.
     Accumulators,
+}
+
+impl F16Evaluation {
+    /// Every mode, so that a caller offering the choice cannot miss one.
+    pub const ALL: [Self; 3] = [Self::PerOperation, Self::Chain, Self::Accumulators];
+
+    /// The mode `name` spells, or `None` where nothing does.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|mode| mode.name() == name)
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::PerOperation => "per-operation",
+            Self::Chain => "chain",
+            Self::Accumulators => "accumulators",
+        }
+    }
+}
+
+impl core::fmt::Display for F16Evaluation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.name())
+    }
 }
 
 /// Rewrites f16 arithmetic to f32 arithmetic between a widening and a narrowing convert, reusing
@@ -209,7 +234,19 @@ fn widen(
 fn is_f16_local(ctx: &Context, variable: &DeclareVariableOp) -> bool {
     variable.addr_space(ctx).0 == AddressSpace::Local
         && variable.initializer(ctx).is_none()
-        && is_f16(ctx, variable.value_ty(ctx).get_type(ctx))
+        && is_widenable_f16(ctx, variable.value_ty(ctx).get_type(ctx))
+}
+
+/// f16 or a vector of it, which is all [`widen_ty`] knows: an atomic, an array or a matrix of
+/// f16 answers to [`is_f16`] just as readily and would come back a bare `f32`.
+fn is_widenable_f16(ctx: &Context, ty: TypeHandle) -> bool {
+    let elem = ty
+        .deref(ctx)
+        .downcast_ref::<VectorType>()
+        .map(|vector| vector.inner)
+        .unwrap_or(ty);
+
+    elem.deref(ctx).is::<Float16Type>()
 }
 
 /// Holds the variable in f32 so that a loop reading and writing it every iteration stops
@@ -242,11 +279,11 @@ fn promote_variable(
         }
     }
 
-    let declared_at = nesting(ctx, variable.get_operation());
+    let declared_at = loop_depth(ctx, variable.get_operation());
     let mut per_iteration = Converts::default();
     let mut once = Converts::default();
     let mut ledger = |ctx: &Context, op: Ptr<Operation>, removed: bool| {
-        match nesting(ctx, op) > declared_at {
+        match loop_depth(ctx, op) > declared_at {
             true => &mut per_iteration,
             false => &mut once,
         }
@@ -291,7 +328,6 @@ fn promote_variable(
         for r#use in widening {
             let cast = r#use.user_op();
             let wide = cast.deref(ctx).get_result(0);
-            widened.remove(&wide);
             wide.replace_all_uses_with(ctx, &loaded);
             rewriter.erase_operation(ctx, cast);
         }
@@ -337,11 +373,15 @@ impl Converts {
     }
 }
 
-fn nesting(ctx: &Context, op: Ptr<Operation>) -> usize {
+/// Loops only. An `if` nests a region of its own, and counting one would let a convert paid
+/// once decide the ledger that exists for converts paid every iteration.
+fn loop_depth(ctx: &Context, op: Ptr<Operation>) -> usize {
     let mut depth = 0;
     let mut current = op;
     while let Some(parent) = current.deref(ctx).get_parent_op(ctx) {
-        depth += 1;
+        if parent.is_op::<RangeLoopOp>(ctx) || parent.is_op::<WhileOp>(ctx) {
+            depth += 1;
+        }
         current = parent;
     }
     depth
