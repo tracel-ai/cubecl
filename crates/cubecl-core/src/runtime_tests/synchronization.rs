@@ -350,6 +350,49 @@ pub fn test_workgroup_uniform_load_atomic_synchronizes<R: Runtime>(client: Clien
     assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
+/// Spaces the cubes apart in what their units publish, so a slot left by another
+/// cube stands out in the sum.
+const CUBE_STAMP: u32 = 1000;
+
+/// Shared memory belongs to one cube: what a unit reads back must have been written
+/// by its own cube, however far ahead of it the other units have run. A runtime that
+/// walks the grid on a fixed set of threads has to keep the cubes apart for that.
+#[cube(launch)]
+fn kernel_test_shared_memory_is_per_cube(out: &mut [u32], #[comptime] units: usize) {
+    let mut mem = Shared::new_slice(units);
+    mem[UNIT_POS as usize] = CUBE_POS as u32 * CUBE_STAMP + UNIT_POS;
+    sync_cube();
+
+    let mut sum = 0u32;
+    for i in 0..units {
+        sum += mem[i];
+    }
+    out[CUBE_POS * units + UNIT_POS as usize] = sum;
+}
+
+pub fn test_shared_memory_is_per_cube<R: Runtime>(client: Client) {
+    let units = core::cmp::min(16, client.properties().hardware.max_units_per_cube) as usize;
+    let cubes = 64usize;
+    let len = cubes * units;
+    let handle = client.empty(len * core::mem::size_of::<u32>());
+
+    kernel_test_shared_memory_is_per_cube::launch(
+        &client,
+        CubeCount::Static(cubes as u32, 1, 1),
+        CubeDim::new_1d(units as u32),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), len) },
+        units,
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let within_cube = (units * (units - 1) / 2) as u32;
+    let expected: Vec<u32> = (0..cubes)
+        .flat_map(|cube| vec![units as u32 * cube as u32 * CUBE_STAMP + within_cube; units])
+        .collect();
+
+    assert_eq!(u32::from_bytes(&actual), &expected);
+}
+
 #[macro_export]
 macro_rules! testgen_sync_plane {
     () => {
@@ -373,6 +416,14 @@ macro_rules! testgen_sync_plane {
             cubecl_core::runtime_tests::synchronization::test_finished_sync_cube::<TestRuntime>(
                 client,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_shared_memory_is_per_cube() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_shared_memory_is_per_cube::<
+                TestRuntime,
+            >(client);
         }
 
         #[$crate::runtime_tests::test_log::test]
