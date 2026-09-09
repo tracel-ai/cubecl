@@ -921,7 +921,7 @@ impl RegionBranchOpInterface for RangeLoopOp {
 #[op_interface_impl]
 impl UniformRegionOpInterface for RangeLoopOp {
     fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
-        operands[0]
+        operands[0].min(operands[1]).min(operands[2])
     }
 
     fn entry_successor_region_uniformity(

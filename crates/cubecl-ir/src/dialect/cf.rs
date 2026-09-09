@@ -556,7 +556,6 @@ impl BranchConditionalOp {
             let num_successors = self.get_operation().deref(ctx).successors().count();
             return (0..num_successors).collect();
         };
-        std::println!("cond: {}", cond_attr.disp(ctx));
         let zero = cond_attr.downcast_ref::<ZeroAttr>().map(|_| false);
         let bool = cond_attr.downcast_ref::<BoolAttr>().map(|it| it.0);
         let Some(const_cond) = zero.or(bool) else {
@@ -564,7 +563,6 @@ impl BranchConditionalOp {
             return (0..num_successors).collect();
         };
         let taken = if const_cond { 0 } else { 1 };
-        std::println!("taken: {taken}");
         vec![taken]
     }
 }
