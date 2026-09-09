@@ -14,6 +14,7 @@ use pliron::builtin::ops::FuncOp;
 use pliron::pass::{OpPass, Passes};
 
 use crate::cpu::entrypoint::InsertConstantEmulationPass;
+use crate::cpu::f16_evaluation::{EvaluateF16Pass, F16Evaluation};
 use crate::cpu::shared_memory::SharedMemories;
 use crate::shared::lowering::TargetLowering;
 use crate::shared::metadata::{EntryArgLayout, load_table, rebuild_func_type, table_ty};
@@ -84,17 +85,36 @@ impl EntryArgLayout for TableArgs {
 /// nest over the cube, and the shared memories become slots in the pointer table above.
 pub struct CpuLowering {
     shared_memories: Rc<RefCell<SharedMemories>>,
+    f16_evaluation: F16Evaluation,
 }
 
 impl CpuLowering {
-    pub fn new(shared_memories: Rc<RefCell<SharedMemories>>) -> Self {
-        Self { shared_memories }
+    pub fn new(
+        shared_memories: Rc<RefCell<SharedMemories>>,
+        f16_evaluation: F16Evaluation,
+    ) -> Self {
+        Self {
+            shared_memories,
+            f16_evaluation,
+        }
     }
 }
 
 impl TargetLowering for CpuLowering {
     fn prologue(&self, passes: &mut OpPass<FuncOp, Passes>) {
         passes.add_pass(InsertConstantEmulationPass);
+    }
+
+    /// The f16 rewrite runs here rather than in the prologue so that the multiply and add of an
+    /// `a * b + c` have already contracted into one `math.fma` to rewrite.
+    fn epilogue(&self, passes: &mut OpPass<FuncOp, Passes>) {
+        match self.f16_evaluation {
+            F16Evaluation::PerOperation => {}
+            F16Evaluation::Chain => passes.add_pass(EvaluateF16Pass {
+                accumulators: false,
+            }),
+            F16Evaluation::Accumulators => passes.add_pass(EvaluateF16Pass { accumulators: true }),
+        }
     }
 
     fn arg_layout(&self) -> Box<dyn EntryArgLayout> {

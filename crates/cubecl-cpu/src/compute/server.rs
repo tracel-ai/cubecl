@@ -6,11 +6,12 @@ use crate::{
         cpu_kernel::CpuKernel,
         schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
     },
+    runtime::RuntimeOptions,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::ServerStorage;
 use cubecl_core::{
-    CompilationError, CubeCount, MemoryConfiguration, MemoryUsage,
+    CompilationError, CubeCount, MemoryUsage,
     ir::MemoryDeviceProperties,
     server::{
         BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, LaunchError,
@@ -39,6 +40,7 @@ pub struct CpuServer {
     scheduler: SchedulerMultiStream<ScheduledCpuBackend>,
     utilities: Arc<ServerUtilities>,
     compilation_cache: HashMap<KernelId, CpuKernel>,
+    compilation_options: PlironOptions,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
 }
@@ -60,11 +62,14 @@ impl WriteScoped for CpuServer {
 impl CpuServer {
     pub fn new(
         memory_properties: MemoryDeviceProperties,
-        memory_config: MemoryConfiguration,
+        options: RuntimeOptions,
         utilities: Arc<ServerUtilities>,
     ) -> Self {
-        let backend =
-            ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
+        let backend = ScheduledCpuBackend::new(
+            memory_properties,
+            options.memory_config,
+            utilities.logger.clone(),
+        );
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
@@ -82,6 +87,10 @@ impl CpuServer {
             scheduler,
             utilities,
             compilation_cache: HashMap::new(),
+            compilation_options: PlironOptions {
+                f16_evaluation: options.f16_evaluation,
+                ..Default::default()
+            },
             streams_pool: Vec::new(),
         }
     }
@@ -153,7 +162,7 @@ impl CpuServer {
             kernel,
             definition,
             &mut CpuCompiler::default(),
-            &PlironOptions::default(),
+            &self.compilation_options,
         )?;
         // The executable artifact here is the JIT engine the compiler built,
         // not the text. A precompiled kernel brings text and no engine.

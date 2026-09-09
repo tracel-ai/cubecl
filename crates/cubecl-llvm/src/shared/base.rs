@@ -42,6 +42,7 @@ use crate::amdgpu::{
 };
 use crate::cpu::{
     abi::CpuLowering,
+    f16_evaluation::F16Evaluation,
     jit::engine::{KernelRequirements, PlironEngine},
     shared_memory::SharedMemories,
     synchronization::uses_cube_barrier,
@@ -62,6 +63,9 @@ pub struct PlironOptions {
     /// The device [`LlvmTarget::AmdGpu`] compiles for. `None` on the CPU, which has no gfx
     /// architecture to name.
     pub arch: Option<GfxArch>,
+    /// How wide f16 intermediates are held. CPU only: a GPU has f16 arithmetic of its own and
+    /// rounds after every operation.
+    pub f16_evaluation: F16Evaluation,
 }
 
 #[cfg(feature = "amdgpu")]
@@ -172,13 +176,13 @@ impl PlironCompiler {
     fn compile_ir(
         self,
         kernel: KernelDefinition,
-        _options: &PlironOptions,
+        options: &PlironOptions,
     ) -> Result<PlironArtifact, CompilationError> {
         match self.target {
-            LlvmTarget::Cpu => Ok(PlironArtifact::Jit(self.compile_cpu(kernel)?)),
+            LlvmTarget::Cpu => Ok(PlironArtifact::Jit(self.compile_cpu(kernel, options)?)),
             #[cfg(feature = "amdgpu")]
             LlvmTarget::AmdGpu => {
-                let arch = _options.arch.as_ref().ok_or_else(|| {
+                let arch = options.arch.as_ref().ok_or_else(|| {
                     generic("the AMDGPU target needs the device it compiles for".to_string())
                 })?;
                 Ok(PlironArtifact::AmdGpuCode(
@@ -188,7 +192,11 @@ impl PlironCompiler {
         }
     }
 
-    fn compile_cpu(self, kernel: KernelDefinition) -> Result<PlironEngine, CompilationError> {
+    fn compile_cpu(
+        self,
+        kernel: KernelDefinition,
+        options: &PlironOptions,
+    ) -> Result<PlironEngine, CompilationError> {
         let module = kernel.body.state().module;
         let module_op = module.get_operation();
         let ir = KernelIr::of(&kernel);
@@ -201,7 +209,8 @@ impl PlironCompiler {
         // Filled in by the entry ABI pass, which is where the shared memories get their slot.
         let shared_memories = Rc::new(RefCell::new(SharedMemories::default()));
 
-        let io = lower(&mut ctx, &ir, &CpuLowering::new(shared_memories.clone()))?;
+        let lowering = CpuLowering::new(shared_memories.clone(), options.f16_evaluation);
+        let io = lower(&mut ctx, &ir, &lowering)?;
 
         let requirements = KernelRequirements {
             needs_parallelism,
