@@ -1,8 +1,8 @@
 use core::{cell::Ref, fmt};
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 
-use derive_more::From;
+use derive_more::{From, Into};
 use derive_new::new;
 use num_traits::{AsPrimitive, NumCast};
 use pliron::{
@@ -27,7 +27,7 @@ use pliron::{
 use crate::{
     ConstantValue,
     apfloat::{APFloat, APFloatType},
-    interfaces::{ConstantAttr, TypedExt},
+    interfaces::{ConstantAttr, TypedExt, control_flow::SymbolVisibility},
     settings::Dim3,
     try_cast_ty,
     types::scalar::*,
@@ -84,26 +84,21 @@ macro_rules! ext_attribute {
 
 #[macro_export]
 macro_rules! typed_vec_attr {
-    ($ty: ty, $name: literal) => {
-        paste::paste! {
-             /// A vector of other attributes.
-            #[pliron::derive::pliron_attr(
-                name = $name,
-                format = "`[` vec($0, CharSpace(`,`)) `]`",
-                verifier = "succ"
-            )]
-            #[derive(PartialEq, Eq, Clone, Debug, Hash, Default, derive_more::From)]
-            pub struct [<$ty VecAttr>](pub Vec<$ty>);
+    ($ty: ty, $name: literal, $vec_ty: ident) => {
+        /// A vector of other attributes.
+        #[pliron::derive::def_attribute($name)]
+        #[pliron::derive::format_attribute("`[` vec($0, CharSpace(`,`)) `]`")]
+        #[pliron::derive::verify_succ]
+        #[derive(PartialEq, Eq, Clone, Debug, Hash, Default, derive_more::From)]
+        pub struct $vec_ty(pub Vec<$ty>);
 
-            impl [<$ty VecAttr>] {
-                pub fn new(value: alloc::vec::Vec<$ty>) -> Self {
-                    [<$ty VecAttr>](value)
-                }
+        impl $vec_ty {
+            pub fn new(value: alloc::vec::Vec<$ty>) -> Self {
+                $vec_ty(value)
             }
         }
     };
 }
-
 /// A zero-value attribute, used for zero-initializing arbitrary types with whatever "zero" means
 /// for it. Arrays get all fields zero-initialized, floats and ints initialize to zero, booleans
 /// to false, etc.
@@ -143,6 +138,13 @@ impl ConstantAttr for ZeroAttr {
             panic!("Invalid value type for `as_const_val`")
         }
     }
+    fn as_int(&self, ctx: &Context) -> Option<APInt> {
+        if self.ty.is_int(ctx) || self.ty.is_index(ctx) {
+            Some(APInt::zero(bw(self.ty.size_bits(ctx))))
+        } else {
+            None
+        }
+    }
     fn float_as_f64(&self, ctx: &Context) -> Option<f64> {
         let ty = self.ty.deref(ctx);
         if type_impls::<dyn APFloatType>(&*ty) {
@@ -172,6 +174,10 @@ impl IndexAttr {
 impl ConstantAttr for IndexAttr {
     fn as_const_val(&self, _ctx: &Context) -> ConstantValue {
         ConstantValue::UInt(self.0 as u64)
+    }
+    fn as_int(&self, ctx: &Context) -> Option<APInt> {
+        let size = IndexType::get(ctx).to_handle().size_bits(ctx);
+        Some(APInt::from_usize(self.0, bw(size)))
     }
 }
 
@@ -286,7 +292,12 @@ impl ConstantAttr for IntegerAttr {
             ConstantValue::UInt(self.value().to_u64())
         }
     }
+    fn as_int(&self, _ctx: &Context) -> Option<APInt> {
+        Some(self.value())
+    }
 }
+
+typed_vec_attr!(IntegerAttr, "cube.integer_vec", IntegerVecAttr);
 
 #[pliron_attr(name = "cube.float", verifier = "succ")]
 #[derive(new, PartialEq, Clone, Debug, Hash)]
@@ -488,3 +499,8 @@ literal!(half::f16, Float16Type);
 literal!(half::bf16, BFloat16Type);
 literal!(f32, Float32Type);
 literal!(f64, Float64Type);
+
+/// Symbol visibility
+#[pliron_attr(name = "cube.sym_visibility", format = "$0", verifier = "succ")]
+#[derive(new, PartialEq, Eq, Clone, Copy, Debug, Hash, From, Into)]
+pub struct SymbolVisibilityAttr(pub SymbolVisibility);

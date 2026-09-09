@@ -9,6 +9,7 @@ use cubecl_ir::{
     prelude::*,
     try_cast_ty,
 };
+use cubecl_opt::passes::uniformity::{DEVICE_UNIFORM, op_dyn_uniformity};
 use pliron_spirv::{
     ext::printf,
     ops::{self, InBoundsAccessChainOp, LoadOp},
@@ -17,7 +18,7 @@ use pliron_spirv::{
 use rspirv::spirv::{MemoryAccess, StorageClass};
 
 use crate::{
-    LowerInfoOp,
+    LowerInfoOp, decorate_uniform,
     ops::{
         base::{binop_to_spirv_dialect, unop_to_spirv_dialect},
         builtin::const_int32,
@@ -38,6 +39,7 @@ impl ToSpirvDialectOp for general::ReinterpretCastOp {
         operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let input = op.operand(ctx, 0);
         let from_ty = operands_info
             .lookup_most_recent_type(input)
@@ -50,6 +52,7 @@ impl ToSpirvDialectOp for general::ReinterpretCastOp {
             let new_op = ops::BitcastOp::new(ctx, out_ty, input);
             rewriter.append_op(ctx, &new_op);
             rewriter.replace_operation(ctx, op, new_op.get_operation());
+            decorate_uniform(ctx, new_op.get_operation(), uniformity);
         }
         Ok(())
     }
@@ -64,6 +67,7 @@ impl ToSpirvDialectOp for general::SelectOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let cond = self.condition(ctx);
         let true_value = self.true_value(ctx);
         let false_value = self.false_value(ctx);
@@ -71,6 +75,7 @@ impl ToSpirvDialectOp for general::SelectOp {
         let new_op = ops::SelectOp::new(ctx, out_ty, cond, true_value, false_value);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
 
         Ok(())
     }
@@ -199,11 +204,11 @@ fn load_static_info(
     let ptr = info_ptr(ctx, out_ty);
 
     let chain = InBoundsAccessChainOp::new(ctx, ptr, info_st, vec![static_offs, buf_offs]);
-    rewriter.append_op(ctx, &chain);
-    let ptr = chain.get_result(ctx);
+    decorate_uniform(ctx, chain.get_operation(), Some(DEVICE_UNIFORM));
+    let ptr = rewriter.append_op_with_result(ctx, &chain);
     let load = LoadOp::new(ctx, out_ty, ptr, MemoryAccess::ALIGNED, Some(align));
-    rewriter.append_op(ctx, &load);
-    load.get_result(ctx)
+    decorate_uniform(ctx, load.get_operation(), Some(DEVICE_UNIFORM));
+    rewriter.append_op_with_result(ctx, &load)
 }
 
 fn load_dyn_meta(
@@ -222,11 +227,11 @@ fn load_dyn_meta(
     let ptr = info_ptr(ctx, out_ty);
 
     let chain = InBoundsAccessChainOp::new(ctx, ptr, info_st, vec![dyn_offs, dim_offs]);
-    rewriter.append_op(ctx, &chain);
-    let ptr = chain.get_result(ctx);
+    decorate_uniform(ctx, chain.get_operation(), Some(DEVICE_UNIFORM));
+    let ptr = rewriter.append_op_with_result(ctx, &chain);
     let load = LoadOp::new(ctx, out_ty, ptr, MemoryAccess::ALIGNED, Some(align));
-    rewriter.append_op(ctx, &load);
-    load.get_result(ctx)
+    decorate_uniform(ctx, load.get_operation(), Some(DEVICE_UNIFORM));
+    rewriter.append_op_with_result(ctx, &load)
 }
 
 fn static_meta_field(ctx: &Context) -> usize {

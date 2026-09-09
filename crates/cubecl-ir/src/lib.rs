@@ -85,7 +85,4 @@ pub mod prelude {
 pub use crate::rewrite::NamedRewrite;
 pub use cubecl_macros_internal::{NamedRewrite, cube_op};
 
-pub mod pliron {
-    pub use pliron::derive::*;
-    pub use pliron::*;
-}
+pub use pliron;

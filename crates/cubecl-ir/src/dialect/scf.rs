@@ -10,7 +10,7 @@ use itertools::Itertools;
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
-    builtin::attributes::{IntegerAttr, VecAttr},
+    builtin::attributes::IntegerAttr,
     combine::{
         Parser, optional,
         parser::char::{self, spaces},
@@ -30,7 +30,7 @@ use pliron::{
 };
 
 use crate::{
-    attributes::{BoolAttr, ZeroAttr},
+    attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     dialect::{
         BlockPtrExt,
         branch::{self, ConditionOp, YieldOp, block_side_effects},
@@ -41,6 +41,7 @@ use crate::{
             InvocationBounds, RegionBranchOpInterface, RegionPredecessor, RegionSuccessor,
         },
         memory_slot::PromotableRegionOpInterface,
+        uniformity::{UniformRegionOpInterface, Uniformity},
     },
     prelude::*,
     types::scalar::BoolType,
@@ -261,6 +262,21 @@ impl RegionBranchOpInterface for IfOp {
     }
 }
 
+#[op_interface_impl]
+impl UniformRegionOpInterface for IfOp {
+    fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
+        operands[0]
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        _ctx: &Context,
+        operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        vec![operands[0], operands[0]]
+    }
+}
+
 impl IfOp {
     fn remove_unused_carried(&self, ctx: &mut Context) -> Result<()> {
         let results = self.get_operation().results(ctx);
@@ -315,7 +331,7 @@ impl CanonicalizeInterface for IfOp {
 #[pliron_op(
     name = "scf.switch",
     format,
-    attributes = (scf_switch_cases: VecAttr),
+    attributes = (scf_switch_cases: IntegerVecAttr),
     verifier = "succ"
 )]
 #[op_interfaces(NOpdsInterface<1>, SingleBlockRegionInterface)]
@@ -372,7 +388,7 @@ impl SwitchOp {
     pub fn cases(&self, ctx: &Context) -> Vec<(IntegerAttr, Ptr<BasicBlock>)> {
         let cases = self.get_attr_scf_switch_cases(ctx).unwrap().clone().0;
         let out = (0..cases.len()).map(|i| {
-            let value = cases[i].downcast_ref::<IntegerAttr>().unwrap().clone();
+            let value = cases[i].clone();
             let block = self.get_body(ctx, i + 1);
             (value, block)
         });
@@ -382,7 +398,7 @@ impl SwitchOp {
     pub fn cases_regions(&self, ctx: &Context) -> Vec<(IntegerAttr, Ptr<Region>)> {
         let cases = self.get_attr_scf_switch_cases(ctx).unwrap().clone().0;
         let out = (0..cases.len()).map(|i| {
-            let value = cases[i].downcast_ref::<IntegerAttr>().unwrap().clone();
+            let value = cases[i].clone();
             let block = self.get_operation().deref(ctx).get_region(i + 1);
             (value, block)
         });
@@ -390,12 +406,7 @@ impl SwitchOp {
     }
 
     pub fn cases_values(&self, ctx: &Context) -> Vec<IntegerAttr> {
-        self.get_attr_scf_switch_cases(ctx)
-            .unwrap()
-            .0
-            .iter()
-            .map(|it| it.downcast_ref::<IntegerAttr>().unwrap().clone())
-            .collect()
+        self.get_attr_scf_switch_cases(ctx).unwrap().0.clone()
     }
 
     pub fn get_case_destinations(&self, ctx: &Context) -> Vec<Ptr<BasicBlock>> {
@@ -405,8 +416,8 @@ impl SwitchOp {
             .collect()
     }
 
-    pub fn set_attr_cases(&self, ctx: &Context, cases: impl IntoIterator<Item = AttrObj>) {
-        self.set_attr_scf_switch_cases(ctx, VecAttr(cases.into_iter().collect()));
+    pub fn set_attr_cases(&self, ctx: &Context, cases: impl IntoIterator<Item = IntegerAttr>) {
+        self.set_attr_scf_switch_cases(ctx, IntegerVecAttr(cases.into_iter().collect()));
     }
 
     pub fn results(&self, ctx: &Context) -> Vec<Value> {
@@ -547,6 +558,22 @@ impl RegionBranchOpInterface for SwitchOp {
         let mut bounds = vec![InvocationBounds::never(); num_regions];
         bounds[executed_idx] = InvocationBounds::once();
         bounds
+    }
+}
+
+#[op_interface_impl]
+impl UniformRegionOpInterface for SwitchOp {
+    fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
+        operands[0]
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        ctx: &Context,
+        operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        let num_regions = self.get_operation().deref(ctx).num_regions();
+        vec![operands[0]; num_regions]
     }
 }
 
@@ -892,6 +919,22 @@ impl RegionBranchOpInterface for RangeLoopOp {
 }
 
 #[op_interface_impl]
+impl UniformRegionOpInterface for RangeLoopOp {
+    fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
+        operands[0].min(operands[1]).min(operands[2])
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        _ctx: &Context,
+        operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        let uniformity = operands[0].min(operands[1]).min(operands[2]);
+        vec![uniformity, uniformity]
+    }
+}
+
+#[op_interface_impl]
 impl CanonicalizeInterface for RangeLoopOp {
     fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
         let results = self.get_operation().results(ctx);
@@ -1125,6 +1168,21 @@ impl RegionBranchOpInterface for WhileOp {
             RegionSuccessor::Region(_) => self.after_block(ctx).arguments(ctx),
             RegionSuccessor::AfterOp => self.results(ctx),
         }
+    }
+}
+
+#[op_interface_impl]
+impl UniformRegionOpInterface for WhileOp {
+    fn result_uniformity(&self, _ctx: &Context, _operands: &[Uniformity]) -> Uniformity {
+        Uniformity::Cube
+    }
+
+    fn entry_successor_region_uniformity(
+        &self,
+        _ctx: &Context,
+        _operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        vec![Uniformity::Cube]
     }
 }
 

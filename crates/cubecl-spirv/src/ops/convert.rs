@@ -5,7 +5,8 @@ use cubecl_core::{
     prelude::*,
 };
 use cubecl_ir::{Scope, dialect::general::CastOp, interfaces::TypedExt, prelude::*};
-use pliron::printable::Printable;
+use cubecl_opt::passes::uniformity::op_dyn_uniformity;
+use pliron::{printable::Printable, value::DefiningEntity};
 use pliron_spirv::{decorations::DecoratableOp, ops::*, types::FloatType};
 
 use crate::{lower::LowerOp, ops::to_spirv_dialect::ToSpirvDialectOp, types::ty_to_spirv_dialect};
@@ -21,11 +22,15 @@ impl ToSpirvDialectOp for CastOp {
         rewriter: &mut DialectConversionRewriter,
         operands_info: &OperandsInfo,
     ) -> Result<()> {
+        let uniformity = op_dyn_uniformity(ctx, self.get_operation());
         let input = self.input(ctx);
         let from_ty = operands_info
             .lookup_most_recent_type(input)
             .unwrap_or_else(|| input.get_type(ctx));
         let value = cast(ctx, rewriter, input, from_ty, self.result_type(ctx));
+        if let DefiningEntity::Op(op) = value.defining_entity() {
+            crate::compiler::decorate_uniform(ctx, op, uniformity);
+        }
         rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![value]);
         Ok(())
     }

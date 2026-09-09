@@ -1,3 +1,5 @@
+use core::cell::Ref;
+
 use crate::{
     prelude::*,
     types::{AtomicType, PointerType},
@@ -27,6 +29,7 @@ pub trait OperationPtrExt: Sized {
     fn regions(self, ctx: &Context) -> Vec<Ptr<Region>>;
     fn result_names(self, ctx: &Context) -> Vec<Option<Identifier>>;
     fn opt_result(self, ctx: &Context) -> Option<Value>;
+    fn get_attr<'a, T: Attribute>(self, ctx: &'a Context, key: &Identifier) -> Option<Ref<'a, T>>;
     fn set_attr<T: Attribute>(self, ctx: &Context, key: &Identifier, value: T);
     fn parent_module(self, ctx: &Context) -> ModuleOp;
 
@@ -86,6 +89,9 @@ impl OperationPtrExt for Ptr<Operation> {
     }
     fn opt_result(self, ctx: &Context) -> Option<Value> {
         self.deref(ctx).results().next()
+    }
+    fn get_attr<'a, T: Attribute>(self, ctx: &'a Context, key: &Identifier) -> Option<Ref<'a, T>> {
+        Ref::filter_map(self.deref(ctx), |op| op.attributes.get(key)).ok()
     }
     fn set_attr<T: Attribute>(self, ctx: &Context, key: &Identifier, value: T) {
         self.deref_mut(ctx).attributes.set(key.clone(), value);
@@ -158,7 +164,11 @@ macro_rules! pure_unop {
             SameOperandsAndResultType,
             $crate::interfaces::TriviallyUnrollable
         )]
-        #[$crate::prelude::op_traits($crate::CanMaterialize, $crate::Pure)]
+        #[$crate::prelude::op_traits(
+            $crate::CanMaterialize,
+            $crate::Pure,
+            $crate::PropagatesUniformity
+        )]
         pub struct $ty {
             pub input: Value,
         }
@@ -188,7 +198,11 @@ macro_rules! pure_binop {
             SameOperandsAndResultType,
             $crate::interfaces::TriviallyUnrollable
         )]
-        #[$crate::prelude::op_traits($crate::CanMaterialize, $crate::Pure)]
+        #[$crate::prelude::op_traits(
+            $crate::CanMaterialize,
+            $crate::Pure,
+            $crate::PropagatesUniformity
+        )]
         pub struct $ty {
             pub lhs: Value,
             pub rhs: Value,
