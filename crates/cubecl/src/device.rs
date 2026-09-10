@@ -224,13 +224,7 @@ impl Device {
     /// enabled features and what the machine has. Naming the API instead is
     /// [`vulkan`](Self::vulkan) and its siblings.
     pub fn wgpu(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
-        let device = WgpuDevice::new(kind);
-
-        match device.kind {
-            // Registered from outside, so enumeration cannot see it.
-            WgpuDeviceKind::Existing(_) => Self::linked(RuntimeId::Wgpu, Self::Wgpu(device)),
-            _ => Self::named(RuntimeId::Wgpu, Self::Wgpu(device)),
-        }
+        Self::wgpu_device(WgpuDevice::new(kind))
     }
 
     /// The Vulkan device `kind` names — and so `SPIR-V`, where the build and
@@ -250,25 +244,25 @@ impl Device {
     /// # }
     /// ```
     pub fn vulkan(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
-        Self::wgpu(kind)?.on(WgpuBackend::Vulkan)
+        Self::wgpu_device(WgpuDevice::new(kind).on(WgpuBackend::Vulkan))
     }
 
     /// The `DirectX` 12 device `kind` names. See [`vulkan`](Self::vulkan) for
     /// what naming an API promises.
     pub fn dx12(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
-        Self::wgpu(kind)?.on(WgpuBackend::Dx12)
+        Self::wgpu_device(WgpuDevice::new(kind).on(WgpuBackend::Dx12))
     }
 
     /// The `OpenGL` device `kind` names. See [`vulkan`](Self::vulkan) for what
     /// naming an API promises.
     pub fn gl(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
-        Self::wgpu(kind)?.on(WgpuBackend::Gl)
+        Self::wgpu_device(WgpuDevice::new(kind).on(WgpuBackend::Gl))
     }
 
     /// The `WebGPU` device `kind` names — the browser's own. See
     /// [`vulkan`](Self::vulkan) for what naming an API promises.
     pub fn webgpu(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
-        Self::wgpu(kind)?.on(WgpuBackend::WebGpu)
+        Self::wgpu_device(WgpuDevice::new(kind).on(WgpuBackend::WebGpu))
     }
 
     /// The device `kind` names on Metal's own API, reached through wgpu — and
@@ -277,16 +271,17 @@ impl Device {
     /// Not the native Metal runtime, which is [`Device::metal`] and a
     /// different device altogether.
     pub fn metal_msl(kind: WgpuDeviceKind) -> Result<Self, DeviceUnavailable> {
-        Self::wgpu(kind)?.on(WgpuBackend::Metal)
+        Self::wgpu_device(WgpuDevice::new(kind).on(WgpuBackend::Metal))
     }
 
     /// This device on `backend`, where the machine has it there.
     ///
-    /// What the constructors above are written in terms of, for the caller
-    /// holding a device already and wanting it on a particular API.
+    /// For the caller holding a device already and wanting it on a particular
+    /// API. Only the API named is asked: where the device came up by default
+    /// says nothing about whether this one has it.
     pub fn on(self, backend: WgpuBackend) -> Result<Self, DeviceUnavailable> {
         match self {
-            Self::Wgpu(device) => Self::named(RuntimeId::Wgpu, Self::Wgpu(device.on(backend))),
+            Self::Wgpu(device) => Self::wgpu_device(device.on(backend)),
             other => Err(DeviceUnavailable::NoSuchDevice {
                 runtime: other.runtime(),
                 available: 0,
@@ -294,28 +289,27 @@ impl Device {
         }
     }
 
+    /// `device` where this build links wgpu and the machine has it, on the
+    /// graphics API it names.
+    fn wgpu_device(device: WgpuDevice) -> Result<Self, DeviceUnavailable> {
+        match device.kind {
+            // Registered from outside, so enumeration cannot see it.
+            WgpuDeviceKind::Existing(_) => Self::linked(RuntimeId::Wgpu, Self::Wgpu(device)),
+            _ => Self::named(RuntimeId::Wgpu, Self::Wgpu(device)),
+        }
+    }
+
     /// `device` where this build links `runtime` and the machine has it.
     ///
-    /// Asks the runtime for the devices of this one's own kind and looks for
-    /// it among them, so an index past the end of what the machine has is a
-    /// miss here rather than a device that fails at the client call.
+    /// Asks the runtime whether it has this very device, so an index past the
+    /// end of what the machine has is a miss here rather than a device that
+    /// fails at the client call.
     fn named(runtime: RuntimeId, device: Self) -> Result<Self, DeviceUnavailable> {
         let device = Self::linked(runtime, device)?;
 
-        let wanted = RuntimeId::strip(device.to_id());
-        let of_kind = runtime.enumerate_devices(wanted.type_id);
-
-        // A runtime's "you choose" device names no hardware of its own, so it
-        // is there as soon as the runtime found anything at all.
-        let found = of_kind.contains(&wanted)
-            || (device == runtime.default_device() && !of_kind.is_empty());
-
-        match found {
-            true => Ok(device),
-            false => Err(DeviceUnavailable::NoSuchDevice {
-                runtime,
-                available: of_kind.len(),
-            }),
+        match runtime.find_device(RuntimeId::strip(device.to_id())) {
+            Ok(()) => Ok(device),
+            Err(available) => Err(DeviceUnavailable::NoSuchDevice { runtime, available }),
         }
     }
 
@@ -539,23 +533,24 @@ impl RuntimeId {
         }
     }
 
-    /// The devices of one of this runtime's own device types, in its own
-    /// encoding — the ids [`RuntimeId::strip`] leaves behind.
+    /// Whether this machine has the device `device_id` names, in this
+    /// runtime's own encoding — the id [`RuntimeId::strip`] leaves behind.
+    /// Where it does not, how many of that kind it has instead.
     #[cfg_attr(not(any_runtime), allow(unused_variables))]
-    fn enumerate_devices(self, type_id: u16) -> alloc::vec::Vec<DeviceId> {
+    fn find_device(self, device_id: DeviceId) -> Result<(), usize> {
         match self {
             #[cfg(feature = "cuda")]
-            Self::Cuda => cubecl_cuda::CudaRuntime::enumerate_devices(type_id),
+            Self::Cuda => cubecl_cuda::CudaRuntime::find_device(device_id),
             #[cfg(feature = "hip")]
-            Self::Hip => cubecl_hip::HipRuntime::enumerate_devices(type_id),
+            Self::Hip => cubecl_hip::HipRuntime::find_device(device_id),
             #[cfg(feature = "metal-native")]
-            Self::Metal => cubecl_metal::MetalRuntime::enumerate_devices(type_id),
+            Self::Metal => cubecl_metal::MetalRuntime::find_device(device_id),
             #[cfg(feature = "wgpu")]
-            Self::Wgpu => <cubecl_wgpu::WgpuRuntime>::enumerate_devices(type_id),
+            Self::Wgpu => <cubecl_wgpu::WgpuRuntime>::find_device(device_id),
             #[cfg(feature = "cpu")]
-            Self::Cpu => cubecl_cpu::CpuRuntime::enumerate_devices(type_id),
+            Self::Cpu => cubecl_cpu::CpuRuntime::find_device(device_id),
             #[allow(unreachable_patterns)]
-            _ => alloc::vec::Vec::new(),
+            _ => Err(0),
         }
     }
 
@@ -564,6 +559,7 @@ impl RuntimeId {
     /// Each runtime answers for itself — zero devices rather than a failure
     /// when its driver is missing, and no claim on a machine where all it has
     /// is a software fallback.
+    #[cfg(any_runtime)]
     fn is_available(self) -> bool {
         match self {
             #[cfg(feature = "cuda")]
@@ -583,6 +579,7 @@ impl RuntimeId {
 
     /// This runtime's own default device — which of its devices is best is the
     /// runtime's business, not this crate's.
+    #[cfg(any_runtime)]
     fn default_device(self) -> Device {
         match self {
             Self::Cuda => Device::Cuda(Default::default()),
@@ -903,5 +900,20 @@ mod named_tests {
             ),
             false => assert_eq!(named, Err(DeviceUnavailable::NotLinked(RuntimeId::Wgpu))),
         }
+    }
+
+    /// Pinning an API on one changes nothing, so it is not looked for either:
+    /// there is no API left to ask.
+    #[test]
+    fn an_existing_device_can_be_pinned() {
+        let existing = Device::Wgpu(WgpuDevice::new(WgpuDeviceKind::Existing(7)));
+
+        let expected = match RuntimeId::Wgpu.is_linked() {
+            true => Ok(existing.clone()),
+            false => Err(DeviceUnavailable::NotLinked(RuntimeId::Wgpu)),
+        };
+
+        assert_eq!(existing.on(WgpuBackend::Vulkan), expected);
+        assert_eq!(Device::gl(WgpuDeviceKind::Existing(7)), expected);
     }
 }

@@ -32,6 +32,25 @@ pub trait Runtime: Sized + Send + Sync + 'static + core::fmt::Debug + Clone {
         Self::enumerate_devices(0)
     }
 
+    /// Whether this machine has the device `device_id` names — and where it
+    /// does not, how many of that kind it has instead.
+    ///
+    /// What naming a device is checked against. The runtime's "you choose"
+    /// device names no hardware of its own, so it is there as soon as the
+    /// runtime found anything of its kind. A runtime whose ids carry more than
+    /// a type and an index answers from the list that extra part names.
+    fn find_device(device_id: DeviceId) -> Result<(), usize> {
+        let of_kind = Self::enumerate_devices(device_id.type_id);
+
+        let found = of_kind.contains(&device_id)
+            || (device_id == Self::Device::default().to_id() && !of_kind.is_empty());
+
+        match found {
+            true => Ok(()),
+            false => Err(of_kind.len()),
+        }
+    }
+
     /// Whether this machine has hardware worth choosing this runtime for.
     ///
     /// What picking a default device walks, so the question is not "could this

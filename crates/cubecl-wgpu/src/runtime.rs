@@ -73,28 +73,14 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
     }
 
     fn enumerate_devices(type_id: u16) -> Vec<DeviceId> {
-        #[cfg(target_family = "wasm")]
-        {
-            let _ = type_id;
-            // WebGPU only supports a single device currently.
-            vec![DeviceId::new(0, 0)]
-        }
-
-        #[cfg(not(target_family = "wasm"))]
-        {
-            Self::enumerate_all_devices()
-                .into_iter()
-                .filter(|device| device.type_id == type_id)
-                .collect()
-        }
+        of_type(Self::enumerate_all_devices(), type_id)
     }
 
     fn is_available() -> bool {
         // A software rasterizer — lavapipe, llvmpipe, WARP — enumerates as
         // `WgpuDeviceKind::Cpu`. It runs, but a machine with nothing else is
         // better served by a native CPU runtime, so wgpu does not claim it;
-        // a caller who wants it still names it. `DefaultDevice` is in there
-        // too and is not an adapter, so ask for the GPU kinds by name.
+        // a caller who wants it still names it.
         let gpu = [
             WgpuDeviceKind::DiscreteGpu(0),
             WgpuDeviceKind::IntegratedGpu(0),
@@ -108,65 +94,84 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
             .any(|device| gpu.contains(&device.type_id))
     }
 
+    /// Each adapter once, on whichever graphics API [`WgpuBackend::Auto`]
+    /// settles on — which is what a client created lazily resolves these ids
+    /// against. The same adapter pinned to another API is a device a caller
+    /// names, not one more to count.
     fn enumerate_all_devices() -> Vec<DeviceId> {
-        #[cfg(target_family = "wasm")]
-        {
-            // WebGPU only supports a single device currently.
-            vec![DeviceId::new(0, 0)]
-        }
+        adapters_on(WgpuBackend::Auto)
+    }
 
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let mut ids = Vec::new();
-            let mut settled = false;
+    fn find_device(device_id: DeviceId) -> Result<(), usize> {
+        let device = WgpuDevice::from_id(device_id);
+        let reachable = adapters_on(device.backend);
 
-            // What `WgpuServer::init` resolves these ids against: a device
-            // brought up on another graphics API through `init_setup` is
-            // reached through the client that call hands back, not here.
-            for backend in AutoGraphicsApi::chain() {
-                let found =
-                    adapter_device_ids(enumerate_all_adapters(instance_for(backend), backend));
+        let found = match device.kind {
+            // Names no adapter of its own, so it is there as soon as its
+            // graphics API has any.
+            WgpuDeviceKind::DefaultDevice => !reachable.is_empty(),
+            // The browser hands out one adapter without saying what it is, so
+            // a kind there is only a power preference — and `request_adapter`
+            // honors the low-power one as well.
+            #[cfg(target_family = "wasm")]
+            WgpuDeviceKind::IntegratedGpu(0) => !reachable.is_empty(),
+            _ => reachable.contains(&device_id),
+        };
 
-                if found.is_empty() {
-                    continue;
-                }
-
-                // This API answered, so "let the runtime choose" resolves on
-                // it too — and a caller pinning it has to find that in here.
-                let default = WgpuDevice::new(WgpuDeviceKind::DefaultDevice);
-
-                ids.extend(
-                    found
-                        .iter()
-                        .chain(core::iter::once(&default.to_id()))
-                        .map(|id| WgpuDevice::from_id(*id).on(pinned(backend)).to_id()),
-                );
-
-                // `Auto` is whichever of these the chain settles on, so it is
-                // the first that answered and no other.
-                if !settled {
-                    ids.extend(found);
-                    ids.push(default.to_id());
-                    settled = true;
-                }
-            }
-
-            ids
+        match found {
+            true => Ok(()),
+            false => Err(of_type(reachable, device_id.type_id).len()),
         }
     }
 }
 
-/// The [`WgpuBackend`] naming a `wgpu` one, for stamping onto a device id.
-#[cfg(not(target_family = "wasm"))]
-fn pinned(backend: wgpu::Backend) -> WgpuBackend {
-    match backend {
-        wgpu::Backend::Vulkan => WgpuBackend::Vulkan,
-        wgpu::Backend::Metal => WgpuBackend::Metal,
-        wgpu::Backend::Dx12 => WgpuBackend::Dx12,
-        wgpu::Backend::Gl => WgpuBackend::Gl,
-        wgpu::Backend::BrowserWebGpu => WgpuBackend::WebGpu,
-        _ => WgpuBackend::Auto,
+/// The ids among `ids` of device type `type_id`.
+///
+/// [`WgpuDeviceKind::DefaultDevice`] may land on any of them, so asking for
+/// its type filters nothing.
+fn of_type(ids: Vec<DeviceId>, type_id: u16) -> Vec<DeviceId> {
+    if type_id == WgpuDevice::default().to_id().type_id {
+        return ids;
     }
+
+    ids.into_iter()
+        .filter(|device| device.type_id == type_id)
+        .collect()
+}
+
+/// The ids of the adapters `backend` reaches, pinned the way it is.
+///
+/// Those of the one graphics API it settles on, so each id resolves in
+/// `WgpuServer::init` to the adapter it was listed for. A device brought up on
+/// another API through [`init_setup`] is reached through the client that call
+/// hands back, not here.
+fn adapters_on(backend: WgpuBackend) -> Vec<DeviceId> {
+    // WebGPU only supports a single device currently, and only the browser's
+    // own API reaches it.
+    #[cfg(target_family = "wasm")]
+    let ids = match backend {
+        WgpuBackend::Auto | WgpuBackend::WebGpu => vec![DeviceId::new(0, 0)],
+        _ => Vec::new(),
+    };
+
+    #[cfg(not(target_family = "wasm"))]
+    let ids = settle(backend)
+        .map(|(_, adapters)| adapter_device_ids(adapters))
+        .unwrap_or_default();
+
+    ids.into_iter()
+        .map(|id| WgpuDevice::from_id(id).on(backend).to_id())
+        .collect()
+}
+
+/// The graphics API `backend` settles on, and the adapters this machine has
+/// there: the first of its candidates that has any.
+#[cfg(not(target_family = "wasm"))]
+fn settle(backend: WgpuBackend) -> Option<(wgpu::Backend, Vec<wgpu::Adapter>)> {
+    backend_candidates(backend).into_iter().find_map(|api| {
+        let adapters = enumerate_all_adapters(instance_for(api), api);
+        (!adapters.is_empty()).then_some((api, adapters))
+    })
 }
 
 /// The `wgpu` backends to try for a [`WgpuBackend`], best first.
@@ -198,18 +203,14 @@ fn instance_for(backend: wgpu::Backend) -> wgpu::Instance {
 /// this machine has an adapter for — which is what makes `Auto` mean Vulkan
 /// wherever Vulkan exists, and the next thing where it does not.
 fn resolve_backend(device: &WgpuDevice) -> wgpu::Backend {
-    let candidates = backend_candidates(device.backend);
-
     #[cfg(not(target_family = "wasm"))]
-    for backend in candidates.iter() {
-        if !enumerate_all_adapters(instance_for(*backend), *backend).is_empty() {
-            return *backend;
-        }
+    if let Some((backend, _)) = settle(device.backend) {
+        return backend;
     }
 
     // Nothing answered: hand back the first anyway, so the failure is the
     // setup's own rather than a silent fallback to some other API.
-    candidates[0]
+    backend_candidates(device.backend)[0]
 }
 
 /// The `DeviceId` addressing each adapter, in enumeration order.
@@ -217,7 +218,7 @@ fn resolve_backend(device: &WgpuDevice) -> wgpu::Backend {
 /// Every device type counts from zero on its own: `WgpuDevice::DiscreteGpu(n)`
 /// is the nth *discrete* adapter, not the nth adapter overall, so a single
 /// counter over the mixed list hands out ids for devices that do not exist.
-/// `Cpu` and `Other` carry no index in `WgpuDevice`, so they stay at zero.
+/// `Cpu` carries no index in `WgpuDevice`, so it stays at zero.
 #[cfg(not(target_family = "wasm"))]
 fn adapter_device_ids(adapters: Vec<wgpu::Adapter>) -> Vec<DeviceId> {
     let mut next = [0u16; 7];
@@ -609,6 +610,11 @@ async fn request_adapter(
             .await
         }
         #[cfg(not(target_family = "wasm"))]
+        WgpuDeviceKind::Other(num) => {
+            select_from_adapter_list(num, "No Other device found", &instance, &device, backend)
+                .await
+        }
+        #[cfg(not(target_family = "wasm"))]
         WgpuDeviceKind::Cpu => {
             select_from_adapter_list(0, "No CPU device found", &instance, &device, backend).await
         }
@@ -660,11 +666,6 @@ async fn select_from_adapter_list(
         .for_each(|adapter| {
             let device_type = adapter.get_info().device_type;
 
-            if let wgpu::DeviceType::Other = device_type {
-                adapters_other.push(adapter);
-                return;
-            }
-
             let is_same_type = match device.kind {
                 WgpuDeviceKind::DiscreteGpu(_) => device_type == wgpu::DeviceType::DiscreteGpu,
                 WgpuDeviceKind::IntegratedGpu(_) => device_type == wgpu::DeviceType::IntegratedGpu,
@@ -677,8 +678,12 @@ async fn select_from_adapter_list(
                 }
             };
 
+            // An unclassified adapter is the fallback for a kind this API has
+            // too few of — unless unclassified is the kind asked for.
             if is_same_type {
                 adapters.push(adapter);
+            } else if device_type == wgpu::DeviceType::Other {
+                adapters_other.push(adapter);
             }
         });
 
@@ -736,4 +741,73 @@ fn get_device_override() -> Option<WgpuDeviceKind> {
             }
             override_device
         })
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod device_tests {
+    use super::*;
+
+    const PINNED: [WgpuBackend; 4] = [
+        WgpuBackend::Vulkan,
+        WgpuBackend::Metal,
+        WgpuBackend::Dx12,
+        WgpuBackend::Gl,
+    ];
+
+    /// One adapter is one device. Listing it again for every graphics API
+    /// that reaches it makes a single GPU look like several, and whatever
+    /// counts devices — a collective, a transfer between two of them — runs
+    /// on hardware that is not there.
+    #[test]
+    fn each_adapter_is_listed_once() {
+        let ids = <WgpuRuntime>::enumerate_all_devices();
+
+        let adapters = settle(WgpuBackend::Auto).map_or(0, |(_, adapters)| adapters.len());
+
+        assert_eq!(ids.len(), adapters);
+        for id in ids {
+            assert_eq!(WgpuDevice::from_id(id).backend, WgpuBackend::Auto);
+        }
+    }
+
+    /// A device pinned to an API is found where that API has it, whatever
+    /// the API `Auto` settles on has — the kinds differ from one API to the
+    /// next, `OpenGL` calling a GPU what Vulkan calls discrete.
+    #[test]
+    fn a_device_is_found_on_the_api_it_names() {
+        for backend in PINNED {
+            let reachable = adapters_on(backend);
+
+            for id in reachable.iter() {
+                assert_eq!(
+                    <WgpuRuntime>::find_device(*id),
+                    Ok(()),
+                    "{id} on {backend:?}"
+                );
+            }
+
+            let default = WgpuDevice::new(WgpuDeviceKind::DefaultDevice).on(backend);
+            assert_eq!(
+                <WgpuRuntime>::find_device(default.to_id()).is_ok(),
+                !reachable.is_empty(),
+                "the default device on {backend:?}"
+            );
+        }
+    }
+
+    /// And one that API does not have is a miss, reported against what it
+    /// has of that kind.
+    #[test]
+    fn an_index_past_the_end_is_not_found_on_any_api() {
+        for backend in PINNED.into_iter().chain([WgpuBackend::Auto]) {
+            let device = WgpuDevice::new(WgpuDeviceKind::DiscreteGpu(4242)).on(backend);
+
+            let discrete = adapters_on(backend)
+                .into_iter()
+                .filter(|id| id.type_id == device.to_id().type_id)
+                .count();
+
+            assert_eq!(<WgpuRuntime>::find_device(device.to_id()), Err(discrete));
+        }
+    }
 }
