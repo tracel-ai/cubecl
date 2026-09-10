@@ -40,7 +40,8 @@ impl MemoryUsage {
 }
 
 #[derive(new)]
-pub(crate) struct BytesFormat {
+#[doc(hidden)]
+pub struct BytesFormat {
     bytes: u64,
 }
 
@@ -149,7 +150,7 @@ pub struct MemoryPoolReport {
     pub largest_alloc: u64,
 }
 
-/// A per-pool report of one [`MemoryManagement`](super::MemoryManagement)
+/// A per-pool report of one `MemoryManagement` (in `cubecl-server`)
 /// instance — the read side of a measured memory plan.
 ///
 /// The intended cycle: install a growable layout, run the workload once under
@@ -161,7 +162,7 @@ pub struct MemoryPoolReport {
 /// A tuning pass inside the measured run allocates too, and its scratch counts
 /// toward these marks like anything else. Warming the tune caches in an
 /// earlier pass and rebuilding the pools
-/// ([`install_pools`](super::MemoryManagement::install_pools), which resets the
+/// (`MemoryManagement::install_pools`, which resets the
 /// marks)
 /// before the measured one leaves the peaks to the workload alone.
 #[derive(Debug, Clone, PartialEq, Eq)]

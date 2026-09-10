@@ -15,7 +15,14 @@ fn main() {
         ("cpu", cfg!(feature = "cpu")),
         ("cuda", cfg!(feature = "cuda")),
         ("hip", cfg!(feature = "hip")),
-        ("metal", cfg!(feature = "metal-native")),
+        // `cubecl-metal` compiles to nothing off Apple, so the feature links no
+        // runtime there. A build script's own `cfg!` describes the host, so
+        // the target has to be asked for.
+        (
+            "metal",
+            cfg!(feature = "metal-native")
+                && std::env::var("CARGO_CFG_TARGET_VENDOR").is_ok_and(|vendor| vendor == "apple"),
+        ),
         ("wgpu", cfg!(feature = "wgpu")),
     ]);
 
@@ -25,18 +32,23 @@ fn main() {
         .map(|(k, _)| *k)
         .collect::<Vec<_>>();
 
-    // Whether this build has a runtime to reach at all. `Device` and everything
-    // behind it are conditional on this, rather than each item repeating the
-    // list of runtime features. `test-runtime` falls back to wgpu, so it counts.
-    if enable_runtime || !enabled_features.is_empty() {
+    // Whether this build has a runtime to reach at all.
+    if !enabled_features.is_empty() {
         println!("cargo:rustc-cfg=any_runtime");
     }
 
+    // `test-runtime` turns wgpu on itself, so wgpu is the fallback: the tests
+    // run on the one other runtime enabled, or on wgpu when there is none or
+    // several.
     if enable_runtime {
-        if enabled_features.is_empty() || enabled_features.len() > 1 {
-            println!("cargo:rustc-cfg=test_runtime_default");
-        } else {
-            println!("cargo:rustc-cfg=test_runtime_{}", enabled_features[0]);
+        let others = enabled_features
+            .iter()
+            .filter(|name| **name != "wgpu")
+            .collect::<Vec<_>>();
+        match others.as_slice() {
+            [only] => println!("cargo:rustc-cfg=test_runtime_{only}"),
+            [] => println!("cargo:rustc-cfg=test_runtime_wgpu"),
+            _ => println!("cargo:rustc-cfg=test_runtime_default"),
         }
     }
 }

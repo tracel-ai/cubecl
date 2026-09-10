@@ -1,4 +1,4 @@
-//! What the shared [`Command`](cubecl_runtime::command::Command) cannot do
+//! What the shared [`Command`](cubecl_server::command::Command) cannot do
 //! itself: HIP's four device calls, and where a HIP stream keeps the state
 //! they move in step with.
 
@@ -12,15 +12,15 @@ use cubecl_common::bytes::Bytes;
 use cubecl_hip_sys::{
     hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice, ihipStream_t,
 };
-use cubecl_runtime::command::{CopyLayout, DeviceStream, Driver};
-use cubecl_runtime::driver::checked;
-use cubecl_runtime::id::KernelId;
-use cubecl_runtime::memory_management::drop_queue::PendingDropQueue;
-use cubecl_runtime::memory_management::{ManagedMemoryBinding, MemoryManagement};
-use cubecl_runtime::metadata_cache::MetadataInfoCache;
-use cubecl_runtime::server::{Handle, IoError, LaunchError};
-use cubecl_runtime::storage::PinnedMemoryAllocController;
-use cubecl_runtime::stream::StreamCapture;
+use cubecl_server::command::{CopyLayout, DeviceStream, Driver};
+use cubecl_server::driver::checked;
+use cubecl_server::id::KernelId;
+use cubecl_server::memory_management::drop_queue::PendingDropQueue;
+use cubecl_server::memory_management::{ManagedMemoryBinding, MemoryManagement};
+use cubecl_server::metadata_cache::MetadataInfoCache;
+use cubecl_server::server::{Handle, IoError, LaunchError};
+use cubecl_server::storage::PinnedMemoryAllocController;
+use cubecl_server::stream::StreamCapture;
 
 impl DeviceStream for Stream {
     type Fence = Fence;
@@ -68,7 +68,7 @@ impl Driver for Hip {
 
     unsafe fn pinned_bytes(
         binding: ManagedMemoryBinding,
-        resource: <PinnedMemoryStorage as cubecl_runtime::storage::ComputeStorage>::Resource,
+        resource: <PinnedMemoryStorage as cubecl_server::storage::ComputeStorage>::Resource,
         size: usize,
     ) -> Bytes {
         let controller =

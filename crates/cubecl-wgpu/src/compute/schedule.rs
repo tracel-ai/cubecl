@@ -7,7 +7,7 @@ use cubecl_common::{bytes::Bytes, pool::LeaseHandle, profile::TimingMethod};
 use cubecl_core::server::BufferBinding;
 use cubecl_core::{CubeCount, MemoryConfiguration, server::MetadataBindingInfo, zspace::SmallVec};
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::{
+use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, SharedMemoryBindings},
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
@@ -92,7 +92,7 @@ pub struct WgpuStreamFactory {
     count: u64,
     use_vulkan_compiler: bool,
     /// Programmatic main-GPU pool layout (see
-    /// [`Server::install_memory_pools`](cubecl_runtime::server::Server::install_memory_pools)):
+    /// [`Server::install_memory_pools`](cubecl_server::server::Server::install_memory_pools)):
     /// streams created after it is set build their main pool from it instead
     /// of the runtime default. Auxiliary pools are unaffected.
     gpu_pools_override: Option<MemoryConfiguration>,

@@ -1,8 +1,8 @@
 use super::{DummyServer, Marker};
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::server::Server;
-use cubecl_runtime::{
+use cubecl_server::server::Server;
+use cubecl_server::{
     client::Client,
     logging::ServerLogger,
     memory_management::{MemoryConfiguration, MemoryManagement, MemoryManagementOptions},

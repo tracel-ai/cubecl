@@ -3,7 +3,7 @@ use cubecl_core::{MemoryConfiguration, server::ServerError};
 use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::{
+use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, MemoryManagement, MemoryManagementOptions},
     server::BufferBinding,
@@ -285,7 +285,7 @@ pub struct MetalStreamBackend {
     mem_config: MemoryConfiguration,
     logger: Arc<ServerLogger>,
     /// Programmatic main-GPU pool layout (see
-    /// [`Server::install_memory_pools`](cubecl_runtime::server::Server::install_memory_pools)):
+    /// [`Server::install_memory_pools`](cubecl_server::server::Server::install_memory_pools)):
     /// streams created after it is set build their GPU pools from it instead
     /// of the runtime default.
     gpu_pools_override: Option<MemoryConfiguration>,

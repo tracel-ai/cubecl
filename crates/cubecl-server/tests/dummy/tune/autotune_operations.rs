@@ -1,4 +1,4 @@
-use cubecl_runtime::{
+use cubecl_server::{
     client::Client,
     kernel::BufferIOAttr,
     server::{CubeCount, Handle, KernelArguments},

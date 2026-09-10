@@ -7,15 +7,22 @@ project by updating your Cargo.toml:
 [dependencies]
 cubecl = {
     version = "0.11.0",  # Replace with the latest version from crates.io
-    features = ["wgpu"]  # Enable desired runtime features (e.g., wgpu, cuda, hip)
+    features = ["wgpu"]  # The runtimes to link (e.g., wgpu, cuda, hip)
 }
 ```
+
+The features pick the runtimes your binary links.
+A kernel library turns none of them on and compiles against no runtime at all.
+
+`Device::default()` then picks the most capable of them that this machine can
+actually run, so a binary built with both `cuda` and `wgpu` still works on a
+machine with no NVIDIA card.
 
 The more challenging aspect is ensuring that you have the necessary drivers to run the selected
 runtime.
 
 CubeCL supports multiple GPU and CPU runtimes, each requiring specific drivers or frameworks. Enable
-the appropriate feature flag in Cargo.toml and ensure the corresponding drivers are installed.
+the appropriate feature flag on `cubecl` in Cargo.toml and ensure the corresponding drivers are installed.
 
 | Platform | Device Type | Runtime  | Supported OS                | Requirements                                            | Installation/Notes                                                                                       | Feature Flag |
 | -------- | ----------- | -------- | --------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------ |

@@ -1,6 +1,6 @@
 use crate::memory_management::MemoryHandle;
 use alloc::{sync::Arc, vec::Vec};
-use core::cell::Cell;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 /// Managed Memory handle
 #[derive(Debug)]
@@ -34,26 +34,21 @@ impl Clone for ManagedMemoryHandle {
 
 /// Managed memory descriptor.
 ///
-/// The location is wrapped in `Cell` for interior mutability: multiple
-/// handles share the same descriptor via `Arc`, yet the memory management
-/// system needs to update the location after creation (e.g. during
-/// `reserve` / `bind`). All mutation happens on a single device thread,
-/// so `Cell` is safe — we just need `unsafe impl Sync` because `Cell`
-/// is `!Sync`.
+/// Multiple handles share the same descriptor via `Arc`, yet the memory
+/// management system needs to update the location after creation (e.g. during
+/// `reserve` / `bind`). The location is packed into an atomic for that.
 ///
-/// An alternative would be `spin::Mutex<MemoryLocation>` which avoids the
-/// `unsafe impl Sync` at the cost of a lock on every access.
-pub(crate) struct ManagedMemoryDescriptor {
-    pub(crate) id: ManagedMemoryId,
-    location: Cell<MemoryLocation>,
+/// All mutation happens on the device thread, so `Relaxed` is all the ordering
+/// it needs — and on the targets that matter that is a plain load and store.
+/// Being atomic rather than a `Cell` is what makes the descriptor `Sync` by
+/// construction: these methods are public so the pools in `cubecl-server` can
+/// reach them, and anything public can be called from any thread.
+#[doc(hidden)]
+pub struct ManagedMemoryDescriptor {
+    #[doc(hidden)]
+    pub id: ManagedMemoryId,
+    location: AtomicU64,
 }
-
-// SAFETY: The channel requires ManagedMemoryHandle to be Send + Sync.
-// Cell is _not_ Sync, but, we know that we only access this from the device thread,
-// so we lie to the compiler and claim it is Sync. Other code must NOT rely on
-// ManagedMemoryDescriptor being Send + Sync.
-unsafe impl Send for ManagedMemoryDescriptor {}
-unsafe impl Sync for ManagedMemoryDescriptor {}
 
 impl core::fmt::Debug for ManagedMemoryDescriptor {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -67,7 +62,8 @@ impl core::fmt::Debug for ManagedMemoryDescriptor {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 /// Managed memory unique identifier.
 pub struct ManagedMemoryId {
-    pub(crate) value: usize,
+    #[doc(hidden)]
+    pub value: usize,
 }
 
 impl PartialEq for ManagedMemoryDescriptor {
@@ -80,7 +76,8 @@ impl Eq for ManagedMemoryDescriptor {}
 
 #[derive(Clone, Copy, Debug)]
 /// Defines where the [`ManagedMemoryId`] is located.
-pub(crate) struct MemoryLocation {
+#[doc(hidden)]
+pub struct MemoryLocation {
     /// The memory pool index in the global memory management.
     pub pool: u8,
     /// The memory page index in a memory pool.
@@ -93,43 +90,71 @@ pub(crate) struct MemoryLocation {
 
 impl ManagedMemoryDescriptor {
     /// Update the memory location for the given [`ManagedMemoryId`].
-    pub(crate) fn update_location(&self, location: MemoryLocation) {
-        self.location.set(location);
+    #[doc(hidden)]
+    pub fn update_location(&self, location: MemoryLocation) {
+        self.location.store(location.to_bits(), Ordering::Relaxed);
     }
 
     /// Update only the slice position for the given [`ManagedMemoryId`].
-    pub(crate) fn update_slice(&self, slice: u32) {
-        self.location.update(|mut loc| {
-            loc.slice = slice;
-            loc
-        });
+    #[doc(hidden)]
+    pub fn update_slice(&self, slice: u32) {
+        self.modify(|location| MemoryLocation { slice, ..location });
     }
 
     /// Update only the memory page position for the given [`ManagedMemoryId`].
+    #[doc(hidden)]
     pub fn update_page(&self, page: u16) {
-        self.location.update(|mut loc| {
-            loc.page = page;
-            loc
-        });
+        self.modify(|location| MemoryLocation { page, ..location });
     }
 
     /// Retrieves the current location.
-    pub(crate) fn location(&self) -> MemoryLocation {
-        self.location.get()
+    #[doc(hidden)]
+    pub fn location(&self) -> MemoryLocation {
+        MemoryLocation::from_bits(self.location.load(Ordering::Relaxed))
     }
 
-    pub(crate) fn slice(&self) -> usize {
-        self.location.get().slice as usize
+    #[doc(hidden)]
+    pub fn slice(&self) -> usize {
+        self.location().slice as usize
     }
 
-    pub(crate) fn page(&self) -> usize {
-        self.location.get().page as usize
+    #[doc(hidden)]
+    pub fn page(&self) -> usize {
+        self.location().page as usize
+    }
+
+    fn modify(&self, update: impl Fn(MemoryLocation) -> MemoryLocation) {
+        // Never `Err`: the closure always has an update to make.
+        let _ = self
+            .location
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |bits| {
+                Some(update(MemoryLocation::from_bits(bits)).to_bits())
+            });
     }
 }
 
 impl MemoryLocation {
+    /// The location packed into one word, so it can live in an atomic: pool
+    /// in the low byte, then page, then slice, then the init flag on top.
+    fn to_bits(self) -> u64 {
+        self.pool as u64
+            | (self.page as u64) << 8
+            | (self.slice as u64) << 24
+            | (self.init as u64) << 56
+    }
+
+    fn from_bits(bits: u64) -> Self {
+        Self {
+            pool: bits as u8,
+            page: (bits >> 8) as u16,
+            slice: (bits >> 24) as u32,
+            init: (bits >> 56) as u8,
+        }
+    }
+
     /// Creates a new memory location.
-    pub(crate) fn new(pool: u8, page: u16, slice: u32) -> Self {
+    #[doc(hidden)]
+    pub fn new(pool: u8, page: u16, slice: u32) -> Self {
         Self {
             pool,
             page,
@@ -139,7 +164,8 @@ impl MemoryLocation {
     }
 
     /// Creates a new uninitialized memory location.
-    pub(crate) fn uninit() -> Self {
+    #[doc(hidden)]
+    pub fn uninit() -> Self {
         Self {
             pool: 0,
             page: 0,
@@ -157,14 +183,15 @@ impl ManagedMemoryHandle {
         Self {
             descriptor: Arc::new(ManagedMemoryDescriptor {
                 id: ManagedMemoryId { value },
-                location: Cell::new(MemoryLocation::uninit()),
+                location: AtomicU64::new(MemoryLocation::uninit().to_bits()),
             }),
             handle_count: Arc::new(()),
         }
     }
 
     /// Retrieves the descriptor for the current handle.
-    pub(crate) fn descriptor(&self) -> &ManagedMemoryDescriptor {
+    #[doc(hidden)]
+    pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
         &self.descriptor
     }
 
@@ -197,7 +224,8 @@ impl ManagedMemoryHandle {
 
 impl ManagedMemoryBinding {
     /// Retrieves the descriptor for the current binding.
-    pub(crate) fn descriptor(&self) -> &ManagedMemoryDescriptor {
+    #[doc(hidden)]
+    pub fn descriptor(&self) -> &ManagedMemoryDescriptor {
         &self.descriptor
     }
 
@@ -301,5 +329,28 @@ mod tests {
 
         handle.descriptor().update_slice(42);
         assert_eq!(handle2.descriptor().slice(), 42);
+    }
+
+    /// Every field gets its own bits in the packed word, so none bleeds into
+    /// its neighbour even at its widest.
+    #[test]
+    fn a_location_survives_packing_at_every_extreme() {
+        let fields = |location: MemoryLocation| {
+            (location.pool, location.page, location.slice, location.init)
+        };
+
+        for location in [
+            MemoryLocation::uninit(),
+            MemoryLocation::new(1, 2, 3),
+            MemoryLocation::new(u8::MAX, u16::MAX, u32::MAX),
+            MemoryLocation {
+                init: u8::MAX,
+                ..MemoryLocation::uninit()
+            },
+        ] {
+            let packed = MemoryLocation::from_bits(location.to_bits());
+
+            assert_eq!(fields(packed), fields(location));
+        }
     }
 }

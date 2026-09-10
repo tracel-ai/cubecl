@@ -29,7 +29,7 @@ pub(crate) fn handle_command(
         "std with SPIR-V compiler",
     )?;
     build_helpers::custom_crates_build(
-        vec!["cubecl-runtime"],
+        vec!["cubecl-runtime", "cubecl-server"],
         vec!["--no-default-features"],
         None,
         None,

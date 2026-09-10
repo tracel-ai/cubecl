@@ -43,11 +43,11 @@ mod tests {
     mod precompiled {
         use cubecl_core::prelude::*;
         use cubecl_ir::{UIntKind, metadata::Info, settings::Dim3};
-        use cubecl_runtime::kernel::{
+        use cubecl_server::kernel::{
             CubeKernel, KernelDefinition, KernelMetadata, PrecompiledSource,
         };
-        use cubecl_runtime::runtime::Runtime;
-        use cubecl_runtime::server::KernelArguments;
+        use cubecl_server::runtime::Runtime;
+        use cubecl_server::server::KernelArguments;
 
         use super::TestRuntime;
 
@@ -120,8 +120,8 @@ fn double(@builtin(global_invocation_id) id: vec3<u32>) {
         use cubecl_common::e4m3;
         use cubecl_core::prelude::*;
         use cubecl_core::{self as cubecl};
-        use cubecl_runtime::runtime::Runtime;
-        use cubecl_runtime::server::Handle;
+        use cubecl_server::runtime::Runtime;
+        use cubecl_server::server::Handle;
 
         use super::TestRuntime;
 

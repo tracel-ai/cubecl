@@ -11,8 +11,8 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{BufferBinding, Handle, ServerError},
 };
-use cubecl_runtime::storage::PINNED_MEMORY_ALIGNMENT;
-use cubecl_runtime::{
+use cubecl_server::storage::PINNED_MEMORY_ALIGNMENT;
+use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, FailureId, MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
@@ -23,7 +23,7 @@ use cubecl_runtime::{
 };
 use std::sync::Arc;
 
-use cubecl_runtime::driver::checked;
+use cubecl_server::driver::checked;
 
 use crate::compute::{cpu::PinnedMemoryStorage, events::Fence, gpu::GpuStorage};
 
@@ -73,7 +73,7 @@ pub struct HipStreamBackend {
     is_integrated: bool,
     logger: Arc<ServerLogger>,
     /// Programmatic main-GPU pool layout (see
-    /// [`Server::install_memory_pools`](cubecl_runtime::server::Server::install_memory_pools)):
+    /// [`Server::install_memory_pools`](cubecl_server::server::Server::install_memory_pools)):
     /// streams created after it is set build their GPU pools from it instead
     /// of the runtime default. Auxiliary pools are unaffected.
     #[new(default)]

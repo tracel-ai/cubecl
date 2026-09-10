@@ -1,7 +1,7 @@
 use cubecl_core::server::IoError;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
-use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use cubecl_server::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use std::num::NonZeroU64;
 use wgpu::BufferUsages;
 

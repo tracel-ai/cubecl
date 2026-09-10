@@ -4,7 +4,7 @@ use crate::{AutoRepresentationRef, WgpuCompiler};
 use cubecl_core::{CubeDim, ExecutionMode, WgpuCompilationOptions, server::KernelArguments};
 use cubecl_core::{MemoryConfiguration, prelude::Visibility};
 use cubecl_ir::DeviceProperties;
-use cubecl_runtime::{
+use cubecl_server::{
     compiler::{CompilationError, KernelCacheKey},
     id::KernelId,
 };

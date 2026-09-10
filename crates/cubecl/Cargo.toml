@@ -24,12 +24,21 @@ default = [
     "cubecl-cuda?/default",
     "cubecl-cpu?/default",
     "cubecl-hip?/default",
+    "cubecl-metal?/default",
     "cubecl-wgpu?/default",
 ]
-exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
-std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
+std = [
+    "cubecl-core/std",
+    "cubecl-cpu?/std",
+    "cubecl-cuda?/std",
+    "cubecl-hip?/std",
+    "cubecl-metal?/std",
+    "cubecl-wgpu?/std",
+]
 stdlib = ["cubecl-std"] # CubeCL standard library
 template = ["cubecl-core/template"]
+
+exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 
 profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 
@@ -44,7 +53,8 @@ tracing = [
     "cubecl-wgpu?/tracing",
 ]
 
-# Runtimes
+# Runtimes. A kernel library depends on this crate with none of them on and
+# compiles against no runtime at all; a binary turns on the ones it links.
 cpu = ["cubecl-cpu"]
 cuda = ["cubecl-cuda"]
 cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
@@ -59,7 +69,7 @@ pliron-dump = [
     "cubecl-hip?/pliron-dump",
     "cubecl-metal?/pliron-dump",
     "cubecl-wgpu?/pliron-dump",
-    "cubecl-cpu?/pliron-dump"
+    "cubecl-cpu?/pliron-dump",
 ]
 rocm = ["hip"]
 vulkan = ["wgpu-spirv"]
@@ -68,18 +78,19 @@ wgpu = ["cubecl-wgpu"]
 wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
 
-# By default we use wgpu.
-test-runtime = ["cubecl-wgpu"]
+# The runtime tests run on: wgpu unless exactly one other runtime is enabled.
+test-runtime = ["wgpu"]
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", default-features = false }
-cubecl-cpu = { path = "../cubecl-cpu", version = "=0.11.0-pre.3", default-features = false, optional = true }
-cubecl-cuda = { path = "../cubecl-cuda", version = "=0.11.0-pre.3", default-features = false, optional = true }
 cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
-cubecl-hip = { path = "../cubecl-hip", version = "=0.11.0-pre.3", default-features = false, optional = true }
 cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.3", default-features = false }
-cubecl-metal = { path = "../cubecl-metal", version = "=0.11.0-pre.3", default-features = false, optional = true }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.3", default-features = false }
 cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.3", optional = true }
-cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.11.0-pre.3", default-features = false, optional = true }
 half = { workspace = true }
+
+cubecl-cpu = { path = "../cubecl-cpu", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-cuda = { path = "../cubecl-cuda", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-hip = { path = "../cubecl-hip", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-metal = { path = "../cubecl-metal", version = "=0.11.0-pre.3", default-features = false, optional = true }
+cubecl-wgpu = { path = "../cubecl-wgpu", version = "=0.11.0-pre.3", default-features = false, optional = true }

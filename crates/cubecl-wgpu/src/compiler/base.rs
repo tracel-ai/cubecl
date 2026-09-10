@@ -1,16 +1,17 @@
-use cubecl_runtime::kernel::BufferIOAttr;
+use cubecl_server::kernel::BufferIOAttr;
+use cubecl_server::kernel::CompiledKernel;
 use std::fmt::Display;
 
 use cubecl_core::{
     Compiler, WgpuCompilationOptions,
-    prelude::{CompiledKernel, CubeKernel, KernelDefinition},
+    prelude::{CubeKernel, KernelDefinition},
     server::{LaunchError, ResourceLimitError},
 };
 #[cfg(feature = "msl")]
 use cubecl_cpp::shared::MslComputeKernel;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::DeviceProperties;
-use cubecl_runtime::compiler::CompilationError;
+use cubecl_server::compiler::CompilationError;
 use derive_more::derive::From;
 
 #[cfg(feature = "spirv")]
@@ -377,7 +378,7 @@ fn check_shared_memory(
 ///
 /// The base [`Compiler`] trait already exposes a `compile` method that turns a
 /// [`KernelDefinition`] into a backend representation. [`WgpuCompiler`] sits one level
-/// higher: it owns the wgpu-specific lifecycle around a [`CubeKernel`](cubecl_runtime::kernel::CubeKernel)
+/// higher: it owns the wgpu-specific lifecycle around a [`CubeKernel`](cubecl_server::kernel::CubeKernel)
 /// kernel — initializing the compiler for a given `wgpu::Backend`, compiling a kernel using
 /// the server's [`WgpuCompilationOptions`], validating the resulting IR against the device,
 /// and projecting the typed representation into the runtime-erased [`AutoRepresentation`].

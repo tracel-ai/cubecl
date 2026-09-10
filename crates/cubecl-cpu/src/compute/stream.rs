@@ -9,7 +9,7 @@ use cubecl_core::{
     server::{BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
 };
 use cubecl_environment::stream::StreamId;
-use cubecl_runtime::{
+use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, FailureId, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,

@@ -10,8 +10,8 @@ use cubecl_ir::{
     metadata::Info,
     settings::{Dim3, ExecutionMode, KernelSettings},
 };
-use cubecl_runtime::server::ServerStorage;
-use cubecl_runtime::{
+use cubecl_server::server::ServerStorage;
+use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
     id::KernelId,
     kernel::{CubeKernel, KernelMetadata},
@@ -90,11 +90,11 @@ impl core::fmt::Display for KernelTask {
 }
 
 impl CubeKernel for KernelTask {
-    fn define(&self) -> cubecl_runtime::kernel::KernelDefinition {
+    fn define(&self) -> cubecl_server::kernel::KernelDefinition {
         // The dummy server runs the kernel directly and never keys a cache, so nothing here is observed.
         let settings =
             KernelSettings::new(Dim3::new_single(), ExecutionMode::Checked, AddressType::U32);
-        cubecl_runtime::kernel::KernelDefinition {
+        cubecl_server::kernel::KernelDefinition {
             body: cubecl_ir::Scope::root(settings.clone()),
             settings,
             info: Info::default(),
@@ -121,7 +121,7 @@ impl<M: Marker> Server for DummyServer<M> {
         self.utilities.logger.clone()
     }
 
-    fn utilities(&self) -> Arc<cubecl_runtime::server::ServerUtilities> {
+    fn utilities(&self) -> Arc<cubecl_server::server::ServerUtilities> {
         self.utilities.clone()
     }
 
@@ -202,7 +202,7 @@ impl<M: Marker> Server for DummyServer<M> {
         _count: CubeCount,
         bindings: KernelArguments,
         stream_id: StreamId,
-        launch_mode: cubecl_runtime::dry_run::LaunchMode,
+        launch_mode: cubecl_server::dry_run::LaunchMode,
     ) {
         let kernel = (&*kernel as &dyn core::any::Any)
             .downcast_ref::<KernelTask>()
@@ -215,7 +215,7 @@ impl<M: Marker> Server for DummyServer<M> {
                 // server — only the declared outputs carry the failure, and
                 // the buffers the kernel was only going to read stay
                 // readable for whatever launches next on them.
-                let error = ServerError::from(cubecl_runtime::server::LaunchError::from(err));
+                let error = ServerError::from(cubecl_server::server::LaunchError::from(err));
                 self.timestamps.failure(&error);
                 if !launch_mode.is_skipped() {
                     let written: Vec<_> = bindings.buffers_written(None).cloned().collect();
@@ -308,7 +308,7 @@ impl<M: Marker> Server for DummyServer<M> {
     fn memory_report(
         &mut self,
         _stream_id: StreamId,
-    ) -> cubecl_runtime::memory_management::MemoryReport {
+    ) -> cubecl_server::memory_management::MemoryReport {
         self.memory_management.memory_report()
     }
 
@@ -401,7 +401,7 @@ impl<M: Marker> DummyServer<M> {
     /// a read makes, through the same [`ErrorGraph::reports`] a real server's
     /// [`StreamPool::ensure_written`] goes through.
     ///
-    /// [`StreamPool::ensure_written`]: cubecl_runtime::stream::StreamPool::ensure_written
+    /// [`StreamPool::ensure_written`]: cubecl_server::stream::StreamPool::ensure_written
     fn ensure_written<'a>(
         &self,
         handles: impl Iterator<Item = &'a BufferBinding>,

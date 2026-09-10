@@ -4,14 +4,14 @@
 //! Everything around those four — arming the pools, draining the drop queue,
 //! pinning what the window touched, claiming what a refused recording would
 //! have written — is the shared
-//! [`Window`](cubecl_runtime::command::Window)'s.
+//! [`Window`](cubecl_server::command::Window)'s.
 
 use crate::compute::driver::Hip;
 use crate::compute::stream::Stream;
 use cubecl_hip_sys::{hipGraph_t, hipGraphExec_t};
-use cubecl_runtime::command::GraphDriver;
-use cubecl_runtime::driver::checked;
-use cubecl_runtime::server::ServerError;
+use cubecl_server::command::GraphDriver;
+use cubecl_server::driver::checked;
+use cubecl_server::server::ServerError;
 
 /// An instantiated HIP executable graph, destroyed on drop.
 pub struct Executable(hipGraphExec_t);

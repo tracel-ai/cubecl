@@ -3,7 +3,7 @@ use crate::compiler::wgsl::{
     self, EnableFeaturesPass, builtin::LowerBuiltinsPass, lower::LowerOpsWgslPass,
     metadata::declare_info, rewrite_args, shared_memory_size, types,
 };
-use cubecl_runtime::kernel::BufferIOAttr;
+use cubecl_server::kernel::BufferIOAttr;
 
 use cubecl_core::{
     WgpuCompilationOptions,
@@ -34,8 +34,8 @@ use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
     sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
-use cubecl_runtime::compiler::CompilationError;
-use cubecl_runtime::kernel;
+use cubecl_server::compiler::CompilationError;
+use cubecl_server::kernel;
 
 const MAX_VECTOR_SIZE: usize = 4;
 

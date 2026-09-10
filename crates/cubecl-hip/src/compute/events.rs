@@ -3,19 +3,19 @@
 //! What is built on them — a [`Fence`] handed out so a caller can wait on a
 //! stream outside the server's lock, and an [`EventProfiler`] timing work on
 //! the device's own clock — lives with the shared
-//! [`device_events`](cubecl_runtime::device_events) module, along with the
+//! [`device_events`](cubecl_server::device_events) module, along with the
 //! design arguments for both.
 
 use cubecl_common::profile::Duration;
 use cubecl_hip_sys::{hipEvent_t, hipStream_t};
-use cubecl_runtime::device_events::EventApi;
-use cubecl_runtime::driver::{DriverError, checked};
+use cubecl_server::device_events::EventApi;
+use cubecl_server::driver::{DriverError, checked};
 
 /// A fence, over HIP's event API.
-pub type Fence = cubecl_runtime::device_events::EventFence<Hip>;
+pub type Fence = cubecl_server::device_events::EventFence<Hip>;
 
 /// The device profiler, over HIP's event API.
-pub type EventProfiler = cubecl_runtime::device_events::EventProfiler<Hip>;
+pub type EventProfiler = cubecl_server::device_events::EventProfiler<Hip>;
 
 /// HIP's event API.
 pub struct Hip;
@@ -23,7 +23,7 @@ pub struct Hip;
 /// A HIP event handle.
 ///
 /// The newtype exists for the assertion below; the driver's own lifecycle is
-/// the shared [`Event`](cubecl_runtime::device_events::Event)'s job.
+/// the shared [`Event`](cubecl_server::device_events::Event)'s job.
 pub struct HipEvent(hipEvent_t);
 
 // SAFETY: a `hipEvent_t` is a handle into the driver rather than thread-affine
