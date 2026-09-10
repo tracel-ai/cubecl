@@ -546,6 +546,16 @@ impl Scope {
         state.module_inserter.append_op(ctx, &func);
     }
 
+    /// Update the symbol name of the root entry function.
+    pub fn update_entry_name(&self, name: &str) {
+        use pliron::builtin::op_interfaces::SymbolOpInterface as _;
+        let entry_func = self.state().entry_func;
+        let ctx = self.ctx_mut();
+        let ident =
+            Identifier::try_new(String::from(name)).unwrap_or_else(|_| ident("kernel_entry"));
+        entry_func.set_symbol_name(ctx, ident);
+    }
+
     /// Register an [`Instruction`] into the scope.
     pub fn register(&self, op: &dyn Op) {
         let ctx = self.ctx();
