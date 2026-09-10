@@ -21,7 +21,19 @@ fn an_accumulator_keeps_adding_past_the_f16_step_size() {
     assert_eq!(common::accumulated(2048.0, 1.0, 1000), 3048.0);
 }
 
-/// A kernel with no f16 in it still compiles, with the variable rewrite reached as well.
+/// A second local on the path changes nothing about what the loop computes, so it must not
+/// change whether the total is held. `mem2reg` collapses the copy, and it runs after the pass,
+/// so the promotion has to see the two variables as one.
+#[test]
+fn a_copy_on_the_path_still_holds_the_accumulator() {
+    set_mode();
+    assert_eq!(
+        common::accumulated_through_a_copy(2048.0, 1.0, 1000),
+        3048.0
+    );
+}
+
+/// A kernel with no f16 in it still compiles, with the variable check reached as well.
 #[test]
 fn a_kernel_without_f16_is_untouched() {
     set_mode();

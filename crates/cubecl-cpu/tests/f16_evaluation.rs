@@ -35,6 +35,16 @@ fn an_accumulator_is_not_held_by_default() {
     assert_eq!(common::accumulated(2048.0, 1.0, 1000), 2048.0);
 }
 
+/// Nor is one that passes through a second local, which is the same loop written differently.
+#[test]
+fn a_copy_on_the_path_is_not_held_by_default() {
+    use_the_default();
+    assert_eq!(
+        common::accumulated_through_a_copy(2048.0, 1.0, 1000),
+        2048.0
+    );
+}
+
 /// A kernel with no f16 in it still compiles.
 ///
 /// A barrier is a type with no element at all, and asking one for its scalar type is a panic in

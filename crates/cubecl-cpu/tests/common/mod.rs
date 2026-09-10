@@ -27,6 +27,16 @@ pub fn accumulate(input: &[f16], output: &mut [f16], steps: usize) {
 }
 
 #[cube(launch_unchecked)]
+pub fn accumulate_through_a_copy(input: &[f16], output: &mut [f16], steps: usize) {
+    let mut total = input[0];
+    for _ in 0..steps {
+        let carried = total;
+        total = carried + input[1];
+    }
+    output[0] = total;
+}
+
+#[cube(launch_unchecked)]
 pub fn barrier_smoke(output: &mut [f32]) {
     let barrier = barrier::Barrier::local();
     barrier.arrive_and_wait();
@@ -63,6 +73,24 @@ pub fn accumulated(start: f32, step: f32, steps: usize) -> f32 {
     let input = [f16::from_f32(start), f16::from_f32(step)];
     let output = run(&client, &input, |handles| unsafe {
         accumulate::launch_unchecked(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(1),
+            BufferArg::from_raw_parts(handles.0, 2),
+            BufferArg::from_raw_parts(handles.1, 1),
+            steps,
+        )
+    });
+
+    output[0].to_f32()
+}
+
+/// `accumulated`, with the total passing through a second local on its way around the loop.
+pub fn accumulated_through_a_copy(start: f32, step: f32, steps: usize) -> f32 {
+    let client = client();
+    let input = [f16::from_f32(start), f16::from_f32(step)];
+    let output = run(&client, &input, |handles| unsafe {
+        accumulate_through_a_copy::launch_unchecked(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(1),

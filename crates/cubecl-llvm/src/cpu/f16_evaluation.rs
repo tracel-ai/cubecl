@@ -122,8 +122,13 @@ impl Pass for EvaluateF16Pass {
         }
         // After the arithmetic, so that a variable is judged on the converts the rewrite
         // actually left around it.
-        for variable in found.variables {
-            promote_variable(ctx, &mut widened, &mut rewriter, variable);
+        let candidates: Vec<Candidate> = found
+            .variables
+            .into_iter()
+            .filter_map(|variable| accesses(ctx, variable))
+            .collect();
+        for group in copy_groups(ctx, &candidates) {
+            promote_group(ctx, &mut widened, &mut rewriter, &candidates, &group);
         }
 
         res.ir_changed = IRStatus::Changed;
@@ -249,19 +254,18 @@ fn is_widenable_f16(ctx: &Context, ty: TypeHandle) -> bool {
     elem.deref(ctx).is::<Float16Type>()
 }
 
-/// Holds the variable in f32 so that a loop reading and writing it every iteration stops
-/// converting on both sides.
-///
-/// A widening convert on a load and a narrowing one on a store both disappear; every other use
-/// of a load and every other stored value gains one. Converts under a loop the variable is
-/// declared outside of are counted on their own and decide first, because one paid every
-/// iteration outweighs any fixed number at the boundary, whatever the two counts are.
-fn promote_variable(
-    ctx: &mut Context,
-    widened: &mut HashMap<Value, Value>,
-    rewriter: &mut PassRewriter,
+/// One candidate variable and every access to it.
+struct Candidate {
     variable: DeclareVariableOp,
-) {
+    pointer: Value,
+    loads: Vec<LoadOp>,
+    stores: Vec<StoreOp>,
+    declared_at: usize,
+}
+
+/// The accesses to `variable`, or `None` where its pointer reaches anything but a load or a store
+/// of its own, since retyping it would change what that op reads.
+fn accesses(ctx: &Context, variable: DeclareVariableOp) -> Option<Candidate> {
     let pointer = variable.get_result(ctx);
     let mut loads = Vec::new();
     let mut stores = Vec::new();
@@ -275,11 +279,106 @@ fn promote_variable(
         {
             stores.push(store);
         } else {
-            return;
+            return None;
         }
     }
 
-    let declared_at = loop_depth(ctx, variable.get_operation());
+    Some(Candidate {
+        variable,
+        pointer,
+        loads,
+        stores,
+        declared_at: loop_depth(ctx, variable.get_operation()),
+    })
+}
+
+/// The candidates a copy joins, as groups of index into `candidates`.
+///
+/// Storing one variable's load into another is a narrowing convert and a widening one that cancel
+/// only when both sides are held, so judging either alone declines a promotion that pays for
+/// itself. `mem2reg` would have collapsed the copy, and it runs after this pass.
+fn copy_groups(ctx: &Context, candidates: &[Candidate]) -> Vec<Vec<usize>> {
+    let owner: HashMap<Value, usize> = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| (candidate.pointer, index))
+        .collect();
+
+    let mut parent: Vec<usize> = (0..candidates.len()).collect();
+    for (index, candidate) in candidates.iter().enumerate() {
+        for store in &candidate.stores {
+            if let Some(source) = loaded_from(ctx, store.value(ctx))
+                && let Some(&source) = owner.get(&source)
+            {
+                join(&mut parent, index, source);
+            }
+        }
+    }
+
+    // By candidate order rather than by root, so the promotions run in the same order every time.
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut group_of: HashMap<usize, usize> = HashMap::default();
+    for index in 0..candidates.len() {
+        let root = root(&parent, index);
+        match group_of.get(&root) {
+            Some(&group) => groups[group].push(index),
+            None => {
+                group_of.insert(root, groups.len());
+                groups.push(vec![index]);
+            }
+        }
+    }
+    groups
+}
+
+fn root(parent: &[usize], mut index: usize) -> usize {
+    while parent[index] != index {
+        index = parent[index];
+    }
+    index
+}
+
+fn join(parent: &mut [usize], a: usize, b: usize) {
+    let (a, b) = (root(parent, a), root(parent, b));
+    if a != b {
+        parent[b] = a;
+    }
+}
+
+/// Holds a group of variables in f32 so that a loop reading and writing them every iteration stops
+/// converting on both sides.
+fn promote_group(
+    ctx: &mut Context,
+    widened: &mut HashMap<Value, Value>,
+    rewriter: &mut PassRewriter,
+    candidates: &[Candidate],
+    group: &[usize],
+) {
+    if !worth_holding(ctx, candidates, group) {
+        return;
+    }
+
+    for &index in group {
+        hold_in_f32(ctx, widened, rewriter, &candidates[index]);
+    }
+}
+
+/// A widening convert on a load, a narrowing one on a store and a copy within the group all
+/// disappear; every other use of a load and every other stored value gains one. Converts under a
+/// loop the group is declared outside of are counted on their own and decide first, because one
+/// paid every iteration outweighs any fixed number at the boundary, whatever the two counts are.
+fn worth_holding(ctx: &Context, candidates: &[Candidate], group: &[usize]) -> bool {
+    let inside: Vec<Value> = group
+        .iter()
+        .map(|&index| candidates[index].pointer)
+        .collect();
+    // The outermost declaration anchors the group, so one ledger covers every member of it.
+    let declared_at = group
+        .iter()
+        .map(|&index| candidates[index].declared_at)
+        .min()
+        .unwrap_or(0);
+
     let mut per_iteration = Converts::default();
     let mut once = Converts::default();
     let mut ledger = |ctx: &Context, op: Ptr<Operation>, removed: bool| {
@@ -290,30 +389,57 @@ fn promote_variable(
         .record(removed);
     };
 
-    for load in &loads {
-        for r#use in load.get_result(ctx).uses(ctx) {
-            let user = r#use.user_op();
-            ledger(ctx, user, is_widening(ctx, user));
+    for &index in group {
+        let candidate = &candidates[index];
+        for load in &candidate.loads {
+            for r#use in load.get_result(ctx).uses(ctx) {
+                let user = r#use.user_op();
+                if stores_into(ctx, user, &inside) {
+                    continue;
+                }
+                ledger(ctx, user, is_widening(ctx, user));
+            }
+        }
+        for store in &candidate.stores {
+            let stored = store.value(ctx);
+            if loaded_from(ctx, stored).is_some_and(|source| inside.contains(&source)) {
+                continue;
+            }
+            ledger(ctx, store.get_operation(), is_narrowed(ctx, stored));
         }
     }
-    for store in &stores {
-        let removed = is_narrowed(ctx, store.value(ctx));
-        ledger(ctx, store.get_operation(), removed);
-    }
 
-    let worth_it = per_iteration.verdict().or_else(|| once.verdict());
-    if worth_it != Some(true) {
-        return;
-    }
+    per_iteration.verdict().or_else(|| once.verdict()) == Some(true)
+}
 
-    let narrow_ty = variable.value_ty(ctx).get_type(ctx);
+/// The variable `value` was loaded from, where it is a load at all.
+fn loaded_from(ctx: &Context, value: Value) -> Option<Value> {
+    let load = value.defining_op()?.as_op::<LoadOp>(ctx)?;
+    Some(load.ptr(ctx))
+}
+
+fn stores_into(ctx: &Context, op: Ptr<Operation>, group: &[Value]) -> bool {
+    op.as_op::<StoreOp>(ctx)
+        .is_some_and(|store| group.contains(&store.ptr(ctx)))
+}
+
+fn hold_in_f32(
+    ctx: &mut Context,
+    widened: &mut HashMap<Value, Value>,
+    rewriter: &mut PassRewriter,
+    candidate: &Candidate,
+) {
+    let pointer = candidate.pointer;
+    let narrow_ty = candidate.variable.value_ty(ctx).get_type(ctx);
     let wide_ty = widen_ty(ctx, narrow_ty);
-    let address_space = variable.addr_space(ctx).0;
-    variable.set_value_ty(ctx, wide_ty);
-    variable.set_alignment(ctx, IndexAttr(wide_ty.align(ctx)));
+    let address_space = candidate.variable.addr_space(ctx).0;
+    candidate.variable.set_value_ty(ctx, wide_ty);
+    candidate
+        .variable
+        .set_alignment(ctx, IndexAttr(wide_ty.align(ctx)));
     pointer.set_type(ctx, PointerType::get(ctx, wide_ty, address_space).into());
 
-    for load in loads {
+    for load in &candidate.loads {
         let loaded = load.get_result(ctx);
         // Both lists come first: the retype makes a widening convert stop looking like one, and
         // erasing one hands its users to the load, where they then look like f16 consumers.
@@ -343,7 +469,7 @@ fn promote_variable(
         }
     }
 
-    for store in stores {
+    for store in &candidate.stores {
         let stored = store.value(ctx);
         let wide = widen(ctx, widened, stored, store.get_operation());
         let op = store.get_operation();
