@@ -1031,7 +1031,9 @@ impl Client {
         // which the caller's own context still exists, and attributing a
         // launch to what caused it is the whole reason the hook is here rather
         // than beside the logger's aggregation.
-        crate::logging::notify_launch(kernel.name());
+        if crate::logging::is_observing() {
+            crate::logging::notify_launch(kernel.name());
+        }
 
         // An observer asking for timing gets the profiled path even with the
         // profiling logger off — the two are separate readers of the same
@@ -1044,11 +1046,21 @@ impl Client {
             None | Some(ProfileLevel::ExecutionOnly) if !observed_timing => {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
-                    let name = kernel.name();
+                    let execution_info = if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                        let name = kernel.name();
+                        let disc = (kernel.id().stable_hash() & 0xFFFF_FFFF) as u32;
+                        Some(format!(
+                            "{}_{:08x}",
+                            type_name_format(name, TypeNameFormatLevel::Balanced),
+                            disc
+                        ))
+                    } else {
+                        None
+                    };
+
                     unsafe { state.launch(kernel, count, bindings, stream_id, launch_mode) };
 
-                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                        let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                    if let Some(info) = execution_info {
                         utilities.logger.register_execution(info);
                     }
                 });
@@ -1162,7 +1174,14 @@ impl Client {
                             ProfileLevel::Full => {
                                 format!("{name}: {kernel_id} CubeCount {count:?}")
                             }
-                            _ => type_name_format(name, TypeNameFormatLevel::Balanced),
+                            _ => {
+                                let disc = (kernel_id.stable_hash() & 0xFFFF_FFFF) as u32;
+                                format!(
+                                    "{}_{:08x}",
+                                    type_name_format(name, TypeNameFormatLevel::Balanced),
+                                    disc
+                                )
+                            }
                         };
                         self.utilities.logger.register_profiled(info, profile);
                     }

@@ -182,6 +182,11 @@ impl core::fmt::Debug for LaunchObservation {
     }
 }
 
+/// Whether an observer is actively listening.
+pub(crate) fn is_observing() -> bool {
+    OBSERVING.load(Ordering::Relaxed)
+}
+
 /// Tell the installed observer, if there is one, that `kernel` was issued.
 pub(crate) fn notify_launch(kernel: &'static str) {
     if !OBSERVING.load(Ordering::Relaxed) {
