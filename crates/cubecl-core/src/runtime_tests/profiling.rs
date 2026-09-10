@@ -71,8 +71,13 @@ fn launch(client: &Client, output: &Handle) {
 }
 
 fn resolve(profile: ProfileDuration) -> Duration {
+    maybe_resolve(profile).expect("the window dispatched work, so it must be measured")
+}
+
+/// [`resolve`] for a window that is allowed to carry no measurement.
+fn maybe_resolve(profile: ProfileDuration) -> Option<Duration> {
     assert_eq!(profile.timing_method(), TimingMethod::Device);
-    cubecl_environment::future::block_on(profile.resolve()).duration()
+    cubecl_environment::future::block_on(profile.resolve()).map(|ticks| ticks.duration())
 }
 
 /// A window with no GPU work in it never reports the drain around it.
@@ -85,17 +90,19 @@ fn resolve(profile: ProfileDuration) -> Duration {
 /// Two answers are honest. A backend that brackets the window with its own
 /// events has a real measurement of an empty span and reports it, so it must be
 /// tiny. A backend that only reads timestamps its passes wrote has nothing to
-/// read and says so with [`ProfileError::NotMeasured`]; it must not invent a
-/// zero, because zero is the fastest result there is and an absence dressed as
-/// one wins every comparison it enters.
+/// read and says so instead -- with [`ProfileError::NotMeasured`] when it knows
+/// at once, or by resolving to [`None`] when only the device can tell it. What
+/// it must not do is invent a zero, because zero is the fastest result there is
+/// and an absence dressed as one wins every comparison it enters.
 pub fn test_empty_window_reports_no_device_time<R: Runtime>(client: Client) {
     match client.profile(|| {}, "empty") {
         Ok((_, profile)) => {
-            let duration = resolve(profile);
-            assert!(
-                duration < Duration::from_millis(1),
-                "a window with no GPU work must measure next to nothing, got {duration:?}"
-            );
+            if let Some(duration) = maybe_resolve(profile) {
+                assert!(
+                    duration < Duration::from_millis(1),
+                    "a window with no GPU work must measure next to nothing, got {duration:?}"
+                );
+            }
         }
         Err(ProfileError::NotMeasured { .. }) => {}
         Err(err) => panic!("an empty window must measure or abstain, got {err}"),
