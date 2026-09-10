@@ -10,6 +10,9 @@ fn main() {
         browser_cache: { all(target_family = "wasm", feature = "browser-cache") },
         // Autotune results can persist: on disk (std_io) or in browser storage.
         autotune_persistence: { any(std_io, browser_cache) },
+        // Tests only. The library reads `EXCLUSIVE_MEMORY_ONLY` from
+        // `cubecl-runtime`, which alone decides it; a test run turns the
+        // feature on through this crate's, which forwards there.
         exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
     }

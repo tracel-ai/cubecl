@@ -405,11 +405,9 @@ fn register_features(
             device_local_heap(adapter.shared_instance(), adapter.raw_physical_device())
     {
         let heap_size = heap.size;
-        let max_page_size = match memory_config {
-            #[cfg(not(exclusive_memory_only))]
-            MemoryConfiguration::SubSlices => heap_size / 4,
-            MemoryConfiguration::ExclusivePages => heap_size,
-            MemoryConfiguration::Custom { .. } => heap_size,
+        let max_page_size = match memory_config.is_sub_slices() {
+            true => heap_size / 4,
+            false => heap_size,
         };
         props.memory.max_page_size = max_page_size;
     }

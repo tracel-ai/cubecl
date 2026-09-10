@@ -38,7 +38,10 @@ impl<C> Clone for WgpuRuntime<C> {
 impl<C: WgpuCompiler> DeviceService for WgpuServer<C> {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = WgpuDevice::from_id(device_id);
-        let setup = future::block_on(create_setup_for_device(&device, resolve_backend(&device)));
+        let setup = future::block_on(create_setup_for_device(
+            &device,
+            resolve_backend(device.backend),
+        ));
         create_server(setup, RuntimeOptions::default(), device_id)
     }
 
@@ -100,6 +103,12 @@ impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
     /// names, not one more to count.
     fn enumerate_all_devices() -> Vec<DeviceId> {
         adapters_on(WgpuBackend::Auto)
+    }
+
+    fn enumerate_devices_like(device_id: DeviceId) -> Vec<DeviceId> {
+        let device = WgpuDevice::from_id(device_id);
+
+        of_type(adapters_on(device.backend), device_id.type_id)
     }
 
     fn find_device(device_id: DeviceId) -> Result<(), usize> {
@@ -197,20 +206,20 @@ fn instance_for(backend: wgpu::Backend) -> wgpu::Instance {
     })
 }
 
-/// The graphics API to bring `device` up on.
+/// The graphics API a device on `backend` comes up on.
 ///
-/// The one it pinned, where it pinned one. Otherwise the first of the chain
+/// The one pinned, where one is. Otherwise the first of the chain
 /// this machine has an adapter for — which is what makes `Auto` mean Vulkan
 /// wherever Vulkan exists, and the next thing where it does not.
-fn resolve_backend(device: &WgpuDevice) -> wgpu::Backend {
+pub(crate) fn resolve_backend(backend: WgpuBackend) -> wgpu::Backend {
     #[cfg(not(target_family = "wasm"))]
-    if let Some((backend, _)) = settle(device.backend) {
-        return backend;
+    if let Some((api, _)) = settle(backend) {
+        return api;
     }
 
     // Nothing answered: hand back the first anyway, so the failure is the
     // setup's own rather than a silent fallback to some other API.
-    backend_candidates(device.backend)[0]
+    backend_candidates(backend)[0]
 }
 
 /// The `DeviceId` addressing each adapter, in enumeration order.
@@ -656,57 +665,37 @@ async fn select_from_adapter_list(
     device: &WgpuDevice,
     backend: wgpu::Backend,
 ) -> wgpu::Adapter {
-    let mut adapters_other = Vec::new();
-    let mut adapters = Vec::new();
+    // A kind is what the graphics API reports, and nothing stands in for it:
+    // `OpenGL` calling a GPU `Other` makes it `Other(n)` there, not a discrete
+    // GPU by another name. Anything looser selects adapters `find_device` says
+    // the machine does not have, and two ids end up on one adapter.
+    let adapters = instance.enumerate_adapters(backend.into()).await;
+    let found = adapters
+        .iter()
+        .map(|adapter| adapter.get_info())
+        .collect::<Vec<_>>();
 
-    instance
-        .enumerate_adapters(backend.into())
-        .await
-        .into_iter()
-        .for_each(|adapter| {
-            let device_type = adapter.get_info().device_type;
+    let is_same_type = |adapter: &wgpu::Adapter| {
+        let device_type = adapter.get_info().device_type;
 
-            let is_same_type = match device.kind {
-                WgpuDeviceKind::DiscreteGpu(_) => device_type == wgpu::DeviceType::DiscreteGpu,
-                WgpuDeviceKind::IntegratedGpu(_) => device_type == wgpu::DeviceType::IntegratedGpu,
-                WgpuDeviceKind::VirtualGpu(_) => device_type == wgpu::DeviceType::VirtualGpu,
-                WgpuDeviceKind::Cpu => device_type == wgpu::DeviceType::Cpu,
-                WgpuDeviceKind::Other(_) => device_type == wgpu::DeviceType::Other,
-                WgpuDeviceKind::DefaultDevice => true,
-                WgpuDeviceKind::Existing(_) => {
-                    unreachable!("Cannot select an adapter for an existing device.")
-                }
-            };
-
-            // An unclassified adapter is the fallback for a kind this API has
-            // too few of — unless unclassified is the kind asked for.
-            if is_same_type {
-                adapters.push(adapter);
-            } else if device_type == wgpu::DeviceType::Other {
-                adapters_other.push(adapter);
+        match device.kind {
+            WgpuDeviceKind::DiscreteGpu(_) => device_type == wgpu::DeviceType::DiscreteGpu,
+            WgpuDeviceKind::IntegratedGpu(_) => device_type == wgpu::DeviceType::IntegratedGpu,
+            WgpuDeviceKind::VirtualGpu(_) => device_type == wgpu::DeviceType::VirtualGpu,
+            WgpuDeviceKind::Cpu => device_type == wgpu::DeviceType::Cpu,
+            WgpuDeviceKind::Other(_) => device_type == wgpu::DeviceType::Other,
+            WgpuDeviceKind::DefaultDevice => true,
+            WgpuDeviceKind::Existing(_) => {
+                unreachable!("Cannot select an adapter for an existing device.")
             }
-        });
-
-    if adapters.len() <= num {
-        if adapters_other.len() <= num {
-            panic!(
-                "{}, adapters {:?}, other adapters {:?}",
-                error,
-                adapters
-                    .into_iter()
-                    .map(|adapter| adapter.get_info())
-                    .collect::<Vec<_>>(),
-                adapters_other
-                    .into_iter()
-                    .map(|adapter| adapter.get_info())
-                    .collect::<Vec<_>>(),
-            );
         }
+    };
 
-        return adapters_other.remove(num);
-    }
-
-    adapters.remove(num)
+    adapters
+        .into_iter()
+        .filter(is_same_type)
+        .nth(num)
+        .unwrap_or_else(|| panic!("{error}, adapters {found:?}"))
 }
 
 fn get_device_override() -> Option<WgpuDeviceKind> {
@@ -792,6 +781,22 @@ mod device_tests {
                 !reachable.is_empty(),
                 "the default device on {backend:?}"
             );
+        }
+    }
+
+    /// A pinned device's peers are those of its own API. The same adapters on
+    /// `Auto` are other devices, with other clients.
+    #[test]
+    fn a_pinned_device_is_enumerated_with_its_own_api() {
+        for backend in PINNED {
+            for id in adapters_on(backend) {
+                let peers = <WgpuRuntime>::enumerate_devices_like(id);
+
+                assert!(peers.contains(&id), "{id} among {peers:?}");
+                for peer in peers {
+                    assert_eq!(WgpuDevice::from_id(peer).backend, backend);
+                }
+            }
         }
     }
 

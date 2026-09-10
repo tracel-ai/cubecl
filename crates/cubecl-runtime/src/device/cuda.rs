@@ -23,7 +23,7 @@ impl Device for CudaDevice {
     fn to_id(&self) -> DeviceId {
         DeviceId {
             type_id: 0,
-            index_id: self.index as u16,
+            index_id: super::index_id(self.index),
         }
     }
 }

@@ -88,7 +88,10 @@ impl WgpuDeviceKind {
     /// The largest index that survives a round trip through a [`DeviceId`].
     ///
     /// The graphics API rides in the top three bits of the index, leaving
-    /// thirteen — far more adapters of one kind than a machine has.
+    /// thirteen — far more adapters of one kind than a machine has. A larger
+    /// index is kept at this one rather than wrapped: wrapped, it lands on a
+    /// device that exists; kept here, it names one no machine has, and naming
+    /// it is refused.
     pub const MAX_INDEX: usize = (1 << WgpuBackend::SHIFT) - 1;
 
     fn type_id(&self) -> u16 {
@@ -108,7 +111,7 @@ impl WgpuDeviceKind {
             Self::DiscreteGpu(index)
             | Self::IntegratedGpu(index)
             | Self::VirtualGpu(index)
-            | Self::Other(index) => (index & Self::MAX_INDEX) as u16,
+            | Self::Other(index) => index.min(Self::MAX_INDEX) as u16,
             Self::Cpu | Self::DefaultDevice => 0,
             Self::Existing(id) => id as u16,
         }
@@ -239,6 +242,18 @@ mod tests {
         let vulkan = auto.clone().on(WgpuBackend::Vulkan);
 
         assert_ne!(auto.to_id(), vulkan.to_id());
+    }
+
+    /// An index too wide for the id must not wrap onto a device that exists,
+    /// which is what masking it did: the 8192nd discrete GPU became the first.
+    #[test]
+    fn an_index_too_wide_for_the_id_is_kept_at_the_largest() {
+        let too_wide = WgpuDevice::new(WgpuDeviceKind::DiscreteGpu(WgpuDeviceKind::MAX_INDEX + 1));
+
+        assert_eq!(
+            WgpuDevice::from_id(too_wide.to_id()),
+            WgpuDevice::new(WgpuDeviceKind::DiscreteGpu(WgpuDeviceKind::MAX_INDEX))
+        );
     }
 
     /// An external setup spends its whole index on the id it was registered

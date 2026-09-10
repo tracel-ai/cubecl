@@ -33,11 +33,11 @@ impl Device for MetalDevice {
             },
             Self::DiscreteGpu(idx) => DeviceId {
                 type_id: 1,
-                index_id: *idx as u16,
+                index_id: super::index_id(*idx),
             },
             Self::IntegratedGpu(idx) => DeviceId {
                 type_id: 2,
-                index_id: *idx as u16,
+                index_id: super::index_id(*idx),
             },
             Self::Existing(id) => DeviceId {
                 type_id: 3,

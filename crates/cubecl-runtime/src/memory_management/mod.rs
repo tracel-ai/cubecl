@@ -1,10 +1,12 @@
 mod base;
 mod config;
 mod handle;
+mod layout;
 
 pub use base::*;
 pub use config::*;
 pub use handle::*;
+pub use layout::*;
 
 use alloc::vec::Vec;
 

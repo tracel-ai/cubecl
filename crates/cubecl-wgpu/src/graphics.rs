@@ -73,7 +73,31 @@ impl AutoGraphicsApi {
     /// `SPIR-V`, and the rest are what a machine without it still offers.
     /// Backends this machine has no driver for enumerate nothing, so a list
     /// costs only the asking.
+    ///
+    /// This crate's own tests can narrow it to one with `AUTO_GRAPHICS_BACKEND`,
+    /// which then holds for every `Auto` device, not only those set up through
+    /// [`GraphicsApi::backend`].
     pub fn chain() -> alloc::vec::Vec<Backend> {
+        #[cfg(all(feature = "std", test))]
+        if let Ok(backend) = std::env::var("AUTO_GRAPHICS_BACKEND") {
+            let backend = match backend.to_lowercase().as_str() {
+                "metal" => Backend::Metal,
+                "vulkan" => Backend::Vulkan,
+                "dx12" => Backend::Dx12,
+                "opengl" => Backend::Gl,
+                "webgpu" => Backend::BrowserWebGpu,
+                _ => {
+                    eprintln!(
+                        "Invalid graphics backend specified in AUTO_GRAPHICS_BACKEND environment \
+                         variable"
+                    );
+                    std::process::exit(1);
+                }
+            };
+
+            return alloc::vec![backend];
+        }
+
         cfg_if::cfg_if! {
             if #[cfg(target_family = "wasm")] {
                 alloc::vec![Backend::BrowserWebGpu]
@@ -87,36 +111,11 @@ impl AutoGraphicsApi {
 }
 
 impl GraphicsApi for AutoGraphicsApi {
+    /// The first of the [chain](Self::chain) this machine has an adapter for —
+    /// the API a [`WgpuBackend::Auto`](crate::WgpuBackend::Auto) device comes
+    /// up on, so a setup made through this lands where a client made on first
+    /// use would.
     fn backend() -> Backend {
-        // Allow overriding AutoGraphicsApi backend with ENV var in std test environments
-        #[cfg(feature = "std")]
-        #[cfg(test)]
-        if let Ok(backend_str) = std::env::var("AUTO_GRAPHICS_BACKEND") {
-            match backend_str.to_lowercase().as_str() {
-                "metal" => return Backend::Metal,
-                "vulkan" => return Backend::Vulkan,
-                "dx12" => return Backend::Dx12,
-                "opengl" => return Backend::Gl,
-                "webgpu" => return Backend::BrowserWebGpu,
-                _ => {
-                    eprintln!(
-                        "Invalid graphics backend specified in GRAPHICS_BACKEND environment \
-                         variable"
-                    );
-                    std::process::exit(1);
-                }
-            }
-        }
-
-        // In a no_std environment or if the environment variable is not set
-        cfg_if::cfg_if! {
-            if #[cfg(target_family = "wasm")] {
-                Backend::BrowserWebGpu
-            } else if #[cfg(target_os = "macos")] {
-                 Backend::Metal
-            } else {
-                Backend::Vulkan
-            }
-        }
+        crate::runtime::resolve_backend(crate::WgpuBackend::Auto)
     }
 }

@@ -368,39 +368,25 @@ impl Device {
         }
     }
 
-    /// The ids of every device sharing `device_id`'s runtime and device type.
+    /// The ids of every device sharing `device_id`'s runtime and device type —
+    /// and for a wgpu device, its graphics API, the same adapter on another
+    /// being another device.
     ///
     /// Takes and returns ids in [`Device`]'s own encoding, so a caller holding
     /// one id can ask what else is on that device's runtime without unpacking
     /// the runtime itself. Whatever `device_id` spends the high byte on comes
     /// back on every id, untouched.
     pub fn enumerate(device_id: DeviceId) -> alloc::vec::Vec<DeviceId> {
-        let runtime = RuntimeId::of_device_id(device_id);
-        #[cfg_attr(not(any_runtime), allow(unused_variables))]
-        let type_id = RuntimeId::strip(device_id).type_id;
+        let Ok(runtime) = RuntimeId::of_device_id(device_id) else {
+            return alloc::vec::Vec::new();
+        };
         let outer = device_id.type_id & RuntimeId::OUTER_MASK;
 
-        let ids: alloc::vec::Vec<DeviceId> = match runtime {
-            #[cfg(feature = "cuda")]
-            Ok(RuntimeId::Cuda) => cubecl_cuda::CudaRuntime::enumerate_devices(type_id),
-            #[cfg(feature = "hip")]
-            Ok(RuntimeId::Hip) => cubecl_hip::HipRuntime::enumerate_devices(type_id),
-            #[cfg(feature = "metal-native")]
-            Ok(RuntimeId::Metal) => cubecl_metal::MetalRuntime::enumerate_devices(type_id),
-            #[cfg(feature = "wgpu")]
-            Ok(RuntimeId::Wgpu) => <cubecl_wgpu::WgpuRuntime>::enumerate_devices(type_id),
-            #[cfg(feature = "cpu")]
-            Ok(RuntimeId::Cpu) => cubecl_cpu::CpuRuntime::enumerate_devices(type_id),
-            _ => alloc::vec::Vec::new(),
-        };
-
-        match runtime {
-            Ok(runtime) => ids
-                .into_iter()
-                .map(|id| runtime.stamp(DeviceId::new(id.type_id | outer, id.index_id)))
-                .collect(),
-            Err(_) => ids,
-        }
+        runtime
+            .enumerate_devices_like(RuntimeId::strip(device_id))
+            .into_iter()
+            .map(|id| runtime.stamp(DeviceId::new(id.type_id | outer, id.index_id)))
+            .collect()
     }
 
     /// Every device of every runtime this build links.
@@ -533,6 +519,26 @@ impl RuntimeId {
         }
     }
 
+    /// The devices of `device_id`'s own kind, in this runtime's own encoding —
+    /// the id [`RuntimeId::strip`] leaves behind.
+    #[cfg_attr(not(any_runtime), allow(unused_variables))]
+    fn enumerate_devices_like(self, device_id: DeviceId) -> alloc::vec::Vec<DeviceId> {
+        match self {
+            #[cfg(feature = "cuda")]
+            Self::Cuda => cubecl_cuda::CudaRuntime::enumerate_devices_like(device_id),
+            #[cfg(feature = "hip")]
+            Self::Hip => cubecl_hip::HipRuntime::enumerate_devices_like(device_id),
+            #[cfg(feature = "metal-native")]
+            Self::Metal => cubecl_metal::MetalRuntime::enumerate_devices_like(device_id),
+            #[cfg(feature = "wgpu")]
+            Self::Wgpu => <cubecl_wgpu::WgpuRuntime>::enumerate_devices_like(device_id),
+            #[cfg(feature = "cpu")]
+            Self::Cpu => cubecl_cpu::CpuRuntime::enumerate_devices_like(device_id),
+            #[allow(unreachable_patterns)]
+            _ => alloc::vec::Vec::new(),
+        }
+    }
+
     /// Whether this machine has the device `device_id` names, in this
     /// runtime's own encoding — the id [`RuntimeId::strip`] leaves behind.
     /// Where it does not, how many of that kind it has instead.
@@ -654,6 +660,21 @@ impl Device {
     }
 }
 
+/// What lets this stand in wherever a runtime's own device type did: burn's
+/// backends take a device through this trait, and are handed this one.
+///
+/// Only where a runtime is linked, since the trait asks for a default.
+#[cfg(any_runtime)]
+impl DeviceIdentity for Device {
+    fn from_id(device_id: DeviceId) -> Self {
+        Self::from_id(device_id)
+    }
+
+    fn to_id(&self) -> DeviceId {
+        Self::to_id(self)
+    }
+}
+
 impl From<CudaDevice> for Device {
     fn from(device: CudaDevice) -> Self {
         Self::Cuda(device)
@@ -754,6 +775,20 @@ mod default_tests {
         }
     }
 
+    /// Through the device trait it is the same device as through its own
+    /// methods, or a caller keyed on ids — burn — sees a different one.
+    #[test]
+    fn the_device_trait_agrees_with_the_inherent_methods() {
+        fn round_trip<D: DeviceIdentity>(device: &D) -> D {
+            D::from_id(device.to_id())
+        }
+
+        let device = Device::Wgpu(WgpuDevice::new(WgpuDeviceKind::DiscreteGpu(1)));
+
+        assert_eq!(DeviceIdentity::to_id(&device), device.to_id());
+        assert_eq!(round_trip(&device), device);
+    }
+
     /// The second call reads the cache rather than walking again, so it has to
     /// decode back to the same device.
     #[test]
@@ -816,10 +851,18 @@ mod named_tests {
     fn an_index_past_the_end_is_an_error() {
         let far_past_any_machine = 4242;
 
+        // And past what the id can carry, which must not wrap back onto the
+        // first device.
+        let wider_than_the_id = u16::MAX as usize + 1;
+        let wider_than_a_wgpu_id = WgpuDeviceKind::MAX_INDEX + 1;
+
         for named in [
             Device::cuda(far_past_any_machine),
             Device::rocm(far_past_any_machine),
             Device::wgpu(WgpuDeviceKind::DiscreteGpu(far_past_any_machine)),
+            Device::cuda(wider_than_the_id),
+            Device::rocm(wider_than_the_id),
+            Device::wgpu(WgpuDeviceKind::DiscreteGpu(wider_than_a_wgpu_id)),
         ] {
             assert!(
                 matches!(
@@ -853,6 +896,29 @@ mod named_tests {
         };
 
         assert_eq!(named, Ok(Device::default()));
+    }
+
+    /// A device is one of its own peers, or a caller gathering them — for a
+    /// collective — leaves itself out, and a pinned device picks up peers on
+    /// some other API that are other devices with clients of their own.
+    #[test]
+    fn a_device_is_among_those_enumerated_with_it() {
+        let named = [
+            Device::cuda(0),
+            Device::cpu(),
+            Device::wgpu(WgpuDeviceKind::DiscreteGpu(0)),
+            Device::vulkan(WgpuDeviceKind::DiscreteGpu(0)),
+            Device::gl(WgpuDeviceKind::Other(0)),
+        ];
+
+        for device in named.into_iter().flatten() {
+            let peers = Device::enumerate(device.to_id());
+
+            assert!(
+                peers.contains(&device.to_id()),
+                "{device:?} among {peers:?}"
+            );
+        }
     }
 
     /// Pinning a graphics API is a wgpu question. Asking it of a device of
