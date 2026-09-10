@@ -430,13 +430,22 @@ impl QueryProfiler {
                 ProfileTicks::from_start_end(instant_start, instant_end)
             }))
         } else {
-            // If there was no work done between the start and stop of the profile, logically the
-            // time should be 0. We could use a ProfileDuration::from_duration here,
-            // but it seems better to always return things as 'device' timing method.
-            let now = Instant::now();
-            Ok(ProfileDuration::new_device_time(async move {
-                ProfileTicks::from_start_end(now, now)
-            }))
+            // Nothing the window enqueued was timestamped, so there is no timing to resolve.
+            //
+            // This used to answer with `from_start_end(now, now)` — a duration of exactly zero —
+            // on the reading that an empty window logically took no time. But the two cases are
+            // indistinguishable here: a window that dispatched nothing and a window whose work
+            // never reached a timestamped pass both arrive with no query set, and the second is
+            // a kernel that ran. Answering either with zero hands the caller a measurement that
+            // was never taken, and zero is the fastest result there is, so it wins every
+            // comparison it enters. An autotune round short-circuited on one of these and
+            // persisted the slowest candidate it had.
+            //
+            // So the absence stays an absence. A caller that wants a number for an empty window
+            // can map this to zero itself, having decided that is what it means.
+            Err(ProfileError::NotMeasured {
+                backtrace: BackTrace::capture(),
+            })
         }
     }
 
