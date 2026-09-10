@@ -909,6 +909,9 @@ mod named_tests {
             Device::wgpu(WgpuDeviceKind::DiscreteGpu(0)),
             Device::vulkan(WgpuDeviceKind::DiscreteGpu(0)),
             Device::gl(WgpuDeviceKind::Other(0)),
+            // The one that names no adapter of its own, on `Auto` and pinned.
+            Device::wgpu(WgpuDeviceKind::DefaultDevice),
+            Device::gl(WgpuDeviceKind::DefaultDevice),
         ];
 
         for device in named.into_iter().flatten() {

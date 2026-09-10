@@ -10,6 +10,15 @@ pub use wgpu::Backend;
 pub trait GraphicsApi: Send + Sync + core::fmt::Debug + Default + Clone + 'static {
     /// The wgpu backend.
     fn backend() -> Backend;
+
+    /// The wgpu backend `device` comes up on when set up through this API.
+    ///
+    /// A named API is itself, whatever the device. [`AutoGraphicsApi`] is the
+    /// one that defers, to the API the device pins where it pins one.
+    fn backend_for(device: &crate::WgpuDevice) -> Backend {
+        let _ = device;
+        Self::backend()
+    }
 }
 
 /// Vulkan graphics API.
@@ -69,10 +78,11 @@ impl GraphicsApi for WebGpu {
 impl AutoGraphicsApi {
     /// The graphics APIs to try on this machine, best first.
     ///
-    /// Vulkan leads wherever it exists: it is the one that compiles to
-    /// `SPIR-V`, and the rest are what a machine without it still offers.
-    /// Backends this machine has no driver for enumerate nothing, so a list
-    /// costs only the asking.
+    /// Vulkan leads wherever it reaches a GPU: it is the one that compiles to
+    /// `SPIR-V`, and the rest are what a machine without it still offers. An
+    /// API with only a software rasterizer is passed over for a later one
+    /// with a GPU, and taken only when none has one. Backends this machine has
+    /// no driver for enumerate nothing, so a list costs only the asking.
     ///
     /// This crate's own tests can narrow it to one with `AUTO_GRAPHICS_BACKEND`,
     /// which then holds for every `Auto` device, not only those set up through
@@ -117,5 +127,10 @@ impl GraphicsApi for AutoGraphicsApi {
     /// use would.
     fn backend() -> Backend {
         crate::runtime::resolve_backend(crate::WgpuBackend::Auto)
+    }
+
+    /// The API `device` pins, or where it pins none, [`backend`](Self::backend).
+    fn backend_for(device: &crate::WgpuDevice) -> Backend {
+        crate::runtime::resolve_backend(device.backend)
     }
 }
