@@ -1,106 +1,26 @@
 use cubecl_core::{
     define_scalar,
     frontend::{AddNativeExpand, PartialOrdNativeExpand},
-    ir::{NoMemoryEffect, dialect::branch::YieldOp, prelude::*, types::scalar::BoolType},
+    ir::{dialect::branch::YieldOp, prelude::*},
 };
 use cubecl_ir::{
     NamedRewrite, Scope,
     dialect::{
         BlockPtrExt,
         branch::{self, ConditionOp, IsExitTerminator},
+        cf::BranchConditionalOp,
         scf,
     },
     ident,
 };
 use pliron::{
-    attribute::AttrObj,
     basic_block::BasicBlock,
+    builtin::attributes::VecAttr,
     irbuild::inserter::{BlockInsertionPoint, Inserter},
-    opts::constants::BranchOpFoldInterface,
 };
 use pliron_spirv::ops::{self, BranchOp, LoopOp, MergeOp, SelectionOp};
 
 use crate::{ops::to_spirv_dialect::ToSpirvDialectOp, types::ty_to_spirv_dialect};
-
-// Custom branch because of `BoolType`
-#[pliron_op(
-    name = "spirv_cube.branch_conditional",
-    format,
-    operands = (condition: BoolType, true_dest_opds, false_dest_opds),
-    verifier = "succ"
-)]
-#[op_interfaces(IsTerminatorInterface, NResultsInterface<0>, NSuccsInterface<2>, OperandSegmentInterface)]
-#[op_traits(NoMemoryEffect)]
-pub struct BranchConditionalOp;
-
-impl BranchConditionalOp {
-    /// Create a new [`BranchConditionalOp`].
-    pub fn new(
-        ctx: &mut Context,
-        condition: Value,
-        true_dest: Ptr<BasicBlock>,
-        true_dest_opds: Vec<Value>,
-        false_dest: Ptr<BasicBlock>,
-        false_dest_opds: Vec<Value>,
-    ) -> Self {
-        let (operands, segment_sizes) =
-            Self::compute_segment_sizes(vec![vec![condition], true_dest_opds, false_dest_opds]);
-
-        let op = BranchConditionalOp {
-            op: Operation::new(
-                ctx,
-                Self::get_concrete_op_info(),
-                vec![],
-                operands,
-                vec![true_dest, false_dest],
-                0,
-            ),
-        };
-
-        // Set the operand segment sizes attribute.
-        op.set_operand_segment_sizes(ctx, segment_sizes);
-        op
-    }
-}
-
-#[op_interface_impl]
-impl BranchOpInterface for BranchConditionalOp {
-    fn successor_operands(&self, ctx: &Context, succ_idx: usize) -> Vec<Value> {
-        // Skip the first segment, which is the condition.
-        self.get_segment(ctx, succ_idx + 1)
-    }
-
-    fn add_successor_operand(&self, ctx: &mut Context, succ_idx: usize, operand: Value) -> usize {
-        // The successor operands start at segment 1, since segment 0 is the condition operand.
-        self.push_to_segment(ctx, succ_idx + 1, operand)
-    }
-
-    fn remove_successor_operand(
-        &self,
-        ctx: &mut Context,
-        succ_idx: usize,
-        opd_idx: usize,
-    ) -> Value {
-        // The successor operands start at segment 1, since segment 0 is the condition operand.
-        self.remove_from_segment(ctx, succ_idx + 1, opd_idx)
-    }
-}
-
-#[op_interface_impl]
-impl BranchOpFoldInterface for BranchConditionalOp {
-    fn check_fold(&self, ctx: &Context, _operands: &[Option<AttrObj>]) -> Vec<Ptr<BasicBlock>> {
-        self.get_operation().deref(ctx).successors().collect()
-    }
-
-    fn fold_in_place(
-        &self,
-        _ctx: &mut Context,
-        _ops: &[Option<AttrObj>],
-        _rewriter: &mut dyn Rewriter,
-    ) -> IRStatus {
-        IRStatus::Unchanged
-    }
-}
 
 #[op_interface_impl]
 impl ToSpirvDialectOp for BranchConditionalOp {
@@ -248,7 +168,7 @@ impl ToSpirvCFDialect for scf::SwitchOp {
             self.value(ctx),
             default_block,
             vec![],
-            cases,
+            VecAttr(cases.0.into_iter().map(Into::into).collect()),
             case_dests.clone(),
             vec![Vec::new(); case_dests.len()],
         );

@@ -11,7 +11,7 @@ use cubecl_core::ir::interfaces::TypedExt;
 use cubecl_core::ir::prelude::*;
 use cubecl_core::prelude::polyfills::{
     erf, expand_dp4a_polyfill, expand_himul_sim, expand_s_himul_64, expand_u_himul_64, expm1,
-    log1p, recip, to_degrees, to_radians,
+    log1p, powi_int, recip, to_degrees, to_radians,
 };
 use cubecl_core::prelude::*;
 
@@ -120,7 +120,24 @@ pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vecto
     select_many(neg, one_t / acc, acc)
 }
 
-lower_binary_math_arith!(PowiOp => powi);
+#[op_interface_impl]
+impl LowerOp for PowiOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        define_scalar!(T);
+        define_size!(S);
+        let lhs = self.lhs(scope.ctx());
+        let rhs = self.rhs(scope.ctx());
+        scope.register_value_type::<T, S>(lhs);
+
+        let ty = lhs.scalar_ty(scope.ctx());
+        let result = if ty.is_int(scope.ctx()) || ty.is_index(scope.ctx()) {
+            powi_int::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)
+        } else {
+            powi::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)
+        };
+        vec![result]
+    }
+}
 
 #[cube]
 fn f_mod_floor<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<F, N> {

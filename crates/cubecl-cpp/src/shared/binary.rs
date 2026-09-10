@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl, define_scalar, define_size,
-    frontend::polyfills::expand_dp4a_polyfill,
+    frontend::polyfills::{expand_dp4a_polyfill, powi_int},
     ir::{
         dialect::{
             bitwise::*,
@@ -324,6 +324,25 @@ shared_op_with_out!(PowfOp, |op, ctx| {
 });
 unrolling!(PowfOp);
 no_half!(PowfOp);
+
+#[op_interface_impl]
+impl LowerOp for PowiOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        let ty = self.get_result(ctx).scalar_ty(ctx);
+        ty.is_int(ctx) || ty.is_index(ctx)
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        use cubecl_core::ir::dialect::OperationPtrExt;
+
+        define_scalar!(T);
+        define_size!(S);
+        let lhs = self.get_operation().operand(scope.ctx(), 0);
+        let rhs = self.get_operation().operand(scope.ctx(), 1);
+        scope.register_value_type::<T, S>(lhs);
+        vec![powi_int::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)]
+    }
+}
 
 shared_op_with_out!(PowiOp, |op, ctx| {
     let lhs = op.lhs(ctx);

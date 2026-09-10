@@ -1,12 +1,8 @@
 use alloc::string::String;
 use core::hash::Hash;
+use pliron::derive::format;
 
-use cubecl_ir::{
-    ElemType, Scope,
-    metadata::Info,
-    pliron::{format, value::Value},
-    settings::KernelSettings,
-};
+use cubecl_ir::{ElemType, Scope, metadata::Info, pliron::value::Value, settings::KernelSettings};
 use serde::{Deserialize, Serialize};
 
 use crate::id::KernelId;

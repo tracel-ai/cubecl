@@ -17,8 +17,6 @@ use crate::{
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::boxed::Box;
-#[cfg(feature = "profile-tracy")]
-use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -62,6 +60,21 @@ pub enum ProfileError {
     /// No profiling was registered
     #[error("No profiling registered\nBacktrace:\n{backtrace}")]
     NotRegistered {
+        /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// The profiled window resolved no device timing.
+    ///
+    /// Distinct from a zero duration, which is a measurement that came back
+    /// instant. This is the absence of one: nothing the window enqueued was
+    /// timestamped, so the backend has nothing to report. A caller that only
+    /// wants a number can treat it as zero; a caller comparing candidates must
+    /// not, because an absence that reads as zero is the fastest result there
+    /// is and wins every comparison it enters.
+    #[error("The profiled window resolved no device timing\nBacktrace:\n{backtrace}")]
+    NotMeasured {
         /// The captured backtrace.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,

@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 #[cfg(std_io)]
 use alloc::format;
 use alloc::sync::Arc;
@@ -124,6 +125,8 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     key: K,
     autotunables: Vec<&'t TuneFn<F, Out>>,
     test_inputs: <F as TuneInputs>::At<'i>,
+    /// What runs before every measured sample, bound to the key and the reference inputs.
+    evictor: Option<Box<crate::tune::Evictor<'i>>>,
     plan: TunePlan,
     results: Vec<AutotuneResult>,
     #[cfg(any(not(target_family = "wasm"), autotune_persistence))]
@@ -304,6 +307,7 @@ impl<K: AutotuneKey> Tuner<K> {
             key: key.clone(),
             autotunables,
             test_inputs,
+            evictor: tunables.evictor(key, inputs),
             plan,
             results,
             #[cfg(any(not(target_family = "wasm"), autotune_persistence))]
@@ -340,7 +344,7 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'i>: Clone + Send,
     {
-        let schedule = crate::tune::schedule::Schedule {
+        let mut schedule = crate::tune::schedule::Schedule {
             config: crate::config::CubeClRuntimeConfig::get()
                 .autotune
                 .bench
@@ -348,6 +352,7 @@ impl<K: AutotuneKey> Tuner<K> {
             limit: job.limit,
             short_circuit: job.short_circuit,
             track_steps: job.log_context.is_some(),
+            evictor: job.evictor.take(),
         };
 
         let outcome = schedule.run_plan(
@@ -413,7 +418,12 @@ impl<K: AutotuneKey> Tuner<K> {
                     .is_some()
                     .then(cubecl_common::profile::Instant::now);
 
-                match tune_benchmark(op, job.test_inputs.clone(), client.clone()) {
+                match tune_benchmark(
+                    op,
+                    job.test_inputs.clone(),
+                    client.clone(),
+                    job.evictor.as_deref_mut(),
+                ) {
                     Ok(profiles) => {
                         let bench = PendingBench {
                             index,

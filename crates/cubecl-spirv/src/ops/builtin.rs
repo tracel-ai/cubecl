@@ -9,6 +9,7 @@ use cubecl_ir::{
     rewrite::visit_all_ops_of_type_mut,
     types::scalar::PoisonType,
 };
+use cubecl_opt::passes::uniformity::{DEVICE_UNIFORM, UniformAttr, op_dyn_uniformity};
 use hashbrown::HashMap;
 use pliron::{
     builtin::{
@@ -32,7 +33,7 @@ use pliron_spirv::{
 };
 use rspirv::spirv::{BuiltIn, Decoration, MemoryAccess, StorageClass};
 
-use crate::KernelInfo;
+use crate::{KernelInfo, decorate_uniform};
 
 dict_key!(BUILTINS_NAME, "_spirv_builtins");
 
@@ -157,10 +158,11 @@ impl MatchRewrite for RewriteBuiltins<'_> {
         op: Ptr<Operation>,
     ) -> Result<()> {
         let builtin = op.as_op::<ReadBuiltinOp>(ctx).unwrap();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let ty = builtin.get_result(ctx).get_type(ctx);
         let builtin = builtin.builtin(ctx).0;
-        let value = self.lower_builtin(&scope, ty, builtin);
+        let value = self.lower_builtin(&scope, ty, builtin, uniformity);
         rewriter.replace_operation_with_values(ctx, op, vec![value]);
         Ok(())
     }
@@ -189,7 +191,13 @@ fn constant(#[comptime] value: u32) -> u32 {
 }
 
 impl RewriteBuiltins<'_> {
-    fn lower_builtin(&mut self, scope: &Scope, ty: TypeHandle, builtin: Builtin) -> Value {
+    fn lower_builtin(
+        &mut self,
+        scope: &Scope,
+        ty: TypeHandle,
+        builtin: Builtin,
+        uniformity: Option<UniformAttr>,
+    ) -> Value {
         let cube_dim = scope.ctx().aux_ty::<KernelInfo>().cube_dim;
         match builtin {
             Builtin::UnitPos if cube_dim.num_elems() == 1 => {
@@ -198,18 +206,32 @@ impl RewriteBuiltins<'_> {
             Builtin::UnitPosX if cube_dim.x == 1 => constant::expand(scope, 0).value(scope),
             Builtin::UnitPosY if cube_dim.y == 1 => constant::expand(scope, 0).value(scope),
             Builtin::UnitPosZ if cube_dim.z == 1 => constant::expand(scope, 0).value(scope),
-            Builtin::UnitPos => self.read_scalar_builtin(scope, ty, BuiltIn::LocalInvocationIndex),
-            Builtin::UnitPosX => self.read_dim3_builtin(scope, ty, BuiltIn::LocalInvocationId, 0),
-            Builtin::UnitPosY => self.read_dim3_builtin(scope, ty, BuiltIn::LocalInvocationId, 1),
-            Builtin::UnitPosZ => self.read_dim3_builtin(scope, ty, BuiltIn::LocalInvocationId, 2),
+            Builtin::UnitPos => {
+                self.read_scalar_builtin(scope, ty, BuiltIn::LocalInvocationIndex, uniformity)
+            }
+            Builtin::UnitPosX => {
+                self.read_dim3_builtin(scope, ty, BuiltIn::LocalInvocationId, 0, uniformity)
+            }
+            Builtin::UnitPosY => {
+                self.read_dim3_builtin(scope, ty, BuiltIn::LocalInvocationId, 1, uniformity)
+            }
+            Builtin::UnitPosZ => {
+                self.read_dim3_builtin(scope, ty, BuiltIn::LocalInvocationId, 2, uniformity)
+            }
             Builtin::CubePosCluster => constant::expand(scope, 0).value(scope),
             Builtin::CubePosClusterX => constant::expand(scope, 0).value(scope),
             Builtin::CubePosClusterY => constant::expand(scope, 0).value(scope),
             Builtin::CubePosClusterZ => constant::expand(scope, 0).value(scope),
             Builtin::CubePos => cube_pos::expand(scope).value(scope),
-            Builtin::CubePosX => self.read_dim3_builtin(scope, ty, BuiltIn::WorkgroupId, 0),
-            Builtin::CubePosY => self.read_dim3_builtin(scope, ty, BuiltIn::WorkgroupId, 1),
-            Builtin::CubePosZ => self.read_dim3_builtin(scope, ty, BuiltIn::WorkgroupId, 2),
+            Builtin::CubePosX => {
+                self.read_dim3_builtin(scope, ty, BuiltIn::WorkgroupId, 0, uniformity)
+            }
+            Builtin::CubePosY => {
+                self.read_dim3_builtin(scope, ty, BuiltIn::WorkgroupId, 1, uniformity)
+            }
+            Builtin::CubePosZ => {
+                self.read_dim3_builtin(scope, ty, BuiltIn::WorkgroupId, 2, uniformity)
+            }
             Builtin::CubeDim => constant::expand(scope, cube_dim.num_elems()).value(scope),
             Builtin::CubeDimX => constant::expand(scope, cube_dim.x).value(scope),
             Builtin::CubeDimY => constant::expand(scope, cube_dim.y).value(scope),
@@ -219,34 +241,52 @@ impl RewriteBuiltins<'_> {
             Builtin::CubeClusterDimY => constant::expand(scope, 1).value(scope),
             Builtin::CubeClusterDimZ => constant::expand(scope, 1).value(scope),
             Builtin::CubeCount => cube_count::expand(scope).value(scope),
-            Builtin::CubeCountX => self.read_dim3_builtin(scope, ty, BuiltIn::NumWorkgroups, 0),
-            Builtin::CubeCountY => self.read_dim3_builtin(scope, ty, BuiltIn::NumWorkgroups, 1),
-            Builtin::CubeCountZ => self.read_dim3_builtin(scope, ty, BuiltIn::NumWorkgroups, 2),
-            Builtin::PlaneDim => self.read_scalar_builtin(scope, ty, BuiltIn::SubgroupSize),
-            Builtin::PlanePos => self.read_scalar_builtin(scope, ty, BuiltIn::SubgroupId),
+            Builtin::CubeCountX => {
+                self.read_dim3_builtin(scope, ty, BuiltIn::NumWorkgroups, 0, uniformity)
+            }
+            Builtin::CubeCountY => {
+                self.read_dim3_builtin(scope, ty, BuiltIn::NumWorkgroups, 1, uniformity)
+            }
+            Builtin::CubeCountZ => {
+                self.read_dim3_builtin(scope, ty, BuiltIn::NumWorkgroups, 2, uniformity)
+            }
+            Builtin::PlaneDim => {
+                self.read_scalar_builtin(scope, ty, BuiltIn::SubgroupSize, uniformity)
+            }
+            Builtin::PlanePos => {
+                self.read_scalar_builtin(scope, ty, BuiltIn::SubgroupId, uniformity)
+            }
             Builtin::UnitPosPlane => {
-                self.read_scalar_builtin(scope, ty, BuiltIn::SubgroupLocalInvocationId)
+                self.read_scalar_builtin(scope, ty, BuiltIn::SubgroupLocalInvocationId, uniformity)
             }
             Builtin::AbsolutePos => absolute_pos::expand(scope).value(scope),
             Builtin::AbsolutePosX => {
-                self.read_dim3_builtin(scope, ty, BuiltIn::GlobalInvocationId, 0)
+                self.read_dim3_builtin(scope, ty, BuiltIn::GlobalInvocationId, 0, uniformity)
             }
             Builtin::AbsolutePosY => {
-                self.read_dim3_builtin(scope, ty, BuiltIn::GlobalInvocationId, 1)
+                self.read_dim3_builtin(scope, ty, BuiltIn::GlobalInvocationId, 1, uniformity)
             }
             Builtin::AbsolutePosZ => {
-                self.read_dim3_builtin(scope, ty, BuiltIn::GlobalInvocationId, 2)
+                self.read_dim3_builtin(scope, ty, BuiltIn::GlobalInvocationId, 2, uniformity)
             }
         }
     }
 
-    fn read_scalar_builtin(&mut self, scope: &Scope, ty: TypeHandle, builtin: BuiltIn) -> Value {
+    fn read_scalar_builtin(
+        &mut self,
+        scope: &Scope,
+        ty: TypeHandle,
+        builtin: BuiltIn,
+        uniformity: Option<UniformAttr>,
+    ) -> Value {
         let ctx = scope.ctx_mut();
         let offset = self.get_offset(scope, builtin);
         let ptr_ty = PointerType::get(ctx, ty, StorageClass::Input).to_handle();
         let access_chain = InBoundsAccessChainOp::new(ctx, ptr_ty, self.struct_val, vec![offset]);
+        decorate_uniform(ctx, access_chain.get_operation(), Some(DEVICE_UNIFORM));
         let offset_ptr = scope.register_with_result(&access_chain);
         let load = LoadOp::new(ctx, ty, offset_ptr, MemoryAccess::NONE, None);
+        decorate_uniform(ctx, load.get_operation(), uniformity);
         scope.register_with_result(&load)
     }
 
@@ -256,6 +296,7 @@ impl RewriteBuiltins<'_> {
         ty: TypeHandle,
         builtin: BuiltIn,
         dim: u32,
+        uniformity: Option<UniformAttr>,
     ) -> Value {
         let ctx = scope.ctx_mut();
         let offset = self.get_offset(scope, builtin);
@@ -264,8 +305,10 @@ impl RewriteBuiltins<'_> {
         let ptr_ty = PointerType::get(ctx, ty, StorageClass::Input).to_handle();
         let access_chain =
             InBoundsAccessChainOp::new(ctx, ptr_ty, self.struct_val, vec![offset, dim_const]);
+        decorate_uniform(ctx, access_chain.get_operation(), Some(DEVICE_UNIFORM));
         let offset_ptr = scope.register_with_result(&access_chain);
         let load = LoadOp::new(ctx, ty, offset_ptr, MemoryAccess::NONE, None);
+        decorate_uniform(ctx, load.get_operation(), uniformity);
         scope.register_with_result(&load)
     }
 }

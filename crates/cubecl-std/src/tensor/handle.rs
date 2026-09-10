@@ -53,6 +53,21 @@ impl TensorHandle {
         }
     }
 
+    /// A tensor over `metadata` as it is, tiling included: the constructor for a handle rebuilt
+    /// from another's metadata, where [`new`](Self::new) would rebuild an untiled one from the
+    /// shape and strides alone.
+    pub fn from_metadata(
+        handle: server::Handle,
+        metadata: Metadata,
+        storage: impl Into<Type>,
+    ) -> Self {
+        Self {
+            handle,
+            metadata: Box::new(metadata),
+            dtype: storage.into().elem_type(),
+        }
+    }
+
     pub fn empty(client: &Client, shape: impl Into<Shape>, storage: impl Into<Type>) -> Self {
         let storage = storage.into();
         let shape: Shape = shape.into();
@@ -83,9 +98,16 @@ impl TensorHandle {
     }
 
     pub fn binding(self) -> TensorBinding {
-        unsafe {
-            TensorBinding::from_raw_parts(self.handle, self.metadata.strides, self.metadata.shape)
-        }
+        let Metadata {
+            shape,
+            strides,
+            tiling,
+        } = *self.metadata;
+        let mut binding = unsafe { TensorBinding::from_raw_parts(self.handle, strides, shape) };
+        // The metadata validated this tiling against this rank, and the binding
+        // carries the same dims, so it needs no second check.
+        binding.tiling = tiling;
+        binding
     }
 
     /// Return the reference to a tensor argument.

@@ -31,14 +31,19 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
     dialect::{scf::BranchToSCFPass, ssa_matrix::MatrixToSSAPass},
-    prelude::{SingleBlockRegionInterface, SymbolOpInterface},
+    prelude::{OperationPtrExt, SingleBlockRegionInterface, SymbolOpInterface},
     rewrite::{CanonicalizePass, visit_all_ops_of_type_mut},
     settings::{Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
-    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    mem2reg::Mem2RegPass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass,
+    inst_combine::InstCombinePass,
+    mem2reg::Mem2RegPass,
+    sccp::SCCPPass,
+    simple_cse::SimpleCSEPass,
+    sroa::SROAPass,
+    uniformity::{DYNAMICALLY_UNIFORM_ATTR, MarkDynamicallyUniformPass, UniformAttr},
 };
 use cubecl_runtime::compiler::CompilationError;
 use pliron::{
@@ -47,28 +52,30 @@ use pliron::{
         op_interfaces::OneRegionInterface,
         ops::{FuncOp, ModuleOp},
     },
-    context::Context,
+    context::{Context, Ptr},
     identifier::Identifier,
     irbuild::{
         inserter::BlockInsertionPoint,
         listener::DummyListener,
         rewriter::{IRRewriter, Rewriter},
     },
-    op::Op,
-    operation::verify_operation,
+    op::{Op, op_cast},
+    operation::{Operation, verify_operation},
     opts::{dce::DCEPass, simplify_cfg::SimplifyCFGPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
 };
 use pliron_spirv::{
     PlironBuilder, ToSpirvOp,
     attrs::VerCapExtAttr,
+    decorations::{DecoratableOp, set_decoration_uniform, set_decoration_uniform_id},
     ops::{EntryPointOp, ExecutionModeOp, SpirvModuleOp},
 };
 use rspirv::{
     binary::Assemble,
     dr::Module,
     spirv::{
-        AddressingModel, Capability, ExecutionMode, ExecutionModel, MemoryModel, StorageClass,
+        AddressingModel, Capability, ExecutionMode, ExecutionModel, MemoryModel, Scope,
+        StorageClass,
     },
 };
 use std::{fmt::Debug, sync::Arc};
@@ -229,6 +236,7 @@ impl SpirvCompiler {
         func_passes.add_pass(MatrixToSSAPass::default());
 
         passes.add_pass(NestedOpsPass::new(func_passes));
+        passes.add_pass(MarkDynamicallyUniformPass);
         passes.add_pass(LowerBuiltinsPass);
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
@@ -379,6 +387,28 @@ fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Ve
             execution_mode.get_operation().insert_at_front(block, ctx);
         },
     );
+}
+
+pub(crate) fn decorate_uniform(ctx: &Context, op: Ptr<Operation>, uniformity: Option<UniformAttr>) {
+    let Some(uniformity) = uniformity else {
+        return;
+    };
+    let props = ctx.aux_ty::<WgpuCompilationOptions>().vulkan;
+    if let Some(can_decorate) = op_cast::<dyn DecoratableOp>(&*op.dyn_op(ctx)) {
+        if props.max_spirv_version >= (1, 4) {
+            // The spec theoretically allows any but Vulkan has a hardcoded set of just `Workgroup`
+            // and `Subgroup` for the allowed values
+            let scope = match uniformity {
+                UniformAttr::Device | UniformAttr::Cube => Scope::Workgroup,
+                UniformAttr::Plane => Scope::Subgroup,
+            };
+            set_decoration_uniform_id(can_decorate, ctx, scope.into());
+        } else {
+            set_decoration_uniform(can_decorate, ctx);
+        }
+    } else {
+        op.set_attr(ctx, &DYNAMICALLY_UNIFORM_ATTR, uniformity);
+    }
 }
 
 #[cfg(feature = "pliron-dump")]

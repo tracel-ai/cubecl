@@ -6,7 +6,7 @@ use cubecl_ir::{
     interfaces::TypedExt,
     prelude::*,
 };
-use cubecl_opt::passes::alloc_shared_memory::SliceSharedOp;
+use cubecl_opt::passes::{alloc_shared_memory::SliceSharedOp, uniformity::op_dyn_uniformity};
 use pliron::{
     builtin::{
         given_names::set_operation_result_name,
@@ -26,6 +26,7 @@ use rspirv::spirv::{Capability, Decoration, MemoryAccess, StorageClass};
 
 use crate::{
     attributes::attr_to_spirv_dialect,
+    decorate_uniform,
     ops::{builtin::const_op_int32, to_spirv_dialect::ToSpirvDialectOp},
     types::{ty_to_spirv_dialect, ty_to_spirv_dialect_explicit_layout},
 };
@@ -86,10 +87,12 @@ impl ToSpirvDialectOp for IndexOp {
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
+        let uniformity = op_dyn_uniformity(ctx, self.get_operation());
         let base = self.base(ctx);
         let index = self.index(ctx);
         let result_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let access_chain = InBoundsAccessChainOp::new(ctx, result_ty, base, vec![index]);
+        decorate_uniform(ctx, access_chain.get_operation(), uniformity);
         rewriter.append_op(ctx, &access_chain);
         rewriter.replace_operation(ctx, self.get_operation(), access_chain.get_operation());
 

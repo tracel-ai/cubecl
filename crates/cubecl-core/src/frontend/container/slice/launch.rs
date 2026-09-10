@@ -3,6 +3,7 @@ use crate::{
     prelude::*,
 };
 use alloc::boxed::Box;
+use cubecl_zspace::Tiling;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
@@ -128,6 +129,7 @@ impl BufferBinding {
             handle: self.handle,
             strides: [1].into(),
             shape,
+            tiling: Tiling::UNTILED,
         }
     }
 }

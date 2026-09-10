@@ -1,5 +1,5 @@
 use crate::{
-    AddressSpace, ConstantValue, ElemType,
+    AddressSpace, CanMaterialize, ConstantValue, ElemType, NoMemoryEffect,
     dialect::synchronization::SyncScope,
     prelude::*,
     types::{AtomicType, PointerType, VectorType, scalar::*},
@@ -12,6 +12,7 @@ use pliron::{
     derive::{op_interface, type_interface},
     opts::dce::SideEffects,
     r#type::{TypeHandle, type_cast},
+    utils::apint::APInt,
     value::Use,
 };
 
@@ -19,6 +20,7 @@ pub mod aliasing;
 pub mod control_flow;
 pub mod memory_slot;
 pub mod traits;
+pub mod uniformity;
 
 #[macro_export]
 macro_rules! verify_op_succ {
@@ -71,14 +73,6 @@ pub trait ReturnLike: IsTerminatorInterface + NResultsInterface<0> {
     verify_op_succ!();
 }
 
-#[macro_export]
-macro_rules! Pure {
-    ($ty: ty) => {
-        $crate::NoSideEffects!($ty);
-        $crate::NoMemoryEffect!($ty);
-    };
-}
-
 #[op_interface]
 pub trait TriviallyUnrollable: MaterializableOp {
     verify_op_succ!();
@@ -96,34 +90,6 @@ pub trait MaterializableOp {
         operands: Vec<Value>,
         attributes: AttributeDict,
     ) -> Ptr<Operation>;
-}
-
-#[macro_export]
-macro_rules! CanMaterialize {
-    ($ty: ty) => {
-        #[::pliron::derive::op_interface_impl]
-        impl $crate::interfaces::MaterializableOp for $ty {
-            fn materialize(
-                &self,
-                ctx: &mut pliron::context::Context,
-                result_ty: Vec<pliron::r#type::TypeHandle>,
-                operands: Vec<Value>,
-                attributes: pliron::attribute::AttributeDict,
-            ) -> pliron::context::Ptr<pliron::operation::Operation> {
-                use pliron::op::Op;
-                let op = pliron::operation::Operation::new(
-                    ctx,
-                    Self::get_concrete_op_info(),
-                    result_ty,
-                    operands,
-                    vec![],
-                    0,
-                );
-                op.deref_mut(ctx).attributes = attributes;
-                op
-            }
-        }
-    };
 }
 
 CanMaterialize!(ConstantOp);
@@ -179,21 +145,6 @@ pub trait MemoryEffects {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect>;
 }
 
-#[macro_export]
-macro_rules! NoMemoryEffect {
-    ($ty: ty) => {
-        #[::pliron::derive::op_interface_impl]
-        impl $crate::interfaces::MemoryEffects for $ty {
-            fn memory_effects(
-                &self,
-                _ctx: &pliron::context::Context,
-            ) -> $crate::alloc::vec::Vec<$crate::interfaces::MemoryEffect> {
-                $crate::alloc::vec![]
-            }
-        }
-    };
-}
-
 NoMemoryEffect!(ConstantOp);
 
 #[type_interface]
@@ -233,30 +184,6 @@ macro_rules! sized {
             #[allow(unused_variables)]
             fn size(&self, ctx: &::pliron::context::Context) -> usize {
                 $size
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! HasSideEffects {
-    ($ty: ty) => {
-        #[::pliron::derive::op_interface_impl]
-        impl pliron::opts::dce::SideEffects for $ty {
-            fn has_side_effects(&self, _ctx: &pliron::context::Context) -> bool {
-                true
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! NoSideEffects {
-    ($ty: ty) => {
-        #[::pliron::derive::op_interface_impl]
-        impl pliron::opts::dce::SideEffects for $ty {
-            fn has_side_effects(&self, _ctx: &pliron::context::Context) -> bool {
-                false
             }
         }
     };
@@ -360,6 +287,10 @@ pub trait CanonicalizeInterface {
 pub trait ConstantAttr: TypedAttrInterface {
     verify_attr_succ!();
     fn as_const_val(&self, ctx: &Context) -> ConstantValue;
+    fn as_int(&self, ctx: &Context) -> Option<APInt> {
+        let _ = ctx;
+        None
+    }
     fn float_as_f64(&self, _ctx: &Context) -> Option<f64> {
         None
     }

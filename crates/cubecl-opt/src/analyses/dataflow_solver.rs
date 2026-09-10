@@ -22,9 +22,11 @@ use pliron::{
 use smallvec::SmallVec;
 pub use solver::*;
 
+pub mod control_flow_uniformity;
 pub mod dead_code;
 pub mod sccp;
 pub mod sparse;
+pub mod value_uniformity;
 
 pub type SmallPtrVec<T> = SmallVec<[T; 8]>;
 

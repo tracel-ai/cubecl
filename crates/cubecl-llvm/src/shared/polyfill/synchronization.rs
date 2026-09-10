@@ -27,6 +27,7 @@ impl LowerOp for SyncOp {
             SyncScope::Plane => match target {
                 // A plane is one unit on the CPU, so there is nothing to synchronize.
                 LlvmTarget::Cpu => {}
+                #[cfg(feature = "amdgpu")]
                 LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_plane(scope),
             },
             // A device wide barrier is a cube barrier on the GPU, as it is in the C++ backends:
@@ -36,6 +37,7 @@ impl LowerOp for SyncOp {
                     panic!("Device wide synchronization is not supported by the CPU runtime")
                 }
                 LlvmTarget::Cpu => crate::cpu::synchronization::lower_sync_cube(scope, op),
+                #[cfg(feature = "amdgpu")]
                 LlvmTarget::AmdGpu => crate::amdgpu::synchronization::lower_sync_cube(scope),
             },
         }

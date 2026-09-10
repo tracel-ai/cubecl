@@ -156,6 +156,11 @@ impl BenchmarkComputations {
     }
 }
 
+/// Launches the warmup makes however long they take: one to compile the kernel
+/// and four to settle the device.
+#[cfg(feature = "std")]
+const MIN_WARMUP_RUNS: usize = 5;
+
 /// Benchmark trait.
 pub trait Benchmark {
     /// Benchmark input arguments.
@@ -177,6 +182,28 @@ pub trait Benchmark {
     /// It is important to return the output since otherwise deadcode optimization might optimize
     /// away code that should be benchmarked.
     fn execute(&self, input: Self::Input) -> Result<Self::Output, String>;
+
+    /// Wall clock the warmup holds the device for before sampling starts.
+    ///
+    /// A device takes hundreds of milliseconds to reach the clocks it sustains,
+    /// and under half a second a GPU still samples a step low. `BENCH_WARMUP_MS`
+    /// buys the wall clock back and pays in accuracy.
+    fn warmup_budget(&self) -> Duration {
+        const DEFAULT_MS: u64 = 500;
+        #[cfg(feature = "std")]
+        {
+            Duration::from_millis(
+                std::env::var("BENCH_WARMUP_MS")
+                    .map(|val| str::parse::<u64>(&val).unwrap_or(DEFAULT_MS))
+                    .unwrap_or(DEFAULT_MS),
+            )
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            Duration::from_millis(DEFAULT_MS)
+        }
+    }
 
     /// Number of samples per run required to have a statistical significance.
     fn num_samples(&self) -> usize {
@@ -208,13 +235,12 @@ pub trait Benchmark {
         vec![]
     }
 
-    /// The work one execution performs, for scoring the run against measured
-    /// peak throughput. `None` when the benchmark has no such figure to report.
-    /// Coarse by necessity: this crate cannot name a throughput key, so
-    /// `calculate_bounds` (in `cubecl-runtime`) is what turns this single
-    /// figure into per-resource bounds, and a caller wanting the achieved
-    /// rate against each of those scores them at the client layer, which
-    /// does have keys.
+    /// The work one execution performs, for scoring the run against measured peak
+    /// throughput. `None` when the benchmark has no such figure to report.
+    ///
+    /// One figure rather than per-resource bounds because this crate cannot name a
+    /// throughput key. A bound builder that can, such as `roofline_bounds` in
+    /// `cubecl-std`, splits it.
     fn work(&self) -> Option<Work> {
         None
     }
@@ -261,12 +287,26 @@ pub trait Benchmark {
             };
             let args = self.prepare();
 
-            // Triggers JIT-compilation and perform a Warmup
-            //
-            // We are using 5 iterations, where the first one probably triggers the JIT-compilation
-            // and it is then followed by 4 warmup executions.
-            for _ in 0..5 {
-                let _duration: Result<crate::profile::ProfileTicks, _> = execute(&args);
+            // Compiles on the first launch, then holds the device until it
+            // answers at the clocks a sampled run will see.
+            let budget = self.warmup_budget();
+            let warmup = Instant::now();
+            let (mut warmups, mut failures) = (0, 0);
+            while warmups < MIN_WARMUP_RUNS || warmup.elapsed() < budget {
+                let warmed: Result<crate::profile::ProfileTicks, _> = execute(&args);
+
+                match warmed {
+                    Ok(_) => warmups += 1,
+                    // Stopping on one failure would leave the samples reading
+                    // cold clocks and report that as the kernel's speed.
+                    Err(_) => {
+                        failures += 1;
+
+                        if failures >= MIN_WARMUP_RUNS {
+                            break;
+                        }
+                    }
+                }
             }
 
             // Real execution.
@@ -358,6 +398,121 @@ where
 mod tests {
     use super::*;
     use alloc::vec;
+    use core::cell::Cell;
+
+    /// A device that answers in whatever time it is given, counting the
+    /// launches it was asked for.
+    struct TimedBench {
+        per_execution: Duration,
+        executions: Cell<usize>,
+        /// Launches that fail before any of them succeed.
+        failures: Cell<usize>,
+    }
+
+    impl TimedBench {
+        fn new(per_execution: Duration) -> Self {
+            Self {
+                per_execution,
+                executions: Cell::new(0),
+                failures: Cell::new(0),
+            }
+        }
+
+        fn failing(self, launches: usize) -> Self {
+            self.failures.set(launches);
+
+            self
+        }
+    }
+
+    impl Benchmark for TimedBench {
+        type Input = ();
+        type Output = ();
+
+        fn prepare(&self) -> Self::Input {}
+
+        fn execute(&self, _input: Self::Input) -> Result<Self::Output, String> {
+            self.executions.set(self.executions.get() + 1);
+
+            if self.failures.get() > 0 {
+                self.failures.set(self.failures.get() - 1);
+
+                return Err(String::from("the launch failed"));
+            }
+
+            let start = Instant::now();
+            while start.elapsed() < self.per_execution {}
+
+            Ok(())
+        }
+
+        fn num_samples(&self) -> usize {
+            1
+        }
+
+        fn name(&self) -> String {
+            "timed".into()
+        }
+
+        fn sync(&self) {}
+    }
+
+    /// The warmup is there to lift a device off its idle clocks, which takes
+    /// hundreds of milliseconds whatever the kernel costs. Counted in launches
+    /// it would leave a fast one sampled cold.
+    #[test_log::test]
+    fn a_kernel_the_launch_count_cannot_warm_is_held_for_the_budget() {
+        let bench = TimedBench::new(Duration::ZERO);
+        let start = Instant::now();
+
+        bench.run(TimingMethod::System).expect("the bench runs");
+
+        assert!(
+            start.elapsed() >= bench.warmup_budget(),
+            "warmed {:?}",
+            start.elapsed()
+        );
+        assert!(bench.executions.get() > MIN_WARMUP_RUNS);
+    }
+
+    /// One launch failing is not the device saying no, and cutting the warmup
+    /// there would leave the samples reading idle clocks and report that as the
+    /// kernel's speed.
+    #[test_log::test]
+    fn one_failed_launch_does_not_end_the_warmup() {
+        let bench = TimedBench::new(Duration::ZERO).failing(1);
+        let start = Instant::now();
+
+        bench.run(TimingMethod::System).expect("the bench runs");
+
+        assert!(start.elapsed() >= bench.warmup_budget(), "left early");
+    }
+
+    /// A kernel that cannot run at all stops after the launches its warmup owed
+    /// it, rather than spending the whole budget failing.
+    #[test_log::test]
+    fn a_launch_that_always_fails_stops_the_warmup() {
+        let bench = TimedBench::new(Duration::ZERO).failing(usize::MAX);
+        let start = Instant::now();
+
+        assert!(bench.run(TimingMethod::System).is_err());
+        assert!(start.elapsed() < bench.warmup_budget(), "kept failing");
+    }
+
+    /// A budget that added launches to a kernel already filling it would make
+    /// every slow row pay a warmup it does not need.
+    #[test_log::test]
+    fn a_kernel_that_fills_the_budget_pays_no_extra_launch() {
+        let mut bench = TimedBench::new(Duration::ZERO);
+        bench.per_execution = bench.warmup_budget() / 4;
+
+        let durations = bench.run(TimingMethod::System).expect("the bench runs");
+
+        assert_eq!(
+            bench.executions.get(),
+            MIN_WARMUP_RUNS + durations.durations.len()
+        );
+    }
 
     #[test_log::test]
     fn test_min_max_median_durations_even_number_of_samples() {

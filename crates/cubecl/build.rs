@@ -15,7 +15,14 @@ fn main() {
         ("cpu", cfg!(feature = "cpu")),
         ("cuda", cfg!(feature = "cuda")),
         ("hip", cfg!(feature = "hip")),
-        ("metal", cfg!(feature = "metal-native")),
+        // `cubecl-metal` compiles to nothing off Apple, so the feature links no
+        // runtime there. A build script's own `cfg!` describes the host, so
+        // the target has to be asked for.
+        (
+            "metal",
+            cfg!(feature = "metal-native")
+                && std::env::var("CARGO_CFG_TARGET_VENDOR").is_ok_and(|vendor| vendor == "apple"),
+        ),
         ("wgpu", cfg!(feature = "wgpu")),
     ]);
 

@@ -1,25 +1,20 @@
 use pliron::{
-    attribute::AttrObj,
-    basic_block::BasicBlock,
-    builtin::attributes::{IntegerAttr, VecAttr},
-    irbuild::inserter::OpInsertionPoint,
-    linked_list::ContainsLinkedList,
-    opts::dce::SideEffects,
-    region::Region,
-    utils::const_bound_n::I,
-    verify_err,
+    attribute::AttrObj, basic_block::BasicBlock, builtin::attributes::IntegerAttr,
+    irbuild::inserter::OpInsertionPoint, linked_list::ContainsLinkedList, opts::dce::SideEffects,
+    region::Region, utils::const_bound_n::I, verify_err,
 };
 use thiserror::Error;
 
 use crate::{
     CanMaterialize, NoMemoryEffect, ReturnLike,
-    attributes::{BoolAttr, ZeroAttr},
+    attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
             InvocationBounds, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
             RegionPredecessor, RegionSuccessor,
         },
+        uniformity::{UniformRegionTerminatorOpInterface, Uniformity},
     },
     prelude::*,
     types::scalar::BoolType,
@@ -163,6 +158,20 @@ impl RegionBranchTerminatorOpInterface for ConditionOp {
             true => vec![after_region],
             false => vec![RegionSuccessor::AfterOp],
         }
+    }
+}
+
+#[op_interface_impl]
+impl UniformRegionTerminatorOpInterface for ConditionOp {
+    fn successor_region_uniformity(
+        &self,
+        ctx: &Context,
+        operands: &[Uniformity],
+    ) -> Vec<Uniformity> {
+        self.all_successor_regions(ctx)
+            .iter()
+            .map(|_| operands[0])
+            .collect()
     }
 }
 
@@ -382,7 +391,7 @@ impl CanonicalizeInterface for IfOp {
 #[pliron_op(
     name = "branch.switch",
     format,
-    attributes = (branch_switch_cases: VecAttr),
+    attributes = (branch_switch_cases: IntegerVecAttr),
     verifier = "succ"
 )]
 #[op_interfaces(NOpdsInterface<1>, NResultsInterface<0>, SingleBlockRegionInterface)]
@@ -428,7 +437,7 @@ impl SwitchOp {
     pub fn cases(&self, ctx: &Context) -> Vec<(IntegerAttr, Ptr<BasicBlock>)> {
         let cases = self.get_attr_branch_switch_cases(ctx).unwrap().clone().0;
         let out = (0..cases.len()).map(|i| {
-            let value = cases[i].downcast_ref::<IntegerAttr>().unwrap().clone();
+            let value = cases[i].clone();
             let block = self.get_body(ctx, i + 1);
             (value, block)
         });
@@ -438,7 +447,7 @@ impl SwitchOp {
     pub fn cases_regions(&self, ctx: &Context) -> Vec<(IntegerAttr, Ptr<Region>)> {
         let cases = self.get_attr_branch_switch_cases(ctx).unwrap().clone().0;
         let out = (0..cases.len()).map(|i| {
-            let value = cases[i].downcast_ref::<IntegerAttr>().unwrap().clone();
+            let value = cases[i].clone();
             let block = self.get_operation().deref(ctx).get_region(i + 1);
             (value, block)
         });
@@ -446,12 +455,7 @@ impl SwitchOp {
     }
 
     pub fn cases_values(&self, ctx: &Context) -> Vec<IntegerAttr> {
-        self.get_attr_branch_switch_cases(ctx)
-            .unwrap()
-            .0
-            .iter()
-            .map(|it| it.downcast_ref::<IntegerAttr>().unwrap().clone())
-            .collect()
+        self.get_attr_branch_switch_cases(ctx).unwrap().0.clone()
     }
 
     pub fn get_case_destinations(&self, ctx: &Context) -> Vec<Ptr<BasicBlock>> {
@@ -461,8 +465,8 @@ impl SwitchOp {
             .collect()
     }
 
-    pub fn set_attr_cases(&self, ctx: &Context, cases: impl IntoIterator<Item = AttrObj>) {
-        self.set_attr_branch_switch_cases(ctx, VecAttr(cases.into_iter().collect()));
+    pub fn set_attr_cases(&self, ctx: &Context, cases: impl IntoIterator<Item = IntegerAttr>) {
+        self.set_attr_branch_switch_cases(ctx, IntegerVecAttr(cases.into_iter().collect()));
     }
 }
 

@@ -450,6 +450,86 @@ fn autotune_short_circuit_disabled_benchmarks_all() {
     assert_eq!(obtained, vec![4, 5, 6]);
 }
 
+/// A set with an eviction registered has it run before every measured sample and for nothing
+/// else: a candidate whose operands fit the cache is otherwise timed reading what the previous
+/// sample left warm, while a warm-up is not measured and gets no eviction. The eviction is
+/// handed the reference inputs, not the generated ones the candidates run on.
+///
+/// Counted against the candidates' own launches, so the assertion holds under either
+/// scheduler: the adaptive one warms each candidate up once, the fixed-count pass three times.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::parallel]
+fn autotune_evicts_before_every_measured_sample() {
+    use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_eviction");
+
+    let candidates = 2;
+    let warmups = if CubeClRuntimeConfig::get().autotune.bench.adaptive {
+        1
+    } else {
+        3
+    };
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let evictions = Arc::new(AtomicUsize::new(0));
+    let misdirected = Arc::new(AtomicUsize::new(0));
+    let calls_set = calls.clone();
+    let evictions_set = evictions.clone();
+    let misdirected_set = misdirected.clone();
+
+    let uid = fresh_tune_key_uid();
+
+    let test_set = TUNER.init(&"test".to_string(), move || {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::addition_set_with_eviction(
+            client,
+            shapes,
+            uid.clone(),
+            calls_set.clone(),
+            evictions_set.clone(),
+            misdirected_set.clone(),
+        )
+    });
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    // The winner ran on the reference inputs once the tune was over.
+    assert_eq!(client.read_one(out).unwrap().to_vec(), vec![4, 5, 6]);
+
+    // The launches that were not measured samples: the warm-ups, and the winner's real run.
+    let unmeasured = candidates * warmups + 1;
+    let calls = calls.load(Ordering::Relaxed);
+    let evictions = evictions.load(Ordering::Relaxed);
+    let misdirected = misdirected.load(Ordering::Relaxed);
+
+    assert_eq!(
+        misdirected, 0,
+        "{misdirected} evictions ran on the generated inputs rather than the reference ones"
+    );
+    // Every candidate was warmed up and then measured at least once.
+    assert!(
+        calls > unmeasured,
+        "the candidates were launched {calls} times, no more than the {unmeasured} unmeasured ones"
+    );
+    // One eviction per measured sample, and none for anything else.
+    assert_eq!(
+        evictions,
+        calls - unmeasured,
+        "{evictions} evictions for {calls} launches, {unmeasured} of them unmeasured"
+    );
+}
+
 /// 2-I1 — A panic inside a profiled closure surfaces at the `Client` caller as
 /// the *original* panic (the issue's symptom), instead of an opaque `CallError`.
 #[test_log::test]

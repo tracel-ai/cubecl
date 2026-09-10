@@ -138,7 +138,8 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
 
         let dyn_op = op.dyn_op(ctx);
         if let Some(branch) = op_cast::<dyn RegionBranchOpInterface>(&*dyn_op) {
-            self.visit_region_successors(
+            T::visit_region_successors(
+                self,
                 solver,
                 ctx,
                 ProgramPoint::after_op(ctx, op),
@@ -157,7 +158,8 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
         }
 
         if let Some(call) = op_cast::<dyn CallOpInterface>(&*dyn_op) {
-            return self.visit_call_operation(
+            return T::visit_call_operation(
+                self,
                 solver,
                 ctx,
                 call,
@@ -167,7 +169,7 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
         }
 
         // Invoke the operation transfer function.
-        self.visit_operation_impl(solver, ctx, op, &operand_lattices, &result_lattices)
+        T::visit_operation(self, solver, ctx, op, &operand_lattices, &result_lattices)
     }
 
     pub fn visit_block(&self, solver: &DataflowSolver, ctx: &Context, block: Ptr<BasicBlock>) {
@@ -200,12 +202,13 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
             if let Some(callable) = op_cast::<dyn CallableOpInterface>(&*dyn_op)
                 && callable.callable_region(ctx) == Some(parent_region)
             {
-                return self.visit_callable_operation(solver, ctx, callable, &arg_lattices);
+                return T::visit_callable_operation(self, solver, ctx, callable, &arg_lattices);
             }
 
             // Check if the lattices can be determined from region control flow.
             if let Some(branch) = op_cast::<dyn RegionBranchOpInterface>(&*dyn_op) {
-                return self.visit_region_successors(
+                return T::visit_region_successors(
+                    self,
                     solver,
                     ctx,
                     block_start,
@@ -216,7 +219,8 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
             }
 
             // All block arguments are non-successor-inputs.
-            return self.visit_non_control_flow_arguments_impl(
+            return T::visit_non_control_flow_arguments(
+                self,
                 solver,
                 ctx,
                 parent_op,
@@ -277,7 +281,7 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
             callable.is_some_and(|callable| callable.callable_region(ctx).is_none())
         };
         if !solver.config().is_interprocedural || is_external_callable() {
-            self.visit_external_call_impl(solver, ctx, call, operand_lattices, result_lattices);
+            T::visit_external_call(self, solver, ctx, call, operand_lattices, result_lattices);
             return Ok(());
         }
 
@@ -378,7 +382,8 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
                         .iter()
                         .map(|input| self.get_lattice_element_mut(solver, *input))
                         .collect::<Vec<_>>();
-                    self.visit_non_control_flow_arguments_impl(
+                    T::visit_non_control_flow_arguments(
+                        self,
                         solver,
                         ctx,
                         branch.get_operation(),
@@ -398,7 +403,8 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
                         .iter()
                         .map(|input| self.get_lattice_element_mut(solver, *input))
                         .collect::<Vec<_>>();
-                    self.visit_non_control_flow_arguments_impl(
+                    T::visit_non_control_flow_arguments(
+                        self,
                         solver,
                         ctx,
                         branch.get_operation(),
@@ -429,48 +435,6 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
                 .map(|it| it.get_operation()),
             CallOpCallable::Indirect(value) => value.defining_op(),
         }
-    }
-
-    fn visit_non_control_flow_arguments_impl(
-        &self,
-        solver: &DataflowSolver,
-        ctx: &Context,
-        op: Ptr<Operation>,
-        successor: RegionSuccessor,
-        non_successor_inputs: &[Value],
-        non_successor_input_lattices: &[WriteRef<SparseLattice<T::LatticeValue>>],
-    ) {
-        T::visit_non_control_flow_arguments(
-            self,
-            solver,
-            ctx,
-            op,
-            successor,
-            non_successor_inputs,
-            non_successor_input_lattices,
-        );
-    }
-
-    fn visit_operation_impl(
-        &self,
-        solver: &DataflowSolver,
-        ctx: &Context,
-        op: Ptr<Operation>,
-        operand_lattices: &[ReadRef<SparseLattice<T::LatticeValue>>],
-        result_lattices: &[WriteRef<SparseLattice<T::LatticeValue>>],
-    ) -> Result<()> {
-        T::visit_operation(self, solver, ctx, op, operand_lattices, result_lattices)
-    }
-
-    fn visit_external_call_impl(
-        &self,
-        solver: &DataflowSolver,
-        ctx: &Context,
-        call: &dyn CallOpInterface,
-        argument_lattices: &[ReadRef<SparseLattice<T::LatticeValue>>],
-        result_lattices: &[WriteRef<SparseLattice<T::LatticeValue>>],
-    ) {
-        T::visit_external_call(self, solver, ctx, call, argument_lattices, result_lattices);
     }
 }
 
@@ -610,15 +574,6 @@ pub trait SparseForwardDataflowAnalysis: Sized + 'static {
         operands: &[ReadRef<SparseLattice<Self::LatticeValue>>],
         results: &[WriteRef<SparseLattice<Self::LatticeValue>>],
     ) -> Result<()>;
-
-    fn visit_block(
-        this: &SparseForward<Self>,
-        solver: &DataflowSolver,
-        ctx: &Context,
-        block: Ptr<BasicBlock>,
-    ) {
-        this.visit_block(solver, ctx, block);
-    }
 
     fn visit_call_operation(
         this: &SparseForward<Self>,

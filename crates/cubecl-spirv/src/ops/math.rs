@@ -1,10 +1,12 @@
 use cubecl_core::{self as cubecl, frontend::polyfills::*, prelude::*};
 use cubecl_ir::{dialect::math, interfaces::TypedExt, prelude::*};
+use cubecl_opt::passes::uniformity::op_dyn_uniformity;
 use pliron_spirv::{
     attrs::PackedVectorFormatAttr, ext::gl, ops, spirv::PackedVectorFormat, types::StructType,
 };
 
 use crate::{
+    decorate_uniform,
     lower::{LowerOp, lower_binop, lower_unop},
     ops::{
         base::{binop_to_spirv_dialect, ternop_to_spirv_dialect, unop_to_spirv_dialect},
@@ -113,13 +115,16 @@ impl ToSpirvDialectOp for math::SMulHiOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let lhs = self.lhs(ctx);
         let rhs = self.rhs(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let out_st = StructType::get(ctx, vec![out_ty, out_ty], vec![], vec![], vec![]).into();
         let mul = ops::SMulExtendedOp::new(ctx, out_st, lhs, rhs);
+        decorate_uniform(ctx, mul.get_operation(), uniformity);
         rewriter.append_op(ctx, &mul);
         let new_op = ops::CompositeExtractOp::new(ctx, out_ty, mul.get_result(ctx), vec![1.into()]);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -136,13 +141,16 @@ impl ToSpirvDialectOp for math::UMulHiOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let op = self.get_operation();
+        let uniformity = op_dyn_uniformity(ctx, op);
         let lhs = self.lhs(ctx);
         let rhs = self.rhs(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         let out_st = StructType::get(ctx, vec![out_ty, out_ty], vec![], vec![], vec![]).into();
         let mul = ops::UMulExtendedOp::new(ctx, out_st, lhs, rhs);
+        decorate_uniform(ctx, mul.get_operation(), uniformity);
         rewriter.append_op(ctx, &mul);
         let new_op = ops::CompositeExtractOp::new(ctx, out_ty, mul.get_result(ctx), vec![1.into()]);
+        decorate_uniform(ctx, new_op.get_operation(), uniformity);
         rewriter.append_op(ctx, &new_op);
         rewriter.replace_operation(ctx, op, new_op.get_operation());
 
@@ -175,7 +183,25 @@ lower_binop!(math::HypotOp, hypot);
 lower_binop!(math::RhypotOp, rhypot);
 
 lower_binop!(math::PowfOp, powf);
-lower_binop!(math::PowiOp, powi);
+
+#[op_interface_impl]
+impl LowerOp for math::PowiOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        define_scalar!(T);
+        define_size!(S);
+        let lhs = self.lhs(scope.ctx());
+        let rhs = self.rhs(scope.ctx());
+        scope.register_value_type::<T, S>(lhs);
+
+        let ty = lhs.scalar_ty(scope.ctx());
+        let result = if ty.is_int(scope.ctx()) || ty.is_index(scope.ctx()) {
+            powi_int::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)
+        } else {
+            powi::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)
+        };
+        vec![result]
+    }
+}
 
 ternop_to_spirv_dialect!(math::FmaOp => gl::FmaOp);
 

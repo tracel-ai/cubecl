@@ -4,7 +4,7 @@ use cubecl_core::{
     frontend::InputKind,
     ir::{
         AddressType, Scope,
-        dialect::{InlineAsmOp, InputSpecVecAttr, MemoryClobbers, MemoryClobbersAttr},
+        dialect::{InlineAsmOp, InputSpecsAttr, MemoryClobbers, MemoryClobbersAttr},
         interfaces::{MemoryEffect, MemoryEffects, TypedExt},
         prelude::*,
         types::VectorType,
@@ -34,14 +34,14 @@ use crate::{
     format = "opt_attr($cuda_inline_ptx_volatile, $UnitAttr, label($volatile))
     attr($cuda_inline_ptx_ptx, $StringAttr) ` : ` types(CharSpace(`,`)) ` : ` operands(CharSpace(`,`))
     opt_attr($cuda_inline_ptx_clobbers, $VecAttr)
-    opt_attr($cuda_inline_ptx_in_spec, $InputSpecVecAttr, label($in_spec))
+    opt_attr($cuda_inline_ptx_in_spec, $InputSpecsAttr, label($in_spec))
     opt_attr($cuda_inline_ptx_memory_clobbers, $MemoryClobbersAttr, label($memory_clobbers))",
     attributes = (
         cuda_inline_ptx_ptx: StringAttr,
         cuda_inline_ptx_volatile: UnitAttr,
         cuda_inline_ptx_clobbers: VecAttr,
         cuda_inline_ptx_memory_clobbers: MemoryClobbersAttr,
-        cuda_inline_ptx_in_spec: InputSpecVecAttr,
+        cuda_inline_ptx_in_spec: InputSpecsAttr,
     ),
     verifier = "succ"
 )]
