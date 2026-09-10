@@ -223,12 +223,20 @@ impl AsyncLogger {
                 LogMessage::Memory(msg) => {
                     self.logger.log_memory(&msg);
                 }
-                LogMessage::Profile(name, profile) => {
-                    let duration = profile.resolve().await.duration();
-                    self.profiled.update(&name, duration);
-                    self.logger
-                        .log_profiling(&format!("| {duration:<10?} | {name}"));
-                }
+                LogMessage::Profile(name, profile) => match profile.resolve().await {
+                    Some(ticks) => {
+                        let duration = ticks.duration();
+                        self.profiled.update(&name, duration);
+                        self.logger
+                            .log_profiling(&format!("| {duration:<10?} | {name}"));
+                    }
+                    // Named but not counted. Folding an absence into the
+                    // summary as a zero would drag every average it joins down
+                    // towards a speed nothing achieved.
+                    None => self
+                        .logger
+                        .log_profiling(&format!("| {:<10} | {name}", "not measured")),
+                },
                 LogMessage::Execution(name) => {
                     self.logger.log_profiling(&format!("Executing {name}"));
                 }

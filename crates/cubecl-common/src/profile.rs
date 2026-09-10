@@ -56,10 +56,16 @@ impl ProfileTicks {
 }
 
 /// Result from profiling between two measurements. This can either be a duration or a future that resolves to a duration.
+///
+/// The future resolves to [`None`] when the window turned out to carry no
+/// measurement, which a backend can only discover once the device has answered.
+/// That absence is not a zero: zero is the fastest duration there is, so a
+/// caller comparing candidates would let an unmeasured one win every comparison
+/// it enters.
 pub struct ProfileDuration {
     // The future to read profiling data. For System profiling,
     // this should be entirely synchronous.
-    future: DynFut<ProfileTicks>,
+    future: DynFut<Option<ProfileTicks>>,
     method: TimingMethod,
 }
 
@@ -70,14 +76,14 @@ impl ProfileDuration {
     }
 
     /// Create a new `ProfileDuration` from a future that resolves to a duration.
-    pub fn new(future: DynFut<ProfileTicks>, method: TimingMethod) -> ProfileDuration {
+    pub fn new(future: DynFut<Option<ProfileTicks>>, method: TimingMethod) -> ProfileDuration {
         Self { future, method }
     }
 
     /// Create a new `ProfileDuration` straight from a duration.
     pub fn new_system_time(start: Instant, end: Instant) -> Self {
         Self::new(
-            Box::pin(async move { ProfileTicks::from_start_end(start, end) }),
+            Box::pin(async move { Some(ProfileTicks::from_start_end(start, end)) }),
             TimingMethod::System,
         )
     }
@@ -86,16 +92,28 @@ impl ProfileDuration {
     pub fn new_device_time(
         future: impl Future<Output = ProfileTicks> + Send + 'static,
     ) -> ProfileDuration {
+        Self::new(Box::pin(async move { Some(future.await) }), TimingMethod::Device)
+    }
+
+    /// Create a new `ProfileDuration` from a future that may resolve to no
+    /// measurement at all, for a backend that only learns the window carried
+    /// none once the device has answered.
+    pub fn new_device_time_maybe(
+        future: impl Future<Output = Option<ProfileTicks>> + Send + 'static,
+    ) -> ProfileDuration {
         Self::new(Box::pin(future), TimingMethod::Device)
     }
 
     /// Retrieve the future that resolves the profile.
-    pub fn into_future(self) -> DynFut<ProfileTicks> {
+    pub fn into_future(self) -> DynFut<Option<ProfileTicks>> {
         self.future
     }
 
     /// Resolve the actual duration of the profile, possibly by waiting for the future to complete.
-    pub async fn resolve(self) -> ProfileTicks {
+    ///
+    /// [`None`] when the window carried no measurement. See the type's docs for
+    /// why that is not reported as a zero duration.
+    pub async fn resolve(self) -> Option<ProfileTicks> {
         self.future.await
     }
 }

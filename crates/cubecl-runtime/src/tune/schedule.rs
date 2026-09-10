@@ -190,7 +190,16 @@ impl Schedule<'_> {
             .await;
 
             for (slot, (ticks, waited)) in slots.into_iter().zip(resolved) {
-                candidates[slot].samples.push(ticks.duration());
+                match ticks {
+                    Some(ticks) => candidates[slot].samples.push(ticks.duration()),
+                    // An unmeasured sample disqualifies its candidate rather
+                    // than being recorded as a zero, which would be the fastest
+                    // sample in the round and would short-circuit on it.
+                    None => {
+                        let name = candidates[slot].name.to_string();
+                        candidates[slot].fail(AutotuneError::NotMeasured { name });
+                    }
+                }
                 if self.track_steps {
                     candidates[slot].elapsed += waited;
                 }
@@ -311,8 +320,17 @@ impl Schedule<'_> {
         match operation.sample_once(inputs.clone(), client, self.evictor.as_deref_mut()) {
             Ok(profile) => {
                 candidate.method.get_or_insert(profile.timing_method());
-                candidate.samples.push(profile.resolve().await.duration());
-                true
+                match profile.resolve().await {
+                    Some(ticks) => {
+                        candidate.samples.push(ticks.duration());
+                        true
+                    }
+                    None => {
+                        let name = candidate.name.to_string();
+                        candidate.fail(AutotuneError::NotMeasured { name });
+                        false
+                    }
+                }
             }
             Err(err) => {
                 candidate.fail(err);

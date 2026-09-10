@@ -283,7 +283,11 @@ pub trait Benchmark {
                     Ok(val) => val,
                     Err(err) => return Err(err),
                 };
-                Ok(cubecl_environment::future::block_on(profile.resolve()))
+                // A window that carried no measurement is a failed run here, not
+                // a fast one: this harness has an error channel, so it uses it
+                // rather than letting an absence become a zero in `durations`.
+                cubecl_environment::future::block_on(profile.resolve())
+                    .ok_or_else(|| alloc::string::String::from("the profiled window carried no measurement"))
             };
             let args = self.prepare();
 
@@ -293,7 +297,7 @@ pub trait Benchmark {
             let warmup = Instant::now();
             let (mut warmups, mut failures) = (0, 0);
             while warmups < MIN_WARMUP_RUNS || warmup.elapsed() < budget {
-                let warmed: Result<crate::profile::ProfileTicks, _> = execute(&args);
+                let warmed: Result<crate::profile::ProfileTicks, String> = execute(&args);
 
                 match warmed {
                     Ok(_) => warmups += 1,
