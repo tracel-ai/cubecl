@@ -162,6 +162,7 @@ impl Compiler for PlironCompiler {
     fn lang_tag(&self) -> &'static str {
         match self.target {
             LlvmTarget::Cpu => "mlir",
+            #[cfg(feature = "amdgpu")]
             LlvmTarget::AmdGpu => "llvm",
         }
     }
