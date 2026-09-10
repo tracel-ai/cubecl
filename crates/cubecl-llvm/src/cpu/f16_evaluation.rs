@@ -1,9 +1,9 @@
 //! How wide f16 arithmetic is evaluated in.
 //!
-//! x86 has no half arithmetic short of AVX512-FP16, so the backend wraps every f16 operation in
-//! a convert pair. Running a chain in f32 and rounding once at its end pays that pair once
-//! instead of once per operation, and is what `gcc` and `clang` do with `_Float16` by default;
-//! per-operation rounding is what they emit only under `-fexcess-precision=16`.
+//! Without AVX512-FP16, x86 has no f16 arithmetic at all, so the backend wraps every f16
+//! operation in a convert pair. Running a chain in f32 and rounding once at its end pays that
+//! pair once instead of once per operation, and is what `gcc` and `clang` do with `_Float16` by
+//! default; per-operation rounding is what they emit only under `-fexcess-precision=16`.
 //!
 //! Extending that across a loop-carried accumulator goes further than any C compiler does, and
 //! doubles the bytes a long-lived value occupies in vector registers, so it is asked for
