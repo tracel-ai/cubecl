@@ -41,7 +41,7 @@ metal_op!(FuncOp, |op, ctx| {
     let attributes = if let Some(abi) = op.get_entrypoint_abi(ctx) {
         format!(
             r#"[[max_total_threads_per_threadgroup({})]] [[kernel]] {return_ty}"#,
-            abi.cube_dim.num_elems(),
+            max_total_threads_never_declaring_a_single_simdgroup(abi.cube_dim.num_elems()),
         )
     } else {
         return_ty
@@ -57,6 +57,12 @@ metal_op!(FuncOp, |op, ctx| {
 
     format!("{attributes} {func_name}({params}) {{\n{body}\n}}\n")
 });
+
+fn max_total_threads_never_declaring_a_single_simdgroup(cube_dim_total: u32) -> u32 {
+    const THREADS_PER_SIMDGROUP: u32 = 32;
+    const SMALLEST_BOUND_COMPILED_CORRECTLY: u32 = 2 * THREADS_PER_SIMDGROUP;
+    cube_dim_total.max(SMALLEST_BOUND_COMPILED_CORRECTLY)
+}
 
 fn gen_param(ctx: &Context, func: &FuncOp, i: usize, arg: Value) -> String {
     let mut segments = vec![];
