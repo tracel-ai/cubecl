@@ -1,7 +1,9 @@
 use crate::compute::{
-    alloc_controller::CpuAllocController, schedule::ScheduleTask, threadpool::Threadpool,
+    alloc_controller::CpuAllocController,
+    ordered_storage::OrderedStorage,
+    schedule::ScheduleTask,
+    threadpool::{Threadpool, completion_counter::CompletionCounter},
 };
-use crossbeam_utils::CachePadded;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
@@ -15,25 +17,34 @@ use cubecl_runtime::{
         ErrorGraph, FailureId, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
         MemoryManagementOptions,
     },
-    storage::{BytesResource, BytesStorage},
+    storage::BytesResource,
     stream::StreamMemory,
     timestamp_profiler::TimestampProfiler,
 };
-use std::sync::{Arc, atomic::AtomicU64};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+
+/// Hands every stream an identity of its own. [`StreamId`]s are hashed into a
+/// bounded pool of these, so several of them name the same stream.
+static NEXT_STREAM_ID: AtomicU64 = AtomicU64::new(0);
 
 pub struct CpuStream {
-    pub(crate) memory_management: MemoryManagement<BytesStorage>,
+    id: u64,
+    pub(crate) memory_management: MemoryManagement<OrderedStorage>,
     /// Dedicated pool for per-launch shared memory.
     ///
     /// Shared memory MUST NOT be reserved from `memory_management`: kernel input/output
     /// bindings keep their allocation alive through a `ManagedMemoryBinding`, which does
     /// *not* hold the pool reservation. `reserve` would then hand a still-bound tensor's
     /// slice to shared memory, aliasing an input and corrupting it in place.
-    pub(crate) shared_memory_management: MemoryManagement<BytesStorage>,
+    pub(crate) shared_memory_management: MemoryManagement<OrderedStorage>,
     pub(crate) timestamps: TimestampProfiler,
     threadpool: &'static spin::Mutex<Threadpool>,
     next_counter_step: u64,
-    atomic_counter: Arc<CachePadded<AtomicU64>>,
+    frontier: Arc<AtomicU64>,
+    atomic_counter: Arc<CompletionCounter>,
 }
 
 impl StreamMemory for CpuStream {
@@ -70,41 +81,49 @@ impl CpuStream {
         // overridden. Pool layout overrides reach GPU runtimes through
         // `install_memory_pools`; the CPU runtime has no such override and
         // keeps the config it's handed.
+        let next_counter_step = 0;
+        let atomic_counter = Arc::new(CompletionCounter::new());
+        let frontier = Arc::new(AtomicU64::new(next_counter_step));
         let memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
+            OrderedStorage::new(atomic_counter.clone(), frontier.clone()),
             &memory_properties,
             memory_config.clone(),
             logger.clone(),
             MemoryManagementOptions::new("Main CPU"),
         );
         let shared_memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
+            OrderedStorage::new(atomic_counter.clone(), frontier.clone()),
             &memory_properties,
             memory_config,
             logger.clone(),
             MemoryManagementOptions::new("Shared CPU"),
         );
         let threadpool = Threadpool::get();
-        let next_counter_step = 0;
-        let atomic_counter = Arc::new(CachePadded::new(AtomicU64::new(0)));
         Self {
+            id: NEXT_STREAM_ID.fetch_add(1, Ordering::Relaxed),
             memory_management,
             shared_memory_management,
             timestamps: TimestampProfiler::default(),
             threadpool,
             next_counter_step,
+            frontier,
             atomic_counter,
         }
     }
 
+    /// The identity of the backend stream, which is what tells the buffers
+    /// this stream owns from another's.
+    pub(crate) fn id(&self) -> u64 {
+        self.id
+    }
+
     pub fn enqueue_task(&mut self, task: ScheduleTask, failures: &mut ErrorGraph) {
-        // Launches pipeline: `ComputeTask::is_ready` orders tasks and the
-        // launch's resources ride in `SharedData::keepalive`, so the client
-        // only drains where that protocol does not cover:
+        // Launches pipeline: `ComputeTask::is_ready` orders them on the pool,
+        // so the client only drains where that ordering does not reach:
         // * a host `Write`, which copies on this thread and would race a
         //   queued kernel reading the buffer;
         // * a shared-memory kernel, whose pool reservations are released at
-        //   enqueue — sound only while one such launch has the pool to itself.
+        //   enqueue, sound only while one such launch has the pool to itself.
         match task {
             ScheduleTask::Write { data, mut buffer } => {
                 self.submit();
@@ -135,10 +154,13 @@ impl CpuStream {
                     cube_count,
                     &mut self.shared_memory_management,
                     failures,
+                    self.id,
                     self.next_counter_step,
                     &self.atomic_counter,
                 );
                 self.next_counter_step += units as u64;
+                self.frontier
+                    .store(self.next_counter_step, Ordering::Relaxed);
             }
         }
     }
@@ -150,23 +172,10 @@ impl CpuStream {
     /// scheduler aligning streams. Whatever is queued stays queued, for the
     /// flush of the stream that owns it.
     pub fn submit(&mut self) {
-        // Spin briefly, then yield between polls: the client is not pinned,
-        // and a pure spin parked on a worker's logical CPU keeps that worker
-        // off it until the next timer tick (~3 ms unit-start stalls).
-        const SPINS_BEFORE_YIELD: u32 = 1_000;
-        let mut spins = 0u32;
-        while self
-            .atomic_counter
-            .load(std::sync::atomic::Ordering::Acquire)
-            != self.next_counter_step
-        {
-            spins += 1;
-            if spins < SPINS_BEFORE_YIELD {
-                std::hint::spin_loop();
-            } else {
-                std::thread::yield_now();
-            }
-        }
+        // Spin briefly, then park: the client is not pinned, and a pure spin
+        // parked on a worker's logical CPU keeps that worker off it until the
+        // next timer tick (~3 ms unit-start stalls).
+        self.atomic_counter.wait_until(self.next_counter_step);
     }
 
     /// Wait for the queued work. A launch failure is not the flush's to
@@ -209,7 +218,7 @@ impl CpuStream {
         descriptor: CopyDescriptor,
     ) -> impl Future<Output = Result<Bytes, IoError>> + Send + use<> {
         fn inner(
-            mem: &mut MemoryManagement<BytesStorage>,
+            mem: &mut MemoryManagement<OrderedStorage>,
             descriptor: CopyDescriptor,
         ) -> Result<Bytes, IoError> {
             let len = descriptor.handle.size_in_used() as usize;
