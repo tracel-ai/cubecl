@@ -1043,7 +1043,6 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "cubecl-common",
- "cubecl-core",
  "cubecl-environment",
  "cubecl-ir",
  "cubecl-zspace",
