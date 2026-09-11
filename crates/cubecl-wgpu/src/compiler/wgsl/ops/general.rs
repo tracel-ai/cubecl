@@ -97,7 +97,17 @@ impl AttrToWgsl for IntegerAttr {
 #[attr_interface_impl]
 impl AttrToWgsl for FloatAttr {
     fn to_wgsl(&self, ctx: &Context) -> String {
-        let val = self.float_type(ctx).value_to_string(self.val);
+        let float = self.float_type(ctx);
+        // The shortest decimal that reads back as the value, through f64 so
+        // every f16 and f32 is exact. A rounded rendering such as
+        // `3.402823470e+38` for `f32::MAX` lands past the type's range, and
+        // a strict WGSL front end (Tint) refuses the literal.
+        let value = float.value_to_f64(self.val);
+        let val = if value.is_finite() {
+            format!("{value:?}")
+        } else {
+            float.value_to_string(self.val)
+        };
         format!("{}({val})", self.ty.to_wgsl(ctx))
     }
 }
