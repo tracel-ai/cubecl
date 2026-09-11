@@ -15,7 +15,8 @@ use pliron::{
 use crate::{
     metal::{BuiltInAttr, metal_op},
     shared::{
-        CppValue, branch::block_to_cpp, signature::LoadInfoOp, ty::TypeExtCPP, type_definitions,
+        CompilationOptions, CppValue, branch::block_to_cpp, signature::LoadInfoOp, ty::TypeExtCPP,
+        type_definitions,
     },
 };
 
@@ -39,9 +40,13 @@ metal_op!(FuncOp, |op, ctx| {
     let func_ty = ty.downcast_ref::<FunctionType>().unwrap();
     let return_ty = func_ty.res_types()[0].to_cpp(ctx);
     let attributes = if let Some(abi) = op.get_entrypoint_abi(ctx) {
+        let threads_per_simdgroup = ctx.aux_ty::<CompilationOptions>().warp_size as u32;
         format!(
             r#"[[max_total_threads_per_threadgroup({})]] [[kernel]] {return_ty}"#,
-            max_total_threads_never_declaring_a_single_simdgroup(abi.cube_dim.num_elems()),
+            max_total_threads_never_declaring_a_single_simdgroup(
+                abi.cube_dim.num_elems(),
+                threads_per_simdgroup,
+            ),
         )
     } else {
         return_ty
@@ -58,10 +63,12 @@ metal_op!(FuncOp, |op, ctx| {
     format!("{attributes} {func_name}({params}) {{\n{body}\n}}\n")
 });
 
-fn max_total_threads_never_declaring_a_single_simdgroup(cube_dim_total: u32) -> u32 {
-    const THREADS_PER_SIMDGROUP: u32 = 32;
-    const SMALLEST_BOUND_COMPILED_CORRECTLY: u32 = 2 * THREADS_PER_SIMDGROUP;
-    cube_dim_total.max(SMALLEST_BOUND_COMPILED_CORRECTLY)
+fn max_total_threads_never_declaring_a_single_simdgroup(
+    cube_dim_total: u32,
+    threads_per_simdgroup: u32,
+) -> u32 {
+    let smallest_bound_compiled_correctly = 2 * threads_per_simdgroup;
+    cube_dim_total.max(smallest_bound_compiled_correctly)
 }
 
 fn gen_param(ctx: &Context, func: &FuncOp, i: usize, arg: Value) -> String {
