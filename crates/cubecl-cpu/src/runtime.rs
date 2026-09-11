@@ -11,17 +11,42 @@ use cubecl_core::{
     server::ServerUtilities,
     zspace::{Shape, Strides},
 };
-use cubecl_llvm::PlironCompiler;
+use cubecl_llvm::{F16Evaluation, PlironCompiler};
 use cubecl_runtime::runtime::Runtime;
 use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, System};
 
-#[derive(Default)]
 pub struct RuntimeOptions {
     /// Configures the memory management.
     pub memory_config: MemoryConfiguration,
+    /// How wide f16 intermediates are held. The default reads `CUBECL_CPU_F16_EVAL`.
+    pub f16_evaluation: F16Evaluation,
+}
+
+impl Default for RuntimeOptions {
+    fn default() -> Self {
+        Self {
+            memory_config: MemoryConfiguration::default(),
+            f16_evaluation: env_f16_evaluation().unwrap_or_default(),
+        }
+    }
+}
+
+/// `None` where the variable is unset or unreadable, so a value nobody recognizes leaves the
+/// default alone rather than failing a launch.
+fn env_f16_evaluation() -> Option<F16Evaluation> {
+    std::env::var("CUBECL_CPU_F16_EVAL")
+        .ok()?
+        .parse()
+        .inspect_err(|unknown| {
+            log::warn!(
+                "CUBECL_CPU_F16_EVAL={unknown}, evaluating f16 as {} instead",
+                F16Evaluation::default()
+            )
+        })
+        .ok()
 }
 
 #[derive(Debug, Clone)]
@@ -159,7 +184,11 @@ impl DeviceService for CpuServer {
             // fingerprint: it is what the generated code is valid for.
             DeviceIdentity {
                 name: host_cpu_name(&system),
-                fingerprint: format!("cpu_{}", std::env::consts::ARCH),
+                fingerprint: format!(
+                    "cpu_{}_f16-{}",
+                    std::env::consts::ARCH,
+                    options.f16_evaluation
+                ),
             },
         );
         register_supported_types(&mut device_props);
@@ -172,7 +201,7 @@ impl DeviceService for CpuServer {
             logger,
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
-        CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
+        CpuServer::new(mem_properties, options, Arc::new(utilities))
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {

@@ -339,9 +339,13 @@ impl ToLLVMDialect for BoolNotOp {
 /// Contraction only rounds once instead of twice, and a matmul inner loop is made of it.
 ///
 /// On the GPU only. The FMA is the instruction the hardware wants, and the C++ backends
-/// contract by default, so this is what the other runtimes already do. The CPU pipeline is
-/// the reference those runtimes get compared against, so its arithmetic stays exactly what
-/// the kernel wrote.
+/// contract by default, so this is what the other runtimes already do. The CPU declines it so
+/// that an f32 kernel evaluates exactly as written, which is what makes it the reference the
+/// others are compared against.
+///
+/// f16 is settled separately, in [`f16_evaluation`](crate::cpu::f16_evaluation), and the other
+/// way: holding the intermediate is the default there, because rounding f16 after every
+/// operation costs a convert pair each time and is what a C compiler emits only when asked.
 fn fma_contraction(ctx: &Context) -> FastmathFlagsAttr {
     match ctx.target() {
         #[cfg(feature = "amdgpu")]
