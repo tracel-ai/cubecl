@@ -1,4 +1,4 @@
-//! `CUBECL_CPU_F16_EVAL=per-operation`, the escape hatch back to rounding every result.
+//! `CUBECL_CPU_F16_EVAL=per-operation`, which rounds every result.
 
 use std::sync::Once;
 

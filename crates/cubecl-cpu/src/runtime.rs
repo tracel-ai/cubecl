@@ -21,7 +21,7 @@ use sysinfo::{CpuRefreshKind, System};
 pub struct RuntimeOptions {
     /// Configures the memory management.
     pub memory_config: MemoryConfiguration,
-    /// How wide f16 intermediates are held, from `CUBECL_CPU_F16_EVAL`.
+    /// How wide f16 intermediates are held. The default reads `CUBECL_CPU_F16_EVAL`.
     pub f16_evaluation: F16Evaluation,
 }
 
@@ -37,19 +37,16 @@ impl Default for RuntimeOptions {
 /// `None` where the variable is unset or unreadable, so a value nobody recognizes leaves the
 /// default alone rather than failing a launch.
 fn env_f16_evaluation() -> Option<F16Evaluation> {
-    let requested = std::env::var("CUBECL_CPU_F16_EVAL").ok()?;
-    let mode = F16Evaluation::from_name(&requested);
-
-    if mode.is_none() {
-        let known: Vec<_> = F16Evaluation::ALL.map(|mode| mode.to_string()).into();
-        log::warn!(
-            "CUBECL_CPU_F16_EVAL={requested} is not one of {}, evaluating f16 as {} instead",
-            known.join(", "),
-            F16Evaluation::default()
-        );
-    }
-
-    mode
+    std::env::var("CUBECL_CPU_F16_EVAL")
+        .ok()?
+        .parse()
+        .inspect_err(|unknown| {
+            log::warn!(
+                "CUBECL_CPU_F16_EVAL={unknown}, evaluating f16 as {} instead",
+                F16Evaluation::default()
+            )
+        })
+        .ok()
 }
 
 #[derive(Debug, Clone)]

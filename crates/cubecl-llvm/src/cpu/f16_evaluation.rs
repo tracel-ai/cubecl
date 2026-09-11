@@ -2,12 +2,12 @@
 //!
 //! Without AVX512-FP16, x86 has no f16 arithmetic at all, so the backend wraps every f16
 //! operation in a convert pair. Running a chain in f32 and rounding once at its end pays that
-//! pair once instead of once per operation, and is what `gcc` and `clang` do with `_Float16` by
-//! default; per-operation rounding is what they emit only under `-fexcess-precision=16`.
+//! pair once instead of once per operation. `gcc` and `clang` do the same with `_Float16` within
+//! an expression but round at every assignment, where a chain here follows SSA values: it runs
+//! through an immutable `let` and across operations the fusion layer joined.
 //!
-//! Extending that across a loop-carried accumulator goes further than any C compiler does, and
-//! doubles the bytes a long-lived value occupies in vector registers, so it is asked for
-//! separately.
+//! Holding a private variable in f32 as well goes further than any C compiler does, and doubles
+//! the bytes a long-lived value occupies in vector registers, so it is asked for separately.
 
 use cubecl_core::ir::AddressSpace;
 use cubecl_core::ir::attributes::IndexAttr;
@@ -33,22 +33,19 @@ pub enum F16Evaluation {
     /// Round after every operation. What the hardware would do if it had f16 arithmetic, and
     /// what a GPU does, at a convert pair per operation.
     PerOperation,
-    /// Round at the end of a chain of arithmetic. The default, and what a C compiler does.
+    /// Round where a value is stored, a `let mut` included, or read by anything but arithmetic.
+    /// The default.
     #[default]
     Chain,
-    /// Round at the end of a chain, and hold a loop-carried accumulator in f32 across the back
-    /// edge as well. Costs vector registers, so a wide kernel may want a narrower line.
+    /// Also hold a private f16 variable in f32 where that removes more converts than it adds, so
+    /// a running total read often enough inside its loop stays in f16. Costs vector registers, so
+    /// a wide kernel may want a narrower line.
     Accumulators,
 }
 
 impl F16Evaluation {
     /// Every mode, so that a caller offering the choice cannot miss one.
     pub const ALL: [Self; 3] = [Self::PerOperation, Self::Chain, Self::Accumulators];
-
-    /// The mode `name` spells, or `None` where nothing does.
-    pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|mode| mode.name() == name)
-    }
 
     fn name(self) -> &'static str {
         match self {
@@ -64,6 +61,30 @@ impl core::fmt::Display for F16Evaluation {
         f.write_str(self.name())
     }
 }
+
+impl core::str::FromStr for F16Evaluation {
+    type Err = UnknownF16Evaluation;
+
+    fn from_str(name: &str) -> core::result::Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|mode| mode.name() == name)
+            .ok_or_else(|| UnknownF16Evaluation(name.to_string()))
+    }
+}
+
+/// A name no [`F16Evaluation`] spells.
+#[derive(Debug)]
+pub struct UnknownF16Evaluation(String);
+
+impl core::fmt::Display for UnknownF16Evaluation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let known = F16Evaluation::ALL.map(F16Evaluation::name).join(", ");
+        write!(f, "{} is not one of {known}", self.0)
+    }
+}
+
+impl core::error::Error for UnknownF16Evaluation {}
 
 /// Rewrites f16 arithmetic to f32 arithmetic between a widening and a narrowing convert, reusing
 /// the f32 value where one rewritten operation feeds another.
@@ -254,7 +275,6 @@ fn is_widenable_f16(ctx: &Context, ty: TypeHandle) -> bool {
     elem.deref(ctx).is::<Float16Type>()
 }
 
-/// One candidate variable and every access to it.
 struct Candidate {
     variable: DeclareVariableOp,
     pointer: Value,
@@ -292,11 +312,8 @@ fn accesses(ctx: &Context, variable: DeclareVariableOp) -> Option<Candidate> {
     })
 }
 
-/// The candidates a copy joins, as groups of index into `candidates`.
-///
-/// Storing one variable's load into another is a narrowing convert and a widening one that cancel
-/// only when both sides are held, so judging either alone declines a promotion that pays for
-/// itself. `mem2reg` would have collapsed the copy, and it runs after this pass.
+/// The candidates a copy joins, as groups of index into `candidates`. A copy between two f16
+/// locals stops converting only when both sides are held, so they are weighed and held together.
 fn copy_groups(ctx: &Context, candidates: &[Candidate]) -> Vec<Vec<usize>> {
     let owner: HashMap<Value, usize> = candidates
         .iter()
@@ -354,7 +371,7 @@ fn promote_group(
     candidates: &[Candidate],
     group: &[usize],
 ) {
-    if !worth_holding(ctx, candidates, group) {
+    if !worth_holding(ctx, widened, candidates, group) {
         return;
     }
 
@@ -363,11 +380,14 @@ fn promote_group(
     }
 }
 
-/// A widening convert on a load, a narrowing one on a store and a copy within the group all
-/// disappear; every other use of a load and every other stored value gains one. Converts under a
-/// loop the group is declared outside of are counted on their own and decide first, because one
-/// paid every iteration outweighs any fixed number at the boundary, whatever the two counts are.
-fn worth_holding(ctx: &Context, candidates: &[Candidate], group: &[usize]) -> bool {
+/// Converts under a loop the group is declared outside of decide first, because one paid every
+/// iteration outweighs any fixed number at the boundary, whatever the two counts are.
+fn worth_holding(
+    ctx: &Context,
+    widened: &HashMap<Value, Value>,
+    candidates: &[Candidate],
+    group: &[usize],
+) -> bool {
     let inside: Vec<Value> = group
         .iter()
         .map(|&index| candidates[index].pointer)
@@ -405,7 +425,8 @@ fn worth_holding(ctx: &Context, candidates: &[Candidate], group: &[usize]) -> bo
             if loaded_from(ctx, stored).is_some_and(|source| inside.contains(&source)) {
                 continue;
             }
-            ledger(ctx, store.get_operation(), is_narrowed(ctx, stored));
+            // Only a convert this pass made is bypassed; one the kernel wrote is kept and widened.
+            ledger(ctx, store.get_operation(), widened.contains_key(&stored));
         }
     }
 
@@ -470,11 +491,10 @@ fn hold_in_f32(
     }
 
     for store in &candidate.stores {
-        let stored = store.value(ctx);
-        let wide = widen(ctx, widened, stored, store.get_operation());
         let op = store.get_operation();
-        op.operand(ctx, 1)
-            .replace_use_with(ctx, op.operand_as_use(ctx, 1), &wide);
+        let stored = store.value(ctx);
+        let wide = widen(ctx, widened, stored, op);
+        stored.replace_some_uses_with(ctx, |_, r#use| r#use.user_op() == op, &wide);
     }
 }
 
@@ -517,17 +537,6 @@ fn is_widening(ctx: &Context, op: Ptr<Operation>) -> bool {
     op.is_op::<CastOp>(ctx)
         && is_f16(ctx, op.operand(ctx, 0))
         && scalar_is::<Float32Type>(ctx, op.deref(ctx).get_result(0))
-}
-
-fn is_narrowing(ctx: &Context, op: Ptr<Operation>) -> bool {
-    op.is_op::<CastOp>(ctx)
-        && scalar_is::<Float32Type>(ctx, op.operand(ctx, 0))
-        && is_f16(ctx, op.deref(ctx).get_result(0))
-}
-
-/// Whether widening `value` again would cost nothing, because it is the f16 side of a convert.
-fn is_narrowed(ctx: &Context, value: Value) -> bool {
-    value.defining_op().is_some_and(|op| is_narrowing(ctx, op))
 }
 
 fn widen_ty(ctx: &mut Context, ty: TypeHandle) -> TypeHandle {

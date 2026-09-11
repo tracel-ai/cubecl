@@ -15,13 +15,28 @@ fn use_the_default() {
 /// An f16 intermediate above the f16 maximum survives, so a chain is held in f32 unless asked
 /// otherwise.
 ///
-/// This is the part of the policy that changes range rather than precision, and it is what gcc
-/// and clang do with `_Float16` by default. Rounding after every operation is what they emit
-/// only under `-fexcess-precision=16`, and it is what this backend used to do.
+/// This is the part of the policy that changes range rather than precision. gcc and clang hold a
+/// `_Float16` expression the same way, and round after every operation only under
+/// `-fexcess-precision=16`.
 #[test]
 fn a_chain_is_held_in_f32_by_default() {
     use_the_default();
     assert_eq!(common::product_over_300(), 300.0);
+}
+
+/// An immutable `let` is an SSA value, so the chain runs through it, where C would round at the
+/// assignment.
+#[test]
+fn a_let_does_not_end_a_chain() {
+    use_the_default();
+    assert_eq!(common::product_over_300_through_a_let(), 300.0);
+}
+
+/// A `let mut` is a variable, and a store rounds.
+#[test]
+fn a_let_mut_ends_a_chain() {
+    use_the_default();
+    assert!(common::product_over_300_through_a_let_mut().is_infinite());
 }
 
 /// A loop-carried accumulator is not held, which is where the default stops.

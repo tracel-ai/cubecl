@@ -1,4 +1,4 @@
-//! `CUBECL_CPU_F16_EVAL=accumulators`, which extends the default across a loop.
+//! `CUBECL_CPU_F16_EVAL=accumulators`, which also holds a private f16 variable in f32.
 
 use std::sync::Once;
 
@@ -31,6 +31,31 @@ fn a_copy_on_the_path_still_holds_the_accumulator() {
         common::accumulated_through_a_copy(2048.0, 1.0, 1000),
         3048.0
     );
+}
+
+/// Every lane of a vector accumulator is held, not only a scalar one.
+#[test]
+fn a_vector_accumulator_keeps_adding_past_the_f16_step_size() {
+    set_mode();
+    assert_eq!(
+        common::accumulated_vector(2048.0, 1.0, 1000),
+        [3048.0; common::LANES]
+    );
+}
+
+/// A `let mut` outside any loop is held too: its store and its load are both converts it removes.
+#[test]
+fn a_let_mut_is_held() {
+    set_mode();
+    assert_eq!(common::product_over_300_through_a_let_mut(), 300.0);
+}
+
+/// A store under an `if` is paid once, so it cannot outvote the converts at the boundary the way a
+/// store paid every iteration would. Held, the variable would carry `300 * 300` into the division.
+#[test]
+fn a_branch_is_not_a_loop() {
+    set_mode();
+    assert!(common::product_on_a_branch_over_300().is_infinite());
 }
 
 /// A kernel with no f16 in it still compiles, with the variable check reached as well.
