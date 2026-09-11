@@ -33,7 +33,7 @@ pub fn device_throughput<R: Runtime>(
 /// exactly like the single-size probe, so a curve costs one probe per size on
 /// the first run and nothing afterwards.
 ///
-/// Native only, panics on WASM
+/// Returns an empty curve on WASM.
 pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurve {
     let points = {
         // Every point of a sweep asks for the same pool, so the sweep holds one.
@@ -77,7 +77,8 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 
 /// Computes the peak throughput for a given runtime and key.
 ///
-/// Native only, panics on WASM
+/// Returns [`Unsupported`](ThroughputError::Unsupported) on WASM, where the
+/// synchronous sampling loop can't wait for GPU work.
 ///
 /// # Errors
 ///
@@ -88,6 +89,10 @@ pub fn measure_peak_throughput(
     client: &Client,
     key: ThroughputKey,
 ) -> Result<ThroughputValue, ThroughputError> {
+    if cfg!(target_family = "wasm") {
+        return Err(ThroughputError::Unsupported);
+    }
+
     // A throughput probe is a measurement: inside a dry run its launches must
     // still execute, or they would be timed anyway and cache a garbage peak in
     // the device-level throughput store. The guard is read where the launch is
