@@ -92,7 +92,10 @@ impl ProfileDuration {
     pub fn new_device_time(
         future: impl Future<Output = ProfileTicks> + Send + 'static,
     ) -> ProfileDuration {
-        Self::new(Box::pin(async move { Some(future.await) }), TimingMethod::Device)
+        Self::new(
+            Box::pin(async move { Some(future.await) }),
+            TimingMethod::Device,
+        )
     }
 
     /// Create a new `ProfileDuration` from a future that may resolve to no
