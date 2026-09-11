@@ -538,13 +538,13 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
     // One unmeasured sample disqualifies the candidate, the way one failed
     // sample does. Dropping it and averaging the rest would let a candidate
     // whose window went untimed be judged on its remaining runs.
-    let Some(durations) = futures_util::future::join_all(
-        profiles.into_iter().map(ProfileDuration::resolve),
-    )
-    .await
-    .into_iter()
-    .map(|ticks| ticks.map(|ticks| ticks.duration()))
-    .collect::<Option<Vec<Duration>>>() else {
+    let Some(durations) =
+        futures_util::future::join_all(profiles.into_iter().map(ProfileDuration::resolve))
+            .await
+            .into_iter()
+            .map(|ticks| ticks.map(|ticks| ticks.duration()))
+            .collect::<Option<Vec<Duration>>>()
+    else {
         return AutotuneResult::error(AutotuneError::NotMeasured {
             name: name.to_string(),
         });
