@@ -1,7 +1,50 @@
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{dialect::plane::*, interfaces::TypedExt, prelude::*};
 
-use crate::compiler::wgsl::{lower::LowerOp, to_wgsl::wgsl_op_with_out};
+use crate::compiler::wgsl::{lower::LowerOp, shader::RequiresFeatureOp, to_wgsl::wgsl_op_with_out};
+
+/// Every op that renders as a `subgroup*` builtin: the WGSL language
+/// extension those builtins live behind, which a strict front end (Tint)
+/// requires to be enabled before the first call.
+macro_rules! requires_subgroups {
+    ($($ty: ty),*) => {
+        $(#[op_interface_impl]
+        impl RequiresFeatureOp for $ty {
+            fn required_feature(&self, _ctx: &Context) -> String {
+                "subgroups".to_string()
+            }
+        })*
+    };
+}
+
+requires_subgroups!(
+    AllOp,
+    AnyOp,
+    ISumOp,
+    FSumOp,
+    InclusiveISumOp,
+    InclusiveFSumOp,
+    ExclusiveISumOp,
+    ExclusiveFSumOp,
+    IProdOp,
+    FProdOp,
+    InclusiveIProdOp,
+    InclusiveFProdOp,
+    ExclusiveIProdOp,
+    ExclusiveFProdOp,
+    SMinOp,
+    UMinOp,
+    FMinOp,
+    SMaxOp,
+    UMaxOp,
+    FMaxOp,
+    BallotOp,
+    BroadcastOp,
+    ShuffleOp,
+    ShuffleXorOp,
+    ShuffleUpOp,
+    ShuffleDownOp
+);
 
 // wgsl_op_with_out!(ElectOp; |_, _| "subgroupElect()".into());
 

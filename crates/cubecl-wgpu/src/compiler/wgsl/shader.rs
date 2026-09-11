@@ -194,6 +194,12 @@ impl Pass for EnableFeaturesPass {
                 feats.insert(op.required_feature(ctx));
             },
         );
+        // Naga takes the subgroup builtins without a directive and rejects
+        // the directive itself as unimplemented; the browser's front end is
+        // the other way around. The build for the browser is the wasm build.
+        if !cfg!(target_family = "wasm") {
+            feats.remove("subgroups");
+        }
 
         let mut res = PassResult::default();
         if !feats.is_empty() {
