@@ -286,8 +286,9 @@ pub trait Benchmark {
                 // A window that carried no measurement is a failed run here, not
                 // a fast one: this harness has an error channel, so it uses it
                 // rather than letting an absence become a zero in `durations`.
-                cubecl_environment::future::block_on(profile.resolve())
-                    .ok_or_else(|| alloc::string::String::from("the profiled window carried no measurement"))
+                cubecl_environment::future::block_on(profile.resolve()).ok_or_else(|| {
+                    alloc::string::String::from("the profiled window carried no measurement")
+                })
             };
             let args = self.prepare();
 
