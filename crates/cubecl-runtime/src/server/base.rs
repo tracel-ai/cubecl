@@ -65,6 +65,21 @@ pub enum ProfileError {
         backtrace: BackTrace,
     },
 
+    /// The profiled window resolved no device timing.
+    ///
+    /// Distinct from a zero duration, which is a measurement that came back
+    /// instant. This is the absence of one: nothing the window enqueued was
+    /// timestamped, so the backend has nothing to report. A caller that only
+    /// wants a number can treat it as zero; a caller comparing candidates must
+    /// not, because an absence that reads as zero is the fastest result there
+    /// is and wins every comparison it enters.
+    #[error("The profiled window resolved no device timing\nBacktrace:\n{backtrace}")]
+    NotMeasured {
+        /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// A launch error happened during profiling
     #[error("A launch error happened during profiling\nCaused by:\n  {0}")]
     Launch(#[from] LaunchError),

@@ -11,7 +11,7 @@ use cubecl_runtime::runtime::Runtime;
 
 use cubecl::prelude::*;
 use cubecl_common::profile::{Duration, ProfileDuration, TimingMethod};
-use cubecl_runtime::server::Handle;
+use cubecl_runtime::server::{Handle, ProfileError};
 
 /// Long enough that the window has something to measure on any device, short
 /// enough that a nesting test running four of them stays quick.
@@ -71,24 +71,42 @@ fn launch(client: &Client, output: &Handle) {
 }
 
 fn resolve(profile: ProfileDuration) -> Duration {
-    assert_eq!(profile.timing_method(), TimingMethod::Device);
-    cubecl_environment::future::block_on(profile.resolve()).duration()
+    maybe_resolve(profile).expect("the window dispatched work, so it must be measured")
 }
 
-/// A window with no GPU work in it measures next to nothing.
-///
-/// The bound is what separates device time from host time: a backend that
-/// times the wall clock around a drained stream reports the drain here, which
-/// is milliseconds of launch latency rather than the microseconds two events
-/// recorded back to back on an idle stream are apart.
-pub fn test_empty_window_reports_no_device_time<R: Runtime>(client: Client) {
-    let (_, profile) = client.profile(|| {}, "empty").unwrap();
-    let duration = resolve(profile);
+/// [`resolve`] for a window that is allowed to carry no measurement.
+fn maybe_resolve(profile: ProfileDuration) -> Option<Duration> {
+    assert_eq!(profile.timing_method(), TimingMethod::Device);
+    cubecl_environment::future::block_on(profile.resolve()).map(|ticks| ticks.duration())
+}
 
-    assert!(
-        duration < Duration::from_millis(1),
-        "a window with no GPU work must measure next to nothing, got {duration:?}"
-    );
+/// A window with no GPU work in it never reports the drain around it.
+///
+/// This is what separates device time from host time: a backend that times the
+/// wall clock around a drained stream reports the drain here, which is
+/// milliseconds of launch latency rather than the microseconds two events
+/// recorded back to back on an idle stream are apart.
+///
+/// Two answers are honest. A backend that brackets the window with its own
+/// events has a real measurement of an empty span and reports it, so it must be
+/// tiny. A backend that only reads timestamps its passes wrote has nothing to
+/// read and says so instead -- with [`ProfileError::NotMeasured`] when it knows
+/// at once, or by resolving to [`None`] when only the device can tell it. What
+/// it must not do is invent a zero, because zero is the fastest result there is
+/// and an absence dressed as one wins every comparison it enters.
+pub fn test_empty_window_reports_no_device_time<R: Runtime>(client: Client) {
+    match client.profile(|| {}, "empty") {
+        Ok((_, profile)) => {
+            if let Some(duration) = maybe_resolve(profile) {
+                assert!(
+                    duration < Duration::from_millis(1),
+                    "a window with no GPU work must measure next to nothing, got {duration:?}"
+                );
+            }
+        }
+        Err(ProfileError::NotMeasured { .. }) => {}
+        Err(err) => panic!("an empty window must measure or abstain, got {err}"),
+    }
 }
 
 /// Real GPU work measures positive and plausible.

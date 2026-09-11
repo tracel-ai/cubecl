@@ -394,7 +394,7 @@ impl QueryProfiler {
             let epoch_tick = self.epoch_tick;
             let epoch_instant = self.epoch_instant;
 
-            Ok(ProfileDuration::new_device_time(async move {
+            Ok(ProfileDuration::new_device_time_maybe(async move {
                 let (sender, rec) = cubecl_environment::future::channel::bounded(1);
                 map_buffer
                     .slice(..)
@@ -412,13 +412,30 @@ impl QueryProfiler {
 
                 let binding = map_buffer.slice(..).get_mapped_range().unwrap();
                 let data: &[u64] = bytemuck::try_cast_slice(&binding).unwrap();
+                let (raw_start, raw_end) = (data[0], data[1]);
+                drop(binding);
+                map_buffer.unmap();
+
+                // The window's two ends have to have been written, and in order.
+                //
+                // A slot the GPU never wrote back reads as zero, and an end that
+                // precedes its start is a pair that does not describe one span --
+                // observed on Metal, where the two ends resolved from passes the
+                // device had not ordered that way, some microseconds apart.
+                //
+                // Both used to reach `duration()`, which subtracts saturating and
+                // so answered zero. Zero is the fastest duration there is, so an
+                // autotune candidate carrying one wins every comparison it enters:
+                // that is how an unmeasured row came to be cached as the best.
+                // Neither is a measurement, so neither gets a number.
+                if raw_start == 0 || raw_end == 0 || raw_end <= raw_start {
+                    return None;
+                }
 
                 // Get nr. of ticks since epoch.
-                let data_start = data[0].saturating_sub(epoch_tick);
-                let data_end = data[1].saturating_sub(epoch_tick);
-                drop(binding);
+                let data_start = raw_start.saturating_sub(epoch_tick);
+                let data_end = raw_end.saturating_sub(epoch_tick);
 
-                map_buffer.unmap();
                 // Convert to a duration.
                 let start_duration = Duration::from_nanos((data_start as f64 * period) as u64);
                 let end_duration = Duration::from_nanos((data_end as f64 * period) as u64);
@@ -427,16 +444,25 @@ impl QueryProfiler {
                 let instant_start = epoch_instant + start_duration;
                 let instant_end = epoch_instant + end_duration;
 
-                ProfileTicks::from_start_end(instant_start, instant_end)
+                Some(ProfileTicks::from_start_end(instant_start, instant_end))
             }))
         } else {
-            // If there was no work done between the start and stop of the profile, logically the
-            // time should be 0. We could use a ProfileDuration::from_duration here,
-            // but it seems better to always return things as 'device' timing method.
-            let now = Instant::now();
-            Ok(ProfileDuration::new_device_time(async move {
-                ProfileTicks::from_start_end(now, now)
-            }))
+            // Nothing the window enqueued was timestamped, so there is no timing to resolve.
+            //
+            // This used to answer with `from_start_end(now, now)` — a duration of exactly zero —
+            // on the reading that an empty window logically took no time. But the two cases are
+            // indistinguishable here: a window that dispatched nothing and a window whose work
+            // never reached a timestamped pass both arrive with no query set, and the second is
+            // a kernel that ran. Answering either with zero hands the caller a measurement that
+            // was never taken, and zero is the fastest result there is, so it wins every
+            // comparison it enters. An autotune round short-circuited on one of these and
+            // persisted the slowest candidate it had.
+            //
+            // So the absence stays an absence. A caller that wants a number for an empty window
+            // can map this to zero itself, having decided that is what it means.
+            Err(ProfileError::NotMeasured {
+                backtrace: BackTrace::capture(),
+            })
         }
     }
 
