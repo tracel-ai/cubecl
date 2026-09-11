@@ -1,7 +1,7 @@
 use crate::{
     config::memory::MemoryPoolsConfig,
     config::{TypeNameFormatLevel, type_name_format},
-    id::GraphId,
+    id::{GraphId, KernelId},
     kernel::CubeKernel,
     logging::ProfileLevel,
     memory_management::{
@@ -1031,7 +1031,9 @@ impl Client {
         // which the caller's own context still exists, and attributing a
         // launch to what caused it is the whole reason the hook is here rather
         // than beside the logger's aggregation.
-        crate::logging::notify_launch(kernel.name());
+        if crate::logging::is_observing() {
+            crate::logging::notify_launch(kernel.name());
+        }
 
         // An observer asking for timing gets the profiled path even with the
         // profiling logger off — the two are separate readers of the same
@@ -1044,11 +1046,15 @@ impl Client {
             None | Some(ProfileLevel::ExecutionOnly) if !observed_timing => {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
-                    let name = kernel.name();
+                    let execution_info = if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                        Some(profile_label(kernel.name(), &kernel.id()))
+                    } else {
+                        None
+                    };
+
                     unsafe { state.launch(kernel, count, bindings, stream_id, launch_mode) };
 
-                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                        let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                    if let Some(info) = execution_info {
                         utilities.logger.register_execution(info);
                     }
                 });
@@ -1099,6 +1105,7 @@ impl Client {
                             // unobserved run would have.
                             Some((kernel, count, bindings)) => {
                                 let utilities = self.utilities.clone();
+                                let kernel_id = kernel.id();
                                 self.device.submit(move |state| {
                                     unsafe {
                                         state.launch(
@@ -1110,8 +1117,7 @@ impl Client {
                                         )
                                     };
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                                        let info =
-                                            type_name_format(name, TypeNameFormatLevel::Balanced);
+                                        let info = profile_label(name, &kernel_id);
                                         utilities.logger.register_execution(info);
                                     }
                                 });
@@ -1120,8 +1126,7 @@ impl Client {
                             // only its measurement was lost.
                             None => {
                                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                                    let info =
-                                        type_name_format(name, TypeNameFormatLevel::Balanced);
+                                    let info = profile_label(name, &kernel_id);
                                     self.utilities.logger.register_execution(info);
                                 }
                             }
@@ -1163,7 +1168,7 @@ impl Client {
                     // the profile would turn a log the caller configured into
                     // one it did not.
                     Some(ProfileLevel::ExecutionOnly) => {
-                        let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                        let info = profile_label(name, &kernel_id);
                         self.utilities.logger.register_execution(info);
                     }
                     Some(level) => {
@@ -1171,7 +1176,7 @@ impl Client {
                             ProfileLevel::Full => {
                                 format!("{name}: {kernel_id} CubeCount {count:?}")
                             }
-                            _ => type_name_format(name, TypeNameFormatLevel::Balanced),
+                            _ => profile_label(name, &kernel_id),
                         };
                         self.utilities.logger.register_profiled(info, profile);
                     }
@@ -1670,4 +1675,9 @@ impl Client {
         let mut throughputs = ThroughputBenchmarker::new(cache);
         throughputs.measure(key, probe)
     }
+}
+
+fn profile_label(name: &'static str, kernel_id: &KernelId) -> String {
+    let base = type_name_format(name, TypeNameFormatLevel::Balanced);
+    kernel_id.entrypoint_name(&base)
 }
