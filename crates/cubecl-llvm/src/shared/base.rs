@@ -26,12 +26,8 @@ use cubecl_core::{
     prelude::*,
 };
 use pliron::{
-    builtin::{
-        op_interfaces::SymbolOpInterface,
-        ops::{FuncOp, ModuleOp},
-    },
+    builtin::ops::{FuncOp, ModuleOp},
     context::{Context, Ptr},
-    identifier::Identifier,
     op::Op,
     operation::Operation,
     operation::verify_operation,
@@ -198,10 +194,6 @@ impl PlironCompiler {
         let ir = KernelIr::of(&kernel);
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
-        let entry_name = Identifier::try_new(kernel.settings.kernel_name.clone())
-            .unwrap_or_else(|_| Identifier::try_new("kernel_entry".to_string()).unwrap());
-        ir.entry_func.set_symbol_name(&mut ctx, entry_name);
-
         ctx.set_target(LlvmTarget::Cpu);
 
         let needs_parallelism = kernel.settings.cube_dim.num_elems() > 1
@@ -230,10 +222,6 @@ impl PlironCompiler {
         let module = kernel.body.state().module;
         let ir = KernelIr::of(&kernel);
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
-
-        let entry_name = Identifier::try_new(kernel.settings.kernel_name.clone())
-            .unwrap_or_else(|_| Identifier::try_new("kernel_entry".to_string()).unwrap());
-        ir.entry_func.set_symbol_name(&mut ctx, entry_name);
 
         // The runtime checks this against what the driver reports before it compiles
         // anything, so an architecture with no known width should not reach here.

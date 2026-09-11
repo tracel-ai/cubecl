@@ -179,15 +179,10 @@ impl<C: Compiler> CompiledKernel<C> {
     /// debug name of the result.
     pub fn compile(
         kernel: &dyn CubeKernel,
-        mut definition: KernelDefinition,
+        definition: KernelDefinition,
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
     ) -> Result<Self, CompilationError> {
-        let disc = (kernel.id().stable_hash() & 0xFFFF_FFFF) as u32;
-        if !definition.settings.kernel_name.is_empty() {
-            definition.settings.kernel_name =
-                alloc::format!("{}_{:08x}", definition.settings.kernel_name, disc);
-        }
         let entrypoint_name = definition.settings.kernel_name.clone();
         let cube_dim = definition.settings.cube_dim.into();
 

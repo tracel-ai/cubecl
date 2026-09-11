@@ -1,7 +1,7 @@
 use crate::{
     config::memory::MemoryPoolsConfig,
     config::{TypeNameFormatLevel, type_name_format},
-    id::GraphId,
+    id::{GraphId, KernelId},
     kernel::CubeKernel,
     logging::ProfileLevel,
     memory_management::{
@@ -1047,13 +1047,7 @@ impl Client {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
                     let execution_info = if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                        let name = kernel.name();
-                        let disc = (kernel.id().stable_hash() & 0xFFFF_FFFF) as u32;
-                        Some(format!(
-                            "{}_{:08x}",
-                            type_name_format(name, TypeNameFormatLevel::Balanced),
-                            disc
-                        ))
+                        Some(profile_label(kernel.name(), &kernel.id()))
                     } else {
                         None
                     };
@@ -1111,6 +1105,7 @@ impl Client {
                             // unobserved run would have.
                             Some((kernel, count, bindings)) => {
                                 let utilities = self.utilities.clone();
+                                let kernel_id = kernel.id();
                                 self.device.submit(move |state| {
                                     unsafe {
                                         state.launch(
@@ -1122,8 +1117,7 @@ impl Client {
                                         )
                                     };
                                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                                        let info =
-                                            type_name_format(name, TypeNameFormatLevel::Balanced);
+                                        let info = profile_label(name, &kernel_id);
                                         utilities.logger.register_execution(info);
                                     }
                                 });
@@ -1132,8 +1126,7 @@ impl Client {
                             // only its measurement was lost.
                             None => {
                                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                                    let info =
-                                        type_name_format(name, TypeNameFormatLevel::Balanced);
+                                    let info = profile_label(name, &kernel_id);
                                     self.utilities.logger.register_execution(info);
                                 }
                             }
@@ -1166,7 +1159,7 @@ impl Client {
                     // the profile would turn a log the caller configured into
                     // one it did not.
                     Some(ProfileLevel::ExecutionOnly) => {
-                        let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                        let info = profile_label(name, &kernel_id);
                         self.utilities.logger.register_execution(info);
                     }
                     Some(level) => {
@@ -1174,14 +1167,7 @@ impl Client {
                             ProfileLevel::Full => {
                                 format!("{name}: {kernel_id} CubeCount {count:?}")
                             }
-                            _ => {
-                                let disc = (kernel_id.stable_hash() & 0xFFFF_FFFF) as u32;
-                                format!(
-                                    "{}_{:08x}",
-                                    type_name_format(name, TypeNameFormatLevel::Balanced),
-                                    disc
-                                )
-                            }
+                            _ => profile_label(name, &kernel_id),
                         };
                         self.utilities.logger.register_profiled(info, profile);
                     }
@@ -1680,4 +1666,9 @@ impl Client {
         let mut throughputs = ThroughputBenchmarker::new(cache);
         throughputs.measure(key, probe)
     }
+}
+
+fn profile_label(name: &'static str, kernel_id: &KernelId) -> String {
+    let base = type_name_format(name, TypeNameFormatLevel::Balanced);
+    kernel_id.entrypoint_name(&base)
 }

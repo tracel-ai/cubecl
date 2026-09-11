@@ -1,85 +1,46 @@
-use cubecl_ir::{
-    AddressType, ElemType, Scope, UIntKind,
-    metadata::Info,
-    settings::{Dim3, ExecutionMode, KernelSettings},
-};
-use cubecl_runtime::compiler::{CompilationError, Compiler};
-use cubecl_runtime::id::KernelId;
-use cubecl_runtime::kernel::{CompiledKernel, CubeKernel, KernelDefinition, KernelMetadata};
+#[allow(dead_code)]
+mod dummy;
 
-#[derive(Clone, Debug, Default)]
-struct TestCompiler;
+use cubecl::prelude::*;
+use cubecl_core as cubecl;
+use dummy::{DummyDevice, test_client};
 
-impl Compiler for TestCompiler {
-    type Representation = String;
-    type CompilationOptions = ();
-
-    fn compile(
-        &mut self,
-        _kernel: KernelDefinition,
-        _options: &Self::CompilationOptions,
-    ) -> Result<Self::Representation, CompilationError> {
-        Ok("void main() {}".to_string())
-    }
-
-    fn extension(&self) -> &'static str {
-        "test"
-    }
-
-    fn lang_tag(&self) -> &'static str {
-        "test"
-    }
+#[cube(launch)]
+fn comptime_kernel(#[comptime] factor: u32) {
+    let _ = factor;
 }
 
-struct ComptimeKernel {
-    strategy: &'static str,
-}
-
-impl KernelMetadata for ComptimeKernel {
-    fn id(&self) -> KernelId {
-        KernelId::new::<Self>().info(self.strategy)
-    }
-
-    fn address_type(&self) -> ElemType {
-        ElemType::UInt(UIntKind::U32)
-    }
-}
-
-impl CubeKernel for ComptimeKernel {
-    fn define(&self) -> KernelDefinition {
-        let mut settings =
-            KernelSettings::new(Dim3::new_single(), ExecutionMode::Checked, AddressType::U32);
-        settings.kernel_name = "reduce_kernel_in_f32_out_u32".to_string();
-        KernelDefinition {
-            body: Scope::root(settings.clone()),
-            settings,
-            info: Info::default(),
-        }
-    }
-}
+use comptime_kernel::ComptimeKernel;
 
 #[test]
-fn entrypoint_name_disambiguates_comptime_variants() {
-    let k_argmax = ComptimeKernel { strategy: "ArgMax" };
-    let k_argmin = ComptimeKernel { strategy: "ArgMin" };
+fn define_disambiguates_comptime_variants() {
+    let client = test_client(&DummyDevice);
+    let settings = KernelSettings::new(
+        *CubeDim::new_single(),
+        ExecutionMode::Checked,
+        AddressType::U32,
+    );
 
-    let mut compiler = TestCompiler;
+    let k1 = ComptimeKernel::new(
+        settings.clone(),
+        client.properties_shared(),
+        client.target_properties_shared(),
+        1,
+    );
+    let k2 = ComptimeKernel::new(
+        settings,
+        client.properties_shared(),
+        client.target_properties_shared(),
+        2,
+    );
 
-    let c_max = CompiledKernel::compile(&k_argmax, k_argmax.define(), &mut compiler, &()).unwrap();
-    let c_min = CompiledKernel::compile(&k_argmin, k_argmin.define(), &mut compiler, &()).unwrap();
+    let def1 = k1.define();
+    let def2 = k2.define();
 
     assert_ne!(
-        c_max.entrypoint_name, c_min.entrypoint_name,
-        "Kernels with distinct KernelId info must have distinct entrypoint names"
+        def1.settings.kernel_name, def2.settings.kernel_name,
+        "Kernels with distinct comptime arguments must have distinct kernel names"
     );
-    assert!(
-        c_max
-            .entrypoint_name
-            .starts_with("reduce_kernel_in_f32_out_u32_")
-    );
-    assert!(
-        c_min
-            .entrypoint_name
-            .starts_with("reduce_kernel_in_f32_out_u32_")
-    );
+    assert!(def1.settings.kernel_name.starts_with("comptime_kernel_"));
+    assert!(def2.settings.kernel_name.starts_with("comptime_kernel_"));
 }
