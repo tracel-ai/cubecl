@@ -161,6 +161,16 @@ wgsl_op!(EnableOp, |op, ctx| {
     format!("enable {};\n", op.feature(ctx).as_ref())
 });
 
+#[cube_op(name = "wgsl.diagnostic_off", format = "attr($rule, $IdentifierAttr)")]
+#[result_ty(none)]
+pub struct DiagnosticOffOp {
+    rule: IdentifierAttr,
+}
+
+wgsl_op!(DiagnosticOffOp, |op, ctx| {
+    format!("diagnostic(off, {});\n", op.rule(ctx).as_ref())
+});
+
 #[op_interface]
 pub trait RequiresFeatureOp {
     verify_op_succ!();
@@ -206,6 +216,14 @@ impl Pass for EnableFeaturesPass {
             res.ir_changed = IRStatus::Changed;
         }
 
+        // The kernels call subgroup builtins from control flow the WGSL
+        // uniformity analysis cannot prove uniform, as they do on every
+        // other backend; a strict front end (Tint) makes that an error
+        // unless the rule is switched off.
+        if feats.contains("subgroups") {
+            let diagnostic = DiagnosticOffOp::new(ctx, ident("subgroup_uniformity"));
+            diagnostic.get_operation().insert_at_front(module_body, ctx);
+        }
         for feat in feats {
             let enable = EnableOp::new(ctx, ident(feat));
             enable.get_operation().insert_at_front(module_body, ctx);
