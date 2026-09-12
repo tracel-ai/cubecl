@@ -304,6 +304,14 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// database under the tuner mutex.
     ///
     /// Returns how many entries the store delivered.
+    /// Whether everything the persistent cache holds has been ingested.
+    /// `false` while an asynchronous storage is still reading, in which
+    /// case a miss says nothing yet.
+    #[cfg(autotune_persistence)]
+    pub(crate) fn hydrated(&self) -> bool {
+        self.hydrated
+    }
+
     pub(crate) fn sync_persistent(&mut self) -> usize {
         if self.hydrated {
             return 0;

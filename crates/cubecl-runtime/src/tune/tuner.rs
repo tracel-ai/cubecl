@@ -253,6 +253,15 @@ impl<K: AutotuneKey> Tuner<K> {
                 cur
             };
 
+            // A miss before the persistent cache has fully arrived is not a
+            // miss: the entry may be on its way. Run the fallback for now and
+            // decide once the read has landed, rather than tune what is
+            // already known.
+            #[cfg(autotune_persistence)]
+            if matches!(cur, TuneCacheResult::Miss) && !cache.hydrated() {
+                return TuneCacheResult::Pending;
+            }
+
             #[cfg(autotune_persistence)]
             let cur = if matches!(cur, TuneCacheResult::Unchecked) {
                 let mut log = self.logger.lock();

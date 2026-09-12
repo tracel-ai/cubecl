@@ -24,6 +24,16 @@
 //!
 //! Entries inserted immediately before the page closes may be lost. This is
 //! acceptable for a cache.
+//!
+//! # Preloading
+//!
+//! A storage created without [`preload`] having run reads its namespace in
+//! the background, and a store looking it up in the meantime sees nothing:
+//! a cache opened and queried in the same tick misses every entry it holds.
+//! [`preload`] reads the whole database once, up front; every storage
+//! created afterwards is seeded from that snapshot synchronously and is
+//! loaded from the start. A page that owns its startup awaits it before
+//! the first kernel runs.
 
 use alloc::boxed::Box;
 use alloc::format;
@@ -46,6 +56,20 @@ use super::storage::{Insertion, Origin, Storage, entries};
 const DB_NAME: &str = "cubecl";
 const STORE_NAME: &str = "kv";
 
+/// Every record of the database as read by [`preload`], by record key, each
+/// handed to the storage of its namespace when that storage is created.
+static PRELOADED: spin::Mutex<Option<HashMap<String, Bytes>>> = spin::Mutex::new(None);
+
+/// Reads the whole database into memory so that every storage created from
+/// now on starts loaded. Returns how many records were read. Safe to call
+/// again: the snapshot is replaced.
+pub async fn preload() -> Result<usize, String> {
+    let records = load_all().await.map_err(|err| format!("{err:?}"))?;
+    let count = records.len();
+    *PRELOADED.lock() = Some(records);
+    Ok(count)
+}
+
 /// The mirrored content of one namespace.
 #[derive(Default, Debug)]
 struct State {
@@ -67,9 +91,39 @@ pub(crate) fn open_storage(namespace: &str) -> Box<dyn Storage> {
 }
 
 impl BrowserStorage {
-    /// Creates the storage and starts loading existing entries under
-    /// `prefix` in the background.
+    /// Creates the storage: seeded and loaded from the [`preload`] snapshot
+    /// when there is one, otherwise loading existing entries under `prefix`
+    /// in the background.
     pub fn new(prefix: String) -> Self {
+        if let Some(records) = PRELOADED.lock().as_mut() {
+            let mut state = State {
+                entries: Default::default(),
+                loaded: true,
+            };
+            let mine: Vec<String> = records
+                .keys()
+                .filter(|record_key| record_key.starts_with(&prefix))
+                .cloned()
+                .collect();
+            for record_key in mine {
+                let Some(value) = records.remove(&record_key) else {
+                    continue;
+                };
+                match decode_record_key(&record_key, &prefix) {
+                    Some(key) => {
+                        state.entries.insert(key, (value, Origin::Local));
+                    }
+                    None => log::warn!(
+                        "cubecl cache: unreadable browser storage record key '{record_key}'"
+                    ),
+                }
+            }
+            return Self {
+                prefix,
+                state: Arc::new(spin::Mutex::new(state)),
+            };
+        }
+
         let state = Arc::new(spin::Mutex::new(State::default()));
 
         {
@@ -268,48 +322,27 @@ async fn open_db() -> Result<IdbDatabase, JsValue> {
     result.dyn_into::<IdbDatabase>().map_err(JsValue::from)
 }
 
+/// The storage key a record key holds, when the record belongs to `prefix`.
+fn decode_record_key(record_key: &str, prefix: &str) -> Option<Vec<u8>> {
+    record_key.strip_prefix(prefix).and_then(from_hex)
+}
+
 /// Loads every record under `prefix` into the mirrored state.
 async fn load(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue> {
-    let db = open_db().await?;
-
-    let transaction = db.transaction_with_str(STORE_NAME)?;
-    let store = transaction.object_store(STORE_NAME)?;
-
     // All keys starting with the prefix: [prefix, prefix + U+10FFFF).
     let upper = format!("{prefix}\u{10FFFF}");
     let range = IdbKeyRange::bound(&JsValue::from_str(prefix), &JsValue::from_str(&upper))?;
 
-    // Both requests report entries in record key order, so the two arrays line
-    // up index by index.
-    let keys: js_sys::Array = request_result(&store.get_all_keys_with_key(&range)?)
-        .await?
-        .dyn_into()?;
-    let values: js_sys::Array = request_result(&store.get_all_with_key(&range)?)
-        .await?
-        .dyn_into()?;
-
     let mut entries = HashMap::new();
-    for (key, value) in keys.iter().zip(values.iter()) {
-        let Some(record_key) = key.as_string() else {
-            log::warn!("cubecl cache: unexpected browser storage record key: {key:?}");
-            continue;
-        };
-        let Some(key) = record_key.strip_prefix(prefix).and_then(from_hex) else {
+    for (record_key, bytes) in load_records(Some(&range)).await? {
+        let Some(key) = decode_record_key(&record_key, prefix) else {
             log::warn!("cubecl cache: unreadable browser storage record key '{record_key}'");
             continue;
         };
-
-        match value.dyn_into::<Uint8Array>() {
-            Ok(bytes) => {
-                // Everything already durable is treated as local: an import
-                // that reached storage is indistinguishable from a local
-                // computation once the process restarts.
-                entries.insert(key, (Bytes::from_bytes_vec(bytes.to_vec()), Origin::Local));
-            }
-            Err(value) => {
-                log::warn!("cubecl cache: unexpected browser storage record type: {value:?}");
-            }
-        }
+        // Everything already durable is treated as local: an import that
+        // reached storage is indistinguishable from a local computation
+        // once the process restarts.
+        entries.insert(key, (bytes, Origin::Local));
     }
 
     if !entries.is_empty() {
@@ -321,6 +354,47 @@ async fn load(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue> {
     }
 
     Ok(())
+}
+
+/// Every record of the database, by record key.
+async fn load_all() -> Result<HashMap<String, Bytes>, JsValue> {
+    Ok(load_records(None).await?.into_iter().collect())
+}
+
+/// The records in `range`, or all of them, as (record key, value) pairs.
+async fn load_records(range: Option<&IdbKeyRange>) -> Result<Vec<(String, Bytes)>, JsValue> {
+    let db = open_db().await?;
+
+    let transaction = db.transaction_with_str(STORE_NAME)?;
+    let store = transaction.object_store(STORE_NAME)?;
+
+    // Both requests report entries in record key order, so the two arrays line
+    // up index by index.
+    let (keys, values) = match range {
+        Some(range) => (
+            store.get_all_keys_with_key(range)?,
+            store.get_all_with_key(range)?,
+        ),
+        None => (store.get_all_keys()?, store.get_all()?),
+    };
+    let keys: js_sys::Array = request_result(&keys).await?.dyn_into()?;
+    let values: js_sys::Array = request_result(&values).await?.dyn_into()?;
+
+    let mut records = Vec::with_capacity(keys.length() as usize);
+    for (key, value) in keys.iter().zip(values.iter()) {
+        let Some(record_key) = key.as_string() else {
+            log::warn!("cubecl cache: unexpected browser storage record key: {key:?}");
+            continue;
+        };
+        match value.dyn_into::<Uint8Array>() {
+            Ok(bytes) => records.push((record_key, Bytes::from_bytes_vec(bytes.to_vec()))),
+            Err(value) => {
+                log::warn!("cubecl cache: unexpected browser storage record type: {value:?}");
+            }
+        }
+    }
+
+    Ok(records)
 }
 
 /// Writes one record.
