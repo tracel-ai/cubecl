@@ -76,6 +76,19 @@ pub struct BenchConfig {
     /// Ignored on wasm, which cannot resolve samples between rounds and so always takes the
     /// fixed-count pass.
     pub adaptive: bool,
+
+    /// Unmeasured launches of a candidate before its samples, so a candidate is not measured on
+    /// its slowest run.
+    ///
+    /// On wasm every warm-up and sample of every candidate in a batch is queued before any is
+    /// resolved, so this and [`max_samples`](Self::max_samples) together bound how much device
+    /// time one batch queues at once — what keeps a slow candidate short of a GPU watchdog.
+    #[serde(default = "default_warmup_samples")]
+    pub warmup_samples: usize,
+}
+
+fn default_warmup_samples() -> usize {
+    3
 }
 
 impl Default for BenchConfig {
@@ -86,6 +99,7 @@ impl Default for BenchConfig {
             short_circuit_samples: 2,
             speed_factor: 1.5,
             adaptive: true,
+            warmup_samples: default_warmup_samples(),
         }
     }
 }

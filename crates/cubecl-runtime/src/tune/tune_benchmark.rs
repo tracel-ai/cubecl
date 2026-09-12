@@ -145,7 +145,11 @@ fn warmup<'a, F: TuneInputs, Out: AutotuneOutput>(
     inputs: <F as TuneInputs>::At<'a>,
     client: Client,
 ) -> Result<(), AutotuneError> {
-    let num_warmup = 3;
+    let num_warmup = crate::config::CubeClRuntimeConfig::get()
+        .autotune
+        .bench
+        .warmup_samples
+        .max(1);
 
     let mut errors = Vec::with_capacity(num_warmup);
     // We make sure the server is in a correct state.
