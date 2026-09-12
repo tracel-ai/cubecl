@@ -70,6 +70,35 @@ pub async fn preload() -> Result<usize, String> {
     Ok(count)
 }
 
+/// Every record of the database, as (record key, value) pairs: what one
+/// device tuned, in the form [`seed`] takes on another.
+pub async fn export() -> Result<Vec<(String, Vec<u8>)>, String> {
+    let records = load_records(None).await.map_err(|err| format!("{err:?}"))?;
+    Ok(records
+        .into_iter()
+        .map(|(key, value)| (key, value.to_vec()))
+        .collect())
+}
+
+/// Writes every record of `records` the database does not already hold, so
+/// picks made elsewhere stand in until this device makes its own. Returns
+/// how many were written. Call before [`preload`], which is what hands them
+/// to the storages.
+pub async fn seed(records: &[(String, Vec<u8>)]) -> Result<usize, String> {
+    let present = load_all().await.map_err(|err| format!("{err:?}"))?;
+    let mut written = 0;
+    for (record_key, value) in records {
+        if present.contains_key(record_key) {
+            continue;
+        }
+        put(record_key, value)
+            .await
+            .map_err(|err| format!("{err:?}"))?;
+        written += 1;
+    }
+    Ok(written)
+}
+
 /// The mirrored content of one namespace.
 #[derive(Default, Debug)]
 struct State {

@@ -37,7 +37,10 @@ pub use sqlite::{Database, SqliteStorage, db_file_name};
 pub(crate) mod browser;
 
 #[cfg(browser_cache)]
-pub use browser::preload as preload_browser_storage;
+pub use browser::{
+    export as export_browser_storage, preload as preload_browser_storage,
+    seed as seed_browser_storage,
+};
 
 /// Cache root location selection.
 ///
