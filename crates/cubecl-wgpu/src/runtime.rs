@@ -7,11 +7,11 @@ use crate::{
 };
 use cubecl_common::device::{Device, DeviceService, ServiceId};
 use cubecl_common::profile::TimingMethod;
-use cubecl_core::WgpuCompilationOptions;
 use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
 use cubecl_core::ir::TargetProperties;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
+use cubecl_core::{WgpuCompilationOptions, WgslFrontEnd};
 use cubecl_environment::future;
 use cubecl_ir::{DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
@@ -170,6 +170,11 @@ pub struct RuntimeOptions {
     /// report a range and a kernel cannot count on which width it gets.
     /// Read on wasm only.
     pub plane_width: PlaneWidth,
+    /// The WGSL front end that reads the modules. Natively it is wgpu's
+    /// own, Naga; in a browser it is the browser's, which the runtime
+    /// cannot see and the embedder can probe: Tint in Chromium, the
+    /// default there, and Naga in Firefox. Read on wasm only.
+    pub wgsl_front_end: WgslFrontEnd,
 }
 
 /// What a browser runtime does about a plane width the adapter reports as
@@ -212,6 +217,11 @@ impl Default for RuntimeOptions {
             tasks_max,
             memory_config: MemoryConfiguration::default(),
             plane_width: PlaneWidth::default(),
+            wgsl_front_end: if cfg!(target_family = "wasm") {
+                WgslFrontEnd::Tint
+            } else {
+                WgslFrontEnd::Naga
+            },
         }
     }
 }
@@ -421,6 +431,10 @@ pub(crate) fn create_server<C: WgpuCompiler>(
     // register file between more lanes: a register-heavy kernel at 32 runs
     // at a third of its speed at 8 on an Intel iGPU, and a streaming kernel
     // runs the same at either.
+    #[cfg(target_family = "wasm")]
+    {
+        compilation_options.wgsl_front_end = options.wgsl_front_end;
+    }
     #[cfg(target_family = "wasm")]
     if device_props.hardware.plane_size_min != device_props.hardware.plane_size_max {
         let hardware = &mut device_props.hardware;

@@ -1,6 +1,6 @@
 use core::fmt::{self, Display, Write};
 
-use cubecl_core::{WgpuCompilationOptions, prelude::Visibility};
+use cubecl_core::{WgpuCompilationOptions, WgslFrontEnd, prelude::Visibility};
 use cubecl_ir::{
     AddressSpace, CanMaterialize, GlobalState, Pure,
     attributes::{
@@ -210,9 +210,10 @@ impl Pass for EnableFeaturesPass {
             },
         );
         // Naga takes the subgroup builtins without a directive and rejects
-        // the directive itself as unimplemented; the browser's front end is
-        // the other way around. The build for the browser is the wasm build.
-        if !cfg!(target_family = "wasm") {
+        // the directive itself as unimplemented; Tint is the other way
+        // around. Which one reads the module is the runtime's to say.
+        let front_end = ctx.aux_ty::<WgpuCompilationOptions>().wgsl_front_end;
+        if front_end == WgslFrontEnd::Naga {
             feats.remove("subgroups");
         }
 
