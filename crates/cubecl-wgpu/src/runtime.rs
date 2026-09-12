@@ -192,9 +192,10 @@ pub enum PlaneWidth {
     /// The browser is known to give every kernel this width, so the
     /// properties report it and nothing is pinned.
     Assumed(u32),
-    /// The range is reported as is. A kernel that counts on a width is
-    /// refused by whoever reads the properties, and one that assumes the
-    /// widest without reading them is wrong.
+    /// The range is reported as is and the plane operations are withdrawn:
+    /// a kernel that folds across a plane assumes a width, and on a device
+    /// that varies it with nothing to pin it, the width it assumes is the
+    /// one it will not get. Slower, and right.
     #[default]
     Range,
 }
@@ -447,7 +448,12 @@ pub(crate) fn create_server<C: WgpuCompiler>(
                 hardware.plane_size_min = width;
                 hardware.plane_size_max = width;
             }
-            PlaneWidth::Range => {}
+            PlaneWidth::Range => {
+                device_props
+                    .features
+                    .plane
+                    .remove(cubecl_ir::features::Plane::Ops);
+            }
         }
     }
 
