@@ -166,6 +166,32 @@ pub struct RuntimeOptions {
     pub tasks_max: usize,
     /// Configures the memory management.
     pub memory_config: MemoryConfiguration,
+    /// How a plane's width is settled in a browser, where the adapter may
+    /// report a range and a kernel cannot count on which width it gets.
+    /// Read on wasm only.
+    pub plane_width: PlaneWidth,
+}
+
+/// What a browser runtime does about a plane width the adapter reports as
+/// a range. Natively the driver picks a width per kernel and a kernel that
+/// counts on one asks for it; a browser picks one width for every kernel
+/// and says nothing about which.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlaneWidth {
+    /// Every kernel that uses plane operations is pinned at the narrowest
+    /// width the adapter offers, through the `subgroup-size-control`
+    /// extension, and the properties report that width. The device must
+    /// have been created with the extension, or those kernels fail to
+    /// compile.
+    Pinned,
+    /// The browser is known to give every kernel this width, so the
+    /// properties report it and nothing is pinned.
+    Assumed(u32),
+    /// The range is reported as is. A kernel that counts on a width is
+    /// refused by whoever reads the properties, and one that assumes the
+    /// widest without reading them is wrong.
+    #[default]
+    Range,
 }
 
 impl Default for RuntimeOptions {
@@ -185,6 +211,7 @@ impl Default for RuntimeOptions {
         Self {
             tasks_max,
             memory_config: MemoryConfiguration::default(),
+            plane_width: PlaneWidth::default(),
         }
     }
 }
@@ -390,18 +417,24 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         .plane
         .insert(cubecl_ir::features::Plane::NonUniformControlFlow);
 
-    // Natively the driver picks a plane width per kernel where a device
-    // like Intel's offers 8, 16 or 32; a browser picks one width for every
-    // kernel, so a kernel that reduces across a plane pins its own and the
-    // properties report that width rather than the range. The narrowest,
-    // because a wide plane shares one register file between more lanes: a
-    // register-heavy kernel at 32 runs at a third of its speed at 8 on that
-    // device, and a streaming kernel runs the same at either.
+    // The narrowest width when pinning, because a wide plane shares one
+    // register file between more lanes: a register-heavy kernel at 32 runs
+    // at a third of its speed at 8 on an Intel iGPU, and a streaming kernel
+    // runs the same at either.
     #[cfg(target_family = "wasm")]
     if device_props.hardware.plane_size_min != device_props.hardware.plane_size_max {
-        let pinned = device_props.hardware.plane_size_min;
-        compilation_options.pinned_plane_size = Some(pinned);
-        device_props.hardware.plane_size_max = pinned;
+        let hardware = &mut device_props.hardware;
+        match options.plane_width {
+            PlaneWidth::Pinned => {
+                compilation_options.pinned_plane_size = Some(hardware.plane_size_min);
+                hardware.plane_size_max = hardware.plane_size_min;
+            }
+            PlaneWidth::Assumed(width) => {
+                hardware.plane_size_min = width;
+                hardware.plane_size_max = width;
+            }
+            PlaneWidth::Range => {}
+        }
     }
 
     backend::register_features(
