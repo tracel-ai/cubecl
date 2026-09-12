@@ -393,10 +393,13 @@ pub(crate) fn create_server<C: WgpuCompiler>(
     // Natively the driver is asked for full, maximum-width planes when a
     // pipeline is created; a browser offers no such request, and a device
     // like Intel's picks 8, 16 or 32 per kernel. A kernel that reduces
-    // across a plane assumes the maximum, so the shader itself pins it.
+    // across a plane assumes the maximum, so the shader itself pins it,
+    // and the properties report the pinned width rather than the range.
     #[cfg(target_family = "wasm")]
     if device_props.hardware.plane_size_min != device_props.hardware.plane_size_max {
-        compilation_options.pinned_plane_size = Some(device_props.hardware.plane_size_max);
+        let pinned = device_props.hardware.plane_size_max;
+        compilation_options.pinned_plane_size = Some(pinned);
+        device_props.hardware.plane_size_min = pinned;
     }
 
     backend::register_features(
