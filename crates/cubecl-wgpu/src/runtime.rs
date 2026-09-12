@@ -390,16 +390,18 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         .plane
         .insert(cubecl_ir::features::Plane::NonUniformControlFlow);
 
-    // Natively the driver is asked for full, maximum-width planes when a
-    // pipeline is created; a browser offers no such request, and a device
-    // like Intel's picks 8, 16 or 32 per kernel. A kernel that reduces
-    // across a plane assumes the maximum, so the shader itself pins it,
-    // and the properties report the pinned width rather than the range.
+    // Natively the driver picks a plane width per kernel where a device
+    // like Intel's offers 8, 16 or 32; a browser picks one width for every
+    // kernel, so a kernel that reduces across a plane pins its own and the
+    // properties report that width rather than the range. The narrowest,
+    // because a wide plane shares one register file between more lanes: a
+    // register-heavy kernel at 32 runs at a third of its speed at 8 on that
+    // device, and a streaming kernel runs the same at either.
     #[cfg(target_family = "wasm")]
     if device_props.hardware.plane_size_min != device_props.hardware.plane_size_max {
-        let pinned = device_props.hardware.plane_size_max;
+        let pinned = device_props.hardware.plane_size_min;
         compilation_options.pinned_plane_size = Some(pinned);
-        device_props.hardware.plane_size_min = pinned;
+        device_props.hardware.plane_size_max = pinned;
     }
 
     backend::register_features(
