@@ -82,7 +82,7 @@ pub use cubecl_common::work::Work;
 
 /// Target fractions of modeled peak compute and memory roofline throughput.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
 pub struct Thresholds {
     /// Fraction of peak compute throughput expected.
     pub compute: f32,

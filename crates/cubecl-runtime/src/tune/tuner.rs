@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-#[cfg(std_io)]
+#[cfg(autotune_persistence)]
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -15,7 +15,7 @@ use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::client::Client;
 use crate::config::Logger;
-#[cfg(std_io)]
+#[cfg(autotune_persistence)]
 use crate::config::autotune::AutotuneLogLevel;
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};

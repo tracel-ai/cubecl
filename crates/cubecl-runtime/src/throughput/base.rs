@@ -15,7 +15,7 @@ pub const DEFAULT_WORKING_SET_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Which directions of traffic a memory probe issues.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
 pub enum MemoryAccess {
     /// Reads every byte and writes it back out. The ceiling for a kernel that
     /// both loads and stores.
@@ -53,7 +53,7 @@ impl MemoryAccess {
 
 /// Represents the mode of a throughput computation.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
 pub enum ThroughputMode {
     /// Compute direct calculation without special hardware acceleration.
     ///
@@ -82,8 +82,8 @@ pub enum ThroughputMode {
 
 /// What a memory mode asks of a probe.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(std_io, serde(deny_unknown_fields))]
+#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(autotune_persistence, serde(deny_unknown_fields))]
 pub struct MemorySpec {
     /// Which directions of traffic to issue.
     pub access: MemoryAccess,
@@ -116,9 +116,9 @@ impl MemorySpec {
 
 /// Represents a key/configuration used to identify the throughput of a computation.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
 // Reject cached entries from an older key layout instead of silently ignoring their extra fields.
-#[cfg_attr(std_io, serde(deny_unknown_fields))]
+#[cfg_attr(autotune_persistence, serde(deny_unknown_fields))]
 pub struct ThroughputKey {
     /// The mode of the throughput computation.
     pub mode: ThroughputMode,
@@ -149,7 +149,7 @@ pub enum ThroughputError {
 
 /// Represents the throughput of a computation, including the number of operations and the duration.
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
 pub struct ThroughputValue {
     /// The number of operations performed depending of the mode during the computation.
     pub ops_count: usize,
