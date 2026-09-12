@@ -85,10 +85,32 @@ pub struct BenchConfig {
     /// time one batch queues at once — what keeps a slow candidate short of a GPU watchdog.
     #[serde(default = "default_warmup_samples")]
     pub warmup_samples: usize,
+
+    /// Device time one browser round may queue, in milliseconds: what one call to the tuner
+    /// launches before it hands the key back to the caller's fallback. The next round is
+    /// launched by a later call for the same key, once these have resolved, so a key's tuning
+    /// is spread over the calls that need it. How many candidates fit is read off the slowest
+    /// measured so far; the first round is one candidate, since nothing is measured yet.
+    #[serde(default = "default_browser_round_ms")]
+    pub browser_round_ms: u64,
+
+    /// Device time a browser spends measuring one key, in milliseconds, before it settles for
+    /// the best candidate measured so far: every measured candidate's median times the
+    /// launches a candidate gets. Zero measures the whole plan.
+    #[serde(default = "default_browser_budget_ms")]
+    pub browser_budget_ms: u64,
 }
 
 fn default_warmup_samples() -> usize {
     3
+}
+
+fn default_browser_round_ms() -> u64 {
+    250
+}
+
+fn default_browser_budget_ms() -> u64 {
+    5000
 }
 
 impl Default for BenchConfig {
@@ -100,6 +122,8 @@ impl Default for BenchConfig {
             speed_factor: 1.5,
             adaptive: true,
             warmup_samples: default_warmup_samples(),
+            browser_round_ms: default_browser_round_ms(),
+            browser_budget_ms: default_browser_budget_ms(),
         }
     }
 }
@@ -121,6 +145,17 @@ impl BenchConfig {
     /// The elimination threshold, clamped so it can never sit below the leader's own time.
     pub fn speed_factor(&self) -> f64 {
         self.speed_factor.max(1.0)
+    }
+
+    /// The device time one browser round may queue, clamped so a round always has some.
+    pub fn browser_round(&self) -> core::time::Duration {
+        core::time::Duration::from_millis(self.browser_round_ms.max(1))
+    }
+
+    /// The browser's measuring budget for one key, `None` for the whole plan.
+    pub fn browser_budget(&self) -> Option<core::time::Duration> {
+        (self.browser_budget_ms > 0)
+            .then(|| core::time::Duration::from_millis(self.browser_budget_ms))
     }
 }
 
