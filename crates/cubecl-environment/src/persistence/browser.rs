@@ -7,9 +7,11 @@
 //! # Model
 //!
 //! One database `"cubecl"` with a single object store `"kv"`. Each entry is
-//! stored under the record key `"{namespace}/{hex key}"` and holds the raw value
-//! bytes. The namespace's entries are mirrored in memory, loaded in the
-//! background at open, and served from there.
+//! stored under the record key `"{environment}/{namespace}/{hex key}"` and
+//! holds the raw value bytes, so the active [`environment`](crate::environment)
+//! scopes what a namespace holds, as it does for every other backend. The
+//! namespace's entries are mirrored in memory, loaded in the background at
+//! open, and served from there.
 //!
 //! # Concurrency
 //!
@@ -37,7 +39,7 @@
 
 use alloc::boxed::Box;
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use hashbrown::HashMap;
@@ -70,33 +72,50 @@ pub async fn preload() -> Result<usize, String> {
     Ok(count)
 }
 
-/// Every record of the database, as (record key, value) pairs: what one
-/// device tuned, in the form [`seed`] takes on another.
+/// Every record of the active environment, as (record key, value) pairs keyed
+/// relative to it: what one device tuned, in the form [`seed`] takes on
+/// another.
 pub async fn export() -> Result<Vec<(String, Vec<u8>)>, String> {
-    let records = load_records(None).await.map_err(|err| format!("{err:?}"))?;
+    let scope = environment_prefix();
+    let upper = format!("{scope}\u{10FFFF}");
+    let range = IdbKeyRange::bound(&JsValue::from_str(&scope), &JsValue::from_str(&upper))
+        .map_err(|err| format!("{err:?}"))?;
+    let records = load_records(Some(&range))
+        .await
+        .map_err(|err| format!("{err:?}"))?;
     Ok(records
         .into_iter()
-        .map(|(key, value)| (key, value.to_vec()))
+        .filter_map(|(record_key, value)| {
+            let key = record_key.strip_prefix(&scope)?.to_string();
+            Some((key, value.to_vec()))
+        })
         .collect())
 }
 
-/// Writes every record of `records` the database does not already hold, so
-/// picks made elsewhere stand in until this device makes its own. Returns
-/// how many were written. Call before [`preload`], which is what hands them
-/// to the storages.
+/// Writes every record of `records`, keyed as [`export`] keys them, that the
+/// active environment does not already hold, so picks made elsewhere stand in
+/// until this device makes its own. Returns how many were written. Call
+/// before [`preload`], which is what hands them to the storages.
 pub async fn seed(records: &[(String, Vec<u8>)]) -> Result<usize, String> {
+    let scope = environment_prefix();
     let present = load_all().await.map_err(|err| format!("{err:?}"))?;
     let mut written = 0;
-    for (record_key, value) in records {
-        if present.contains_key(record_key) {
+    for (key, value) in records {
+        let record_key = format!("{scope}{key}");
+        if present.contains_key(&record_key) {
             continue;
         }
-        put(record_key, value)
+        put(&record_key, value)
             .await
             .map_err(|err| format!("{err:?}"))?;
         written += 1;
     }
     Ok(written)
+}
+
+/// The record key prefix of the active environment, `"{environment}/"`.
+fn environment_prefix() -> String {
+    format!("{}/", crate::environment::scope())
 }
 
 /// The mirrored content of one namespace.
@@ -114,9 +133,12 @@ pub struct BrowserStorage {
     state: Arc<spin::Mutex<State>>,
 }
 
-/// The storage serving `namespace` in browser storage.
+/// The storage serving `namespace` in the active environment.
 pub(crate) fn open_storage(namespace: &str) -> Box<dyn Storage> {
-    Box::new(BrowserStorage::new(format!("{namespace}/")))
+    Box::new(BrowserStorage::new(format!(
+        "{}{namespace}/",
+        environment_prefix()
+    )))
 }
 
 impl BrowserStorage {
