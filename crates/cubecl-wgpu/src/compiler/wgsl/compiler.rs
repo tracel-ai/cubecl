@@ -110,6 +110,7 @@ impl WgslCompiler {
             cube_dim: value.settings.cube_dim,
         });
         ctx.set_aux_ty(*compilation_options);
+        ctx.set_aux_ty(wgsl::PinnedPlane::default());
 
         #[cfg(feature = "pliron-dump")]
         if let Some(print_dir) = &ir_printing_dir {

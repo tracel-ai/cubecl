@@ -7,6 +7,7 @@ use crate::{
 };
 use cubecl_common::device::{Device, DeviceService, ServiceId};
 use cubecl_common::profile::TimingMethod;
+use cubecl_core::WgpuCompilationOptions;
 use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
 use cubecl_core::ir::TargetProperties;
 use cubecl_core::server::ServerUtilities;
@@ -344,7 +345,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         cube_mma_reserved_shared_memory: 0,
     };
 
-    let mut compilation_options = Default::default();
+    let mut compilation_options = WgpuCompilationOptions::default();
 
     let features = setup.adapter.features();
 
@@ -388,6 +389,15 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         .features
         .plane
         .insert(cubecl_ir::features::Plane::NonUniformControlFlow);
+
+    // Natively the driver is asked for full, maximum-width planes when a
+    // pipeline is created; a browser offers no such request, and a device
+    // like Intel's picks 8, 16 or 32 per kernel. A kernel that reduces
+    // across a plane assumes the maximum, so the shader itself pins it.
+    #[cfg(target_family = "wasm")]
+    if device_props.hardware.plane_size_min != device_props.hardware.plane_size_max {
+        compilation_options.pinned_plane_size = Some(device_props.hardware.plane_size_max);
+    }
 
     backend::register_features(
         &setup.adapter,

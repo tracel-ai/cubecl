@@ -5,6 +5,11 @@ pub struct WgpuCompilationOptions {
     /// Whether the Vulkan compiler is supported or we need to fall back to WGSL
     pub supports_vulkan_compiler: bool,
     pub supports_msl_compiler: bool,
+    /// The plane width a kernel that uses plane operations is pinned to, on a
+    /// device whose planes would otherwise vary from kernel to kernel (the
+    /// browser's WebGPU, where the native pinning is out of reach). `None`
+    /// where the width is fixed anyway.
+    pub pinned_plane_size: Option<u32>,
 
     pub vulkan: VulkanCompilationOptions,
 }

@@ -1,6 +1,6 @@
 use core::fmt::{self, Display, Write};
 
-use cubecl_core::prelude::Visibility;
+use cubecl_core::{WgpuCompilationOptions, prelude::Visibility};
 use cubecl_ir::{
     AddressSpace, CanMaterialize, GlobalState, Pure,
     attributes::{
@@ -177,6 +177,11 @@ pub trait RequiresFeatureOp {
     fn required_feature(&self, ctx: &Context) -> String;
 }
 
+/// The plane width every entry point of the module is pinned to, decided
+/// by [`EnableFeaturesPass`] and read where the entry point is written.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PinnedPlane(pub Option<u32>);
+
 pub struct EnableFeaturesPass;
 
 #[pass_name]
@@ -223,6 +228,14 @@ impl Pass for EnableFeaturesPass {
         if feats.contains("subgroups") {
             let diagnostic = DiagnosticOffOp::new(ctx, ident("subgroup_uniformity"));
             diagnostic.get_operation().insert_at_front(module_body, ctx);
+            // A plane that varies in width from kernel to kernel is pinned
+            // where the kernel counts on one: the extension here, the
+            // attribute on the entry point.
+            let pinned = ctx.aux_ty::<WgpuCompilationOptions>().pinned_plane_size;
+            if pinned.is_some() {
+                feats.insert("subgroup_size_control".to_string());
+                ctx.set_aux_ty(PinnedPlane(pinned));
+            }
         }
         for feat in feats {
             let enable = EnableOp::new(ctx, ident(feat));
@@ -263,7 +276,11 @@ fn func_to_wgsl(ctx: &Context, op: &FuncOp) -> core::result::Result<String, fmt:
     let f = &mut sig;
     if let Some(entry) = op.get_entrypoint_abi(ctx) {
         let (x, y, z) = entry.cube_dim.into();
-        writeln!(f, "@compute @workgroup_size({x}, {y}, {z})")?;
+        write!(f, "@compute @workgroup_size({x}, {y}, {z})")?;
+        if let Some(width) = ctx.aux_ty::<PinnedPlane>().0 {
+            write!(f, " @subgroup_size({width})")?;
+        }
+        writeln!(f)?;
     }
     let name = op.get_symbol_name(ctx);
     let entry = op.get_entry_block(ctx);
