@@ -56,7 +56,7 @@ impl MemoryPage {
         };
 
         let slice = Slice::new(storage, 0);
-        let slice_pos = this.slices.len() as u32;
+        let slice_pos = this.slices.len();
         let mut location = this.location_base;
         location.slice = slice_pos;
         slice.handle.descriptor().update_location(location);
@@ -230,7 +230,7 @@ impl MemoryPage {
         }
     }
 
-    pub fn update_page(&mut self, page: u16) {
+    pub fn update_page(&mut self, page: usize) {
         self.location_base.page = page;
 
         for slice in self.slices.iter() {
@@ -279,10 +279,7 @@ impl MemoryPage {
                 }
                 MemoryTaskStatus::Ignoring => {
                     let slice_pos_updated = self.slices_tmp.len();
-                    slice
-                        .handle
-                        .descriptor()
-                        .update_slice(slice_pos_updated as u32);
+                    slice.handle.descriptor().update_slice(slice_pos_updated);
                     self.slices_tmp.push(slice);
                 }
                 MemoryTaskStatus::Completed => {
@@ -294,7 +291,7 @@ impl MemoryPage {
                     storage.utilization = StorageUtilization { offset, size };
                     let page = Slice::new(storage, 0);
                     let mut location = self.location_base;
-                    location.slice = slice_pos_updated as u32;
+                    location.slice = slice_pos_updated;
                     page.descriptor().update_location(location);
                     self.slices_tmp.push(page);
                     task = tasks.next();
@@ -318,14 +315,14 @@ impl MemoryPage {
         let mut index_current = 0;
         for mut slice in self.slices.drain(..) {
             if index_current == index_previous {
-                let slice_pos_updated = self.slices_tmp.len() as u32;
+                let slice_pos_updated = self.slices_tmp.len();
                 slice.storage.utilization.size = reserved_size_previous;
                 slice.handle.descriptor().update_slice(slice_pos_updated);
                 self.slices_tmp.push(slice);
                 index_current += 1;
 
                 // New slice
-                let slice_pos_updated = self.slices_tmp.len() as u32;
+                let slice_pos_updated = self.slices_tmp.len();
                 let new_slice = new_slice.take().unwrap();
                 let mut location = self.location_base;
                 location.slice = slice_pos_updated;
@@ -334,7 +331,7 @@ impl MemoryPage {
                 self.slices_tmp.push(new_slice);
                 index_current += 1;
             } else {
-                let slice_pos_updated = self.slices_tmp.len() as u32;
+                let slice_pos_updated = self.slices_tmp.len();
                 slice.handle.descriptor().update_slice(slice_pos_updated);
                 self.slices_tmp.push(slice);
                 index_current += 1;

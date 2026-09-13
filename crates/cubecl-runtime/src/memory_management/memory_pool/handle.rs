@@ -83,10 +83,10 @@ impl Eq for ManagedMemoryDescriptor {}
 pub(crate) struct MemoryLocation {
     /// The memory pool index in the global memory management.
     pub pool: u8,
-    /// The memory page index in a memory pool.
-    pub page: u16,
-    /// The memory slice index in a memory page.
-    pub slice: u32,
+    /// Index into the pool's page vector; must represent every valid `Vec` index.
+    pub page: usize,
+    /// Index into the page's slice vector; never narrowed when splitting or compacting.
+    pub slice: usize,
     /// Whether the memory location is known/initialized.
     pub init: u8,
 }
@@ -98,7 +98,7 @@ impl ManagedMemoryDescriptor {
     }
 
     /// Update only the slice position for the given [`ManagedMemoryId`].
-    pub(crate) fn update_slice(&self, slice: u32) {
+    pub(crate) fn update_slice(&self, slice: usize) {
         self.location.update(|mut loc| {
             loc.slice = slice;
             loc
@@ -106,7 +106,7 @@ impl ManagedMemoryDescriptor {
     }
 
     /// Update only the memory page position for the given [`ManagedMemoryId`].
-    pub fn update_page(&self, page: u16) {
+    pub fn update_page(&self, page: usize) {
         self.location.update(|mut loc| {
             loc.page = page;
             loc
@@ -119,17 +119,17 @@ impl ManagedMemoryDescriptor {
     }
 
     pub(crate) fn slice(&self) -> usize {
-        self.location.get().slice as usize
+        self.location.get().slice
     }
 
     pub(crate) fn page(&self) -> usize {
-        self.location.get().page as usize
+        self.location.get().page
     }
 }
 
 impl MemoryLocation {
     /// Creates a new memory location.
-    pub(crate) fn new(pool: u8, page: u16, slice: u32) -> Self {
+    pub(crate) fn new(pool: u8, page: usize, slice: usize) -> Self {
         Self {
             pool,
             page,

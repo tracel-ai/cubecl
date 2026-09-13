@@ -175,7 +175,7 @@ impl MemoryPool for PersistentPool {
         let slice_id = slice.descriptor();
         let slice_pos = self.slices.len();
         let mut location = self.location_base;
-        location.slice = slice_pos as u32;
+        location.slice = slice_pos;
         slice_id.update_location(location);
 
         match self.sizes.get_mut(&effective_size) {
@@ -234,7 +234,7 @@ impl MemoryPool for PersistentPool {
                 } else {
                     let slice_pos = slices.len();
                     let effective_size = slice.effective_size();
-                    slice.descriptor().update_slice(slice_pos as u32);
+                    slice.descriptor().update_slice(slice_pos);
                     slices.push(slice);
 
                     match sizes.get_mut(&effective_size) {
