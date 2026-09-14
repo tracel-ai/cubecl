@@ -173,11 +173,9 @@ pub fn set_root<P: Into<std::path::PathBuf>>(root: P) {
 
 /// Mounts the database at `file` as the active environment.
 ///
-/// This is how a shipped [`BundleFormat::Sqlite`](crate::bundle::BundleFormat)
-/// bundle is used in place: a bundle file carries the same schema as an
-/// environment, so loading it makes its entries the ones every bound store
-/// serves, with nothing copied. Stores reset on their next access, exactly as
-/// with [`activate`].
+/// This is how an environment database copied from another machine is used in
+/// place: its entries become the ones every bound store serves, with nothing
+/// copied. Stores reset on their next access, exactly as with [`activate`].
 ///
 /// The file stays the environment until [`activate`] or [`set_root`] selects
 /// a named one again. Writes (newly tuned keys, freshly compiled kernels) land
@@ -295,7 +293,7 @@ pub fn store<K: StoreKey, V: StoreValue>(options: StoreOptions) -> Store<K, V> {
 /// The active environment, captured for shipping.
 ///
 /// [`save`](Bundle::save) is the whole API: it exports what the environment
-/// holds into a bundle file another machine can [`load`] or
+/// holds into a bundle file another machine can
 /// [`import`](crate::bundle::import).
 #[cfg(native_cache)]
 #[derive(Debug, Clone)]
@@ -317,7 +315,7 @@ pub fn bundle() -> Bundle {
 
 #[cfg(native_cache)]
 impl Bundle {
-    /// Exports the captured environment to `out` in `format`.
+    /// Exports the captured environment to `out`.
     ///
     /// A thin front for [`bundle::export`](crate::bundle::export) over this
     /// one environment; use `export` directly to merge several roots or
@@ -325,11 +323,9 @@ impl Bundle {
     pub fn save<P: AsRef<std::path::Path>>(
         &self,
         out: P,
-        format: crate::bundle::BundleFormat,
     ) -> Result<crate::bundle::BundleManifest, crate::bundle::BundleError> {
         let options = crate::bundle::ExportOptions {
             name: self.name.clone(),
-            format,
             ..Default::default()
         };
 

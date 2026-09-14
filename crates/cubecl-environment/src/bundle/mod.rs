@@ -16,13 +16,13 @@
 //! Entries land with [`Origin::Imported`](crate::persistence::Origin), which
 //! lets a locally computed value replace one that turns out to be stale.
 //!
-//! # Formats
+//! # Format
 //!
 //! [`Bundle`] is deliberately format-agnostic: a bundle answers by namespace
 //! and key bytes, exactly like the local storage, so nothing about a layout on
-//! disk is load-bearing. [`SqliteBundle`] is the native format, a single
-//! `SQLite` file. [`EmbeddedBundle`] is one flat blob for wasm and no-std
-//! targets, which have no file system to open.
+//! disk is load-bearing. [`EmbeddedBundle`] is the one layout written: a flat
+//! blob every target can read, including wasm and no-std, which have no file
+//! system to open.
 //!
 //! Writing is native-only on purpose. A bundle for any target is produced on a
 //! development machine by [`export`], and only consumed elsewhere.
@@ -39,8 +39,8 @@ mod base;
 mod embedded;
 mod import;
 // The manifest is the description of a bundle, not a way of storing one, so it
-// is available wherever a bundle can be read: the flat format exists for the
-// targets `cache` can't reach, and they need the same schema guards.
+// is available wherever a bundle can be read, file system or not: every target
+// needs the same schema guards.
 mod manifest;
 
 pub use base::*;
@@ -54,12 +54,8 @@ mod export;
 mod flat;
 #[cfg(native_cache)]
 mod open;
-#[cfg(native_cache)]
-mod sqlite;
 
 #[cfg(native_cache)]
 pub use export::*;
 #[cfg(native_cache)]
 pub use open::*;
-#[cfg(native_cache)]
-pub use sqlite::*;

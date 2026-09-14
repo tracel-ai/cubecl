@@ -318,24 +318,6 @@ impl Database {
         }
     }
 
-    /// Rewrites the file so it can be read from a directory nobody may write,
-    /// then it is ready to ship.
-    ///
-    /// A WAL database records that mode in its header, and reading one means
-    /// creating a `-shm` wal-index beside the file. Ship a bundle that way and
-    /// installing it read-only — a container image layer, a Nix store,
-    /// `/usr/share` — makes every lookup miss with no error at all. Rolling
-    /// the journal back to `DELETE` removes that requirement.
-    ///
-    /// Call it on a finished file with no other connection open to it.
-    pub fn finalize_for_shipping(&self) -> Result<(), rusqlite::Error> {
-        self.with_connection(|conn| {
-            // `journal_mode` answers with the mode it settled on, which plain
-            // `pragma_update` rejects as unexpected rows.
-            conn.pragma_update_and_check(None, "journal_mode", "DELETE", |_row| Ok(()))
-        })
-    }
-
     /// Turns a failed statement into [`Insertion::Failed`] rather than letting
     /// it pass for a successful write.
     fn report(&self, operation: &str, result: Result<Insertion, rusqlite::Error>) -> Insertion {
@@ -679,26 +661,6 @@ mod tests {
         if let Some(read) = read {
             assert_eq!(read.as_deref(), Some(&b"value"[..]));
         }
-    }
-
-    /// The other half of the same problem: a file about to be shipped should
-    /// not carry WAL in its header at all.
-    #[test_log::test]
-    #[cfg_attr(miri, ignore)]
-    fn finalizing_clears_the_wal_header() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(db_file_name("test"));
-
-        let database = Database::open(&path, false).unwrap();
-        database.insert("namespace", b"key", b"value", Origin::Local);
-        database.finalize_for_shipping().unwrap();
-
-        let mode: String = database.with_connection(|conn| {
-            conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))
-                .unwrap()
-        });
-        assert_eq!(mode, "delete");
-        assert!(!path.with_extension("db-wal").exists());
     }
 
     /// An entry whose bytes no longer decode must be repairable: `insert`
