@@ -372,53 +372,79 @@ async fn shared_database(location: &str) -> DatabaseResult {
             .map_err(|error| format!("database initialization was cancelled: {error}"))?;
     }
 
-    let opened = async {
-        let writable = async {
-            let database = open_database(location).await?;
-            migrate(&database).await.map_err(error)?;
-            Ok::<_, String>(database)
-        }
-        .await;
-
-        match writable {
-            Ok(database) => Ok(Arc::new(database)),
-            #[cfg(native_cache)]
-            Err(err) => open_read_only(location, &err).await.map(Arc::new),
-            #[cfg(not(native_cache))]
-            Err(err) => Err(err),
-        }
-    }
-    .await;
-    let waiters = {
-        let mut databases = DATABASES.lock();
-        let waiters = match databases.remove(location) {
-            Some(DatabaseState::Opening(waiters)) => waiters,
-            _ => Vec::new(),
-        };
-        if let Ok(database) = &opened {
-            databases.insert(location.to_string(), DatabaseState::Ready(database.clone()));
-        }
-        waiters
+    // Whatever happens to this future — including being dropped halfway, by
+    // a timeout or a panic — the registry is settled and the waiters told.
+    let mut opener = Opener {
+        location,
+        result: Err("database initialization was cancelled".to_string()),
     };
 
-    for waiter in waiters {
-        let _ = waiter.try_send(opened.clone());
+    let writable = async {
+        let database = open_database(location).await?;
+        migrate(&database).await?;
+        Ok::<_, turso::Error>(database)
     }
-    opened
+    .await;
+
+    opener.result = match writable {
+        Ok(database) => Ok(Arc::new(database)),
+        // A lock another process holds is not a read-only location. Report
+        // it and cache nothing, so the next open tries the writable path
+        // again rather than serving a read-only file for the rest of the
+        // process.
+        Err(err @ (turso::Error::Busy(_) | turso::Error::BusySnapshot(_))) => Err(error(err)),
+        #[cfg(native_cache)]
+        Err(err) => open_read_only(location, &err.to_string())
+            .await
+            .map(Arc::new),
+        #[cfg(not(native_cache))]
+        Err(err) => Err(error(err)),
+    };
+    opener.result.clone()
+}
+
+/// The registry's `Opening` entry for one location, settled when the opener
+/// is dropped: replaced by `Ready` on success, removed otherwise, and every
+/// waiter handed the outcome either way.
+struct Opener<'a> {
+    location: &'a str,
+    result: DatabaseResult,
+}
+
+impl Drop for Opener<'_> {
+    fn drop(&mut self) {
+        let waiters = {
+            let mut databases = DATABASES.lock();
+            let waiters = match databases.remove(self.location) {
+                Some(DatabaseState::Opening(waiters)) => waiters,
+                _ => Vec::new(),
+            };
+            if let Ok(database) = &self.result {
+                databases.insert(
+                    self.location.to_string(),
+                    DatabaseState::Ready(database.clone()),
+                );
+            }
+            waiters
+        };
+
+        for waiter in waiters {
+            let _ = waiter.try_send(self.result.clone());
+        }
+    }
 }
 
 #[cfg(native_cache)]
-async fn open_database(location: &str) -> Result<turso::Database, String> {
+async fn open_database(location: &str) -> Result<turso::Database, turso::Error> {
     if let Some(parent) = std::path::Path::new(location).parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|error| format!("unable to create cache directory: {error}"))?;
+            .map_err(|error| turso::Error::IoError(error.kind(), "creating the cache directory"))?;
     }
 
     turso::Builder::new_local(location)
         .experimental_multiprocess_wal(true)
         .build()
         .await
-        .map_err(error)
 }
 
 /// A database nobody may write, served as it is: a cache root in a container
@@ -451,14 +477,15 @@ async fn open_read_only(location: &str, err: &str) -> Result<turso::Database, St
 }
 
 #[cfg(browser_cache)]
-async fn open_database(location: &str) -> Result<turso::Database, String> {
+async fn open_database(location: &str) -> Result<turso::Database, turso::Error> {
     let wal = format!("{location}-wal");
-    let io = super::turso_browser::BrowserIo::new(&[location, &wal]).await?;
+    let io = super::turso_browser::BrowserIo::new(&[location, &wal])
+        .await
+        .map_err(turso::Error::Error)?;
     turso::Builder::new_local(location)
         .with_io_impl(Arc::new(io))
         .build()
         .await
-        .map_err(error)
 }
 
 #[cfg(native_cache)]
@@ -662,6 +689,27 @@ mod tests {
             .unwrap();
         let version: String = rows.next().await.unwrap().unwrap().get(0).unwrap();
         assert_eq!(version, SCHEMA_VERSION.to_string());
+    }
+
+    /// An opener dropped before it finished — a timeout, a panic — must
+    /// settle the registry: the location is free to open again, and whoever
+    /// was waiting on it is told rather than left waiting forever.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn a_cancelled_open_releases_the_location() {
+        let location = "cancelled.db";
+        let (sender, receiver) = async_channel::bounded(1);
+        DATABASES
+            .lock()
+            .insert(location.to_string(), DatabaseState::Opening(vec![sender]));
+
+        drop(Opener {
+            location,
+            result: Err("database initialization was cancelled".to_string()),
+        });
+
+        assert!(!DATABASES.lock().contains_key(location));
+        assert!(receiver.recv().await.unwrap().is_err());
     }
 
     /// The version is written once and survives reopening; entries do too,
