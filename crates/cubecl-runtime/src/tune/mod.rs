@@ -51,12 +51,7 @@ pub use local::*;
 pub use log::*;
 pub use operation::*;
 pub use tune_benchmark::*;
-use tune_cache::TuneCache;
-pub use tune_cache::{AutotuneResult, TuneCacheResult};
-#[cfg(persistence)]
-pub use tune_cache::{PersistentCacheKey, PersistentCacheValue};
+pub use tune_cache::*;
 pub use tune_inputs::*;
-#[cfg(feature = "autotune-checks")]
-use tuner::check_autotune_outputs;
-pub use tuner::{AutotuneError, AutotuneOutcome, Tuner};
+pub use tuner::*;
 pub use util::*;

@@ -148,17 +148,22 @@ pub trait Storage: Send + Sync + core::fmt::Debug {
 static MEMORY: LazyLock<Mutex<HashMap<String, Arc<Mutex<Entries>>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-type Entries = HashMap<Vec<u8>, (Bytes, Origin)>;
+pub(crate) type Entries = HashMap<Vec<u8>, (Bytes, Origin)>;
 
 /// The [`Storage`] contract applied to an in-memory namespace.
 mod entries {
     use super::{Bytes, Entries, Insertion, Origin, replaces};
 
-    pub fn get(entries: &Entries, key: &[u8]) -> Option<Bytes> {
+    pub(crate) fn get(entries: &Entries, key: &[u8]) -> Option<Bytes> {
         entries.get(key).map(|(value, _)| value.clone())
     }
 
-    pub fn insert(entries: &mut Entries, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+    pub(crate) fn insert(
+        entries: &mut Entries,
+        key: &[u8],
+        value: Bytes,
+        origin: Origin,
+    ) -> Insertion {
         if let Some((existing, existing_origin)) = entries.get(key)
             && !replaces(origin, *existing_origin)
         {
@@ -214,7 +219,7 @@ impl MemoryStorage {
     /// resets after a switch would reopen the memory storage and immediately
     /// re-ingest the previous environment's entries.
     fn in_environment(namespace: &str) -> Self {
-        let key = alloc::format!("{}\u{1f}{namespace}", environment_scope());
+        let key = alloc::format!("{}\u{1f}{namespace}", crate::environment::scope());
         Self::with_key(key, namespace)
     }
 
@@ -241,7 +246,7 @@ impl MemoryStorage {
     /// also holds other environments' entries and unscoped explicit storages,
     /// but a summary is always about the environment in effect right now.
     pub fn namespaces() -> Vec<NamespaceSummary> {
-        let prefix = alloc::format!("{}\u{1f}", environment_scope());
+        let prefix = alloc::format!("{}\u{1f}", crate::environment::scope());
         let memory = MEMORY.lock();
 
         memory
@@ -260,16 +265,6 @@ impl MemoryStorage {
             })
             .collect()
     }
-}
-
-#[cfg(std_io)]
-fn environment_scope() -> String {
-    crate::environment::path().display().to_string()
-}
-
-#[cfg(not(std_io))]
-fn environment_scope() -> String {
-    crate::environment::active().to_string()
 }
 
 #[async_trait::async_trait]

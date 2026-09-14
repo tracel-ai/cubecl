@@ -13,7 +13,7 @@ use alloc::string::String;
 use cubecl_environment::collections::HashMap;
 
 #[derive(Debug)]
-pub enum CacheEntry {
+pub(crate) enum CacheEntry {
     Done {
         checksum: ChecksumState,
         fastest_index: usize,
@@ -23,7 +23,7 @@ pub enum CacheEntry {
 
 #[derive(Debug)]
 #[allow(dead_code)] // Some variants are not created when the cache isn't saved.
-pub enum ChecksumState {
+pub(crate) enum ChecksumState {
     Match,
     NoMatch,
     ToBeVerified(String),
@@ -73,13 +73,13 @@ pub struct AutotuneResult {
 
 impl AutotuneResult {
     /// Creates a failed result.
-    pub fn error(error: AutotuneError) -> Self {
+    pub(crate) fn error(error: AutotuneError) -> Self {
         Self {
             outcome: Err(error),
         }
     }
     /// Creates a successful result.
-    pub fn success(outcome: AutotuneOutcome) -> Self {
+    pub(crate) fn success(outcome: AutotuneOutcome) -> Self {
         Self {
             outcome: Ok(outcome),
         }
@@ -101,7 +101,7 @@ impl PartialEq for AutotuneResult {
 
 /// Use to find and reuse the best kernel for some input
 #[derive(Debug)]
-pub struct TuneCache<K> {
+pub(crate) struct TuneCache<K> {
     in_memory_cache: HashMap<K, CacheEntry>,
     /// Write-through persistence, or `None` when the persistent cache is
     /// disabled, so no cache file is ever touched. Lazy: entries live in
@@ -137,7 +137,7 @@ pub enum TuneCacheResult {
 }
 
 impl<K: AutotuneKey> TuneCache<K> {
-    pub async fn new(
+    pub(crate) async fn new(
         #[cfg_attr(not(persistence), allow(unused_variables))] name: &str,
         #[cfg_attr(not(persistence), allow(unused_variables))] device_id: &str,
     ) -> Self {
@@ -249,11 +249,11 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// Mark a key as being tuned. Used by [`Tuner::check_tune`] under the cache mutex so that
     /// concurrent callers see [`TuneCacheResult::Pending`] instead of starting a second job
     /// for the same key.
-    pub fn mark_pending(&mut self, key: K) {
+    pub(crate) fn mark_pending(&mut self, key: K) {
         self.in_memory_cache.insert(key, CacheEntry::Pending);
     }
 
-    pub fn cache_insert(&mut self, key: K, fastest_index: usize) {
+    pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {
         self.in_memory_cache.insert(
             key,
             CacheEntry::Done {
@@ -273,7 +273,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// In-flight tunes are dropped with everything else: their completion
     /// still records a hardware-valid result, so the whole cost of the race
     /// is one duplicate tune per switch.
-    pub fn reset_if_environment_switched(&mut self) {
+    pub(crate) fn reset_if_environment_switched(&mut self) {
         if self.persistent_cache.is_none() {
             return;
         }
@@ -330,7 +330,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         delivered
     }
 
-    pub async fn persistent_cache_insert(
+    pub(crate) async fn persistent_cache_insert(
         &mut self,
         key: K,
         checksum: String,

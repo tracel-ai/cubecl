@@ -742,7 +742,7 @@ async fn process_request<K: AutotuneKey>(
 }
 
 #[cfg(feature = "autotune-checks")]
-pub fn check_autotune_outputs<O: AutotuneOutput>(
+pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
     mut checks_outputs: Vec<(String, Result<O, AutotuneError>)>,
 ) -> Vec<crate::tune::log::CheckResult> {
     if checks_outputs.is_empty() {
