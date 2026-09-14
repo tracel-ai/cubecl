@@ -16,7 +16,7 @@ pub trait TargetLowering {
     fn prologue(&self, passes: &mut OpPass<FuncOp, Passes>);
 
     /// Runs after them, once the polyfills that read builtins of their own have been
-    /// expanded. The CPU adds nothing: its grid became a loop nest in the prologue.
+    /// expanded.
     fn epilogue(&self, passes: &mut OpPass<FuncOp, Passes>) {
         let _ = passes;
     }

@@ -22,7 +22,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::{
-    config::{CubeClRuntimeConfig, RuntimeConfig},
+    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
     dry_run::LaunchMode,
     id::KernelId,
     kernel::{CompiledKernel, CubeKernel},
@@ -39,6 +39,7 @@ pub struct CpuServer {
     scheduler: SchedulerMultiStream<ScheduledCpuBackend>,
     utilities: Arc<ServerUtilities>,
     compilation_cache: HashMap<KernelId, CpuKernel>,
+    compilation_options: PlironOptions,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
 }
@@ -61,6 +62,7 @@ impl CpuServer {
     pub fn new(
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
+        f16_evaluation: F16Evaluation,
         utilities: Arc<ServerUtilities>,
     ) -> Self {
         let backend =
@@ -82,6 +84,10 @@ impl CpuServer {
             scheduler,
             utilities,
             compilation_cache: HashMap::new(),
+            compilation_options: PlironOptions {
+                f16_evaluation,
+                ..Default::default()
+            },
             streams_pool: Vec::new(),
         }
     }
@@ -153,7 +159,7 @@ impl CpuServer {
             kernel,
             definition,
             &mut CpuCompiler::default(),
-            &PlironOptions::default(),
+            &self.compilation_options,
         )?;
         // The executable artifact here is the JIT engine the compiler built,
         // not the text. A precompiled kernel brings text and no engine.

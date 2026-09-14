@@ -128,6 +128,7 @@ impl Compiler for HipCompiler {
             HipCompiler::Llvm(compiler) => {
                 let pliron_options = cubecl_llvm::PlironOptions {
                     arch: options.arch.clone(),
+                    ..Default::default()
                 };
                 match compiler.compile(kernel, &pliron_options)? {
                     cubecl_llvm::PlironArtifact::AmdGpuCode(module) => {
