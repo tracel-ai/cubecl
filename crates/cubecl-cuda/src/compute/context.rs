@@ -191,6 +191,10 @@ impl CudaContext {
                 && let Some(entry) = cache.take_cached(&old_key)
             {
                 log::trace!("Using second-line PTX cache");
+                // The entry moves to the new key. The row under the old one
+                // embeds a build ID nothing will ask for again; left in place,
+                // every rebuild would add another to the store for good.
+                cache.purge_key_background(&old_key);
                 store_compiled(cache, key, entry);
                 second_line_cache.replace_background(cpp_hash, key);
                 self.try_load_cached(kernel_id)?
