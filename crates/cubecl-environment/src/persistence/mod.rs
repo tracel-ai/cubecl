@@ -27,7 +27,7 @@ pub use store::*;
 /// Turso persistence: the database file shared by every namespace of an
 /// environment.
 #[cfg(any(native_cache, browser_cache))]
-mod turso;
+pub(crate) mod turso;
 
 #[cfg(browser_cache)]
 mod turso_browser;

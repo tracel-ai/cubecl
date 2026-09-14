@@ -21,7 +21,7 @@ use crate::sync::{LazyLock, Mutex};
 pub const SCHEMA_VERSION: u32 = 4;
 
 /// The `meta` key holding [`SCHEMA_VERSION`].
-const SCHEMA_VERSION_KEY: &str = "schema_version";
+pub(crate) const SCHEMA_VERSION_KEY: &str = "schema_version";
 
 /// Created first and never dropped, so the schema version survives a rebuild
 /// of the entries table.
@@ -373,9 +373,20 @@ async fn shared_database(location: &str) -> DatabaseResult {
     }
 
     let opened = async {
-        let database = open_database(location).await?;
-        migrate(&database).await.map_err(error)?;
-        Ok(Arc::new(database))
+        let writable = async {
+            let database = open_database(location).await?;
+            migrate(&database).await.map_err(error)?;
+            Ok::<_, String>(database)
+        }
+        .await;
+
+        match writable {
+            Ok(database) => Ok(Arc::new(database)),
+            #[cfg(native_cache)]
+            Err(err) => open_read_only(location, &err).await.map(Arc::new),
+            #[cfg(not(native_cache))]
+            Err(err) => Err(err),
+        }
     }
     .await;
     let waiters = {
@@ -410,6 +421,35 @@ async fn open_database(location: &str) -> Result<turso::Database, String> {
         .map_err(error)
 }
 
+/// A database nobody may write, served as it is: a cache root in a container
+/// image layer, a Nix store path, a mounted bundle.
+///
+/// Only a file already at this build's schema qualifies. Anything else would
+/// need the rebuild [`migrate`] performs, which needs a writable file; the
+/// caller falls back to memory instead.
+#[cfg(native_cache)]
+async fn open_read_only(location: &str, err: &str) -> Result<turso::Database, String> {
+    log::debug!("cubecl cache: {location} is not writable ({err}); opening read-only");
+
+    let database = turso::Builder::new_local(location)
+        .read_only(true)
+        .build()
+        .await
+        .map_err(error)?;
+    let connection = connect(&database).map_err(error)?;
+
+    let expected = SCHEMA_VERSION.to_string();
+    match meta_get(&connection, SCHEMA_VERSION_KEY)
+        .await
+        .map_err(error)?
+    {
+        Some(found) if found == expected => Ok(database),
+        found => Err(format!(
+            "read-only database at {location} has schema {found:?}, expected {expected}"
+        )),
+    }
+}
+
 #[cfg(browser_cache)]
 async fn open_database(location: &str) -> Result<turso::Database, String> {
     let wal = format!("{location}-wal");
@@ -442,7 +482,7 @@ fn location() -> Result<String, String> {
 /// rebuilt under one write lock, so two processes opening the same file at
 /// once rebuild it once: the second waits, then reads the version the first
 /// wrote.
-async fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
+pub(crate) async fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
     let mut connection = connect(database)?;
     connection.execute(CREATE_META, ()).await?;
 
@@ -451,15 +491,7 @@ async fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
         .await?;
 
     let expected = SCHEMA_VERSION.to_string();
-    let found: Option<String> = match transaction
-        .query(META_GET, (SCHEMA_VERSION_KEY,))
-        .await?
-        .next()
-        .await?
-    {
-        Some(row) => Some(row.get(0)?),
-        None => None,
-    };
+    let found = meta_get(&transaction, SCHEMA_VERSION_KEY).await?;
 
     if found.as_deref() != Some(expected.as_str()) {
         match &found {
@@ -473,13 +505,56 @@ async fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
         for drop in DROP_ENTRIES {
             transaction.execute(drop, ()).await?;
         }
-        transaction
-            .execute(META_SET, (SCHEMA_VERSION_KEY, expected.as_str()))
-            .await?;
+        meta_set(&transaction, SCHEMA_VERSION_KEY, &expected).await?;
     }
 
     transaction.execute(CREATE_ENTRIES, ()).await?;
     transaction.commit().await
+}
+
+/// Reads a `meta` row, or `None` when the key is absent.
+///
+/// This module owns the table, so everything that touches it goes through
+/// here: the schema version, and a bundle's manifest.
+pub(crate) async fn meta_get(
+    connection: &turso::Connection,
+    key: &str,
+) -> Result<Option<String>, turso::Error> {
+    match connection.query(META_GET, (key,)).await?.next().await? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+/// Writes a `meta` row, replacing the key's previous value.
+pub(crate) async fn meta_set(
+    connection: &turso::Connection,
+    key: &str,
+    value: &str,
+) -> Result<(), turso::Error> {
+    connection.execute(META_SET, (key, value)).await?;
+    Ok(())
+}
+
+/// Folds the WAL into the main file and truncates it, so the file stands on
+/// its own. Turso never checkpoints on close: a database file copied without
+/// its `-wal` is a database missing every write since the last checkpoint.
+///
+/// Reports whether the checkpoint completed; it doesn't when another
+/// connection holds the WAL, and Turso folds every other cause into the same
+/// flag while logging the reason itself.
+#[cfg(native_cache)]
+pub(crate) async fn checkpoint(connection: &turso::Connection) -> Result<bool, turso::Error> {
+    // The closure's error type is the SDK's, not this crate's; a row that
+    // doesn't decode is read as "did not complete" rather than converted.
+    let mut incomplete = false;
+    connection
+        .pragma_query("wal_checkpoint(TRUNCATE)", |row| {
+            incomplete |= row.get::<i64>(0).map_or(true, |busy| busy != 0);
+            Ok(())
+        })
+        .await?;
+    Ok(!incomplete)
 }
 
 /// How long a statement waits on a lock another process holds before it
@@ -489,7 +564,7 @@ async fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
 const BUSY_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(5);
 
 /// A connection to `database` with the busy timeout set.
-fn connect(database: &turso::Database) -> Result<turso::Connection, turso::Error> {
+pub(crate) fn connect(database: &turso::Database) -> Result<turso::Connection, turso::Error> {
     let connection = database.connect()?;
     connection.busy_timeout(BUSY_TIMEOUT)?;
     Ok(connection)

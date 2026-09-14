@@ -153,7 +153,7 @@ pub fn set_root<P: Into<std::path::PathBuf>>(root: P) {
 
 /// Mounts the database at `file` as the active environment.
 ///
-/// This is how a shipped [`BundleFormat::Sqlite`](crate::bundle::BundleFormat)
+/// This is how a shipped [`BundleFormat::Database`](crate::bundle::BundleFormat)
 /// bundle is used in place: a bundle file carries the same schema as an
 /// environment, so loading it makes its entries the ones every bound store
 /// serves, with nothing copied. Stores reset on their next access, exactly as

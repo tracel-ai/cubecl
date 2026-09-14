@@ -1,6 +1,10 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+/// The `meta` key the manifest is stored under.
+#[cfg(native_cache)]
+pub(super) const MANIFEST_KEY: &str = "manifest";
+
 /// The manifest schema version this build reads and writes.
 pub const MANIFEST_SCHEMA: u32 = 1;
 
@@ -67,7 +71,9 @@ impl From<std::io::Error> for BundleError {
     }
 }
 
-/// The manifest stored in a bundle's metadata.
+/// The manifest of an environment bundle, stored as a row of the bundle
+/// database in [`BundleFormat::Sqlite`](super::BundleFormat::Sqlite) and as the
+/// metadata blob in [`BundleFormat::Flat`](super::BundleFormat::Flat).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BundleManifest {
     /// Manifest schema version.
@@ -104,12 +110,12 @@ pub struct EnvironmentInfo {
 }
 
 impl BundleManifest {
-    /// Parses and validates a serialized manifest, the JSON a bundle stores
-    /// as its metadata blob.
+    /// Parses and validates a serialized manifest, the JSON both formats
+    /// store.
     ///
-    /// This is the guard
-    /// [`EmbeddedBundle::manifest`](super::EmbeddedBundle::manifest) applies
-    /// at open.
+    /// This is the guard [`SqliteBundle`](super::SqliteBundle) applies at open,
+    /// available to the flat format too through
+    /// [`EmbeddedBundle::manifest`](super::EmbeddedBundle::manifest).
     pub fn parse(content: &[u8]) -> Result<Self, BundleError> {
         if content.is_empty() {
             return Err(BundleError::NotABundle);
@@ -139,5 +145,27 @@ impl BundleManifest {
                 env!("CARGO_PKG_VERSION"),
             );
         }
+    }
+
+    /// Reads and validates the manifest of a bundle database.
+    #[cfg(native_cache)]
+    pub(super) async fn read(connection: &turso::Connection) -> Result<Self, BundleError> {
+        let content = crate::persistence::turso::meta_get(connection, MANIFEST_KEY)
+            .await
+            .map_err(super::export::storage_error)?
+            .ok_or(BundleError::NotABundle)?;
+
+        Self::parse(content.as_bytes())
+    }
+
+    /// Writes the manifest into a bundle database.
+    #[cfg(native_cache)]
+    pub(super) async fn write(&self, connection: &turso::Connection) -> Result<(), BundleError> {
+        let content = serde_json::to_string_pretty(self)
+            .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
+
+        crate::persistence::turso::meta_set(connection, MANIFEST_KEY, &content)
+            .await
+            .map_err(super::export::storage_error)
     }
 }
