@@ -29,8 +29,7 @@ impl CacheConfig {
     /// Every arm degrades rather than fails: none of these look-ups is under
     /// the application's control, and a cache root that can't be resolved must
     /// cost a recompute, not abort the process. A root that turns out to be
-    /// unwritable is handled one level down, in
-    /// [`Database::open_at`](crate::persistence::Database::open_at).
+    /// unwritable is handled one level down, when the database is opened.
     pub fn root(&self) -> std::path::PathBuf {
         match self {
             // A daemon or test harness whose cwd was deleted has no current

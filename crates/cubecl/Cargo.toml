@@ -42,7 +42,7 @@ exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 
 profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 
-browser-cache = ["cubecl-core/browser-cache"]
+persistence = ["cubecl-runtime/persistence"]
 tokio = ["cubecl-core/tokio"]
 
 tracing = [

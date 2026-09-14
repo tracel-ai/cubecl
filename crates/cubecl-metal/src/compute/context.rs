@@ -106,7 +106,7 @@ impl MetalContext {
         let cache_key = KernelCacheKey::new(kernel_id, self.build_id);
 
         if let Some(cache) = self.msl_cache.as_mut()
-            && let Some(entry) = cache.remove(&cache_key)
+            && let Some(entry) = cache.take_cached(&cache_key)
         {
             log::trace!("Using MSL cache");
 

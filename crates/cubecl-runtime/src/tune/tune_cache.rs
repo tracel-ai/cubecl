@@ -1,11 +1,11 @@
-#[cfg(autotune_persistence)]
+#[cfg(persistence)]
 use alloc::vec::Vec;
 
-#[cfg(autotune_persistence)]
+#[cfg(persistence)]
 use cubecl_environment::persistence::StoreError;
-#[cfg(autotune_persistence)]
+#[cfg(persistence)]
 use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
-#[cfg(autotune_persistence)]
+#[cfg(persistence)]
 use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
@@ -13,7 +13,7 @@ use alloc::string::String;
 use cubecl_environment::collections::HashMap;
 
 #[derive(Debug)]
-pub(crate) enum CacheEntry {
+pub enum CacheEntry {
     Done {
         checksum: ChecksumState,
         fastest_index: usize,
@@ -23,14 +23,14 @@ pub(crate) enum CacheEntry {
 
 #[derive(Debug)]
 #[allow(dead_code)] // Some variants are not created when the cache isn't saved.
-pub(crate) enum ChecksumState {
+pub enum ChecksumState {
     Match,
     NoMatch,
     ToBeVerified(String),
 }
 
 /// Persistent cache key
-#[cfg(autotune_persistence)]
+#[cfg(persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
 pub struct PersistentCacheKey<K> {
     /// The autotune key identifying the operation.
@@ -45,7 +45,7 @@ pub struct PersistentCacheKey<K> {
 /// the fact — why a kernel won, against which measurements, and under which bounds — which is the
 /// question that cannot be answered from a live process once tuning is over. That is also why the
 /// type is `pub`: reading an entry back is the point.
-#[cfg(autotune_persistence)]
+#[cfg(persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct PersistentCacheValue {
     /// Index of the fastest candidate operation.
@@ -56,16 +56,14 @@ pub struct PersistentCacheValue {
     ///
     /// Defaulted, so entries written before this field existed still decode. Without it every
     /// cached key on every existing installation would fail to read and re-tune from scratch.
-    #[serde(default)]
     pub bounds: Option<crate::tune::Bounds>,
     /// Optional execution time limit for the autotune process.
     ///
     /// Defaulted for the same reason as [`bounds`](Self::bounds).
-    #[serde(default)]
     pub limit: Option<core::time::Duration>,
 }
 
-#[cfg_attr(autotune_persistence, derive(Serialize, Deserialize))]
+#[cfg_attr(persistence, derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 /// The result of an autotune job.
 pub struct AutotuneResult {
@@ -74,12 +72,14 @@ pub struct AutotuneResult {
 }
 
 impl AutotuneResult {
-    pub(crate) fn error(error: AutotuneError) -> Self {
+    /// Creates a failed result.
+    pub fn error(error: AutotuneError) -> Self {
         Self {
             outcome: Err(error),
         }
     }
-    pub(crate) fn success(outcome: AutotuneOutcome) -> Self {
+    /// Creates a successful result.
+    pub fn success(outcome: AutotuneOutcome) -> Self {
         Self {
             outcome: Ok(outcome),
         }
@@ -101,26 +101,20 @@ impl PartialEq for AutotuneResult {
 
 /// Use to find and reuse the best kernel for some input
 #[derive(Debug)]
-pub(crate) struct TuneCache<K> {
-    /// The single in-memory home of tuning state, keyed for the per-launch
-    /// lookup: tuned picks, in-flight tunes and checksum verdicts. Hydrated
-    /// from the store, which retains nothing itself, and rebuilt when the
-    /// environment switches.
+pub struct TuneCache<K> {
     in_memory_cache: HashMap<K, CacheEntry>,
     /// Write-through persistence, or `None` when the persistent cache is
     /// disabled, so no cache file is ever touched. Lazy: entries live in
     /// [`Self::in_memory_cache`] once hydrated, not here.
-    #[cfg(autotune_persistence)]
+    #[cfg(persistence)]
     persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
     /// Whether everything the store holds has been ingested into
     /// [`Self::in_memory_cache`]. What makes an ordinary miss cost a bool
-    /// check rather than a walk; `false` while an asynchronous storage
-    /// (browser) is still loading, and again after an environment switch.
-    #[cfg(autotune_persistence)]
+    /// check rather than a walk; `false` until the first sync, and again
+    /// after an environment switch.
+    #[cfg(persistence)]
     hydrated: bool,
-    /// The environment generation [`Self::in_memory_cache`] was built under;
-    /// see [`cubecl_environment::environment::generation`].
-    #[cfg(autotune_persistence)]
+    #[cfg(persistence)]
     generation: u32,
 }
 
@@ -143,11 +137,11 @@ pub enum TuneCacheResult {
 }
 
 impl<K: AutotuneKey> TuneCache<K> {
-    pub(crate) fn new(
-        #[cfg_attr(not(autotune_persistence), allow(unused_variables))] name: &str,
-        #[cfg_attr(not(autotune_persistence), allow(unused_variables))] device_id: &str,
+    pub async fn new(
+        #[cfg_attr(not(persistence), allow(unused_variables))] name: &str,
+        #[cfg_attr(not(persistence), allow(unused_variables))] device_id: &str,
     ) -> Self {
-        #[cfg(autotune_persistence)]
+        #[cfg(persistence)]
         {
             use crate::config::RuntimeConfig;
             use alloc::format;
@@ -170,22 +164,25 @@ impl<K: AutotuneKey> TuneCache<K> {
             let namespace = Namespace::scoped("autotune", format!("{device_id}/{name}"));
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
-                persistent_cache: Some(Store::new(
-                    StoreOptions::new()
-                        .storage(namespace)
-                        .cache(CacheOption::Lazy),
-                )),
+                persistent_cache: Some(
+                    Store::open(
+                        StoreOptions::new()
+                            .storage(namespace)
+                            .cache(CacheOption::Lazy),
+                    )
+                    .await,
+                ),
                 hydrated: false,
                 generation,
             };
             log::info!("Load autotune cache ...");
-            let loaded = cache.sync_persistent();
+            let loaded = cache.sync_persistent().await;
             log::info!("Loaded {loaded} autotune cached entries");
 
             cache
         }
 
-        #[cfg(not(autotune_persistence))]
+        #[cfg(not(persistence))]
         {
             TuneCache {
                 in_memory_cache: HashMap::new(),
@@ -210,10 +207,10 @@ impl<K: AutotuneKey> TuneCache<K> {
             return TuneCacheResult::Pending;
         };
 
-        if cfg!(autotune_persistence) {
+        if cfg!(persistence) {
             match checksum {
-                ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked, // Don't know yet.
-                ChecksumState::NoMatch => TuneCacheResult::Miss,               // Can't use this.
+                ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked,
+                ChecksumState::NoMatch => TuneCacheResult::Miss,
                 ChecksumState::Match => TuneCacheResult::Hit {
                     fastest_index: *fastest_index,
                 },
@@ -227,7 +224,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         }
     }
 
-    #[cfg(autotune_persistence)]
+    #[cfg(persistence)]
     pub fn validate_checksum(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
         let Some(val) = self.in_memory_cache.get_mut(key) else {
             return TuneCacheResult::Miss;
@@ -249,14 +246,14 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.fastest(key)
     }
 
-    /// Mark a key as being tuned. Used by [`Tuner::tune`] under the cache mutex so that
+    /// Mark a key as being tuned. Used by [`Tuner::check_tune`] under the cache mutex so that
     /// concurrent callers see [`TuneCacheResult::Pending`] instead of starting a second job
     /// for the same key.
-    pub(crate) fn mark_pending(&mut self, key: K) {
+    pub fn mark_pending(&mut self, key: K) {
         self.in_memory_cache.insert(key, CacheEntry::Pending);
     }
 
-    pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {
+    pub fn cache_insert(&mut self, key: K, fastest_index: usize) {
         self.in_memory_cache.insert(
             key,
             CacheEntry::Done {
@@ -267,7 +264,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 }
 
-#[cfg(autotune_persistence)]
+#[cfg(persistence)]
 impl<K: AutotuneKey> TuneCache<K> {
     /// Drops tuning state belonging to a previous environment, so a switch
     /// re-hydrates and re-tunes rather than serving the old environment's
@@ -276,9 +273,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// In-flight tunes are dropped with everything else: their completion
     /// still records a hardware-valid result, so the whole cost of the race
     /// is one duplicate tune per switch.
-    pub(crate) fn reset_if_environment_switched(&mut self) {
-        // Persistence disabled means the tuning state is process-local and
-        // unbound, like a store without a storage: it survives switches.
+    pub fn reset_if_environment_switched(&mut self) {
         if self.persistent_cache.is_none() {
             return;
         }
@@ -298,13 +293,12 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// as unverified entries.
     ///
     /// Runs at construction, and again whenever `hydrated` fell back to
-    /// `false`: after an environment switch, and on the browser backend while
-    /// its asynchronous hydration is still in flight. Once hydrated, a miss
-    /// costs one bool check here — never a walk, and never a rescan of the
-    /// database under the tuner mutex.
+    /// `false` after an environment switch. Once hydrated, a miss costs one
+    /// bool check here — never a walk, and never a rescan of the database
+    /// under the tuner mutex.
     ///
     /// Returns how many entries the store delivered.
-    pub(crate) fn sync_persistent(&mut self) -> usize {
+    pub(crate) async fn sync_persistent(&mut self) -> usize {
         if self.hydrated {
             return 0;
         }
@@ -314,21 +308,23 @@ impl<K: AutotuneKey> TuneCache<K> {
         };
 
         let mut delivered = 0;
-        let complete = persistent_cache.scan(|key, value| {
-            delivered += 1;
-            self.in_memory_cache
-                .entry(key.key)
-                .or_insert(CacheEntry::Done {
-                    checksum: ChecksumState::ToBeVerified(key.checksum),
-                    fastest_index: value.fastest_index,
-                });
-        });
-        self.hydrated = complete;
+        persistent_cache
+            .scan(|key, value| {
+                delivered += 1;
+                self.in_memory_cache
+                    .entry(key.key)
+                    .or_insert(CacheEntry::Done {
+                        checksum: ChecksumState::ToBeVerified(key.checksum),
+                        fastest_index: value.fastest_index,
+                    });
+            })
+            .await;
+        self.hydrated = true;
 
         delivered
     }
 
-    pub(crate) fn persistent_cache_insert(
+    pub async fn persistent_cache_insert(
         &mut self,
         key: K,
         checksum: String,
@@ -338,7 +334,10 @@ impl<K: AutotuneKey> TuneCache<K> {
             return;
         };
 
-        if let Err(err) = persistent_cache.insert(PersistentCacheKey { key, checksum }, value) {
+        if let Err(err) = persistent_cache
+            .insert(PersistentCacheKey { key, checksum }, value)
+            .await
+        {
             match err {
                 StoreError::DuplicatedKey {
                     key,

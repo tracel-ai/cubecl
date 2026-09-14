@@ -1,13 +1,6 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-#[cfg(native_cache)]
-use crate::persistence::Database;
-
-/// The `meta` key the manifest is stored under.
-#[cfg(native_cache)]
-const MANIFEST_KEY: &str = "manifest";
-
 /// The manifest schema version this build reads and writes.
 pub const MANIFEST_SCHEMA: u32 = 1;
 
@@ -17,9 +10,9 @@ pub enum BundleError {
     /// The bundle file couldn't be read or written.
     #[cfg(native_cache)]
     Io(std::io::Error),
-    /// The database couldn't be opened or queried.
+    /// The environment database couldn't be opened or queried.
     #[cfg(native_cache)]
-    Database(rusqlite::Error),
+    Storage(String),
     /// The file opened but carries no manifest, so it isn't a bundle.
     NotABundle,
     /// The manifest is not valid for the expected schema.
@@ -38,7 +31,7 @@ impl core::fmt::Display for BundleError {
             #[cfg(native_cache)]
             BundleError::Io(err) => write!(f, "bundle io error: {err}"),
             #[cfg(native_cache)]
-            BundleError::Database(err) => write!(f, "bundle database error: {err}"),
+            BundleError::Storage(err) => write!(f, "bundle storage error: {err}"),
             BundleError::NotABundle => write!(f, "the file carries no bundle manifest"),
             BundleError::InvalidManifest(err) => write!(f, "invalid bundle manifest: {err}"),
             BundleError::UnsupportedSchema(schema) => {
@@ -74,16 +67,7 @@ impl From<std::io::Error> for BundleError {
     }
 }
 
-#[cfg(native_cache)]
-impl From<rusqlite::Error> for BundleError {
-    fn from(err: rusqlite::Error) -> Self {
-        Self::Database(err)
-    }
-}
-
-/// The manifest of an environment bundle, stored as a row of the bundle
-/// database in [`BundleFormat::Sqlite`](super::BundleFormat::Sqlite) and as the
-/// metadata blob in [`BundleFormat::Flat`](super::BundleFormat::Flat).
+/// The manifest stored in a bundle's metadata.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BundleManifest {
     /// Manifest schema version.
@@ -120,12 +104,12 @@ pub struct EnvironmentInfo {
 }
 
 impl BundleManifest {
-    /// Parses and validates a serialized manifest, the JSON both formats
-    /// store.
+    /// Parses and validates a serialized manifest, the JSON a bundle stores
+    /// as its metadata blob.
     ///
-    /// This is the guard [`SqliteBundle`](super::SqliteBundle) applies at open,
-    /// available to the flat format too through
-    /// [`EmbeddedBundle::manifest`](super::EmbeddedBundle::manifest).
+    /// This is the guard
+    /// [`EmbeddedBundle::manifest`](super::EmbeddedBundle::manifest) applies
+    /// at open.
     pub fn parse(content: &[u8]) -> Result<Self, BundleError> {
         if content.is_empty() {
             return Err(BundleError::NotABundle);
@@ -155,59 +139,5 @@ impl BundleManifest {
                 env!("CARGO_PKG_VERSION"),
             );
         }
-    }
-
-    /// Reads and validates the manifest of a bundle database.
-    #[cfg(native_cache)]
-    pub fn read(database: &Database) -> Result<Self, BundleError> {
-        let content = read_meta(database, MANIFEST_KEY)?.ok_or(BundleError::NotABundle)?;
-
-        Self::parse(content.as_bytes())
-    }
-
-    /// Writes the manifest into a bundle database.
-    #[cfg(native_cache)]
-    pub fn write(&self, database: &Database) -> Result<(), BundleError> {
-        let content = serde_json::to_string_pretty(self)
-            .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
-
-        database.with_connection(|conn| {
-            crate::persistence::sqlite::meta_set(conn, MANIFEST_KEY, &content)
-        })?;
-
-        Ok(())
-    }
-}
-
-#[cfg(native_cache)]
-fn read_meta(database: &Database, key: &str) -> Result<Option<String>, BundleError> {
-    let content = database.with_connection(|conn| crate::persistence::sqlite::meta_get(conn, key));
-
-    match content {
-        Ok(content) => Ok(content),
-        // "Not a bundle" is a narrow condition: the file doesn't parse as a
-        // SQLite database at all, or it does but carries no `meta` table.
-        // Anything else — a locked, corrupt, or unreadable database — is a
-        // real failure and must surface as such rather than as the misleading
-        // "the file carries no bundle manifest".
-        Err(err) if is_missing_meta(&err) => Err(BundleError::NotABundle),
-        Err(err) => Err(BundleError::Database(err)),
-    }
-}
-
-/// Whether `err` means "this file is not a cubecl bundle" rather than a genuine
-/// database failure. A non-database file fails with `NotADatabase`; a database
-/// without the table fails with a "no such table" message, which rusqlite
-/// surfaces as either a `SqliteFailure` or a `SqlInputError` depending on where
-/// the statement is rejected.
-#[cfg(native_cache)]
-fn is_missing_meta(err: &rusqlite::Error) -> bool {
-    match err {
-        rusqlite::Error::SqliteFailure(err, _) if err.code == rusqlite::ErrorCode::NotADatabase => {
-            true
-        }
-        rusqlite::Error::SqliteFailure(_, Some(message))
-        | rusqlite::Error::SqlInputError { msg: message, .. } => message.contains("no such table"),
-        _ => false,
     }
 }

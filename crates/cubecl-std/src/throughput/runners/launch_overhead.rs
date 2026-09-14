@@ -1,39 +1,54 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-pub fn build_kernel(
+pub async fn build_kernel(
     client: &cubecl_runtime::client::Client,
     _key: cubecl_runtime::throughput::ThroughputKey,
     _config: super::super::LaunchConfig,
 ) -> cubecl_runtime::throughput::KernelConfig {
     let client = client.clone();
-    let sample = alloc::boxed::Box::new(move |iterations: usize| {
-        let input = client.empty(core::mem::size_of::<i32>());
-        let output = client.empty(core::mem::size_of::<i32>());
+    let sample = alloc::boxed::Box::new(
+        move |iterations: usize| -> cubecl_environment::future::DynFut<_> {
+            let client = client.clone();
+            Box::pin(async move {
+                let input = client.empty(core::mem::size_of::<i32>());
+                let output = client.empty(core::mem::size_of::<i32>());
 
-        let (_, duration) = client
-            .profile(
-                || unsafe {
-                    for _ in 0..iterations {
-                        launch_overhead::launch_unchecked(
-                            &client,
-                            cubecl_core::CubeCount::new_single(),
-                            cubecl_core::server::CubeDim::new_single(),
-                            1,
-                            cubecl_core::frontend::BufferArg::from_raw_parts(input.clone(), 1),
-                            cubecl_core::frontend::BufferArg::from_raw_parts(output.clone(), 1),
-                            cubecl_core::ir::ElemType::Int(cubecl_core::ir::IntKind::I32),
-                        );
-                    }
-                },
-                "launch_overhead",
-            )
-            .expect("should succeed launch_overhead");
+                let (_, duration) = client
+                    .profile(
+                        || unsafe {
+                            for _ in 0..iterations {
+                                launch_overhead::launch_unchecked(
+                                    &client,
+                                    cubecl_core::CubeCount::new_single(),
+                                    cubecl_core::server::CubeDim::new_single(),
+                                    1,
+                                    cubecl_core::frontend::BufferArg::from_raw_parts(
+                                        input.clone(),
+                                        1,
+                                    ),
+                                    cubecl_core::frontend::BufferArg::from_raw_parts(
+                                        output.clone(),
+                                        1,
+                                    ),
+                                    cubecl_core::ir::ElemType::Int(cubecl_core::ir::IntKind::I32),
+                                );
+                            }
+                        },
+                        "launch_overhead",
+                    )
+                    .expect("should succeed launch_overhead");
 
-        cubecl_core::future::block_on(duration.into_future())
-            .expect("the launch_overhead window always dispatches, so it is always measured")
-            .duration()
-    });
+                duration
+                    .into_future()
+                    .await
+                    .expect(
+                        "the launch_overhead window always dispatches, so it is always measured",
+                    )
+                    .duration()
+            })
+        },
+    );
 
     cubecl_runtime::throughput::KernelConfig {
         sample,

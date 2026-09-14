@@ -24,7 +24,7 @@
 
 use crate::sync::{AtomicU32, Ordering};
 use alloc::string::{String, ToString};
-#[cfg(std_io)]
+#[cfg(any(std_io, browser_cache))]
 use alloc::vec::Vec;
 
 use crate::persistence::{StoreKey, StoreValue};
@@ -125,26 +125,6 @@ pub fn activate<N: AsRef<str>>(name: N) {
         active.file = None;
     }
     switched();
-}
-
-/// A stable identity for the active environment, distinguishing one from
-/// another for backends that key by it rather than by a file path.
-///
-/// The database backend already isolates environments by their file path; the
-/// in-memory fallback ([`MemoryStorage`](crate::persistence::MemoryStorage))
-/// has no file, so it scopes its process-wide entries by this instead, and a
-/// switch reaches it the same way. On targets with a file system the identity
-/// is the database path, which folds in the name, the root and any mounted
-/// file; elsewhere the name is the whole identity, since [`load`]/[`set_root`]
-/// don't exist there.
-#[cfg(std_io)]
-pub(crate) fn scope() -> String {
-    path().display().to_string()
-}
-
-#[cfg(not(std_io))]
-pub(crate) fn scope() -> String {
-    active().to_string()
 }
 
 /// The active environment.
@@ -286,10 +266,11 @@ pub fn list() -> Vec<String> {
 ///     StoreOptions::new()
 ///         .storage(Namespace::new("cuda/ptx"))
 ///         .cache(CacheOption::Lazy),
-/// );
+/// )
+/// .await;
 /// ```
-pub fn store<K: StoreKey, V: StoreValue>(options: StoreOptions) -> Store<K, V> {
-    Store::new(options)
+pub async fn store<K: StoreKey, V: StoreValue>(options: StoreOptions) -> Store<K, V> {
+    Store::open(options).await
 }
 
 /// The active environment, captured for shipping.
@@ -322,7 +303,7 @@ impl Bundle {
     /// A thin front for [`bundle::export`](crate::bundle::export) over this
     /// one environment; use `export` directly to merge several roots or
     /// restrict the namespaces.
-    pub fn save<P: AsRef<std::path::Path>>(
+    pub async fn save<P: AsRef<std::path::Path>>(
         &self,
         out: P,
         format: crate::bundle::BundleFormat,
@@ -333,7 +314,7 @@ impl Bundle {
             ..Default::default()
         };
 
-        crate::bundle::export(&[&self.source], out, &options)
+        crate::bundle::export(&[&self.source], out, &options).await
     }
 }
 
@@ -341,19 +322,9 @@ impl Bundle {
 ///
 /// This is what you consult before bundling, to see which namespaces are warm
 /// and worth shipping.
-#[cfg(std_io)]
-pub fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
-    #[cfg(native_cache)]
-    match crate::persistence::Database::open_active() {
-        Some(database) => database.summary(),
-        // No database means nothing was ever written to disk; whatever this
-        // process warmed is in memory.
-        None => crate::persistence::MemoryStorage::namespaces(),
-    }
-
-    // Without a persistence backend there is nothing durable to report on.
-    #[cfg(not(native_cache))]
-    crate::persistence::MemoryStorage::namespaces()
+#[cfg(any(std_io, browser_cache))]
+pub async fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
+    crate::persistence::summary().await
 }
 
 #[cfg(test)]

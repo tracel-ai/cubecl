@@ -5,7 +5,7 @@ use thiserror::Error;
 
 /// JIT compilation error.
 #[derive(Error, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(persistence, derive(serde::Serialize, serde::Deserialize))]
 pub enum CompilationError {
     /// An instruction isn't supported.
     #[error(
@@ -15,7 +15,7 @@ pub enum CompilationError {
         /// The caused of the error.
         reason: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(persistence, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -27,7 +27,7 @@ pub enum CompilationError {
         /// The error context.
         reason: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(persistence, serde(skip))]
         backtrace: BackTrace,
     },
     /// A generic compilation error.
@@ -38,7 +38,7 @@ pub enum CompilationError {
         /// The error context.
         reason: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(persistence, serde(skip))]
         backtrace: BackTrace,
     },
 }

@@ -22,11 +22,12 @@ fn key(index: usize) -> String {
 
 fn warm(root: &std::path::Path) -> Store<String, u32> {
     cubecl_environment::environment::set_root(root);
-    let mut store =
-        Store::<String, u32>::new(StoreOptions::new().storage(Namespace::new("device0/matmul")));
+    let mut store = cubecl_environment::future::block_on(Store::<String, u32>::open(
+        StoreOptions::new().storage(Namespace::new("device0/matmul")),
+    ));
 
     for index in 0..ENTRIES {
-        store.insert(key(index), index as u32).ok();
+        cubecl_environment::future::block_on(store.insert(key(index), index as u32)).ok();
     }
 
     store
@@ -34,7 +35,7 @@ fn warm(root: &std::path::Path) -> Store<String, u32> {
 
 fn read_path(criterion: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
-    let store = warm(dir.path());
+    let mut store = warm(dir.path());
 
     let mut baseline: HashMap<String, u32> = HashMap::default();
     for index in 0..ENTRIES {
@@ -48,7 +49,9 @@ fn read_path(criterion: &mut Criterion) {
         let mut index = 0;
         bencher.iter(|| {
             index = (index + 1) % ENTRIES;
-            black_box(store.get(black_box(&keys[index])))
+            black_box(
+                cubecl_environment::future::block_on(store.get(black_box(&keys[index]))).copied(),
+            )
         })
     });
     group.bench_function("hashmap_hit", |bencher| {
@@ -61,7 +64,9 @@ fn read_path(criterion: &mut Criterion) {
 
     let missing = key(ENTRIES + 1);
     group.bench_function("kv_store_miss", |bencher| {
-        bencher.iter(|| black_box(store.get(black_box(&missing))))
+        bencher.iter(|| {
+            black_box(cubecl_environment::future::block_on(store.get(black_box(&missing))).copied())
+        })
     });
     group.finish();
 }
@@ -76,7 +81,11 @@ fn write_path(criterion: &mut Criterion) {
     let mut store = warm(dir.path());
     let known = key(0);
     group.bench_function("kv_store_insert_known", |bencher| {
-        bencher.iter(|| store.insert(black_box(known.clone()), black_box(0)))
+        bencher.iter(|| {
+            cubecl_environment::future::block_on(
+                store.insert(black_box(known.clone()), black_box(0)),
+            )
+        })
     });
 
     // The same, minus the unavoidable key clone `insert` needs to take
@@ -98,7 +107,7 @@ fn write_path(criterion: &mut Criterion) {
                 index += 1;
                 key(index)
             },
-            |fresh| store.insert(black_box(fresh), 0),
+            |fresh| cubecl_environment::future::block_on(store.insert(black_box(fresh), 0)),
             BatchSize::SmallInput,
         )
     });
@@ -114,17 +123,18 @@ fn blob_path(criterion: &mut Criterion) {
 
     let dir = tempfile::tempdir().unwrap();
     cubecl_environment::environment::set_root(dir.path());
-    let mut store = Store::<String, Bytes>::new(
+    let mut store = cubecl_environment::future::block_on(Store::<String, Bytes>::open(
         StoreOptions::new()
             .storage(Namespace::new("spirv_device0"))
             .cache(CacheOption::Lazy),
-    );
+    ));
 
     let keys: Vec<String> = (0..ENTRIES).map(key).collect();
     for key in &keys {
-        store
-            .insert(key.clone(), Bytes::from_bytes_vec(std::vec![7u8; 4096]))
-            .ok();
+        cubecl_environment::future::block_on(
+            store.insert(key.clone(), Bytes::from_bytes_vec(std::vec![7u8; 4096])),
+        )
+        .ok();
     }
 
     let mut group = criterion.benchmark_group("blob");
@@ -132,18 +142,23 @@ fn blob_path(criterion: &mut Criterion) {
         let mut index = 0;
         bencher.iter(|| {
             index = (index + 1) % ENTRIES;
-            black_box(store.remove(black_box(&keys[index])))
+            black_box(cubecl_environment::future::block_on(
+                store.remove(black_box(&keys[index])),
+            ))
         })
     });
 
     for key in &keys {
-        store.get_mut(key);
+        let _ = cubecl_environment::future::block_on(store.get_mut(key));
     }
     group.bench_function("lazy_store_memoized_hit", |bencher| {
         let mut index = 0;
         bencher.iter(|| {
             index = (index + 1) % ENTRIES;
-            black_box(store.get(black_box(&keys[index])))
+            black_box(
+                cubecl_environment::future::block_on(store.get(black_box(&keys[index])))
+                    .map(Bytes::len),
+            )
         })
     });
     group.finish();
@@ -159,20 +174,20 @@ fn open_path(criterion: &mut Criterion) {
         let dir = tempfile::tempdir().unwrap();
         {
             cubecl_environment::environment::set_root(dir.path());
-            let mut store = Store::<String, u32>::new(
+            let mut store = cubecl_environment::future::block_on(Store::<String, u32>::open(
                 StoreOptions::new().storage(Namespace::new("device0/matmul")),
-            );
+            ));
             for index in 0..entries {
-                store.insert(key(index), index as u32).ok();
+                cubecl_environment::future::block_on(store.insert(key(index), index as u32)).ok();
             }
         }
 
         group.bench_function(format!("kv_store_open_{entries}"), |bencher| {
             bencher.iter(|| {
                 cubecl_environment::environment::set_root(dir.path());
-                let store = Store::<String, u32>::new(
+                let store = cubecl_environment::future::block_on(Store::<String, u32>::open(
                     StoreOptions::new().storage(Namespace::new("device0/matmul")),
-                );
+                ));
                 black_box(store.len())
             })
         });

@@ -134,9 +134,41 @@ where
         super::check_autotune_outputs(checks_outputs)
     }
 
-    /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
-    /// the first call for a given key.
+    /// Executes the fastest operation in a [`TunableSet`].
+    ///
+    /// Native targets wait for tuning to finish. Browser callers that cannot
+    /// yield execute the first viable candidate; use [`Self::execute_async`]
+    /// when the caller can await tuning.
     pub fn execute<'a, I: TuneInputs, Out>(
+        &self,
+        id: &ID,
+        client: &Client,
+        operations: Arc<TunableSet<AK, I, Out>>,
+        inputs: <I as TuneInputs>::At<'a>,
+    ) -> Out
+    where
+        <I as TuneInputs>::At<'a>: Clone + Send,
+        Out: AutotuneOutput,
+    {
+        #[cfg(not(target_family = "wasm"))]
+        return cubecl_environment::future::block_on(
+            self.execute_async(id, client, operations, inputs),
+        );
+
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = (id, client);
+            for index in 0..operations.len() {
+                if let Ok(output) = operations.fastest(index).execute(inputs.clone()) {
+                    return output;
+                }
+            }
+            panic!("All autotune operations failed, no viable operation found.");
+        }
+    }
+
+    /// Asynchronously executes the fastest operation, tuning on the first call.
+    pub async fn execute_async<'a, I: TuneInputs, Out>(
         &self,
         id: &ID,
         client: &Client,
@@ -149,16 +181,23 @@ where
     {
         let key = operations.generate_key(&inputs);
 
-        let tuner = {
-            let mut state_lock = self.state.lock();
-            let state_map = state_lock.get_or_insert_with(|| HashMap::new());
-            state_map
-                .entry(id.clone())
-                .or_insert_with(move || {
-                    let name = self.name.replace("::", "-");
-                    Arc::new(Tuner::new(&name, &id.to_string()))
-                })
-                .clone()
+        let tuner = self
+            .state
+            .lock()
+            .as_ref()
+            .and_then(|tuners| tuners.get(id).cloned());
+        let tuner = match tuner {
+            Some(tuner) => tuner,
+            None => {
+                let name = self.name.replace("::", "-");
+                let candidate = Arc::new(Tuner::new(&name, &id.to_string()).await);
+                let mut state = self.state.lock();
+                state
+                    .get_or_insert_with(HashMap::new)
+                    .entry(id.clone())
+                    .or_insert(candidate)
+                    .clone()
+            }
         };
 
         #[allow(unused_mut)]
@@ -170,21 +209,23 @@ where
         // Fast path: a cached hit skips straight to the fastest operation.
         // `fastest` also resets the tuner cache if the environment switched, so
         // a miss here falls through to `check_tune`, which re-hydrates.
-        if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
+        if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key).await {
             return operations
                 .fastest(fastest_index)
                 .execute(inputs)
                 .expect("Should run when selected by autotune.");
         }
 
-        let fastest = tuner.check_tune::<I, Out>(
-            &key,
-            &inputs,
-            &operations,
-            || operations.compute_checksum(),
-            client,
-            log_context,
-        );
+        let fastest = tuner
+            .check_tune::<I, Out>(
+                &key,
+                &inputs,
+                &operations,
+                || operations.compute_checksum(),
+                client,
+                log_context,
+            )
+            .await;
 
         // Run the execution depending on the cache state.
         match fastest {

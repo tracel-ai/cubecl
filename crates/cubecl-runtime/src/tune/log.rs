@@ -9,7 +9,7 @@ use core::time::Duration;
 
 /// Events that occurred during autotuning, useful for observability and logging.
 #[derive(Debug, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(persistence, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneLogEvent {
     /// Tracks a tunable kernel that was executed during autotuning.
     TuningStep(String, Duration),
@@ -20,7 +20,7 @@ pub enum AutotuneLogEvent {
 
 /// The context containing bounds, limits, and events that happened during autotuning.
 #[derive(Debug, Clone, Default)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(persistence, derive(serde::Serialize, serde::Deserialize))]
 pub struct AutotuneLogContext {
     /// Calculated bounds for autotuning.
     pub bounds: Option<crate::tune::Bounds>,
