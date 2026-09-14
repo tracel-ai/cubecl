@@ -11,7 +11,33 @@ use super::{InsertSummary, Insertion, NamespaceSummary, Origin, Storage};
 use crate::bytes::Bytes;
 use crate::sync::{LazyLock, Mutex};
 
-const CREATE_SCHEMA: &str = "
+/// The database schema this build reads and writes. A file carrying any other
+/// version has its entries table dropped and rebuilt: it is a cache, so the
+/// only cost is one cold start. Bump this on any change to
+/// [`CREATE_ENTRIES`], including a renamed column.
+///
+/// Versions 1 to 3 were written by the rusqlite backend into a table named
+/// `entries`; opening such a file drops that table too.
+pub const SCHEMA_VERSION: u32 = 4;
+
+/// The `meta` key holding [`SCHEMA_VERSION`].
+const SCHEMA_VERSION_KEY: &str = "schema_version";
+
+/// Created first and never dropped, so the schema version survives a rebuild
+/// of the entries table.
+const CREATE_META: &str = "
+    CREATE TABLE IF NOT EXISTS meta (
+        k TEXT PRIMARY KEY,
+        v TEXT NOT NULL
+    )
+";
+
+const META_GET: &str = "SELECT v FROM meta WHERE k = ?1";
+
+const META_SET: &str = "INSERT INTO meta (k, v) VALUES (?1, ?2) \
+                        ON CONFLICT(k) DO UPDATE SET v = excluded.v";
+
+const CREATE_ENTRIES: &str = "
     CREATE TABLE IF NOT EXISTS cache_entries (
         namespace TEXT NOT NULL,
         key BLOB NOT NULL,
@@ -20,6 +46,13 @@ const CREATE_SCHEMA: &str = "
         PRIMARY KEY (namespace, key)
     )
 ";
+
+/// The tables a schema change leaves behind: this build's, and the rusqlite
+/// backend's.
+const DROP_ENTRIES: [&str; 2] = [
+    "DROP TABLE IF EXISTS cache_entries",
+    "DROP TABLE IF EXISTS entries",
+];
 
 type DatabaseResult = Result<Arc<turso::Database>, String>;
 
@@ -61,7 +94,7 @@ impl TursoStorage {
     }
 
     fn connection(&self) -> Result<turso::Connection, String> {
-        self.database.connect().map_err(error)
+        connect(&self.database).map_err(error)
     }
 
     async fn insert_on(
@@ -120,7 +153,7 @@ impl TursoStorage {
         value: &[u8],
         origin: Origin,
     ) -> Result<Insertion, turso::Error> {
-        let mut connection = self.database.connect()?;
+        let mut connection = connect(&self.database)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .await?;
@@ -136,7 +169,7 @@ impl TursoStorage {
         let Ok(database) = shared_database(&location).await else {
             return Vec::new();
         };
-        let Ok(connection) = database.connect() else {
+        let Ok(connection) = connect(&database) else {
             return Vec::new();
         };
         let Ok(mut rows) = connection
@@ -228,7 +261,7 @@ impl Storage for TursoStorage {
         entries: &mut (dyn Iterator<Item = (Bytes, Bytes)> + Send),
         origin: Origin,
     ) -> InsertSummary {
-        let Ok(mut connection) = self.database.connect() else {
+        let Ok(mut connection) = connect(&self.database) else {
             return InsertSummary {
                 failed: entries.count(),
                 ..InsertSummary::default()
@@ -341,8 +374,7 @@ async fn shared_database(location: &str) -> DatabaseResult {
 
     let opened = async {
         let database = open_database(location).await?;
-        let connection = database.connect().map_err(error)?;
-        connection.execute(CREATE_SCHEMA, ()).await.map_err(error)?;
+        migrate(&database).await.map_err(error)?;
         Ok(Arc::new(database))
     }
     .await;
@@ -402,6 +434,67 @@ fn location() -> Result<String, String> {
     Ok(format!("cubecl-{}.db", crate::environment::active()))
 }
 
+/// Brings the file to [`SCHEMA_VERSION`], dropping the entries of any other.
+///
+/// The table is dropped rather than emptied: a schema change can rename or
+/// retype a column, and keeping the old table would make every later statement
+/// fail instead of costing one cold start. The version is read and the schema
+/// rebuilt under one write lock, so two processes opening the same file at
+/// once rebuild it once: the second waits, then reads the version the first
+/// wrote.
+async fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
+    let mut connection = connect(database)?;
+    connection.execute(CREATE_META, ()).await?;
+
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .await?;
+
+    let expected = SCHEMA_VERSION.to_string();
+    let found: Option<String> = match transaction
+        .query(META_GET, (SCHEMA_VERSION_KEY,))
+        .await?
+        .next()
+        .await?
+    {
+        Some(row) => Some(row.get(0)?),
+        None => None,
+    };
+
+    if found.as_deref() != Some(expected.as_str()) {
+        match &found {
+            Some(found) => log::warn!(
+                "cubecl cache: database schema {found} is not {expected}, discarding cached entries"
+            ),
+            // No version at all: the file predates the `meta` table, so
+            // whatever entries it holds cannot be trusted either.
+            None => log::debug!("cubecl cache: initializing database schema {expected}"),
+        }
+        for drop in DROP_ENTRIES {
+            transaction.execute(drop, ()).await?;
+        }
+        transaction
+            .execute(META_SET, (SCHEMA_VERSION_KEY, expected.as_str()))
+            .await?;
+    }
+
+    transaction.execute(CREATE_ENTRIES, ()).await?;
+    transaction.commit().await
+}
+
+/// How long a statement waits on a lock another process holds before it
+/// reports [`Insertion::Failed`]. Several processes sharing a cache root is
+/// routine; the wait is yield-based, so it costs the browser nothing it
+/// can't afford.
+const BUSY_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(5);
+
+/// A connection to `database` with the busy timeout set.
+fn connect(database: &turso::Database) -> Result<turso::Connection, turso::Error> {
+    let connection = database.connect()?;
+    connection.busy_timeout(BUSY_TIMEOUT)?;
+    Ok(connection)
+}
+
 fn origin_code(origin: Origin) -> i64 {
     match origin {
         Origin::Local => 0,
@@ -417,4 +510,111 @@ pub async fn open(namespace: &str) -> Result<Arc<dyn Storage>, String> {
     TursoStorage::open(namespace.to_string())
         .await
         .map(|storage| Arc::new(storage) as Arc<dyn Storage>)
+}
+
+#[cfg(all(test, native_cache))]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    /// The tables a database file holds, by name.
+    async fn tables(location: &str) -> Vec<String> {
+        let database = open_database(location).await.unwrap();
+        let connection = connect(&database).unwrap();
+        let mut rows = connection
+            .query(
+                "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name",
+                (),
+            )
+            .await
+            .unwrap();
+
+        let mut names = Vec::new();
+        while let Some(row) = rows.next().await.unwrap() {
+            names.push(row.get::<String>(0).unwrap());
+        }
+        names
+    }
+
+    /// The database file of the active environment, as the storage locates it.
+    fn active_location(root: &std::path::Path) -> String {
+        crate::environment::set_root(root);
+        location().unwrap()
+    }
+
+    /// A file written by the rusqlite backend carries its `entries` table and
+    /// an older schema version. Opening it must leave neither behind: the
+    /// entries are unreadable to this build, and the stale table would
+    /// otherwise sit in the file forever.
+    #[tokio::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    async fn a_legacy_file_is_rebuilt_on_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let location = active_location(dir.path());
+
+        {
+            let database = open_database(&location).await.unwrap();
+            let connection = connect(&database).unwrap();
+            connection.execute(CREATE_META, ()).await.unwrap();
+            connection
+                .execute(META_SET, (SCHEMA_VERSION_KEY, "3"))
+                .await
+                .unwrap();
+            connection
+                .execute(
+                    "CREATE TABLE entries (namespace TEXT, key BLOB, value BLOB, origin INTEGER)",
+                    (),
+                )
+                .await
+                .unwrap();
+            connection
+                .execute("INSERT INTO entries VALUES ('old', X'01', X'02', 0)", ())
+                .await
+                .unwrap();
+        }
+
+        let storage = TursoStorage::open("migrated".to_string()).await.unwrap();
+        assert_eq!(storage.get(b"\x01").await, None);
+
+        assert_eq!(tables(&location).await, vec!["cache_entries", "meta"]);
+
+        let database = open_database(&location).await.unwrap();
+        let connection = connect(&database).unwrap();
+        let mut rows = connection
+            .query(META_GET, (SCHEMA_VERSION_KEY,))
+            .await
+            .unwrap();
+        let version: String = rows.next().await.unwrap().unwrap().get(0).unwrap();
+        assert_eq!(version, SCHEMA_VERSION.to_string());
+    }
+
+    /// The version is written once and survives reopening; entries do too,
+    /// because a file already at this version is not rebuilt.
+    #[tokio::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    async fn a_current_file_keeps_its_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let location = active_location(dir.path());
+
+        let storage = TursoStorage::open("kept".to_string()).await.unwrap();
+        assert_eq!(
+            storage
+                .insert(b"key", Bytes::from_bytes_vec(vec![7]), Origin::Local)
+                .await,
+            Insertion::Stored
+        );
+
+        // The registry hands the same database back; go around it to make
+        // `migrate` run again on the file as it is on disk.
+        let database = open_database(&location).await.unwrap();
+        migrate(&database).await.unwrap();
+
+        let reopened = TursoStorage::open("kept".to_string()).await.unwrap();
+        assert_eq!(
+            reopened.get(b"key").await,
+            Some(Bytes::from_bytes_vec(vec![7]))
+        );
+    }
 }
