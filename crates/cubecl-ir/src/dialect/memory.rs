@@ -7,7 +7,7 @@ use derive_more::From;
 use derive_new::new;
 use pliron::{
     arg_err,
-    attribute::AttrObj,
+    attribute::{AttrObj, Attribute, boxed_attr_cast},
     builtin::{
         attributes::{TypeAttr, UnitAttr},
         ops::ConstantOp,
@@ -148,6 +148,7 @@ impl PromotableAllocationInterface for DeclareVariableOp {
             return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
         }
         if let Some(initializer) = self.initializer(ctx).map(|it| it.clone()) {
+            let initializer = boxed_attr_cast(initializer).unwrap();
             let constant = ConstantOp::new(ctx, initializer);
             inserter.insert_op(ctx, &constant);
             Ok(constant.get_result(ctx))
@@ -290,7 +291,7 @@ fn const_index(ctx: &Context, value: Value) -> Option<usize> {
     let def_op = value.defining_op()?;
     let const_def = def_op.as_op::<ConstantOp>(ctx)?;
     let attr = const_def.get_value(ctx);
-    let attr = attr.downcast_ref::<IndexAttr>()?;
+    let attr = (&*attr as &dyn Attribute).downcast_ref::<IndexAttr>()?;
     Some(attr.0)
 }
 

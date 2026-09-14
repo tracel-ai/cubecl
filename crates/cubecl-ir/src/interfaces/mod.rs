@@ -11,6 +11,7 @@ use pliron::{
     context::Context,
     derive::{op_interface, type_interface},
     opts::dce::SideEffects,
+    printable::Printable,
     r#type::{TypeHandle, type_cast},
     utils::apint::APInt,
     value::Use,
@@ -129,7 +130,7 @@ macro_rules! synchronizes {
 }
 pub(crate) use synchronizes;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MemoryEffect {
     Read(Value),
     Write(Value),
@@ -137,6 +138,31 @@ pub enum MemoryEffect {
     WriteAllInSpace(AddressSpace),
     ReadAll,
     WriteAll,
+    // Not analyzable, clobber the entire state
+    Opaque,
+}
+
+impl Printable for MemoryEffect {
+    fn fmt(
+        &self,
+        ctx: &Context,
+        _state: &pliron::printable::State,
+        f: &mut core::fmt::Formatter<'_>,
+    ) -> core::fmt::Result {
+        match self {
+            MemoryEffect::Read(value) => write!(f, "Read({})", value.disp(ctx)),
+            MemoryEffect::Write(value) => write!(f, "Write({})", value.disp(ctx)),
+            MemoryEffect::ReadAllInSpace(address_space) => {
+                write!(f, "ReadAllInSpace({})", address_space.disp(ctx))
+            }
+            MemoryEffect::WriteAllInSpace(address_space) => {
+                write!(f, "WriteAllInSpace({})", address_space.disp(ctx))
+            }
+            MemoryEffect::ReadAll => write!(f, "ReadAll"),
+            MemoryEffect::WriteAll => write!(f, "WriteAll"),
+            MemoryEffect::Opaque => write!(f, "Opaque"),
+        }
+    }
 }
 
 #[op_interface]

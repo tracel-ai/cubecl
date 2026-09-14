@@ -1,3 +1,5 @@
+use core::fmt::Display;
+
 use derive_new::new;
 use pliron::{
     attribute::AttrObj,
@@ -7,7 +9,7 @@ use pliron::{
     utils::table::{HMap, SmallMap, SmallSet},
 };
 
-use crate::prelude::*;
+use crate::{interfaces::control_flow::RegionPredecessor, prelude::*};
 
 pub type LogicalResult = core::result::Result<(), ()>;
 
@@ -15,6 +17,71 @@ pub type LogicalResult = core::result::Result<(), ()>;
 pub enum DeletionKind {
     Keep,
     Delete,
+}
+
+/// The defining entity of a [`MemoryValue`]:
+/// Either an [`Operation`], a [`BasicBlock`] or the special live-on-entry state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MemoryDefiningEntity {
+    Op(Ptr<Operation>),
+    Block(Ptr<BasicBlock>),
+    LiveOnEntry,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MemoryValue {
+    val_uid: u64,
+    defining_entity: MemoryDefiningEntity,
+}
+
+impl Display for MemoryValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self == &MemoryValue::LIVE_ON_ENTRY {
+            write!(f, "LiveOnEntry")
+        } else {
+            write!(f, "M{}", self.val_uid)
+        }
+    }
+}
+
+impl MemoryValue {
+    pub const LIVE_ON_ENTRY: MemoryValue = MemoryValue {
+        val_uid: 0,
+        defining_entity: MemoryDefiningEntity::LiveOnEntry,
+    };
+
+    pub fn defining_entity(self) -> MemoryDefiningEntity {
+        self.defining_entity
+    }
+}
+
+#[derive(Default)]
+pub struct MemorySSAContext {
+    last_idx: u64,
+}
+
+impl MemorySSAContext {
+    pub fn new_value_in_block(&mut self, block: Ptr<BasicBlock>) -> MemoryValue {
+        self.last_idx += 1;
+        MemoryValue {
+            val_uid: self.last_idx,
+            defining_entity: MemoryDefiningEntity::Block(block),
+        }
+    }
+
+    pub fn new_value_at_op(&mut self, op: Ptr<Operation>) -> MemoryValue {
+        self.last_idx += 1;
+        MemoryValue {
+            val_uid: self.last_idx,
+            defining_entity: MemoryDefiningEntity::Op(op),
+        }
+    }
+}
+
+pub type RegionMemoryPhiInputs = SmallMap<RegionPredecessor, MemoryValue, 2>;
+pub enum RegionMemoryValue {
+    Forward(MemoryValue),
+    RegionPhi(RegionMemoryPhiInputs),
 }
 
 #[op_interface]
@@ -57,6 +124,43 @@ pub trait PromotableRegionOpInterface {
         has_value_stores: bool,
         reaching_at_block_end: &HMap<Ptr<BasicBlock>, Value>,
     ) -> Value;
+}
+
+#[op_interface]
+pub trait MemorySSARegionOpInterface {
+    verify_op_succ!();
+
+    /// Called before descending into nested regions.
+    /// `reaching_def` is the state of the memory on entry to this op.
+    /// Populate `regions_to_process` with the reaching def each region starts with.
+    fn setup_memory_ssa(
+        &self,
+        ctx: &Context,
+        state: &mut MemorySSAContext,
+        reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, MemoryValue, 2>,
+    );
+
+    /// Called after reaching defs are computed for all regions.
+    /// Returns the new reaching def at the op's exit.
+    /// If values need to be merged at the start of a nested region, the input values must be added
+    /// to `region_phis`. This will insert a memory phi at the beginning of the region's entry block,
+    /// with the result value being the one added to `regions_to_process` in `setup_memory_ssa`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "packing them into structs would be more complex"
+    )]
+    fn finalize_memory_ssa(
+        &self,
+        ctx: &Context,
+        state: &mut MemorySSAContext,
+        entry_reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        reaching_at_region_entry: &HMap<Ptr<Region>, MemoryValue>,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, MemoryValue>,
+        region_phis: &mut SmallMap<Ptr<Region>, RegionMemoryPhiInputs, 2>,
+    ) -> RegionMemoryValue;
 }
 
 /// Describes a type that can be broken down into indexable sub-element types.

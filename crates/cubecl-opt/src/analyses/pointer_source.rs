@@ -197,6 +197,9 @@ impl Analysis for GlobalVisibility {
                                 // Not affecting global
                                 MemoryEffect::ReadAllInSpace(_)
                                 | MemoryEffect::WriteAllInSpace(_) => {}
+                                MemoryEffect::Opaque => {
+                                    unreachable!("Opaque should not exist in memory effects")
+                                }
                             }
                         }
                     }

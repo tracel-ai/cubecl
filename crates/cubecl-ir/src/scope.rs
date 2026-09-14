@@ -159,6 +159,8 @@ pub struct GlobalState {
     pub device_properties: Option<Rc<DeviceProperties>>,
 }
 
+unsafe impl Send for GlobalState {}
+
 impl GlobalState {
     /// Register the element type for the given generic type.
     pub fn register_type<T: 'static>(&mut self, elem: ElemType) {
@@ -187,16 +189,16 @@ fn ty_key<T: 'static>(ctx: &Context) -> Option<AuxDataIndex> {
 }
 
 pub trait ContextExt {
-    fn aux_ty<T: 'static>(&self) -> &T;
-    fn aux_ty_mut<T: 'static>(&mut self) -> &mut T;
-    fn set_aux_ty<T: 'static>(&mut self, value: T);
+    fn aux_ty<T: Send + 'static>(&self) -> &T;
+    fn aux_ty_mut<T: Send + 'static>(&mut self) -> &mut T;
+    fn set_aux_ty<T: Send + 'static>(&mut self, value: T);
     fn set_address_type(&mut self, addr: AddressType);
     fn address_type(&self) -> AddressType;
 }
 
 impl ContextExt for Context {
     #[track_caller]
-    fn aux_ty<T: 'static>(&self) -> &T {
+    fn aux_ty<T: Send + 'static>(&self) -> &T {
         let key = ty_key::<T>(self)
             .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
             .unwrap();
@@ -204,14 +206,14 @@ impl ContextExt for Context {
     }
 
     #[track_caller]
-    fn aux_ty_mut<T: 'static>(&mut self) -> &mut T {
+    fn aux_ty_mut<T: Send + 'static>(&mut self) -> &mut T {
         let key = ty_key::<T>(self)
             .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
             .unwrap();
         self.aux_data[key].downcast_mut().unwrap()
     }
 
-    fn set_aux_ty<T: 'static>(&mut self, value: T) {
+    fn set_aux_ty<T: Send + 'static>(&mut self, value: T) {
         if let Some(key) = ty_key::<T>(self) {
             *self.aux_data.get_mut(key).unwrap() = Box::new(value);
         } else {
@@ -255,7 +257,7 @@ impl FuncOpExt for FuncOp {
 
         arg_types.insert(id, ty);
         let new_func_ty = FunctionType::get(ctx, arg_types, res_types).to_handle();
-        self.set_attr_func_type(ctx, new_func_ty.into());
+        self.set_attr_builtin_func_type(ctx, new_func_ty.into());
         id
     }
 
@@ -271,7 +273,7 @@ impl FuncOpExt for FuncOp {
 
         arg_types.pop();
         let new_func_ty = FunctionType::get(ctx, arg_types, res_types).to_handle();
-        self.set_attr_func_type(ctx, new_func_ty.into());
+        self.set_attr_builtin_func_type(ctx, new_func_ty.into());
         let mut op = self.get_operation().deref_mut(ctx);
         let arg_attrs = op.attributes.0.get_mut(&*ATTR_KEY_ARG_ATTRS);
         if let Some(arg_attrs) = arg_attrs.and_then(|attr| attr.downcast_mut::<VecAttr>()) {
@@ -290,7 +292,7 @@ impl FuncOpExt for FuncOp {
 
         arg_types.remove(arg_idx);
         let new_func_ty = FunctionType::get(ctx, arg_types, res_types).to_handle();
-        self.set_attr_func_type(ctx, new_func_ty.into());
+        self.set_attr_builtin_func_type(ctx, new_func_ty.into());
 
         let mut op = self.get_operation().deref_mut(ctx);
         let arg_attrs = op.attributes.0.get_mut(&*ATTR_KEY_ARG_ATTRS);
@@ -774,12 +776,12 @@ impl Scope {
     }
 
     pub fn const_usize(&self, value: usize) -> Value {
-        let op = ConstantOp::new(self.ctx_mut(), IndexAttr::new(value).into());
+        let op = ConstantOp::new(self.ctx_mut(), Box::new(IndexAttr::new(value)));
         self.register_with_result(&op)
     }
 
     pub fn const_bool(&self, value: bool) -> Value {
-        let op = ConstantOp::new(self.ctx_mut(), BoolAttr::new(value).into());
+        let op = ConstantOp::new(self.ctx_mut(), Box::new(BoolAttr::new(value)));
         self.register_with_result(&op)
     }
 

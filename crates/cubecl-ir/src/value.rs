@@ -12,7 +12,7 @@ use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use derive_more::From;
 use float_ord::FloatOrd;
 use pliron::{
-    attribute::AttrObj,
+    attribute::{AttrObj, boxed_attr_cast},
     builtin::{attributes::IntegerAttr, ops::ConstantOp},
     context::Context,
     derive::format,
@@ -52,6 +52,7 @@ impl ExpandValue {
             ExpandValue::Constant { value, ty } => {
                 let ctx = scope.ctx_mut();
                 let value = value.as_attribute(ctx, *ty);
+                let value = boxed_attr_cast(value).unwrap();
                 let op = ConstantOp::new(scope.ctx_mut(), value);
                 scope.register_with_result(&op)
             }

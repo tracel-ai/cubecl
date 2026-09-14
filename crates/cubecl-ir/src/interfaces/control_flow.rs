@@ -1,13 +1,31 @@
 use crate::{dialect::RegionPtrExt, prelude::*};
 use derive_more::From;
 use pliron::{
-    attribute::AttrObj, builtin::ops::FuncOp, linked_list::ContainsLinkedList, region::Region,
+    attribute::AttrObj, builtin::ops::FuncOp, graph::HasLabel, linked_list::ContainsLinkedList,
+    printable::Printable, region::Region,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RegionPredecessor {
     Parent,
     Terminator(TraitOpPtr<dyn RegionBranchTerminatorOpInterface>),
+}
+
+impl Printable for RegionPredecessor {
+    fn fmt(
+        &self,
+        ctx: &Context,
+        _state: &pliron::printable::State,
+        f: &mut core::fmt::Formatter<'_>,
+    ) -> core::fmt::Result {
+        match self {
+            RegionPredecessor::Parent => f.write_str("Parent"),
+            RegionPredecessor::Terminator(op) => {
+                let block = op.operation().deref(ctx).get_parent_block().unwrap();
+                write!(f, "{}", block.label(ctx))
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, From)]
@@ -67,14 +85,14 @@ impl CallableOpInterface for FuncOp {
     }
 
     fn argument_types(&self, ctx: &Context) -> Vec<TypeHandle> {
-        let ty = self.get_attr_func_type(ctx).unwrap().get_type(ctx);
+        let ty = self.get_attr_builtin_func_type(ctx).unwrap().get_type(ctx);
         type_cast::<dyn FunctionTypeInterface>(&*ty.deref(ctx))
             .unwrap()
             .arg_types()
     }
 
     fn result_types(&self, ctx: &Context) -> Vec<TypeHandle> {
-        let ty = self.get_attr_func_type(ctx).unwrap().get_type(ctx);
+        let ty = self.get_attr_builtin_func_type(ctx).unwrap().get_type(ctx);
         type_cast::<dyn FunctionTypeInterface>(&*ty.deref(ctx))
             .unwrap()
             .res_types()

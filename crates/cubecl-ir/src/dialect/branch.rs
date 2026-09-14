@@ -1,22 +1,37 @@
 use pliron::{
-    attribute::AttrObj, basic_block::BasicBlock, builtin::attributes::IntegerAttr,
-    irbuild::inserter::OpInsertionPoint, linked_list::ContainsLinkedList, opts::dce::SideEffects,
-    region::Region, utils::const_bound_n::I, verify_err,
+    attribute::AttrObj,
+    basic_block::BasicBlock,
+    builtin::attributes::IntegerAttr,
+    irbuild::inserter::OpInsertionPoint,
+    linked_list::ContainsLinkedList,
+    opts::dce::SideEffects,
+    region::Region,
+    utils::{
+        const_bound_n::I,
+        table::{HMap, SmallMap},
+    },
+    verify_err,
 };
 use thiserror::Error;
 
 use crate::{
     CanMaterialize, NoMemoryEffect, ReturnLike,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
+    dialect::scf::terminator_mem_val,
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
             InvocationBounds, RegionBranchOpInterface, RegionBranchTerminatorOpInterface,
             RegionPredecessor, RegionSuccessor,
         },
+        memory_slot::{
+            MemorySSAContext, MemorySSARegionOpInterface, MemoryValue, RegionMemoryPhiInputs,
+            RegionMemoryValue,
+        },
         uniformity::{UniformRegionTerminatorOpInterface, Uniformity},
     },
     prelude::*,
+    small_map,
     types::scalar::BoolType,
 };
 
@@ -309,6 +324,54 @@ impl SideEffects for IfOp {
 }
 
 #[op_interface_impl]
+impl MemorySSARegionOpInterface for IfOp {
+    fn setup_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        reaching_def: MemoryValue,
+        _has_memory_defs: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, MemoryValue, 2>,
+    ) {
+        regions_to_process.insert(self.then_region(ctx), reaching_def);
+        regions_to_process.insert(self.else_region(ctx), reaching_def);
+    }
+
+    fn finalize_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        entry_reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        _reaching_at_region_entry: &HMap<Ptr<Region>, MemoryValue>,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, MemoryValue>,
+        _region_phis: &mut SmallMap<Ptr<Region>, RegionMemoryPhiInputs, 2>,
+    ) -> RegionMemoryValue {
+        if !has_memory_defs {
+            return RegionMemoryValue::Forward(entry_reaching_def);
+        }
+
+        let (then_pred, reaching_then) = terminator_mem_val(
+            ctx,
+            self.then_block(ctx),
+            entry_reaching_def,
+            reaching_at_block_end,
+        );
+        let (else_pred, reaching_else) = terminator_mem_val(
+            ctx,
+            self.else_block(ctx),
+            entry_reaching_def,
+            reaching_at_block_end,
+        );
+
+        RegionMemoryValue::RegionPhi(small_map! {
+            then_pred => reaching_then,
+            else_pred => reaching_else
+        })
+    }
+}
+
+#[op_interface_impl]
 impl RegionBranchOpInterface for IfOp {
     fn entry_successor_regions(
         &self,
@@ -471,6 +534,56 @@ impl SwitchOp {
 }
 
 #[op_interface_impl]
+impl MemorySSARegionOpInterface for SwitchOp {
+    fn setup_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        reaching_def: MemoryValue,
+        _has_memory_defs: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, MemoryValue, 2>,
+    ) {
+        regions_to_process.insert(self.default_region(ctx), reaching_def);
+        for (_, case_region) in self.cases_regions(ctx) {
+            regions_to_process.insert(case_region, reaching_def);
+        }
+    }
+
+    fn finalize_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        entry_reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        _reaching_at_region_entry: &HMap<Ptr<Region>, MemoryValue>,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, MemoryValue>,
+        _region_phis: &mut SmallMap<Ptr<Region>, RegionMemoryPhiInputs, 2>,
+    ) -> RegionMemoryValue {
+        if !has_memory_defs {
+            return RegionMemoryValue::Forward(entry_reaching_def);
+        }
+
+        let mut phi_inputs = SmallMap::new();
+
+        let (default_pred, reaching_default) = terminator_mem_val(
+            ctx,
+            self.default_block(ctx),
+            entry_reaching_def,
+            reaching_at_block_end,
+        );
+        phi_inputs.insert(default_pred, reaching_default);
+
+        for (_, case_block) in self.cases(ctx) {
+            let (case_pred, reaching_case) =
+                terminator_mem_val(ctx, case_block, entry_reaching_def, reaching_at_block_end);
+            phi_inputs.insert(case_pred, reaching_case);
+        }
+
+        RegionMemoryValue::RegionPhi(phi_inputs)
+    }
+}
+
+#[op_interface_impl]
 impl RegionBranchOpInterface for SwitchOp {
     fn entry_successor_regions(
         &self,
@@ -601,6 +714,58 @@ impl RangeLoopOp {
 }
 
 #[op_interface_impl]
+impl MemorySSARegionOpInterface for RangeLoopOp {
+    fn setup_memory_ssa(
+        &self,
+        ctx: &Context,
+        state: &mut MemorySSAContext,
+        reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, MemoryValue, 2>,
+    ) {
+        let body_region = self.loop_region(ctx);
+        if !has_memory_defs {
+            regions_to_process.insert(body_region, reaching_def);
+            return;
+        }
+
+        let new_arg = state.new_value_in_block(self.loop_body(ctx));
+        regions_to_process.insert(body_region, new_arg);
+    }
+
+    fn finalize_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        entry_reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        _reaching_at_region_entry: &HMap<Ptr<Region>, MemoryValue>,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, MemoryValue>,
+        region_phis: &mut SmallMap<Ptr<Region>, RegionMemoryPhiInputs, 2>,
+    ) -> RegionMemoryValue {
+        let body_region = self.loop_region(ctx);
+        if !has_memory_defs {
+            return RegionMemoryValue::Forward(entry_reaching_def);
+        }
+
+        let (body_pred, reaching_body) = terminator_mem_val(
+            ctx,
+            self.loop_body(ctx),
+            entry_reaching_def,
+            reaching_at_block_end,
+        );
+
+        let phi_inputs = small_map! {
+            RegionPredecessor::Parent => entry_reaching_def,
+            body_pred => reaching_body
+        };
+
+        region_phis.insert(body_region, phi_inputs.clone());
+        RegionMemoryValue::RegionPhi(phi_inputs)
+    }
+}
+
+#[op_interface_impl]
 impl RegionBranchOpInterface for RangeLoopOp {
     fn entry_successor_operands(&self, _ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
         vec![]
@@ -657,6 +822,69 @@ impl WhileOp {
 
     pub fn after_block(&self, ctx: &Context) -> Ptr<BasicBlock> {
         self.get_body(ctx, 1)
+    }
+}
+
+#[op_interface_impl]
+impl MemorySSARegionOpInterface for WhileOp {
+    fn setup_memory_ssa(
+        &self,
+        ctx: &Context,
+        state: &mut MemorySSAContext,
+        reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        regions_to_process: &mut SmallMap<Ptr<Region>, MemoryValue, 2>,
+    ) {
+        let before_region = self.before_region(ctx);
+        let after_region = self.after_region(ctx);
+        if !has_memory_defs {
+            regions_to_process.insert(before_region, reaching_def);
+            regions_to_process.insert(after_region, reaching_def);
+            return;
+        }
+
+        let new_arg = state.new_value_in_block(self.before_block(ctx));
+        regions_to_process.insert(before_region, new_arg);
+
+        let new_arg = state.new_value_in_block(self.after_block(ctx));
+        regions_to_process.insert(after_region, new_arg);
+    }
+
+    fn finalize_memory_ssa(
+        &self,
+        ctx: &Context,
+        _state: &mut MemorySSAContext,
+        entry_reaching_def: MemoryValue,
+        has_memory_defs: bool,
+        reaching_at_region_entry: &HMap<Ptr<Region>, MemoryValue>,
+        reaching_at_block_end: &HMap<Ptr<BasicBlock>, MemoryValue>,
+        region_phis: &mut SmallMap<Ptr<Region>, RegionMemoryPhiInputs, 2>,
+    ) -> RegionMemoryValue {
+        if !has_memory_defs {
+            return RegionMemoryValue::Forward(entry_reaching_def);
+        }
+
+        let before_region = self.before_region(ctx);
+        let after_region = self.after_region(ctx);
+
+        let arg = reaching_at_region_entry[&before_region];
+        let (before_pred, reaching_before) =
+            terminator_mem_val(ctx, self.before_block(ctx), arg, reaching_at_block_end);
+
+        let arg = reaching_at_region_entry[&after_region];
+        let (after_pred, reaching_after) =
+            terminator_mem_val(ctx, self.after_block(ctx), arg, reaching_at_block_end);
+
+        let inputs_before = small_map! {
+            RegionPredecessor::Parent => entry_reaching_def,
+            after_pred => reaching_after
+        };
+        let inputs_after = small_map!(before_pred => reaching_before);
+
+        region_phis.insert(before_region, inputs_before);
+        region_phis.insert(after_region, inputs_after);
+
+        RegionMemoryValue::Forward(reaching_before)
     }
 }
 

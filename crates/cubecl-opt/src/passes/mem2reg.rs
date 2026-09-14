@@ -60,7 +60,7 @@ struct AllocPromotionAnalyzer<'a> {
 impl AllocPromotionAnalyzer<'_> {
     fn compute_blocking_uses(
         &mut self,
-        ctx: &mut Context,
+        ctx: &Context,
         user_to_blocking_uses: &mut RegionBlockingUsesMap,
         regions_to_promote: &mut IMap<Ptr<Region>, RegionPromotionInfo>,
     ) -> LogicalResult {
@@ -152,7 +152,7 @@ impl AllocPromotionAnalyzer<'_> {
 
     fn compute_merge_points(
         &mut self,
-        ctx: &mut Context,
+        ctx: &Context,
         region: Ptr<Region>,
         defining_blocks: &SmallSet<Ptr<BasicBlock>, 16>,
         merge_points: &mut ISet<Ptr<BasicBlock>>,
