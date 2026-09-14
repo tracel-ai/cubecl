@@ -13,6 +13,7 @@ pub enum LlvmTarget {
     Cpu,
     #[cfg(feature = "amdgpu")]
     AmdGpu,
+    #[cfg(feature = "nvptx")]
     Nvptx,
 }
 

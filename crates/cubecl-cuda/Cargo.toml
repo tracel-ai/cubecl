@@ -57,6 +57,7 @@ cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.3", default-featur
 ] }
 cubecl-llvm = { path = "../cubecl-llvm", version = "=0.11.0-pre.3", default-features = false, features = [
     "std",
+    "nvptx",
 ] }
 cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.3", default-features = false, features = [
     "std",

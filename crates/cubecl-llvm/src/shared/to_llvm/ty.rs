@@ -6,6 +6,7 @@ use cubecl_core::ir::types::{
         FloatFlex32Type,
     },
 };
+#[cfg(feature = "nvptx")]
 use cubecl_core::ir::{AddressType, ContextExt};
 use pliron::printable::Printable;
 
@@ -66,6 +67,7 @@ use crate::target::{CtxTarget, LlvmTarget};
 /// [`ContextExt::address_type`]: cubecl_core::ir::ContextExt::address_type
 pub fn index_width(ctx: &Context) -> u32 {
     match ctx.target() {
+        #[cfg(feature = "nvptx")]
         LlvmTarget::Nvptx => match ctx.address_type() {
             AddressType::U32 => 32,
             AddressType::U64 => 64,
@@ -120,9 +122,13 @@ pub fn cube_type_to_llvm(ctx: &Context, ty: TypeHandle) -> TypeHandle {
         .unwrap_or(ty)
 }
 
-/// The alignment of `ty` itself, which for a vector is the whole vector's.
+/// The alignment an ordinary load or store can promise on the target.
 ///
-/// What an ordinary load or store of a vectorized value promises: `CubeCL` vectorizes an access
+/// CPU buffers come from `BytesStorage`, whose allocation layout only guarantees byte
+/// alignment. Vectorizing an index does not strengthen the base pointer's alignment.
+/// Use unaligned accesses until the allocation and binding guarantee something stronger.
+///
+/// On GPU targets, use the type's alignment: `CubeCL` vectorizes an access
 /// only where the layout lets it, so a `Vector<f16, 8>` read out of a buffer of them sits on a
 /// 16 byte boundary, the same promise the C++ backends make by giving the type an
 /// `alignas(16)`. Saying less than that is not merely conservative -- a target legalizes an
@@ -133,6 +139,10 @@ pub fn cube_type_to_llvm(ctx: &Context, ty: TypeHandle) -> TypeHandle {
 /// is `stride` elements per row and a caller may pad that stride, so those keep
 /// [`scalar_alignment`].
 pub fn type_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
+    if ctx.target() == LlvmTarget::Cpu {
+        return 1;
+    }
+
     let ty = ty.deref(ctx);
     type_cast::<dyn AlignedType>(&*ty)
         .expect("load/store value type must implement AlignedType")

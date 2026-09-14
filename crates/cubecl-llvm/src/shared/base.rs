@@ -1,4 +1,6 @@
 use core::cell::RefCell;
+#[cfg(feature = "nvptx")]
+use cubecl_core::ir::nvidia::SmArch;
 use cubecl_runtime::kernel::BufferIOAttr;
 use std::rc::Rc;
 
@@ -20,7 +22,6 @@ use cubecl_core::{
     ir::amd::GfxArch,
     ir::dialect::scf::BranchToSCFPass,
     ir::metadata::Info,
-    ir::nvidia::SmArch,
     ir::rewrite::SimplifyOpsPass,
     post_processing::bitwise::PromoteBitwisePass,
     post_processing::minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
@@ -47,17 +48,20 @@ use crate::cpu::{
     shared_memory::SharedMemories,
     synchronization::uses_cube_barrier,
 };
+#[cfg(feature = "nvptx")]
 use crate::nvptx::abi::NvptxLowering;
+#[cfg(feature = "nvptx")]
 use crate::nvptx::codegen::{MetadataParams, NvptxEntry};
 use crate::shared::{
     branch::SCFToLlvmCf,
     lowering::TargetLowering,
     metadata::{CtxGridConstants, LowerEntryAbiPass},
-    plane::CtxPlaneDim,
     polyfill::LowerComplexOpPass,
-    shared_memory::{CtxSharedMemory, declares_shared_memory},
+    shared_memory::declares_shared_memory,
     to_llvm::CubeToLLVMPass,
 };
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+use crate::shared::{plane::CtxPlaneDim, shared_memory::CtxSharedMemory};
 use crate::target::{CtxTarget, LlvmTarget};
 
 #[derive(Clone, Debug, Default)]
@@ -76,6 +80,7 @@ pub struct PlironOptions {
     /// The device [`LlvmTarget::Nvptx`] compiles for, likewise `None` elsewhere. A separate
     /// field rather than an enum because a process is only ever compiling for one of them and
     /// the runtime that fills this in knows which.
+    #[cfg(feature = "nvptx")]
     pub sm_arch: Option<SmArch>,
     /// Whether the scalars and static metadata ride in the kernel's own parameter block rather
     /// than in a device buffer the launch uploads. The host decides -- it is the side that has
@@ -110,6 +115,7 @@ pub struct AmdGpuModule {
 /// module, which is the same thing it does with what NVRTC hands back today, so there is
 /// nothing left for this crate to link.
 #[derive(Clone, Debug)]
+#[cfg(feature = "nvptx")]
 pub struct NvptxModule {
     /// PTX assembly, NUL terminated because `cuModuleLoadData` reads to the terminator.
     pub ptx: Vec<core::ffi::c_char>,
@@ -133,6 +139,7 @@ pub enum PlironArtifact {
     Jit(PlironEngine),
     #[cfg(feature = "amdgpu")]
     AmdGpuCode(AmdGpuModule),
+    #[cfg(feature = "nvptx")]
     NvptxCode(NvptxModule),
 }
 
@@ -145,6 +152,7 @@ impl PlironArtifact {
             PlironArtifact::AmdGpuCode(_) => {
                 panic!("expected a JIT engine, got an AMDGPU code object")
             }
+            #[cfg(feature = "nvptx")]
             PlironArtifact::NvptxCode(_) => panic!("expected a JIT engine, got a PTX module"),
         }
     }
@@ -156,6 +164,7 @@ impl core::fmt::Display for PlironArtifact {
             PlironArtifact::Jit(engine) => write!(f, "{engine}"),
             #[cfg(feature = "amdgpu")]
             PlironArtifact::AmdGpuCode(module) => write!(f, "{}", module.ir),
+            #[cfg(feature = "nvptx")]
             PlironArtifact::NvptxCode(module) => write!(f, "{}", module.ir),
         }
     }
@@ -171,6 +180,7 @@ impl Compiler for PlironCompiler {
             PlironArtifact::Jit(engine) => Some(engine.buffer_io().to_vec()),
             #[cfg(feature = "amdgpu")]
             PlironArtifact::AmdGpuCode(module) => Some(module.io.clone()),
+            #[cfg(feature = "nvptx")]
             PlironArtifact::NvptxCode(module) => Some(module.io.clone()),
         }
     }
@@ -202,6 +212,7 @@ impl Compiler for PlironCompiler {
             LlvmTarget::Cpu => "plir",
             #[cfg(feature = "amdgpu")]
             LlvmTarget::AmdGpu => "ll",
+            #[cfg(feature = "nvptx")]
             LlvmTarget::Nvptx => "ll",
         }
     }
@@ -211,6 +222,7 @@ impl Compiler for PlironCompiler {
             LlvmTarget::Cpu => "mlir",
             #[cfg(feature = "amdgpu")]
             LlvmTarget::AmdGpu => "llvm",
+            #[cfg(feature = "nvptx")]
             LlvmTarget::Nvptx => "llvm",
         }
     }
@@ -233,6 +245,7 @@ impl PlironCompiler {
                     self.compile_amdgpu(kernel, arch)?,
                 ))
             }
+            #[cfg(feature = "nvptx")]
             LlvmTarget::Nvptx => {
                 let arch = options.sm_arch.ok_or_else(|| {
                     generic("the NVPTX target needs the device it compiles for".to_string())
@@ -329,6 +342,7 @@ impl PlironCompiler {
     }
 
     /// Lowers `kernel` for `arch` and compiles it into PTX.
+    #[cfg(feature = "nvptx")]
     fn compile_nvptx(
         self,
         kernel: KernelDefinition,

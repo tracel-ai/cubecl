@@ -346,6 +346,7 @@ fn fma_contraction(ctx: &Context) -> FastmathFlagsAttr {
     match ctx.target() {
         #[cfg(feature = "amdgpu")]
         LlvmTarget::AmdGpu => FastmathFlagsAttr(FastmathFlags::CONTRACT),
+        #[cfg(feature = "nvptx")]
         LlvmTarget::Nvptx => FastmathFlagsAttr(FastmathFlags::CONTRACT),
         LlvmTarget::Cpu => FastmathFlagsAttr::default(),
     }

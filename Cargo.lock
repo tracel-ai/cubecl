@@ -4293,6 +4293,7 @@ dependencies = [
 [[package]]
 name = "tracel-llvm-bundler"
 version = "23.1.0-1"
+source = "git+https://github.com/tracel-ai/tracel-llvm.git?rev=4769fd52f2205435134d6a3c606f94aad6876155#4769fd52f2205435134d6a3c606f94aad6876155"
 dependencies = [
  "anyhow",
  "bytes",

@@ -24,6 +24,7 @@ use thiserror::Error;
 use crate::shared::polyfill::LowerOp;
 use crate::shared::to_llvm::prelude::*;
 use crate::target::{CtxTarget, LlvmTarget};
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 use cubecl_core::ir::types::ArrayType as CubeArrayType;
 
 /// A matrix operation on a target with no matrix instructions.
@@ -44,6 +45,7 @@ impl CubeToLLVMType for MatrixType {
         match ctx.target() {
             #[cfg(feature = "amdgpu")]
             LlvmTarget::AmdGpu => crate::amdgpu::matrix::fragment_ty(ctx, self),
+            #[cfg(feature = "nvptx")]
             LlvmTarget::Nvptx => crate::nvptx::matrix::fragment_ty(ctx, self),
             // Reached only if a CPU kernel declares a matrix, which needs a device advertising
             // a matrix feature; the CPU advertises none. A type conversion cannot report an
@@ -63,16 +65,17 @@ macro_rules! dispatch_matrix_op {
             fn rewrite(
                 &self,
                 ctx: &mut Context,
-                rewriter: &mut DialectConversionRewriter,
-                operands_info: &OperandsInfo,
+                _rewriter: &mut DialectConversionRewriter,
+                _operands_info: &OperandsInfo,
             ) -> Result<()> {
                 match ctx.target() {
                     #[cfg(feature = "amdgpu")]
                     LlvmTarget::AmdGpu => {
-                        crate::amdgpu::matrix::$method(self, ctx, rewriter, operands_info)
+                        crate::amdgpu::matrix::$method(self, ctx, _rewriter, _operands_info)
                     }
+                    #[cfg(feature = "nvptx")]
                     LlvmTarget::Nvptx => {
-                        crate::nvptx::matrix::$method(self, ctx, rewriter, operands_info)
+                        crate::nvptx::matrix::$method(self, ctx, _rewriter, _operands_info)
                     }
                     target => input_err!(
                         self.loc(ctx),
@@ -112,7 +115,11 @@ macro_rules! lower_axis_index_polyfill {
         #[op_interface_impl]
         impl LowerOp for $cube_op {
             fn should_lower(&self, ctx: &Context) -> bool {
-                ctx.target() == LlvmTarget::Nvptx
+                match ctx.target() {
+                    #[cfg(feature = "nvptx")]
+                    LlvmTarget::Nvptx => true,
+                    _ => false,
+                }
             }
 
             fn lower(&self, scope: &Scope) -> Vec<Value> {
@@ -139,6 +146,7 @@ lower_axis_index_polyfill!(ColIndexOp, polyfills::mma::col_index::expand);
 /// the same ones, so the array is read as the vector the instruction expects. Neither target
 /// has a say in this -- the array is the frontend's shape, not the hardware's -- so both read
 /// it the same way.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) fn registers_as_vector(
     ctx: &Context,
     info: &OperandsInfo,
@@ -178,6 +186,7 @@ pub(crate) fn registers_as_vector(
 ///
 /// The registers arrive as an array, of vectors where several share a register. An array is not
 /// a vector as far as a bitcast is concerned, so it is taken apart and rebuilt.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) fn registers_value(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -231,6 +240,7 @@ pub(crate) fn registers_value(
 /// The counterpart of [`registers_as_vector`]: that answers what the instruction wants, this
 /// what the kernel has. Written back through [`vector_into_array`] so a destination keeps the
 /// type its later uses were built against.
+#[cfg(feature = "nvptx")]
 pub(crate) fn registers_array_ty(ctx: &Context, info: &OperandsInfo, value: Value) -> TypeHandle {
     let array = info
         .lookup_operand_history(value)
@@ -257,6 +267,7 @@ pub(crate) fn registers_array_ty(ctx: &Context, info: &OperandsInfo, value: Valu
 /// opaque -- but it tells the conversion that the array type maps to a vector, and every other
 /// value of that array type then gets rewritten to one, invalidating the `extractvalue`s built
 /// against them. Writing the array keeps the two shapes apart.
+#[cfg(feature = "nvptx")]
 pub(crate) fn vector_into_array(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,

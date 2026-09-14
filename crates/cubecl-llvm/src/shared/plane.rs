@@ -167,6 +167,7 @@ fn lowering(ctx: &Context) -> Option<Box<dyn PlaneLowering>> {
     match ctx.target() {
         #[cfg(feature = "amdgpu")]
         LlvmTarget::AmdGpu => Some(Box::new(crate::amdgpu::plane::AmdGpuPlane)),
+        #[cfg(feature = "nvptx")]
         LlvmTarget::Nvptx => Some(Box::new(crate::nvptx::plane::NvptxPlane)),
         LlvmTarget::Cpu => None,
     }
