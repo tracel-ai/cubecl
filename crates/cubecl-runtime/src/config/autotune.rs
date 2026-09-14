@@ -35,68 +35,34 @@ pub struct AutotuneConfig {
     pub bench: BenchConfig,
 }
 
-/// Controls how many samples autotune collects per candidate and when candidates are dropped.
-///
-/// Only [`max_samples`](Self::max_samples) and [`adaptive`](Self::adaptive) mean anything to the
-/// fixed-count pass; the rest describe elimination, which only the adaptive scheduler performs.
-/// Each field says so, because a knob that silently does nothing on the strategy actually running
-/// is worse than no knob at all — and `adaptive` is native-only, so on wasm that is every run.
+/// Autotune benchmark settings.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct BenchConfig {
-    /// Samples every surviving candidate gets before any elimination happens.
-    ///
-    /// Adaptive only: the fixed-count pass eliminates nothing, so every candidate gets
-    /// [`max_samples`](Self::max_samples) regardless.
+    /// Samples collected before adaptive elimination begins.
     pub min_samples: usize,
 
-    /// Upper bound on samples collected for a single candidate.
-    ///
-    /// Read by both strategies: the ceiling for the adaptive scheduler, and the flat count for
-    /// the fixed pass, which has no elimination to spend a smaller budget on.
+    /// Maximum samples per candidate.
     pub max_samples: usize,
 
-    /// Samples that must independently land under the time limit to short circuit.
-    ///
-    /// A short circuit decision is written to the persistent cache and reused on later runs, so
-    /// it is confirmed rather than taken from a single possibly-lucky sample.
-    ///
-    /// Adaptive only: the fixed pass has the whole sample set in hand before it tests the limit,
-    /// so it has nothing to confirm.
+    /// Samples below the time limit required to short circuit.
     pub short_circuit_samples: usize,
 
-    /// How many times slower than the current best a candidate may be before elimination.
-    ///
-    /// Adaptive only. Values below `1.0` are read as `1.0`, which eliminates every candidate
-    /// slower than the leader that the survivor floor allows.
+    /// Maximum slowdown relative to the best candidate before elimination.
     pub speed_factor: f64,
 
-    /// Whether to use the adaptive round robin benchmark instead of a fixed sample count.
-    ///
-    /// Ignored on wasm, which cannot resolve samples between rounds and so always takes the
-    /// fixed-count pass.
+    /// Enables adaptive sampling on supported targets.
     pub adaptive: bool,
 
-    /// Unmeasured launches of a candidate before its samples, so a candidate is not measured on
-    /// its slowest run.
-    ///
-    /// On wasm every warm-up and sample of every candidate in a batch is queued before any is
-    /// resolved, so this and [`max_samples`](Self::max_samples) together bound how much device
-    /// time one batch queues at once — what keeps a slow candidate short of a GPU watchdog.
+    /// Warm-up runs per candidate.
     #[serde(default = "default_warmup_samples")]
     pub warmup_samples: usize,
 
-    /// Device time one browser round may queue, in milliseconds: what one call to the tuner
-    /// launches before it hands the key back to the caller's fallback. The next round is
-    /// launched by a later call for the same key, once these have resolved, so a key's tuning
-    /// is spread over the calls that need it. How many candidates fit is read off the slowest
-    /// measured so far; the first round is one candidate, since nothing is measured yet.
+    /// Target device time per browser tuning round, in milliseconds.
     #[serde(default = "default_browser_round_ms")]
     pub browser_round_ms: u64,
 
-    /// Device time a browser spends measuring one key, in milliseconds, before it settles for
-    /// the best candidate measured so far: every measured candidate's median times the
-    /// launches a candidate gets. Zero measures the whole plan.
+    /// Device-time budget per browser tuning key, in milliseconds. Zero is unlimited.
     #[serde(default = "default_browser_budget_ms")]
     pub browser_budget_ms: u64,
 }
@@ -128,31 +94,29 @@ impl Default for BenchConfig {
     }
 }
 
-/// Every knob is read through an accessor that clamps it into its usable range, so a config file
-/// can hold a nonsensical value without any single call site having to remember the repair.
 impl BenchConfig {
-    /// The sample budget, clamped so the range is always usable.
+    /// Returns the normalized sample range.
     pub fn samples(&self) -> (usize, usize) {
         let min = self.min_samples.max(1);
         (min, self.max_samples.max(min))
     }
 
-    /// How many samples must land under the limit, clamped so a short circuit always needs one.
+    /// Returns the normalized short-circuit sample count.
     pub fn short_circuit_samples(&self) -> usize {
         self.short_circuit_samples.max(1)
     }
 
-    /// The elimination threshold, clamped so it can never sit below the leader's own time.
+    /// Returns the normalized elimination threshold.
     pub fn speed_factor(&self) -> f64 {
         self.speed_factor.max(1.0)
     }
 
-    /// The device time one browser round may queue, clamped so a round always has some.
+    /// Returns the browser round duration.
     pub fn browser_round(&self) -> core::time::Duration {
         core::time::Duration::from_millis(self.browser_round_ms.max(1))
     }
 
-    /// The browser's measuring budget for one key, `None` for the whole plan.
+    /// Returns the browser budget, or `None` when unlimited.
     pub fn browser_budget(&self) -> Option<core::time::Duration> {
         (self.browser_budget_ms > 0)
             .then(|| core::time::Duration::from_millis(self.browser_budget_ms))

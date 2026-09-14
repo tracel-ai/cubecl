@@ -294,24 +294,12 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.hydrated = false;
     }
 
-    /// Ingest everything the persistent store holds into the in-memory cache,
-    /// as unverified entries.
-    ///
-    /// Runs at construction, and again whenever `hydrated` fell back to
-    /// `false`: after an environment switch, and on the browser backend while
-    /// its asynchronous hydration is still in flight. Once hydrated, a miss
-    /// costs one bool check here — never a walk, and never a rescan of the
-    /// database under the tuner mutex.
-    ///
-    /// Returns how many entries the store delivered.
     /// Whether everything the persistent cache holds has been ingested.
-    /// `false` while an asynchronous storage is still reading, in which
-    /// case a miss says nothing yet.
-    #[cfg(autotune_persistence)]
     pub(crate) fn hydrated(&self) -> bool {
         self.hydrated
     }
 
+    /// Ingests new persistent entries and returns the number received.
     pub(crate) fn sync_persistent(&mut self) -> usize {
         if self.hydrated {
             return 0;

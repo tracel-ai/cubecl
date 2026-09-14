@@ -1,6 +1,7 @@
+use alloc::collections::BTreeSet;
 use core::fmt::{self, Display, Write};
 
-use cubecl_core::{WgpuCompilationOptions, WgslFrontEnd, prelude::Visibility};
+use cubecl_core::{WgpuCompilationOptions, WgslFrontend, prelude::Visibility};
 use cubecl_ir::{
     AddressSpace, CanMaterialize, GlobalState, Pure,
     attributes::{
@@ -12,7 +13,6 @@ use cubecl_ir::{
     interfaces::TypedExt,
     prelude::*,
 };
-use hashbrown::HashSet;
 use itertools::Itertools;
 use pliron::{
     basic_block::BasicBlock,
@@ -174,13 +174,28 @@ wgsl_op!(DiagnosticOffOp, |op, ctx| {
 #[op_interface]
 pub trait RequiresFeatureOp {
     verify_op_succ!();
-    fn required_feature(&self, ctx: &Context) -> String;
+    fn required_feature(&self, ctx: &Context) -> WgslFeature;
 }
 
-/// The plane width every entry point of the module is pinned to, decided
-/// by [`EnableFeaturesPass`] and read where the entry point is written.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum WgslFeature {
+    F16,
+    Subgroups,
+    SubgroupSizeControl,
+}
+
+impl WgslFeature {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::F16 => "f16",
+            Self::Subgroups => "subgroups",
+            Self::SubgroupSizeControl => "subgroup_size_control",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PinnedPlane(pub Option<u32>);
+pub struct RequiredSubgroupSize(pub Option<u32>);
 
 pub struct EnableFeaturesPass;
 
@@ -193,12 +208,12 @@ impl Pass for EnableFeaturesPass {
         _analyses: &mut AnalysisManager,
     ) -> Result<PassResult> {
         let module_body = op.as_op::<ModuleOp>(ctx).unwrap().get_body(ctx, 0);
-        let mut feats = HashSet::new();
+        let mut feats = BTreeSet::new();
         visit_all_values(ctx, &mut feats, op, |ctx, feats, val| {
             if let Some(elem) = val.try_get_scalar_elem_ty(ctx)
                 && elem.is_float16(ctx)
             {
-                feats.insert("f16".to_string());
+                feats.insert(WgslFeature::F16);
             }
         });
         visit_all_ops_with_interface::<dyn RequiresFeatureOp, _>(
@@ -209,12 +224,9 @@ impl Pass for EnableFeaturesPass {
                 feats.insert(op.required_feature(ctx));
             },
         );
-        // Naga takes the subgroup builtins without a directive and rejects
-        // the directive itself as unimplemented; Tint is the other way
-        // around. Which one reads the module is the runtime's to say.
-        let front_end = ctx.aux_ty::<WgpuCompilationOptions>().wgsl_front_end;
-        if front_end == WgslFrontEnd::Naga {
-            feats.remove("subgroups");
+        let options = ctx.aux_ty::<WgpuCompilationOptions>().wgsl;
+        if options.frontend == WgslFrontend::Naga {
+            feats.remove(&WgslFeature::Subgroups);
         }
 
         let mut res = PassResult::default();
@@ -222,24 +234,16 @@ impl Pass for EnableFeaturesPass {
             res.ir_changed = IRStatus::Changed;
         }
 
-        // The kernels call subgroup builtins from control flow the WGSL
-        // uniformity analysis cannot prove uniform, as they do on every
-        // other backend; a strict front end (Tint) makes that an error
-        // unless the rule is switched off.
-        if feats.contains("subgroups") {
+        if feats.contains(&WgslFeature::Subgroups) {
             let diagnostic = DiagnosticOffOp::new(ctx, ident("subgroup_uniformity"));
             diagnostic.get_operation().insert_at_front(module_body, ctx);
-            // A plane that varies in width from kernel to kernel is pinned
-            // where the kernel counts on one: the extension here, the
-            // attribute on the entry point.
-            let pinned = ctx.aux_ty::<WgpuCompilationOptions>().pinned_plane_size;
-            if pinned.is_some() {
-                feats.insert("subgroup_size_control".to_string());
-                ctx.set_aux_ty(PinnedPlane(pinned));
+            if options.subgroup_size.is_some() {
+                feats.insert(WgslFeature::SubgroupSizeControl);
+                ctx.set_aux_ty(RequiredSubgroupSize(options.subgroup_size));
             }
         }
         for feat in feats {
-            let enable = EnableOp::new(ctx, ident(feat));
+            let enable = EnableOp::new(ctx, ident(feat.as_str()));
             enable.get_operation().insert_at_front(module_body, ctx);
         }
         Ok(res)
@@ -278,7 +282,7 @@ fn func_to_wgsl(ctx: &Context, op: &FuncOp) -> core::result::Result<String, fmt:
     if let Some(entry) = op.get_entrypoint_abi(ctx) {
         let (x, y, z) = entry.cube_dim.into();
         write!(f, "@compute @workgroup_size({x}, {y}, {z})")?;
-        if let Some(width) = ctx.aux_ty::<PinnedPlane>().0 {
+        if let Some(width) = ctx.aux_ty::<RequiredSubgroupSize>().0 {
             write!(f, " @subgroup_size({width})")?;
         }
         writeln!(f)?;

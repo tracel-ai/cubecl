@@ -198,11 +198,9 @@ where
                 )
             }
             TuneCacheResult::Pending => {
-                // Still waiting (e.g. on wasm). The best candidate measured so
-                // far where the tuner has one, else every operation in order,
-                // until one runs.
                 let provisional = tuner.provisional(&key);
-                for i in provisional.into_iter().chain(0..operations.len()) {
+                let fallback = (0..operations.len()).filter(|index| Some(*index) != provisional);
+                for i in provisional.into_iter().chain(fallback) {
                     if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
                         return output;
                     }

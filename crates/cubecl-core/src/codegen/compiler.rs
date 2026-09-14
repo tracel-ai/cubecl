@@ -1,14 +1,15 @@
-/// Which of the two WGSL front ends reads the module. They disagree on the
-/// subgroup builtins: Tint takes them only under `enable subgroups;` and
-/// refuses a call from control flow it cannot prove uniform unless that
-/// diagnostic is off, while Naga takes them without a directive and rejects
-/// the directive itself. Natively wgpu is Naga; in a browser it is whichever
-/// the browser embeds, Tint in Chromium and Naga in Firefox.
+/// WGSL parser targeted by generated shaders.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum WgslFrontEnd {
+pub enum WgslFrontend {
     #[default]
     Naga,
     Tint,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WgslCompilationOptions {
+    pub frontend: WgslFrontend,
+    pub subgroup_size: Option<u32>,
 }
 
 // We cannot put this struct in cubecl-wgpu crate due to circular dependencies.
@@ -18,13 +19,7 @@ pub struct WgpuCompilationOptions {
     /// Whether the Vulkan compiler is supported or we need to fall back to WGSL
     pub supports_vulkan_compiler: bool,
     pub supports_msl_compiler: bool,
-    /// The plane width a kernel that uses plane operations is pinned to, on a
-    /// device whose planes would otherwise vary from kernel to kernel (the
-    /// browser's WebGPU, where the native pinning is out of reach). `None`
-    /// where the width is fixed anyway.
-    pub pinned_plane_size: Option<u32>,
-    /// The WGSL front end the module is written for.
-    pub wgsl_front_end: WgslFrontEnd,
+    pub wgsl: WgslCompilationOptions,
 
     pub vulkan: VulkanCompilationOptions,
 }

@@ -8,10 +8,7 @@
 //!
 //! One database `"cubecl"` with a single object store `"kv"`. Each entry is
 //! stored under the record key `"{environment}/{namespace}/{hex key}"` and
-//! holds the raw value bytes, so the active [`environment`](crate::environment)
-//! scopes what a namespace holds, as it does for every other backend. The
-//! namespace's entries are mirrored in memory, loaded in the background at
-//! open, and served from there.
+//! holds the raw value bytes. Namespace contents are mirrored in memory.
 //!
 //! # Concurrency
 //!
@@ -26,16 +23,6 @@
 //!
 //! Entries inserted immediately before the page closes may be lost. This is
 //! acceptable for a cache.
-//!
-//! # Preloading
-//!
-//! A storage created without [`preload`] having run reads its namespace in
-//! the background, and a store looking it up in the meantime sees nothing:
-//! a cache opened and queried in the same tick misses every entry it holds.
-//! [`preload`] reads the whole database once, up front; every storage
-//! created afterwards is seeded from that snapshot synchronously and is
-//! loaded from the start. A page that owns its startup awaits it before
-//! the first kernel runs.
 
 use alloc::boxed::Box;
 use alloc::format;
@@ -58,13 +45,9 @@ use super::storage::{Insertion, Origin, Storage, entries};
 const DB_NAME: &str = "cubecl";
 const STORE_NAME: &str = "kv";
 
-/// Every record of the database as read by [`preload`], by record key, each
-/// handed to the storage of its namespace when that storage is created.
 static PRELOADED: spin::Mutex<Option<HashMap<String, Bytes>>> = spin::Mutex::new(None);
 
-/// Reads the whole database into memory so that every storage created from
-/// now on starts loaded. Returns how many records were read. Safe to call
-/// again: the snapshot is replaced.
+/// Preloads IndexedDB records for synchronous cache access.
 pub async fn preload() -> Result<usize, String> {
     let records = load_all().await.map_err(|err| format!("{err:?}"))?;
     let count = records.len();
@@ -72,9 +55,7 @@ pub async fn preload() -> Result<usize, String> {
     Ok(count)
 }
 
-/// Every record of the active environment, as (record key, value) pairs keyed
-/// relative to it: what one device tuned, in the form [`seed`] takes on
-/// another.
+/// Exports records from the active environment.
 pub async fn export() -> Result<Vec<(String, Vec<u8>)>, String> {
     let scope = environment_prefix();
     let upper = format!("{scope}\u{10FFFF}");
@@ -92,13 +73,10 @@ pub async fn export() -> Result<Vec<(String, Vec<u8>)>, String> {
         .collect())
 }
 
-/// Writes every record of `records`, keyed as [`export`] keys them, that the
-/// active environment does not already hold, so picks made elsewhere stand in
-/// until this device makes its own. Returns how many were written. Call
-/// before [`preload`], which is what hands them to the storages.
+/// Imports records that do not already exist in the active environment.
 pub async fn seed(records: &[(String, Vec<u8>)]) -> Result<usize, String> {
     let scope = environment_prefix();
-    let present = load_all().await.map_err(|err| format!("{err:?}"))?;
+    let mut present = load_all().await.map_err(|err| format!("{err:?}"))?;
     let mut written = 0;
     for (key, value) in records {
         let record_key = format!("{scope}{key}");
@@ -108,12 +86,16 @@ pub async fn seed(records: &[(String, Vec<u8>)]) -> Result<usize, String> {
         put(&record_key, value)
             .await
             .map_err(|err| format!("{err:?}"))?;
+        let value = Bytes::from_bytes_vec(value.clone());
+        present.insert(record_key.clone(), value.clone());
+        if let Some(preloaded) = PRELOADED.lock().as_mut() {
+            preloaded.insert(record_key, value);
+        }
         written += 1;
     }
     Ok(written)
 }
 
-/// The record key prefix of the active environment, `"{environment}/"`.
 fn environment_prefix() -> String {
     format!("{}/", crate::environment::scope())
 }
@@ -142,24 +124,19 @@ pub(crate) fn open_storage(namespace: &str) -> Box<dyn Storage> {
 }
 
 impl BrowserStorage {
-    /// Creates the storage: seeded and loaded from the [`preload`] snapshot
-    /// when there is one, otherwise loading existing entries under `prefix`
-    /// in the background.
+    /// Creates a storage and starts loading it when no preload is available.
     pub fn new(prefix: String) -> Self {
-        if let Some(records) = PRELOADED.lock().as_mut() {
+        if let Some(records) = PRELOADED.lock().as_ref() {
             let mut state = State {
                 entries: Default::default(),
                 loaded: true,
             };
-            let mine: Vec<String> = records
-                .keys()
-                .filter(|record_key| record_key.starts_with(&prefix))
-                .cloned()
+            let mine: Vec<_> = records
+                .iter()
+                .filter(|(record_key, _)| record_key.starts_with(&prefix))
+                .map(|(record_key, value)| (record_key.clone(), value.clone()))
                 .collect();
-            for record_key in mine {
-                let Some(value) = records.remove(&record_key) else {
-                    continue;
-                };
+            for (record_key, value) in mine {
                 match decode_record_key(&record_key, &prefix) {
                     Some(key) => {
                         state.entries.insert(key, (value, Origin::Local));
@@ -200,6 +177,9 @@ impl BrowserStorage {
     /// recompute on the next page load.
     fn put_in_background(&self, key: &[u8], value: Bytes) {
         let record_key = format!("{}{}", self.prefix, to_hex(key));
+        if let Some(records) = PRELOADED.lock().as_mut() {
+            records.insert(record_key.clone(), value.clone());
+        }
 
         wasm_bindgen_futures::spawn_local(async move {
             if let Err(err) = put(&record_key, &value).await {
@@ -245,6 +225,9 @@ impl Storage for BrowserStorage {
         // authoritative for this process, and a failed delete costs stale
         // records resurfacing on the next page load.
         let prefix = self.prefix.clone();
+        if let Some(records) = PRELOADED.lock().as_mut() {
+            records.retain(|record_key, _| decode_record_key(record_key, &prefix).is_none());
+        }
         wasm_bindgen_futures::spawn_local(async move {
             if let Err(err) = delete_prefix(&prefix).await {
                 log::warn!("cubecl cache: browser storage purge('{prefix}') failed: {err:?}");
@@ -257,6 +240,9 @@ impl Storage for BrowserStorage {
 
         // Fire-and-forget, as above.
         let record_key = format!("{}{}", self.prefix, to_hex(key));
+        if let Some(records) = PRELOADED.lock().as_mut() {
+            records.remove(&record_key);
+        }
         wasm_bindgen_futures::spawn_local(async move {
             if let Err(err) = delete_record(&record_key).await {
                 log::warn!("cubecl cache: browser storage delete('{record_key}') failed: {err:?}");
@@ -373,7 +359,6 @@ async fn open_db() -> Result<IdbDatabase, JsValue> {
     result.dyn_into::<IdbDatabase>().map_err(JsValue::from)
 }
 
-/// The storage key a record key holds, when the record belongs to `prefix`.
 fn decode_record_key(record_key: &str, prefix: &str) -> Option<Vec<u8>> {
     record_key.strip_prefix(prefix).and_then(from_hex)
 }
@@ -390,9 +375,6 @@ async fn load(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue> {
             log::warn!("cubecl cache: unreadable browser storage record key '{record_key}'");
             continue;
         };
-        // Everything already durable is treated as local: an import that
-        // reached storage is indistinguishable from a local computation
-        // once the process restarts.
         entries.insert(key, (bytes, Origin::Local));
     }
 
@@ -407,12 +389,10 @@ async fn load(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue> {
     Ok(())
 }
 
-/// Every record of the database, by record key.
 async fn load_all() -> Result<HashMap<String, Bytes>, JsValue> {
     Ok(load_records(None).await?.into_iter().collect())
 }
 
-/// The records in `range`, or all of them, as (record key, value) pairs.
 async fn load_records(range: Option<&IdbKeyRange>) -> Result<Vec<(String, Bytes)>, JsValue> {
     let db = open_db().await?;
 

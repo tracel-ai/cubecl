@@ -27,22 +27,15 @@ use super::TuneFn;
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneInputs, TunePlan};
 
 #[derive(Debug)]
-/// Runs autotune benchmarks for a single device and caches the results.
-///
-/// Natively a key is tuned inline, every candidate measured before the call
-/// returns. In a browser nothing can be awaited inline, so a key is tuned one
-/// round of candidates per call (see [`Progress`]) and the caller runs its
-/// fallback until the key settles.
+/// Benchmarks and caches autotune candidates for one device.
 pub struct Tuner<K: AutotuneKey> {
     cache: Arc<Mutex<TuneCache<K>>>,
     logger: Arc<Mutex<Logger>>,
     #[cfg(target_family = "wasm")]
-    progress: Mutex<hashbrown::HashMap<K, Arc<Mutex<Progress<K>>>>>,
+    browser_tuning: Mutex<hashbrown::HashMap<K, Arc<Mutex<BrowserTuning<K>>>>>,
 }
 
-/// How many rounds of candidates the browser has launched so far, across every
-/// tuner: what a warm-up loops on, since a key advances one round per call and
-/// a warm-up that launched no round in a reply has nothing left to settle.
+/// Returns the number of browser tuning rounds launched by this process.
 #[cfg(target_family = "wasm")]
 pub fn rounds_launched() -> usize {
     ROUNDS_LAUNCHED.load(core::sync::atomic::Ordering::Relaxed)
@@ -51,26 +44,15 @@ pub fn rounds_launched() -> usize {
 #[cfg(target_family = "wasm")]
 static ROUNDS_LAUNCHED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
-/// One key's tuning in a browser, spread over the calls that need it.
-///
-/// A browser can neither resolve a sample inline nor be handed the caller's
-/// inputs past the call, so each call for a key that is still tuning launches
-/// the next round of candidates on the inputs it has, spawns their resolution,
-/// and runs the fallback; the round after is launched by the call that finds
-/// the previous one resolved. What is queued at once is one round, and the
-/// key settles once the plan or its budget is spent.
 #[cfg(target_family = "wasm")]
 #[derive(Debug)]
-struct Progress<K: AutotuneKey> {
+struct BrowserTuning<K: AutotuneKey> {
     key: K,
     plan: TunePlan,
     results: Vec<AutotuneResult>,
-    /// The current plan batch's candidates not yet launched.
     batch: Vec<usize>,
-    /// Launched and not yet resolved.
     in_flight: usize,
     resolved: Vec<(usize, Option<(String, Duration)>, AutotuneResult)>,
-    started: Option<cubecl_common::profile::Instant>,
     settled: bool,
     #[cfg(autotune_persistence)]
     limit: Option<Duration>,
@@ -131,11 +113,7 @@ pub enum AutotuneError {
         /// The formatted context on why no valid kernel was found.
         context: String,
     },
-    /// A sample's profiled window carried no measurement.
-    ///
-    /// Disqualifying, and deliberately not folded into a zero: zero is the
-    /// fastest duration there is, so a candidate carrying one wins every
-    /// comparison it enters and gets cached as the best row in the table.
+    /// A sample did not produce a timing measurement.
     #[display("{name}: A profiled sample carried no measurement.")]
     NotMeasured {
         /// The name of the tunable.
@@ -164,24 +142,18 @@ impl From<LaunchError> for AutotuneError {
     }
 }
 
-/// A successfully-queued benchmark: the profile futures for each sample, plus its metadata.
 struct PendingBench {
     index: usize,
     name: String,
     profiles: Vec<ProfileDuration>,
-    /// Time spent launching, when steps are being logged. The samples are still unresolved at
-    /// that point, so the resolution wait is added in [`process_request`] before it is reported.
     launch: Option<Duration>,
 }
 
-/// Everything a benchmarking strategy needs, prepared once by [`Tuner::check_tune`] and handed to
-/// whichever strategy runs. `'t` borrows the tunable set, `'i` the benchmark inputs.
 #[cfg(not(target_family = "wasm"))]
 struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     key: K,
     autotunables: Vec<&'t TuneFn<F, Out>>,
     test_inputs: <F as TuneInputs>::At<'i>,
-    /// What runs before every measured sample, bound to the key and the reference inputs.
     evictor: Option<Box<crate::tune::Evictor<'i>>>,
     plan: TunePlan,
     results: Vec<AutotuneResult>,
@@ -213,8 +185,6 @@ impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
     }
 }
 
-/// A queued tuning job: all data needed to resolve samples and commit the result.
-/// Holds no references so it's trivially `Send + 'static` for the wasm spawn path.
 struct TuneRequest<K: AutotuneKey> {
     key: K,
     results: Vec<AutotuneResult>,
@@ -222,8 +192,6 @@ struct TuneRequest<K: AutotuneKey> {
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
     pending: Vec<PendingBench>,
-    /// The winner, when the strategy already picked one. `None` means the results are all
-    /// comparable and the fastest is whichever scores best.
     decided: Option<usize>,
     #[cfg(autotune_persistence)]
     limit: Option<Duration>,
@@ -233,26 +201,17 @@ struct TuneRequest<K: AutotuneKey> {
 
 #[allow(clippy::new_without_default)]
 impl<K: AutotuneKey> Tuner<K> {
-    /// Create a tuner. Its cache is seeded from the persistent cache when
-    /// persistence is available (disk on native, browser storage on wasm with
-    /// the `browser-cache` feature).
+    /// Creates a tuner backed by the configured cache.
     pub fn new(name: &str, device_id: &str) -> Self {
         Self {
             cache: Arc::new(Mutex::new(TuneCache::new(name, device_id))),
             logger: Arc::new(Mutex::new(Logger::new())),
             #[cfg(target_family = "wasm")]
-            progress: Mutex::new(hashbrown::HashMap::new()),
+            browser_tuning: Mutex::new(hashbrown::HashMap::new()),
         }
     }
 
-    /// Fetch the fastest autotune operation index for an autotune key.
-    ///
-    /// This resets the cache when the environment switched but does not
-    /// re-hydrate it from persistence, so right after a switch it reports a
-    /// [`Miss`](TuneCacheResult::Miss) even for keys the new environment has
-    /// cached. It is a fast-path probe: a miss here is expected to fall through
-    /// to [`check_tune`](Self::check_tune), which hydrates and resolves the
-    /// real state. Don't rely on it as a standalone "is this cached?" query.
+    /// Returns the fastest cached candidate for a key.
     pub fn fastest(&self, key: &K) -> TuneCacheResult {
         #[cfg_attr(not(autotune_persistence), allow(unused_mut))]
         let mut cache = self.cache.lock();
@@ -289,9 +248,6 @@ impl<K: AutotuneKey> Tuner<K> {
             cache.reset_if_environment_switched();
             let cur = cache.fastest(key);
 
-            // Browser hydration is asynchronous, so persistent entries may
-            // have arrived after construction. Ingest them before starting a
-            // redundant tune.
             #[cfg(autotune_persistence)]
             let cur = if matches!(cur, TuneCacheResult::Miss) {
                 cache.sync_persistent();
@@ -300,10 +256,6 @@ impl<K: AutotuneKey> Tuner<K> {
                 cur
             };
 
-            // A miss before the persistent cache has fully arrived is not a
-            // miss: the entry may be on its way. Run the fallback for now and
-            // decide once the read has landed, rather than tune what is
-            // already known.
             #[cfg(autotune_persistence)]
             if matches!(cur, TuneCacheResult::Miss) && !cache.hydrated() {
                 return TuneCacheResult::Pending;
@@ -326,7 +278,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 TuneCacheResult::Pending => {
                     #[cfg(target_family = "wasm")]
                     {
-                        let progress = self.progress.lock().get(key).cloned();
+                        let progress = self.browser_tuning.lock().get(key).cloned();
                         if let Some(progress) = progress {
                             drop(cache);
                             return self.advance(&progress, inputs, tunables, client);
@@ -384,14 +336,13 @@ impl<K: AutotuneKey> Tuner<K> {
         #[cfg(target_family = "wasm")]
         {
             let _ = autotunables;
-            let progress = Arc::new(Mutex::new(Progress {
+            let progress = Arc::new(Mutex::new(BrowserTuning {
                 key: key.clone(),
                 plan,
                 results,
                 batch: Vec::new(),
                 in_flight: 0,
                 resolved: Vec::new(),
-                started: None,
                 settled: false,
                 #[cfg(autotune_persistence)]
                 limit,
@@ -401,7 +352,9 @@ impl<K: AutotuneKey> Tuner<K> {
                 checksum,
                 log_context,
             }));
-            self.progress.lock().insert(key.clone(), progress.clone());
+            self.browser_tuning
+                .lock()
+                .insert(key.clone(), progress.clone());
             return self.advance(&progress, inputs, tunables, client);
         }
 
@@ -435,13 +388,11 @@ impl<K: AutotuneKey> Tuner<K> {
         }
     }
 
-    /// The fastest candidate measured so far for a key still tuning, which is
-    /// what runs in place of the winner until the key settles. Only a browser
-    /// tunes across calls; elsewhere a key is never still tuning.
+    /// Returns the fastest candidate measured by an in-progress tune.
     pub fn provisional(&self, key: &K) -> Option<usize> {
         #[cfg(target_family = "wasm")]
         {
-            let progress = self.progress.lock().get(key).cloned()?;
+            let progress = self.browser_tuning.lock().get(key).cloned()?;
             let state = progress.lock();
             state
                 .results
@@ -458,14 +409,10 @@ impl<K: AutotuneKey> Tuner<K> {
         }
     }
 
-    /// One call's worth of a browser's tuning of a key: fold in what resolved,
-    /// settle the key if the plan or the budget is spent, else launch the next
-    /// round on `inputs`. Always [`TuneCacheResult::Pending`] until the commit
-    /// lands, which is on the event loop.
     #[cfg(target_family = "wasm")]
     fn advance<'a, F: TuneInputs, Out: AutotuneOutput>(
         &self,
-        progress: &Arc<Mutex<Progress<K>>>,
+        progress: &Arc<Mutex<BrowserTuning<K>>>,
         inputs: &F::At<'a>,
         tunables: &TunableSet<K, F, Out>,
         client: &Client,
@@ -484,14 +431,11 @@ impl<K: AutotuneKey> Tuner<K> {
             state.results[index] = result;
         }
 
-        // The budget is device time this key has spent: every measured
-        // candidate's median times the launches a candidate gets. Wall time
-        // would charge the key for every other key tuning beside it.
         let bench = crate::config::CubeClRuntimeConfig::get()
             .autotune
             .bench
             .clone();
-        let launches = (bench.warmup_samples + bench.samples().1) as u32;
+        let launches = (bench.warmup_samples.max(1) + bench.samples().1) as u32;
         let medians = state
             .results
             .iter()
@@ -501,10 +445,6 @@ impl<K: AutotuneKey> Tuner<K> {
         let slowest = medians.max().unwrap_or(Duration::ZERO);
         let measured = spent > Duration::ZERO;
         let over_budget = measured && bench.browser_budget().is_some_and(|budget| spent > budget);
-        // A round queues a slice of device time, read off the slowest
-        // candidate measured so far: what is queued before anything resolves
-        // is bounded by what is known, and nothing is known before the first,
-        // which is one candidate at the sample count.
         let round_size = if slowest.is_zero() {
             1
         } else {
@@ -522,9 +462,6 @@ impl<K: AutotuneKey> Tuner<K> {
                     break;
                 }
                 state.batch = next;
-            }
-            if state.started.is_none() {
-                state.started = Some(cubecl_common::profile::Instant::now());
             }
             let take = round_size.min(state.batch.len());
             let round: Vec<usize> = state.batch.drain(..take).collect();
@@ -568,7 +505,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 );
             }
             state.settled = true;
-            self.progress.lock().remove(&state.key);
+            self.browser_tuning.lock().remove(&state.key);
             let request = TuneRequest {
                 key: state.key.clone(),
                 results: core::mem::take(&mut state.results),

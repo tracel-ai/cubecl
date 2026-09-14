@@ -11,7 +11,7 @@ use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
 use cubecl_core::ir::TargetProperties;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
-use cubecl_core::{WgpuCompilationOptions, WgslFrontEnd};
+use cubecl_core::{WgpuCompilationOptions, WgslFrontend};
 use cubecl_environment::future;
 use cubecl_ir::{DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
@@ -166,36 +166,79 @@ pub struct RuntimeOptions {
     pub tasks_max: usize,
     /// Configures the memory management.
     pub memory_config: MemoryConfiguration,
-    /// How a plane's width is settled in a browser, where the adapter may
-    /// report a range and a kernel cannot count on which width it gets.
-    /// Read on wasm only.
-    pub plane_width: PlaneWidth,
-    /// The WGSL front end that reads the modules. Natively it is wgpu's
-    /// own, Naga; in a browser it is the browser's, which the runtime
-    /// cannot see and the embedder can probe: Tint in Chromium, the
-    /// default there, and Naga in Firefox. Read on wasm only.
-    pub wgsl_front_end: WgslFrontEnd,
+    /// Options specific to the WebGPU backend.
+    pub webgpu: WebGpuOptions,
 }
 
-/// What a browser runtime does about a plane width the adapter reports as
-/// a range. Natively the driver picks a width per kernel and a kernel that
-/// counts on one asks for it; a browser picks one width for every kernel
-/// and says nothing about which.
+/// WebGPU backend options.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WebGpuOptions {
+    /// How variable plane widths are handled.
+    pub plane_width: WebGpuPlaneWidth,
+    /// WGSL parser provided by the WebGPU implementation.
+    pub wgsl_frontend: WgslFrontend,
+}
+
+impl Default for WebGpuOptions {
+    fn default() -> Self {
+        Self {
+            plane_width: WebGpuPlaneWidth::default(),
+            wgsl_frontend: WgslFrontend::Tint,
+        }
+    }
+}
+
+impl WebGpuOptions {
+    fn apply(
+        self,
+        properties: &mut DeviceProperties,
+        compilation_options: &mut WgpuCompilationOptions,
+    ) {
+        compilation_options.wgsl.frontend = self.wgsl_frontend;
+
+        let hardware = &mut properties.hardware;
+        if hardware.plane_size_min == hardware.plane_size_max {
+            return;
+        }
+
+        match self.plane_width {
+            WebGpuPlaneWidth::Pinned => {
+                assert_eq!(
+                    self.wgsl_frontend,
+                    WgslFrontend::Tint,
+                    "pinned plane widths require the Tint WGSL frontend",
+                );
+                compilation_options.wgsl.subgroup_size = Some(hardware.plane_size_min);
+                hardware.plane_size_max = hardware.plane_size_min;
+            }
+            WebGpuPlaneWidth::Assumed(width) => {
+                assert!(
+                    (hardware.plane_size_min..=hardware.plane_size_max).contains(&width),
+                    "assumed plane width {width} is outside the reported range {}..={}",
+                    hardware.plane_size_min,
+                    hardware.plane_size_max,
+                );
+                hardware.plane_size_min = width;
+                hardware.plane_size_max = width;
+            }
+            WebGpuPlaneWidth::Range => {
+                properties
+                    .features
+                    .plane
+                    .remove(cubecl_ir::features::Plane::Ops);
+            }
+        }
+    }
+}
+
+/// Policy for WebGPU adapters that report a range of plane widths.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum PlaneWidth {
-    /// Every kernel that uses plane operations is pinned at the narrowest
-    /// width the adapter offers, through the `subgroup-size-control`
-    /// extension, and the properties report that width. The device must
-    /// have been created with the extension, or those kernels fail to
-    /// compile.
+pub enum WebGpuPlaneWidth {
+    /// Pin plane kernels to the minimum supported width.
     Pinned,
-    /// The browser is known to give every kernel this width, so the
-    /// properties report it and nothing is pinned.
+    /// Report a known fixed width without emitting a size attribute.
     Assumed(u32),
-    /// The range is reported as is and the plane operations are withdrawn:
-    /// a kernel that folds across a plane assumes a width, and on a device
-    /// that varies it with nothing to pin it, the width it assumes is the
-    /// one it will not get. Slower, and right.
+    /// Preserve the reported range and disable plane operations.
     #[default]
     Range,
 }
@@ -217,12 +260,7 @@ impl Default for RuntimeOptions {
         Self {
             tasks_max,
             memory_config: MemoryConfiguration::default(),
-            plane_width: PlaneWidth::default(),
-            wgsl_front_end: if cfg!(target_family = "wasm") {
-                WgslFrontEnd::Tint
-            } else {
-                WgslFrontEnd::Naga
-            },
+            webgpu: WebGpuOptions::default(),
         }
     }
 }
@@ -428,41 +466,18 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         .plane
         .insert(cubecl_ir::features::Plane::NonUniformControlFlow);
 
-    // The narrowest width when pinning, because a wide plane shares one
-    // register file between more lanes: a register-heavy kernel at 32 runs
-    // at a third of its speed at 8 on an Intel iGPU, and a streaming kernel
-    // runs the same at either.
-    #[cfg(target_family = "wasm")]
-    {
-        compilation_options.wgsl_front_end = options.wgsl_front_end;
-    }
-    #[cfg(target_family = "wasm")]
-    if device_props.hardware.plane_size_min != device_props.hardware.plane_size_max {
-        let hardware = &mut device_props.hardware;
-        match options.plane_width {
-            PlaneWidth::Pinned => {
-                compilation_options.pinned_plane_size = Some(hardware.plane_size_min);
-                hardware.plane_size_max = hardware.plane_size_min;
-            }
-            PlaneWidth::Assumed(width) => {
-                hardware.plane_size_min = width;
-                hardware.plane_size_max = width;
-            }
-            PlaneWidth::Range => {
-                device_props
-                    .features
-                    .plane
-                    .remove(cubecl_ir::features::Plane::Ops);
-            }
-        }
-    }
-
     backend::register_features(
         &setup.adapter,
         &mut device_props,
         &mut compilation_options,
         &options.memory_config,
     );
+
+    if setup.backend == wgpu::Backend::BrowserWebGpu {
+        options
+            .webgpu
+            .apply(&mut device_props, &mut compilation_options);
+    }
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
 

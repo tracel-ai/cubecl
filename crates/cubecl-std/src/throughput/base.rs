@@ -79,17 +79,13 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 ///
 /// # Errors
 ///
-/// [`Unsupported`](ThroughputError::Unsupported) where the device implements
-/// no such operation, or where the platform cannot read a probe back
-/// synchronously — the browser — so no peak can be measured at all;
-/// [`NoTiming`](ThroughputError::NoTiming) where the device does and
-/// reported no elapsed time.
+/// Returns [`Unsupported`](ThroughputError::Unsupported) when the operation or
+/// synchronous readback is unavailable, and [`NoTiming`](ThroughputError::NoTiming)
+/// when profiling produces no timing data.
 pub fn measure_peak_throughput(
     client: &Client,
     key: ThroughputKey,
 ) -> Result<ThroughputValue, ThroughputError> {
-    // A probe is read back synchronously, which the browser has no way to do:
-    // an unmeasured peak is what the bounds built on it already handle.
     if cfg!(target_family = "wasm") {
         return Err(ThroughputError::Unsupported);
     }
