@@ -350,36 +350,44 @@ pub fn test_workgroup_uniform_load_atomic_synchronizes<R: Runtime>(client: Clien
     assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
-/// One cube reads what the others published, with no second dispatch: every cube writes its own
-/// partial, releases it with [`sync_storage`], and announces itself on a counter. The cube whose
-/// arrival is the last acquires the rest and sums them.
+/// One cube reads what the others published, with no second dispatch: every unit of every cube
+/// writes its own partial, releases it with [`sync_storage`], and one unit per cube announces it
+/// on a counter. The cube whose arrival is the last acquires the rest and sums them.
 ///
-/// A cube of one unit, so both synchronizations are reached by the whole cube. Nothing spins: the
-/// cubes that are not last simply end, so the test cannot hang on a device that does not run them
-/// all at once.
+/// Both halves of the scope are under test. The count is taken by one unit and read by all of
+/// them, which is the cube barrier; the partials are written by one cube and read by another,
+/// which is the device scope. Nothing spins — the cubes that are not last simply end — so this
+/// cannot hang on a device that does not run them all at once.
 #[cube(launch)]
 fn kernel_test_sync_storage_across_cubes(
     partials: &mut [u32],
     counter: &mut [Atomic<u32>],
     out: &mut [u32],
     #[comptime] cubes: u32,
+    #[comptime] units: u32,
 ) {
-    partials[CUBE_POS] = (CUBE_POS + 1) as u32;
+    let mine = CUBE_POS as u32 * units + UNIT_POS;
+    partials[mine as usize] = mine + 1;
 
-    // Release: what this cube just wrote is visible to whichever cube arrives last.
+    let mut arrived = Shared::<u32>::new();
+    // Release: what every unit of this cube just wrote is visible to whichever cube is last.
     sync_storage();
-    let arrived = counter[0].fetch_add(1u32);
-    // Acquire: what the cubes that arrived before published is visible to this one.
+    if UNIT_POS == 0 {
+        *arrived = counter[0].fetch_add(1u32);
+    }
+    // Acquire, and the cube half of the same scope: the count reaches every unit, and what the
+    // cubes that arrived before published is visible to this one.
     sync_storage();
 
-    if arrived == cubes - 1 {
+    if *arrived == cubes - 1 {
+        // The last cube in merges, a unit per stripe of what the others left.
         let mut sum = 0u32;
-        let mut i = 0u32;
-        while i < cubes {
+        let mut i = UNIT_POS;
+        while i < cubes * units {
             sum += partials[i as usize];
-            i += 1u32;
+            i += units;
         }
-        out[0] = sum;
+        out[UNIT_POS as usize] = sum;
     }
 }
 
@@ -396,28 +404,36 @@ pub fn test_sync_storage_across_cubes<R: Runtime>(client: Client) {
         .atomic_type_usage(ty)
         .contains(AtomicUsage::Add)
     {
+        std::println!("u32 atomic add not supported - skipped");
         return;
     }
 
     let cubes = 32u32;
-    let partials = client.empty(cubes as usize * core::mem::size_of::<u32>());
+    let units = core::cmp::min(32, client.properties().hardware.max_units_per_cube);
+    let total = (cubes * units) as usize;
+
+    let partials = client.empty(total * core::mem::size_of::<u32>());
     let counter = client.create_from_slice(u32::as_bytes(&[0u32]));
-    let out = client.create_from_slice(u32::as_bytes(&[0u32]));
+    let out = client.create_from_slice(u32::as_bytes(&vec![0u32; units as usize]));
 
     kernel_test_sync_storage_across_cubes::launch(
         &client,
         CubeCount::Static(cubes, 1, 1),
-        CubeDim::new_single(),
-        unsafe { BufferArg::from_raw_parts(partials, cubes as usize) },
+        CubeDim::new_1d(units),
+        unsafe { BufferArg::from_raw_parts(partials, total) },
         unsafe { BufferArg::from_raw_parts(counter, 1) },
-        unsafe { BufferArg::from_raw_parts(out.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), units as usize) },
         cubes,
+        units,
     );
 
     let actual = client.read_one_unchecked(out);
-    // Every cube published `CUBE_POS + 1`, so the last one in sums 1..=cubes.
-    let expected = cubes * (cubes + 1) / 2;
-    assert_eq!(u32::from_bytes(&actual), &[expected]);
+    // Unit `u` of the last cube in summed what unit `u` of every cube published, which is
+    // `u + cube * units + 1`.
+    let expected: Vec<u32> = (0..units)
+        .map(|u| (0..cubes).map(|cube| u + cube * units + 1).sum())
+        .collect();
+    assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
 #[macro_export]

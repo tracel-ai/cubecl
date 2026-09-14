@@ -47,8 +47,9 @@ pub mod sync_plane {
 /// [`sync_cube`] over storage memory (input args) rather than shared memory, and the one
 /// synchronization that reaches past the cube.
 ///
-/// Every unit of the cube must reach it, as for [`sync_cube`]. On top of the cube barrier it is a
-/// release and an acquire at device scope: every write this cube made to storage before it is
+/// Every unit of the cube must reach it, and it is a [`sync_cube`] as well as what follows, so a
+/// value one unit leaves in shared memory before it is readable by the rest after it. On top of
+/// that cube barrier it is a release and an acquire at device scope: every write this cube made to storage before it is
 /// visible to any other cube that calls it afterwards, and every write another cube published
 /// before its own call is visible here after it. That is what lets cubes hand each other partial
 /// results — publish, `sync_storage`, then announce through an atomic — with no second dispatch.

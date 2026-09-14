@@ -55,7 +55,7 @@ metal_op!(SyncOp, |op, ctx| {
         // together are the release and the acquire this scope promises. MSL 3.2, which is the
         // version this backend compiles at.
         SyncScope::Device => {
-            "threadgroup_barrier(mem_flags::mem_device);\n\
+            "threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);\n\
              atomic_thread_fence(mem_flags::mem_device, memory_order_seq_cst, thread_scope_device);\n"
         }
         SyncScope::Unit => "",
