@@ -22,6 +22,60 @@ use crate::sync::Mutex;
 extern "C" {
     #[wasm_bindgen(js_namespace = ["navigator", "storage"], js_name = getDirectory)]
     fn get_directory() -> js_sys::Promise;
+
+    #[wasm_bindgen(catch, js_namespace = ["navigator", "locks"], js_name = request)]
+    fn request_lock(
+        name: &str,
+        options: &JsValue,
+        callback: &js_sys::Function,
+    ) -> Result<js_sys::Promise, JsValue>;
+}
+
+/// Takes the page's exclusive lock on `name` for the rest of its life, or
+/// reports that another tab holds it.
+///
+/// OPFS files opened through `createWritable` carry no lock of their own,
+/// and every [`BrowserFile`] keeps its own idea of the file's size: two tabs
+/// writing one environment would append WAL frames over each other. The
+/// Web Locks API is what the platform offers instead; a lock is released
+/// when the tab goes away, so a crashed tab never wedges the others.
+///
+/// A browser without the API grants nothing and refuses nothing, which
+/// leaves it exactly as unprotected as it was.
+async fn hold_lock(name: &str) -> Result<(), String> {
+    let (granted, was_granted) = async_channel::bounded::<bool>(1);
+
+    // The lock is held for as long as the promise the callback returns stays
+    // pending, so a granted lock returns one that never settles; the
+    // request's own promise then never settles either, which is why the
+    // outcome travels through the channel instead.
+    let callback = Closure::once_into_js(move |lock: JsValue| -> js_sys::Promise {
+        let held = !lock.is_null() && !lock.is_undefined();
+        let _ = granted.try_send(held);
+        if held {
+            js_sys::Promise::new(&mut |_, _| {})
+        } else {
+            js_sys::Promise::resolve(&JsValue::UNDEFINED)
+        }
+    });
+
+    let options = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&options, &"ifAvailable".into(), &JsValue::TRUE);
+
+    let name = format!("cubecl-environment:{name}");
+    match request_lock(&name, &options, callback.unchecked_ref()) {
+        Ok(_pending) => {}
+        Err(error) => {
+            log::debug!("Web Locks unavailable ({error:?}); opening {name} unlocked");
+            return Ok(());
+        }
+    }
+
+    match was_granted.recv().await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(format!("another tab holds the environment {name}")),
+        Err(_) => Err(format!("the lock request for {name} was dropped")),
+    }
 }
 
 #[derive(Debug)]
@@ -244,6 +298,11 @@ pub struct BrowserIo {
 
 impl BrowserIo {
     pub async fn new(paths: &[&str]) -> Result<Self, String> {
+        // The first path names the database; the rest are its sidecars.
+        if let Some(database) = paths.first() {
+            hold_lock(database).await?;
+        }
+
         let root = JsFuture::from(get_directory())
             .await
             .map_err(|error| format!("unable to open OPFS: {error:?}"))?

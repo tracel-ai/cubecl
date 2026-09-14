@@ -115,6 +115,8 @@ pub fn measure_peak_throughput(
 ) -> Result<ThroughputValue, ThroughputError> {
     #[cfg(target_family = "wasm")]
     {
+        // A roofline bound built from this on the browser has no peak, and
+        // so no time limit; the tune runs without one rather than not at all.
         let _ = (client, key);
         Err(ThroughputError::Unsupported)
     }
