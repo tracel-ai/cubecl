@@ -127,6 +127,26 @@ pub fn activate<N: AsRef<str>>(name: N) {
     switched();
 }
 
+/// A stable identity for the active environment, distinguishing one from
+/// another for backends that key by it rather than by a file path.
+///
+/// The database backend already isolates environments by their file path; the
+/// in-memory fallback ([`MemoryStorage`](crate::persistence::MemoryStorage))
+/// has no file, so it scopes its process-wide entries by this instead, and a
+/// switch reaches it the same way. On targets with a file system the identity
+/// is the database path, which folds in the name, the root and any mounted
+/// file; elsewhere the name is the whole identity, since [`load`]/[`set_root`]
+/// don't exist there.
+#[cfg(std_io)]
+pub(crate) fn scope() -> String {
+    path().display().to_string()
+}
+
+#[cfg(not(std_io))]
+pub(crate) fn scope() -> String {
+    active().to_string()
+}
+
 /// The active environment.
 ///
 /// The returned handle derefs to `str`, and cloning it is a refcount bump, so
@@ -153,7 +173,7 @@ pub fn set_root<P: Into<std::path::PathBuf>>(root: P) {
 
 /// Mounts the database at `file` as the active environment.
 ///
-/// This is how a shipped [`BundleFormat::Database`](crate::bundle::BundleFormat)
+/// This is how a shipped [`BundleFormat::Sqlite`](crate::bundle::BundleFormat)
 /// bundle is used in place: a bundle file carries the same schema as an
 /// environment, so loading it makes its entries the ones every bound store
 /// serves, with nothing copied. Stores reset on their next access, exactly as
