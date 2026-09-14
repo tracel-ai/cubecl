@@ -1,4 +1,4 @@
-use cubecl_runtime::{compiler::CompilationError, id::KernelId, storage::BytesResource};
+use cubecl_server::{compiler::CompilationError, id::KernelId, storage::BytesResource};
 
 /// The `DummyKernel` trait should be implemented for every supported operation
 pub trait DummyKernel: Sync + Send + 'static + core::fmt::Debug {

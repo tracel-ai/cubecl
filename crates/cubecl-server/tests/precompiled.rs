@@ -7,9 +7,9 @@ use cubecl_ir::{
     metadata::Info,
     settings::{Dim3, ExecutionMode, KernelSettings},
 };
-use cubecl_runtime::compiler::{CompilationError, Compiler};
-use cubecl_runtime::id::KernelId;
-use cubecl_runtime::kernel::{
+use cubecl_server::compiler::{CompilationError, Compiler};
+use cubecl_server::id::KernelId;
+use cubecl_server::kernel::{
     CompiledKernel, CubeKernel, KernelDefinition, KernelMetadata, PrecompiledSource,
 };
 

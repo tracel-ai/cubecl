@@ -1,7 +1,8 @@
+pub(crate) use cubecl_runtime::memory_management::*;
+
 mod base;
 mod direct_pool;
 mod exclusive_pool;
-pub(crate) mod handle;
 mod memory_page;
 mod persistent_pool;
 mod sliced_pool;
@@ -12,5 +13,3 @@ pub(crate) use exclusive_pool::*;
 pub(crate) use memory_page::*;
 pub(crate) use persistent_pool::*;
 pub(crate) use sliced_pool::*;
-
-pub use handle::*;

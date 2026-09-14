@@ -9,12 +9,13 @@ use ash::vk::{
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
-    prelude::{CompiledKernel, CubeKernel, KernelDefinition, Visibility},
+    prelude::{CubeKernel, KernelDefinition, Visibility},
     server::{IoError, KernelArguments},
 };
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{DeviceProperties, Type, features::*};
-use cubecl_runtime::compiler::CompilationError;
+use cubecl_server::compiler::CompilationError;
+use cubecl_server::kernel::CompiledKernel;
 use cubecl_spirv::{SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
 use tracel_ash::{
@@ -404,11 +405,9 @@ fn register_features(
             device_local_heap(adapter.shared_instance(), adapter.raw_physical_device())
     {
         let heap_size = heap.size;
-        let max_page_size = match memory_config {
-            #[cfg(not(exclusive_memory_only))]
-            MemoryConfiguration::SubSlices => heap_size / 4,
-            MemoryConfiguration::ExclusivePages => heap_size,
-            MemoryConfiguration::Custom { .. } => heap_size,
+        let max_page_size = match memory_config.is_sub_slices() {
+            true => heap_size / 4,
+            false => heap_size,
         };
         props.memory.max_page_size = max_page_size;
     }

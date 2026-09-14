@@ -21,7 +21,7 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
-use cubecl_runtime::{
+use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::KernelId,
@@ -342,7 +342,7 @@ impl Server for CpuServer {
     fn memory_report(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_runtime::memory_management::MemoryReport {
+    ) -> cubecl_server::memory_management::MemoryReport {
         self.scheduler
             .stream(&stream_id)
             .memory_management

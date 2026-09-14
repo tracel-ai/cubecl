@@ -4,7 +4,6 @@ use std::env;
 fn main() {
     // Setup cfg aliases
     cfg_aliases! {
-        exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
         apple_silicon: { all(target_os = "macos", target_arch = "aarch64") },
         // Renderdoc adds a compile time error on MacOS and iOS
         renderdoc: { all(feature = "renderdoc", not(any(target_os = "macos", target_os = "ios"))) }

@@ -20,8 +20,8 @@ use cubecl_core::{
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::{self, DynFut};
 use cubecl_environment::stream::StreamId;
-use cubecl_runtime::command::{CollectiveDriver, Collectives, Refused};
-use cubecl_runtime::{
+use cubecl_server::command::{CollectiveDriver, Collectives, Refused};
+use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
@@ -49,7 +49,7 @@ use std::{ffi::c_void, sync::Arc};
 /// graph gains no memcpy nodes for them).
 ///
 /// The cache's policy makes every decision (see
-/// [`MetadataInfoCache`](cubecl_runtime::metadata_cache::MetadataInfoCache)),
+/// [`MetadataInfoCache`](cubecl_server::metadata_cache::MetadataInfoCache)),
 /// and the capture lifecycle drives its mode so that during capture every
 /// buffer is cached and none is evicted. We ask the policy first and only touch
 /// the cache when it says to — otherwise we just build the buffer, never

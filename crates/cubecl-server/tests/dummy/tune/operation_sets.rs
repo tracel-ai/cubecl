@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use cubecl_runtime::{
+use cubecl_server::{
     server::Handle,
     tune::{AutotuneBound, Bounds, CloneInputGenerator, ResourceBound, Tunable, TunableSet},
 };

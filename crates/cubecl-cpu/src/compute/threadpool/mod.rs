@@ -1,6 +1,6 @@
 use crossbeam_utils::CachePadded;
 use cubecl_core::CubeDim;
-use cubecl_runtime::{
+use cubecl_server::{
     memory_management::{ErrorGraph, MemoryManagement},
     storage::BytesStorage,
 };

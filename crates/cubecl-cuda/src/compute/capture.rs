@@ -4,13 +4,13 @@
 //! Everything around those four — arming the pools, draining the drop queue,
 //! pinning what the window touched, claiming what a refused recording would
 //! have written — is the shared
-//! [`Window`](cubecl_runtime::command::Window)'s.
+//! [`Window`](cubecl_server::command::Window)'s.
 
 use crate::compute::driver::Cuda;
 use crate::compute::stream::Stream;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_runtime::command::GraphDriver;
-use cubecl_runtime::server::ServerError;
+use cubecl_server::command::GraphDriver;
+use cubecl_server::server::ServerError;
 use cudarc::driver::sys::{CUgraph, CUgraphExec, CUgraphNode, CUresult, CUstream};
 
 /// An instantiated CUDA executable graph, destroyed on drop.
@@ -181,7 +181,7 @@ unsafe fn count_memory_nodes(graph: CUgraph) -> usize {
 /// `Ok` when the CUDA driver says the call to `op` succeeded.
 ///
 /// CUDA reports through its own `CUresult` rather than the plain integer the
-/// shared [`checked`](cubecl_runtime::driver::checked) takes, and its error
+/// shared [`checked`](cubecl_server::driver::checked) takes, and its error
 /// values carry their own text, so this is the one place the two diverge.
 ///
 /// # Errors
