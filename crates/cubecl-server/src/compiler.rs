@@ -51,7 +51,7 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
         Some(cubecl_environment::future::block_on(Store::open(
             StoreOptions::new()
                 .storage(Namespace::scoped(backend, fingerprint))
-                .cache(CacheOption::Eager),
+                .cache(CacheOption::Lazy),
         )))
     }
 
@@ -65,17 +65,12 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
 
 /// Records a freshly compiled artifact, logging rather than failing.
 ///
-/// The write goes through on a detached task: the launch path can't wait on
-/// the storage. A refused write is routine, not exceptional: another process
-/// sharing the environment may have written the key first, or the backing
-/// store may have declined it. The artifact was just compiled either way, so
-/// the whole cost is compiling it again next run.
-pub fn store_compiled<K, V>(store: &mut Store<K, V>, key: K, value: V)
-where
-    K: StoreKey + Send + Sync + 'static,
-    V: StoreValue + Send + Sync + 'static,
-{
-    if let Err(err) = store.insert_background(key, value) {
+/// A refused write is routine, not exceptional: another process sharing the
+/// environment may have written the key first, or the backing store may have
+/// declined it. The artifact was just compiled either way, so the whole cost
+/// is compiling it again next run.
+pub fn store_compiled<K: StoreKey, V: StoreValue>(store: &mut Store<K, V>, key: K, value: V) {
+    if let Err(err) = store.insert_sync(key, value) {
         log::warn!("Unable to cache the compiled kernel: {}", err.reason());
     }
 }

@@ -85,12 +85,12 @@ impl<K: core::fmt::Debug, V: core::fmt::Debug> Display for StoreError<K, V> {
 impl<K: core::fmt::Debug, V: core::fmt::Debug> core::error::Error for StoreError<K, V> {}
 
 /// Trait to be implemented for store keys.
-pub trait StoreKey: Serialize + DeserializeOwned + PartialEq + Eq + Hash + Clone {}
+pub trait StoreKey: Serialize + DeserializeOwned + PartialEq + Eq + Hash + Clone + 'static {}
 /// Trait to be implemented for store values.
-pub trait StoreValue: Serialize + DeserializeOwned + PartialEq + Eq + Clone {}
+pub trait StoreValue: Serialize + DeserializeOwned + PartialEq + Eq + Clone + 'static {}
 
-impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone + Hash> StoreKey for T {}
-impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone> StoreValue for T {}
+impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone + Hash + 'static> StoreKey for T {}
+impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone + 'static> StoreValue for T {}
 
 /// How a [`Store`] populates its in-memory map from its storage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -186,11 +186,13 @@ impl StoreOptions {
 /// storage.
 ///
 /// Every storage is asynchronous, so the operations that may touch it are
-/// `async`. The launch path can't await: [`take_cached`](Store::take_cached)
-/// serves memory alone, and the `*_background` writes —
-/// [`insert_background`](Store::insert_background),
-/// [`replace_background`](Store::replace_background),
-/// [`purge_key_background`](Store::purge_key_background) — apply to memory
+/// `async`. The launch path can't await, so [`remove`](Store::remove),
+/// [`insert`](Store::insert) and [`purge_key`](Store::purge_key) have
+/// synchronous forms — [`remove_sync`](Store::remove_sync),
+/// [`insert_sync`](Store::insert_sync),
+/// [`purge_key_sync`](Store::purge_key_sync). Natively they block on the
+/// storage and are exactly their `async` counterparts. The browser can't
+/// block: there the read serves memory alone, and the writes apply to memory
 /// now and reach the storage on a detached task.
 ///
 /// # Environment switches
@@ -294,149 +296,135 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         self.entries.get(key)
     }
 
-    /// Take an item out of memory without touching the storage.
+    /// [`remove`](Store::remove) for the launch path, where nothing can be
+    /// awaited.
     ///
-    /// The synchronous read for the launch path, where nothing can be
-    /// awaited: on an eager store the map is complete, so a miss is a miss.
-    /// The key stays [`known`](StoreError::DuplicatedKey) to the store,
-    /// exactly as with [`remove`](Store::remove). After an environment switch
-    /// the stale state is dropped and this misses; the next `async` operation
+    /// Natively this *is* `remove`, blocking on the storage: a lazy store
+    /// reads through, and a switched environment is reopened first. The
+    /// browser can't block, so there it serves memory alone — on an eager
+    /// store the map is complete, so a miss is a miss — and after a switch
+    /// drops the stale state and misses until the next `async` operation
     /// reopens the storage.
-    pub fn take_cached(&mut self, key: &K) -> Option<V> {
-        self.invalidate_if_stale();
-
-        let value = self.entries.remove(key);
-        if value.is_some() && self.storage.is_some() {
-            self.known.insert(key.clone());
-        }
-        value
-    }
-
-    /// Insert a new item, writing it through on a detached task.
-    ///
-    /// The launch path can't await the storage, so the in-memory map is
-    /// updated now and the durable write happens in the background: a refused
-    /// write is logged there, never reported here. Only the in-memory rules
-    /// apply, so a key present with a different value is
-    /// [`StoreError::DuplicatedKey`]; a conflict with another process is
-    /// arbitrated by the storage and logged.
-    pub fn insert_background(&mut self, key: K, value: V) -> Result<(), StoreError<K, V>>
-    where
-        K: Send + Sync + 'static,
-        V: Send + Sync + 'static,
-    {
-        self.invalidate_if_stale();
-
-        if let Some(existing) = self.entries.get(&key) {
-            return if existing == &value {
-                Ok(())
-            } else {
-                Err(StoreError::DuplicatedKey {
-                    key,
-                    value_previous: existing.clone(),
-                    value_updated: value,
-                })
-            };
+    pub fn remove_sync(&mut self, key: &K) -> Option<V> {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            crate::future::block_on(self.remove(key))
         }
 
-        self.entries.insert(key.clone(), value.clone());
-        let namespace = self.namespace.clone();
-        let storage = self.storage.clone();
-        let reopen = self.reopen;
-        let key_bytes = encode(&key);
-        let value_bytes = encode(&value);
+        #[cfg(target_family = "wasm")]
+        {
+            self.invalidate_if_stale();
 
-        crate::future::spawn_detached(async move {
-            let Some(storage) = background_storage(storage, namespace, reopen).await else {
-                return;
-            };
-
-            match storage.insert(&key_bytes, value_bytes, Origin::Local).await {
-                Insertion::Stored => {}
-                Insertion::Conflict(_) => {
-                    log::debug!(
-                        "Cache entry was stored concurrently in {}",
-                        storage.describe()
-                    )
-                }
-                Insertion::Failed(error) => {
-                    log::warn!(
-                        "Unable to write cache entry to {}: {error}",
-                        storage.describe()
-                    )
-                }
+            let value = self.entries.remove(key);
+            if value.is_some() && self.storage.is_some() {
+                self.known.insert(key.clone());
             }
-        });
-
-        Ok(())
+            value
+        }
     }
 
-    /// Replace an item in memory and, on a detached task, durably.
+    /// [`insert`](Store::insert) for the launch path, where nothing can be
+    /// awaited.
     ///
-    /// The background counterpart of a repair write: it bypasses the
-    /// insert-only rule, so it never reports a conflict.
-    pub fn replace_background(&mut self, key: K, value: V)
-    where
-        K: Send + Sync + 'static,
-        V: Send + Sync + 'static,
-    {
-        self.invalidate_if_stale();
+    /// Natively this *is* `insert`, durable before it returns. The browser
+    /// can't block, so there the in-memory map is updated now and the durable
+    /// write lands on a detached task: a refused write is logged there, never
+    /// reported here, and only the in-memory rules apply — a key present with
+    /// a different value is [`StoreError::DuplicatedKey`], while a conflict
+    /// with another process is arbitrated by the storage and logged.
+    pub fn insert_sync(&mut self, key: K, value: V) -> Result<(), StoreError<K, V>> {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            crate::future::block_on(self.insert(key, value))
+        }
 
-        self.entries.insert(key.clone(), value.clone());
-        let namespace = self.namespace.clone();
-        let storage = self.storage.clone();
-        let reopen = self.reopen;
-        let key_bytes = encode(&key);
-        let value_bytes = encode(&value);
+        #[cfg(target_family = "wasm")]
+        {
+            self.invalidate_if_stale();
 
-        crate::future::spawn_detached(async move {
-            let Some(storage) = background_storage(storage, namespace, reopen).await else {
-                return;
-            };
-
-            if let Insertion::Failed(error) = storage
-                .replace(&key_bytes, value_bytes, Origin::Local)
-                .await
-            {
-                log::warn!(
-                    "Unable to replace cache entry in {}: {error}",
-                    storage.describe()
-                );
+            if let Some(existing) = self.entries.get(&key) {
+                return if existing == &value {
+                    Ok(())
+                } else {
+                    Err(StoreError::DuplicatedKey {
+                        key,
+                        value_previous: existing.clone(),
+                        value_updated: value,
+                    })
+                };
             }
-        });
+
+            self.entries.insert(key.clone(), value.clone());
+            let namespace = self.namespace.clone();
+            let storage = self.storage.clone();
+            let reopen = self.reopen;
+            let key_bytes = encode(&key);
+            let value_bytes = encode(&value);
+
+            crate::future::spawn_detached(async move {
+                let Some(storage) = detached_storage(storage, namespace, reopen).await else {
+                    return;
+                };
+
+                match storage.insert(&key_bytes, value_bytes, Origin::Local).await {
+                    Insertion::Stored => {}
+                    Insertion::Conflict(_) => {
+                        log::debug!(
+                            "Cache entry was stored concurrently in {}",
+                            storage.describe()
+                        )
+                    }
+                    Insertion::Failed(error) => {
+                        log::warn!(
+                            "Unable to write cache entry to {}: {error}",
+                            storage.describe()
+                        )
+                    }
+                }
+            });
+
+            Ok(())
+        }
     }
 
-    /// Delete one entry in memory and, on a detached task, durably.
+    /// [`purge_key`](Store::purge_key) for the launch path, where nothing can
+    /// be awaited.
     ///
-    /// [`purge_key`](Store::purge_key) for the launch path: once the task
-    /// lands, the entry is gone for every process sharing the environment.
-    /// Until then the storage still holds it, and a write of the *same* key
-    /// is arbitrated against that value — this is for moving an entry to
-    /// another key, not for rewriting it in place; that is
-    /// [`replace_background`](Store::replace_background). A failed delete is
-    /// logged by the storage, not reported.
-    pub fn purge_key_background(&mut self, key: &K)
-    where
-        K: Send + Sync + 'static,
-    {
-        self.invalidate_if_stale();
+    /// Natively this *is* `purge_key`: the entry is gone durably before it
+    /// returns, and the key is free to reinsert. The browser can't block, so
+    /// there the entry leaves memory now and the storage on a detached task;
+    /// until that lands the storage still holds it and arbitrates a write of
+    /// the *same* key against it. A failed delete is logged by the storage,
+    /// not reported.
+    pub fn purge_key_sync(&mut self, key: &K) -> Option<V> {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            crate::future::block_on(self.purge_key(key))
+        }
 
-        self.entries.remove(key);
-        // A purged key is a fresh key.
-        self.known.remove(key);
+        #[cfg(target_family = "wasm")]
+        {
+            self.invalidate_if_stale();
 
-        let namespace = self.namespace.clone();
-        let storage = self.storage.clone();
-        let reopen = self.reopen;
-        let key_bytes = encode(key);
+            let value = self.entries.remove(key);
+            // A purged key is a fresh key.
+            self.known.remove(key);
 
-        crate::future::spawn_detached(async move {
-            let Some(storage) = background_storage(storage, namespace, reopen).await else {
-                return;
-            };
+            let namespace = self.namespace.clone();
+            let storage = self.storage.clone();
+            let reopen = self.reopen;
+            let key_bytes = encode(key);
 
-            storage.purge_key(&key_bytes).await;
-        });
+            crate::future::spawn_detached(async move {
+                let Some(storage) = detached_storage(storage, namespace, reopen).await else {
+                    return;
+                };
+
+                storage.purge_key(&key_bytes).await;
+            });
+
+            value
+        }
     }
 
     /// Fetch an item, reading it from the storage on the first lookup of a
@@ -769,7 +757,11 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     }
 }
 
-async fn background_storage(
+/// The storage a detached write goes to: the store's, or the active
+/// environment's when a switch was detected on the synchronous path and the
+/// store hasn't reopened yet.
+#[cfg(target_family = "wasm")]
+async fn detached_storage(
     storage: Option<Arc<dyn Storage>>,
     namespace: Option<Namespace>,
     reopen: bool,
@@ -961,57 +953,69 @@ mod tests {
         assert_eq!(reopened.get(&"shape=2x2".to_string()).await, Some(&42));
     }
 
-    /// Reopens the store until `settled` holds of `key`, or gives up: the
-    /// `*_background` writes land on a detached task with no handle to join.
-    async fn eventually<F>(path: &str, key: &str, settled: F)
-    where
-        F: Fn(Option<&u32>) -> bool,
-    {
-        for _ in 0..200 {
-            let mut reopened = Store::<String, u32>::open(eager(path)).await;
-            if settled(reopened.get(&key.to_string()).await) {
-                return;
-            }
-            std::thread::sleep(core::time::Duration::from_millis(10));
-        }
-        panic!("the background write of {key} never landed");
-    }
-
-    /// A background insert must reach the storage: a store reopened later
-    /// sees it, even though the writer never awaited it.
+    /// The launch path's insert must be durable before it returns natively: a
+    /// store reopened right after sees it.
     #[tokio::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn test_background_insert_lands() {
+    async fn test_sync_insert_is_durable() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
 
-        let mut cache = Store::<String, u32>::open(eager("background")).await;
-        cache.insert_background("key".to_string(), 7).unwrap();
+        let mut cache = Store::<String, u32>::open(eager("sync")).await;
+        cache.insert_sync("key".to_string(), 7).unwrap();
         assert_eq!(cache.get(&"key".to_string()).await, Some(&7));
 
-        eventually("background", "key", |value| value == Some(&7)).await;
+        let mut reopened = Store::<String, u32>::open(eager("sync")).await;
+        assert_eq!(reopened.get(&"key".to_string()).await, Some(&7));
     }
 
-    /// The launch-path move of an entry between keys: the old key is taken
-    /// from memory and purged in the background, and must be gone durably —
-    /// not just evicted — so the store doesn't keep a row nothing will read.
+    /// The launch path's move of an entry between keys: the old key is purged
+    /// durably — not just evicted — so the store doesn't keep a row nothing
+    /// will read, and the new key holds the value.
     #[tokio::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn test_background_purge_deletes_durably() {
+    async fn test_sync_purge_deletes_durably() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
 
         let mut cache = Store::<String, u32>::open(eager("purged")).await;
         cache.insert("key".to_string(), 7).await.unwrap();
 
-        let moved = cache.take_cached(&"key".to_string()).unwrap();
-        cache.purge_key_background(&"key".to_string());
-        cache.insert_background("moved".to_string(), moved).unwrap();
+        let moved = cache.purge_key_sync(&"key".to_string()).unwrap();
+        cache.insert_sync("moved".to_string(), moved).unwrap();
+        // Free to reinsert at once, as after `purge_key`.
+        cache.insert_sync("key".to_string(), 8).unwrap();
 
-        eventually("purged", "key", |value| value.is_none()).await;
-        eventually("purged", "moved", |value| value == Some(&7)).await;
+        let mut reopened = Store::<String, u32>::open(eager("purged")).await;
+        assert_eq!(reopened.get(&"key".to_string()).await, Some(&8));
+        assert_eq!(reopened.get(&"moved".to_string()).await, Some(&7));
+    }
+
+    /// The launch path reads through a lazy store and follows an environment
+    /// switch, exactly as `remove` does.
+    #[tokio::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    async fn test_sync_remove_reads_through_and_follows_a_switch() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        crate::environment::set_root(first.path());
+
+        let mut warm = Store::<String, u32>::open(lazy("switch")).await;
+        warm.insert("key".to_string(), 1).await.unwrap();
+        drop(warm);
+
+        let mut cache = Store::<String, u32>::open(lazy("switch")).await;
+        assert_eq!(cache.remove_sync(&"key".to_string()), Some(1));
+
+        crate::environment::set_root(second.path());
+        assert_eq!(cache.remove_sync(&"key".to_string()), None);
+        cache.insert_sync("key".to_string(), 2).unwrap();
+
+        crate::environment::set_root(first.path());
+        assert_eq!(cache.remove_sync(&"key".to_string()), Some(1));
     }
 
     /// A store reopened over the same root must see what the previous one

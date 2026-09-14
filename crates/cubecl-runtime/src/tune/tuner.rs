@@ -721,20 +721,16 @@ async fn process_request<K: AutotuneKey>(
         // one costs a re-tune and buys a real measurement.
         #[cfg(persistence)]
         if !unmeasured {
-            cache
-                .lock()
-                .await
-                .persistent_cache_insert(
-                    key,
-                    checksum,
-                    crate::tune::PersistentCacheValue {
-                        fastest_index,
-                        results,
-                        bounds,
-                        limit,
-                    },
-                )
-                .await;
+            cache.lock().await.persistent_cache_insert(
+                key,
+                checksum,
+                crate::tune::PersistentCacheValue {
+                    fastest_index,
+                    results,
+                    bounds,
+                    limit,
+                },
+            );
         }
     }
 
