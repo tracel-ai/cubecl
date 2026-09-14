@@ -50,8 +50,10 @@
 //! # What it reports
 //!
 //! A launch that was **issued**, not one that finished: [`launched`] arrives
-//! before the kernel reaches the server, and a duration — when one was asked
-//! for — arrives separately, afterwards, through [`timed`].
+//! before the kernel reaches the server, and a measurement — when one was asked
+//! for — arrives separately, afterwards, through [`profiled`]: unread, so an
+//! observer can read it back once the pass is over, or through [`timed`] as a
+//! duration, read back on the spot.
 //!
 //! Issued is not the same as executed. Under a
 //! [`DryRun`](crate::dry_run::DryRun) every launch is still compiled and still
@@ -67,6 +69,7 @@
 //! nothing per replay.
 //!
 //! [`launched`]: LaunchObserver::launched
+//! [`profiled`]: LaunchObserver::profiled
 //! [`timed`]: LaunchObserver::timed
 
 use alloc::sync::Arc;
@@ -76,7 +79,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 /// implementor that reached this trait through `cubecl` cannot otherwise spell
 /// its own arguments, and `Duration` is not `core::time::Duration` on every
 /// target.
-pub use cubecl_common::profile::{Duration, TimingMethod};
+pub use cubecl_common::profile::{Duration, ProfileDuration, ProfileTicks, TimingMethod};
 use cubecl_environment::sync::RwLock;
 
 /// Notified of every kernel launch, on the thread that issued it.
@@ -90,15 +93,17 @@ pub trait LaunchObserver: Send + Sync {
     /// way the profiling logger does.
     fn launched(&self, kernel: &'static str);
 
-    /// Whether each launch should be timed, and [`timed`](Self::timed) called
-    /// with what it took.
+    /// Whether each launch should be timed, and [`profiled`](Self::profiled)
+    /// called with the measurement.
     ///
     /// **Off by default, because it is not free.** Timing a launch means
-    /// bracketing it with profile markers and resolving them, which costs a
-    /// blocking submit per kernel and removes the overlap between them. An
-    /// observer that only wants to know *which* kernels ran should leave this
-    /// alone; one measuring where a pass spends its time is paying for the
-    /// answer either way.
+    /// bracketing it with profile markers, which costs the issuing thread a
+    /// round trip to the server per kernel. Reading a measurement back costs
+    /// more: it blocks until the kernel has run, and an observer that reads
+    /// every one as it arrives — which the default [`profiled`](Self::profiled)
+    /// does — removes the overlap between kernels. An observer that only wants
+    /// to know *which* kernels ran should leave this alone; one measuring where
+    /// a pass spends its time is paying for the answer either way.
     ///
     /// Two situations refuse the measurement without refusing the launch:
     ///
@@ -106,19 +111,53 @@ pub trait LaunchObserver: Send + Sync {
     ///   them on the spot. The kernel is still launched, still reported to
     ///   [`launched`](Self::launched), and [`timed`](Self::timed) is skipped
     ///   for it, with a warning in the log.
-    /// * Don't ask for timing around **collective** kernels. Resolving a
-    ///   launch blocks the issuing thread until the kernel completes, and a
-    ///   collective kernel completes only when its peers launch — a thread
-    ///   that issues more than one side of a collective deadlocks waiting for
-    ///   the first.
+    /// * Don't ask for timing around **collective** kernels while reading
+    ///   measurements as they arrive. Reading one blocks the issuing thread
+    ///   until the kernel completes, and a collective kernel completes only
+    ///   when its peers launch — a thread that issues more than one side of a
+    ///   collective deadlocks waiting for the first.
     fn wants_timing(&self) -> bool {
         false
     }
 
+    /// A kernel was timed, and this is its measurement — **not yet read
+    /// back**.
+    ///
+    /// Only called when [`wants_timing`](Self::wants_timing) is true, on the
+    /// thread that issued the launch, right after it. Where the backend times
+    /// on the device the measurement is two events in the stream, and nothing
+    /// has waited for either: the kernels around it still run back to back.
+    /// Reading it — [`ProfileDuration::resolve`] — blocks until the device has
+    /// reached both events, so an observer that keeps it and reads it once the
+    /// work is done measures the pass as it runs, where one that reads it here
+    /// serializes every launch behind the last.
+    ///
+    /// The resolved [`ProfileTicks`] carry the window's start and end on one
+    /// clock, not only its length, so an observer that keeps them can also say
+    /// where the device sat idle between kernels.
+    ///
+    /// The default reads it back at once and hands the duration to
+    /// [`timed`](Self::timed), which is the simple case.
+    fn profiled(&self, kernel: &'static str, profile: ProfileDuration) {
+        let method = profile.timing_method();
+        match cubecl_environment::future::block_on(profile.resolve()) {
+            Some(ticks) => self.timed(kernel, ticks.duration(), method),
+            // Nothing to report: the window carried no measurement, and a zero
+            // would put a launch that was never timed in the timings.
+            None => log::warn!(
+                "Skipped timing a launch of `{kernel}` for its observer: \
+                 the profiled window carried no measurement"
+            ),
+        }
+    }
+
     /// A kernel finished, and took this long.
     ///
-    /// Only called when [`wants_timing`](Self::wants_timing) is true. It
-    /// arrives *after* the launch rather than before it, so an observer
+    /// Called by the default [`profiled`](Self::profiled), once it has read the
+    /// measurement back — and directly, instead of `profiled`, while the
+    /// profiling logger is also reading measurements: one is read only once,
+    /// and the logger's copy is made from the reading. An observer that keeps
+    /// measurements unread therefore still implements this. It arrives *after* the launch rather than before it, so an observer
     /// pairing kernels with its own state should do that in
     /// [`launched`](Self::launched) and use this only for the duration.
     ///
@@ -213,6 +252,22 @@ pub(crate) fn notify_timed(kernel: &'static str, duration: Duration, method: Tim
     }
 }
 
+/// Hand a launch's measurement to the observer unread.
+///
+/// The observer is cloned out of the slot before it is called: the default
+/// [`LaunchObserver::profiled`] blocks until the kernel has run, and holding
+/// the slot's lock through that would stall every other launching thread's
+/// notification behind this one's kernel.
+pub(crate) fn notify_profiled(kernel: &'static str, profile: ProfileDuration) {
+    if !OBSERVING.load(Ordering::Relaxed) {
+        return;
+    }
+    let observer = OBSERVER.read().as_ref().map(Arc::clone);
+    if let Some(observer) = observer {
+        observer.profiled(kernel, profile);
+    }
+}
+
 /// Whether anything is watching. Separate from the observer itself so the
 /// unobserved path — every ordinary run — is one relaxed load rather than a
 /// lock acquisition on the launch path.
@@ -298,6 +353,72 @@ mod tests {
 
         assert_eq!(*inner.0.lock(), ["during_the_inner_pass"]);
         assert_eq!(*outer.0.lock(), ["after_the_inner_pass"]);
+    }
+
+    /// A measurement of `micros`, as a backend without device timestamps
+    /// hands one over: already known, so reading it back waits on nothing.
+    fn measured(micros: u64) -> ProfileDuration {
+        let start = cubecl_common::profile::Instant::now();
+        ProfileDuration::new_system_time(start, start + Duration::from_micros(micros))
+    }
+
+    /// An observer that says nothing about measurements is told the duration,
+    /// read back for it — what every observer written against `timed` expects.
+    #[test]
+    #[serial_test::serial]
+    fn a_measurement_is_read_back_for_an_observer_that_only_wants_durations() {
+        let timed = Arc::new(Timed::default());
+        let watching = LaunchObservation::new(timed.clone());
+        notify_profiled("a_kernel", measured(7));
+        drop(watching);
+
+        assert_eq!(
+            *timed.0.lock(),
+            [("a_kernel", Duration::from_micros(7), TimingMethod::System)]
+        );
+    }
+
+    /// An observer that takes measurements unread is handed each one as it
+    /// was taken, and reads it back when it chooses — which is what keeps the
+    /// kernels around a timed launch running back to back.
+    #[test]
+    #[serial_test::serial]
+    fn an_observer_can_keep_a_measurement_unread() {
+        let kept = Arc::new(Kept::default());
+        let watching = LaunchObservation::new(kept.clone());
+        notify_profiled("first", measured(3));
+        notify_profiled("second", measured(5));
+        drop(watching);
+
+        let read: Vec<(&'static str, Duration)> = core::mem::take(&mut *kept.0.lock())
+            .into_iter()
+            .map(|(kernel, profile)| {
+                let ticks = cubecl_environment::future::block_on(profile.resolve())
+                    .expect("a system measurement always carries its ticks");
+                (kernel, ticks.duration())
+            })
+            .collect();
+        assert_eq!(
+            read,
+            [
+                ("first", Duration::from_micros(3)),
+                ("second", Duration::from_micros(5))
+            ],
+            "in issue order, each still carrying its own window"
+        );
+    }
+
+    #[derive(Default)]
+    struct Kept(Mutex<Vec<(&'static str, ProfileDuration)>>);
+
+    impl LaunchObserver for Kept {
+        fn launched(&self, _kernel: &'static str) {}
+        fn wants_timing(&self) -> bool {
+            true
+        }
+        fn profiled(&self, kernel: &'static str, profile: ProfileDuration) {
+            self.0.lock().push((kernel, profile));
+        }
     }
 
     #[derive(Default)]

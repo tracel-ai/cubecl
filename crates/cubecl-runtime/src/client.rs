@@ -1132,9 +1132,23 @@ impl Client {
                         return;
                     }
                 };
-                // The observer is told first, because resolving the profile
-                // consumes it: the logger's copy is the one that can be
-                // deferred, an observer's cannot be recovered afterwards.
+                // The observer alone: it takes the measurement unread, so the
+                // kernels around this one keep running back to back until it
+                // chooses to read them. `ExecutionOnly` still logs the
+                // execution, which it does without any timing.
+                if observed_timing && matches!(level, None | Some(ProfileLevel::ExecutionOnly)) {
+                    crate::logging::notify_profiled(name, profile);
+                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
+                        let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                        self.utilities.logger.register_execution(info);
+                    }
+                    return;
+                }
+                // The observer and the logger both read this measurement, and a
+                // measurement is read once. The observer is told first, because
+                // resolving the profile consumes it: the logger's copy is the
+                // one that can be deferred, an observer's cannot be recovered
+                // afterwards.
                 let profile = if observed_timing {
                     let method = profile.timing_method();
                     let ticks = cubecl_environment::future::block_on(profile.resolve());
