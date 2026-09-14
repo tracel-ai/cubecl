@@ -24,6 +24,7 @@ default = [
 ]
 pliron-dump = ["cubecl-cpp/pliron-dump"]
 ptx-wmma = []
+persistence = ["cubecl-server/persistence"]
 std = [
     "cubecl-server/std",
     "cubecl-common/std",
