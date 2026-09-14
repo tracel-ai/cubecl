@@ -220,6 +220,7 @@ impl Launch {
 
     fn define_body(&self) -> TokenStream {
         let kernel_builder = prelude_type("KernelBuilder");
+        let kernel_metadata = prelude_type("KernelMetadata");
         let io_map = self.io_mappings();
         let mut mapping = HashMap::new();
         for param in self.func.sig.parameters.iter() {
@@ -258,7 +259,8 @@ impl Launch {
             .process_generic_names(&self.func.sig.generics);
 
         quote! {
-            let mut builder = #kernel_builder::new(self.settings.clone());
+            let __name = <Self as #kernel_metadata>::id(self).entrypoint_name(&self.settings.kernel_name);
+            let mut builder = #kernel_builder::new(self.settings.clone().kernel_name(__name));
             builder.runtime_properties(self.target_properties.as_ref().clone());
             builder.device_properties(&self.device_properties);
 

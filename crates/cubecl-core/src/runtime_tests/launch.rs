@@ -26,6 +26,11 @@ pub fn kernel_with_comptime_tag(mut output: ComptimeTag) {
 }
 
 #[cube(launch)]
+pub fn kernel_with_comptime(#[comptime] factor: u32) {
+    let _ = factor;
+}
+
+#[cube(launch)]
 pub fn kernel_with_generics<F: Float>(output: &mut [F]) {
     if UNIT_POS == 0 {
         output[0] = F::new(5f32);
@@ -112,6 +117,45 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: Client) {
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], f32::new(1.0));
+}
+
+pub fn test_kernel_comptime_name_disambiguation<R: Runtime>(client: Client) {
+    let settings = KernelSettings::new(
+        *CubeDim::new_single(),
+        ExecutionMode::Checked,
+        AddressType::U32,
+    );
+
+    let k1 = kernel_with_comptime::KernelWithComptime::new(
+        settings.clone(),
+        client.properties_shared(),
+        client.target_properties_shared(),
+        1,
+    );
+    let k2 = kernel_with_comptime::KernelWithComptime::new(
+        settings,
+        client.properties_shared(),
+        client.target_properties_shared(),
+        2,
+    );
+
+    let def1 = k1.define();
+    let def2 = k2.define();
+
+    assert_ne!(
+        def1.settings.kernel_name, def2.settings.kernel_name,
+        "Kernels with distinct comptime arguments must have distinct kernel names"
+    );
+    assert!(
+        def1.settings
+            .kernel_name
+            .starts_with("kernel_with_comptime_")
+    );
+    assert!(
+        def2.settings
+            .kernel_name
+            .starts_with("kernel_with_comptime_")
+    );
 }
 
 pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(client: Client) {
@@ -412,6 +456,14 @@ macro_rules! testgen_launch {
             cubecl_core::runtime_tests::launch::test_kernel_with_comptime_tag::<TestRuntime>(
                 client,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_launch_with_comptime_name_disambiguation() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_kernel_comptime_name_disambiguation::<
+                TestRuntime,
+            >(client);
         }
 
         #[ignore = "Seemingly flaky with CPU emulation"]

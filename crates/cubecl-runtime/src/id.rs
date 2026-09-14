@@ -186,6 +186,11 @@ impl KernelId {
         hasher.finalize()
     }
 
+    /// Return the entrypoint name disambiguated with a stable hash discriminator.
+    pub fn entrypoint_name(&self, base: &str) -> String {
+        format!("{base}_{:08x}", self.stable_hash() as u32)
+    }
+
     /// Add information to the [kernel id](KernelId).
     ///
     /// The information is used to differentiate kernels of the same kind but with different
