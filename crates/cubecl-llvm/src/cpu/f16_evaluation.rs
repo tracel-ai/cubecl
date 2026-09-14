@@ -412,12 +412,20 @@ fn worth_holding(
     for &index in group {
         let candidate = &candidates[index];
         for load in &candidate.loads {
+            let mut narrowed = false;
             for r#use in load.get_result(ctx).uses(ctx) {
                 let user = r#use.user_op();
                 if stores_into(ctx, user, &inside) {
                     continue;
                 }
-                ledger(ctx, user, is_widening(ctx, user));
+                match is_widening(ctx, user) {
+                    true => ledger(ctx, user, true),
+                    false => narrowed = true,
+                }
+            }
+            // The rewrite narrows a load once, beside it, however many uses it has.
+            if narrowed {
+                ledger(ctx, load.get_operation(), false);
             }
         }
         for store in &candidate.stores {
