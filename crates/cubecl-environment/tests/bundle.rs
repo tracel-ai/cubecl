@@ -989,3 +989,42 @@ async fn exporting_from_a_read_only_root_works() {
         1
     );
 }
+
+/// A bundle written at a database schema this build doesn't read is still a
+/// bundle: re-exporting over it replaces it rather than refusing to touch a
+/// "foreign" file.
+#[tokio::test]
+#[serial_test::serial]
+async fn exporting_over_an_older_schema_bundle_replaces_it() {
+    let warm_root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("old.bundle");
+
+    warm(warm_root.path(), "autotune", "device0/matmul", &[("k", 1)]).await;
+    export_to(warm_root.path(), &bundle_path, BundleFormat::Sqlite).await;
+
+    // Age the file: rewrite its schema version.
+    {
+        let database = turso::Builder::new_local(bundle_path.to_str().unwrap())
+            .build()
+            .await
+            .unwrap();
+        let connection = database.connect().unwrap();
+        connection
+            .execute("UPDATE meta SET v = '3' WHERE k = 'schema_version'", ())
+            .await
+            .unwrap();
+    }
+    assert!(matches!(
+        SqliteBundle::open(&bundle_path),
+        Err(BundleError::UnsupportedDatabase(schema)) if schema == "3"
+    ));
+
+    export_to(warm_root.path(), &bundle_path, BundleFormat::Sqlite).await;
+    assert_eq!(
+        open_bundle(&bundle_path, BundleFormat::Sqlite)
+            .namespaces()
+            .len(),
+        1
+    );
+}

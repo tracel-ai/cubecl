@@ -123,6 +123,43 @@ where
         if let Some(s) = self.state.lock().as_mut() {
             s.clear()
         }
+        // A tuner the browser is still opening would otherwise be adopted
+        // after the clear, resurrecting what it holds.
+        #[cfg(target_family = "wasm")]
+        if let Some(opening) = self.opening.lock().as_mut() {
+            opening.clear()
+        }
+    }
+
+    /// The tuner registered for `id`, if any.
+    fn tuner(&self, id: &ID) -> Option<Arc<Tuner<AK>>> {
+        self.state
+            .lock()
+            .as_ref()
+            .and_then(|tuners| tuners.get(id).cloned())
+    }
+
+    /// Registers a tuner opened for `id`, keeping the one already registered
+    /// when two openers raced: the loser's store handle is dropped, and the
+    /// database it opened is shared through the environment's registry, so
+    /// the race costs one namespace scan.
+    fn adopt(&self, id: &ID, tuner: Arc<Tuner<AK>>) -> Arc<Tuner<AK>> {
+        let tuner = self
+            .state
+            .lock()
+            .get_or_insert_with(HashMap::new)
+            .entry(id.clone())
+            .or_insert(tuner)
+            .clone();
+
+        // A slot the browser's launch path left for it is no longer needed,
+        // whichever path finished first.
+        #[cfg(target_family = "wasm")]
+        if let Some(opening) = self.opening.lock().as_mut() {
+            opening.remove(id);
+        }
+
+        tuner
     }
 
     #[cfg(feature = "autotune-checks")]
@@ -215,40 +252,39 @@ where
     /// for the calls that follow.
     #[cfg(target_family = "wasm")]
     fn tuner_or_open(&self, id: &ID) -> Option<Arc<Tuner<AK>>> {
-        if let Some(tuner) = self
-            .state
-            .lock()
-            .as_ref()
-            .and_then(|tuners| tuners.get(id).cloned())
-        {
+        if let Some(tuner) = self.tuner(id) {
             return Some(tuner);
         }
 
-        let mut opening = self.opening.lock();
-        let opening = opening.get_or_insert_with(HashMap::new);
+        // One lock at a time: `adopt` takes `state` and then `opening`, so
+        // `opening` is released before it runs.
+        let opened = {
+            let mut opening = self.opening.lock();
+            let opening = opening.get_or_insert_with(HashMap::new);
+            match opening.get(id) {
+                Some(slot) => Ok(slot.lock().take()),
+                None => {
+                    let slot: Slot<AK> = Arc::new(Mutex::new(None));
+                    opening.insert(id.clone(), slot.clone());
+                    Err(slot)
+                }
+            }
+        };
 
-        if let Some(slot) = opening.get(id) {
-            let tuner = slot.lock().take()?;
-            opening.remove(id);
-            self.state
-                .lock()
-                .get_or_insert_with(HashMap::new)
-                .entry(id.clone())
-                .or_insert(tuner.clone());
-            return Some(tuner);
+        match opened {
+            Ok(Some(tuner)) => Some(self.adopt(id, tuner)),
+            // The event loop is still opening it.
+            Ok(None) => None,
+            Err(slot) => {
+                let name = self.name.replace("::", "-");
+                let device_id = id.to_string();
+                cubecl_environment::future::spawn_detached(async move {
+                    let tuner = Arc::new(Tuner::new(&name, &device_id).await);
+                    *slot.lock() = Some(tuner);
+                });
+                None
+            }
         }
-
-        let slot: Slot<AK> = Arc::new(Mutex::new(None));
-        opening.insert(id.clone(), slot.clone());
-
-        let name = self.name.replace("::", "-");
-        let device_id = id.to_string();
-        cubecl_environment::future::spawn_detached(async move {
-            let tuner = Arc::new(Tuner::new(&name, &device_id).await);
-            *slot.lock() = Some(tuner);
-        });
-
-        None
     }
 
     /// Whatever candidate runs, for a call the tuner couldn't decide.
@@ -283,22 +319,12 @@ where
     {
         let key = operations.generate_key(&inputs);
 
-        let tuner = self
-            .state
-            .lock()
-            .as_ref()
-            .and_then(|tuners| tuners.get(id).cloned());
-        let tuner = match tuner {
+        let tuner = match self.tuner(id) {
             Some(tuner) => tuner,
             None => {
                 let name = self.name.replace("::", "-");
                 let candidate = Arc::new(Tuner::new(&name, &id.to_string()).await);
-                let mut state = self.state.lock();
-                state
-                    .get_or_insert_with(HashMap::new)
-                    .entry(id.clone())
-                    .or_insert(candidate)
-                    .clone()
+                self.adopt(id, candidate)
             }
         };
 

@@ -23,6 +23,9 @@ pub enum BundleError {
     InvalidManifest(String),
     /// The manifest declares a schema this build doesn't understand.
     UnsupportedSchema(u32),
+    /// The bundle database is at a schema this build doesn't read.
+    #[cfg(native_cache)]
+    UnsupportedDatabase(String),
     /// The bundle exceeds what the format can address.
     TooLarge,
     /// The blob isn't a readable flat bundle.
@@ -42,6 +45,14 @@ impl core::fmt::Display for BundleError {
                 write!(
                     f,
                     "unsupported bundle schema {schema} (this build supports {MANIFEST_SCHEMA})"
+                )
+            }
+            #[cfg(native_cache)]
+            BundleError::UnsupportedDatabase(schema) => {
+                write!(
+                    f,
+                    "unsupported bundle database schema {schema} (this build reads {})",
+                    crate::persistence::turso::SCHEMA_VERSION
                 )
             }
             BundleError::TooLarge => write!(

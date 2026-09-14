@@ -70,11 +70,7 @@ impl SqliteBundle {
                 .map_err(missing_meta)?
             {
                 Some(found) if found == expected => {}
-                Some(found) => {
-                    return Err(BundleError::Storage(std::format!(
-                        "bundle database schema {found} is not {expected}"
-                    )));
-                }
+                Some(found) => return Err(BundleError::UnsupportedDatabase(found)),
                 // A database with no version is not one of ours.
                 None => return Err(BundleError::NotABundle),
             }

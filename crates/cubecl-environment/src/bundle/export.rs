@@ -333,9 +333,15 @@ fn prepare_output(out: &Path, format: BundleFormat) -> Result<(), BundleError> {
     // What makes a file ours depends on the layout being written: a flat blob
     // is identified by its header and could never answer as a database.
     let existing = match format {
-        BundleFormat::Sqlite => SqliteBundle::open(out)
-            .map(|bundle| std::format!("'{}'", bundle.manifest().name))
-            .ok(),
+        // A bundle at a schema this build doesn't read is still ours to
+        // replace; it is the one file an export exists to bring up to date.
+        BundleFormat::Sqlite => match SqliteBundle::open(out) {
+            Ok(bundle) => Some(std::format!("'{}'", bundle.manifest().name)),
+            Err(BundleError::UnsupportedDatabase(schema)) => {
+                Some(std::format!("(database schema {schema})"))
+            }
+            Err(_) => None,
+        },
         // The flat manifest lives inside the blob, so the header identifies the
         // file; reading all of it just to name it isn't worth it.
         BundleFormat::Flat => flat_header(out).map(|version| std::format!("(flat v{version})")),
