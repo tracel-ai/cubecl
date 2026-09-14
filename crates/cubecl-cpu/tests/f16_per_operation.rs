@@ -14,7 +14,7 @@ fn set_mode() {
 /// it.
 ///
 /// This is the mode someone reaches for when a numerical difference has to be attributed, so it
-/// has to actually differ from the default rather than quietly agree with it.
+/// has to actually differ from `chain` rather than quietly agree with it.
 #[test]
 fn an_intermediate_above_the_f16_maximum_becomes_infinite() {
     set_mode();

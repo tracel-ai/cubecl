@@ -15,7 +15,6 @@ use cubecl_llvm::{F16Evaluation, PlironCompiler};
 use cubecl_server::runtime::Runtime;
 use cubecl_server::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
-use std::collections::BTreeSet;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, System};
 
@@ -104,14 +103,6 @@ fn register_supported_types(props: &mut DeviceProperties) {
     }
 }
 
-fn native_float_arithmetic() -> BTreeSet<FloatKind> {
-    let mut kinds = BTreeSet::from([FloatKind::F32, FloatKind::F64]);
-    if host_has_f16_arithmetic() {
-        kinds.insert(FloatKind::F16);
-    }
-    kinds
-}
-
 /// A feature bit promises the instructions, not their speed, and `CUBECL_CPU_F16_EVAL` overrides
 /// the mode chosen from it on a host where the two disagree.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -169,10 +160,9 @@ impl DeviceService for CpuServer {
         // measured ~2.5x worse on decode gemv, stages outgrowing what stays
         // resident. GPU-like floor when the topology cannot be read.
         let max_shared_memory_size = affinity::l1d_cache_size().unwrap_or(64 * 1024);
-        let native_float_arithmetic = native_float_arithmetic();
-        let f16_evaluation = options.f16_evaluation.unwrap_or_else(|| {
-            F16Evaluation::for_native_f16(native_float_arithmetic.contains(&FloatKind::F16))
-        });
+        let f16_evaluation = options
+            .f16_evaluation
+            .unwrap_or_else(|| F16Evaluation::for_native_f16(host_has_f16_arithmetic()));
         let topology = HardwareProperties {
             load_width: 512,
             plane_size_min: 1,
@@ -189,7 +179,6 @@ impl DeviceService for CpuServer {
             min_tensor_cores_dim: None,
             max_vector_size: VectorSize::MAX,
             cube_mma_reserved_shared_memory: 0,
-            native_float_arithmetic: Some(native_float_arithmetic),
         };
 
         const ALIGNMENT: u64 = 8;

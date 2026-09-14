@@ -175,7 +175,6 @@ impl DeviceService for CudaServer {
                 last_level_cache_size: None,
                 max_vector_size: VectorSize::MAX,
                 cube_mma_reserved_shared_memory: 0,
-                native_float_arithmetic: None,
             }
         };
 
