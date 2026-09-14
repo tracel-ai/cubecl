@@ -350,14 +350,21 @@ pub fn test_workgroup_uniform_load_atomic_synchronizes<R: Runtime>(client: Clien
     assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
-/// One cube reads what the others published, with no second dispatch: every unit of every cube
-/// writes its own partial, releases it with [`sync_storage`], and one unit per cube announces it
-/// on a counter. The cube whose arrival is the last acquires the rest and sums them.
+/// One cube reads what the others published, with no second dispatch: every cube reduces its
+/// units to one partial, releases it with [`sync_storage`], and announces itself on a counter.
+/// The cube whose arrival is the last acquires the rest and sums them.
 ///
-/// Both halves of the scope are under test. The count is taken by one unit and read by all of
-/// them, which is the cube barrier; the partials are written by one cube and read by another,
-/// which is the device scope. Nothing spins — the cubes that are not last simply end — so this
-/// cannot hang on a device that does not run them all at once.
+/// Both halves of the scope are under test, and the shape is chosen so that each of them has to
+/// work. The partial is written by *one* unit and is a reduction over all of them, so the
+/// release has to cover a store the cube made together rather than one store per unit. The count
+/// is taken by one unit and read by every one of them, which is the cube barrier. Nothing spins
+/// — the cubes that are not last simply end — so this cannot hang on a device that does not run
+/// them all at once.
+///
+/// It catches a lowering with no device release at all, which is what CUDA and Metal both had.
+/// It does *not* catch one whose release sits on the wrong side of the barrier: on an M2 this
+/// kernel answers correctly under that too, and the case that does not is a longer one, in
+/// cubek's `the_last_cube_in_merges_the_others`.
 #[cube(launch)]
 fn kernel_test_sync_storage_across_cubes(
     partials: &mut [u32],
@@ -366,11 +373,21 @@ fn kernel_test_sync_storage_across_cubes(
     #[comptime] cubes: u32,
     #[comptime] units: u32,
 ) {
-    let mine = CUBE_POS as u32 * units + UNIT_POS;
-    partials[mine as usize] = mine + 1;
+    let mut mine = Shared::<[u32]>::new_slice(units as usize);
+    mine[UNIT_POS as usize] = CUBE_POS as u32 * units + UNIT_POS + 1;
+    sync_cube();
+    if UNIT_POS == 0 {
+        let mut total = 0u32;
+        let mut i = 0u32;
+        while i < units {
+            total += mine[i as usize];
+            i += 1u32;
+        }
+        partials[CUBE_POS] = total;
+    }
 
     let mut arrived = Shared::<u32>::new();
-    // Release: what every unit of this cube just wrote is visible to whichever cube is last.
+    // Release: the partial this cube just published is visible to whichever cube is last.
     sync_storage();
     if UNIT_POS == 0 {
         *arrived = counter[0].fetch_add(1u32);
@@ -380,12 +397,12 @@ fn kernel_test_sync_storage_across_cubes(
     sync_storage();
 
     if *arrived == cubes - 1 {
-        // The last cube in merges, a unit per stripe of what the others left.
+        // A stripe per unit, so the count has to have reached all of them.
         let mut sum = 0u32;
-        let mut i = UNIT_POS;
-        while i < cubes * units {
-            sum += partials[i as usize];
-            i += units;
+        let mut cube = UNIT_POS;
+        while cube < cubes {
+            sum += partials[cube as usize];
+            cube += units;
         }
         out[UNIT_POS as usize] = sum;
     }
@@ -410,9 +427,8 @@ pub fn test_sync_storage_across_cubes<R: Runtime>(client: Client) {
 
     let cubes = 32u32;
     let units = core::cmp::min(32, client.properties().hardware.max_units_per_cube);
-    let total = (cubes * units) as usize;
 
-    let partials = client.empty(total * core::mem::size_of::<u32>());
+    let partials = client.empty(cubes as usize * core::mem::size_of::<u32>());
     let counter = client.create_from_slice(u32::as_bytes(&[0u32]));
     let out = client.create_from_slice(u32::as_bytes(&vec![0u32; units as usize]));
 
@@ -420,19 +436,19 @@ pub fn test_sync_storage_across_cubes<R: Runtime>(client: Client) {
         &client,
         CubeCount::Static(cubes, 1, 1),
         CubeDim::new_1d(units),
-        unsafe { BufferArg::from_raw_parts(partials, total) },
+        unsafe { BufferArg::from_raw_parts(partials, cubes as usize) },
         unsafe { BufferArg::from_raw_parts(counter, 1) },
         unsafe { BufferArg::from_raw_parts(out.clone(), units as usize) },
         cubes,
         units,
     );
 
-    let actual = client.read_one_unchecked(out);
-    // Unit `u` of the last cube in summed what unit `u` of every cube published, which is
-    // `u + cube * units + 1`.
+    let partial = |cube: u32| (0..units).map(|unit| cube * units + unit + 1).sum::<u32>();
     let expected: Vec<u32> = (0..units)
-        .map(|u| (0..cubes).map(|cube| u + cube * units + 1).sum())
+        .map(|unit| (unit..cubes).step_by(units as usize).map(partial).sum())
         .collect();
+
+    let actual = client.read_one_unchecked(out);
     assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
