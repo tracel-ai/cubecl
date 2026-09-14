@@ -97,11 +97,20 @@ The `[compilation]` section manages logging and caching for kernel compilation.
 - `basic`: Logs when kernels are compiled.
 - `full`: Logs full details, including source code.
 
+**f16 evaluation** (`f16_evaluation`, CPU runtime only): how far an f16 intermediate is carried in
+f32 before it is rounded back. Unset, it is `per-operation` on a host with f16 arithmetic of its
+own and `chain` elsewhere.
+
+- `per-operation`: round after every operation, as a GPU does.
+- `chain`: round where a value is stored or read by anything but arithmetic.
+- `accumulators`: also hold a private f16 variable in f32 where that removes converts.
+
 **Example:**
 
 ```toml
 [compilation]
 logger = { level = "basic", file = "cubecl.log", append = true }
+f16_evaluation = "chain"
 ```
 
 ### Streaming
@@ -174,6 +183,8 @@ CubeCL supports several environment variables to override configuration at runti
   - `"balanced"`/`"1"`
   - `"extensive"`/`"2"`
   - `"full"`/`"3"`
+- `CUBECL_CPU_F16_EVAL`: Sets `compilation.f16_evaluation`.
+  - `"per-operation"`, `"chain"`, `"accumulators"`
 
 **Example (Linux/macOS):**
 

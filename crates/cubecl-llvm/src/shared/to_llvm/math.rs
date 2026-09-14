@@ -332,21 +332,8 @@ impl ToLLVMDialect for BoolNotOp {
     }
 }
 
-/// Whether a multiply feeding an add may fuse into an FMA.
-///
-/// `contract` alone, never the rest of `fast`: assuming no NaNs or infinities and allowing
-/// reassociation change what the kernel computes, which is not the compiler's call to make.
-/// Contraction only rounds once instead of twice, and a matmul inner loop is made of it.
-///
-/// On the GPU only. The FMA is the instruction the hardware wants, and the C++ backends
-/// contract by default, so this is what the other runtimes already do. The CPU declines it so
-/// that an f32 kernel evaluates exactly as written, which is what makes it the reference the
-/// others are compared against.
-///
-/// f16 is settled separately, in [`f16_evaluation`](crate::cpu::f16_evaluation), and the other
-/// way: on a host without f16 arithmetic, holding the intermediate is the default there, because
-/// rounding f16 after every operation costs a convert pair each time and is what a C compiler
-/// emits only when asked.
+/// Whether a multiply feeding an add may fuse into an FMA: `contract` only, and on the GPU only,
+/// so a CPU f32 kernel stays the exact reference the other runtimes are compared against.
 fn fma_contraction(ctx: &Context) -> FastmathFlagsAttr {
     match ctx.target() {
         #[cfg(feature = "amdgpu")]

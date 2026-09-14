@@ -1,13 +1,15 @@
-//! `CUBECL_CPU_F16_EVAL=accumulators`, which also holds a private f16 variable in f32.
+//! `f16_evaluation = "accumulators"`, which also holds a private f16 variable in f32.
 
-use std::sync::Once;
+use cubecl_core::prelude::*;
+use cubecl_core::runtime_tests::arithmetic_chains as chains;
+use cubecl_cpu::CpuRuntime;
+use cubecl_server::config::compilation::F16Evaluation;
+use half::f16;
 
 mod common;
 
-static MODE: Once = Once::new();
-
-fn set_mode() {
-    MODE.call_once(|| unsafe { std::env::set_var("CUBECL_CPU_F16_EVAL", "accumulators") });
+fn client() -> Client {
+    common::client_evaluating(Some(F16Evaluation::Accumulators))
 }
 
 /// The total is held in f32 across the back edge, not just within one iteration.
@@ -17,8 +19,8 @@ fn set_mode() {
 /// to straight-line code misses.
 #[test]
 fn an_accumulator_keeps_adding_past_the_f16_step_size() {
-    set_mode();
-    assert_eq!(common::accumulated(2048.0, 1.0, 1000), 3048.0);
+    let total = chains::accumulated::<f16>(&client(), 2048.0, 1.0, 1000);
+    assert_eq!(total.to_f32(), 3048.0);
 }
 
 /// A second local on the path changes nothing about what the loop computes, so it must not
@@ -26,41 +28,34 @@ fn an_accumulator_keeps_adding_past_the_f16_step_size() {
 /// so the promotion has to see the two variables as one.
 #[test]
 fn a_copy_on_the_path_still_holds_the_accumulator() {
-    set_mode();
-    assert_eq!(
-        common::accumulated_through_a_copy(2048.0, 1.0, 1000),
-        3048.0
-    );
+    let total = chains::accumulated_through_a_copy::<f16>(&client(), 2048.0, 1.0, 1000);
+    assert_eq!(total.to_f32(), 3048.0);
 }
 
 /// Every lane of a vector accumulator is held, not only a scalar one.
 #[test]
 fn a_vector_accumulator_keeps_adding_past_the_f16_step_size() {
-    set_mode();
-    assert_eq!(
-        common::accumulated_vector(2048.0, 1.0, 1000),
-        [3048.0; common::LANES]
-    );
+    let lanes = chains::accumulated_vector::<f16>(&client(), 2048.0, 1.0, 1000);
+    assert_eq!(lanes.map(f16::to_f32), [3048.0; chains::LANES]);
 }
 
 /// A `let mut` outside any loop is held too: its store and its load are both converts it removes.
 #[test]
 fn a_let_mut_is_held() {
-    set_mode();
-    assert_eq!(common::product_over_300_through_a_let_mut(), 300.0);
+    let result = chains::product_over_through_a_let_mut::<f16>(&client(), [300.0; 3]);
+    assert_eq!(result.to_f32(), 300.0);
 }
 
 /// A store under an `if` is paid once, so it cannot outvote the converts at the boundary the way a
 /// store paid every iteration would. Held, the variable would carry `300 * 300` into the division.
 #[test]
 fn a_branch_is_not_a_loop() {
-    set_mode();
-    assert!(common::product_on_a_branch_over_300().is_infinite());
+    let result = chains::product_on_a_branch::<f16>(&client(), [300.0; 3]);
+    assert!(result.is_infinite());
 }
 
-/// A kernel with no f16 in it still compiles, with the variable check reached as well.
+/// A barrier has no element type, and the variable check still has to pass over it.
 #[test]
 fn a_kernel_without_f16_is_untouched() {
-    set_mode();
-    assert_eq!(common::barrier_reaches_the_store(), 1.0);
+    cubecl_core::runtime_tests::barrier::test_async_memcpy::<CpuRuntime, f32>(client());
 }

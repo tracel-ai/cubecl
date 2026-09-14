@@ -70,7 +70,7 @@ impl RuntimeConfig for CubeClRuntimeConfig {
 
     #[cfg(std_io)]
     fn override_from_env(mut self) -> Self {
-        use super::compilation::CompilationLogLevel;
+        use super::compilation::{CompilationLogLevel, F16Evaluation};
         use crate::config::{
             autotune::{AutotuneLevel, AutotuneLogLevel},
             profiling::ProfilingLogLevel,
@@ -149,6 +149,21 @@ impl RuntimeConfig for CubeClRuntimeConfig {
                 }
                 "full" | "3" => {
                     self.autotune.level = AutotuneLevel::Full;
+                }
+                _ => {}
+            }
+        }
+
+        if let Ok(val) = std::env::var("CUBECL_CPU_F16_EVAL") {
+            match val.as_str() {
+                "per-operation" => {
+                    self.compilation.f16_evaluation = Some(F16Evaluation::PerOperation);
+                }
+                "chain" => {
+                    self.compilation.f16_evaluation = Some(F16Evaluation::Chain);
+                }
+                "accumulators" => {
+                    self.compilation.f16_evaluation = Some(F16Evaluation::Accumulators);
                 }
                 _ => {}
             }

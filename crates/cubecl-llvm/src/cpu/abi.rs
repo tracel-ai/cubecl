@@ -8,13 +8,14 @@ use core::cell::RefCell;
 use std::rc::Rc;
 
 use cubecl_core::ir::prelude::*;
+use cubecl_runtime::config::compilation::F16Evaluation;
 use pliron::basic_block::BasicBlock;
 use pliron::builtin::ops::FuncOp;
 
 use pliron::pass::{OpPass, Passes};
 
 use crate::cpu::entrypoint::InsertConstantEmulationPass;
-use crate::cpu::f16_evaluation::{EvaluateF16Pass, F16Evaluation};
+use crate::cpu::f16_evaluation::EvaluateF16Pass;
 use crate::cpu::shared_memory::SharedMemories;
 use crate::shared::lowering::TargetLowering;
 use crate::shared::metadata::{EntryArgLayout, load_table, rebuild_func_type, table_ty};

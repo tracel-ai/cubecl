@@ -40,9 +40,10 @@ use pliron::{
 use crate::amdgpu::{
     abi::AmdGpuLowering, matrix::CtxWmma, plane::CtxPlaneDim, shared_memory::CtxSharedMemory,
 };
+use cubecl_runtime::config::compilation::F16Evaluation;
+
 use crate::cpu::{
     abi::CpuLowering,
-    f16_evaluation::F16Evaluation,
     jit::engine::{KernelRequirements, PlironEngine},
     shared_memory::SharedMemories,
     synchronization::uses_cube_barrier,

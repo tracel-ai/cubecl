@@ -11,40 +11,18 @@ use cubecl_core::{
     server::ServerUtilities,
     zspace::{Shape, Strides},
 };
-use cubecl_llvm::{F16Evaluation, PlironCompiler};
+use cubecl_llvm::PlironCompiler;
+use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation};
 use cubecl_server::runtime::Runtime;
 use cubecl_server::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, System};
 
+#[derive(Default)]
 pub struct RuntimeOptions {
     /// Configures the memory management.
     pub memory_config: MemoryConfiguration,
-    /// How wide f16 intermediates are held, from `CUBECL_CPU_F16_EVAL`. `None` chooses by whether
-    /// the host computes in f16 directly.
-    pub f16_evaluation: Option<F16Evaluation>,
-}
-
-impl Default for RuntimeOptions {
-    fn default() -> Self {
-        Self {
-            memory_config: MemoryConfiguration::default(),
-            f16_evaluation: env_f16_evaluation(),
-        }
-    }
-}
-
-/// `None` where the variable is unset or unreadable, so a value nobody recognizes leaves the
-/// host's choice alone rather than failing a launch.
-fn env_f16_evaluation() -> Option<F16Evaluation> {
-    std::env::var("CUBECL_CPU_F16_EVAL")
-        .ok()?
-        .parse()
-        .inspect_err(|unknown| {
-            log::warn!("CUBECL_CPU_F16_EVAL={unknown}, choosing by the host instead")
-        })
-        .ok()
 }
 
 #[derive(Debug, Clone)]
@@ -103,8 +81,8 @@ fn register_supported_types(props: &mut DeviceProperties) {
     }
 }
 
-/// A feature bit promises the instructions, not their speed, and `CUBECL_CPU_F16_EVAL` overrides
-/// the mode chosen from it on a host where the two disagree.
+/// A feature bit promises the instructions, not their speed, and `compilation.f16_evaluation`
+/// overrides the mode chosen from it on a host where the two disagree.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn host_has_f16_arithmetic() -> bool {
     std::arch::is_x86_feature_detected!("avx512fp16")
@@ -160,7 +138,8 @@ impl DeviceService for CpuServer {
         // measured ~2.5x worse on decode gemv, stages outgrowing what stays
         // resident. GPU-like floor when the topology cannot be read.
         let max_shared_memory_size = affinity::l1d_cache_size().unwrap_or(64 * 1024);
-        let f16_evaluation = options
+        let f16_evaluation = CubeClRuntimeConfig::get()
+            .compilation
             .f16_evaluation
             .unwrap_or_else(|| F16Evaluation::for_native_f16(host_has_f16_arithmetic()));
         let topology = HardwareProperties {

@@ -1,13 +1,14 @@
-//! `CUBECL_CPU_F16_EVAL=per-operation`, which rounds every result.
+//! `f16_evaluation = "per-operation"`, which rounds every result.
 
-use std::sync::Once;
+use cubecl_core::prelude::*;
+use cubecl_core::runtime_tests::arithmetic_chains as chains;
+use cubecl_server::config::compilation::F16Evaluation;
+use half::f16;
 
 mod common;
 
-static MODE: Once = Once::new();
-
-fn set_mode() {
-    MODE.call_once(|| unsafe { std::env::set_var("CUBECL_CPU_F16_EVAL", "per-operation") });
+fn client() -> Client {
+    common::client_evaluating(Some(F16Evaluation::PerOperation))
 }
 
 /// The intermediate is rounded, so `300 * 300` becomes an infinity and takes the quotient with
@@ -17,6 +18,6 @@ fn set_mode() {
 /// has to actually differ from `chain` rather than quietly agree with it.
 #[test]
 fn an_intermediate_above_the_f16_maximum_becomes_infinite() {
-    set_mode();
-    assert!(common::product_over_300().is_infinite());
+    let result = chains::product_over::<f16>(&client(), [300.0; 3]);
+    assert!(result.is_infinite());
 }

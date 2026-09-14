@@ -9,7 +9,6 @@ pub mod cpu;
 pub mod shared;
 pub mod target;
 
-pub use cpu::f16_evaluation::F16Evaluation;
 pub use cpu::jit::data::{PlironData, SharedData};
 pub use cpu::jit::engine::{KernelRequirements, PlironEngine};
 pub use cpu::shared_memory::SharedMemories;

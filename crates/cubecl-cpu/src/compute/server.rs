@@ -1,4 +1,4 @@
-use cubecl_llvm::{F16Evaluation, PlironOptions};
+use cubecl_llvm::PlironOptions;
 
 use crate::{
     CpuCompiler,
@@ -22,7 +22,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::{
-    config::{CubeClRuntimeConfig, RuntimeConfig},
+    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
     dry_run::LaunchMode,
     id::KernelId,
     kernel::{CompiledKernel, CubeKernel},
