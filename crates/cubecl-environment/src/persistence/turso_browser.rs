@@ -269,13 +269,32 @@ impl BrowserIo {
     }
 }
 
+// The engine's own instants are `std::time`, which panics on this target;
+// it consults the clock when a statement is busy or has a deadline, so a
+// second write landing during the first one's I/O would take the page down.
 impl Clock for BrowserIo {
     fn current_time_monotonic(&self) -> MonotonicInstant {
-        MonotonicInstant::now()
+        // Milliseconds since the page started, with a fractional part.
+        let millis = js_sys::Reflect::get(&js_sys::global(), &"performance".into())
+            .ok()
+            .and_then(|performance| {
+                js_sys::Reflect::get(&performance, &"now".into())
+                    .ok()
+                    .and_then(|now| now.dyn_into::<js_sys::Function>().ok())
+                    .and_then(|now| now.call0(&performance).ok())
+            })
+            .and_then(|value| value.as_f64())
+            .unwrap_or_else(js_sys::Date::now);
+        MonotonicInstant::from_nanos((millis * 1_000_000.0) as u128)
     }
 
     fn current_time_wall_clock(&self) -> WallClockInstant {
-        WallClockInstant::now()
+        let millis = js_sys::Date::now();
+        let secs = (millis / 1000.0).floor();
+        WallClockInstant {
+            secs: secs as i64,
+            micros: ((millis - secs * 1000.0) * 1000.0) as u32,
+        }
     }
 }
 
