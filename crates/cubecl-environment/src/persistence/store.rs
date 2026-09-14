@@ -187,8 +187,11 @@ impl StoreOptions {
 ///
 /// Every storage is asynchronous, so the operations that may touch it are
 /// `async`. The launch path can't await: [`take_cached`](Store::take_cached)
-/// serves memory alone, and [`insert_background`](Store::insert_background)
-/// records in memory now and writes through on a detached task.
+/// serves memory alone, and the `*_background` writes —
+/// [`insert_background`](Store::insert_background),
+/// [`replace_background`](Store::replace_background),
+/// [`purge_key_background`](Store::purge_key_background) — apply to memory
+/// now and reach the storage on a detached task.
 ///
 /// # Environment switches
 ///
@@ -400,6 +403,39 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
                     storage.describe()
                 );
             }
+        });
+    }
+
+    /// Delete one entry in memory and, on a detached task, durably.
+    ///
+    /// [`purge_key`](Store::purge_key) for the launch path: once the task
+    /// lands, the entry is gone for every process sharing the environment.
+    /// Until then the storage still holds it, and a write of the *same* key
+    /// is arbitrated against that value — this is for moving an entry to
+    /// another key, not for rewriting it in place; that is
+    /// [`replace_background`](Store::replace_background). A failed delete is
+    /// logged by the storage, not reported.
+    pub fn purge_key_background(&mut self, key: &K)
+    where
+        K: Send + Sync + 'static,
+    {
+        self.invalidate_if_stale();
+
+        self.entries.remove(key);
+        // A purged key is a fresh key.
+        self.known.remove(key);
+
+        let namespace = self.namespace.clone();
+        let storage = self.storage.clone();
+        let reopen = self.reopen;
+        let key_bytes = encode(key);
+
+        crate::future::spawn_detached(async move {
+            let Some(storage) = background_storage(storage, namespace, reopen).await else {
+                return;
+            };
+
+            storage.purge_key(&key_bytes).await;
         });
     }
 
@@ -923,6 +959,59 @@ mod tests {
         )
         .await;
         assert_eq!(reopened.get(&"shape=2x2".to_string()).await, Some(&42));
+    }
+
+    /// Reopens the store until `settled` holds of `key`, or gives up: the
+    /// `*_background` writes land on a detached task with no handle to join.
+    async fn eventually<F>(path: &str, key: &str, settled: F)
+    where
+        F: Fn(Option<&u32>) -> bool,
+    {
+        for _ in 0..200 {
+            let mut reopened = Store::<String, u32>::open(eager(path)).await;
+            if settled(reopened.get(&key.to_string()).await) {
+                return;
+            }
+            std::thread::sleep(core::time::Duration::from_millis(10));
+        }
+        panic!("the background write of {key} never landed");
+    }
+
+    /// A background insert must reach the storage: a store reopened later
+    /// sees it, even though the writer never awaited it.
+    #[tokio::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    async fn test_background_insert_lands() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::environment::set_root(dir.path());
+
+        let mut cache = Store::<String, u32>::open(eager("background")).await;
+        cache.insert_background("key".to_string(), 7).unwrap();
+        assert_eq!(cache.get(&"key".to_string()).await, Some(&7));
+
+        eventually("background", "key", |value| value == Some(&7)).await;
+    }
+
+    /// The launch-path move of an entry between keys: the old key is taken
+    /// from memory and purged in the background, and must be gone durably —
+    /// not just evicted — so the store doesn't keep a row nothing will read.
+    #[tokio::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    async fn test_background_purge_deletes_durably() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::environment::set_root(dir.path());
+
+        let mut cache = Store::<String, u32>::open(eager("purged")).await;
+        cache.insert("key".to_string(), 7).await.unwrap();
+
+        let moved = cache.take_cached(&"key".to_string()).unwrap();
+        cache.purge_key_background(&"key".to_string());
+        cache.insert_background("moved".to_string(), moved).unwrap();
+
+        eventually("purged", "key", |value| value.is_none()).await;
+        eventually("purged", "moved", |value| value == Some(&7)).await;
     }
 
     /// A store reopened over the same root must see what the previous one
