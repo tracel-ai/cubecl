@@ -144,7 +144,7 @@ impl HipContext {
         let key = if let Some(cache) = self.compilation_cache.as_mut() {
             let key = KernelCacheKey::new(kernel_id, self.build_id);
 
-            if let Some(entry) = cache.take_cached(&key) {
+            if let Some(entry) = cache.remove_sync(&key) {
                 log::trace!("Using compilation cache");
 
                 self.load_compiled_binary(
@@ -305,16 +305,12 @@ impl HipContext {
             let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
             let cpp_hash = StableHasher::hash_one(&jitc_kernel.source);
 
-            if let Some(old_key) = second_line_cache.take_cached(&cpp_hash)
-                && let Some(entry) = cache.take_cached(&old_key)
+            if let Some(old_key) = second_line_cache.purge_key_sync(&cpp_hash)
+                && let Some(entry) = cache.purge_key_sync(&old_key)
             {
                 log::trace!("Using second-line compilation cache");
-                // The entry moves to the new key. The row under the old one
-                // embeds a build ID nothing will ask for again; left in place,
-                // every rebuild would add another to the store for good.
-                cache.purge_key_background(&old_key);
                 store_compiled(cache, key, entry);
-                second_line_cache.replace_background(cpp_hash, key);
+                store_compiled(second_line_cache, cpp_hash, key);
                 self.try_load_cached(kernel_id)?
                     .expect("Should be cached now");
                 return Ok(());

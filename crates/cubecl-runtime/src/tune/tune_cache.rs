@@ -330,7 +330,14 @@ impl<K: AutotuneKey> TuneCache<K> {
         delivered
     }
 
-    pub(crate) async fn persistent_cache_insert(
+    /// Records a tuning result durably.
+    ///
+    /// Synchronous on purpose: this runs under the tuner's mutex, and the
+    /// browser's launch path probes that mutex without waiting, so holding it
+    /// across the storage's I/O would answer a cached hit with a fallback.
+    /// Natively the write lands before this returns; in the browser it lands
+    /// on the event loop.
+    pub(crate) fn persistent_cache_insert(
         &mut self,
         key: K,
         checksum: String,
@@ -340,9 +347,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             return;
         };
 
-        if let Err(err) = persistent_cache
-            .insert(PersistentCacheKey { key, checksum }, value)
-            .await
+        if let Err(err) = persistent_cache.insert_sync(PersistentCacheKey { key, checksum }, value)
         {
             match err {
                 StoreError::DuplicatedKey {
