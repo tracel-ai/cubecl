@@ -249,9 +249,9 @@ impl Sink<'_> {
 /// Streams the requested namespaces of the database at `source` into `sink`,
 /// returning how many rows the sink accepted.
 ///
-/// The source is opened as the environment opens it, not read-only: a live
-/// cache keeps its most recent entries in the WAL until a checkpoint, and
-/// only a connection that shares the wal-index sees them.
+/// The source is opened read-only: a root may live where nobody can write —
+/// a mounted bundle, a store path — and a read-only open still sees what a
+/// live cache keeps in its WAL until the next checkpoint.
 async fn read_entries(
     source: &Path,
     namespaces: Option<&[String]>,
@@ -259,7 +259,7 @@ async fn read_entries(
 ) -> Result<usize, BundleError> {
     let location = location(source)?;
     let database = turso::Builder::new_local(location)
-        .experimental_multiprocess_wal(true)
+        .read_only(true)
         .build()
         .await
         .map_err(storage_error)?;

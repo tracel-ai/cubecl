@@ -936,3 +936,56 @@ async fn a_bundle_installed_read_only_can_be_loaded_in_place() {
         );
     }
 }
+
+/// A cache root nobody may write — a mounted bundle, a store path — can
+/// still be exported from: the sources are read, never opened for writing.
+#[cfg(unix)]
+#[tokio::test]
+#[serial_test::serial]
+async fn exporting_from_a_read_only_root_works() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let source = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let cold_root = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("from-read-only.bundle");
+
+    warm(source.path(), "autotune", "device0/matmul", &[("k", 7)]).await;
+    let database = cubecl_environment::environment::path();
+
+    let original = std::fs::metadata(source.path()).unwrap().permissions();
+    std::fs::set_permissions(&database, std::fs::Permissions::from_mode(0o444)).unwrap();
+    std::fs::set_permissions(source.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    // Root ignores the mode bits, so the test would prove nothing there.
+    let writable = std::fs::File::create(source.path().join("probe")).is_ok();
+
+    let exported = if writable {
+        None
+    } else {
+        Some(
+            export_roots(
+                "Read-only",
+                &[source.path()],
+                &bundle_path,
+                BundleFormat::Flat,
+                &[],
+            )
+            .await,
+        )
+    };
+
+    std::fs::set_permissions(source.path(), original).unwrap();
+    let Some(exported) = exported else {
+        return;
+    };
+    exported.expect("a read-only root exports");
+
+    let bundle = open_bundle(&bundle_path, BundleFormat::Flat);
+    assert_eq!(
+        import_into(cold_root.path(), bundle.as_ref())
+            .await
+            .imported,
+        1
+    );
+}
