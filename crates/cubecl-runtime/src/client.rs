@@ -1138,7 +1138,16 @@ impl Client {
                 let profile = if observed_timing {
                     let method = profile.timing_method();
                     let ticks = cubecl_environment::future::block_on(profile.resolve());
-                    crate::logging::notify_timed(name, ticks.duration(), method);
+                    match &ticks {
+                        Some(ticks) => crate::logging::notify_timed(name, ticks.duration(), method),
+                        // Nothing to tell the observer: the window carried no
+                        // measurement, and reporting it as zero would put a
+                        // launch that was never timed in the timings.
+                        None => log::warn!(
+                            "Skipped timing a launch of `{name}` for its observer: \
+                             the profiled window carried no measurement"
+                        ),
+                    }
                     // Handed on already resolved rather than measured again:
                     // the logger and the observer are two readers of one
                     // measurement, and a second would not be the same launch.

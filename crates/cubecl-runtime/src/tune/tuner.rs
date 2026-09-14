@@ -86,6 +86,16 @@ pub enum AutotuneError {
         /// The formatted context on why no valid kernel was found.
         context: String,
     },
+    /// A sample's profiled window carried no measurement.
+    ///
+    /// Disqualifying, and deliberately not folded into a zero: zero is the
+    /// fastest duration there is, so a candidate carrying one wins every
+    /// comparison it enters and gets cached as the best row in the table.
+    #[display("{name}: A profiled sample carried no measurement.")]
+    NotMeasured {
+        /// The name of the tunable.
+        name: String,
+    },
     /// The autotune is skipped manually.
     #[display("{name}: The autotune is skipped manually.")]
     Skip {
@@ -525,12 +535,20 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
     };
     let timing_method = first.timing_method();
 
-    let durations: Vec<Duration> =
+    // One unmeasured sample disqualifies the candidate, the way one failed
+    // sample does. Dropping it and averaging the rest would let a candidate
+    // whose window went untimed be judged on its remaining runs.
+    let Some(durations) =
         futures_util::future::join_all(profiles.into_iter().map(ProfileDuration::resolve))
             .await
             .into_iter()
-            .map(|ticks| ticks.duration())
-            .collect();
+            .map(|ticks| ticks.map(|ticks| ticks.duration()))
+            .collect::<Option<Vec<Duration>>>()
+    else {
+        return AutotuneResult::error(AutotuneError::NotMeasured {
+            name: name.to_string(),
+        });
+    };
 
     AutotuneResult::success(AutotuneOutcome::new(
         name,

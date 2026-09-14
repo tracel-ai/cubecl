@@ -12,7 +12,7 @@ use cubecl_core::{
 use crate::{
     metal::{metal_op, ty::metal_ty},
     shared::{
-        CppValue, DeclareMatrixOp,
+        CompilationOptions, CppValue, DeclareMatrixOp,
         ty::{TypeExtCPP, TypeToCPP},
         wmma_api_base::{self, as_scalar_ptr},
     },
@@ -83,15 +83,23 @@ metal_op!(MultiplyAccumulateOp, |op, ctx| {
 metal_op!(CastOp, |op, ctx| {
     let input = op.input(ctx).name(ctx);
     let output = op.output(ctx).name(ctx);
-    let ty = matrix_ty(ctx, op.output(ctx)).elem_ty.to_cpp(ctx);
+    let output_ty = matrix_ty(ctx, op.output(ctx));
+    let ty = output_ty.elem_ty.to_cpp(ctx);
+    let threads_per_simdgroup = ctx.aux_ty::<CompilationOptions>().warp_size;
+    let elements_held_by_each_thread =
+        elements_held_by_each_thread(&output_ty.shape, threads_per_simdgroup);
     format!(
         "
 simdgroup_barrier(mem_flags::mem_none);
-for(int e=0; e<8; e++) {{
+for(int e=0; e<{elements_held_by_each_thread}; e++) {{
     {output}->thread_elements()[e] = {ty}({input}->thread_elements()[e]);
 }}"
     )
 });
+
+fn elements_held_by_each_thread(shape: &MatrixShape, threads_per_simdgroup: usize) -> usize {
+    (shape.m * shape.n) / threads_per_simdgroup
+}
 
 fn matrix_ty(ctx: &Context, ty: impl Typed) -> Ref<'_, MatrixType> {
     let ty = ty.unwrap_ptr(ctx).deref(ctx);

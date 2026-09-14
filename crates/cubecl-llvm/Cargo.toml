@@ -16,7 +16,7 @@ workspace = true
 
 
 [features]
-default = ["std", "cubecl-core/default", "cubecl-runtime/default", "amdgpu"]
+default = ["std", "cubecl-core/default", "cubecl-runtime/default"]
 
 pliron-dump = []
 std = ["cubecl-core/std", "cubecl-runtime/std"]

@@ -30,7 +30,9 @@ pub fn build_kernel(
             )
             .expect("should succeed launch_overhead");
 
-        cubecl_core::future::block_on(duration.into_future()).duration()
+        cubecl_core::future::block_on(duration.into_future())
+            .expect("the launch_overhead window always dispatches, so it is always measured")
+            .duration()
     });
 
     cubecl_runtime::throughput::KernelConfig {
