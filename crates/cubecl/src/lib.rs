@@ -38,9 +38,13 @@ pub use cubecl_runtime::memory_management::MemoryAllocationMode;
 /// step.
 ///
 /// ```no_run
+/// use cubecl::bundle::BundleFormat;
+///
 /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// // ... run the work you want tuned and compiled, then:
-/// let manifest = cubecl::environment::bundle().save("h100.bundle").await?;
+/// let manifest = cubecl::environment::bundle()
+///     .save("h100.bundle", BundleFormat::Sqlite)
+///     .await?;
 /// println!("exported {}", manifest.name);
 /// # Ok(())
 /// # }

@@ -3,13 +3,44 @@ use std::string::{String, ToString};
 use std::vec::Vec;
 
 use crate::bytes::Bytes;
+use crate::persistence::turso::{self as database, connect};
 
 use super::flat;
-use super::{BundleError, BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA, flat_bundle_version};
+use super::{
+    BundleError, BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA, SqliteBundle,
+    flat_bundle_version,
+};
 
 const SELECT: &str = "SELECT namespace, key, value FROM cache_entries";
 /// A plain prefix match on whole segments, avoiding LIKE's wildcards.
+///
+/// Both formats select their rows with it, so restricting an export picks the
+/// same namespaces whichever layout is written.
 const NAMESPACE_PREFIX: &str = "namespace = ?1 OR substr(namespace, 1, length(?1) + 1) = ?1 || '/'";
+
+/// `ON CONFLICT DO NOTHING` is what makes merging several roots safe: the
+/// (namespace, key) primary key collapses duplicates instead of appending them
+/// twice, and an entry already exported from an earlier root wins. Shipped
+/// rows are marked imported, which is what they become.
+const INSERT: &str = "INSERT INTO cache_entries (namespace, key, value, origin) \
+                      VALUES (?1, ?2, ?3, 1) ON CONFLICT DO NOTHING";
+
+/// Files `SQLite` writes next to a database, which belong to it.
+const SIDECARS: [&str; 2] = ["-wal", "-shm"];
+
+/// Which on-disk layout [`export`] writes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BundleFormat {
+    /// One `SQLite` file, read by [`SqliteBundle`](super::SqliteBundle). The
+    /// native format: it needs a file system, but stays queryable, and
+    /// [`environment::load`](crate::environment::load) mounts it in place.
+    #[default]
+    Sqlite,
+    /// One flat blob, read by [`EmbeddedBundle`](super::EmbeddedBundle). The
+    /// portable format: embed it with `include_bytes!` or fetch it at runtime
+    /// on wasm and no-std targets, which have no file system to open.
+    Flat,
+}
 
 /// Options for [`export`].
 #[derive(Debug, Clone, Default)]
@@ -24,13 +55,18 @@ pub struct ExportOptions {
     /// namespace itself and everything below it. No prefix, or an empty one,
     /// means every namespace.
     pub namespaces: Vec<String>,
+    /// The layout to write. Pick [`BundleFormat::Flat`] for wasm and no-std
+    /// targets.
+    pub format: BundleFormat,
 }
 
 /// Copies entries from one or more cache roots into a bundle file.
 ///
 /// Merging several roots deduplicates by `(namespace, key)` rather than
 /// concatenating bytes, and restricting the export to a few namespaces is a
-/// filter.
+/// filter. The rows stream from each source into the bundle: a
+/// [`BundleFormat::Sqlite`] export never holds more than one row in memory,
+/// while the flat format is assembled in memory before it is written.
 ///
 /// The typical workflow: run the application once so autotune and the
 /// compilation caches are warm, then export the cache root.
@@ -44,7 +80,7 @@ pub async fn export<R: AsRef<Path>, O: AsRef<Path>>(
     options: &ExportOptions,
 ) -> Result<BundleManifest, BundleError> {
     let out = out.as_ref();
-    prepare_output(out)?;
+    prepare_output(out, options.format)?;
 
     let manifest = BundleManifest {
         schema: MANIFEST_SCHEMA,
@@ -73,24 +109,22 @@ pub async fn export<R: AsRef<Path>, O: AsRef<Path>>(
     let staged = staging_path(out);
     discard(&staged);
 
-    let mut entries = flat::Entries::new();
     let namespaces = filters(&options.namespaces);
-    let result = async {
-        for source in &sources {
-            read_entries(source, namespaces, &mut entries).await?;
+    let exported = match options.format {
+        BundleFormat::Sqlite => export_sqlite(&staged, &sources, namespaces, &manifest).await,
+        BundleFormat::Flat => export_flat(&staged, &sources, namespaces, &manifest).await,
+    };
+    let exported = match exported {
+        Ok(exported) => exported,
+        Err(err) => {
+            discard(&staged);
+            return Err(err);
         }
-        flat::write(&staged, &entries, &manifest)
-    }
-    .await;
-
-    if let Err(err) = result {
-        discard(&staged);
-        return Err(err);
-    }
+    };
 
     publish(&staged, out)?;
 
-    if entries.is_empty() {
+    if exported == 0 {
         log::warn!(
             "Bundle export: no entries matched. Run the application once so the caches \
              are warm, and check the namespace prefixes."
@@ -103,61 +137,163 @@ pub async fn export<R: AsRef<Path>, O: AsRef<Path>>(
 /// The namespace prefixes to export, or `None` for every namespace.
 ///
 /// An empty prefix selects everything, so a list holding one collapses to no
-/// filter at all.
+/// filter at all: both formats then take the same unfiltered path, instead of
+/// one exporting everything and the other nothing.
 fn filters(namespaces: &[String]) -> Option<&[String]> {
     let unrestricted = namespaces.is_empty() || namespaces.iter().any(String::is_empty);
+
     (!unrestricted).then_some(namespaces)
 }
 
-/// Collects the requested namespaces of the database at `source` into
-/// `entries`. The first root to export a key wins on collision.
+/// Writes the sources into a database at `out` and leaves it standing on its
+/// own: one file, checkpointed, that any reader can open.
+async fn export_sqlite(
+    out: &Path,
+    sources: &[PathBuf],
+    namespaces: Option<&[String]>,
+    manifest: &BundleManifest,
+) -> Result<usize, BundleError> {
+    let location = location(out)?;
+    let target = turso::Builder::new_local(location)
+        .build()
+        .await
+        .map_err(storage_error)?;
+    // The bundle carries the environment's own schema and version, so
+    // `environment::load` can mount it as it would any environment file.
+    database::migrate(&target).await.map_err(storage_error)?;
+
+    let mut connection = connect(&target).map_err(storage_error)?;
+    manifest.write(&connection).await?;
+
+    // One transaction for the whole copy: a row per statement would be a
+    // WAL frame per row, and a partial bundle is not a bundle.
+    let transaction = connection
+        .transaction_with_behavior(turso::transaction::TransactionBehavior::Immediate)
+        .await
+        .map_err(storage_error)?;
+    let mut exported = 0;
+    for source in sources {
+        exported += read_entries(source, namespaces, &mut Sink::Sqlite(&transaction)).await?;
+    }
+    transaction.commit().await.map_err(storage_error)?;
+
+    // A shipped bundle is read from wherever it was installed, which is often
+    // a read-only directory, and the engine never checkpoints on close: a
+    // file copied without its `-wal` is a file missing every row.
+    if !database::checkpoint(&connection)
+        .await
+        .map_err(storage_error)?
+    {
+        return Err(BundleError::Storage(
+            "the bundle's WAL checkpoint did not complete".to_string(),
+        ));
+    }
+
+    Ok(exported)
+}
+
+async fn export_flat(
+    out: &Path,
+    sources: &[PathBuf],
+    namespaces: Option<&[String]>,
+    manifest: &BundleManifest,
+) -> Result<usize, BundleError> {
+    let mut entries = flat::Entries::new();
+
+    for source in sources {
+        read_entries(source, namespaces, &mut Sink::Flat(&mut entries)).await?;
+    }
+
+    flat::write(out, &entries, manifest)?;
+
+    Ok(entries.len())
+}
+
+/// Where the rows of a source go.
+enum Sink<'a> {
+    /// Into a database being written. Counts the rows it accepted, so a key
+    /// an earlier root already exported is not counted twice.
+    Sqlite(&'a turso::Connection),
+    /// Into the map the flat format is assembled from. First root wins on
+    /// collision, matching the database's `ON CONFLICT DO NOTHING`.
+    Flat(&'a mut flat::Entries),
+}
+
+impl Sink<'_> {
+    async fn push(
+        &mut self,
+        namespace: String,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<usize, BundleError> {
+        match self {
+            Sink::Sqlite(connection) => {
+                let inserted = connection
+                    .execute(INSERT, (namespace, key, value))
+                    .await
+                    .map_err(storage_error)?;
+                Ok(inserted as usize)
+            }
+            Sink::Flat(entries) => {
+                let mut inserted = 0;
+                entries.entry((namespace, key)).or_insert_with(|| {
+                    inserted = 1;
+                    Bytes::from_bytes_vec(value)
+                });
+                Ok(inserted)
+            }
+        }
+    }
+}
+
+/// Streams the requested namespaces of the database at `source` into `sink`,
+/// returning how many rows the sink accepted.
+///
+/// The source is opened as the environment opens it, not read-only: a live
+/// cache keeps its most recent entries in the WAL until a checkpoint, and
+/// only a connection that shares the wal-index sees them.
 async fn read_entries(
     source: &Path,
     namespaces: Option<&[String]>,
-    entries: &mut flat::Entries,
-) -> Result<(), BundleError> {
-    let location = source.to_str().ok_or_else(|| {
-        BundleError::Storage(std::format!("cache path {source:?} is not valid UTF-8"))
-    })?;
+    sink: &mut Sink<'_>,
+) -> Result<usize, BundleError> {
+    let location = location(source)?;
     let database = turso::Builder::new_local(location)
         .experimental_multiprocess_wal(true)
         .build()
         .await
         .map_err(storage_error)?;
-    let connection = database.connect().map_err(storage_error)?;
+    let connection = connect(&database).map_err(storage_error)?;
 
     match namespaces {
         None => {
-            collect(
-                connection.query(SELECT, ()).await.map_err(storage_error)?,
-                entries,
-            )
-            .await
+            let rows = connection.query(SELECT, ()).await.map_err(storage_error)?;
+            collect(rows, sink).await
         }
         Some(namespaces) => {
             let query = std::format!("{SELECT} WHERE {NAMESPACE_PREFIX}");
+            let mut accepted = 0;
             for namespace in namespaces {
                 let rows = connection
                     .query(&query, (namespace.as_str(),))
                     .await
                     .map_err(storage_error)?;
-                collect(rows, entries).await?;
+                accepted += collect(rows, sink).await?;
             }
-            Ok(())
+            Ok(accepted)
         }
     }
 }
 
-async fn collect(mut rows: turso::Rows, entries: &mut flat::Entries) -> Result<(), BundleError> {
+async fn collect(mut rows: turso::Rows, sink: &mut Sink<'_>) -> Result<usize, BundleError> {
+    let mut accepted = 0;
     while let Some(row) = rows.next().await.map_err(storage_error)? {
         let namespace: String = row.get(0).map_err(storage_error)?;
         let key: Vec<u8> = row.get(1).map_err(storage_error)?;
         let value: Vec<u8> = row.get(2).map_err(storage_error)?;
-        entries
-            .entry((namespace, key))
-            .or_insert_with(|| Bytes::from_bytes_vec(value));
+        accepted += sink.push(namespace, key, value).await?;
     }
-    Ok(())
+    Ok(accepted)
 }
 
 /// The cache database of `root`, which may be a cache root directory or the
@@ -172,11 +308,18 @@ fn source_database(root: &Path) -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
+/// The engine takes a string, so a path it can't be given losslessly is
+/// reported rather than approximated.
+fn location(path: &Path) -> Result<&str, BundleError> {
+    path.to_str()
+        .ok_or_else(|| BundleError::Storage(std::format!("cache path {path:?} is not valid UTF-8")))
+}
+
 /// Makes sure `out` is a bundle file we may write.
 ///
 /// An existing bundle is replaced, so re-exporting never merges into a stale
 /// snapshot. Any other existing file is left alone and reported.
-fn prepare_output(out: &Path) -> Result<(), BundleError> {
+fn prepare_output(out: &Path, format: BundleFormat) -> Result<(), BundleError> {
     if let Some(parent) = out.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -187,12 +330,19 @@ fn prepare_output(out: &Path) -> Result<(), BundleError> {
         return Ok(());
     }
 
-    // A file is ours when it carries the flat header; anything else is left
-    // alone rather than overwritten. The manifest lives inside the blob, so
-    // the header identifies the file; reading all of it just to name it isn't
-    // worth it.
-    match flat_header(out) {
-        Some(version) => log::info!("Replacing the existing flat v{version} bundle at {out:?}"),
+    // What makes a file ours depends on the layout being written: a flat blob
+    // is identified by its header and could never answer as a database.
+    let existing = match format {
+        BundleFormat::Sqlite => SqliteBundle::open(out)
+            .map(|bundle| std::format!("'{}'", bundle.manifest().name))
+            .ok(),
+        // The flat manifest lives inside the blob, so the header identifies the
+        // file; reading all of it just to name it isn't worth it.
+        BundleFormat::Flat => flat_header(out).map(|version| std::format!("(flat v{version})")),
+    };
+
+    match existing {
+        Some(described) => log::info!("Replacing the existing bundle {described} at {out:?}"),
         None => {
             return Err(BundleError::Io(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
@@ -220,18 +370,40 @@ fn staging_path(out: &Path) -> PathBuf {
     PathBuf::from(std::format!("{}.tmp", out.display()))
 }
 
-/// Removes a staged bundle.
+fn sidecar(path: &Path, suffix: &str) -> PathBuf {
+    PathBuf::from(std::format!("{}{suffix}", path.display()))
+}
+
+/// Removes a staged bundle and whatever the engine left beside it.
 fn discard(staged: &Path) {
-    if staged.exists()
-        && let Err(err) = std::fs::remove_file(staged)
+    for path in [staged.to_path_buf()]
+        .into_iter()
+        .chain(SIDECARS.iter().map(|suffix| sidecar(staged, suffix)))
     {
-        log::warn!("Bundle export: can't remove {staged:?}: {err}");
+        if path.exists()
+            && let Err(err) = std::fs::remove_file(&path)
+        {
+            log::warn!("Bundle export: can't remove {path:?}: {err}");
+        }
     }
 }
 
 /// Moves the finished bundle onto `out`, replacing what was there.
+///
+/// The sidecars are dropped, not moved: a database bundle was checkpointed,
+/// so its `-wal` is empty, and a stale one next to `out` would otherwise be
+/// replayed into the new bundle.
 fn publish(staged: &Path, out: &Path) -> Result<(), BundleError> {
+    for suffix in SIDECARS {
+        for stale in [sidecar(out, suffix), sidecar(staged, suffix)] {
+            if stale.exists() {
+                std::fs::remove_file(stale)?;
+            }
+        }
+    }
+
     std::fs::rename(staged, out)?;
+
     Ok(())
 }
 
@@ -253,6 +425,6 @@ fn resolve_environments(configured: &[EnvironmentInfo]) -> Vec<EnvironmentInfo> 
     environments
 }
 
-fn storage_error(error: turso::Error) -> BundleError {
+pub(super) fn storage_error(error: turso::Error) -> BundleError {
     BundleError::Storage(error.to_string())
 }

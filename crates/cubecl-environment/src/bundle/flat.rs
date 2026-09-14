@@ -18,10 +18,14 @@ use crate::bytes::Bytes;
 /// A `BTreeMap` keyed by `(namespace, key)` gives exactly the ordering the
 /// reader binary-searches: namespace ids are assigned in sorted namespace
 /// order, so ordering by namespace string is the same as ordering by id.
-pub type Entries = BTreeMap<(String, Vec<u8>), Bytes>;
+pub(crate) type Entries = BTreeMap<(String, Vec<u8>), Bytes>;
 
 /// Serializes `entries` and `manifest` into the flat format.
-pub fn write(out: &Path, entries: &Entries, manifest: &BundleManifest) -> Result<(), BundleError> {
+pub(crate) fn write(
+    out: &Path,
+    entries: &Entries,
+    manifest: &BundleManifest,
+) -> Result<(), BundleError> {
     let metadata = serde_json::to_vec(manifest)
         .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
 
