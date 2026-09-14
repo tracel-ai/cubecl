@@ -18,10 +18,19 @@ use cubecl_environment::sync::{Mutex, RwLock};
 /// [`LocalTuner::init`].
 type Sets<ID> = RwLock<Option<HashMap<(TypeId, ID), Arc<dyn Any + Send + Sync>>>>;
 
+/// Where the event loop leaves a tuner it opened for a synchronous caller.
+#[cfg(target_family = "wasm")]
+type Slot<AK> = Arc<Mutex<Option<Arc<Tuner<AK>>>>>;
+
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
 pub struct LocalTuner<AK: AutotuneKey, ID> {
     state: Mutex<Option<HashMap<ID, Arc<Tuner<AK>>>>>,
+    /// The tuners the browser is opening on the event loop, so a synchronous
+    /// call that finds no tuner opens it once rather than once per call. The
+    /// event loop fills the slot; the next call moves it into `state`.
+    #[cfg(target_family = "wasm")]
+    opening: Mutex<Option<HashMap<ID, Slot<AK>>>>,
     name: &'static str,
     sets: Sets<ID>,
 }
@@ -48,6 +57,8 @@ where
     pub const fn new(name: &'static str) -> Self {
         Self {
             state: Mutex::new(None),
+            #[cfg(target_family = "wasm")]
+            opening: Mutex::new(None),
             name,
             sets: RwLock::new(None),
         }
@@ -134,11 +145,15 @@ where
         super::check_autotune_outputs(checks_outputs)
     }
 
-    /// Executes the fastest operation in a [`TunableSet`].
+    /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
+    /// the first call for a given key.
     ///
-    /// Native targets wait for tuning to finish. Browser callers that cannot
-    /// yield execute the first viable candidate; use [`Self::execute_async`]
-    /// when the caller can await tuning.
+    /// Native targets block until the tune is decided. The browser can't block
+    /// on anything, so there the tune is driven as far as a synchronous call
+    /// can take it — the benchmarks launch inside this call — and the rest is
+    /// left to the event loop: this call runs a fallback candidate, and the
+    /// calls that follow find the tuned pick. A caller that can await gets the
+    /// decision in one call from [`execute_async`](Self::execute_async).
     pub fn execute<'a, I: TuneInputs, Out>(
         &self,
         id: &ID,
@@ -157,14 +172,101 @@ where
 
         #[cfg(target_family = "wasm")]
         {
-            let _ = (id, client);
-            for index in 0..operations.len() {
-                if let Ok(output) = operations.fastest(index).execute(inputs.clone()) {
-                    return output;
+            let key = operations.generate_key(&inputs);
+
+            let decided = self.tuner_or_open(id).and_then(|tuner| {
+                #[allow(unused_mut)]
+                let mut log_context =
+                    crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
+
+                #[cfg(feature = "autotune-checks")]
+                log_context.set_checks(|| self.checks::<I, Out>(&operations, &inputs));
+
+                match tuner.check_tune_detached::<I, Out>(
+                    &key,
+                    &inputs,
+                    &operations,
+                    || operations.compute_checksum(),
+                    client,
+                    log_context,
+                ) {
+                    TuneCacheResult::Hit { fastest_index } => Some(fastest_index),
+                    TuneCacheResult::Pending
+                    | TuneCacheResult::Miss
+                    | TuneCacheResult::Unchecked => None,
                 }
+            });
+
+            if let Some(fastest_index) = decided {
+                return operations
+                    .fastest(fastest_index)
+                    .execute(inputs)
+                    .expect("Should run when selected by autotune.");
             }
-            panic!("All autotune operations failed, no viable operation found.");
+
+            Self::fallback(&operations, inputs)
         }
+    }
+
+    /// The tuner for `id`, or `None` while the event loop is still opening it.
+    ///
+    /// Opening a tuner reads the persistent cache, which the browser can only
+    /// await, so a synchronous call starts it and leaves; the tuner is there
+    /// for the calls that follow.
+    #[cfg(target_family = "wasm")]
+    fn tuner_or_open(&self, id: &ID) -> Option<Arc<Tuner<AK>>> {
+        if let Some(tuner) = self
+            .state
+            .lock()
+            .as_ref()
+            .and_then(|tuners| tuners.get(id).cloned())
+        {
+            return Some(tuner);
+        }
+
+        let mut opening = self.opening.lock();
+        let opening = opening.get_or_insert_with(HashMap::new);
+
+        if let Some(slot) = opening.get(id) {
+            let tuner = slot.lock().take()?;
+            opening.remove(id);
+            self.state
+                .lock()
+                .get_or_insert_with(HashMap::new)
+                .entry(id.clone())
+                .or_insert(tuner.clone());
+            return Some(tuner);
+        }
+
+        let slot: Slot<AK> = Arc::new(Mutex::new(None));
+        opening.insert(id.clone(), slot.clone());
+
+        let name = self.name.replace("::", "-");
+        let device_id = id.to_string();
+        cubecl_environment::future::spawn_detached(async move {
+            let tuner = Arc::new(Tuner::new(&name, &device_id).await);
+            *slot.lock() = Some(tuner);
+        });
+
+        None
+    }
+
+    /// Whatever candidate runs, for a call the tuner couldn't decide.
+    #[cfg(target_family = "wasm")]
+    fn fallback<'a, I: TuneInputs, Out>(
+        operations: &TunableSet<AK, I, Out>,
+        inputs: <I as TuneInputs>::At<'a>,
+    ) -> Out
+    where
+        <I as TuneInputs>::At<'a>: Clone + Send,
+        Out: AutotuneOutput,
+    {
+        for index in 0..operations.len() {
+            if let Ok(output) = operations.fastest(index).execute(inputs.clone()) {
+                return output;
+            }
+        }
+        panic!("All autotune operations failed, no viable operation found.");
     }
 
     /// Asynchronously executes the fastest operation, tuning on the first call.

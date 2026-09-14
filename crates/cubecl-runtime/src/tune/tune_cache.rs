@@ -289,6 +289,12 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.hydrated = false;
     }
 
+    /// Whether everything the persistent cache holds has been ingested.
+    #[cfg(target_family = "wasm")]
+    pub(crate) fn hydrated(&self) -> bool {
+        self.hydrated
+    }
+
     /// Ingest everything the persistent store holds into the in-memory cache,
     /// as unverified entries.
     ///
