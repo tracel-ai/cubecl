@@ -1,10 +1,11 @@
+use alloc::collections::BTreeSet;
 use alloc::string::String;
 use core::hash::{BuildHasher, Hash, Hasher};
 
 use crate::EnumSet;
 use crate::EnumSetType;
 use crate::{
-    AddressType, ElemType, OpaqueType, SemanticType, Type, TypeHash, VectorSize,
+    AddressType, ElemType, FloatKind, OpaqueType, SemanticType, Type, TypeHash, VectorSize,
     features::{AtomicUsage, ComplexUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
@@ -62,6 +63,12 @@ pub struct HardwareProperties {
     pub max_vector_size: VectorSize,
     /// Memory reserved for the driver when using cube-scoped matrices
     pub cube_mma_reserved_shared_memory: usize,
+    /// Float kinds the hardware computes in directly, rather than through a wider type, and
+    /// `None` where the runtime does not report it.
+    ///
+    /// A kind missing here can still be supported for arithmetic, see
+    /// [`TypeUsage::Arithmetic`]; it only costs a convert on each side.
+    pub native_float_arithmetic: Option<BTreeSet<FloatKind>>,
 }
 
 /// Properties of the device related to allocation.

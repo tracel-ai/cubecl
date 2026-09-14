@@ -485,6 +485,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         max_vector_size: 4,
         // Init later if extension is enabled
         cube_mma_reserved_shared_memory: 0,
+        native_float_arithmetic: None,
     };
 
     let mut compilation_options = Default::default();

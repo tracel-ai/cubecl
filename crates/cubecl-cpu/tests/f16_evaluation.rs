@@ -2,6 +2,8 @@
 
 use std::sync::Once;
 
+use cubecl_core::ir::FloatKind;
+
 mod common;
 
 static MODE: Once = Once::new();
@@ -12,16 +14,26 @@ fn use_the_default() {
     MODE.call_once(|| unsafe { std::env::remove_var("CUBECL_CPU_F16_EVAL") });
 }
 
-/// An f16 intermediate above the f16 maximum survives, so a chain is held in f32 unless asked
-/// otherwise.
+/// A host with f16 arithmetic of its own rounds every result, and any other holds the chain in
+/// f32, which changes range rather than precision.
 ///
-/// This is the part of the policy that changes range rather than precision. gcc and clang hold a
-/// `_Float16` expression the same way, and round after every operation only under
-/// `-fexcess-precision=16`.
+/// gcc and clang hold a `_Float16` expression the same way, and round after every operation only
+/// under `-fexcess-precision=16`.
 #[test]
-fn a_chain_is_held_in_f32_by_default() {
+fn the_default_holds_a_chain_only_without_host_f16_arithmetic() {
     use_the_default();
-    assert_eq!(common::product_over_300(), 300.0);
+    let native = common::client()
+        .properties()
+        .hardware
+        .native_float_arithmetic
+        .as_ref()
+        .expect("the CPU runtime reports its native float kinds")
+        .contains(&FloatKind::F16);
+    let result = common::product_over_300();
+    match native {
+        true => assert!(result.is_infinite()),
+        false => assert_eq!(result, 300.0),
+    }
 }
 
 /// An immutable `let` is an SSA value, so the chain runs through it, where C would round at the

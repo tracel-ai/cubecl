@@ -30,11 +30,11 @@ use pliron::graph::walkers::{WALKCONFIG_PREORDER_FORWARD, uninterruptible::mutab
 /// How far an f32 intermediate is allowed to travel before it is rounded back to f16.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum F16Evaluation {
-    /// Round after every operation. What the hardware would do if it had f16 arithmetic, and
-    /// what a GPU does, at a convert pair per operation.
+    /// Round after every operation, which is what a GPU does. Where f16 is not native it costs a
+    /// convert pair per operation.
     PerOperation,
     /// Round where a value is stored, a `let mut` included, or read by anything but arithmetic.
-    /// The default.
+    /// The default where f16 is not native.
     #[default]
     Chain,
     /// Also hold a private f16 variable in f32 where that removes more converts than it adds, so
@@ -46,6 +46,15 @@ pub enum F16Evaluation {
 impl F16Evaluation {
     /// Every mode, so that a caller offering the choice cannot miss one.
     pub const ALL: [Self; 3] = [Self::PerOperation, Self::Chain, Self::Accumulators];
+
+    /// The mode for a host that does or does not compute in f16 directly. Where it does, a chain
+    /// held in f32 only adds converts.
+    pub fn for_native_f16(native: bool) -> Self {
+        match native {
+            true => Self::PerOperation,
+            false => Self::Chain,
+        }
+    }
 
     fn name(self) -> &'static str {
         match self {

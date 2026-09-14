@@ -344,8 +344,9 @@ impl ToLLVMDialect for BoolNotOp {
 /// others are compared against.
 ///
 /// f16 is settled separately, in [`f16_evaluation`](crate::cpu::f16_evaluation), and the other
-/// way: holding the intermediate is the default there, because rounding f16 after every
-/// operation costs a convert pair each time and is what a C compiler emits only when asked.
+/// way: on a host without f16 arithmetic, holding the intermediate is the default there, because
+/// rounding f16 after every operation costs a convert pair each time and is what a C compiler
+/// emits only when asked.
 fn fma_contraction(ctx: &Context) -> FastmathFlagsAttr {
     match ctx.target() {
         #[cfg(feature = "amdgpu")]

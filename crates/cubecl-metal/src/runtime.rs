@@ -86,6 +86,7 @@ impl DeviceService for MetalServer {
             last_level_cache_size: None,
             max_vector_size: 4,
             cube_mma_reserved_shared_memory: 0,
+            native_float_arithmetic: None,
         };
 
         // Metal is the one backend where the display name *is* the fingerprint:

@@ -15,36 +15,35 @@ use cubecl_llvm::{F16Evaluation, PlironCompiler};
 use cubecl_server::runtime::Runtime;
 use cubecl_server::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, System};
 
 pub struct RuntimeOptions {
     /// Configures the memory management.
     pub memory_config: MemoryConfiguration,
-    /// How wide f16 intermediates are held. The default reads `CUBECL_CPU_F16_EVAL`.
-    pub f16_evaluation: F16Evaluation,
+    /// How wide f16 intermediates are held, from `CUBECL_CPU_F16_EVAL`. `None` chooses by whether
+    /// the host computes in f16 directly.
+    pub f16_evaluation: Option<F16Evaluation>,
 }
 
 impl Default for RuntimeOptions {
     fn default() -> Self {
         Self {
             memory_config: MemoryConfiguration::default(),
-            f16_evaluation: env_f16_evaluation().unwrap_or_default(),
+            f16_evaluation: env_f16_evaluation(),
         }
     }
 }
 
 /// `None` where the variable is unset or unreadable, so a value nobody recognizes leaves the
-/// default alone rather than failing a launch.
+/// host's choice alone rather than failing a launch.
 fn env_f16_evaluation() -> Option<F16Evaluation> {
     std::env::var("CUBECL_CPU_F16_EVAL")
         .ok()?
         .parse()
         .inspect_err(|unknown| {
-            log::warn!(
-                "CUBECL_CPU_F16_EVAL={unknown}, evaluating f16 as {} instead",
-                F16Evaluation::default()
-            )
+            log::warn!("CUBECL_CPU_F16_EVAL={unknown}, choosing by the host instead")
         })
         .ok()
 }
@@ -105,6 +104,31 @@ fn register_supported_types(props: &mut DeviceProperties) {
     }
 }
 
+fn native_float_arithmetic() -> BTreeSet<FloatKind> {
+    let mut kinds = BTreeSet::from([FloatKind::F32, FloatKind::F64]);
+    if host_has_f16_arithmetic() {
+        kinds.insert(FloatKind::F16);
+    }
+    kinds
+}
+
+/// A feature bit promises the instructions, not their speed, and `CUBECL_CPU_F16_EVAL` overrides
+/// the mode chosen from it on a host where the two disagree.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn host_has_f16_arithmetic() -> bool {
+    std::arch::is_x86_feature_detected!("avx512fp16")
+}
+
+#[cfg(target_arch = "aarch64")]
+fn host_has_f16_arithmetic() -> bool {
+    std::arch::is_aarch64_feature_detected!("fp16")
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+fn host_has_f16_arithmetic() -> bool {
+    false
+}
+
 fn host_cpu_name(system: &System) -> String {
     system
         .cpus()
@@ -145,6 +169,10 @@ impl DeviceService for CpuServer {
         // measured ~2.5x worse on decode gemv, stages outgrowing what stays
         // resident. GPU-like floor when the topology cannot be read.
         let max_shared_memory_size = affinity::l1d_cache_size().unwrap_or(64 * 1024);
+        let native_float_arithmetic = native_float_arithmetic();
+        let f16_evaluation = options.f16_evaluation.unwrap_or_else(|| {
+            F16Evaluation::for_native_f16(native_float_arithmetic.contains(&FloatKind::F16))
+        });
         let topology = HardwareProperties {
             load_width: 512,
             plane_size_min: 1,
@@ -161,6 +189,7 @@ impl DeviceService for CpuServer {
             min_tensor_cores_dim: None,
             max_vector_size: VectorSize::MAX,
             cube_mma_reserved_shared_memory: 0,
+            native_float_arithmetic: Some(native_float_arithmetic),
         };
 
         const ALIGNMENT: u64 = 8;
@@ -184,11 +213,7 @@ impl DeviceService for CpuServer {
             // fingerprint: it is what the generated code is valid for.
             DeviceIdentity {
                 name: host_cpu_name(&system),
-                fingerprint: format!(
-                    "cpu_{}_f16-{}",
-                    std::env::consts::ARCH,
-                    options.f16_evaluation
-                ),
+                fingerprint: format!("cpu_{}_f16-{}", std::env::consts::ARCH, f16_evaluation),
             },
         );
         register_supported_types(&mut device_props);
@@ -201,7 +226,12 @@ impl DeviceService for CpuServer {
             logger,
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
-        CpuServer::new(mem_properties, options, Arc::new(utilities))
+        CpuServer::new(
+            mem_properties,
+            options.memory_config,
+            f16_evaluation,
+            Arc::new(utilities),
+        )
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {

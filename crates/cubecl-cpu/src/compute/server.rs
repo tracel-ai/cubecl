@@ -1,4 +1,4 @@
-use cubecl_llvm::PlironOptions;
+use cubecl_llvm::{F16Evaluation, PlironOptions};
 
 use crate::{
     CpuCompiler,
@@ -6,12 +6,11 @@ use crate::{
         cpu_kernel::CpuKernel,
         schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
     },
-    runtime::RuntimeOptions,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::ServerStorage;
 use cubecl_core::{
-    CompilationError, CubeCount, MemoryUsage,
+    CompilationError, CubeCount, MemoryConfiguration, MemoryUsage,
     ir::MemoryDeviceProperties,
     server::{
         BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, LaunchError,
@@ -62,14 +61,12 @@ impl WriteScoped for CpuServer {
 impl CpuServer {
     pub fn new(
         memory_properties: MemoryDeviceProperties,
-        options: RuntimeOptions,
+        memory_config: MemoryConfiguration,
+        f16_evaluation: F16Evaluation,
         utilities: Arc<ServerUtilities>,
     ) -> Self {
-        let backend = ScheduledCpuBackend::new(
-            memory_properties,
-            options.memory_config,
-            utilities.logger.clone(),
-        );
+        let backend =
+            ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
@@ -88,7 +85,7 @@ impl CpuServer {
             utilities,
             compilation_cache: HashMap::new(),
             compilation_options: PlironOptions {
-                f16_evaluation: options.f16_evaluation,
+                f16_evaluation,
                 ..Default::default()
             },
             streams_pool: Vec::new(),
