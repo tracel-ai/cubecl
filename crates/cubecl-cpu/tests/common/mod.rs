@@ -7,9 +7,9 @@
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::server::Handle;
 use cubecl_cpu::CpuRuntime;
-use cubecl_runtime::runtime::Runtime;
-use cubecl_runtime::server::Handle;
+use cubecl_server::runtime::Runtime;
 use half::f16;
 
 pub const LANES: usize = 4;

@@ -1,5 +1,5 @@
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::{
+use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,

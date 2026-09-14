@@ -11,14 +11,14 @@ mod server;
 pub use server::*;
 
 /// One unit of work against the device — the shared
-/// [`Command`](cubecl_runtime::command::Command), driven by [`driver::Cuda`].
-pub(crate) type Command<'a> = cubecl_runtime::command::Command<'a, driver::Cuda>;
+/// [`Command`](cubecl_server::command::Command), driven by [`driver::Cuda`].
+pub(crate) type Command<'a> = cubecl_server::command::Command<'a, driver::Cuda>;
 
 /// The graphs this device has captured, driven by [`driver::Cuda`].
-pub(crate) type Captures = cubecl_runtime::command::Captures<driver::Cuda>;
+pub(crate) type Captures = cubecl_server::command::Captures<driver::Cuda>;
 
 /// A capture window on one stream, driven by [`driver::Cuda`].
-pub(crate) type Window<'a> = cubecl_runtime::command::Window<'a, driver::Cuda>;
+pub(crate) type Window<'a> = cubecl_server::command::Window<'a, driver::Cuda>;
 
 /// Creates a `Vec<I>` of the given length with uninitialized elements.
 ///

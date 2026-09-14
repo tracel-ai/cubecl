@@ -12,15 +12,15 @@
 use std::sync::Arc;
 
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::config::memory::{MemoryPoolConfig, MemoryPoolsConfig};
-use cubecl_runtime::config::size::MemorySize;
-use cubecl_runtime::dry_run::{DryRun, RealRun};
-use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::{
+use cubecl_server::config::memory::{MemoryPoolConfig, MemoryPoolsConfig};
+use cubecl_server::config::size::MemorySize;
+use cubecl_server::dry_run::{DryRun, RealRun};
+use cubecl_server::logging::ServerLogger;
+use cubecl_server::memory_management::{
     ErrorGraph, InstallMemoryPoolsError, MemoryAllocationMode, MemoryConfiguration,
     MemoryManagement, MemoryManagementOptions, MemoryPoolKind,
 };
-use cubecl_runtime::storage::BytesStorage;
+use cubecl_server::storage::BytesStorage;
 
 const MIB: u64 = 1024 * 1024;
 
