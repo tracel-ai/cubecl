@@ -163,6 +163,9 @@ fn register_features(
     register_types(props);
     register_cmma(props);
     props.features.alignment = true;
+    // This backend emits MSL, so the same `threadgroup_barrier(mem_flags::mem_device)` the
+    // native Metal runtime gets.
+    props.features.device_memory_scope = true;
     props.features.plane.insert(Plane::Ops);
     props.features.plane.insert(Plane::Sync);
 }

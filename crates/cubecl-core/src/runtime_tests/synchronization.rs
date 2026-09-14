@@ -350,6 +350,76 @@ pub fn test_workgroup_uniform_load_atomic_synchronizes<R: Runtime>(client: Clien
     assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
+/// One cube reads what the others published, with no second dispatch: every cube writes its own
+/// partial, releases it with [`sync_storage`], and announces itself on a counter. The cube whose
+/// arrival is the last acquires the rest and sums them.
+///
+/// A cube of one unit, so both synchronizations are reached by the whole cube. Nothing spins: the
+/// cubes that are not last simply end, so the test cannot hang on a device that does not run them
+/// all at once.
+#[cube(launch)]
+fn kernel_test_sync_storage_across_cubes(
+    partials: &mut [u32],
+    counter: &mut [Atomic<u32>],
+    out: &mut [u32],
+    #[comptime] cubes: u32,
+) {
+    partials[CUBE_POS] = (CUBE_POS + 1) as u32;
+
+    // Release: what this cube just wrote is visible to whichever cube arrives last.
+    sync_storage();
+    let arrived = counter[0].fetch_add(1u32);
+    // Acquire: what the cubes that arrived before published is visible to this one.
+    sync_storage();
+
+    if arrived == cubes - 1 {
+        let mut sum = 0u32;
+        let mut i = 0u32;
+        while i < cubes {
+            sum += partials[i as usize];
+            i += 1u32;
+        }
+        out[0] = sum;
+    }
+}
+
+pub fn test_sync_storage_across_cubes<R: Runtime>(client: Client) {
+    if !client.properties().features.device_memory_scope {
+        // The runtime does not promise that one cube's writes reach another, so say so rather
+        // than pass silently.
+        std::println!("device memory scope not supported - skipped");
+        return;
+    }
+    let ty = Type::atomic(u32::elem_type_native());
+    if !client
+        .properties()
+        .atomic_type_usage(ty)
+        .contains(AtomicUsage::Add)
+    {
+        return;
+    }
+
+    let cubes = 32u32;
+    let partials = client.empty(cubes as usize * core::mem::size_of::<u32>());
+    let counter = client.create_from_slice(u32::as_bytes(&[0u32]));
+    let out = client.create_from_slice(u32::as_bytes(&[0u32]));
+
+    kernel_test_sync_storage_across_cubes::launch(
+        &client,
+        CubeCount::Static(cubes, 1, 1),
+        CubeDim::new_single(),
+        unsafe { BufferArg::from_raw_parts(partials, cubes as usize) },
+        unsafe { BufferArg::from_raw_parts(counter, 1) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), 1) },
+        cubes,
+    );
+
+    let actual = client.read_one_unchecked(out);
+    // Every cube published `CUBE_POS + 1`, so the last one in sums 1..=cubes.
+    let expected = cubes * (cubes + 1) / 2;
+    assert_eq!(u32::from_bytes(&actual), &[expected]);
+}
+
 #[macro_export]
 macro_rules! testgen_sync_plane {
     () => {
@@ -373,6 +443,14 @@ macro_rules! testgen_sync_plane {
             cubecl_core::runtime_tests::synchronization::test_finished_sync_cube::<TestRuntime>(
                 client,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_sync_storage_across_cubes() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_sync_storage_across_cubes::<
+                TestRuntime,
+            >(client);
         }
 
         #[$crate::runtime_tests::test_log::test]

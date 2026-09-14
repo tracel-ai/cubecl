@@ -49,7 +49,15 @@ metal_op!(SyncOp, |op, ctx| {
     match op.scope(ctx).0 {
         SyncScope::Plane => "simdgroup_barrier(mem_flags::mem_threadgroup);\n",
         SyncScope::Cube => "threadgroup_barrier(mem_flags::mem_threadgroup);\n",
-        SyncScope::Device => "threadgroup_barrier(mem_flags::mem_device);\n",
+        // The barrier is the cube's half and it is not enough on its own: measured on an M2, a
+        // `threadgroup_barrier(mem_flags::mem_device)` leaves one threadgroup's writes unseen by
+        // the next. `atomic_thread_fence` at `thread_scope_device` is the device half, so the two
+        // together are the release and the acquire this scope promises. MSL 3.2, which is the
+        // version this backend compiles at.
+        SyncScope::Device => {
+            "threadgroup_barrier(mem_flags::mem_device);\n\
+             atomic_thread_fence(mem_flags::mem_device, memory_order_seq_cst, thread_scope_device);\n"
+        }
         SyncScope::Unit => "",
     }
     .into()

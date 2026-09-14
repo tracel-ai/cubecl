@@ -181,6 +181,8 @@ fn register_metal_features(props: &mut DeviceProperties) {
     register_wmma(props);
 
     props.features.alignment = true;
+    // MSL's `threadgroup_barrier(mem_flags::mem_device)` orders device memory at device scope.
+    props.features.device_memory_scope = true;
     props.features.plane.insert(Plane::Ops);
     props.features.plane.insert(Plane::Sync);
     props.features.plane.insert(Plane::NonUniformControlFlow);

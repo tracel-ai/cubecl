@@ -44,9 +44,20 @@ pub mod sync_plane {
     }
 }
 
-/// * `Sync_storage` is the same but change "cube address space(shared memory)" to "storage address space(input args)". But the set of invocations that are collaborating is still only the invocations in the same cube.
+/// [`sync_cube`] over storage memory (input args) rather than shared memory, and the one
+/// synchronization that reaches past the cube.
 ///
-/// * There is no guarantee about using barriers alone to make the writes to storage buffer in one cube become visible to invocations in a different cube.
+/// Every unit of the cube must reach it, as for [`sync_cube`]. On top of the cube barrier it is a
+/// release and an acquire at device scope: every write this cube made to storage before it is
+/// visible to any other cube that calls it afterwards, and every write another cube published
+/// before its own call is visible here after it. That is what lets cubes hand each other partial
+/// results — publish, `sync_storage`, then announce through an atomic — with no second dispatch.
+///
+/// **Only where the runtime says so.** WebGPU's memory model promises nothing across workgroups,
+/// so on a backend whose
+/// [`device_memory_scope`](cubecl_ir::Features::device_memory_scope) is `false` this is a cube
+/// barrier and no more, and a cube reading another's writes may read them stale. Ask before
+/// launching a kernel that depends on the promise.
 pub fn sync_storage() {}
 
 pub mod sync_storage {
