@@ -17,7 +17,7 @@ workspace = true
 
 [features]
 autotune-checks = []
-browser-cache = ["cubecl-environment/browser-cache"]
+persistence = ["std", "cubecl-environment/persistence"]
 channel-cell = []
 channel-mpsc = []
 channel-mutex = []
@@ -26,6 +26,7 @@ default = [
     "channel-mutex",
     "channel-mpsc",
     "channel-cell",
+    "persistence",
     "cubecl-common/default",
 ]
 exclusive-memory-only = []
@@ -69,6 +70,7 @@ buildid = { workspace = true }
 thiserror = { workspace = true }
 
 futures-util = { workspace = true, default-features = false }
+async-lock = { workspace = true }
 
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
@@ -76,17 +78,11 @@ cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", default-
     "serde",
     "hash",
 ] }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false, features = [
-    "cache",
-] }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
 serde_json = { workspace = true, features = ["std"] }
 
 # Tracy if enabled.
 tracy-client = { workspace = true, optional = true }
-
-# The tuner resolves async autotune samples on the browser event loop.
-[target.'cfg(target_family = "wasm")'.dependencies]
-wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true, features = ["thread_rng"] }

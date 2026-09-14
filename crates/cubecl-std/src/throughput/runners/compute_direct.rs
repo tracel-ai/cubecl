@@ -4,30 +4,35 @@ use cubecl_runtime::throughput::KernelConfig;
 
 use crate::throughput::LaunchConfig;
 
-pub fn build_kernel(client: &Client, dtype: ElemType, config: LaunchConfig) -> KernelConfig {
+pub async fn build_kernel(client: &Client, dtype: ElemType, config: LaunchConfig) -> KernelConfig {
     let client = client.clone();
 
     let use_fma = matches!(dtype, ElemType::Float(_));
 
-    let sample = Box::new(move |iterations: usize| {
-        let start = cubecl_common::profile::Instant::now();
-        unsafe {
-            let out = client.empty(config.vector_size * dtype.size());
+    let sample = Box::new(
+        move |iterations: usize| -> cubecl_environment::future::DynFut<_> {
+            let client = client.clone();
+            Box::pin(async move {
+                let start = cubecl_common::profile::Instant::now();
+                unsafe {
+                    let out = client.empty(config.vector_size * dtype.size());
 
-            compute_direct_throughput::launch_unchecked(
-                &client,
-                CubeCount::Static(config.cube_count as u32, 1, 1),
-                config.cube_dim,
-                config.vector_size,
-                BufferArg::from_raw_parts(out, 1),
-                iterations,
-                use_fma,
-                dtype,
-            )
-        };
-        let _ = cubecl_core::future::block_on(client.sync());
-        start.elapsed()
-    });
+                    compute_direct_throughput::launch_unchecked(
+                        &client,
+                        CubeCount::Static(config.cube_count as u32, 1, 1),
+                        config.cube_dim,
+                        config.vector_size,
+                        BufferArg::from_raw_parts(out, 1),
+                        iterations,
+                        use_fma,
+                        dtype,
+                    )
+                };
+                let _ = client.sync().await;
+                start.elapsed()
+            })
+        },
+    );
 
     // `CHAINS` independent accumulators per lane, each retiring one fma (two flops) or one mul.
     let ops_per_chain = if use_fma { 2 } else { 1 };

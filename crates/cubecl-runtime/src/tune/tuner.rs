@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-#[cfg(std_io)]
+#[cfg(persistence)]
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -8,6 +8,7 @@ use derive_more::Display;
 
 use core::time::Duration;
 
+use async_lock::Mutex as AsyncMutex;
 use cubecl_environment::sync::Mutex;
 
 use alloc::string::{String, ToString};
@@ -15,7 +16,7 @@ use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::client::Client;
 use crate::config::Logger;
-#[cfg(std_io)]
+#[cfg(persistence)]
 use crate::config::autotune::AutotuneLogLevel;
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
@@ -28,16 +29,17 @@ use super::{
 #[derive(Debug)]
 /// Runs autotune benchmarks for a single device and caches the results.
 ///
-/// On wasm, [`tune`](Self::tune) spawns its work on the browser event loop; elsewhere
-/// it blocks inline. Either way the benchmarking itself is synchronous; only the
-/// per-sample profile resolution is awaited.
+/// [`check_tune`](Self::check_tune) is a future: the benchmarking itself is
+/// synchronous, and only the per-sample profile resolution and the persistent
+/// cache are awaited, which is what lets it run on the browser event loop.
+/// Native callers block on it.
 pub struct Tuner<K: AutotuneKey> {
-    cache: Arc<Mutex<TuneCache<K>>>,
+    cache: Arc<AsyncMutex<TuneCache<K>>>,
     logger: Arc<Mutex<Logger>>,
 }
 
 /// The measured outcome for a given autotune invocation.
-#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(persistence, derive(serde::Serialize, serde::Deserialize))]
 #[derive(new, Debug, Clone, PartialEq, Eq)]
 pub struct AutotuneOutcome {
     /// The name of the tunable.
@@ -60,7 +62,7 @@ impl core::fmt::Display for AutotuneOutcome {
 
 /// Error from running autotune.
 #[derive(Clone, Display)]
-#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(persistence, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneError {
     /// An unknown error happened.
     #[display("{name}: An unknown error happened.\n{err}")]
@@ -139,13 +141,11 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     evictor: Option<Box<crate::tune::Evictor<'i>>>,
     plan: TunePlan,
     results: Vec<AutotuneResult>,
-    #[cfg(any(not(target_family = "wasm"), autotune_persistence))]
     limit: Option<Duration>,
-    #[cfg(autotune_persistence)]
+    #[cfg(persistence)]
     bounds: Option<crate::tune::Bounds>,
-    #[cfg(not(target_family = "wasm"))]
     short_circuit: bool,
-    #[cfg(autotune_persistence)]
+    #[cfg(persistence)]
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
 }
@@ -155,45 +155,45 @@ impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
         TuneRequest {
             key: self.key,
             results: self.results,
-            #[cfg(autotune_persistence)]
+            #[cfg(persistence)]
             checksum: self.checksum,
             log_context: self.log_context,
             pending,
             decided,
-            #[cfg(autotune_persistence)]
+            #[cfg(persistence)]
             limit: self.limit,
-            #[cfg(autotune_persistence)]
+            #[cfg(persistence)]
             bounds: self.bounds,
         }
     }
 }
 
 /// A queued tuning job: all data needed to resolve samples and commit the result.
-/// Holds no references so it's trivially `Send + 'static` for the wasm spawn path.
+/// Holds no references so it's trivially `Send + 'static`.
 struct TuneRequest<K: AutotuneKey> {
     key: K,
     results: Vec<AutotuneResult>,
-    #[cfg(autotune_persistence)]
+    #[cfg(persistence)]
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
     pending: Vec<PendingBench>,
     /// The winner, when the strategy already picked one. `None` means the results are all
     /// comparable and the fastest is whichever scores best.
     decided: Option<usize>,
-    #[cfg(autotune_persistence)]
+    #[cfg(persistence)]
     limit: Option<Duration>,
-    #[cfg(autotune_persistence)]
+    #[cfg(persistence)]
     bounds: Option<crate::tune::Bounds>,
 }
 
 #[allow(clippy::new_without_default)]
 impl<K: AutotuneKey> Tuner<K> {
     /// Create a tuner. Its cache is seeded from the persistent cache when
-    /// persistence is available (disk on native, browser storage on wasm with
-    /// the `browser-cache` feature).
-    pub fn new(name: &str, device_id: &str) -> Self {
+    /// persistence is available (feature `persistence`: a file natively,
+    /// OPFS in the browser).
+    pub async fn new(name: &str, device_id: &str) -> Self {
         Self {
-            cache: Arc::new(Mutex::new(TuneCache::new(name, device_id))),
+            cache: Arc::new(AsyncMutex::new(TuneCache::new(name, device_id).await)),
             logger: Arc::new(Mutex::new(Logger::new())),
         }
     }
@@ -206,10 +206,11 @@ impl<K: AutotuneKey> Tuner<K> {
     /// cached. It is a fast-path probe: a miss here is expected to fall through
     /// to [`check_tune`](Self::check_tune), which hydrates and resolves the
     /// real state. Don't rely on it as a standalone "is this cached?" query.
-    pub fn fastest(&self, key: &K) -> TuneCacheResult {
-        #[cfg_attr(not(autotune_persistence), allow(unused_mut))]
-        let mut cache = self.cache.lock();
-        #[cfg(autotune_persistence)]
+    /// Returns the fastest cached candidate for a key.
+    pub async fn fastest(&self, key: &K) -> TuneCacheResult {
+        #[cfg_attr(not(persistence), allow(unused_mut))]
+        let mut cache = self.cache.lock().await;
+        #[cfg(persistence)]
         cache.reset_if_environment_switched();
 
         cache.fastest(key)
@@ -222,14 +223,12 @@ impl<K: AutotuneKey> Tuner<K> {
 
     /// Check the cache, validate checksums if needed, and kick off a tuning job if the
     /// key is a miss. Returns the resolved cache state.
-    pub fn check_tune<'a, F: TuneInputs, Out: AutotuneOutput>(
+    pub async fn check_tune<'a, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         key: &K,
         inputs: &F::At<'a>,
         tunables: &TunableSet<K, F, Out>,
-        #[cfg_attr(not(autotune_persistence), allow(unused))] checksum: impl FnOnce() -> String
-        + Send
-        + Sync,
+        #[cfg_attr(not(persistence), allow(unused))] checksum: impl FnOnce() -> String + Send + Sync,
         client: &Client,
         mut log_context: Option<crate::tune::AutotuneLogContext>,
     ) -> TuneCacheResult
@@ -237,23 +236,23 @@ impl<K: AutotuneKey> Tuner<K> {
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
         {
-            let mut cache = self.cache.lock();
-            #[cfg(autotune_persistence)]
+            let mut cache = self.cache.lock().await;
+            #[cfg(persistence)]
             cache.reset_if_environment_switched();
             let cur = cache.fastest(key);
 
-            // Browser hydration is asynchronous, so persistent entries may
-            // have arrived after construction. Ingest them before starting a
-            // redundant tune.
-            #[cfg(autotune_persistence)]
+            // The cache may not hold every persistent entry yet: right after
+            // an environment switch, or another process may have written the
+            // key since. Ingest them before starting a redundant tune.
+            #[cfg(persistence)]
             let cur = if matches!(cur, TuneCacheResult::Miss) {
-                cache.sync_persistent();
+                cache.sync_persistent().await;
                 cache.fastest(key)
             } else {
                 cur
             };
 
-            #[cfg(autotune_persistence)]
+            #[cfg(persistence)]
             let cur = if matches!(cur, TuneCacheResult::Unchecked) {
                 let mut log = self.logger.lock();
                 let checksum = checksum();
@@ -287,12 +286,12 @@ impl<K: AutotuneKey> Tuner<K> {
             })
             .collect();
 
-        #[cfg(autotune_persistence)]
+        #[cfg(persistence)]
         let checksum = tunables.compute_checksum();
 
         // Fast path: single tunable, no benchmarking needed.
         if results.len() == 1 {
-            self.cache.lock().cache_insert(key.clone(), 0);
+            self.cache.lock().await.cache_insert(key.clone(), 0);
             return TuneCacheResult::Hit { fastest_index: 0 };
         }
 
@@ -305,8 +304,6 @@ impl<K: AutotuneKey> Tuner<K> {
         log_context.set_limit(limit);
 
         // The slowest median duration still considered close enough to peak throughput.
-        // Only used on native, where a benchmark can be resolved inline to exit early.
-        #[cfg(not(target_family = "wasm"))]
         let short_circuit = limit.is_some()
             && tunables.is_short_circuit_enabled()
             && !crate::config::CubeClRuntimeConfig::get()
@@ -320,33 +317,28 @@ impl<K: AutotuneKey> Tuner<K> {
             evictor: tunables.evictor(key, inputs),
             plan,
             results,
-            #[cfg(any(not(target_family = "wasm"), autotune_persistence))]
             limit,
-            #[cfg(autotune_persistence)]
+            #[cfg(persistence)]
             bounds,
-            #[cfg(not(target_family = "wasm"))]
             short_circuit,
-            #[cfg(autotune_persistence)]
+            #[cfg(persistence)]
             checksum,
             log_context,
         };
 
-        #[cfg(not(target_family = "wasm"))]
         if crate::config::CubeClRuntimeConfig::get()
             .autotune
             .bench
             .adaptive
         {
-            return self.tune_adaptive(job, client);
+            return self.tune_adaptive(job, client).await;
         }
 
-        self.tune_fixed_samples(job, client)
+        self.tune_fixed_samples(job, client).await
     }
 
-    /// Round robin the candidates, eliminating them as the evidence allows. Native only: the
-    /// driver has to resolve samples between rounds, which it cannot do on the browser event loop.
-    #[cfg(not(target_family = "wasm"))]
-    fn tune_adaptive<'i, F: TuneInputs, Out: AutotuneOutput>(
+    /// Round robin the candidates, eliminating them as the evidence allows.
+    async fn tune_adaptive<'i, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         mut job: TuneJob<'_, 'i, K, F, Out>,
         client: &Client,
@@ -365,14 +357,16 @@ impl<K: AutotuneKey> Tuner<K> {
             evictor: job.evictor.take(),
         };
 
-        let outcome = schedule.run_plan(
-            &job.key,
-            &mut job.plan,
-            &job.autotunables,
-            &job.test_inputs,
-            client,
-            &mut job.results,
-        );
+        let outcome = schedule
+            .run_plan(
+                &job.key,
+                &mut job.plan,
+                &job.autotunables,
+                &job.test_inputs,
+                client,
+                &mut job.results,
+            )
+            .await;
 
         for (name, duration) in outcome.steps {
             job.log_context.push_tuning_step(name, duration);
@@ -383,12 +377,11 @@ impl<K: AutotuneKey> Tuner<K> {
 
         let request = job.into_request(Vec::new(), outcome.decided);
 
-        cubecl_environment::future::block_on(process_request(request, &self.cache, &self.logger))
+        process_request(request, &self.cache, &self.logger).await
     }
 
     /// Benchmark every candidate with a fixed sample count, resolving the samples afterwards.
-    /// This is the only strategy available on wasm, where nothing can be awaited inline.
-    fn tune_fixed_samples<'i, F: TuneInputs, Out: AutotuneOutput>(
+    async fn tune_fixed_samples<'i, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         mut job: TuneJob<'_, 'i, K, F, Out>,
         client: &Client,
@@ -396,13 +389,7 @@ impl<K: AutotuneKey> Tuner<K> {
     where
         <F as TuneInputs>::At<'i>: Clone + Send,
     {
-        // The batch-retry check below reads this through `cfg!`, which keeps
-        // the name alive on wasm too; the assignment is native-only, so it
-        // simply stays false there.
-        #[cfg(not(target_family = "wasm"))]
         let mut batch_success = false;
-        #[cfg(target_family = "wasm")]
-        let batch_success = false;
 
         // Walk the plan batch by batch, launching each benchmark synchronously. A
         // successful launch queues a `PendingBench` for the async resolver below;
@@ -442,9 +429,8 @@ impl<K: AutotuneKey> Tuner<K> {
                             launch: start_time.map(|start| start.elapsed()),
                         };
 
-                        #[cfg(not(target_family = "wasm"))]
                         if job.short_circuit {
-                            let result = cubecl_environment::future::block_on(resolve_bench(bench));
+                            let result = resolve_bench(bench).await;
 
                             // short_circuit is only true when limit.is_some() => unwrap is fine.
                             let close_enough = result
@@ -482,12 +468,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 }
             }
 
-            #[cfg(not(target_family = "wasm"))]
             if !pending.is_empty() || batch_success {
-                break;
-            }
-            #[cfg(target_family = "wasm")]
-            if !pending.is_empty() {
                 break;
             }
         }
@@ -496,21 +477,7 @@ impl<K: AutotuneKey> Tuner<K> {
         // is a fair comparison and `process_request` can make the call.
         let request = job.into_request(pending, None);
 
-        // Resolve samples and commit the result. On wasm this runs on the browser
-        // event loop; elsewhere it blocks inline.
-        #[cfg(target_family = "wasm")]
-        {
-            let cache = self.cache.clone();
-            let logger = self.logger.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                process_request(request, &cache, &logger).await;
-            });
-
-            return TuneCacheResult::Pending;
-        }
-
-        #[cfg(not(target_family = "wasm"))]
-        cubecl_environment::future::block_on(process_request(request, &self.cache, &self.logger))
+        process_request(request, &self.cache, &self.logger).await
     }
 }
 
@@ -563,20 +530,20 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
 /// Await every profile sample, pick the fastest tunable, commit to the cache.
 async fn process_request<K: AutotuneKey>(
     request: TuneRequest<K>,
-    cache: &Mutex<TuneCache<K>>,
+    cache: &AsyncMutex<TuneCache<K>>,
     logger: &Mutex<Logger>,
 ) -> TuneCacheResult {
     let TuneRequest {
         key,
         mut results,
-        #[cfg(autotune_persistence)]
+        #[cfg(persistence)]
         checksum,
         mut log_context,
         pending,
         decided,
-        #[cfg(autotune_persistence)]
+        #[cfg(persistence)]
         limit,
-        #[cfg(autotune_persistence)]
+        #[cfg(persistence)]
         bounds,
     } = request;
 
@@ -610,7 +577,7 @@ async fn process_request<K: AutotuneKey>(
     // Read before the sort, which reorders `results` out of tunable order. A
     // decided candidate whose own outcome is an error is one `Schedule::run_plan`
     // picked with nothing measured — the tune executed but could not be timed.
-    #[cfg(autotune_persistence)]
+    #[cfg(persistence)]
     let unmeasured = decided.is_some_and(|index| results[index].outcome.is_err());
 
     results.sort_by(|a, b| {
@@ -647,7 +614,7 @@ async fn process_request<K: AutotuneKey>(
         log_context.log_result(&mut logger.lock(), &key, &results);
         // In-memory regardless: without it this key re-tunes on every call, and
         // a tune that measured nothing would keep failing the same way.
-        cache.lock().cache_insert(key.clone(), fastest_index);
+        cache.lock().await.cache_insert(key.clone(), fastest_index);
 
         // Not on disk, though. An unmeasured decision is a guess made to keep
         // the device thread alive, and the failures that produce one — a
@@ -655,18 +622,22 @@ async fn process_request<K: AutotuneKey>(
         // transient. Persisting it would freeze the guess into every later
         // process and never measure the key again; letting it expire with this
         // one costs a re-tune and buys a real measurement.
-        #[cfg(autotune_persistence)]
+        #[cfg(persistence)]
         if !unmeasured {
-            cache.lock().persistent_cache_insert(
-                key,
-                checksum,
-                crate::tune::PersistentCacheValue {
-                    fastest_index,
-                    results,
-                    bounds,
-                    limit,
-                },
-            );
+            cache
+                .lock()
+                .await
+                .persistent_cache_insert(
+                    key,
+                    checksum,
+                    crate::tune::PersistentCacheValue {
+                        fastest_index,
+                        results,
+                        bounds,
+                        limit,
+                    },
+                )
+                .await;
         }
     }
 
@@ -674,7 +645,7 @@ async fn process_request<K: AutotuneKey>(
 }
 
 #[cfg(feature = "autotune-checks")]
-pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
+pub fn check_autotune_outputs<O: AutotuneOutput>(
     mut checks_outputs: Vec<(String, Result<O, AutotuneError>)>,
 ) -> Vec<crate::tune::log::CheckResult> {
     if checks_outputs.is_empty() {

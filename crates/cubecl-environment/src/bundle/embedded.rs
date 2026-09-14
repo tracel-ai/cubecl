@@ -1,7 +1,6 @@
 //! The flat bundle format, readable anywhere.
 //!
-//! `SQLite` needs a file system, so it can't serve wasm or no-std targets.
-//! This format exists for them: one contiguous blob of bytes, produced on a
+//! A bundle is one contiguous blob of bytes, produced on a
 //! development machine by [`export`](super::export) and consumed by
 //! [`EmbeddedBundle`] either from `include_bytes!` or from bytes fetched at
 //! runtime.
@@ -44,7 +43,7 @@ pub const MAGIC: &[u8; 8] = b"CUBECLB\x01";
 pub const FORMAT_VERSION: u32 = 1;
 
 /// Size of one entry in the index: namespace id, key span, value span.
-pub(crate) const ENTRY_SIZE: usize = 20;
+pub const ENTRY_SIZE: usize = 20;
 
 /// The layout version of the flat bundle starting at `bytes`, if it is one.
 ///
@@ -102,7 +101,7 @@ impl core::error::Error for EmbeddedBundleError {}
 /// static BUNDLE: &[u8] = include_bytes!("../bundles/h100.ccb");
 ///
 /// let bundle = EmbeddedBundle::from_static(BUNDLE).expect("valid bundle");
-/// bundle::import(&bundle);
+/// bundle::import(&bundle).await;
 /// ```
 #[derive(Debug)]
 pub struct EmbeddedBundle {

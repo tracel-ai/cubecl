@@ -106,7 +106,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 self.utilities.properties_hash,
                 KernelCacheKey::new(kernel_id, self.build_id),
             );
-            if let Some(entry) = cache.remove(&key) {
+            if let Some(entry) = cache.take_cached(&key) {
                 use crate::ParamsTransfer;
 
                 log::trace!("Using SPIR-V cache");

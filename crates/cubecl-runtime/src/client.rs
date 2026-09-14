@@ -1666,14 +1666,18 @@ impl Client {
     /// # Errors
     ///
     /// Whatever `probe` reports.
-    pub fn measure_throughput(
+    pub async fn measure_throughput<F, Fut>(
         &self,
         key: ThroughputKey,
-        probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
-    ) -> Result<ThroughputValue, ThroughputError> {
-        let cache = ThroughputCache::get_for_device(self.name(), self.properties());
+        probe: F,
+    ) -> Result<ThroughputValue, ThroughputError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: core::future::Future<Output = Result<ThroughputValue, ThroughputError>>,
+    {
+        let cache = ThroughputCache::get_for_device(self.name(), self.properties()).await;
         let mut throughputs = ThroughputBenchmarker::new(cache);
-        throughputs.measure(key, probe)
+        throughputs.measure(key, probe).await
     }
 }
 

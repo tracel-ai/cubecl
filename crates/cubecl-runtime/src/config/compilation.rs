@@ -8,7 +8,7 @@ pub struct CompilationConfig {
     pub logger: LoggerConfig<CompilationLogLevel>,
     /// Whether compiled kernels are cached in the active environment.
     #[serde(default)]
-    #[cfg(std_io)]
+    #[cfg(persistence)]
     pub cache: bool,
     /// Controls whether kernel launches enforce bounds checks.
     #[serde(default)]
