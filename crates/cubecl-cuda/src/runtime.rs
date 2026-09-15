@@ -7,7 +7,6 @@ use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
 };
-use cubecl_core::ir::PhysicalDevice;
 use cubecl_core::{
     MemoryConfiguration,
     cmma::MatrixLayout,
@@ -34,8 +33,9 @@ use cubecl_cpp::{
         register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_server::runtime::Runtime;
-use cubecl_server::{allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger};
+use cubecl_server::{
+    allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger, runtime::Runtime,
+};
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 

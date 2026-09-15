@@ -1,12 +1,13 @@
 use alloc::string::String;
-use core::fmt;
-use core::hash::{BuildHasher, Hash, Hasher};
-use core::str::FromStr;
+use core::{
+    fmt,
+    hash::{BuildHasher, Hash, Hasher},
+    str::FromStr,
+};
 
-use crate::EnumSet;
-use crate::EnumSetType;
 use crate::{
-    AddressType, ElemType, OpaqueType, SemanticType, Type, TypeHash, VectorSize,
+    AddressType, ElemType, EnumSet, EnumSetType, OpaqueType, SemanticType, Type, TypeHash,
+    VectorSize,
     features::{AtomicUsage, ComplexUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;

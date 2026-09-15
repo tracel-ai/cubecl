@@ -4,9 +4,6 @@ use crate::{
     device::AmdDevice,
 };
 use core::ffi::c_int;
-use cubecl_core::ir::{PciAddress, PhysicalDevice};
-use cubecl_server::runtime::Runtime;
-use std::sync::OnceLock;
 
 use cubecl_common::{
     device::{Device, DeviceService},
@@ -18,8 +15,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ContiguousElements, DeviceIdentity, DeviceProperties, HardwareProperties,
-        MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, amd::GfxArch,
-        features::Plane,
+        MemoryDeviceProperties, MmaProperties, PciAddress, PhysicalDevice, TargetProperties,
+        VectorSize, amd::GfxArch, features::Plane,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -40,8 +37,14 @@ use cubecl_cpp::{
     },
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
-use cubecl_server::{allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger};
-use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
+use cubecl_server::{
+    allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
+};
+use std::{
+    ffi::CStr,
+    mem::MaybeUninit,
+    sync::{Arc, OnceLock},
+};
 
 static AMD_WMMA: OnceLock<Option<AmdWmma>> = OnceLock::new();
 

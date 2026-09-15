@@ -1,21 +1,24 @@
 use crate::{compute::affinity, compute::server::CpuServer, device::CpuDevice};
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
-use cubecl_core::ir::PhysicalDevice;
 use cubecl_core::{
     MemoryConfiguration,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
-        IntKind, MemoryDeviceProperties, TargetProperties, Type, UIntKind, VectorSize,
+        IntKind, MemoryDeviceProperties, PhysicalDevice, TargetProperties, Type, UIntKind,
+        VectorSize,
         features::{AtomicUsage, Features, TypeUsage},
     },
     server::ServerUtilities,
     zspace::{Shape, Strides},
 };
 use cubecl_llvm::PlironCompiler;
-use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation};
-use cubecl_server::runtime::Runtime;
-use cubecl_server::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
+use cubecl_server::{
+    allocator::ContiguousMemoryLayoutPolicy,
+    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
+    logging::ServerLogger,
+    runtime::Runtime,
+};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, System};

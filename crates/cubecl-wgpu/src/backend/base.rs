@@ -1,8 +1,9 @@
 use super::wgsl;
-use crate::WgpuServer;
-use crate::{AutoRepresentationRef, WgpuCompiler};
-use cubecl_core::{CubeDim, ExecutionMode, WgpuCompilationOptions, server::KernelArguments};
-use cubecl_core::{MemoryConfiguration, prelude::Visibility};
+use crate::{AutoRepresentationRef, WgpuCompiler, WgpuServer};
+use cubecl_core::{
+    CubeDim, ExecutionMode, MemoryConfiguration, WgpuCompilationOptions, prelude::Visibility,
+    server::KernelArguments,
+};
 use cubecl_ir::{DeviceProperties, PhysicalDevice};
 use cubecl_server::{
     compiler::{CompilationError, KernelCacheKey},
