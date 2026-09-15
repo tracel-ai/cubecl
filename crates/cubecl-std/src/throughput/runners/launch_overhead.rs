@@ -13,26 +13,34 @@ pub fn build_kernel(
 
         let (_, duration) = client
             .profile(
-                || unsafe {
+                || {
+                    let _real_run = cubecl_runtime::dry_run::RealRun::new();
                     for _ in 0..iterations {
-                        launch_overhead::launch_unchecked(
-                            &client,
-                            cubecl_core::CubeCount::new_single(),
-                            cubecl_core::server::CubeDim::new_single(),
-                            1,
-                            cubecl_core::frontend::BufferArg::from_raw_parts(input.clone(), 1),
-                            cubecl_core::frontend::BufferArg::from_raw_parts(output.clone(), 1),
-                            cubecl_core::ir::ElemType::Int(cubecl_core::ir::IntKind::I32),
-                        );
+                        unsafe {
+                            launch_overhead::launch_unchecked(
+                                &client,
+                                cubecl_core::CubeCount::new_single(),
+                                cubecl_core::server::CubeDim::new_single(),
+                                1,
+                                cubecl_core::frontend::BufferArg::from_raw_parts(input.clone(), 1),
+                                cubecl_core::frontend::BufferArg::from_raw_parts(output.clone(), 1),
+                                cubecl_core::ir::ElemType::Int(cubecl_core::ir::IntKind::I32),
+                            );
+                        }
                     }
                 },
                 "launch_overhead",
             )
             .expect("should succeed launch_overhead");
 
+        // A window whose timestamp slots come back unwritten resolves to
+        // nothing: seen on Metal for the first window of a stream while other
+        // streams are profiling, both slots reading zero and the next window
+        // measuring. That is a timer reading zero, not a failure: the
+        // benchmarker grows a window whose timer reads zero, and a probe that
+        // never measures reports no timing rather than a number.
         cubecl_core::future::block_on(duration.into_future())
-            .expect("the launch_overhead window always dispatches, so it is always measured")
-            .duration()
+            .map_or(core::time::Duration::ZERO, |ticks| ticks.duration())
     });
 
     cubecl_runtime::throughput::KernelConfig {
