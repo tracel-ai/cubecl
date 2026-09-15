@@ -394,21 +394,27 @@ impl QueryProfiler {
             let epoch_tick = self.epoch_tick;
             let epoch_instant = self.epoch_instant;
 
+            // The map starts now, not when the measurement is first read, and the
+            // poll handle lives only until it completes. A caller may keep the
+            // measurement unread for a whole pass, and a handle held that long
+            // keeps the poll thread spinning on an idle queue with no map to
+            // drive. A map that never completes still releases it: dropping the
+            // buffer aborts the map and calls this back.
+            let (sender, rec) = cubecl_environment::future::channel::bounded(1);
+            map_buffer
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |v| {
+                    core::mem::drop(poll_signal);
+                    // This might fail if the channel is closed (eg. the future is dropped).
+                    // This is fine, just means results aren't needed anymore.
+                    let _ = sender.try_send(v);
+                });
+
             Ok(ProfileDuration::new_device_time_maybe(async move {
-                let (sender, rec) = cubecl_environment::future::channel::bounded(1);
-                map_buffer
-                    .slice(..)
-                    .map_async(wgpu::MapMode::Read, move |v| {
-                        // This might fail if the channel is closed (eg. the future is dropped).
-                        // This is fine, just means results aren't needed anymore.
-                        let _ = sender.try_send(v);
-                    });
                 rec.recv()
                     .await
                     .expect("Unable to receive buffer slice result.")
                     .expect("Failed to map buffer");
-                // Can stop polling now.
-                core::mem::drop(poll_signal);
 
                 let binding = map_buffer.slice(..).get_mapped_range().unwrap();
                 let data: &[u64] = bytemuck::try_cast_slice(&binding).unwrap();

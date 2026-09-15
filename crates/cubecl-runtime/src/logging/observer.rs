@@ -100,10 +100,11 @@ pub trait LaunchObserver: Send + Sync {
     /// bracketing it with profile markers, which costs the issuing thread a
     /// round trip to the server per kernel. Reading a measurement back costs
     /// more: it blocks until the kernel has run, and an observer that reads
-    /// every one as it arrives — which the default [`profiled`](Self::profiled)
-    /// does — removes the overlap between kernels. An observer that only wants
-    /// to know *which* kernels ran should leave this alone; one measuring where
-    /// a pass spends its time is paying for the answer either way.
+    /// every one as it arrives — which is what the default
+    /// [`profiled`](Self::profiled) asks for — removes the overlap between
+    /// kernels. An observer that only wants to know *which* kernels ran should
+    /// leave this alone; one measuring where a pass spends its time is paying
+    /// for the answer either way.
     ///
     /// Two situations refuse the measurement without refusing the launch:
     ///
@@ -121,45 +122,49 @@ pub trait LaunchObserver: Send + Sync {
     }
 
     /// A kernel was timed, and this is its measurement — **not yet read
-    /// back**.
+    /// back**. Keep it and return `None`, or hand it back to have it read for
+    /// you and its duration delivered to [`timed`](Self::timed).
     ///
     /// Only called when [`wants_timing`](Self::wants_timing) is true, on the
     /// thread that issued the launch, right after it. Where the backend times
-    /// on the device the measurement is two events in the stream, and nothing
-    /// has waited for either: the kernels around it still run back to back.
+    /// on the device without waiting — CUDA, HIP, and wgpu's timestamp
+    /// queries — the measurement is two events in the stream, and nothing has
+    /// waited for either: the kernels around it still run back to back.
     /// Reading it — [`ProfileDuration::resolve`] — blocks until the device has
     /// reached both events, so an observer that keeps it and reads it once the
-    /// work is done measures the pass as it runs, where one that reads it here
+    /// work is done measures the pass as it runs, where one that hands it back
     /// serializes every launch behind the last.
     ///
-    /// The resolved [`ProfileTicks`] carry the window's start and end on one
-    /// clock, not only its length, so an observer that keeps them can also say
-    /// where the device sat idle between kernels.
+    /// On those backends the resolved [`ProfileTicks`] carry the window's start
+    /// and end on one clock, not only its length, so an observer that keeps
+    /// them can also say where the device sat idle between kernels.
     ///
-    /// The default reads it back at once and hands the duration to
-    /// [`timed`](Self::timed), which is the simple case.
-    fn profiled(&self, kernel: &'static str, profile: ProfileDuration) {
-        let method = profile.timing_method();
-        match cubecl_environment::future::block_on(profile.resolve()) {
-            Some(ticks) => self.timed(kernel, ticks.duration(), method),
-            // Nothing to report: the window carried no measurement, and a zero
-            // would put a launch that was never timed in the timings.
-            None => log::warn!(
-                "Skipped timing a launch of `{kernel}` for its observer: \
-                 the profiled window carried no measurement"
-            ),
-        }
+    /// Metal times on the device too, but waits for the window to finish
+    /// before handing it over, and places each window at the moment it was
+    /// read: its lengths are device time, its starts and ends do not line up
+    /// across kernels, and keeping the measurement saves nothing there.
+    ///
+    /// Called under the same lock as every other method here, which is why the
+    /// read-back is not done in it: the default hands the measurement back,
+    /// and the launch path reads it once the lock is released.
+    fn profiled(&self, _kernel: &'static str, profile: ProfileDuration) -> Option<ProfileDuration> {
+        Some(profile)
     }
 
     /// A kernel finished, and took this long.
     ///
-    /// Called by the default [`profiled`](Self::profiled), once it has read the
-    /// measurement back — and directly, instead of `profiled`, while the
+    /// Called with every measurement [`profiled`](Self::profiled) hands back,
+    /// once it has been read — and directly, instead of `profiled`, while the
     /// profiling logger is also reading measurements: one is read only once,
     /// and the logger's copy is made from the reading. An observer that keeps
-    /// measurements unread therefore still implements this. It arrives *after* the launch rather than before it, so an observer
+    /// measurements unread therefore still implements this.
+    ///
+    /// It arrives *after* the launch rather than before it, so an observer
     /// pairing kernels with its own state should do that in
-    /// [`launched`](Self::launched) and use this only for the duration.
+    /// [`launched`](Self::launched) and use this only for the duration. An
+    /// observation that ends while a measurement is being read is not told:
+    /// the duration goes to the observer the launch was reported to, and only
+    /// while it is still installed.
     ///
     /// **`method` is not a detail.** A backend falls back to
     /// [`System`](TimingMethod::System) where it cannot get a device
@@ -257,19 +262,47 @@ pub(crate) fn notify_timed(kernel: &'static str, duration: Duration, method: Tim
     }
 }
 
-/// Hand a launch's measurement to the observer unread.
+/// Hand a launch's measurement to the observer unread, and read back whatever
+/// it hands back.
 ///
-/// The observer is cloned out of the slot before it is called: the default
-/// [`LaunchObserver::profiled`] blocks until the kernel has run, and holding
-/// the slot's lock through that would stall every other launching thread's
-/// notification behind this one's kernel.
+/// The read-back happens with the slot's lock released: it blocks until the
+/// kernel has run, and holding the lock through that would stall every other
+/// launching thread's notification behind this one's kernel. The duration then
+/// goes back under the lock, and only to the observer that was handed the
+/// measurement, if it is still installed — an observation that ended while its
+/// kernel ran is done receiving.
 pub(crate) fn notify_profiled(kernel: &'static str, profile: ProfileDuration) {
     if !OBSERVING.load(Ordering::Relaxed) {
         return;
     }
-    let observer = OBSERVER.read().as_ref().map(Arc::clone);
-    if let Some(observer) = observer {
-        observer.profiled(kernel, profile);
+    let (observer, profile) = {
+        let slot = OBSERVER.read();
+        let Some(observer) = slot.as_ref() else {
+            return;
+        };
+        match observer.profiled(kernel, profile) {
+            Some(profile) => (Arc::clone(observer), profile),
+            None => return,
+        }
+    };
+
+    let method = profile.timing_method();
+    let Some(ticks) = cubecl_environment::future::block_on(profile.resolve()) else {
+        // Nothing to report: the window carried no measurement, and a zero
+        // would put a launch that was never timed in the timings.
+        log::warn!(
+            "Skipped timing a launch of `{kernel}` for its observer: \
+             the profiled window carried no measurement"
+        );
+        return;
+    };
+
+    let slot = OBSERVER.read();
+    if slot
+        .as_ref()
+        .is_some_and(|installed| Arc::ptr_eq(installed, &observer))
+    {
+        observer.timed(kernel, ticks.duration(), method);
     }
 }
 
@@ -383,6 +416,38 @@ mod tests {
         );
     }
 
+    /// An observation dropped while its measurement is being read back is not
+    /// told the duration: the read-back runs outside the lock, so the guard
+    /// can drop mid-read, and the owner has already collected what it wanted.
+    #[test]
+    #[serial_test::serial]
+    fn an_observation_that_ended_mid_read_is_not_told_the_duration() {
+        let timed = Arc::new(Timed::default());
+        let watching = Arc::new(Mutex::new(Some(LaunchObservation::new(timed.clone()))));
+
+        // Stands in for a kernel still running when the owner's pass ends: the
+        // guard drops while the launch path waits on the measurement.
+        let ends_the_observation = watching.clone();
+        let start = cubecl_common::profile::Instant::now();
+        let profile = ProfileDuration::new(
+            alloc::boxed::Box::pin(async move {
+                drop(ends_the_observation.lock().take());
+                Some(ProfileTicks::from_start_end(
+                    start,
+                    start + Duration::from_micros(7),
+                ))
+            }),
+            TimingMethod::System,
+        );
+        notify_profiled("a_kernel", profile);
+
+        assert!(watching.lock().is_none(), "the read-back ended it");
+        assert!(
+            timed.0.lock().is_empty(),
+            "an observation that ended must not keep receiving"
+        );
+    }
+
     /// An observer that takes measurements unread is handed each one as it
     /// was taken, and reads it back when it chooses — which is what keeps the
     /// kernels around a timed launch running back to back.
@@ -421,8 +486,13 @@ mod tests {
         fn wants_timing(&self) -> bool {
             true
         }
-        fn profiled(&self, kernel: &'static str, profile: ProfileDuration) {
+        fn profiled(
+            &self,
+            kernel: &'static str,
+            profile: ProfileDuration,
+        ) -> Option<ProfileDuration> {
             self.0.lock().push((kernel, profile));
+            None
         }
     }
 
