@@ -1,5 +1,6 @@
-use crate::server::{
-    BufferBinding, CommunicationId, CopyDescriptor, Handle, ReduceOperation, Server,
+use crate::{
+    client::Client,
+    server::{BufferBinding, CommunicationId, CopyDescriptor, Handle, ReduceOperation, Server},
 };
 use alloc::{collections::VecDeque, sync::Arc, vec, vec::Vec};
 use cubecl_common::{
@@ -9,7 +10,7 @@ use cubecl_common::{
 use cubecl_environment::{collections::HashMap, stream::StreamId, sync::Mutex};
 use cubecl_ir::ElemType;
 
-static CLIENTS: Mutex<Option<HashMap<ServiceId, DeviceHandle<dyn Server>>>> = Mutex::new(None);
+static CLIENTS: Mutex<Option<HashMap<ServiceId, Client>>> = Mutex::new(None);
 static SEQUENCERS: Mutex<Option<HashMap<CommunicationId, Arc<OperationSequencer>>>> =
     Mutex::new(None);
 
@@ -99,12 +100,12 @@ impl Gate {
 }
 
 impl OperationSequencer {
-    pub(crate) fn register_client(device: DeviceHandle<dyn Server>) {
+    pub(crate) fn register_client(client: Client) {
         let mut clients = CLIENTS.lock();
         clients
             .get_or_insert_with(HashMap::new)
-            .entry(device.service_id())
-            .or_insert(device);
+            .entry(client.service_id())
+            .or_insert(client);
     }
 
     pub(crate) fn all_reduce(request: AllReduceRequest) {
@@ -131,7 +132,7 @@ impl OperationSequencer {
     ) -> Vec<DeviceHandle<dyn Server>> {
         let clients = CLIENTS.lock();
         let clients = clients.as_ref().unwrap();
-        device_ids
+        let mut clients = device_ids
             .iter()
             .map(|device_id| {
                 clients
@@ -142,7 +143,11 @@ impl OperationSequencer {
                     .expect("all collective clients must be loaded before all_reduce")
                     .clone()
             })
-            .collect()
+            .collect::<Vec<_>>();
+        for client in &mut clients {
+            client.ensure_init_collective(request.device_ids.clone());
+        }
+        clients.iter().map(Client::collective_device).collect()
     }
 
     fn for_communicator(device_ids: &[DeviceId], action: impl FnOnce(&Self)) {

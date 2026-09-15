@@ -202,7 +202,7 @@ impl Client {
             utilities,
             stream_id: None,
         };
-        OperationSequencer::register_client(client.device.clone());
+        OperationSequencer::register_client(client.clone());
         client
     }
 
@@ -222,7 +222,7 @@ impl Client {
             utilities,
             stream_id: None,
         };
-        OperationSequencer::register_client(client.device.clone());
+        OperationSequencer::register_client(client.clone());
         client
     }
 
@@ -236,6 +236,10 @@ impl Client {
     /// The service this client reaches: what its handles are stamped with.
     pub fn service_id(&self) -> ServiceId {
         self.device.service_id()
+    }
+
+    pub(crate) fn collective_device(&self) -> DeviceHandle<dyn Server> {
+        self.device.clone()
     }
 
     /// Whether the server behind this client is an `S`. The client is erased
