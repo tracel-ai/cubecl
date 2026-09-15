@@ -68,6 +68,7 @@ impl DeviceService for MetalServer {
 
         let hardware_props = HardwareProperties {
             load_width: 128,
+            vector_register_count: None,
             plane_size_min: 32,
             plane_size_max: 32,
             // Metal allows 31 buffer bindings; one is reserved for the per-kernel info buffer.

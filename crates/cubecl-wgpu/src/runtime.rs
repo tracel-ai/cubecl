@@ -452,6 +452,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
         load_width: 128,
+        vector_register_count: None,
         // On Apple Silicon, the plane size is 32,
         // though the minimum and maximum differ.
         // https://github.com/gpuweb/gpuweb/issues/3950
