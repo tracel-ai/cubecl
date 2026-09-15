@@ -593,17 +593,18 @@ impl WgpuStream {
         resource
     }
 
-    /// Copy `data` straight into a host-visible buffer, skipping wgpu's staging buffer and the
-    /// GPU-side copy out of it. Returns `false` when the buffer is not mapped.
+    /// Copies into a mapped buffer, skipping staging. Returns `false` to fall back to the queue.
     ///
-    /// Only for writes issued after a submit: unlike `write_to_buffer`, this is not ordered by
-    /// the queue. Uniforms stay on the queue path, since kernels already recorded may read them.
+    /// Not ordered by the queue, so call it only after a submit, never for uniforms.
     #[cfg(not(target_family = "wasm"))]
     fn write_mapped(&mut self, resource: &WgpuResource, data: &[u8]) -> bool {
         let Some(host_ptr) = resource.host_ptr else {
             return false;
         };
-        debug_assert!(data.len() as u64 <= resource.size);
+        // The copy below is unchecked; the queue path validates.
+        if data.len() as u64 > resource.size {
+            return false;
+        }
 
         // A pooled range may have belonged to a tensor whose kernels are still running.
         if let Err(e) = self.device.poll(wgpu::PollType::Wait {
@@ -614,8 +615,7 @@ impl WgpuStream {
             return false;
         }
 
-        // SAFETY: The mapping covers the whole buffer, the range lies inside it, and no
-        // submitted work can touch it once the queue is idle.
+        // SAFETY: The range is in bounds and the queue is idle.
         unsafe {
             let dst = host_ptr.0.as_ptr().add(resource.offset as usize);
             core::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());

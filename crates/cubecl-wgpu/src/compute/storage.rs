@@ -26,12 +26,11 @@ impl core::fmt::Debug for WgpuStorage {
     }
 }
 
-/// Start of a buffer's persistent host mapping, on devices whose storage the host can see.
+/// A buffer's persistent host mapping. Crate private: writes through it need an idle queue.
 #[derive(Debug, Clone, Copy)]
-pub struct HostPtr(pub NonNull<u8>);
+pub(crate) struct HostPtr(pub(crate) NonNull<u8>);
 
-// SAFETY: The mapping lives as long as the buffer it belongs to, and writes through it are
-// only issued by the stream that owns the buffer.
+// SAFETY: Only the stream owning the buffer writes through it.
 unsafe impl Send for HostPtr {}
 unsafe impl Sync for HostPtr {}
 
@@ -42,8 +41,9 @@ pub struct WgpuResource {
     pub buffer: wgpu::Buffer,
     /// The buffer device address, if supported
     pub address: Option<NonZeroU64>,
-    /// The host mapping of the whole buffer, if its memory is host visible.
-    pub host_ptr: Option<HostPtr>,
+    /// The buffer host mapping, if host visible.
+    #[new(default)]
+    pub(crate) host_ptr: Option<HostPtr>,
     /// The buffer offset.
     pub offset: u64,
     /// The size of the resource.
@@ -61,8 +61,9 @@ pub struct WgpuMemory {
     pub buffer: wgpu::Buffer,
     /// The buffer device address, if supported
     pub address: Option<NonZeroU64>,
-    /// The host mapping of the whole buffer, if its memory is host visible.
-    pub host_ptr: Option<HostPtr>,
+    /// The buffer host mapping, if host visible.
+    #[new(default)]
+    pub(crate) host_ptr: Option<HostPtr>,
 }
 
 impl WgpuResource {
@@ -122,13 +123,15 @@ impl ComputeStorage for WgpuStorage {
                 reason: format!("{} in the wgpu buffer storage", handle.id).into(),
                 backtrace: BackTrace::capture(),
             })?;
-        Ok(WgpuResource::new(
-            memory.buffer.clone(),
-            memory.address,
-            memory.host_ptr,
-            handle.offset(),
-            handle.size(),
-        ))
+        Ok(WgpuResource {
+            host_ptr: memory.host_ptr,
+            ..WgpuResource::new(
+                memory.buffer.clone(),
+                memory.address,
+                handle.offset(),
+                handle.size(),
+            )
+        })
     }
 
     #[cfg_attr(
@@ -173,16 +176,14 @@ impl WgpuStorage {
             // then require ray tracing to be supported. So we need to allocate manually, then import
             // the native buffer into wgpu using `from_raw_managed`.
             // This actually skips some of the buffer batching stuff we don't really want in `gpu_allocator`.
-            let (buffer, addr, host_ptr) =
-                crate::backend::vulkan::create_storage_buffer(&self.device, desc)?;
-            Ok(WgpuMemory::new(buffer, NonZeroU64::new(addr), host_ptr))
+            crate::backend::vulkan::create_storage_buffer(&self.device, desc)
         } else {
-            Ok(WgpuMemory::new(self.device.create_buffer(desc), None, None))
+            Ok(WgpuMemory::new(self.device.create_buffer(desc), None))
         }
     }
 
     #[cfg(not(feature = "spirv"))]
     fn create_buffer(&self, desc: &wgpu::BufferDescriptor<'_>) -> Result<WgpuMemory, IoError> {
-        Ok(WgpuMemory::new(self.device.create_buffer(desc), None, None))
+        Ok(WgpuMemory::new(self.device.create_buffer(desc), None))
     }
 }
