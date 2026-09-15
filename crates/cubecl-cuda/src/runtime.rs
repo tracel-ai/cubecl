@@ -448,7 +448,7 @@ impl DeviceProbe {
 
         let mut bus_id = [0u8; 32];
         // SAFETY: the buffer outlives the call and its length travels with it.
-        let pci = unsafe {
+        let pci_address = unsafe {
             cuDeviceGetPCIBusId(bus_id.as_mut_ptr().cast(), bus_id.len() as _, device).result()
         }
         .ok()
@@ -465,9 +465,9 @@ impl DeviceProbe {
         Self {
             name,
             physical: PhysicalDevice {
-                pci,
+                pci_address,
                 uuid,
-                vendor_id: Some(0x10de),
+                vendor_id: Some(PhysicalDevice::VENDOR_NVIDIA),
                 device_id: None,
                 total_memory,
             },

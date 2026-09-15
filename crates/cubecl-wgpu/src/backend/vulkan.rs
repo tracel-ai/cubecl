@@ -814,7 +814,7 @@ pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::Physical
             raw_instance.get_physical_device_properties2(physical_device, &mut properties);
             physical.uuid = Some(ids.device_uuid);
             if has_pci {
-                physical.pci = Some(PciAddress {
+                physical.pci_address = Some(PciAddress {
                     domain: pci.pci_domain,
                     bus: pci.pci_bus as u8,
                     device: pci.pci_device as u8,
