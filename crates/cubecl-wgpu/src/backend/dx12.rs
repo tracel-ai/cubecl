@@ -1,4 +1,4 @@
-use cubecl_ir::PhysicalDevice;
+use cubecl_ir::{AdapterLuid, PhysicalDevice};
 use wgpu::hal;
 
 /// Fills the dedicated memory and the adapter LUID from DXGI, which reports no PCI address or UUID.
@@ -15,6 +15,6 @@ pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut PhysicalDevice) {
     let mut bytes = [0; 8];
     bytes[..4].copy_from_slice(&luid.LowPart.to_le_bytes());
     bytes[4..].copy_from_slice(&luid.HighPart.to_le_bytes());
-    physical.luid = Some(bytes);
+    physical.luid = Some(AdapterLuid::new(bytes));
     physical.total_memory = Some(description.DedicatedVideoMemory as u64);
 }

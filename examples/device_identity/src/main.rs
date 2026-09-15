@@ -80,7 +80,8 @@ fn report(device: &str, identity: &DeviceIdentity) {
     let luid = physical
         .luid
         .map(|luid| {
-            luid.iter()
+            luid.bytes()
+                .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect::<String>()
         })
