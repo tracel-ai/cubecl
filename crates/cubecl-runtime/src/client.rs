@@ -1139,12 +1139,14 @@ impl Client {
                 };
                 // The observer alone: it takes the measurement unread, so the
                 // kernels around this one keep running back to back until it
-                // chooses to read them. `ExecutionOnly` still logs the
-                // execution, which it does without any timing.
+                // chooses to read them. An observer does not change what the
+                // logger writes: `ExecutionOnly` is documented as the kernels
+                // that ran without their timings, so it logs the execution and
+                // never the profile.
                 if observed_timing && matches!(level, None | Some(ProfileLevel::ExecutionOnly)) {
                     crate::logging::notify_profiled(name, profile);
                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
-                        let info = type_name_format(name, TypeNameFormatLevel::Balanced);
+                        let info = profile_label(name, &kernel_id);
                         self.utilities.logger.register_execution(info);
                     }
                     return;
@@ -1174,28 +1176,15 @@ impl Client {
                 } else {
                     profile
                 };
-                match level {
-                    // An observer does not change what the logger writes.
-                    // `ExecutionOnly` is documented as the kernels that ran
-                    // without their timings, and it reaches here only because
-                    // an observer asked for the profiled path — registering
-                    // the profile would turn a log the caller configured into
-                    // one it did not.
-                    Some(ProfileLevel::ExecutionOnly) => {
-                        let info = profile_label(name, &kernel_id);
-                        self.utilities.logger.register_execution(info);
+                // Every level left times its launches: the ones that don't
+                // either never took this path or returned above.
+                let info = match level {
+                    Some(ProfileLevel::Full) => {
+                        format!("{name}: {kernel_id} CubeCount {count:?}")
                     }
-                    Some(level) => {
-                        let info = match level {
-                            ProfileLevel::Full => {
-                                format!("{name}: {kernel_id} CubeCount {count:?}")
-                            }
-                            _ => profile_label(name, &kernel_id),
-                        };
-                        self.utilities.logger.register_profiled(info, profile);
-                    }
-                    None => {}
-                }
+                    _ => profile_label(name, &kernel_id),
+                };
+                self.utilities.logger.register_profiled(info, profile);
             }
         }
     }
