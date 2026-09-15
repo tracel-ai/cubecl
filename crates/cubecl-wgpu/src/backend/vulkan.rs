@@ -14,7 +14,7 @@ use cubecl_core::{
     server::{IoError, KernelArguments},
 };
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_ir::{DeviceProperties, PciAddress, Type, features::*};
+use cubecl_ir::{AdapterLuid, DeviceProperties, PciAddress, Type, features::*};
 use cubecl_server::compiler::CompilationError;
 use cubecl_server::kernel::CompiledKernel;
 use cubecl_spirv::{SpirvCompiler, SpirvKernel};
@@ -854,7 +854,7 @@ pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::Physical
             raw_instance.get_physical_device_properties2(physical_device, &mut properties);
             physical.uuid = Some(ids.device_uuid);
             if ids.device_luid_valid == vk::TRUE {
-                physical.luid = Some(ids.device_luid);
+                physical.luid = Some(AdapterLuid::new(ids.device_luid));
             }
             if has_pci {
                 physical.pci_address = Some(PciAddress {

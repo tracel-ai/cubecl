@@ -123,8 +123,30 @@ pub struct PhysicalDevice {
     pub device_id: Option<u32>,
     /// Bytes of memory on the card, when the runtime reports it.
     pub total_memory: Option<u64>,
-    /// The adapter's LUID, which Windows assigns and DirectX and Vulkan both report there.
-    pub luid: Option<[u8; 8]>,
+    /// The adapter's Windows LUID, which only holds until the machine restarts.
+    pub luid: Option<AdapterLuid>,
+}
+
+/// The locally unique id Windows gives a graphics adapter when its driver loads, which DirectX,
+/// Vulkan and CUDA all report on Windows.
+///
+/// It changes on a restart, and can change when the driver restarts, so it tells two devices of
+/// one running process apart and nothing more. A key that is stored, cached or sent elsewhere
+/// wants [`PhysicalDevice::pci_address`] or [`PhysicalDevice::uuid`]; this type has no
+/// serialization and no text form so it cannot end up in one by accident.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AdapterLuid([u8; 8]);
+
+impl AdapterLuid {
+    /// The LUID as the eight bytes of the Windows `LUID` struct, low part first.
+    pub fn new(bytes: [u8; 8]) -> Self {
+        Self(bytes)
+    }
+
+    /// The eight bytes of the Windows `LUID` struct, low part first.
+    pub fn bytes(self) -> [u8; 8] {
+        self.0
+    }
 }
 
 impl PhysicalDevice {
