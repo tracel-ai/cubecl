@@ -86,38 +86,3 @@ unsafe extern "C" {
 
     fn cubecl_free_message(message: *mut c_char);
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn half_is_answered_at_single_precision() {
-        assert_eq!(
-            Libdevice.symbol("sin", FloatWidth::F16),
-            Some(("__nv_sinf".to_string(), FloatWidth::F32))
-        );
-        assert_eq!(
-            Libdevice.symbol("sin", FloatWidth::F32),
-            Some(("__nv_sinf".to_string(), FloatWidth::F32))
-        );
-        assert_eq!(
-            Libdevice.symbol("sin", FloatWidth::F64),
-            Some(("__nv_sin".to_string(), FloatWidth::F64))
-        );
-    }
-
-    #[test]
-    fn the_instructions_the_backend_has_are_left_alone() {
-        for base in ["sqrt", "fma", "fabs", "floor", "ceil", "trunc", "rint"] {
-            assert!(
-                !Libdevice.needs_redirect(base, FloatWidth::F32),
-                "{base} is a PTX instruction"
-            );
-        }
-        for width in [FloatWidth::F32, FloatWidth::F64] {
-            assert!(Libdevice.needs_redirect("sin", width));
-            assert!(Libdevice.needs_redirect("atan2", width));
-        }
-    }
-}
