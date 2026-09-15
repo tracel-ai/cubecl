@@ -1304,7 +1304,7 @@ dependencies = [
 
 [[package]]
 name = "device_identity"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "cubecl",
  "cubecl-environment",

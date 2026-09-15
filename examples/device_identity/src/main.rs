@@ -10,6 +10,7 @@ fn main() {
     {
         use cubecl::cuda::{CudaDevice, CudaRuntime};
 
+        cudarc::driver::result::init().expect("the CUDA driver loads");
         let count = cudarc::driver::result::device::get_count().unwrap_or(0) as usize;
         for index in 0..count {
             let client = CudaRuntime::client(&CudaDevice { index });
