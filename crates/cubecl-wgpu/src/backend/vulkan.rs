@@ -1,5 +1,5 @@
 use alloc::collections::BTreeSet;
-use core::ptr::NonNull;
+use core::{num::NonZeroU64, ptr::NonNull};
 
 use ash::vk::{
     self, API_VERSION_1_1, BufferDeviceAddressInfo, BufferUsageFlags,
@@ -36,7 +36,7 @@ use wgpu::{
     },
 };
 
-use crate::{HostPtr, WgpuCompiler, WgpuServer};
+use crate::{HostPtr, WgpuCompiler, WgpuMemory, WgpuServer};
 
 mod features;
 
@@ -189,7 +189,7 @@ fn request_device(
 pub(crate) fn create_storage_buffer(
     wgpu_device: &wgpu::Device,
     desc: &wgpu::BufferDescriptor,
-) -> Result<(wgpu::Buffer, u64, Option<HostPtr>), IoError> {
+) -> Result<WgpuMemory, IoError> {
     let device: &vulkan::Device = unsafe { &wgpu_device.as_hal::<hal::api::Vulkan>().unwrap() };
     let instance = device.shared_instance().raw_instance();
     let phys_device = device.raw_physical_device();
@@ -224,8 +224,7 @@ pub(crate) fn create_storage_buffer(
             .map(|(i, _)| i)
     };
 
-    // Only an integrated GPU gets host-visible storage: on a discrete card that memory is the
-    // BAR window, which can be as small as 256 MiB and is reached over PCIe.
+    // On a discrete GPU, host-visible memory is the BAR window, often only 256 MiB.
     let integrated = unsafe { instance.get_physical_device_properties(phys_device) }.device_type
         == vk::PhysicalDeviceType::INTEGRATED_GPU;
     let unified_type = integrated
@@ -267,7 +266,9 @@ pub(crate) fn create_storage_buffer(
     let addr_info = BufferDeviceAddressInfo::default().buffer(buffer);
     let device_address = unsafe { device.get_buffer_device_address(&addr_info) };
 
-    // Mapped once for the buffer's lifetime: freeing the memory unmaps it.
+    // Never unmapped: freeing the memory does it. Writing through the mapping is outside the
+    // ownership wgpu-hal's `from_raw_managed` claims; it holds because wgpu never maps an
+    // imported buffer itself, so recheck on a wgpu bump.
     let host_ptr = match unified_type {
         Some(_) => {
             let ptr = unsafe {
@@ -285,7 +286,11 @@ pub(crate) fn create_storage_buffer(
     };
     let buffer = unsafe { wgpu_device.create_buffer_from_hal::<hal::api::Vulkan>(buffer, desc) };
 
-    Ok((buffer, device_address, host_ptr))
+    Ok(WgpuMemory {
+        buffer,
+        address: NonZeroU64::new(device_address),
+        host_ptr,
+    })
 }
 
 fn as_io_error(result: vk::Result, size: u64) -> IoError {
