@@ -278,6 +278,15 @@ pub fn list() -> Vec<String> {
     names
 }
 
+/// Opens the active environment's storage ahead of its first use, from a
+/// place that can await: what a browser page does before its device comes
+/// up, so the launch path finds the storage open and reads its picks in the
+/// first call that needs them rather than running a fallback while the
+/// storage opens behind it. See [`persistence::open_ahead`](crate::persistence::open_ahead).
+pub async fn open() {
+    crate::persistence::open_ahead().await
+}
+
 /// A [`Store`] created from the options, bound to the active environment
 /// whenever the options name a storage.
 ///
