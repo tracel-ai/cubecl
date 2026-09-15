@@ -22,6 +22,9 @@ use super::vulkan;
 #[cfg(all(feature = "msl", target_os = "macos"))]
 use super::metal;
 
+#[cfg(windows)]
+use super::dx12;
+
 /// What a shader module is built from: the compiler's representation and the
 /// source text, reconciled.
 ///
@@ -424,13 +427,13 @@ pub fn register_metal_features(
 
 /// The card behind `adapter`, `None` for a software adapter such as llvmpipe.
 ///
-/// wgpu names the part; only Vulkan says which card it is and how much memory it has.
-#[cfg_attr(not(feature = "spirv"), expect(unused_variables))]
+/// wgpu names the part; Vulkan and DirectX 12 say which card it is and how much memory it has.
+#[cfg_attr(not(any(feature = "spirv", windows)), expect(unused_variables))]
 pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<PhysicalDevice> {
     if info.device_type == wgpu::DeviceType::Cpu {
         return None;
     }
-    #[cfg_attr(not(feature = "spirv"), expect(unused_mut))]
+    #[cfg_attr(not(any(feature = "spirv", windows)), expect(unused_mut))]
     let mut physical = PhysicalDevice {
         // Metal and WebGPU leave both ids at zero rather than report none.
         vendor: (info.vendor != 0).then(|| info.vendor.into()),
@@ -441,6 +444,8 @@ pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<Ph
     if is_vulkan(adapter) {
         vulkan::describe_card(adapter, &mut physical);
     }
+    #[cfg(windows)]
+    dx12::describe_card(adapter, &mut physical);
     Some(physical)
 }
 

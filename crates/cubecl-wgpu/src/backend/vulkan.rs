@@ -813,6 +813,9 @@ pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::Physical
             }
             raw_instance.get_physical_device_properties2(physical_device, &mut properties);
             physical.uuid = Some(ids.device_uuid);
+            if ids.device_luid_valid == vk::TRUE {
+                physical.luid = Some(ids.device_luid);
+            }
             if has_pci {
                 physical.pci_address = Some(PciAddress {
                     domain: pci.pci_domain,

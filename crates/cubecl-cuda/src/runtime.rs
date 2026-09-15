@@ -462,15 +462,14 @@ impl DeviceProbe {
             .ok()
             .map(|bytes| bytes as u64);
 
-        Self {
-            name,
-            physical: PhysicalDevice {
-                pci_address,
-                uuid,
-                vendor: Some(PciVendor::Nvidia),
-                device_id: None,
-                total_memory,
-            },
-        }
+        let mut physical = PhysicalDevice {
+            pci_address,
+            uuid,
+            vendor: Some(PciVendor::Nvidia),
+            total_memory,
+            ..Default::default()
+        };
+        physical.read_pci_ids();
+        Self { name, physical }
     }
 }
