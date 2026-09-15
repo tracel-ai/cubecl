@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::bytes::Bytes;
 use crate::future::block_on;
+use crate::persistence::NamespaceSummary;
 use crate::persistence::turso::{self as database, SCHEMA_VERSION, SCHEMA_VERSION_KEY, connect};
 
 use super::export::storage_error;
@@ -89,6 +90,39 @@ impl SqliteBundle {
     /// The bundle manifest.
     pub fn manifest(&self) -> &BundleManifest {
         &self.manifest
+    }
+
+    /// Entry count and total size per namespace, for reporting: what the
+    /// file holds, without reading any of it.
+    pub fn summary(&self) -> Vec<NamespaceSummary> {
+        let Some(connection) = self.connection() else {
+            return Vec::new();
+        };
+
+        block_on(async {
+            let Ok(mut rows) = connection
+                .query(
+                    "SELECT namespace, COUNT(*), SUM(length(key) + length(value)) \
+                     FROM cache_entries GROUP BY namespace ORDER BY namespace",
+                    (),
+                )
+                .await
+            else {
+                return Vec::new();
+            };
+            let mut summary = Vec::new();
+            while let Ok(Some(row)) = rows.next().await {
+                let Ok(namespace) = row.get::<String>(0) else {
+                    continue;
+                };
+                summary.push(NamespaceSummary {
+                    namespace,
+                    entries: row.get::<i64>(1).unwrap_or_default() as u64,
+                    bytes: row.get::<i64>(2).unwrap_or_default() as u64,
+                });
+            }
+            summary
+        })
     }
 
     fn connection(&self) -> Option<turso::Connection> {

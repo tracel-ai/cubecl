@@ -272,6 +272,31 @@ async fn a_cache_root_lists_its_namespaces() {
     assert_eq!(summary[1].entries, 2);
 }
 
+/// A bundle file reports what it holds the same way a cache root does, and
+/// without reading any of it: the same question an application asks of a
+/// shipped file before importing it.
+#[tokio::test]
+#[serial_test::serial]
+async fn a_bundle_file_summarizes_its_namespaces() {
+    let root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("test.bundle");
+
+    warm(root.path(), "autotune", "device0/matmul", &[("k", 1)]).await;
+    warm(
+        root.path(),
+        "throughput",
+        "device0/copy",
+        &[("k", 2), ("j", 3)],
+    )
+    .await;
+    export_to(root.path(), &bundle_path, BundleFormat::Sqlite).await;
+
+    let expected = cubecl_environment::environment::namespaces().await;
+    let bundle = SqliteBundle::open(&bundle_path).unwrap();
+    assert_eq!(bundle.summary(), expected);
+}
+
 /// Merging cache roots dedupes on the primary key. The original file-copy
 /// exporter concatenated colliding files instead.
 ///
