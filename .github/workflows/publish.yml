@@ -76,6 +76,7 @@ jobs:
       - publish-cubecl-ir
       - publish-cubecl-common
       - publish-cubecl-environment
+      - publish-cubecl-zspace
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-runtime
@@ -148,6 +149,7 @@ jobs:
     needs:
       - publish-cubecl-std
       - publish-cubecl-spirv
+      - publish-cubecl-cpp
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-server
@@ -194,6 +196,7 @@ jobs:
     needs:
       - publish-cubecl-std
       - publish-cubecl-cpp
+      - publish-cubecl-llvm
       - publish-cubecl-common
       - publish-cubecl-runtime
       - publish-cubecl-server
