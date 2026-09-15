@@ -1,4 +1,4 @@
-//! ROCm device libraries.
+//! `ROCm` device libraries.
 
 use cubecl_core::ir::amd::GfxArch;
 use llvm_sys::prelude::LLVMModuleRef;

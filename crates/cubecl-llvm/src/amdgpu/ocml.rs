@@ -1,4 +1,4 @@
-//! ROCm math library support.
+//! `ROCm` math library support.
 
 use crate::shared::math_library::{FloatWidth, MathLibrary};
 
