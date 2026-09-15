@@ -159,7 +159,9 @@ jobs:
         rust: [nightly]
         include:
           - rust: nightly
-            toolchain: nightly
+            # parking_lot_core 0.9.12 fails later miri's c-variadic check on its futex syscall.
+            # Unpin once a parking_lot_core release passes `*u32` to `syscall(SYS_futex, ...)`.
+            toolchain: nightly-2026-09-09
     steps:
       - name: checkout
         uses: actions/checkout@v6
@@ -179,5 +181,8 @@ jobs:
         uses: tracel-ai/github-actions/install-vulkan-sdk@v11
       # --------------------------------------------------------------------------------
       - name: Tests
-        run: xtask +n test --miri ub-only --ci
+        # Not `xtask +n`: it forces plain `nightly` and would ignore the matrix toolchain.
+        env:
+          RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
+        run: xtask test --miri ub-only --ci
 

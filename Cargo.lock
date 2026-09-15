@@ -695,7 +695,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "cubecl-core",
  "cubecl-cpu",
@@ -712,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-common"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "bytemuck",
  "cfg_aliases",
@@ -738,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-core"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "bitflags 2.13.1",
  "bytemuck",
@@ -770,7 +770,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-cpp"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "bytemuck",
  "cubecl-common",
@@ -792,7 +792,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-cpu"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "bytemuck",
  "crossbeam-utils",
@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-cuda"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "bytemuck",
  "cubecl-common",
@@ -837,7 +837,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-environment"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "async-channel",
  "backtrace",
@@ -879,7 +879,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-hip"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "bytemuck",
  "cubecl-common",
@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-ir"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "bumpalo",
  "cubecl-common",
@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-llvm"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "cc",
  "cubecl-core",
@@ -960,7 +960,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-macros"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "darling",
  "derive-new",
@@ -976,7 +976,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-macros-internal"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "darling",
  "inflections",
@@ -987,7 +987,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-metal"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "block2",
  "bytemuck",
@@ -1012,7 +1012,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-opt"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "cubecl-common",
  "cubecl-core",
@@ -1035,7 +1035,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-runtime"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "buildid",
  "bytemuck",
@@ -1069,7 +1069,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-server"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "buildid",
  "bytemuck",
@@ -1102,7 +1102,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-spirv"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "bitflags 2.13.1",
  "cubecl-common",
@@ -1124,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-std"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "cubecl-common",
  "cubecl-core",
@@ -1141,7 +1141,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-wgpu"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "ash",
  "bytemuck",
@@ -1181,7 +1181,7 @@ dependencies = [
 
 [[package]]
 name = "cubecl-zspace"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "derive-new",
  "serde",
@@ -1304,7 +1304,7 @@ dependencies = [
 
 [[package]]
 name = "device_sharing"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "cubecl",
  "half",
@@ -1653,7 +1653,7 @@ dependencies = [
 
 [[package]]
 name = "fusing"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "cubecl",
  "half",
@@ -1746,7 +1746,7 @@ dependencies = [
 
 [[package]]
 name = "gelu"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "cubecl",
  "half",
@@ -2639,7 +2639,7 @@ dependencies = [
 
 [[package]]
 name = "normalization"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "cubecl",
  "half",
@@ -3545,9 +3545,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.43"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "log",
  "once_cell",
@@ -3860,7 +3860,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "sum_things"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "cubecl",
  "half",
@@ -3958,7 +3958,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -4036,7 +4036,7 @@ dependencies = [
 
 [[package]]
 name = "throughput"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "cubecl",
  "half",
@@ -4442,7 +4442,7 @@ dependencies = [
 
 [[package]]
 name = "tracing_example"
-version = "0.11.0-pre.3"
+version = "0.11.0-pre.4"
 dependencies = [
  "clap",
  "cubecl",

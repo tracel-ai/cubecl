@@ -47,22 +47,22 @@ tracing = [
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.3", features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", features = [
     "std",
     "hash",
 ] }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", default-features = false, features = [
     "amd",
 ] }
-cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.4", default-features = false, features = [
 ] }
 cubecl-hip-sys = { version = "7.1.5280200" }
-cubecl-llvm = { path = "../cubecl-llvm", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-llvm = { path = "../cubecl-llvm", version = "=0.11.0-pre.4", default-features = false, features = [
     "std",
     "amdgpu",
 ] }
-cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.3", default-features = false }
+cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.4", default-features = false }
 
 bytemuck = { workspace = true }
 
@@ -72,10 +72,10 @@ paste = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.3", features = [
+cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.4", features = [
     "export_tests",
 ] }
 test-log = { workspace = true, features = ["trace"] }
