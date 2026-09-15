@@ -5,7 +5,7 @@ use cubecl_core::{
 };
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_runtime::{
+use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, FailureId, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode,
@@ -190,11 +190,11 @@ impl WgpuMemManager {
         (retained, resource)
     }
 
-    pub(crate) fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
+    pub(crate) fn memory_usage(&self) -> cubecl_server::memory_management::MemoryUsage {
         self.memory_pool.memory_usage()
     }
 
-    pub(crate) fn memory_report(&self) -> cubecl_runtime::memory_management::MemoryReport {
+    pub(crate) fn memory_report(&self) -> cubecl_server::memory_management::MemoryReport {
         self.memory_pool.memory_report()
     }
 
@@ -225,7 +225,7 @@ impl WgpuMemManager {
         config: MemoryConfiguration,
         props: &MemoryDeviceProperties,
         failures: &mut ErrorGraph,
-    ) -> Result<(), cubecl_runtime::memory_management::InstallMemoryPoolsError> {
+    ) -> Result<(), cubecl_server::memory_management::InstallMemoryPoolsError> {
         self.memory_pool.install_pools(config, props, failures)
     }
 

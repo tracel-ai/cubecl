@@ -23,9 +23,9 @@ use cubecl_core::{
 use cubecl_environment::future;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
-use cubecl_runtime::command::Refused;
-use cubecl_runtime::metadata_cache::Lookup;
-use cubecl_runtime::{
+use cubecl_server::command::Refused;
+use cubecl_server::metadata_cache::Lookup;
+use cubecl_server::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
     id::GraphId,
@@ -606,7 +606,7 @@ impl HipServer {
 /// without cloning, and the buffer's bytes always equal the key's, so a hit is
 /// byte-identical to what the miss would have built.
 ///
-/// [`lookup`]: cubecl_runtime::metadata_cache::MetadataInfoCache::lookup
+/// [`lookup`]: cubecl_server::metadata_cache::MetadataInfoCache::lookup
 fn info_buffer(command: &mut Command<'_>, words: Vec<u64>) -> Result<Handle, ServerError> {
     let stream = command.stream();
     let mode = stream.capturing.cache_mode();

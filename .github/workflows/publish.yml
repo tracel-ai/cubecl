@@ -76,6 +76,7 @@ jobs:
       - publish-cubecl-ir
       - publish-cubecl-common
       - publish-cubecl-environment
+      - publish-cubecl-zspace
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-runtime
@@ -83,9 +84,20 @@ jobs:
     secrets:
       CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
 
-  publish-cubecl-macros:
+  publish-cubecl-server:
     needs:
+      - publish-cubecl-runtime
+      - publish-cubecl-ir
       - publish-cubecl-common
+      - publish-cubecl-environment
+    uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
+    with:
+      crate: cubecl-server
+      dry-run-only: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run-only || false }}
+    secrets:
+      CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
+
+  publish-cubecl-macros:
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl-macros
@@ -137,8 +149,10 @@ jobs:
     needs:
       - publish-cubecl-std
       - publish-cubecl-spirv
+      - publish-cubecl-cpp
       - publish-cubecl-common
       - publish-cubecl-runtime
+      - publish-cubecl-server
       - publish-cubecl-core
       - publish-cubecl-environment
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
@@ -168,6 +182,7 @@ jobs:
       - publish-cubecl-cpp
       - publish-cubecl-common
       - publish-cubecl-runtime
+      - publish-cubecl-server
       - publish-cubecl-core
       - publish-cubecl-environment
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
@@ -181,8 +196,10 @@ jobs:
     needs:
       - publish-cubecl-std
       - publish-cubecl-cpp
+      - publish-cubecl-llvm
       - publish-cubecl-common
       - publish-cubecl-runtime
+      - publish-cubecl-server
       - publish-cubecl-core
       - publish-cubecl-environment
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
@@ -212,6 +229,7 @@ jobs:
       - publish-cubecl-core
       - publish-cubecl-llvm
       - publish-cubecl-runtime
+      - publish-cubecl-server
       - publish-cubecl-opt
       - publish-cubecl-environment
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
@@ -229,6 +247,7 @@ jobs:
       - publish-cubecl-cpp
       - publish-cubecl-ir
       - publish-cubecl-runtime
+      - publish-cubecl-server
       - publish-cubecl-environment
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
@@ -240,11 +259,15 @@ jobs:
   publish-cubecl:
     needs:
       - publish-cubecl-core
+      - publish-cubecl-runtime
+      - publish-cubecl-std
+      - publish-cubecl-ir
+      - publish-cubecl-environment
       - publish-cubecl-cuda
       - publish-cubecl-wgpu
       - publish-cubecl-cpu
+      - publish-cubecl-hip
       - publish-cubecl-metal
-      - publish-cubecl-environment
     uses: tracel-ai/github-actions/.github/workflows/publish-crate.yml@v11
     with:
       crate: cubecl

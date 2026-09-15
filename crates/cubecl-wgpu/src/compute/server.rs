@@ -1,5 +1,6 @@
 use cubecl_core::server::ServerStorage;
-use cubecl_runtime::kernel::BufferIOAttr;
+use cubecl_server::kernel::BufferIOAttr;
+use cubecl_server::kernel::DebugInformation;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
@@ -32,11 +33,11 @@ use cubecl_environment::persistence::Store;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 #[cfg(feature = "spirv")]
-use cubecl_runtime::compiler::{KernelCacheKey, compilation_store, store_compiled};
-use cubecl_runtime::memory_management::{
+use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
+use cubecl_server::memory_management::{
     InstallMemoryPoolsError, ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
 };
-use cubecl_runtime::{
+use cubecl_server::{
     compiler::CompilationCache,
     config::{CubeClRuntimeConfig, RuntimeConfig},
     dry_run::LaunchMode,
@@ -187,7 +188,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             #[cfg(feature = "spirv")]
             spirv_cache,
             #[cfg(feature = "spirv")]
-            build_id: cubecl_runtime::compiler::build_id_hash(),
+            build_id: cubecl_server::compiler::build_id_hash(),
             backend,
             utilities: Arc::new(utilities),
             shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),

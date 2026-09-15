@@ -15,13 +15,13 @@ workspace = true
 
 [features]
 default = [
-    "cubecl-runtime/default",
+    "cubecl-server/default",
     "cubecl-common/default",
     "cubecl-core/default",
 ]
-exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
+exclusive-memory-only = ["cubecl-server/exclusive-memory-only"]
 std = [
-    "cubecl-runtime/std",
+    "cubecl-server/std",
     "cubecl-common/std",
     "cubecl-core/std",
     "cubecl-cpp/std",
@@ -47,7 +47,7 @@ vulkan-validate = []
 renderdoc = ["std", "dep:renderdoc"]
 tracing = [
     "dep:tracing",
-    "cubecl-runtime/tracing",
+    "cubecl-server/tracing",
     "cubecl-common/tracing",
     "cubecl-core/tracing",
 ]
@@ -57,14 +57,12 @@ tracing = [
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.3", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", default-features = false }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.3", default-features = false }
-cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.3", default-features = false }
-cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.3", default-features = false, features = [
-    "channel-mutex",
-] }
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", default-features = false }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.4", default-features = false }
+cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.4", default-features = false }
+cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.4", default-features = false }
 derive_more = { workspace = true }
 half = { workspace = true }
 itertools = { workspace = true }
@@ -75,11 +73,11 @@ tracy-client = { workspace = true, optional = true }
 
 # SPIR-V
 ash = { workspace = true, optional = true }
-cubecl-spirv = { path = "../cubecl-spirv", version = "=0.11.0-pre.3", optional = true }
+cubecl-spirv = { path = "../cubecl-spirv", version = "=0.11.0-pre.4", optional = true }
 tracel-ash = { workspace = true, optional = true }
 
 # Metal
-cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.3", features = [
+cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.4", features = [
     "metal",
 ], optional = true }
 
@@ -128,10 +126,10 @@ objc2-metal = { version = "0.3", features = ["MTLLibrary"], optional = true }
 # wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.3", features = [
+cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.4", features = [
     "export_tests",
 ] }
 half = { workspace = true }

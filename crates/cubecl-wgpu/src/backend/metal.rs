@@ -21,7 +21,7 @@ pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibil
     let buffers = repr.buffers.iter().map(|it| {
         // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
         // and since we can't be sure, we'll assume everything is read-write.
-        if cfg!(exclusive_memory_only) {
+        if cubecl_server::memory_management::EXCLUSIVE_MEMORY_ONLY {
             *it
         } else {
             Visibility::ReadWrite

@@ -2,7 +2,7 @@ use cubecl_common::bytes::{
     AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes, Reader, Writer,
 };
 use cubecl_core::server::IoError;
-use cubecl_runtime::{
+use cubecl_server::{
     memory_management::{ManagedMemoryBinding, MemoryManagement},
     storage::{BytesResource, BytesStorage},
 };

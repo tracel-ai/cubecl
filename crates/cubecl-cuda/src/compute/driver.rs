@@ -1,4 +1,4 @@
-//! What the shared [`Command`](cubecl_runtime::command::Command) cannot do
+//! What the shared [`Command`](cubecl_server::command::Command) cannot do
 //! itself: CUDA's four device calls, and where a CUDA stream keeps the state
 //! they move in step with.
 
@@ -9,14 +9,14 @@ use crate::compute::storage::gpu::{GpuResource, GpuStorage};
 use crate::compute::stream::{CudaStreamBackend, Stream};
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_runtime::command::{CopyLayout, DeviceStream, Driver};
-use cubecl_runtime::id::KernelId;
-use cubecl_runtime::memory_management::drop_queue::PendingDropQueue;
-use cubecl_runtime::memory_management::{ManagedMemoryBinding, MemoryManagement};
-use cubecl_runtime::metadata_cache::MetadataInfoCache;
-use cubecl_runtime::server::{Handle, IoError, LaunchError};
-use cubecl_runtime::storage::{ComputeStorage, PinnedMemoryAllocController};
-use cubecl_runtime::stream::StreamCapture;
+use cubecl_server::command::{CopyLayout, DeviceStream, Driver};
+use cubecl_server::id::KernelId;
+use cubecl_server::memory_management::drop_queue::PendingDropQueue;
+use cubecl_server::memory_management::{ManagedMemoryBinding, MemoryManagement};
+use cubecl_server::metadata_cache::MetadataInfoCache;
+use cubecl_server::server::{Handle, IoError, LaunchError};
+use cubecl_server::storage::{ComputeStorage, PinnedMemoryAllocController};
+use cubecl_server::stream::StreamCapture;
 use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, cuMemcpy2DAsync_v2};
 use std::ffi::c_void;
 

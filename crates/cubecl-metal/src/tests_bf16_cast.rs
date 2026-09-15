@@ -1,5 +1,5 @@
 use cubecl_core::{self as cubecl, prelude::*};
-use cubecl_runtime::runtime::Runtime;
+use cubecl_server::runtime::Runtime;
 use half::bf16;
 
 type R = crate::MetalRuntime;

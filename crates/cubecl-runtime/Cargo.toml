@@ -1,7 +1,7 @@
 [package]
 authors = ["louisfd <louisfd94@gmail.com>", "Nathaniel Simard"]
 categories = ["science"]
-description = "Crate that helps creating high performance async runtimes for CubeCL."
+description = "The runtime API of CubeCL: clients, devices, handles and everything a kernel launch needs."
 edition.workspace = true
 keywords = ["deep-learning", "machine-learning", "data"]
 license.workspace = true
@@ -26,13 +26,11 @@ default = [
     "channel-mutex",
     "channel-mpsc",
     "channel-cell",
-    "storage-bytes",
     "cubecl-common/default",
 ]
 exclusive-memory-only = []
 profile-tracy = ["dep:tracy-client"]
 std = ["cubecl-common/std", "cubecl-environment/std", "toml", "thiserror/std"]
-storage-bytes = []
 tokio = ["cubecl-environment/tokio"]
 
 tracing = ["dep:tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
@@ -47,15 +45,15 @@ cfg-if = { workspace = true }
 # `serde` and `hash` are needed unconditionally (StableHash in id/kernel/
 # compiler, PartialEq on BenchmarkComputations) — not just by the persistent
 # cache, so they can't live only in the desktop target section below.
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", default-features = false, features = [
     "serde",
     "hash",
 ] }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.4", default-features = false, features = [
     "serde",
 ] }
-cubecl-zspace = { path = "../cubecl-zspace", version = "=0.11.0-pre.3", default-features = false }
+cubecl-zspace = { path = "../cubecl-zspace", version = "=0.11.0-pre.4", default-features = false }
 
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["eq"] }
@@ -74,11 +72,11 @@ futures-util = { workspace = true, default-features = false }
 
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", default-features = false, features = [
     "serde",
     "hash",
 ] }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false, features = [
     "cache",
 ] }
 serde_json = { workspace = true, features = ["std"] }
@@ -99,11 +97,3 @@ test-log = { workspace = true, features = ["trace"] }
 
 [build-dependencies]
 cfg_aliases = { workspace = true }
-
-[[bench]]
-harness = false
-name = "dynamic"
-
-[[bench]]
-harness = false
-name = "write_scope"

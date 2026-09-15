@@ -7,8 +7,8 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     server::{BufferBinding, Handle, ServerError},
 };
-use cubecl_runtime::storage::PINNED_MEMORY_ALIGNMENT;
-use cubecl_runtime::{
+use cubecl_server::storage::PINNED_MEMORY_ALIGNMENT;
+use cubecl_server::{
     config::streaming::StreamPriority,
     logging::ServerLogger,
     memory_management::{
@@ -66,7 +66,7 @@ pub struct CudaStreamBackend {
     logger: Arc<ServerLogger>,
     priority: StreamPriority,
     /// Programmatic main-GPU pool layout (see
-    /// [`Server::install_memory_pools`](cubecl_runtime::server::Server::install_memory_pools)):
+    /// [`Server::install_memory_pools`](cubecl_server::server::Server::install_memory_pools)):
     /// streams created after it is set build their GPU pools from it instead
     /// of the runtime default. Auxiliary pools are unaffected.
     #[new(default)]

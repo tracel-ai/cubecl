@@ -4,8 +4,8 @@ use cubecl_core::ir::amd::GfxArch;
 use cubecl_core::prelude::KernelDefinition;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_cpp::{ComputeKernel, shared::CppCompiler, target::Hip};
-use cubecl_runtime::compiler::{CompilationError, Compiler};
-use cubecl_runtime::kernel::BufferIOAttr;
+use cubecl_server::compiler::{CompilationError, Compiler};
+use cubecl_server::kernel::BufferIOAttr;
 
 /// Which backend turns a `KernelDefinition` into something the HIP driver can load.
 ///
@@ -128,6 +128,7 @@ impl Compiler for HipCompiler {
             HipCompiler::Llvm(compiler) => {
                 let pliron_options = cubecl_llvm::PlironOptions {
                     arch: options.arch.clone(),
+                    ..Default::default()
                 };
                 match compiler.compile(kernel, &pliron_options)? {
                     cubecl_llvm::PlironArtifact::AmdGpuCode(module) => {

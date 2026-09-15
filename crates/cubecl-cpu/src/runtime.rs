@@ -12,8 +12,9 @@ use cubecl_core::{
     zspace::{Shape, Strides},
 };
 use cubecl_llvm::PlironCompiler;
-use cubecl_runtime::runtime::Runtime;
-use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
+use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation};
+use cubecl_server::runtime::Runtime;
+use cubecl_server::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, System};
@@ -80,6 +81,23 @@ fn register_supported_types(props: &mut DeviceProperties) {
     }
 }
 
+/// A feature bit promises the instructions, not their speed, and `compilation.f16_evaluation`
+/// overrides the mode chosen from it on a host where the two disagree.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn host_has_f16_arithmetic() -> bool {
+    std::arch::is_x86_feature_detected!("avx512fp16")
+}
+
+#[cfg(target_arch = "aarch64")]
+fn host_has_f16_arithmetic() -> bool {
+    std::arch::is_aarch64_feature_detected!("fp16")
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+fn host_has_f16_arithmetic() -> bool {
+    false
+}
+
 fn host_cpu_name(system: &System) -> String {
     system
         .cpus()
@@ -120,6 +138,10 @@ impl DeviceService for CpuServer {
         // measured ~2.5x worse on decode gemv, stages outgrowing what stays
         // resident. GPU-like floor when the topology cannot be read.
         let max_shared_memory_size = affinity::l1d_cache_size().unwrap_or(64 * 1024);
+        let f16_evaluation = CubeClRuntimeConfig::get()
+            .compilation
+            .f16_evaluation
+            .unwrap_or_else(|| F16Evaluation::for_native_f16(host_has_f16_arithmetic()));
         let topology = HardwareProperties {
             load_width: 512,
             plane_size_min: 1,
@@ -159,7 +181,7 @@ impl DeviceService for CpuServer {
             // fingerprint: it is what the generated code is valid for.
             DeviceIdentity {
                 name: host_cpu_name(&system),
-                fingerprint: format!("cpu_{}", std::env::consts::ARCH),
+                fingerprint: format!("cpu_{}_f16-{}", std::env::consts::ARCH, f16_evaluation),
             },
         );
         register_supported_types(&mut device_props);
@@ -172,7 +194,12 @@ impl DeviceService for CpuServer {
             logger,
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
-        CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
+        CpuServer::new(
+            mem_properties,
+            options.memory_config,
+            f16_evaluation,
+            Arc::new(utilities),
+        )
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {

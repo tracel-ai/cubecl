@@ -1,8 +1,9 @@
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_runtime::kernel::BufferIOAttr;
-use cubecl_runtime::{
+use cubecl_server::kernel::BufferIOAttr;
+use cubecl_server::kernel::DebugInformation;
+use cubecl_server::{
     compiler::{CompilationError, build_id_hash},
     validation::{validate_cube_dim, validate_units},
 };
@@ -20,7 +21,7 @@ use cubecl_core::{
     server::ResourceLimitError,
 };
 use cubecl_environment::persistence::Store;
-use cubecl_runtime::{compiler::KernelCacheKey, kernel::CubeKernel, logging::ServerLogger};
+use cubecl_server::{compiler::KernelCacheKey, kernel::CubeKernel, logging::ServerLogger};
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute};
@@ -30,7 +31,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-use cubecl_runtime::compiler::{CompilationCache, compilation_store, store_compiled};
+use cubecl_server::compiler::{CompilationCache, compilation_store, store_compiled};
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
@@ -164,7 +165,7 @@ impl CudaContext {
         validate_units(&self.properties, kernel_id)?;
 
         let definition = kernel.define();
-        let mut kernel_compiled = cubecl_runtime::kernel::CompiledKernel::compile(
+        let mut kernel_compiled = cubecl_server::kernel::CompiledKernel::compile(
             &*kernel,
             definition,
             &mut CudaCompiler::default(),
