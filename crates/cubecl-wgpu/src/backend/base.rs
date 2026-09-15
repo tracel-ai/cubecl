@@ -3,7 +3,7 @@ use crate::WgpuServer;
 use crate::{AutoRepresentationRef, WgpuCompiler};
 use cubecl_core::{CubeDim, ExecutionMode, WgpuCompilationOptions, server::KernelArguments};
 use cubecl_core::{MemoryConfiguration, prelude::Visibility};
-use cubecl_ir::DeviceProperties;
+use cubecl_ir::{DeviceProperties, PhysicalDevice};
 use cubecl_server::{
     compiler::{CompilationError, KernelCacheKey},
     id::KernelId,
@@ -419,6 +419,27 @@ pub fn register_metal_features(
     _memory_config: &MemoryConfiguration,
 ) -> bool {
     false
+}
+
+/// The card behind `adapter`, `None` for a software adapter such as llvmpipe.
+///
+/// wgpu names the part; only Vulkan says which card it is and how much memory it has.
+#[cfg_attr(not(feature = "spirv"), expect(unused_variables))]
+pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<PhysicalDevice> {
+    if info.device_type == wgpu::DeviceType::Cpu {
+        return None;
+    }
+    #[cfg_attr(not(feature = "spirv"), expect(unused_mut))]
+    let mut physical = PhysicalDevice {
+        vendor_id: Some(info.vendor),
+        device_id: Some(info.device),
+        ..Default::default()
+    };
+    #[cfg(feature = "spirv")]
+    if is_vulkan(adapter) {
+        vulkan::describe_card(adapter, &mut physical);
+    }
+    Some(physical)
 }
 
 #[cfg(feature = "spirv")]

@@ -6,6 +6,7 @@ use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
 };
+use cubecl_core::ir::PhysicalDevice;
 use cubecl_core::{
     MemoryConfiguration,
     cmma::MatrixLayout,
@@ -191,6 +192,7 @@ impl DeviceService for CudaServer {
             DeviceIdentity {
                 name: device_name,
                 fingerprint: fingerprint.clone(),
+                physical: Some(physical_device(device_ptr)),
             },
         );
         register_supported_types(&mut device_props);
@@ -428,5 +430,36 @@ impl Runtime for CudaRuntime {
                 index_id: i as u16,
             })
             .collect()
+    }
+}
+
+/// The card behind `device`. A query the driver refuses leaves its field empty rather than
+/// failing initialization, since nothing here is needed to run a kernel.
+fn physical_device(device: cudarc::driver::sys::CUdevice) -> PhysicalDevice {
+    use cudarc::driver::{result, sys};
+    use std::ffi::CStr;
+
+    let mut bus_id = [0u8; 32];
+    // SAFETY: the buffer outlives the call and its length travels with it.
+    let pci = unsafe {
+        sys::cuDeviceGetPCIBusId(bus_id.as_mut_ptr().cast(), bus_id.len() as _, device).result()
+    }
+    .ok()
+    .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
+    .and_then(|id| id.to_str().ok()?.parse().ok());
+    let uuid = result::device::get_uuid(device)
+        .ok()
+        .map(|id| id.bytes.map(|byte| byte as u8));
+    // SAFETY: `device` is the validated handle every other query here uses.
+    let total_memory = unsafe { result::device::total_mem(device) }
+        .ok()
+        .map(|bytes| bytes as u64);
+
+    PhysicalDevice {
+        pci,
+        uuid,
+        vendor_id: Some(0x10de),
+        device_id: None,
+        total_memory,
     }
 }

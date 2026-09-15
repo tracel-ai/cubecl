@@ -103,6 +103,7 @@ impl DeviceService for MetalServer {
             DeviceIdentity {
                 fingerprint: format!("msl_{device_name}"),
                 name: device_name,
+                physical: None,
             },
         );
 
