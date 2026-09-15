@@ -100,26 +100,24 @@ pub struct DeviceIdentity {
     /// Verbatim the `compilation_store` fingerprint, so a namespace read back
     /// out of a bundle compares against it directly.
     pub fingerprint: String,
-    /// The part behind the device, `None` for a virtual device.
+    /// The card behind the device, `None` for a CPU or a virtual device.
     pub physical: Option<PhysicalDevice>,
 }
 
-/// The part a device runs on, so one card reached through two runtimes (an
+/// The card a device runs on, so one card reached through two runtimes (an
 /// NVIDIA GPU under CUDA and under Vulkan) is recognized as one card.
 ///
-/// `pci` is the key wherever the runtime reads it: every runtime that sees a
-/// card on a bus reports the same address. `uuid` is the driver's own id and
+/// `pci_address` is the key wherever the runtime reads it: every runtime that
+/// sees a card on a bus reports the same address. `uuid` is the driver's own id and
 /// NVIDIA reports one through CUDA and Vulkan; other vendors may not. The
-/// ids and memory are what a placement needs to size a part. The CPU runtime
-/// reports the memory its one device can count on and nothing else, since
-/// that device stands for every socket of the host.
+/// ids and memory are what a placement needs to size a card.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct PhysicalDevice {
-    /// Where the card sits on the bus, when the runtime reports it.
-    pub pci: Option<PciAddress>,
+    /// The card's address on the PCI bus, when the runtime reports it.
+    pub pci_address: Option<PciAddress>,
     /// The driver's id for the card, when the runtime reports it.
     pub uuid: Option<[u8; 16]>,
-    /// PCI vendor id: `0x10de` NVIDIA, `0x1002` AMD, `0x8086` Intel.
+    /// PCI vendor id, one of the `VENDOR_` constants for the vendors with a runtime here.
     pub vendor_id: Option<u32>,
     /// PCI device id of the part, when the runtime reports it.
     pub device_id: Option<u32>,
@@ -127,7 +125,17 @@ pub struct PhysicalDevice {
     pub total_memory: Option<u64>,
 }
 
-/// A PCI address, spelled `0000:07:00.0` as the OS and every driver spell it.
+impl PhysicalDevice {
+    /// The PCI vendor id NVIDIA cards carry.
+    pub const VENDOR_NVIDIA: u32 = 0x10de;
+    /// The PCI vendor id AMD cards carry.
+    pub const VENDOR_AMD: u32 = 0x1002;
+    /// The PCI vendor id Intel cards carry.
+    pub const VENDOR_INTEL: u32 = 0x8086;
+}
+
+/// A function's address on the PCI bus, `domain:bus:device.function`, spelled `0000:07:00.0`
+/// as `lspci -D` and sysfs spell it. CUDA and NVML call this same string the bus id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PciAddress {
     /// The PCI domain (segment).
@@ -343,15 +351,15 @@ mod tests {
 
     #[test]
     fn a_pci_address_round_trips_and_defaults_its_domain() {
-        let address = PciAddress {
+        let id = PciAddress {
             domain: 0,
             bus: 7,
             device: 0,
             function: 0,
         };
-        assert_eq!(address.to_string(), "0000:07:00.0");
-        assert_eq!("0000:07:00.0".parse::<PciAddress>(), Ok(address));
-        assert_eq!("07:00.0".parse::<PciAddress>(), Ok(address));
+        assert_eq!(id.to_string(), "0000:07:00.0");
+        assert_eq!("0000:07:00.0".parse::<PciAddress>(), Ok(id));
+        assert_eq!("07:00.0".parse::<PciAddress>(), Ok(id));
         assert_eq!(
             "0001:a3:1f.7".parse::<PciAddress>(),
             Ok(PciAddress {

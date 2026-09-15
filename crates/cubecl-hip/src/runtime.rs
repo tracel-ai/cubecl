@@ -382,14 +382,14 @@ impl DeviceProbe {
             alignment: 32.max(props.textureAlignment).max(props.surfaceAlignment),
             integrated: props.integrated != 0,
             physical: PhysicalDevice {
-                pci: Some(PciAddress {
+                pci_address: Some(PciAddress {
                     domain: props.pciDomainID as u32,
                     bus: props.pciBusID as u8,
                     device: props.pciDeviceID as u8,
                     function: 0,
                 }),
                 uuid: Some(props.uuid.bytes.map(|byte| byte as u8)),
-                vendor_id: Some(0x1002),
+                vendor_id: Some(PhysicalDevice::VENDOR_AMD),
                 device_id: None,
                 total_memory: Some(props.totalGlobalMem as u64),
             },
