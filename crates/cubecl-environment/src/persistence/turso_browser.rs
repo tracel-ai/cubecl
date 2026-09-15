@@ -1,20 +1,32 @@
+//! The engine's I/O in the browser: the origin's private file system, through
+//! synchronous access handles.
+//!
+//! The engine waits on a completion synchronously in places — a connection
+//! reads the file header before it can do anything else, a checkpoint waits
+//! for its writes — and a worker cannot turn its event loop while it waits,
+//! so an operation that completes on the event loop is one the engine waits
+//! for forever. Every operation here completes before it returns: OPFS hands
+//! a dedicated worker a synchronous access handle to a file, and reading,
+//! writing, truncating and flushing through it are ordinary calls. The handle
+//! is the file's exclusive lock too, which is what one tab per environment
+//! asks for; a tab that finds the file taken is told so.
+
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
-use core::sync::atomic::{AtomicUsize, Ordering};
 
 use hashbrown::HashMap;
-use opfs::{
-    CreateWritableOptions, DirectoryHandle as _, FileHandle as _, GetFileHandleOptions,
-    WritableFileStream as _, WriteCommandType, WriteParams,
-};
 use turso::core::io::FileSyncType;
 use turso::core::{
     Buffer, Clock, Completion, File, IO, MonotonicInstant, OpenFlags, WallClockInstant,
 };
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::{JsFuture, spawn_local};
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{
+    FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetFileOptions,
+    FileSystemReadWriteOptions, FileSystemSyncAccessHandle,
+};
 
 use crate::sync::Mutex;
 
@@ -34,11 +46,11 @@ extern "C" {
 /// Takes the page's exclusive lock on `name` for the rest of its life, or
 /// reports that another tab holds it.
 ///
-/// OPFS files opened through `createWritable` carry no lock of their own,
-/// and every [`BrowserFile`] keeps its own idea of the file's size: two tabs
-/// writing one environment would append WAL frames over each other. The
-/// Web Locks API is what the platform offers instead; a lock is released
-/// when the tab goes away, so a crashed tab never wedges the others.
+/// The access handles below lock their files too, but only once the files
+/// are opened, one at a time, and a tab that loses the race on the second
+/// file would have the first. The Web Locks API names the environment as a
+/// whole; a lock is released when the tab goes away, so a crashed tab never
+/// wedges the others.
 ///
 /// A browser without the API grants nothing and refuses nothing, which
 /// leaves it exactly as unprotected as it was.
@@ -78,162 +90,78 @@ async fn hold_lock(name: &str) -> Result<(), String> {
     }
 }
 
-#[derive(Debug)]
-enum Operation {
-    Read {
-        position: usize,
-        completion: Completion,
-    },
-    Write {
-        position: usize,
-        buffer: Arc<Buffer>,
-        completion: Completion,
-    },
-    Truncate {
-        size: usize,
-        completion: Completion,
-    },
-    Sync {
-        completion: Completion,
-    },
-    Reset,
+/// One file of the environment, held open through its synchronous access
+/// handle for as long as the I/O lives.
+///
+/// The handle is a JavaScript value, which is neither `Send` nor `Sync`; the
+/// engine asks for both of its files. This target has one thread, and every
+/// call lands on the worker that opened the handle, which is what the two
+/// traits promise.
+struct BrowserFile {
+    path: String,
+    handle: FileSystemSyncAccessHandle,
 }
 
-#[derive(Debug)]
-struct BrowserFile {
-    operations: async_channel::Sender<Operation>,
-    size: Arc<AtomicUsize>,
+unsafe impl Send for BrowserFile {}
+unsafe impl Sync for BrowserFile {}
+
+impl core::fmt::Debug for BrowserFile {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("BrowserFile")
+            .field("path", &self.path)
+            .finish()
+    }
 }
 
 impl BrowserFile {
-    fn new(handle: opfs::web::FileHandle, size: usize) -> Arc<Self> {
-        let (sender, receiver) = async_channel::unbounded();
-        let size = Arc::new(AtomicUsize::new(size));
-        let file = Arc::new(Self {
-            operations: sender,
-            size: size.clone(),
-        });
+    async fn open(root: &FileSystemDirectoryHandle, path: &str) -> Result<Self, String> {
+        let options = FileSystemGetFileOptions::new();
+        options.set_create(true);
+        let handle = JsFuture::from(root.get_file_handle_with_options(path, &options))
+            .await
+            .map_err(|error| format!("unable to open OPFS file {path}: {error:?}"))?
+            .unchecked_into::<FileSystemFileHandle>();
+        let handle = JsFuture::from(handle.create_sync_access_handle())
+            .await
+            .map_err(|error| {
+                format!("unable to take OPFS file {path}, which another tab may hold: {error:?}")
+            })?
+            .unchecked_into::<FileSystemSyncAccessHandle>();
 
-        spawn_local(run_file(handle, size, receiver));
-        file
-    }
-
-    fn schedule(&self, operation: Operation) -> turso::core::Result<()> {
-        self.operations.try_send(operation).map_err(|error| {
-            turso::core::LimboError::InternalError(format!(
-                "unable to schedule browser database I/O: {error}"
-            ))
+        Ok(Self {
+            path: path.to_string(),
+            handle,
         })
     }
-}
 
-async fn run_file(
-    handle: opfs::web::FileHandle,
-    size: Arc<AtomicUsize>,
-    operations: async_channel::Receiver<Operation>,
-) {
-    while let Ok(operation) = operations.recv().await {
-        match operation {
-            Operation::Read {
-                position,
-                completion,
-            } => {
-                let buffer = completion.as_read().buf_arc();
-                let end = position.saturating_add(buffer.len());
-                match handle.read_range(position..end).await {
-                    Ok(bytes) => {
-                        let len = bytes.len();
-                        buffer.as_mut_slice()[..len].copy_from_slice(&bytes);
-                        completion.complete(len as i32);
-                    }
-                    Err(error) => fail(completion, "read", error),
-                }
-            }
-            Operation::Write {
-                position,
-                buffer,
-                completion,
-            } => {
-                let len = buffer.len();
-                let mut handle = handle.clone();
-                let result = async {
-                    let mut writer = handle
-                        .create_writable_with_options(&CreateWritableOptions {
-                            keep_existing_data: true,
-                        })
-                        .await?;
-                    writer
-                        .write_with_params(&WriteParams {
-                            command_type: WriteCommandType::Write,
-                            data: Some(buffer.as_slice().to_vec()),
-                            position: Some(position),
-                            size: None,
-                        })
-                        .await?;
-                    writer.close().await
-                }
-                .await;
+    fn at(position: u64) -> FileSystemReadWriteOptions {
+        let options = FileSystemReadWriteOptions::new();
+        options.set_at(position as f64);
+        options
+    }
 
-                match result {
-                    Ok(()) => {
-                        size.fetch_max(position.saturating_add(len), Ordering::Relaxed);
-                        completion.complete(len as i32);
-                    }
-                    Err(error) => fail(completion, "write", error),
-                }
-            }
-            Operation::Truncate {
-                size: next_size,
-                completion,
-            } => {
-                let mut handle = handle.clone();
-                let result = async {
-                    let mut writer = handle
-                        .create_writable_with_options(&CreateWritableOptions {
-                            keep_existing_data: true,
-                        })
-                        .await?;
-                    writer.truncate(next_size).await?;
-                    writer.close().await
-                }
-                .await;
-
-                match result {
-                    Ok(()) => {
-                        size.store(next_size, Ordering::Relaxed);
-                        completion.complete(0);
-                    }
-                    Err(error) => fail(completion, "truncate", error),
-                }
-            }
-            Operation::Sync { completion } => completion.complete(0),
-            Operation::Reset => {
-                let mut handle = handle.clone();
-                let result = async {
-                    let mut writer = handle
-                        .create_writable_with_options(&CreateWritableOptions {
-                            keep_existing_data: true,
-                        })
-                        .await?;
-                    writer.truncate(0).await?;
-                    writer.close().await
-                }
-                .await;
-
-                match result {
-                    Ok(()) => size.store(0, Ordering::Relaxed),
-                    Err(error) => {
-                        log::warn!("Unable to reset browser database file: {error:?}")
-                    }
-                }
+    /// Reports `result` on `completion`: the count it carries, or a failure
+    /// the engine reads as `-1`, logged here since the completion carries no
+    /// message.
+    fn report(&self, operation: &str, completion: Completion, result: Result<f64, JsValue>) {
+        match result {
+            Ok(count) => completion.complete(count as i32),
+            Err(error) => {
+                log::warn!(
+                    "Browser database {operation} on {} failed: {error:?}",
+                    self.path
+                );
+                completion.complete(-1);
             }
         }
     }
 }
 
-fn fail(completion: Completion, operation: &str, error: JsValue) {
-    log::warn!("Browser database {operation} failed: {error:?}");
-    completion.complete(-1);
+impl Drop for BrowserFile {
+    fn drop(&mut self) {
+        self.handle.close();
+    }
 }
 
 impl File for BrowserFile {
@@ -246,10 +174,11 @@ impl File for BrowserFile {
     }
 
     fn pread(&self, position: u64, completion: Completion) -> turso::core::Result<Completion> {
-        self.schedule(Operation::Read {
-            position: position as usize,
-            completion: completion.clone(),
-        })?;
+        let buffer = completion.as_read().buf_arc();
+        let result = self
+            .handle
+            .read_with_u8_array_and_options(buffer.as_mut_slice(), &Self::at(position));
+        self.report("read", completion.clone(), result);
         Ok(completion)
     }
 
@@ -259,11 +188,10 @@ impl File for BrowserFile {
         buffer: Arc<Buffer>,
         completion: Completion,
     ) -> turso::core::Result<Completion> {
-        self.schedule(Operation::Write {
-            position: position as usize,
-            buffer,
-            completion: completion.clone(),
-        })?;
+        let result = self
+            .handle
+            .write_with_u8_array_and_options(buffer.as_slice(), &Self::at(position));
+        self.report("write", completion.clone(), result);
         Ok(completion)
     }
 
@@ -272,21 +200,26 @@ impl File for BrowserFile {
         completion: Completion,
         _sync_type: FileSyncType,
     ) -> turso::core::Result<Completion> {
-        self.schedule(Operation::Sync {
-            completion: completion.clone(),
-        })?;
+        let result = self.handle.flush().map(|()| 0.0);
+        self.report("flush", completion.clone(), result);
         Ok(completion)
     }
 
     fn size(&self) -> turso::core::Result<u64> {
-        Ok(self.size.load(Ordering::Relaxed) as u64)
+        self.handle
+            .get_size()
+            .map(|size| size as u64)
+            .map_err(|error| {
+                turso::core::LimboError::InternalError(format!(
+                    "unable to read the size of browser database file {}: {error:?}",
+                    self.path
+                ))
+            })
     }
 
     fn truncate(&self, size: u64, completion: Completion) -> turso::core::Result<Completion> {
-        self.schedule(Operation::Truncate {
-            size: size as usize,
-            completion: completion.clone(),
-        })?;
+        let result = self.handle.truncate_with_f64(size as f64).map(|()| 0.0);
+        self.report("truncate", completion.clone(), result);
         Ok(completion)
     }
 }
@@ -306,24 +239,24 @@ impl BrowserIo {
         let root = JsFuture::from(get_directory())
             .await
             .map_err(|error| format!("unable to open OPFS: {error:?}"))?
-            .unchecked_into::<web_sys::FileSystemDirectoryHandle>();
-        let root = opfs::web::DirectoryHandle::from(root);
+            .unchecked_into::<FileSystemDirectoryHandle>();
         let mut files = HashMap::new();
 
         for path in paths {
-            let handle = root
-                .get_file_handle_with_options(path, &GetFileHandleOptions { create: true })
-                .await
-                .map_err(|error| format!("unable to open OPFS file {path}: {error:?}"))?;
-            let size = handle
-                .size()
-                .await
-                .map_err(|error| format!("unable to read OPFS file size for {path}: {error:?}"))?;
-            files.insert((*path).to_string(), BrowserFile::new(handle, size));
+            let file = BrowserFile::open(&root, path).await?;
+            files.insert((*path).to_string(), Arc::new(file));
         }
 
         Ok(Self {
             files: Mutex::new(files),
+        })
+    }
+
+    fn file(&self, path: &str) -> turso::core::Result<Arc<BrowserFile>> {
+        self.files.lock().get(path).cloned().ok_or_else(|| {
+            turso::core::LimboError::InternalError(format!(
+                "browser database file was not registered: {path}"
+            ))
         })
     }
 }
@@ -364,28 +297,14 @@ impl IO for BrowserIo {
         _flags: OpenFlags,
         _direct: bool,
     ) -> turso::core::Result<Arc<dyn File>> {
-        self.files
-            .lock()
-            .get(path)
-            .cloned()
-            .map(|file| file as Arc<dyn File>)
-            .ok_or_else(|| {
-                turso::core::LimboError::InternalError(format!(
-                    "browser database file was not registered: {path}"
-                ))
-            })
+        Ok(self.file(path)? as Arc<dyn File>)
     }
 
     fn remove_file(&self, path: &str) -> turso::core::Result<()> {
-        let file = self.files.lock().get(path).cloned().ok_or_else(|| {
+        let file = self.file(path)?;
+        file.handle.truncate_with_f64(0.0).map_err(|error| {
             turso::core::LimboError::InternalError(format!(
-                "browser database file was not registered: {path}"
-            ))
-        })?;
-        file.size.store(0, Ordering::Relaxed);
-        file.operations.try_send(Operation::Reset).map_err(|error| {
-            turso::core::LimboError::InternalError(format!(
-                "unable to reset browser database file: {error}"
+                "unable to reset browser database file {path}: {error:?}"
             ))
         })
     }
