@@ -159,12 +159,12 @@ impl StoreOptions {
 /// database on native targets and in the browser (feature `persistence`), or
 /// nothing at all.
 ///
-/// Reads follow `HashMap`'s shape, with no interior mutability:
-/// [`get`](Store::get) serves shared references from memory, faulting a lazy
-/// entry in first, and everything that may change the store —
-/// [`insert`](Store::insert), [`get_mut`](Store::get_mut),
-/// [`remove`](Store::remove), [`sync`](Store::sync) — takes `&mut self`.
-/// Share a store by wrapping it in a lock, not by cloning it.
+/// Reads follow `HashMap`'s shape and mutation rules, with no interior
+/// mutability: [`get`](Store::get) serves shared references from memory,
+/// while everything that may change the store — [`insert`](Store::insert),
+/// [`get_mut`](Store::get_mut), [`remove`](Store::remove),
+/// [`sync`](Store::sync) — requires `&mut self`. Share a store by wrapping it
+/// in a lock, not by cloning it.
 ///
 /// [`remove`](Store::remove) and [`clear`](Store::clear) act on memory alone;
 /// their durable mirrors [`purge_key`](Store::purge_key) and
@@ -276,21 +276,18 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         self.namespace.as_ref()
     }
 
-    /// Fetch an item, reading it from the storage on the first lookup of a
-    /// lazy store and memoizing it afterwards.
+    /// Fetch an item from memory.
     ///
-    /// On an eager store the map is complete, so a miss is a miss and the
-    /// storage is never consulted. After an environment switch everything in
-    /// memory belongs to the old environment, so the store resets first — a
-    /// stale hit would be wrong.
-    pub async fn get(&mut self, key: &K) -> Option<&V> {
-        self.reset_if_stale().await;
-
-        if matches!(self.cache, CacheOption::Lazy)
-            && !self.entries.contains_key(key)
-            && let Some(value) = self.fetch(key).await
-        {
-            self.entries.insert(key.clone(), value);
+    /// Never touches the storage: on an eager store the map is complete, so a
+    /// miss is a miss. On a lazy store this only serves entries a previous
+    /// [`get_mut`](Store::get_mut) faulted in; use `get_mut` to read through.
+    ///
+    /// After an environment switch everything in memory belongs to the old
+    /// environment, so this misses rather than serve it — a miss costs a
+    /// recompute, a stale hit would be wrong.
+    pub fn get(&self, key: &K) -> Option<&V> {
+        if self.stale() {
+            return None;
         }
 
         self.entries.get(key)
@@ -355,18 +352,9 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
             }
 
             self.entries.insert(key.clone(), value.clone());
-            let namespace = self.namespace.clone();
-            let storage = self.storage.clone();
-            let reopen = self.reopen;
-            let key_bytes = encode(&key);
-            let value_bytes = encode(&value);
-
-            crate::future::spawn_detached(async move {
-                let Some(storage) = detached_storage(storage, namespace, reopen).await else {
-                    return;
-                };
-
-                match storage.insert(&key_bytes, value_bytes, Origin::Local).await {
+            let (key, value) = (encode(&key), encode(&value));
+            self.detach(move |storage| async move {
+                match storage.insert(&key, value, Origin::Local).await {
                     Insertion::Stored => {}
                     Insertion::Conflict(_) => {
                         log::debug!(
@@ -410,18 +398,8 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
             // A purged key is a fresh key.
             self.known.remove(key);
 
-            let namespace = self.namespace.clone();
-            let storage = self.storage.clone();
-            let reopen = self.reopen;
-            let key_bytes = encode(key);
-
-            crate::future::spawn_detached(async move {
-                let Some(storage) = detached_storage(storage, namespace, reopen).await else {
-                    return;
-                };
-
-                storage.purge_key(&key_bytes).await;
-            });
+            let key = encode(key);
+            self.detach(move |storage| async move { storage.purge_key(&key).await });
 
             value
         }
@@ -708,6 +686,36 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         }
     }
 
+    /// Runs `write` against the storage on a detached task: the store's, or
+    /// the active environment's when a switch was detected on the synchronous
+    /// path and the store hasn't reopened yet.
+    #[cfg(target_family = "wasm")]
+    fn detach<F, Fut>(&self, write: F)
+    where
+        F: FnOnce(Arc<dyn Storage>) -> Fut + 'static,
+        Fut: core::future::Future<Output = ()> + 'static,
+    {
+        let storage = self.storage.clone();
+        let namespace = self.namespace.clone();
+        let reopen = self.reopen;
+
+        crate::future::spawn_detached(async move {
+            let storage = if reopen {
+                let Some(namespace) = namespace else {
+                    return;
+                };
+                super::storage::open(namespace.as_str()).await
+            } else {
+                let Some(storage) = storage else {
+                    return;
+                };
+                storage
+            };
+
+            write(storage).await
+        });
+    }
+
     /// Drops everything belonging to the previous environment.
     ///
     /// The storage is not reopened here: this is the synchronous half, for
@@ -754,22 +762,6 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
                 }
             }
         }
-    }
-}
-
-/// The storage a detached write goes to: the store's, or the active
-/// environment's when a switch was detected on the synchronous path and the
-/// store hasn't reopened yet.
-#[cfg(target_family = "wasm")]
-async fn detached_storage(
-    storage: Option<Arc<dyn Storage>>,
-    namespace: Option<Namespace>,
-    reopen: bool,
-) -> Option<Arc<dyn Storage>> {
-    if reopen {
-        Some(super::storage::open(namespace?.as_str()).await)
-    } else {
-        storage
     }
 }
 
@@ -916,10 +908,10 @@ mod tests {
 
         assert_eq!(cache.len(), 2);
 
-        let value1_actual = cache.get(&key1()).await.unwrap();
+        let value1_actual = cache.get(&key1()).unwrap();
         assert_eq!(value1_actual, &value1());
 
-        let value2_actual = cache.get(&key2()).await.unwrap();
+        let value2_actual = cache.get(&key2()).unwrap();
         assert_eq!(value2_actual, &value2());
     }
 
@@ -946,11 +938,11 @@ mod tests {
 
         // Read it back through a fresh connection: the entry must be
         // addressable by namespace and encoded key alone.
-        let mut reopened = Store::<String, u32>::open(
+        let reopened = Store::<String, u32>::open(
             StoreOptions::new().storage(Namespace::scoped("golden", "device0/matmul")),
         )
         .await;
-        assert_eq!(reopened.get(&"shape=2x2".to_string()).await, Some(&42));
+        assert_eq!(reopened.get(&"shape=2x2".to_string()), Some(&42));
     }
 
     /// The launch path's insert must be durable before it returns natively: a
@@ -964,10 +956,10 @@ mod tests {
 
         let mut cache = Store::<String, u32>::open(eager("sync")).await;
         cache.insert_sync("key".to_string(), 7).unwrap();
-        assert_eq!(cache.get(&"key".to_string()).await, Some(&7));
+        assert_eq!(cache.get(&"key".to_string()), Some(&7));
 
-        let mut reopened = Store::<String, u32>::open(eager("sync")).await;
-        assert_eq!(reopened.get(&"key".to_string()).await, Some(&7));
+        let reopened = Store::<String, u32>::open(eager("sync")).await;
+        assert_eq!(reopened.get(&"key".to_string()), Some(&7));
     }
 
     /// The launch path's move of an entry between keys: the old key is purged
@@ -988,9 +980,9 @@ mod tests {
         // Free to reinsert at once, as after `purge_key`.
         cache.insert_sync("key".to_string(), 8).unwrap();
 
-        let mut reopened = Store::<String, u32>::open(eager("purged")).await;
-        assert_eq!(reopened.get(&"key".to_string()).await, Some(&8));
-        assert_eq!(reopened.get(&"moved".to_string()).await, Some(&7));
+        let reopened = Store::<String, u32>::open(eager("purged")).await;
+        assert_eq!(reopened.get(&"key".to_string()), Some(&8));
+        assert_eq!(reopened.get(&"moved".to_string()), Some(&7));
     }
 
     /// The launch path reads through a lazy store and follows an environment
@@ -1031,8 +1023,8 @@ mod tests {
         cache.insert("key".to_string(), 7).await.unwrap();
         drop(cache);
 
-        let mut cache = Store::<String, u32>::open(eager("reopen")).await;
-        assert_eq!(cache.get(&"key".to_string()).await, Some(&7));
+        let cache = Store::<String, u32>::open(eager("reopen")).await;
+        assert_eq!(cache.get(&"key".to_string()), Some(&7));
     }
 
     /// Two namespaces in the same root must not see each other's entries.
@@ -1047,11 +1039,11 @@ mod tests {
         first.insert("key".to_string(), 1).await.unwrap();
 
         let mut second = Store::<String, u32>::open(eager("device1/matmul")).await;
-        assert_eq!(second.get(&"key".to_string()).await, None);
+        assert_eq!(second.get(&"key".to_string()), None);
         second.insert("key".to_string(), 2).await.unwrap();
 
-        assert_eq!(first.get(&"key".to_string()).await, Some(&1));
-        assert_eq!(second.get(&"key".to_string()).await, Some(&2));
+        assert_eq!(first.get(&"key".to_string()), Some(&1));
+        assert_eq!(second.get(&"key".to_string()), Some(&2));
     }
 
     #[tokio::test]
@@ -1138,22 +1130,22 @@ mod tests {
         crate::environment::set_root(first.path());
         let mut store = Store::<String, u32>::open(eager("reset")).await;
         store.insert("key".to_string(), 1).await.unwrap();
-        assert_eq!(store.get(&"key".to_string()).await, Some(&1));
+        assert_eq!(store.get(&"key".to_string()), Some(&1));
 
         // The old environment's entries are never served after the switch.
         crate::environment::set_root(second.path());
-        assert_eq!(store.get(&"key".to_string()).await, None);
+        assert_eq!(store.get(&"key".to_string()), None);
         assert_eq!(store.len(), 0);
 
         // The next write lands in the new environment, with no conflict
         // against the value the old one holds.
         store.insert("key".to_string(), 2).await.unwrap();
-        assert_eq!(store.get(&"key".to_string()).await, Some(&2));
+        assert_eq!(store.get(&"key".to_string()), Some(&2));
 
         // Switching back serves the first environment's value again.
         crate::environment::set_root(first.path());
         store.sync().await;
-        assert_eq!(store.get(&"key".to_string()).await, Some(&1));
+        assert_eq!(store.get(&"key".to_string()), Some(&1));
     }
 
     /// Stores on an explicit or absent storage are not bound to the
@@ -1168,7 +1160,7 @@ mod tests {
         store.insert("key".to_string(), 1).await.unwrap();
 
         crate::environment::set_root(root.path());
-        assert_eq!(store.get(&"key".to_string()).await, Some(&1));
+        assert_eq!(store.get(&"key".to_string()), Some(&1));
     }
 
     /// `purge_key` is `remove` with a durable delete: the entry is handed out
@@ -1190,9 +1182,9 @@ mod tests {
         assert_eq!(store.purge_key(&"gone".to_string()).await, Some(3));
         drop(store);
 
-        let mut store = Store::<String, u32>::open(eager("purge_key")).await;
-        assert_eq!(store.get(&"gone".to_string()).await, None);
-        assert_eq!(store.get(&"kept".to_string()).await, Some(&2));
+        let store = Store::<String, u32>::open(eager("purge_key")).await;
+        assert_eq!(store.get(&"gone".to_string()), None);
+        assert_eq!(store.get(&"kept".to_string()), Some(&2));
     }
 
     /// `clear` evicts memory only: the storage keeps everything, the keys
@@ -1217,7 +1209,7 @@ mod tests {
         ));
 
         store.sync().await;
-        assert_eq!(store.get(&"key".to_string()).await, Some(&1));
+        assert_eq!(store.get(&"key".to_string()), Some(&1));
     }
 
     /// Unlike `remove`, which only evicts the in-memory copy, `purge` deletes
@@ -1244,11 +1236,11 @@ mod tests {
         store.insert("kept".to_string(), 3).await.unwrap();
         drop(store);
 
-        let mut store = Store::<String, u32>::open(eager("purge")).await;
-        assert_eq!(store.get(&"kept".to_string()).await, Some(&3));
-        assert_eq!(store.get(&"gone".to_string()).await, None);
-        let mut other = Store::<String, u32>::open(eager("other")).await;
-        assert_eq!(other.get(&"kept".to_string()).await, Some(&9));
+        let store = Store::<String, u32>::open(eager("purge")).await;
+        assert_eq!(store.get(&"kept".to_string()), Some(&3));
+        assert_eq!(store.get(&"gone".to_string()), None);
+        let other = Store::<String, u32>::open(eager("other")).await;
+        assert_eq!(other.get(&"kept".to_string()), Some(&9));
     }
 
     /// `scan` visits the whole storage owned, without retaining anything —
@@ -1277,7 +1269,7 @@ mod tests {
         let mut store = Store::<String, u32>::open(StoreOptions::new()).await;
 
         store.insert("key".to_string(), 1).await.unwrap();
-        assert_eq!(store.get(&"key".to_string()).await, Some(&1));
+        assert_eq!(store.get(&"key".to_string()), Some(&1));
         assert!(store.insert("key".to_string(), 1).await.is_ok());
         assert!(matches!(
             store.insert("key".to_string(), 2).await,
@@ -1288,6 +1280,6 @@ mod tests {
         // the key is free again.
         assert_eq!(store.remove(&"key".to_string()).await, Some(1));
         store.insert("key".to_string(), 2).await.unwrap();
-        assert_eq!(store.get(&"key".to_string()).await, Some(&2));
+        assert_eq!(store.get(&"key".to_string()), Some(&2));
     }
 }

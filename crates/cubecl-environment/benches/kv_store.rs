@@ -35,7 +35,7 @@ fn warm(root: &std::path::Path) -> Store<String, u32> {
 
 fn read_path(criterion: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = warm(dir.path());
+    let store = warm(dir.path());
 
     let mut baseline: HashMap<String, u32> = HashMap::default();
     for index in 0..ENTRIES {
@@ -49,9 +49,7 @@ fn read_path(criterion: &mut Criterion) {
         let mut index = 0;
         bencher.iter(|| {
             index = (index + 1) % ENTRIES;
-            black_box(
-                cubecl_environment::future::block_on(store.get(black_box(&keys[index]))).copied(),
-            )
+            black_box(store.get(black_box(&keys[index])).copied())
         })
     });
     group.bench_function("hashmap_hit", |bencher| {
@@ -64,9 +62,7 @@ fn read_path(criterion: &mut Criterion) {
 
     let missing = key(ENTRIES + 1);
     group.bench_function("kv_store_miss", |bencher| {
-        bencher.iter(|| {
-            black_box(cubecl_environment::future::block_on(store.get(black_box(&missing))).copied())
-        })
+        bencher.iter(|| black_box(store.get(black_box(&missing)).copied()))
     });
     group.finish();
 }
@@ -155,10 +151,7 @@ fn blob_path(criterion: &mut Criterion) {
         let mut index = 0;
         bencher.iter(|| {
             index = (index + 1) % ENTRIES;
-            black_box(
-                cubecl_environment::future::block_on(store.get(black_box(&keys[index])))
-                    .map(Bytes::len),
-            )
+            black_box(store.get(black_box(&keys[index])).map(Bytes::len))
         })
     });
     group.finish();

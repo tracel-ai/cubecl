@@ -258,37 +258,30 @@ where
 
         // One lock at a time: `adopt` takes `state` and then `opening`, so
         // `opening` is released before it runs.
-        let opened = {
-            let mut opening = self.opening.lock();
-            let opening = opening.get_or_insert_with(HashMap::new);
-            match opening.get(id) {
-                Some(slot) => Ok(slot.lock().take()),
-                None => {
-                    let slot: Slot<AK> = Arc::new(Mutex::new(None));
-                    opening.insert(id.clone(), slot.clone());
-                    Err(slot)
-                }
-            }
-        };
+        let fresh: Slot<AK> = Arc::new(Mutex::new(None));
+        let slot = self
+            .opening
+            .lock()
+            .get_or_insert_with(HashMap::new)
+            .entry(id.clone())
+            .or_insert_with(|| fresh.clone())
+            .clone();
 
-        match opened {
-            Ok(Some(tuner)) => Some(self.adopt(id, tuner)),
-            // The event loop is still opening it.
-            Ok(None) => None,
-            Err(slot) => {
-                let name = self.name.replace("::", "-");
-                let device_id = id.to_string();
-                cubecl_environment::future::spawn_detached(async move {
-                    let tuner = Arc::new(Tuner::new(&name, &device_id).await);
-                    *slot.lock() = Some(tuner);
-                });
-                None
-            }
+        if Arc::ptr_eq(&slot, &fresh) {
+            let name = self.name.replace("::", "-");
+            let device_id = id.to_string();
+            cubecl_environment::future::spawn_detached(async move {
+                *slot.lock() = Some(Arc::new(Tuner::new(&name, &device_id).await));
+            });
+            return None;
         }
+
+        // The event loop is opening it; adopt it once it's there.
+        let tuner = slot.lock().take()?;
+        Some(self.adopt(id, tuner))
     }
 
     /// Whatever candidate runs, for a call the tuner couldn't decide.
-    #[cfg(target_family = "wasm")]
     fn fallback<'a, I: TuneInputs, Out>(
         operations: &TunableSet<AK, I, Out>,
         inputs: <I as TuneInputs>::At<'a>,
@@ -366,15 +359,8 @@ where
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
                 )
             }
-            TuneCacheResult::Pending => {
-                // Still waiting (e.g. on wasm). Try all operations as a fallback.
-                for i in 0..operations.len() {
-                    if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
-                        return output;
-                    }
-                }
-                panic!("All autotune operations failed, no viable operation found.");
-            }
+            // Another caller is tuning this key; run whatever works meanwhile.
+            TuneCacheResult::Pending => Self::fallback(&operations, inputs),
         }
     }
 }

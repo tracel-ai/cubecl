@@ -104,17 +104,9 @@ async fn importing_fills_the_storage_and_the_bundle_becomes_irrelevant() {
         drop(bundle);
         std::fs::remove_file(&bundle_path).unwrap();
 
-        let mut store = open(cold_root.path(), "autotune", "device0/matmul").await;
-        assert_eq!(
-            store.get(&"shape=2x2".to_string()).await,
-            Some(&3),
-            "{format:?}"
-        );
-        assert_eq!(
-            store.get(&"shape=4x4".to_string()).await,
-            Some(&7),
-            "{format:?}"
-        );
+        let store = open(cold_root.path(), "autotune", "device0/matmul").await;
+        assert_eq!(store.get(&"shape=2x2".to_string()), Some(&3), "{format:?}");
+        assert_eq!(store.get(&"shape=4x4".to_string()), Some(&7), "{format:?}");
     }
 }
 
@@ -171,9 +163,9 @@ async fn importing_never_overwrites_a_local_value() {
     let report = import_into(local_root.path(), bundle.as_ref()).await;
     assert_eq!((report.imported, report.skipped), (0, 1));
 
-    let mut store = open(local_root.path(), "autotune", "device0/matmul").await;
+    let store = open(local_root.path(), "autotune", "device0/matmul").await;
     assert_eq!(
-        store.get(&"k".to_string()).await,
+        store.get(&"k".to_string()),
         Some(&42),
         "the local value wins"
     );
@@ -197,7 +189,7 @@ async fn a_local_value_replaces_a_stale_imported_one() {
 
     // The application disagrees with the shipped answer.
     let mut store = open(local_root.path(), "autotune", "device0/matmul").await;
-    assert_eq!(store.get(&"k".to_string()).await, Some(&1));
+    assert_eq!(store.get(&"k".to_string()), Some(&1));
     store.insert("k".to_string(), 99).await.unwrap();
 
     // It must stick, including across a reopen, and a re-import must not
@@ -205,8 +197,8 @@ async fn a_local_value_replaces_a_stale_imported_one() {
     let report = import_into(local_root.path(), bundle.as_ref()).await;
     assert_eq!(report.imported, 0);
 
-    let mut store = open(local_root.path(), "autotune", "device0/matmul").await;
-    assert_eq!(store.get(&"k".to_string()).await, Some(&99));
+    let store = open(local_root.path(), "autotune", "device0/matmul").await;
+    assert_eq!(store.get(&"k".to_string()), Some(&99));
 
     // And now that it is local, a second disagreement is a plain conflict.
     let mut store = store;
@@ -236,15 +228,13 @@ async fn importing_covers_every_namespace() {
     assert_eq!(
         open(cold_root.path(), "autotune", "device0/matmul")
             .await
-            .get(&"k".to_string())
-            .await,
+            .get(&"k".to_string()),
         Some(&1)
     );
     assert_eq!(
         open(cold_root.path(), "throughput", "device0/copy")
             .await
-            .get(&"k".to_string())
-            .await,
+            .get(&"k".to_string()),
         Some(&2)
     );
 }
@@ -329,19 +319,19 @@ async fn exporting_several_roots_dedupes_shared_keys() {
             "the shared key appears exactly once: {format:?}"
         );
 
-        let mut store = open(cold_root.path(), "autotune", "device0/matmul").await;
+        let store = open(cold_root.path(), "autotune", "device0/matmul").await;
         assert_eq!(
-            store.get(&"shared".to_string()).await,
+            store.get(&"shared".to_string()),
             Some(&1),
             "first root wins: {format:?}"
         );
         assert_eq!(
-            store.get(&"only-first".to_string()).await,
+            store.get(&"only-first".to_string()),
             Some(&10),
             "{format:?}"
         );
         assert_eq!(
-            store.get(&"only-second".to_string()).await,
+            store.get(&"only-second".to_string()),
             Some(&20),
             "{format:?}"
         );
@@ -375,15 +365,13 @@ async fn exporting_can_be_restricted_to_some_namespaces() {
     assert_eq!(
         open(cold_root.path(), "autotune", "device0/matmul")
             .await
-            .get(&"k".to_string())
-            .await,
+            .get(&"k".to_string()),
         Some(&1)
     );
     assert_eq!(
         open(cold_root.path(), "throughput", "device0/copy")
             .await
-            .get(&"k".to_string())
-            .await,
+            .get(&"k".to_string()),
         None,
         "the throughput namespace was not exported"
     );
@@ -424,9 +412,9 @@ async fn exporting_over_an_existing_bundle_replaces_it() {
         let bundle = open_bundle(&bundle_path, format);
         import_into(cold_root.path(), bundle.as_ref()).await;
 
-        let mut store = open(cold_root.path(), "autotune", "device0/matmul").await;
-        assert_eq!(store.get(&"new".to_string()).await, Some(&2), "{format:?}");
-        assert_eq!(store.get(&"old".to_string()).await, None, "{format:?}");
+        let store = open(cold_root.path(), "autotune", "device0/matmul").await;
+        assert_eq!(store.get(&"new".to_string()), Some(&2), "{format:?}");
+        assert_eq!(store.get(&"old".to_string()), None, "{format:?}");
     }
 }
 
@@ -491,8 +479,7 @@ async fn a_static_blob_opens_as_a_bundle() {
     assert_eq!(
         open(cold_root.path(), "autotune", "device0/matmul")
             .await
-            .get(&"b".to_string())
-            .await,
+            .get(&"b".to_string()),
         Some(&2)
     );
 }
@@ -653,16 +640,14 @@ async fn environments_are_isolated_and_switchable() {
     assert_eq!(
         open(root.path(), "autotune", "device0/matmul")
             .await
-            .get(&"k".to_string())
-            .await,
+            .get(&"k".to_string()),
         Some(&2)
     );
     environment::activate("first");
     assert_eq!(
         open(root.path(), "autotune", "device0/matmul")
             .await
-            .get(&"k".to_string())
-            .await,
+            .get(&"k".to_string()),
         Some(&1)
     );
 
@@ -704,26 +689,25 @@ async fn a_saved_bundle_can_be_loaded_in_place() {
     // A machine with a cold environment, holding a store opened before the
     // bundle arrives.
     let mut store = open(cold_root.path(), "autotune", "device0/matmul").await;
-    assert_eq!(store.get(&"k".to_string()).await, None);
+    assert_eq!(store.get(&"k".to_string()), None);
 
     environment::load(&bundle_path);
 
     // The existing store resets onto the bundle, and a fresh one sees it too.
     store.sync().await;
-    assert_eq!(store.get(&"k".to_string()).await, Some(&7));
-    let mut fresh: Store<String, u32> = environment::store(
+    assert_eq!(store.get(&"k".to_string()), Some(&7));
+    let fresh: Store<String, u32> = environment::store(
         StoreOptions::new().storage(Namespace::scoped("autotune", "device0/matmul")),
     )
     .await;
-    assert_eq!(fresh.get(&"k".to_string()).await, Some(&7));
+    assert_eq!(fresh.get(&"k".to_string()), Some(&7));
 
     // The bundle was mounted, not imported: the cold environment stays cold.
     environment::set_root(cold_root.path());
     assert_eq!(
         open(cold_root.path(), "autotune", "device0/matmul")
             .await
-            .get(&"k".to_string())
-            .await,
+            .get(&"k".to_string()),
         None
     );
 }
@@ -750,8 +734,7 @@ async fn importing_targets_the_active_environment() {
     assert_eq!(
         open(cold_root.path(), "autotune", "device0/matmul")
             .await
-            .get(&"k".to_string())
-            .await,
+            .get(&"k".to_string()),
         Some(&7)
     );
 
@@ -760,8 +743,7 @@ async fn importing_targets_the_active_environment() {
     assert_eq!(
         open(cold_root.path(), "autotune", "device0/matmul")
             .await
-            .get(&"k".to_string())
-            .await,
+            .get(&"k".to_string()),
         None
     );
 }
@@ -882,8 +864,7 @@ async fn a_bundle_installed_read_only_still_imports() {
     assert_eq!(
         open(target.path(), "default", "autotune/matmul")
             .await
-            .get(&"shape=2x2".to_string())
-            .await,
+            .get(&"shape=2x2".to_string()),
         Some(&42)
     );
 }
@@ -918,11 +899,11 @@ async fn a_bundle_installed_read_only_can_be_loaded_in_place() {
     } else {
         environment::set_root(cold_root.path());
         environment::load(&bundle_path);
-        let mut store: Store<String, u32> = environment::store(
+        let store: Store<String, u32> = environment::store(
             StoreOptions::new().storage(Namespace::scoped("autotune", "device0/matmul")),
         )
         .await;
-        Some(store.get(&"k".to_string()).await.copied())
+        Some(store.get(&"k".to_string()).copied())
     };
 
     environment::set_root(cold_root.path());

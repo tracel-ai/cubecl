@@ -1,3 +1,4 @@
+use std::collections::btree_map::Entry;
 use std::path::{Path, PathBuf};
 use std::string::{String, ToString};
 use std::vec::Vec;
@@ -234,14 +235,13 @@ impl Sink<'_> {
                     .map_err(storage_error)?;
                 Ok(inserted as usize)
             }
-            Sink::Flat(entries) => {
-                let mut inserted = 0;
-                entries.entry((namespace, key)).or_insert_with(|| {
-                    inserted = 1;
-                    Bytes::from_bytes_vec(value)
-                });
-                Ok(inserted)
-            }
+            Sink::Flat(entries) => match entries.entry((namespace, key)) {
+                Entry::Vacant(vacant) => {
+                    vacant.insert(Bytes::from_bytes_vec(value));
+                    Ok(1)
+                }
+                Entry::Occupied(_) => Ok(0),
+            },
         }
     }
 }

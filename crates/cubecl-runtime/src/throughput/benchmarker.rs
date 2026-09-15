@@ -91,7 +91,7 @@ impl ThroughputBenchmarker {
         Fut: Future<Output = Result<ThroughputValue, ThroughputError>>,
     {
         if self.cache_enabled
-            && let Some(cached_value) = self.cache.lock().await.get(&key).await
+            && let Some(cached_value) = self.cache.lock().await.get(&key)
         {
             return Ok(*cached_value);
         }

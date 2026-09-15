@@ -102,7 +102,7 @@ async fn reads_never_reach_the_storage() {
     assert_eq!(inserts, 1_000);
 
     // Reopen: exactly one scan ingests everything, and nothing else.
-    let mut store = Store::<String, u32>::open(
+    let store = Store::<String, u32>::open(
         StoreOptions::new().storage_with(Box::new(storage.clone()), "bench/ns"),
     )
     .await;
@@ -111,12 +111,12 @@ async fn reads_never_reach_the_storage() {
     // Now hammer the read path.
     for _ in 0..100 {
         for index in 0..1_000u32 {
-            assert_eq!(store.get(&format!("key{index}")).await, Some(&index));
+            assert_eq!(store.get(&format!("key{index}")), Some(&index));
         }
     }
     // Misses too: a miss must not fall through to the storage either.
     for index in 1_000..2_000u32 {
-        assert_eq!(store.get(&format!("key{index}")).await, None);
+        assert_eq!(store.get(&format!("key{index}")), None);
     }
 
     let (gets, _, scans) = storage.counts();

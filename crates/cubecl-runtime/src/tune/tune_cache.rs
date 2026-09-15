@@ -56,10 +56,12 @@ pub struct PersistentCacheValue {
     ///
     /// Defaulted, so entries written before this field existed still decode. Without it every
     /// cached key on every existing installation would fail to read and re-tune from scratch.
+    #[serde(default)]
     pub bounds: Option<crate::tune::Bounds>,
     /// Optional execution time limit for the autotune process.
     ///
     /// Defaulted for the same reason as [`bounds`](Self::bounds).
+    #[serde(default)]
     pub limit: Option<core::time::Duration>,
 }
 
@@ -209,8 +211,8 @@ impl<K: AutotuneKey> TuneCache<K> {
 
         if cfg!(persistence) {
             match checksum {
-                ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked,
-                ChecksumState::NoMatch => TuneCacheResult::Miss,
+                ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked, // Don't know yet.
+                ChecksumState::NoMatch => TuneCacheResult::Miss,               // Can't use this.
                 ChecksumState::Match => TuneCacheResult::Hit {
                     fastest_index: *fastest_index,
                 },

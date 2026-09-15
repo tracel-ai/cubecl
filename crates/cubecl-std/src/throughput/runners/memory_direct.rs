@@ -1,3 +1,4 @@
+use super::timed;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputKey};
@@ -25,32 +26,20 @@ pub async fn build_kernel(
     memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype).await;
     let out_handle = client.empty(probe.buffer_bytes);
 
-    let sample = Box::new(
-        move |iterations: usize| -> cubecl_environment::future::DynFut<_> {
-            let client = client.clone();
-            let in_handle = in_handle.clone();
-            let out_handle = out_handle.clone();
-            Box::pin(async move {
-                let start = cubecl_common::profile::Instant::now();
-                unsafe {
-                    memory_direct_throughput::launch_unchecked(
-                        &client,
-                        CubeCount::Static(probe.cube_count as u32, 1, 1),
-                        config.cube_dim,
-                        config.vector_size,
-                        BufferArg::from_raw_parts(in_handle, probe.pool_lines),
-                        BufferArg::from_raw_parts(out_handle, probe.pool_lines),
-                        probe.window_lines,
-                        iterations,
-                        probe.blocked,
-                        dtype,
-                    )
-                };
-                let _ = client.sync().await;
-                start.elapsed()
-            })
-        },
-    );
+    let sample = timed(client.clone(), move |iterations| unsafe {
+        memory_direct_throughput::launch_unchecked(
+            &client,
+            CubeCount::Static(probe.cube_count as u32, 1, 1),
+            config.cube_dim,
+            config.vector_size,
+            BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines),
+            BufferArg::from_raw_parts(out_handle.clone(), probe.pool_lines),
+            probe.window_lines,
+            iterations,
+            probe.blocked,
+            dtype,
+        )
+    });
 
     // One pass moves the window twice: once in, once out.
     let ops_count = 2 * probe.window_lines * config.vector_size;

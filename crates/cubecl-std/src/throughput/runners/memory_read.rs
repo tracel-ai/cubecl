@@ -1,3 +1,4 @@
+use super::timed;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputKey};
@@ -39,32 +40,20 @@ pub async fn build_kernel(
     // One line: the kernel writes from a single thread, only to anchor the reads.
     let out_handle = client.empty(line_bytes);
 
-    let sample = Box::new(
-        move |iterations: usize| -> cubecl_environment::future::DynFut<_> {
-            let client = client.clone();
-            let in_handle = in_handle.clone();
-            let out_handle = out_handle.clone();
-            Box::pin(async move {
-                let start = cubecl_common::profile::Instant::now();
-                unsafe {
-                    memory_read_throughput::launch_unchecked(
-                        &client,
-                        CubeCount::Static(probe.cube_count as u32, 1, 1),
-                        config.cube_dim,
-                        config.vector_size,
-                        BufferArg::from_raw_parts(in_handle, probe.pool_lines),
-                        BufferArg::from_raw_parts(out_handle, 1),
-                        probe.window_lines,
-                        iterations,
-                        probe.blocked,
-                        dtype,
-                    )
-                };
-                let _ = client.sync().await;
-                start.elapsed()
-            })
-        },
-    );
+    let sample = timed(client.clone(), move |iterations| unsafe {
+        memory_read_throughput::launch_unchecked(
+            &client,
+            CubeCount::Static(probe.cube_count as u32, 1, 1),
+            config.cube_dim,
+            config.vector_size,
+            BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines),
+            BufferArg::from_raw_parts(out_handle.clone(), 1),
+            probe.window_lines,
+            iterations,
+            probe.blocked,
+            dtype,
+        )
+    });
 
     // Reads only — no `2 *`. That factor is the whole difference from the copy.
     let ops_count = probe.window_lines * config.vector_size;
