@@ -226,8 +226,13 @@ pub struct ScaledMmaConfig {
 /// Atomic features that may be supported by a ``Runtime``.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, EnumSetType)]
 pub enum Tma {
-    /// Base feature set for tensor memory accelerator features. Includes tiling and im2col
+    /// Base feature set for tensor memory accelerator features. Includes tiling.
     Base,
+    /// im2col addressing for tensor map. Present on Hopper (sm_90) and datacenter
+    /// Blackwell (sm_100/101/103), but not consumer Blackwell (sm_120/121): ptxas
+    /// assembles the im2col `cp.async.bulk.tensor` there, yet the hardware traps it
+    /// at launch. Kept apart from `Base` so tiling stays available where im2col is not.
+    Im2col,
     /// im2colWide encoding for tensor map.
     Im2colWide,
     /// Different atomicities for 128-byte swizzle, i.e. 128-byte with 32-byte atomicity.

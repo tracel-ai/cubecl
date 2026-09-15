@@ -241,8 +241,17 @@ impl DeviceService for CudaServer {
             device_props.features.copy_async = true;
         }
 
+        // Consumer Blackwell (sm_120/121) shares Blackwell's base ISA but lacks the
+        // im2col TMA and cluster-shared/multicast TMA that the datacenter parts carry.
+        // ptxas assembles `cp.async.bulk.tensor ... im2col` for sm_120a, but the
+        // hardware traps it at launch (CUDA_ERROR_ILLEGAL_INSTRUCTION), so im2col TMA
+        // must not be advertised there. Tiled TMA (`Tma::Base`) does run and stays on.
+        let is_consumer_blackwell = (120..130).contains(&arch_version);
         if arch_version >= 90 {
             device_props.features.tma.insert(Tma::Base);
+            if !is_consumer_blackwell {
+                device_props.features.tma.insert(Tma::Im2col);
+            }
             device_props.register_opaque_type(OpaqueType::TensorMap);
             device_props.features.cube_cluster = true;
             comp_opts.supports_features.clusters = true;
@@ -298,7 +307,11 @@ impl DeviceService for CudaServer {
         }
 
         if arch_version >= 100 {
-            device_props.features.tma.insert(Tma::Im2colWide);
+            // im2colWide is an im2col encoding, so it shares im2col's consumer-Blackwell
+            // gap: withhold it on sm_120/121 for the same reason as `Tma::Im2col`.
+            if !is_consumer_blackwell {
+                device_props.features.tma.insert(Tma::Im2colWide);
+            }
             // Breaks swizzle so disable for now and fix in a PR specifically for this
             // if CUDA_VERSION >= 12090 {
             //     device_props.hardware.load_width = 256;
