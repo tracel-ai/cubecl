@@ -1,4 +1,7 @@
 use super::prelude::*;
+#[cfg(feature = "nvptx")]
+use cubecl_core::ir::AddressType;
+use cubecl_core::ir::ContextExt;
 use cubecl_core::ir::types::{
     ArrayType, AtomicType,
     scalar::{
@@ -6,8 +9,6 @@ use cubecl_core::ir::types::{
         FloatFlex32Type,
     },
 };
-#[cfg(feature = "nvptx")]
-use cubecl_core::ir::{AddressType, ContextExt};
 use pliron::printable::Printable;
 
 use crate::target::{CtxTarget, LlvmTarget};
@@ -124,9 +125,8 @@ pub fn cube_type_to_llvm(ctx: &Context, ty: TypeHandle) -> TypeHandle {
 
 /// The alignment an ordinary load or store can promise on the target.
 ///
-/// CPU buffers come from `BytesStorage`, whose allocation layout only guarantees byte
-/// alignment. Vectorizing an index does not strengthen the base pointer's alignment.
-/// Use unaligned accesses until the allocation and binding guarantee something stronger.
+/// CPU accesses are capped by the alignment the runtime guarantees for all buffer views
+/// in this specialization. Vectorizing an index cannot strengthen base pointer alignment.
 ///
 /// On GPU targets, use the type's alignment: `CubeCL` vectorizes an access
 /// only where the layout lets it, so a `Vector<f16, 8>` read out of a buffer of them sits on a
@@ -139,14 +139,15 @@ pub fn cube_type_to_llvm(ctx: &Context, ty: TypeHandle) -> TypeHandle {
 /// is `stride` elements per row and a caller may pad that stride, so those keep
 /// [`scalar_alignment`].
 pub fn type_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
-    if ctx.target() == LlvmTarget::Cpu {
-        return 1;
-    }
-
     let ty = ty.deref(ctx);
-    type_cast::<dyn AlignedType>(&*ty)
+    let alignment = type_cast::<dyn AlignedType>(&*ty)
         .expect("load/store value type must implement AlignedType")
-        .align(ctx) as u32
+        .align(ctx) as u32;
+    if ctx.target() == LlvmTarget::Cpu {
+        alignment.min(ctx.aux_ty::<crate::target::CpuBufferAlignment>().0)
+    } else {
+        alignment
+    }
 }
 
 pub fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {

@@ -30,6 +30,9 @@ impl LlvmTarget {
 
 impl CtxTarget for Context {}
 
+/// Minimum alignment promised by the CPU runtime for this kernel's buffer views.
+pub(crate) struct CpuBufferAlignment(pub u32);
+
 /// The target on the context, as the passes shared by both pipelines see it.
 pub trait CtxTarget: ContextExt {
     fn target(&self) -> LlvmTarget {

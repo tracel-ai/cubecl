@@ -1,4 +1,5 @@
 use core::cell::RefCell;
+use cubecl_core::ir::ContextExt;
 #[cfg(feature = "nvptx")]
 use cubecl_core::ir::nvidia::SmArch;
 use cubecl_runtime::kernel::BufferIOAttr;
@@ -71,6 +72,9 @@ pub struct PlironCompiler {
 
 #[derive(Clone, Debug, Default)]
 pub struct PlironOptions {
+    /// Guaranteed alignment of every CPU buffer binding, including view offsets.
+    /// `None` makes no alignment promise. Must be a power of two when provided.
+    pub cpu_buffer_alignment: Option<u32>,
     /// The device [`LlvmTarget::AmdGpu`] compiles for. `None` on the CPU, which has no gfx
     /// architecture to name.
     pub arch: Option<GfxArch>,
@@ -270,6 +274,9 @@ impl PlironCompiler {
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
         ctx.set_target(LlvmTarget::Cpu);
+        let alignment = options.cpu_buffer_alignment.unwrap_or(1);
+        assert!(alignment.is_power_of_two());
+        ctx.set_aux_ty(crate::target::CpuBufferAlignment(alignment));
         // No parameter block to put them in: neither of these targets presents one.
         ctx.set_grid_constants(false);
 

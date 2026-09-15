@@ -160,7 +160,7 @@ impl DeviceService for CpuServer {
             cube_mma_reserved_shared_memory: 0,
         };
 
-        const ALIGNMENT: u64 = 8;
+        const ALIGNMENT: u64 = cubecl_server::storage::BytesStorage::ALIGNMENT as u64;
 
         let mem_properties = MemoryDeviceProperties {
             max_page_size: total_memory as u64,
