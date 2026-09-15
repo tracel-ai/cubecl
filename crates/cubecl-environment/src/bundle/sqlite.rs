@@ -75,12 +75,7 @@ impl SqliteBundle {
                 None => return Err(BundleError::NotABundle),
             }
 
-            let manifest = BundleManifest::read(&connection)
-                .await
-                .map_err(|err| match err {
-                    BundleError::Storage(message) => missing_meta_message(message),
-                    other => other,
-                })?;
+            let manifest = BundleManifest::read(&connection).await?;
             manifest.warn_on_version_mismatch();
 
             Ok(Self {
@@ -180,11 +175,8 @@ impl Bundle for SqliteBundle {
 /// Whether `err` means "this file is not a cubecl bundle" rather than a genuine
 /// database failure: a database without the `meta` table fails with a "no such
 /// table" message.
-fn missing_meta(err: turso::Error) -> BundleError {
-    missing_meta_message(err.to_string())
-}
-
-fn missing_meta_message(message: String) -> BundleError {
+pub(super) fn missing_meta(err: turso::Error) -> BundleError {
+    let message = err.to_string();
     if message.contains("no such table") {
         BundleError::NotABundle
     } else {

@@ -94,12 +94,8 @@ impl ThroughputCache {
     }
 
     /// Returns the [`ThroughputValue`] for the given [`ThroughputKey`], if it exists in the cache.
-    pub async fn get(&mut self, key: &ThroughputKey) -> Option<&ThroughputValue> {
-        #[cfg(persistence)]
-        return self.cache.get(key).await;
-
-        #[cfg(not(persistence))]
-        return self.cache.get(key);
+    pub fn get(&self, key: &ThroughputKey) -> Option<&ThroughputValue> {
+        self.cache.get(key)
     }
 }
 
@@ -141,12 +137,11 @@ fn is_earlier_generation(candidate: &str, scope: &str, current: u32) -> bool {
 
 #[cfg(persistence)]
 async fn drop_earlier_generations() {
-    use core::sync::atomic::{AtomicU32, Ordering};
+    use core::sync::atomic::{AtomicBool, Ordering};
 
-    static GENERATION: AtomicU32 = AtomicU32::new(u32::MAX);
-    let generation = cubecl_environment::environment::generation();
+    static DROPPED: AtomicBool = AtomicBool::new(false);
 
-    if GENERATION.swap(generation, Ordering::Relaxed) == generation {
+    if DROPPED.swap(true, Ordering::Relaxed) {
         return;
     }
 

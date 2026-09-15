@@ -163,7 +163,7 @@ impl BundleManifest {
     pub(super) async fn read(connection: &turso::Connection) -> Result<Self, BundleError> {
         let content = crate::persistence::turso::meta_get(connection, MANIFEST_KEY)
             .await
-            .map_err(super::export::storage_error)?
+            .map_err(super::sqlite::missing_meta)?
             .ok_or(BundleError::NotABundle)?;
 
         Self::parse(content.as_bytes())

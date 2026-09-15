@@ -54,6 +54,23 @@ const DROP_ENTRIES: [&str; 2] = [
     "DROP TABLE IF EXISTS entries",
 ];
 
+/// The [`Storage`] insert rule in one statement: insert-only, except that a
+/// local value (origin 0) replaces an imported one (origin 1). The primary
+/// key arbitrates, so the check and the write are one atomic step, and the
+/// count of changed rows says whether anything was stored.
+const INSERT: &str = "INSERT INTO cache_entries (namespace, key, value, origin) \
+                      VALUES (?1, ?2, ?3, ?4) \
+                      ON CONFLICT(namespace, key) DO UPDATE \
+                      SET value = excluded.value, origin = excluded.origin \
+                      WHERE cache_entries.origin = 1 AND excluded.origin = 0";
+
+const REPLACE: &str = "INSERT INTO cache_entries (namespace, key, value, origin) \
+                       VALUES (?1, ?2, ?3, ?4) \
+                       ON CONFLICT(namespace, key) DO UPDATE \
+                       SET value = excluded.value, origin = excluded.origin";
+
+const SELECT: &str = "SELECT value FROM cache_entries WHERE namespace = ?1 AND key = ?2";
+
 type DatabaseResult = Result<Arc<turso::Database>, String>;
 
 enum DatabaseState {
@@ -64,7 +81,6 @@ enum DatabaseState {
 static DATABASES: LazyLock<Mutex<HashMap<String, DatabaseState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-#[derive(Clone)]
 pub struct TursoStorage {
     database: Arc<turso::Database>,
     namespace: String,
@@ -97,6 +113,8 @@ impl TursoStorage {
         connect(&self.database).map_err(error)
     }
 
+    /// One insert on `connection`: the statement arbitrates, and only a
+    /// declined write costs a second one, to fetch the value that won.
     async fn insert_on(
         &self,
         connection: &turso::Connection,
@@ -104,38 +122,9 @@ impl TursoStorage {
         value: &[u8],
         origin: Origin,
     ) -> Result<Insertion, turso::Error> {
-        let mut rows = connection
-            .query(
-                "SELECT value, origin FROM cache_entries WHERE namespace = ?1 AND key = ?2",
-                (self.namespace.as_str(), key.to_vec()),
-            )
-            .await?;
-
-        if let Some(row) = rows.next().await? {
-            let existing: Vec<u8> = row.get(0)?;
-            let existing_origin: i64 = row.get(1)?;
-            if !(origin == Origin::Local && existing_origin == origin_code(Origin::Imported)) {
-                return Ok(Insertion::Conflict(Bytes::from_bytes_vec(existing)));
-            }
-
-            connection
-                .execute(
-                    "UPDATE cache_entries SET value = ?3, origin = ?4 \
-                     WHERE namespace = ?1 AND key = ?2",
-                    (
-                        self.namespace.as_str(),
-                        key.to_vec(),
-                        value.to_vec(),
-                        origin_code(origin),
-                    ),
-                )
-                .await?;
-            return Ok(Insertion::Stored);
-        }
-
-        connection
+        let changed = connection
             .execute(
-                "INSERT INTO cache_entries (namespace, key, value, origin) VALUES (?1, ?2, ?3, ?4)",
+                INSERT,
                 (
                     self.namespace.as_str(),
                     key.to_vec(),
@@ -144,22 +133,21 @@ impl TursoStorage {
                 ),
             )
             .await?;
-        Ok(Insertion::Stored)
-    }
+        if changed == 1 {
+            return Ok(Insertion::Stored);
+        }
 
-    async fn insert_transactional(
-        &self,
-        key: &[u8],
-        value: &[u8],
-        origin: Origin,
-    ) -> Result<Insertion, turso::Error> {
-        let mut connection = connect(&self.database)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+        let mut rows = connection
+            .query(SELECT, (self.namespace.as_str(), key.to_vec()))
             .await?;
-        let insertion = self.insert_on(&transaction, key, value, origin).await?;
-        transaction.commit().await?;
-        Ok(insertion)
+        match rows.next().await? {
+            Some(row) => Ok(Insertion::Conflict(Bytes::from_bytes_vec(row.get(0)?))),
+            // Purged between the two statements: nothing to report as the
+            // winner, and nothing stored.
+            None => Ok(Insertion::Failed(
+                "the entry was removed while it was being written".to_string(),
+            )),
+        }
     }
 
     pub async fn summary() -> Vec<NamespaceSummary> {
@@ -204,10 +192,7 @@ impl Storage for TursoStorage {
         let result: Result<Option<Bytes>, String> = async {
             let connection = self.connection()?;
             let mut rows = connection
-                .query(
-                    "SELECT value FROM cache_entries WHERE namespace = ?1 AND key = ?2",
-                    (self.namespace.as_str(), key.to_vec()),
-                )
+                .query(SELECT, (self.namespace.as_str(), key.to_vec()))
                 .await
                 .map_err(error)?;
             let Some(row) = rows.next().await.map_err(error)? else {
@@ -228,9 +213,15 @@ impl Storage for TursoStorage {
     }
 
     async fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        self.insert_transactional(key, &value, origin)
-            .await
-            .unwrap_or_else(|error| Insertion::Failed(error.to_string()))
+        let result = async {
+            let connection = self.connection()?;
+            self.insert_on(&connection, key, &value, origin)
+                .await
+                .map_err(error)
+        }
+        .await;
+
+        result.unwrap_or_else(Insertion::Failed)
     }
 
     async fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
@@ -238,8 +229,7 @@ impl Storage for TursoStorage {
             let connection = self.connection()?;
             connection
                 .execute(
-                    "INSERT INTO cache_entries (namespace, key, value, origin) VALUES (?1, ?2, ?3, ?4) \
-                     ON CONFLICT(namespace, key) DO UPDATE SET value = excluded.value, origin = excluded.origin",
+                    REPLACE,
                     (
                         self.namespace.as_str(),
                         key.to_vec(),
@@ -261,20 +251,20 @@ impl Storage for TursoStorage {
         entries: &mut (dyn Iterator<Item = (Bytes, Bytes)> + Send),
         origin: Origin,
     ) -> InsertSummary {
+        // One transaction for the batch: it holds the writer once rather
+        // than once per entry, and lands as a whole.
+        let refused = |entries: &mut dyn Iterator<Item = (Bytes, Bytes)>| InsertSummary {
+            failed: entries.count(),
+            ..InsertSummary::default()
+        };
         let Ok(mut connection) = connect(&self.database) else {
-            return InsertSummary {
-                failed: entries.count(),
-                ..InsertSummary::default()
-            };
+            return refused(entries);
         };
         let Ok(transaction) = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .await
         else {
-            return InsertSummary {
-                failed: entries.count(),
-                ..InsertSummary::default()
-            };
+            return refused(entries);
         };
 
         let mut summary = InsertSummary::default();
