@@ -1,4 +1,5 @@
 use alloc::collections::BTreeSet;
+use core::{num::NonZeroU64, ptr::NonNull};
 
 use ash::vk::{
     self, API_VERSION_1_1, BufferDeviceAddressInfo, BufferUsageFlags,
@@ -35,7 +36,7 @@ use wgpu::{
     },
 };
 
-use crate::{WgpuCompiler, WgpuServer};
+use crate::{HostPtr, WgpuCompiler, WgpuMemory, WgpuServer};
 
 mod features;
 
@@ -188,7 +189,7 @@ fn request_device(
 pub(crate) fn create_storage_buffer(
     wgpu_device: &wgpu::Device,
     desc: &wgpu::BufferDescriptor,
-) -> Result<(wgpu::Buffer, u64), IoError> {
+) -> Result<WgpuMemory, IoError> {
     let device: &vulkan::Device = unsafe { &wgpu_device.as_hal::<hal::api::Vulkan>().unwrap() };
     let instance = device.shared_instance().raw_instance();
     let phys_device = device.raw_physical_device();
@@ -214,13 +215,30 @@ pub(crate) fn create_storage_buffer(
     let num_types = memory_props.memory_type_count as usize;
     let memory_types = memory_props.memory_types.iter().take(num_types);
 
-    let (memory_type_idx, _) = memory_types
-        .enumerate()
-        .filter(|(i, _)| requirements.memory_type_bits & (1 << *i) != 0)
-        .find(|(_, it)| {
-            it.property_flags
-                .contains(MemoryPropertyFlags::DEVICE_LOCAL)
+    let find_type = |flags: MemoryPropertyFlags| {
+        memory_types
+            .clone()
+            .enumerate()
+            .filter(|(i, _)| requirements.memory_type_bits & (1 << *i) != 0)
+            .find(|(_, it)| it.property_flags.contains(flags))
+            .map(|(i, _)| i)
+    };
+
+    // On a discrete GPU, host-visible memory is the BAR window, often only 256 MiB.
+    let integrated = unsafe { instance.get_physical_device_properties(phys_device) }.device_type
+        == vk::PhysicalDeviceType::INTEGRATED_GPU;
+    let unified_type = integrated
+        .then(|| {
+            find_type(
+                MemoryPropertyFlags::DEVICE_LOCAL
+                    | MemoryPropertyFlags::HOST_VISIBLE
+                    | MemoryPropertyFlags::HOST_COHERENT,
+            )
         })
+        .flatten();
+
+    let memory_type_idx = unified_type
+        .or_else(|| find_type(MemoryPropertyFlags::DEVICE_LOCAL))
         .ok_or_else(|| IoError::Unknown {
             description: "No device local heap found".into(),
             backtrace: BackTrace::capture(),
@@ -248,12 +266,29 @@ pub(crate) fn create_storage_buffer(
     let addr_info = BufferDeviceAddressInfo::default().buffer(buffer);
     let device_address = unsafe { device.get_buffer_device_address(&addr_info) };
 
+    // Never unmapped: freeing the memory does it.
+    let host_ptr = match unified_type {
+        Some(_) => {
+            let ptr = unsafe {
+                device
+                    .map_memory(memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty())
+                    .map_err(|err| as_io_error(err, desc.size))?
+            };
+            NonNull::new(ptr as *mut u8).map(HostPtr)
+        }
+        None => None,
+    };
+
     let buffer = unsafe {
         wgpu::hal::vulkan::Buffer::from_raw_managed(buffer, memory, 0, requirements.size)
     };
     let buffer = unsafe { wgpu_device.create_buffer_from_hal::<hal::api::Vulkan>(buffer, desc) };
 
-    Ok((buffer, device_address))
+    Ok(WgpuMemory {
+        buffer,
+        address: NonZeroU64::new(device_address),
+        host_ptr,
+    })
 }
 
 fn as_io_error(result: vk::Result, size: u64) -> IoError {
