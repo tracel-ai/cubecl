@@ -93,7 +93,7 @@ etcetera = "0.11.0"
 js-sys = "0.3"
 parking_lot = { version = "0.12.5", default-features = false }
 opfs = "0.2"
-turso = { version = "0.8.0-pre.11", default-features = false }
+turso = { version = "0.8.0-pre.8", default-features = false }
 sanitize-filename = "0.6"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.45"
