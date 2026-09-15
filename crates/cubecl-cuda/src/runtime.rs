@@ -80,15 +80,12 @@ impl DeviceService for CudaServer {
         // Querying texture row align is a heuristic, but also not guaranteed to be the same.
         let mem_alignment = 512;
 
-        // The name is the only signal for tensor cores. A driver that declines to give one
-        // costs only the tensor-core exception, never initialization.
-        let device_name = cudarc::driver::result::device::get_name(device_ptr)
-            .unwrap_or_else(|_| "unknown CUDA device".to_string());
+        let probe = DeviceProbe::of(device_ptr);
 
         // Ask the wmma compiler for its supported combinations
         let arch = CudaArchitecture {
             version: arch_version,
-            tensor_cores: CudaArchitecture::has_tensor_cores(arch_version, &device_name),
+            tensor_cores: CudaArchitecture::has_tensor_cores(arch_version, &probe.name),
         };
         let supported_cmma_combinations = CudaCmmaCompiler::Cpp.supported_cmma_combinations(&arch);
         let supported_mma_combinations = cuda::supported_mma_combinations(&arch);
@@ -190,9 +187,9 @@ impl DeviceService for CudaServer {
             hardware_props,
             TimingMethod::Device,
             DeviceIdentity {
-                name: device_name,
+                name: probe.name,
                 fingerprint: fingerprint.clone(),
-                physical: Some(physical_device(device_ptr)),
+                physical: Some(probe.physical),
             },
         );
         register_supported_types(&mut device_props);
@@ -551,30 +548,47 @@ impl Runtime for CudaRuntime {
     }
 }
 
-/// The card behind `device`. A query the driver refuses leaves its field empty rather than
-/// failing initialization, since nothing here is needed to run a kernel.
-fn physical_device(device: CUdevice) -> PhysicalDevice {
-    let mut bus_id = [0u8; 32];
-    // SAFETY: the buffer outlives the call and its length travels with it.
-    let pci = unsafe {
-        cuDeviceGetPCIBusId(bus_id.as_mut_ptr().cast(), bus_id.len() as _, device).result()
-    }
-    .ok()
-    .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
-    .and_then(|id| id.to_str().ok()?.parse().ok());
-    let uuid = cudarc::driver::result::device::get_uuid(device)
-        .ok()
-        .map(|id| id.bytes.map(|byte| byte as u8));
-    // SAFETY: `device` is the validated handle every other query here uses.
-    let total_memory = unsafe { cudarc::driver::result::device::total_mem(device) }
-        .ok()
-        .map(|bytes| bytes as u64);
+/// What the driver says about a device before its context exists. A query the driver refuses
+/// leaves its field empty rather than failing initialization: none of this is needed to run a
+/// kernel.
+struct DeviceProbe {
+    /// The marketing name, the only signal for tensor cores, so a driver that declines to give
+    /// one costs the tensor-core exception and nothing else.
+    name: String,
+    /// The card itself, for telling it apart from the same card under Vulkan.
+    physical: PhysicalDevice,
+}
 
-    PhysicalDevice {
-        pci,
-        uuid,
-        vendor_id: Some(0x10de),
-        device_id: None,
-        total_memory,
+impl DeviceProbe {
+    fn of(device: CUdevice) -> Self {
+        let name = cudarc::driver::result::device::get_name(device)
+            .unwrap_or_else(|_| "unknown CUDA device".to_string());
+
+        let mut bus_id = [0u8; 32];
+        // SAFETY: the buffer outlives the call and its length travels with it.
+        let pci = unsafe {
+            cuDeviceGetPCIBusId(bus_id.as_mut_ptr().cast(), bus_id.len() as _, device).result()
+        }
+        .ok()
+        .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
+        .and_then(|id| id.to_str().ok()?.parse().ok());
+        let uuid = cudarc::driver::result::device::get_uuid(device)
+            .ok()
+            .map(|id| id.bytes.map(|byte| byte as u8));
+        // SAFETY: `device` is the validated handle every other query here uses.
+        let total_memory = unsafe { cudarc::driver::result::device::total_mem(device) }
+            .ok()
+            .map(|bytes| bytes as u64);
+
+        Self {
+            name,
+            physical: PhysicalDevice {
+                pci,
+                uuid,
+                vendor_id: Some(0x10de),
+                device_id: None,
+                total_memory,
+            },
+        }
     }
 }
