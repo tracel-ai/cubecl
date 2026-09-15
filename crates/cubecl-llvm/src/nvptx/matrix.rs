@@ -935,7 +935,7 @@ mod tests {
     }
 
     #[test]
-    fn the_fragments_own_layout_wins_over_the_accesss() {
+    fn the_fragments_own_layout_wins_over_the_access() {
         let ctx = Context::default();
         let f32: TypeHandle = Float32Type::get(&ctx).into();
 
