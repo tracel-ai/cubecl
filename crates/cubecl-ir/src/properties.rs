@@ -135,6 +135,12 @@ pub enum PciVendor {
     Amd,
     /// PCI vendor id `0x8086`.
     Intel,
+    /// PCI vendor id `0x106b`.
+    Apple,
+    /// PCI vendor id `0x13b5`, the Mali GPUs.
+    Arm,
+    /// PCI vendor id `0x5143`, the Adreno GPUs.
+    Qualcomm,
     /// A vendor this crate does not name.
     Other(u32),
 }
@@ -146,6 +152,9 @@ impl PciVendor {
             Self::Nvidia => 0x10de,
             Self::Amd => 0x1002,
             Self::Intel => 0x8086,
+            Self::Apple => 0x106b,
+            Self::Arm => 0x13b5,
+            Self::Qualcomm => 0x5143,
             Self::Other(id) => id,
         }
     }
@@ -157,6 +166,9 @@ impl From<u32> for PciVendor {
             0x10de => Self::Nvidia,
             0x1002 => Self::Amd,
             0x8086 => Self::Intel,
+            0x106b => Self::Apple,
+            0x13b5 => Self::Arm,
+            0x5143 => Self::Qualcomm,
             other => Self::Other(other),
         }
     }
@@ -168,6 +180,9 @@ impl fmt::Display for PciVendor {
             Self::Nvidia => f.write_str("NVIDIA"),
             Self::Amd => f.write_str("AMD"),
             Self::Intel => f.write_str("Intel"),
+            Self::Apple => f.write_str("Apple"),
+            Self::Arm => f.write_str("Arm"),
+            Self::Qualcomm => f.write_str("Qualcomm"),
             Self::Other(id) => write!(f, "{id:#06x}"),
         }
     }
@@ -390,7 +405,7 @@ mod tests {
 
     #[test]
     fn a_vendor_keeps_its_id_whether_named_or_not() {
-        for id in [0x10de, 0x1002, 0x8086, 0x1af4] {
+        for id in [0x10de, 0x1002, 0x8086, 0x106b, 0x13b5, 0x5143, 0x1af4] {
             assert_eq!(PciVendor::from(id).id(), id);
         }
         assert_eq!(PciVendor::from(0x10de), PciVendor::Nvidia);
