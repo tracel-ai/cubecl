@@ -47,6 +47,9 @@ pub fn build_kernel(client: &Client, dtype: ElemType, config: LaunchConfig) -> K
 /// Independent accumulator chains per lane to hide arithmetic latency.
 const CHAINS: usize = 4;
 
+/// Vectors the kernel keeps live across its loop: the chains and their two operands.
+pub const LIVE_VECTORS: usize = CHAINS + 2;
+
 #[cube(launch_unchecked)]
 pub fn compute_direct_throughput<I: Numeric, N: Size>(
     output: &mut [Vector<I, N>],
