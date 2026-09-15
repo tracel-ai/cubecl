@@ -5,7 +5,7 @@ use alloc::{
     format,
     string::{String, ToString},
 };
-use cubecl_environment::collections::HashMap;
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{
     dialect::RegionPtrExt,
     interfaces::{
@@ -35,6 +35,8 @@ use pliron::{
     utils::table::*,
     value::DefiningEntity,
 };
+
+use crate::analyses::alias_analysis::{AliasAnalysis, AliasAnalysisStack};
 
 type MemoryEffectsMap = HMap<Ptr<Operation>, SmallSet<MemoryEffect, 4>>;
 type RegionMemoryEffectsMap = IMap<Ptr<Region>, MemoryEffectsMap>;
@@ -225,7 +227,7 @@ impl Printable for MemoryDef {
     }
 }
 
-#[derive(new)]
+#[derive(new, Clone)]
 pub struct MemoryUse {
     pub input: MemoryValue,
     pub effects: SmallSet<MemoryEffect, 4>,
@@ -544,6 +546,7 @@ impl<'a> MemorySSAGraphBuilder<'a> {
 pub struct MemorySSA {
     root: Ptr<Operation>,
     nodes: HashMap<DefiningEntity, MemorySSANode>,
+    analysis_stack: AliasAnalysisStack,
 }
 
 impl Printable for MemorySSA {
@@ -586,8 +589,7 @@ fn print_block(
     }
 
     state.pop_indent();
-    fmt_indented_newline(state, f)?;
-    Ok(())
+    writeln!(f)
 }
 
 fn print_op(
@@ -624,6 +626,220 @@ impl MemorySSA {
     pub fn node_for_block(&self, op: Ptr<BasicBlock>) -> Option<&MemorySSANode> {
         self.nodes.get(&DefiningEntity::Block(op))
     }
+
+    pub fn node_for_value(&self, value: MemoryValue) -> Option<&MemorySSANode> {
+        self.nodes.get(&value.defining_entity()?)
+    }
+
+    pub fn walker<'a>(
+        &'a self,
+        ctx: &'a Context,
+        value: MemoryValue,
+        effects: &'a SmallSet<MemoryEffect, 4>,
+    ) -> MemorySSAWalker<'a> {
+        MemorySSAWalker {
+            stop_at_phi: false,
+            effects,
+            start_value: value,
+            ctx,
+            memory_ssa: self,
+        }
+    }
+
+    pub fn add_alias_analysis(&mut self, analysis: impl AliasAnalysis + 'static) {
+        self.analysis_stack.add_analysis(analysis);
+    }
+
+    pub fn ensure_optimized_uses(&mut self, ctx: &Context) {
+        let mut updated_nodes = vec![];
+        for (defining, node) in self.nodes.iter() {
+            let MemorySSANode::Use(r#use) = node else {
+                continue;
+            };
+            if r#use.is_optimized {
+                continue;
+            }
+            let walker = self.walker(ctx, r#use.input, &r#use.effects);
+            let clobbering_access = walker.next_clobbering_def();
+            let mut new_use = MemoryUse::new(clobbering_access, r#use.effects.clone());
+            new_use.is_optimized = true;
+
+            updated_nodes.push((*defining, new_use));
+        }
+        for (defining, node) in updated_nodes {
+            self.nodes.insert(defining, node.into());
+        }
+    }
+}
+
+pub struct MemorySSAWalker<'a> {
+    stop_at_phi: bool,
+    effects: &'a SmallSet<MemoryEffect, 4>,
+    start_value: MemoryValue,
+    ctx: &'a Context,
+    memory_ssa: &'a MemorySSA,
+}
+
+#[derive(Debug)]
+enum TraversalResult {
+    Value(MemoryValue, usize),
+    Cycle,
+}
+
+enum PhiTraversalResult {
+    Value(MemoryValue, usize),
+    Merge,
+    Cycle,
+}
+
+impl<'a> MemorySSAWalker<'a> {
+    pub fn stop_at_phi(&mut self) {
+        self.stop_at_phi = true;
+    }
+
+    pub fn next_clobbering_def(&self) -> MemoryValue {
+        match self.next_clobbering_def_impl(HashSet::new()) {
+            TraversalResult::Value(value, _) => value,
+            TraversalResult::Cycle => self.start_value,
+        }
+    }
+
+    fn next_clobbering_def_impl(&self, mut visited: HashSet<MemoryValue>) -> TraversalResult {
+        let mut distance = 0;
+        let mut current_value = self.start_value;
+
+        while let Some(node) = self.memory_ssa.node_for_value(current_value) {
+            visited.insert(current_value);
+            match node {
+                MemorySSANode::Def(def) => {
+                    let mod_ref = self.memory_ssa.analysis_stack.mod_ref(
+                        self.ctx,
+                        self.effects,
+                        &def.effects,
+                    );
+                    if mod_ref.contains_mod() {
+                        return TraversalResult::Value(current_value, distance);
+                    } else {
+                        current_value = def.input;
+                        distance += 1;
+                    }
+                }
+                MemorySSANode::Use(r#use) => {
+                    current_value = r#use.input;
+                    distance += 1;
+                }
+                MemorySSANode::Phi(_) | MemorySSANode::RegionPhi(_) if self.stop_at_phi => {
+                    return TraversalResult::Value(current_value, distance);
+                }
+                // There are two mutually exclusive approaches with tradeoffs (stop at phi and then
+                // continue from there, vs going all the way in one go). To get the best of both
+                // worlds, we can use the traversed distance as a heuristic for which option is "better".
+                MemorySSANode::Phi(phi) => {
+                    let values = || phi.inputs.iter().map(|(_, value)| *value);
+                    let res = self.visit_phi(&visited, values);
+                    match res {
+                        PhiTraversalResult::Value(val, dist) => {
+                            current_value = val;
+                            distance += dist;
+                        }
+                        PhiTraversalResult::Merge => {
+                            return TraversalResult::Value(current_value, distance);
+                        }
+                        PhiTraversalResult::Cycle => return TraversalResult::Cycle,
+                    }
+                }
+                MemorySSANode::RegionPhi(phi) => {
+                    let values = || phi.inputs.iter().map(|(_, value)| *value);
+                    let res = self.visit_phi(&visited, values);
+                    match res {
+                        PhiTraversalResult::Value(val, dist) => {
+                            current_value = val;
+                            distance += dist;
+                        }
+                        PhiTraversalResult::Merge => {
+                            return TraversalResult::Value(current_value, distance);
+                        }
+                        PhiTraversalResult::Cycle => return TraversalResult::Cycle,
+                    }
+                }
+            }
+        }
+        TraversalResult::Value(current_value, distance)
+    }
+
+    fn visit_phi<I: Iterator<Item = MemoryValue>>(
+        &self,
+        visited: &HashSet<MemoryValue>,
+        values: impl Fn() -> I,
+    ) -> PhiTraversalResult {
+        let stopped = self.clobbering_phi(visited, values(), true);
+        let transparent = self.clobbering_phi(visited, values(), false);
+        select_deepest(stopped, transparent)
+    }
+
+    fn clobbering_phi(
+        &self,
+        visited: &HashSet<MemoryValue>,
+        values: impl Iterator<Item = MemoryValue>,
+        stop_at_phi: bool,
+    ) -> PhiTraversalResult {
+        // Cycles can only happen when there are no clobbers on a path, so just filter those paths out.
+        // If all paths are cycles we return `PhiTraversalResult::Cycle` so upstream phis can also
+        // exclude this phi as a possible branch.
+        let mut values_def = values.filter_map(|value| {
+            if visited.contains(&value) {
+                return None;
+            }
+            let mut walker = self.split_walker(value);
+            walker.stop_at_phi = stop_at_phi;
+            let TraversalResult::Value(val, distance) =
+                walker.next_clobbering_def_impl(visited.clone())
+            else {
+                return None;
+            };
+            Some((val, distance))
+        });
+        let Some((value, mut distance)) = values_def.next() else {
+            return PhiTraversalResult::Cycle;
+        };
+        for (val, dist) in values_def {
+            if val != value {
+                return PhiTraversalResult::Merge;
+            }
+            distance = distance.max(dist);
+        }
+        PhiTraversalResult::Value(value, distance)
+    }
+
+    fn split_walker(&self, start: MemoryValue) -> MemorySSAWalker<'a> {
+        MemorySSAWalker {
+            stop_at_phi: self.stop_at_phi,
+            effects: self.effects,
+            start_value: start,
+            ctx: self.ctx,
+            memory_ssa: self.memory_ssa,
+        }
+    }
+}
+
+fn select_deepest(lhs: PhiTraversalResult, rhs: PhiTraversalResult) -> PhiTraversalResult {
+    match (lhs, rhs) {
+        (PhiTraversalResult::Cycle, _) | (_, PhiTraversalResult::Cycle) => {
+            PhiTraversalResult::Cycle
+        }
+        (PhiTraversalResult::Value(val_0, d_0), PhiTraversalResult::Value(val_1, d_1)) => {
+            if d_0 > d_1 {
+                PhiTraversalResult::Value(val_0, d_0)
+            } else {
+                PhiTraversalResult::Value(val_1, d_1)
+            }
+        }
+        (PhiTraversalResult::Value(val, dist), PhiTraversalResult::Merge)
+        | (PhiTraversalResult::Merge, PhiTraversalResult::Value(val, dist)) => {
+            PhiTraversalResult::Value(val, dist)
+        }
+        (PhiTraversalResult::Merge, PhiTraversalResult::Merge) => PhiTraversalResult::Merge,
+    }
 }
 
 pub fn memory_ssa(ctx: &Context, root: Ptr<Operation>, dom_info: &mut DomInfo) -> MemorySSA {
@@ -635,6 +851,7 @@ pub fn memory_ssa(ctx: &Context, root: Ptr<Operation>, dom_info: &mut DomInfo) -
     MemorySSA {
         root,
         nodes: graph_builder.nodes,
+        analysis_stack: Default::default(),
     }
 }
 

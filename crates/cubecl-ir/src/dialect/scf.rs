@@ -879,7 +879,7 @@ impl Parsable for RangeLoopOp {
         results: Self::Arg,
     ) -> ParseResult<'a, Self::Parsed> {
         let cur_loc = state_stream.loc();
-        let iter_args = delimited_list_parser('(', ')', ',', ssa_opd_parser());
+        let iter_args = delimited_list_parser('(', ')', ',', ssa_opd_parser()).skip(spaces());
         let mut iter_args_parser =
             optional(spaced(char::string("iter_args").with(iter_args))).skip(spaces());
         let mut range_parser = (

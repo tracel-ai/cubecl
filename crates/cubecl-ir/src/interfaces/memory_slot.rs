@@ -1,5 +1,6 @@
-use core::fmt::Display;
+use core::{fmt::Display, hash::Hash};
 
+use derive_more::{Eq, PartialEq};
 use derive_new::new;
 use pliron::{
     attribute::AttrObj,
@@ -7,6 +8,7 @@ use pliron::{
     opts::mem2reg::AllocInfo,
     region::Region,
     utils::table::{HMap, SmallMap, SmallSet},
+    value::DefiningEntity,
 };
 
 use crate::{interfaces::control_flow::RegionPredecessor, prelude::*};
@@ -28,10 +30,17 @@ pub enum MemoryDefiningEntity {
     LiveOnEntry,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryValue {
     val_uid: u64,
+    #[eq(skip)]
     defining_entity: MemoryDefiningEntity,
+}
+
+impl Hash for MemoryValue {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.val_uid.hash(state);
+    }
 }
 
 impl Display for MemoryValue {
@@ -50,8 +59,12 @@ impl MemoryValue {
         defining_entity: MemoryDefiningEntity::LiveOnEntry,
     };
 
-    pub fn defining_entity(self) -> MemoryDefiningEntity {
-        self.defining_entity
+    pub fn defining_entity(&self) -> Option<DefiningEntity> {
+        match self.defining_entity {
+            MemoryDefiningEntity::Op(op) => Some(DefiningEntity::Op(op)),
+            MemoryDefiningEntity::Block(block) => Some(DefiningEntity::Block(block)),
+            MemoryDefiningEntity::LiveOnEntry => None,
+        }
     }
 }
 
