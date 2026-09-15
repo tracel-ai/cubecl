@@ -585,7 +585,7 @@ impl DeviceProbe {
             physical: PhysicalDevice {
                 pci_address,
                 uuid,
-                vendor_id: Some(PhysicalDevice::VENDOR_NVIDIA),
+                vendor: Some(PciVendor::Nvidia),
                 device_id: None,
                 total_memory,
             },

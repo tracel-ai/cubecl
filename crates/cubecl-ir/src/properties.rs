@@ -117,21 +117,60 @@ pub struct PhysicalDevice {
     pub pci_address: Option<PciAddress>,
     /// The driver's id for the card, when the runtime reports it.
     pub uuid: Option<[u8; 16]>,
-    /// PCI vendor id, one of the `VENDOR_` constants for the vendors with a runtime here.
-    pub vendor_id: Option<u32>,
+    /// Who makes the card, when the runtime reports it.
+    pub vendor: Option<PciVendor>,
     /// PCI device id of the part, when the runtime reports it.
     pub device_id: Option<u32>,
     /// Bytes of memory on the card, when the runtime reports it.
     pub total_memory: Option<u64>,
 }
 
-impl PhysicalDevice {
-    /// The PCI vendor id NVIDIA cards carry.
-    pub const VENDOR_NVIDIA: u32 = 0x10de;
-    /// The PCI vendor id AMD cards carry.
-    pub const VENDOR_AMD: u32 = 0x1002;
-    /// The PCI vendor id Intel cards carry.
-    pub const VENDOR_INTEL: u32 = 0x8086;
+/// The maker of a card, by PCI vendor id. The vendors with a runtime here are named; any
+/// other keeps its id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PciVendor {
+    /// PCI vendor id `0x10de`.
+    Nvidia,
+    /// PCI vendor id `0x1002`.
+    Amd,
+    /// PCI vendor id `0x8086`.
+    Intel,
+    /// A vendor this crate does not name.
+    Other(u32),
+}
+
+impl PciVendor {
+    /// The PCI vendor id.
+    pub fn id(self) -> u32 {
+        match self {
+            Self::Nvidia => 0x10de,
+            Self::Amd => 0x1002,
+            Self::Intel => 0x8086,
+            Self::Other(id) => id,
+        }
+    }
+}
+
+impl From<u32> for PciVendor {
+    fn from(id: u32) -> Self {
+        match id {
+            0x10de => Self::Nvidia,
+            0x1002 => Self::Amd,
+            0x8086 => Self::Intel,
+            other => Self::Other(other),
+        }
+    }
+}
+
+impl fmt::Display for PciVendor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nvidia => f.write_str("NVIDIA"),
+            Self::Amd => f.write_str("AMD"),
+            Self::Intel => f.write_str("Intel"),
+            Self::Other(id) => write!(f, "{id:#06x}"),
+        }
+    }
 }
 
 /// A function's address on the PCI bus, `domain:bus:device.function`, spelled `0000:07:00.0`
@@ -348,6 +387,16 @@ impl FastMath {
 mod tests {
     use super::*;
     use alloc::string::ToString;
+
+    #[test]
+    fn a_vendor_keeps_its_id_whether_named_or_not() {
+        for id in [0x10de, 0x1002, 0x8086, 0x1af4] {
+            assert_eq!(PciVendor::from(id).id(), id);
+        }
+        assert_eq!(PciVendor::from(0x10de), PciVendor::Nvidia);
+        assert_eq!(PciVendor::from(0x1af4), PciVendor::Other(0x1af4));
+        assert_eq!(PciVendor::Other(0x1af4).to_string(), "0x1af4");
+    }
 
     #[test]
     fn a_pci_address_round_trips_and_defaults_its_domain() {

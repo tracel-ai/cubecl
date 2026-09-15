@@ -432,7 +432,7 @@ pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<Ph
     }
     #[cfg_attr(not(feature = "spirv"), expect(unused_mut))]
     let mut physical = PhysicalDevice {
-        vendor_id: Some(info.vendor),
+        vendor: Some(info.vendor.into()),
         device_id: Some(info.device),
         ..Default::default()
     };

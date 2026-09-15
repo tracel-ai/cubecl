@@ -67,8 +67,11 @@ fn report(device: &str, identity: &DeviceIdentity) {
         .map(|bytes| format!("{} MiB", bytes >> 20))
         .unwrap_or_else(|| "?".into());
     println!(
-        "  pci {pci_address}  uuid {uuid}  vendor {:?}  device {:?}  memory {memory}",
-        physical.vendor_id.map(|id| format!("{id:#06x}")),
+        "  pci {pci_address}  uuid {uuid}  vendor {}  device {:?}  memory {memory}",
+        physical
+            .vendor
+            .map(|vendor| vendor.to_string())
+            .unwrap_or_else(|| "?".into()),
         physical.device_id.map(|id| format!("{id:#06x}")),
     );
 }
