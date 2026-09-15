@@ -347,6 +347,9 @@ fn register_features(
         .is_some_and(|it| it.shader_integer_dot_product == TRUE);
 
     props.features.plane.insert(Plane::Sync);
+    // SPIR-V spells the device scope on the barrier itself: `OpControlBarrier` with a
+    // `Workgroup` execution scope and a `Device` memory scope, acquire-release.
+    props.features.device_memory_scope = true;
 
     if let Some(uniform_standard_layout) = extended_feat.uniform_standard_layout
         && uniform_standard_layout.uniform_buffer_standard_layout == TRUE
