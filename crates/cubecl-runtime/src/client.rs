@@ -1,4 +1,5 @@
 use crate::{
+    collective::{AllReduceRequest, OperationSequencer, TransferRequest},
     config::memory::MemoryPoolsConfig,
     config::{TypeNameFormatLevel, type_name_format},
     id::{GraphId, KernelId},
@@ -196,11 +197,13 @@ impl Client {
             .expect("Can't create a new client on an already registered server")
             .seen_as(as_server::<S>);
 
-        Self {
+        let client = Self {
             device: context,
             utilities,
             stream_id: None,
-        }
+        };
+        OperationSequencer::register_client(client.device.clone());
+        client
     }
 
     /// Load the client for the given device, starting a server of type `S`
@@ -214,11 +217,13 @@ impl Client {
             .downcast::<ServerUtilities>()
             .expect("Can downcast to `ServerUtilities`");
 
-        Self {
+        let client = Self {
             device: context,
             utilities,
             stream_id: None,
-        }
+        };
+        OperationSequencer::register_client(client.device.clone());
+        client
     }
 
     fn stream_id(&self) -> StreamId {
@@ -908,15 +913,15 @@ impl Client {
 
         self.ensure_init_collective(device_ids.clone());
 
-        self.device.submit(move |server| {
-            // The report lives on the buffers: a refused or failed reduce has
-            // tainted the destination, so the read that consumes it fails on
-            // the root cause. The log is the eager half of that report — an
-            // unwrap here would only be reduced to a warn by the channel's
-            // catch_unwind, with the taint doing the real work either way.
-            if let Err(err) = server.all_reduce(src, dst, dtype, stream_id, op, device_ids) {
-                log::error!("all_reduce failed; the destination carries the failure: {err}");
-            }
+        OperationSequencer::all_reduce(AllReduceRequest {
+            device: self.device.clone(),
+            device_id: self.device.device_id(),
+            src,
+            dst,
+            dtype,
+            stream_id,
+            op,
+            device_ids,
         });
     }
 
@@ -952,39 +957,17 @@ impl Client {
         self.ensure_init_collective(device_ids.clone());
         dst_server.ensure_init_collective(device_ids);
 
-        self.device.submit(move |server_src| {
-            // A refused send has no local buffer to answer for, so the log is
-            // the whole local report. The peer's posted recv is left waiting
-            // on its communication stream — the recv cannot be recalled from
-            // here, and cross-device failure propagation needs a design pass
-            // of its own — so the wedge is named loudly rather than hidden
-            // behind a swallowed unwrap.
-            if let Err(err) = server_src.send(src_descriptor, dtype, stream_id_src, device_id_dst) {
-                log::error!(
-                    "send to {device_id_dst:?} failed; the peer's recv is left waiting: {err}"
-                );
-            }
+        OperationSequencer::transfer(TransferRequest {
+            source: self.device.clone(),
+            destination_client: dst_server.device.clone(),
+            source_descriptor: src_descriptor,
+            destination_handle: handle_cloned,
+            dtype,
+            source_stream: stream_id_src,
+            destination_stream: stream_id_dst,
+            source_device: device_id_src,
+            destination_device: device_id_dst,
         });
-
-        dst_server.device.submit(move |server_dst| {
-            // A failed recv taints the destination handle, so the read that
-            // consumes this transfer fails on the cause.
-            if let Err(err) = server_dst.recv(handle_cloned, dtype, stream_id_dst, device_id_src) {
-                log::error!(
-                    "recv from {device_id_src:?} failed; the destination carries the failure: {err}"
-                );
-                return;
-            }
-            if let Err(err) = server_dst.sync_collective(stream_id_dst) {
-                log::error!("sync_collective failed: {err}");
-            }
-        });
-
-        // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
-        // call to be made. We flush the operations right away so that the neither server ends up in a deadlock.
-        // The actual data transfer is still executed asynchronously on the communication stream.
-        self.device.flush_queue();
-        dst_server.device.flush_queue();
 
         handle
     }

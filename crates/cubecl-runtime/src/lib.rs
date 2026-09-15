@@ -38,6 +38,7 @@ pub mod throughput;
 
 /// Compute client module.
 pub mod client;
+mod collective;
 
 /// The device type of each runtime.
 pub mod device;
