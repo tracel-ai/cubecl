@@ -261,7 +261,7 @@ impl Storage for TursoStorage {
             return refused(entries);
         };
         let Ok(transaction) = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .transaction_with_behavior(write_transaction())
             .await
         else {
             return refused(entries);
@@ -491,6 +491,23 @@ fn location() -> Result<String, String> {
     Ok(format!("cubecl-{}.db", crate::environment::active()))
 }
 
+/// The transaction a write takes. Natively `IMMEDIATE`: the writer is
+/// taken up front, so two processes opening one file wait on each other
+/// rather than fail halfway through. The browser is one tab per environment
+/// with nothing to wait for, and could not take one anyway: an immediate
+/// transaction opens the engine's temp database, whose clock has no
+/// implementation on wasm.
+fn write_transaction() -> TransactionBehavior {
+    #[cfg(browser_cache)]
+    {
+        TransactionBehavior::Deferred
+    }
+    #[cfg(not(browser_cache))]
+    {
+        TransactionBehavior::Immediate
+    }
+}
+
 /// Brings the file to [`SCHEMA_VERSION`], dropping the entries of any other.
 ///
 /// The table is dropped rather than emptied: a schema change can rename or
@@ -504,7 +521,7 @@ pub(crate) async fn migrate(database: &turso::Database) -> Result<(), turso::Err
     connection.execute(CREATE_META, ()).await?;
 
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .transaction_with_behavior(write_transaction())
         .await?;
 
     let expected = SCHEMA_VERSION.to_string();
