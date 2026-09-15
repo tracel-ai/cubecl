@@ -1,3 +1,4 @@
+use super::timed;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputKey};
@@ -22,7 +23,7 @@ use crate::throughput::{
 /// by one thread, to keep the loads from being eliminated (see the kernel); at
 /// hundreds of megabytes read that is not worth counting and is deliberately
 /// left out of `ops_count` rather than approximated.
-pub fn build_kernel(
+pub async fn build_kernel(
     client: &Client,
     key: ThroughputKey,
     config: LaunchConfig,
@@ -35,28 +36,23 @@ pub fn build_kernel(
     let probe = MemoryProbe::new(&client, config, line_bytes, spec);
 
     let in_handle = client.empty(probe.buffer_bytes);
-    memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);
+    memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype).await;
     // One line: the kernel writes from a single thread, only to anchor the reads.
     let out_handle = client.empty(line_bytes);
 
-    let sample = Box::new(move |iterations: usize| {
-        let start = cubecl_common::profile::Instant::now();
-        unsafe {
-            memory_read_throughput::launch_unchecked(
-                &client,
-                CubeCount::Static(probe.cube_count as u32, 1, 1),
-                config.cube_dim,
-                config.vector_size,
-                BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines),
-                BufferArg::from_raw_parts(out_handle.clone(), 1),
-                probe.window_lines,
-                iterations,
-                probe.blocked,
-                dtype,
-            )
-        };
-        let _ = cubecl_core::future::block_on(client.sync());
-        start.elapsed()
+    let sample = timed(client.clone(), move |iterations| unsafe {
+        memory_read_throughput::launch_unchecked(
+            &client,
+            CubeCount::Static(probe.cube_count as u32, 1, 1),
+            config.cube_dim,
+            config.vector_size,
+            BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines),
+            BufferArg::from_raw_parts(out_handle.clone(), 1),
+            probe.window_lines,
+            iterations,
+            probe.blocked,
+            dtype,
+        )
     });
 
     // Reads only — no `2 *`. That factor is the whole difference from the copy.

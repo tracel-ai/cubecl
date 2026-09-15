@@ -142,7 +142,7 @@ impl MemoryProbe {
 /// bandwidth well past the device's real ceiling. Writing real data in first
 /// gives each line its own page, the way a buffer a real kernel reads
 /// already got one from whoever produced it.
-pub fn prime(
+pub async fn prime(
     client: &Client,
     handle: &Handle,
     pool_lines: usize,
@@ -160,7 +160,7 @@ pub fn prime(
             dtype,
         );
     }
-    let _ = cubecl_core::future::block_on(client.sync());
+    let _ = client.sync().await;
 }
 
 #[cube(launch_unchecked)]

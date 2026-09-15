@@ -128,7 +128,7 @@ impl CudaContext {
         let key = if let Some(cache) = self.ptx_cache.as_mut() {
             let key = KernelCacheKey::new(kernel_id, self.build_id);
 
-            if let Some(entry) = cache.remove(&key) {
+            if let Some(entry) = cache.remove_sync(&key) {
                 log::trace!("Using PTX cache");
 
                 self.load_ptx(
@@ -187,8 +187,8 @@ impl CudaContext {
             let second_line_cache = self.second_line_ptx_cache.as_mut().unwrap();
             let cpp_hash = StableHasher::hash_one(&kernel_compiled.source);
 
-            if let Some(old_key) = second_line_cache.purge_key(&cpp_hash)
-                && let Some(entry) = cache.purge_key(&old_key)
+            if let Some(old_key) = second_line_cache.purge_key_sync(&cpp_hash)
+                && let Some(entry) = cache.purge_key_sync(&old_key)
             {
                 log::trace!("Using second-line PTX cache");
                 store_compiled(cache, key, entry);

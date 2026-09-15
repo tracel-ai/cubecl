@@ -18,10 +18,19 @@ use cubecl_environment::sync::{Mutex, RwLock};
 /// [`LocalTuner::init`].
 type Sets<ID> = RwLock<Option<HashMap<(TypeId, ID), Arc<dyn Any + Send + Sync>>>>;
 
+/// Where the event loop leaves a tuner it opened for a synchronous caller.
+#[cfg(target_family = "wasm")]
+type Slot<AK> = Arc<Mutex<Option<Arc<Tuner<AK>>>>>;
+
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
 pub struct LocalTuner<AK: AutotuneKey, ID> {
     state: Mutex<Option<HashMap<ID, Arc<Tuner<AK>>>>>,
+    /// The tuners the browser is opening on the event loop, so a synchronous
+    /// call that finds no tuner opens it once rather than once per call. The
+    /// event loop fills the slot; the next call moves it into `state`.
+    #[cfg(target_family = "wasm")]
+    opening: Mutex<Option<HashMap<ID, Slot<AK>>>>,
     name: &'static str,
     sets: Sets<ID>,
 }
@@ -48,6 +57,8 @@ where
     pub const fn new(name: &'static str) -> Self {
         Self {
             state: Mutex::new(None),
+            #[cfg(target_family = "wasm")]
+            opening: Mutex::new(None),
             name,
             sets: RwLock::new(None),
         }
@@ -112,6 +123,43 @@ where
         if let Some(s) = self.state.lock().as_mut() {
             s.clear()
         }
+        // A tuner the browser is still opening would otherwise be adopted
+        // after the clear, resurrecting what it holds.
+        #[cfg(target_family = "wasm")]
+        if let Some(opening) = self.opening.lock().as_mut() {
+            opening.clear()
+        }
+    }
+
+    /// The tuner registered for `id`, if any.
+    fn tuner(&self, id: &ID) -> Option<Arc<Tuner<AK>>> {
+        self.state
+            .lock()
+            .as_ref()
+            .and_then(|tuners| tuners.get(id).cloned())
+    }
+
+    /// Registers a tuner opened for `id`, keeping the one already registered
+    /// when two openers raced: the loser's store handle is dropped, and the
+    /// database it opened is shared through the environment's registry, so
+    /// the race costs one namespace scan.
+    fn adopt(&self, id: &ID, tuner: Arc<Tuner<AK>>) -> Arc<Tuner<AK>> {
+        let tuner = self
+            .state
+            .lock()
+            .get_or_insert_with(HashMap::new)
+            .entry(id.clone())
+            .or_insert(tuner)
+            .clone();
+
+        // A slot the browser's launch path left for it is no longer needed,
+        // whichever path finished first.
+        #[cfg(target_family = "wasm")]
+        if let Some(opening) = self.opening.lock().as_mut() {
+            opening.remove(id);
+        }
+
+        tuner
     }
 
     #[cfg(feature = "autotune-checks")]
@@ -136,7 +184,122 @@ where
 
     /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
     /// the first call for a given key.
+    ///
+    /// Native targets block until the tune is decided. The browser can't block
+    /// on anything, so there the tune is driven as far as a synchronous call
+    /// can take it — the benchmarks launch inside this call — and the rest is
+    /// left to the event loop: this call runs a fallback candidate, and the
+    /// calls that follow find the tuned pick. A caller that can await gets the
+    /// decision in one call from [`execute_async`](Self::execute_async).
     pub fn execute<'a, I: TuneInputs, Out>(
+        &self,
+        id: &ID,
+        client: &Client,
+        operations: Arc<TunableSet<AK, I, Out>>,
+        inputs: <I as TuneInputs>::At<'a>,
+    ) -> Out
+    where
+        <I as TuneInputs>::At<'a>: Clone + Send,
+        Out: AutotuneOutput,
+    {
+        #[cfg(not(target_family = "wasm"))]
+        return cubecl_environment::future::block_on(
+            self.execute_async(id, client, operations, inputs),
+        );
+
+        #[cfg(target_family = "wasm")]
+        {
+            let key = operations.generate_key(&inputs);
+
+            let decided = self.tuner_or_open(id).and_then(|tuner| {
+                #[allow(unused_mut)]
+                let mut log_context =
+                    crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
+
+                #[cfg(feature = "autotune-checks")]
+                log_context.set_checks(|| self.checks::<I, Out>(&operations, &inputs));
+
+                match tuner.check_tune_detached::<I, Out>(
+                    &key,
+                    &inputs,
+                    &operations,
+                    || operations.compute_checksum(),
+                    client,
+                    log_context,
+                ) {
+                    TuneCacheResult::Hit { fastest_index } => Some(fastest_index),
+                    TuneCacheResult::Pending
+                    | TuneCacheResult::Miss
+                    | TuneCacheResult::Unchecked => None,
+                }
+            });
+
+            if let Some(fastest_index) = decided {
+                return operations
+                    .fastest(fastest_index)
+                    .execute(inputs)
+                    .expect("Should run when selected by autotune.");
+            }
+
+            Self::fallback(&operations, inputs)
+        }
+    }
+
+    /// The tuner for `id`, or `None` while the event loop is still opening it.
+    ///
+    /// Opening a tuner reads the persistent cache, which the browser can only
+    /// await, so a synchronous call starts it and leaves; the tuner is there
+    /// for the calls that follow.
+    #[cfg(target_family = "wasm")]
+    fn tuner_or_open(&self, id: &ID) -> Option<Arc<Tuner<AK>>> {
+        if let Some(tuner) = self.tuner(id) {
+            return Some(tuner);
+        }
+
+        // One lock at a time: `adopt` takes `state` and then `opening`, so
+        // `opening` is released before it runs.
+        let fresh: Slot<AK> = Arc::new(Mutex::new(None));
+        let slot = self
+            .opening
+            .lock()
+            .get_or_insert_with(HashMap::new)
+            .entry(id.clone())
+            .or_insert_with(|| fresh.clone())
+            .clone();
+
+        if Arc::ptr_eq(&slot, &fresh) {
+            let name = self.name.replace("::", "-");
+            let device_id = id.to_string();
+            cubecl_environment::future::spawn_detached(async move {
+                *slot.lock() = Some(Arc::new(Tuner::new(&name, &device_id).await));
+            });
+            return None;
+        }
+
+        // The event loop is opening it; adopt it once it's there.
+        let tuner = slot.lock().take()?;
+        Some(self.adopt(id, tuner))
+    }
+
+    /// Whatever candidate runs, for a call the tuner couldn't decide.
+    fn fallback<'a, I: TuneInputs, Out>(
+        operations: &TunableSet<AK, I, Out>,
+        inputs: <I as TuneInputs>::At<'a>,
+    ) -> Out
+    where
+        <I as TuneInputs>::At<'a>: Clone + Send,
+        Out: AutotuneOutput,
+    {
+        for index in 0..operations.len() {
+            if let Ok(output) = operations.fastest(index).execute(inputs.clone()) {
+                return output;
+            }
+        }
+        panic!("All autotune operations failed, no viable operation found.");
+    }
+
+    /// Asynchronously executes the fastest operation, tuning on the first call.
+    pub async fn execute_async<'a, I: TuneInputs, Out>(
         &self,
         id: &ID,
         client: &Client,
@@ -149,16 +312,13 @@ where
     {
         let key = operations.generate_key(&inputs);
 
-        let tuner = {
-            let mut state_lock = self.state.lock();
-            let state_map = state_lock.get_or_insert_with(|| HashMap::new());
-            state_map
-                .entry(id.clone())
-                .or_insert_with(move || {
-                    let name = self.name.replace("::", "-");
-                    Arc::new(Tuner::new(&name, &id.to_string()))
-                })
-                .clone()
+        let tuner = match self.tuner(id) {
+            Some(tuner) => tuner,
+            None => {
+                let name = self.name.replace("::", "-");
+                let candidate = Arc::new(Tuner::new(&name, &id.to_string()).await);
+                self.adopt(id, candidate)
+            }
         };
 
         #[allow(unused_mut)]
@@ -170,21 +330,23 @@ where
         // Fast path: a cached hit skips straight to the fastest operation.
         // `fastest` also resets the tuner cache if the environment switched, so
         // a miss here falls through to `check_tune`, which re-hydrates.
-        if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
+        if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key).await {
             return operations
                 .fastest(fastest_index)
                 .execute(inputs)
                 .expect("Should run when selected by autotune.");
         }
 
-        let fastest = tuner.check_tune::<I, Out>(
-            &key,
-            &inputs,
-            &operations,
-            || operations.compute_checksum(),
-            client,
-            log_context,
-        );
+        let fastest = tuner
+            .check_tune::<I, Out>(
+                &key,
+                &inputs,
+                &operations,
+                || operations.compute_checksum(),
+                client,
+                log_context,
+            )
+            .await;
 
         // Run the execution depending on the cache state.
         match fastest {
@@ -197,15 +359,8 @@ where
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
                 )
             }
-            TuneCacheResult::Pending => {
-                // Still waiting (e.g. on wasm). Try all operations as a fallback.
-                for i in 0..operations.len() {
-                    if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
-                        return output;
-                    }
-                }
-                panic!("All autotune operations failed, no viable operation found.");
-            }
+            // Another caller is tuning this key; run whatever works meanwhile.
+            TuneCacheResult::Pending => Self::fallback(&operations, inputs),
         }
     }
 }

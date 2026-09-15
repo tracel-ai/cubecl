@@ -6,10 +6,8 @@ fn main() {
         // Some features like autotune caching, compilation caching, and config loading
         // require std with OS-level filesystem and environment access.
         std_io: { all(feature = "std", any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android")) },
-        // Browser storage persistence (IndexedDB).
-        browser_cache: { all(target_family = "wasm", feature = "browser-cache") },
-        // Autotune results can persist: on disk (std_io) or in browser storage.
-        autotune_persistence: { any(std_io, browser_cache) },
+        // Durable persistence: a file on std_io targets, OPFS in the browser.
+        persistence: { all(feature = "persistence", any(std_io, target_family = "wasm")) },
         // Tests only. The library reads `EXCLUSIVE_MEMORY_ONLY` from
         // `cubecl-runtime`, which alone decides it; a test run turns the
         // feature on through this crate's, which forwards there.

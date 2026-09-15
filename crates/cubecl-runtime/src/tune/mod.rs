@@ -16,7 +16,7 @@
 //!             .with(Tunable::new("k2", |(lhs, rhs)| kernel_2(lhs, rhs)))
 //!     });
 //!
-//!     TUNER.execute(&device_id, &lhs.client, tunables, (lhs, rhs));
+//!     TUNER.execute(&device_id, &lhs.client, tunables, (lhs, rhs))
 //! }
 //! ```
 //!
@@ -34,10 +34,7 @@ mod key_generator;
 mod local;
 mod log;
 mod operation;
-// Both are the adaptive strategy, which only the native driver can run.
-#[cfg(not(target_family = "wasm"))]
 mod sampler;
-#[cfg(not(target_family = "wasm"))]
 mod schedule;
 mod tune_benchmark;
 mod tune_cache;
