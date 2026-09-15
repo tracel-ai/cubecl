@@ -127,6 +127,8 @@ impl Compiler for HipCompiler {
             )),
             HipCompiler::Llvm(compiler) => {
                 let pliron_options = cubecl_llvm::PlironOptions {
+                    // The HIP entry ABI has no parameter block to put them in.
+                    grid_constants: false,
                     arch: options.arch.clone(),
                     ..Default::default()
                 };
@@ -134,9 +136,7 @@ impl Compiler for HipCompiler {
                     cubecl_llvm::PlironArtifact::AmdGpuCode(module) => {
                         Ok(HipRepresentation::Llvm(module))
                     }
-                    cubecl_llvm::PlironArtifact::Jit(_) => {
-                        unreachable!("the HIP runtime always configures LlvmTarget::AmdGpu")
-                    }
+                    _ => unreachable!("the HIP runtime always configures LlvmTarget::AmdGpu"),
                 }
             }
         }

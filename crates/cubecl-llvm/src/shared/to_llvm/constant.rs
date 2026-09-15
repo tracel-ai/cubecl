@@ -1,26 +1,20 @@
-use super::prelude::*;
+use crate::prelude::*;
 use cubecl_core::ir::{
-    attributes::{BoolAttr, FloatAttr, IndexAttr, ZeroAttr},
+    attributes::{BoolAttr, FloatAttr},
     types::Fp8Format,
 };
 use half::f16;
-use pliron::{
-    builtin::ops::ConstantOp,
-    utils::apfloat::{self, Float},
-};
+use pliron::utils::apfloat::{self, Float};
 use pliron_llvm::ops::ZeroOp;
 
-/// Width LLVM expects for vector lane indices, intrinsic flags and `alloca` sizes.
+/// LLVM width for vector indices, intrinsic flags and allocation sizes.
 pub const I32_WIDTH: u32 = 32;
 
-/// Build the attribute of a `width`-bit signless integer holding `value`, truncated to `width`.
 pub fn int_attr(ctx: &mut Context, width: u32, value: i128) -> IntegerAttr {
     let ty = IntegerType::get(ctx, width, Signedness::Signless);
     IntegerAttr::new(ty, APInt::from_i128(value, bw(width as usize)))
 }
 
-/// Build the float attribute matching the float type `ty` and holding `value`, or `None` when `ty`
-/// isn't a float type this backend supports.
 pub fn float_attr(ctx: &Context, ty: TypeHandle, value: f64) -> Option<AttrObj> {
     Some(if ty.is_float16(ctx) {
         let value = f16::from_f64(value);
@@ -34,7 +28,6 @@ pub fn float_attr(ctx: &Context, ty: TypeHandle, value: f64) -> Option<AttrObj> 
     })
 }
 
-/// Insert a constant holding `value` as a `width`-bit signless integer, and return its result.
 pub fn insert_int_const(
     ctx: &mut Context,
     rewriter: &mut impl Inserter,
@@ -47,12 +40,10 @@ pub fn insert_int_const(
     op.get_result(ctx)
 }
 
-/// Insert an `i32` constant, and return its result.
 pub fn insert_i32_const(ctx: &mut Context, rewriter: &mut impl Inserter, value: i32) -> Value {
     insert_int_const(ctx, rewriter, I32_WIDTH, value as i128)
 }
 
-/// Insert an `i1` constant, and return its result.
 pub fn insert_bool_const(ctx: &mut Context, rewriter: &mut impl Inserter, value: bool) -> Value {
     insert_int_const(ctx, rewriter, 1, value as i128)
 }
@@ -68,9 +59,9 @@ pub fn convert_attr(ctx: &mut Context, value: AttrObj) -> AttrObj {
     } else if let Some(bool_attr) = value.downcast_ref::<BoolAttr>() {
         int_attr(ctx, 1, bool_attr.0 as i128).into()
     } else if let Some(index_attr) = value.downcast_ref::<IndexAttr>() {
-        int_attr(ctx, INDEX_WIDTH, index_attr.0 as i128).into()
+        int_attr(ctx, index_width(ctx), index_attr.0 as i128).into()
     } else if let Some(float) = value.downcast_ref::<FloatAttr>() {
-        // fp8 is an 8-bit integer to LLVM, so its constants are their codes.
+        // FP8 constants use their 8-bit encoding.
         if Fp8Format::of_type(ctx, float.ty).is_some() {
             return int_attr(ctx, 8, float.val.to_bits() as i128).into();
         }
@@ -82,7 +73,6 @@ pub fn convert_attr(ctx: &mut Context, value: AttrObj) -> AttrObj {
 }
 
 pub fn constant_op(ctx: &mut Context, value: AttrObj) -> Ptr<Operation> {
-    // Upstream doesn't want to add `ZeroAttr` support to `ConstantOp`
     if let Some(zero) = value.downcast_ref::<ZeroAttr>() {
         let ty = cube_type_to_llvm(ctx, zero.ty);
         ZeroOp::new(ctx, ty).get_operation()

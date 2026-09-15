@@ -1,61 +1,56 @@
-use cubecl_runtime::kernel::BufferIOAttr;
-use std::ffi::c_void;
-use std::fmt::Display;
-use std::sync::{Arc, Once};
-
-use pliron::builtin::ops::ModuleOp;
-use pliron::context::Context;
-use pliron_llvm::llvm_sys::core::{LLVMContext, LLVMMemoryBuffer, LLVMModule};
-use pliron_llvm::llvm_sys::lljit::LLVMLLJIT;
-use pliron_llvm::llvm_sys::target::initialize_native;
-use pliron_llvm::to_llvm_ir;
-
 use super::data::PlironData;
-use crate::cpu::shared_memory::SharedMemories;
+use crate::{
+    cpu::shared_memory::SharedMemories,
+    prelude::{Context, ModuleOp},
+};
+use cubecl_runtime::kernel::BufferIOAttr;
+use pliron_llvm::{
+    llvm_sys::{
+        core::{LLVMContext, LLVMMemoryBuffer, LLVMModule},
+        lljit::LLVMLLJIT,
+        target::initialize_native,
+    },
+    to_llvm_ir,
+};
+use std::{
+    ffi::c_void,
+    fmt::Display,
+    sync::{Arc, Once},
+};
 
-/// Host ABI of a JIT'd kernel: `(buffer_ptrs, cube_count_x/y/z, unit_pos_x/y/z, sync_cube_state,
-/// metadata)`. The variable-count pointers — the buffers and then the shared memories — are
-/// hidden behind `buffer_ptrs`, while the builtins and both other pointers are passed directly.
+/// Kernel ABI: buffer pointers, cube count x/y/z, unit position x/y/z,
+/// barrier state, metadata.
 type KernelFn = extern "C" fn(*mut *mut c_void, u32, u32, u32, u32, u32, u32, *mut u32, *mut u64);
 
-/// What the host has to provide to launch a kernel, beyond its arguments.
+/// Resources and scheduling required for a launch.
 #[derive(Clone, Debug, Default)]
 pub struct KernelRequirements {
-    /// Whether the kernel synchronizes its cube, in which case each of its units needs a thread
-    /// of its own to run on.
+    /// Cube barriers require a separate thread for each unit.
     pub needs_parallelism: bool,
-    /// The shared memory to reserve for a launch, and where its pointers go.
+    /// Shared memory required for a launch.
     pub shared_memories: SharedMemories,
 }
 
-/// A JIT-compiled kernel.
-///
-/// The `LLVMContext` the module was built in is not held here: `LLVMLLJIT::add_module`
-/// takes it by value and transfers it to the JIT's thread-safe context, so the JIT is
-/// what keeps it alive for as long as the compiled code exists.
+/// A compiled kernel and its owning JIT.
 #[repr(C)]
 struct JitKernel {
     func: KernelFn,
     requirements: KernelRequirements,
-    /// What the kernel does with each buffer binding, by buffer position --
-    /// read off the IR before the entry ABI lowering erased the arguments,
-    /// for the launch path's taint bookkeeping.
+    /// Buffer access modes in binding order.
     io: Vec<BufferIOAttr>,
     _lljit: LLVMLLJIT,
 }
 
-/// Safety: The kernel is immutable machine code plus the JIT/context that keep it alive.
+/// SAFETY: Compiled code is immutable and its JIT owns the context.
 unsafe impl Send for JitKernel {}
 unsafe impl Sync for JitKernel {}
 
-/// A compiled kernel, cloneable across worker threads.
 #[derive(Clone)]
 pub struct PlironEngine(Arc<JitKernel>);
 
 static INIT_NATIVE: Once = Once::new();
 
 impl PlironEngine {
-    /// Lower the LLVM-dialect module to LLVM IR and JIT-compile it with ORC/LLJIT.
     pub fn compile(
         ctx: &Context,
         module: ModuleOp,
@@ -82,15 +77,13 @@ impl PlironEngine {
         }
 
         let lljit = LLVMLLJIT::new_with_default_builder().expect("failed to create LLJIT");
-        // Consumes the context: `optimize` re-parsed the module into `llvm_ctx`, which is
-        // what `add_module` asserts, and ownership passes to the JIT from here.
         lljit
             .add_module(llvm_ctx, llvm_module)
             .expect("failed to add module to JIT");
         let addr = lljit
             .lookup_symbol(kernel_name)
             .unwrap_or_else(|err| panic!("kernel symbol '{kernel_name}' not found: {err}"));
-        // Safety: the generated function is always of this form
+        // SAFETY: The generated entry point matches `KernelFn`.
         let func: KernelFn = unsafe { std::mem::transmute::<u64, KernelFn>(addr) };
 
         Ok(PlironEngine(Arc::new(JitKernel {
@@ -101,12 +94,11 @@ impl PlironEngine {
         })))
     }
 
-    /// What the host has to provide to launch this kernel, see [`KernelRequirements`].
     pub fn requirements(&self) -> &KernelRequirements {
         &self.0.requirements
     }
 
-    /// What the kernel does with each buffer binding, by buffer position.
+    /// Buffer access modes in binding order.
     pub fn buffer_io(&self) -> &[BufferIOAttr] {
         &self.0.io
     }
@@ -137,8 +129,7 @@ impl Display for PlironEngine {
 }
 
 #[cfg(feature = "pliron-dump")]
-/// The kernel's dump directory when `CUBECL_DEBUG_PLIRON` is set: the LLVM IR
-/// stages land beside the pliron pass dumps.
+/// IR dump directory, enabled by `CUBECL_DEBUG_PLIRON`.
 pub(crate) fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
     let dir = std::env::var("CUBECL_DEBUG_PLIRON").ok()?;
     let path = std::path::Path::new(&dir).join(kernel_name);
@@ -146,15 +137,9 @@ pub(crate) fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
     Some(path)
 }
 
-/// The pipeline run before the JIT: LLJIT runs no IR-level passes of its own,
-/// and the dialect lowering emits O0-shaped IR that runs ~50× under the
-/// machine's streaming rate. Paid once per kernel and cached.
+/// Optimization pipeline for JIT compilation.
 const PASS_PIPELINE: &str = "default<O3>";
 
-/// Optimizes a module by round-tripping it through textual IR: [`LLVMModule`]
-/// seals its `LLVMModuleRef`, so the IR is re-parsed into a context this
-/// function owns, optimized there, and parsed back. Fold into a direct pass
-/// run when pliron-llvm exposes one.
 fn optimize(
     module: LLVMModule,
     llvm_ctx: &LLVMContext,
@@ -168,8 +153,6 @@ fn optimize(
     )
 }
 
-/// Parses `ir` into a private LLVM context, runs [`PASS_PIPELINE`] over it,
-/// and prints the optimized module back out.
 fn run_pipeline(ir: &str) -> Result<String, String> {
     use llvm_sys::core::{
         LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
@@ -190,7 +173,7 @@ fn run_pipeline(ir: &str) -> Result<String, String> {
         );
         let mut module = std::ptr::null_mut();
         let mut parse_err = std::ptr::null_mut();
-        // `LLVMParseIRInContext2` consumes the buffer, on failure included.
+        // `LLVMParseIRInContext2` takes ownership of the buffer, including on failure.
         if LLVMParseIRInContext2(ctx, buffer, &mut module, &mut parse_err) != 0 {
             let msg = std::ffi::CStr::from_ptr(parse_err)
                 .to_string_lossy()

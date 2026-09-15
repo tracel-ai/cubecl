@@ -1,34 +1,26 @@
-use std::ffi::c_void;
-use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
-
 use crate::cpu::synchronization::SYNC_CUBE_STATE_LEN;
+use std::{
+    ffi::c_void,
+    sync::{Arc, atomic::AtomicU32},
+};
 
-/// Data shared by every unit of a launch: the pointer table (the buffer data pointers indexed by
-/// binding position, then the shared memory blocks), the metadata array and the cube barrier
-/// counters. The buffer pointers stay valid because `keepalive` pins their storage; the
-/// shared-memory blocks because the stream drains before a shared-memory launch.
+/// Resources shared by all units of a launch.
 #[derive(Default)]
 pub struct SharedData {
     pub buffer_ptrs: Vec<*mut c_void>,
     pub metadata: Vec<u64>,
-    /// Counters backing `sync_cube`, shared by the units taking part in the barrier. They start
-    /// at zero and every barrier leaves them back at zero.
+    /// Shared barrier counters, initialized to zero.
     pub sync_cube_state: [AtomicU32; SYNC_CUBE_STATE_LEN],
-    /// The launch's `ManagedResource`s, pinning their memory handles until the
-    /// last unit drops so the pool cannot recycle a buffer a pipelined kernel
-    /// still points into.
+    /// Keeps buffer storage alive until the launch completes.
     pub keepalive: Vec<Box<dyn std::any::Any + Send>>,
 }
 
-/// Safety: the storage behind the pointers outlives the launch (see the struct
-/// doc), `sync_cube_state` is atomic, and `keepalive` is only ever dropped —
-/// hence `Send` without `Sync` on its contents.
+/// SAFETY: Buffer and shared memory storage outlive the launch. Barrier counters are
+/// atomic, and `keepalive` contents are only dropped, never accessed concurrently.
 unsafe impl Send for SharedData {}
 unsafe impl Sync for SharedData {}
 
-/// Per-unit kernel arguments. `builtins` holds `[cube_count_x, cube_count_y, cube_count_z,
-/// unit_pos_x, unit_pos_y, unit_pos_z]`, matching the order the entry-point pass appends them.
+/// Per-unit kernel arguments. Builtin order: cube count x/y/z, then unit position x/y/z.
 #[derive(Clone, Default)]
 pub struct PlironData {
     pub shared: Arc<SharedData>,

@@ -1,43 +1,43 @@
-//! Rewrites the kernel entry ABI to what the host calls.
+//! Kernel arguments and metadata.
 
-use cubecl_core::ir::attributes::{
-    ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface, IndexAttr,
+use crate::prelude::*;
+use cubecl_core::ir::{
+    ElemType,
+    attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr},
+    dialect::{
+        general::{BufferLenOp, CastOp, ReadScalarOp, ReinterpretCastOp, ShapeOp, StrideOp},
+        math::IAddOp,
+        memory::{IndexOp, LoadOp},
+    },
+    metadata::Info,
+    types::{BytesType, PointerType, RuntimeArrayType},
 };
-use cubecl_core::ir::dialect::general::{
-    BufferLenOp, CastOp, ReadScalarOp, ReinterpretCastOp, ShapeOp, StrideOp,
-};
-use cubecl_core::ir::dialect::math::IAddOp;
-use cubecl_core::ir::dialect::memory::{IndexOp, LoadOp};
-use cubecl_core::ir::metadata::Info;
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::types::scalar::IndexType;
-use cubecl_core::ir::types::{BytesType, PointerType, RuntimeArrayType};
-use cubecl_core::ir::{AddressSpace, ElemType};
-use pliron::basic_block::BasicBlock;
-use pliron::builtin::attributes::TypeAttr;
-use pliron::builtin::ops::{ConstantOp, FuncOp};
-use pliron::builtin::types::FunctionType;
 
-use crate::shared::shared_memory::SharedDeclarations;
-use crate::shared::to_llvm::ty::cube_type_to_llvm;
-
-/// `(op, buffer_idx, result)` for each `cube.buffer_len`, gathered during the walk so the ops
-/// can be rewritten once the walker no longer holds them borrowed.
 #[derive(Default)]
 struct BufferLens(Vec<(Ptr<Operation>, usize, Value)>);
 
-/// `(op, elem_ty, id, result)` for each `cube.read_scalar`, gathered during the walk so the ops
-/// can be rewritten once the walker no longer holds them borrowed.
 #[derive(Default)]
 struct ReadScalars(Vec<(Ptr<Operation>, TypeHandle, usize, Value)>);
 
-/// `(op, buffer_idx, dim, result)` for each `cube.shape` and `cube.stride`. Both read
-/// `dynamic_meta[static_meta[slot] + dim]`, so only the static slot differs: stride offsets are
-/// pre-biased by the host past the shapes region.
 #[derive(Default)]
 struct DynMetaReads(Vec<(Ptr<Operation>, usize, Value, Value)>);
 
-/// How the kernel entry presents its buffers to the host.
+/// Whether scalars and static metadata use the kernel parameter block.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GridConstants(pub bool);
+
+impl CtxGridConstants for Context {}
+
+pub trait CtxGridConstants: ContextExt {
+    fn grid_constants(&self) -> bool {
+        self.aux_ty::<GridConstants>().0
+    }
+    fn set_grid_constants(&mut self, value: bool) {
+        self.set_aux_ty(GridConstants(value));
+    }
+}
+
+/// Host-visible kernel argument layout.
 pub trait EntryArgLayout {
     fn present_args(
         &self,
@@ -48,10 +48,8 @@ pub trait EntryArgLayout {
     );
 }
 
-/// Lowers `cube.buffer_len`, `cube.read_scalar`, `cube.shape` and `cube.stride` against
-/// `%metadata`, then hands the buffers and shared memories off to `layout` to present to the
-/// host. The info buffer is laid out as `[scalars | static meta | dynamic meta]`, so scalar reads
-/// index straight from its front while metadata reads must skip the scalar prefix.
+/// Metadata layout: scalars, static metadata, then dynamic metadata.
+/// With grid constants, dynamic metadata uses a separate buffer.
 pub struct LowerEntryAbiPass {
     info: Info,
     layout: Box<dyn EntryArgLayout>,
@@ -141,6 +139,11 @@ impl Pass for LowerEntryAbiPass {
         let slot_size = address_type.size();
 
         let info_ty = ptr_to(ctx, BytesType::get(ctx).into());
+        let grid_constants = ctx.grid_constants();
+        let dyn_meta = (grid_constants && self.info.has_dynamic_meta).then(|| {
+            let idx = BasicBlock::push_argument(entry, ctx, info_ty);
+            entry.deref(ctx).get_argument(idx)
+        });
         let meta_idx = BasicBlock::push_argument(entry, ctx, info_ty);
         let info = entry.deref(ctx).get_argument(meta_idx);
 
@@ -157,7 +160,10 @@ impl Pass for LowerEntryAbiPass {
             Operation::erase(*bl_op, ctx);
         }
 
-        let dyn_base = elem_index(self.info.dynamic_meta_offset, slot_size);
+        let (dyn_meta_ptr, dyn_base) = match dyn_meta {
+            Some(dyn_meta) => (dyn_meta, 0),
+            None => (info, elem_index(self.info.dynamic_meta_offset, slot_size)),
+        };
         for (read_op, slot, dim, result) in &dyn_meta_reads {
             let slot = index_const(ctx, static_base + *slot, *read_op);
             let tensor_offset = load_info(ctx, info, slot_ty, slot, *read_op);
@@ -166,7 +172,7 @@ impl Pass for LowerEntryAbiPass {
             let index = index_add(ctx, tensor_offset, *dim, *read_op);
             let dyn_base = index_const(ctx, dyn_base, *read_op);
             let index = index_add(ctx, index, dyn_base, *read_op);
-            let value = load_info(ctx, info, slot_ty, index, *read_op);
+            let value = load_info(ctx, dyn_meta_ptr, slot_ty, index, *read_op);
             let value = to_index(ctx, value, *read_op);
             result.replace_all_uses_with(ctx, &value);
             Operation::erase(*read_op, ctx);
@@ -203,9 +209,6 @@ impl Pass for LowerEntryAbiPass {
     }
 }
 
-/// Rebuilds `func`'s `FunctionType` from its entry block's current argument types. Called once
-/// [`EntryArgLayout::present_args`] has finished changing the arguments, since that is target
-/// specific but this reconciliation of the declared signature is not.
 pub(crate) fn rebuild_func_type(ctx: &mut Context, func: FuncOp) {
     let entry = func.get_entry_block(ctx);
     let arg_values: Vec<Value> = entry.deref(ctx).arguments().collect();
@@ -223,24 +226,19 @@ pub(crate) fn rebuild_func_type(ctx: &mut Context, func: FuncOp) {
     func.set_attr_func_type(ctx, TypeAttr::new(new_ty.into()));
 }
 
-/// `cube.ptr<inner>` into the memory the host owns.
 fn ptr_to(ctx: &Context, inner: TypeHandle) -> TypeHandle {
     PointerType::get(ctx, inner, AddressSpace::Global(0)).into()
 }
 
-/// `cube.ptr<cube.runtime_array<elem>>`, the view `memory.index` walks to reach an element.
 fn array_ptr_to(ctx: &Context, elem: TypeHandle) -> TypeHandle {
     ptr_to(ctx, RuntimeArrayType::get(ctx, elem).into())
 }
 
-/// Type of `%buffer_ptrs`, the table holding one pointer per buffer and then per shared memory.
-/// What each of them points at is up to the slot's owner, so the table holds them opaquely.
 pub(crate) fn table_ty(ctx: &Context) -> TypeHandle {
     array_ptr_to(ctx, ptr_to(ctx, BytesType::get(ctx).into()))
 }
 
-/// The element `bytes` bytes into an array of `elem_size` wide elements. The host aligns every
-/// region of the info buffer to `INFO_ALIGN`, so no region starts inside an element.
+/// Metadata regions are aligned to `INFO_ALIGN`.
 fn elem_index(bytes: usize, elem_size: usize) -> usize {
     debug_assert_eq!(
         bytes % elem_size,
@@ -250,22 +248,18 @@ fn elem_index(bytes: usize, elem_size: usize) -> usize {
     bytes / elem_size
 }
 
-/// Insert a `cube.index` constant before `before`.
 fn index_const(ctx: &mut Context, value: usize, before: Ptr<Operation>) -> Value {
     let constant = ConstantOp::new(ctx, Box::new(IndexAttr::new(value)));
     constant.get_operation().insert_before(ctx, before);
     constant.get_result(ctx)
 }
 
-/// Insert `lhs + rhs` before `before`, both being indices.
 fn index_add(ctx: &mut Context, lhs: Value, rhs: Value, before: Ptr<Operation>) -> Value {
     let add = IAddOp::new(ctx, lhs, rhs);
     add.get_operation().insert_before(ctx, before);
     add.get_result(ctx)
 }
 
-/// Widen a stored slot to the `cube.index` the kernel computes with. The cast folds away when the
-/// kernel addresses memory at 64 bits, where the two have the same width.
 fn to_index(ctx: &mut Context, value: Value, before: Ptr<Operation>) -> Value {
     let index_ty = IndexType::get(ctx).into();
     let cast = CastOp::new(ctx, index_ty, value);
@@ -273,7 +267,6 @@ fn to_index(ctx: &mut Context, value: Value, before: Ptr<Operation>) -> Value {
     cast.get_result(ctx)
 }
 
-/// Load the element at `index` of the info buffer, read as an array of `elem_ty`.
 fn load_info(
     ctx: &mut Context,
     info: Value,
@@ -287,7 +280,6 @@ fn load_info(
     load_elem(ctx, view.get_result(ctx), index, before)
 }
 
-/// Load the element at `index` of the array `base` points at.
 fn load_elem(ctx: &mut Context, base: Value, index: Value, before: Ptr<Operation>) -> Value {
     let elem = IndexOp::new(ctx, base, index, None);
     elem.get_operation().insert_before(ctx, before);
@@ -296,9 +288,6 @@ fn load_elem(ctx: &mut Context, base: Value, index: Value, before: Ptr<Operation
     load.get_result(ctx)
 }
 
-/// Read slot `slot` of the pointer table as a `ptr_ty`, which is how a buffer or a shared memory
-/// reaches the block the host reserved for it. The table holds its pointers opaquely, so what a
-/// slot holds is only known to its owner.
 pub fn load_table(
     ctx: &mut Context,
     table: Value,
