@@ -182,6 +182,7 @@ impl DeviceService for CpuServer {
             DeviceIdentity {
                 name: host_cpu_name(&system),
                 fingerprint: format!("cpu_{}_f16-{}", std::env::consts::ARCH, f16_evaluation),
+                physical: None,
             },
         );
         register_supported_types(&mut device_props);

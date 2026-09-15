@@ -4,6 +4,7 @@ use crate::{
     device::AmdDevice,
 };
 use core::ffi::c_int;
+use cubecl_core::ir::{PciAddress, PhysicalDevice};
 use cubecl_server::runtime::Runtime;
 use std::sync::OnceLock;
 
@@ -156,6 +157,7 @@ impl DeviceService for HipServer {
             DeviceIdentity {
                 name: probe.name.clone(),
                 fingerprint: fingerprint.clone(),
+                physical: Some(probe.physical.clone()),
             },
         );
         register_supported_types(&mut device_props);
@@ -315,6 +317,8 @@ struct DeviceProbe {
     /// An APU, sharing its memory and IOMMU with the host. The drop queue
     /// flushes more often on one, to keep the GPU off a 0-to-100% transition.
     integrated: bool,
+    /// The card itself, for telling it apart from the same card under Vulkan.
+    physical: PhysicalDevice,
 }
 
 impl DeviceProbe {
@@ -374,6 +378,18 @@ impl DeviceProbe {
             // Both are checked: 32 is the floor either way.
             alignment: 32.max(props.textureAlignment).max(props.surfaceAlignment),
             integrated: props.integrated != 0,
+            physical: PhysicalDevice {
+                pci: Some(PciAddress {
+                    domain: props.pciDomainID as u32,
+                    bus: props.pciBusID as u8,
+                    device: props.pciDeviceID as u8,
+                    function: 0,
+                }),
+                uuid: Some(props.uuid.bytes.map(|byte| byte as u8)),
+                vendor_id: Some(0x1002),
+                device_id: None,
+                total_memory: Some(props.totalGlobalMem as u64),
+            },
         }
     }
 }
