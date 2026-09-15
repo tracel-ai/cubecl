@@ -27,13 +27,13 @@ spirv = ["dep:pliron-spirv"]
 tracing = ["cubecl-common/tracing"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", default-features = false, features = [
     "fp4",
     "fp8",
     "hash",
 ] }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
-cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "=0.11.0-pre.3" }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
+cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "=0.11.0-pre.4" }
 
 pliron = { workspace = true }
 pliron-spirv = { workspace = true, optional = true }
