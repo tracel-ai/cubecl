@@ -11,7 +11,7 @@ use crate::{
     server::{
         BufferBinding, CommunicationId, CopyDescriptor, CubeCount, Handle, KernelArguments,
         KernelResource, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutStrategy, ProfileError,
-        ReduceOperation, Server, ServerError, ServerStorage, ServerUtilities,
+        ProfilingToken, ReduceOperation, Server, ServerError, ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -1478,6 +1478,34 @@ impl Client {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.install_memory_pools(config, stream_id))
+            .unwrap_or_resume()
+    }
+
+    /// Open a profiling window at the current position of the calling stream.
+    ///
+    /// The bracketed form, [`profile`](Self::profile), is the one to reach for:
+    /// it also holds the device for the closure. This pair is for a caller
+    /// that cannot bracket the work in a closure because the work is launched
+    /// from somewhere else — a lazy queue drained on another thread, say —
+    /// and only knows *when* on the stream its window opens and closes. The
+    /// token then has to be closed with [`profile_end`](Self::profile_end)
+    /// from the same stream, and nothing keeps other streams' work out of the
+    /// window.
+    pub fn profile_start(&self) -> Result<ProfilingToken, ProfileError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.start_profile(stream_id))
+            .unwrap_or_resume()
+            .map_err(|err| ProfileError::from(&err))
+    }
+
+    /// Close the window `token` opened with
+    /// [`profile_start`](Self::profile_start), at the current position of the
+    /// calling stream.
+    pub fn profile_end(&self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.end_profile(stream_id, token))
             .unwrap_or_resume()
     }
 
