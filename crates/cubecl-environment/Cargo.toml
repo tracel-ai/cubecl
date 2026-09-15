@@ -23,7 +23,6 @@ workspace = true
 shared-bytes = ["dep:bytes"]
 persistence = [
     "std",
-    "dep:opfs",
     "dep:turso",
     "dep:web-sys",
     "dep:js-sys",
@@ -128,10 +127,13 @@ tokio = { workspace = true, optional = true, default-features = false, features 
 js-sys = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true }
-opfs = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true, features = [
     "FileSystemDirectoryHandle",
+    "FileSystemFileHandle",
+    "FileSystemGetFileOptions",
+    "FileSystemReadWriteOptions",
+    "FileSystemSyncAccessHandle",
 ] }
 
 # Default dependency for all targets
