@@ -4039,6 +4039,7 @@ name = "throughput"
 version = "0.11.0-pre.4"
 dependencies = [
  "cubecl",
+ "cubecl-common",
  "half",
 ]
 
