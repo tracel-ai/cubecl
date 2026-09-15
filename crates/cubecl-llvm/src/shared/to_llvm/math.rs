@@ -58,8 +58,7 @@ lower_unary_intrinsic_arith!(CeilOp => "llvm.ceil");
 lower_unary_intrinsic_arith!(TruncOp => "llvm.trunc");
 lower_unary_intrinsic_arith!(ReverseBitsOp => "llvm.bitreverse");
 
-/// `llvm.abs` is `i_ (i_, i1 immarg)`, the flag saying whether `INT_MIN` is poison. Cube's
-/// `SAbsOp` is defined to wrap like LLVM's non-poisoning form, so pass `false`.
+/// Integer absolute value wraps at `INT_MIN`.
 #[op_interface_impl]
 impl ToLLVMDialect for SAbsOp {
     fn rewrite(
@@ -88,7 +87,6 @@ impl ToLLVMDialect for SAbsOp {
     }
 }
 
-/// Width of an integer type, or of the elements of an integer vector type.
 fn int_elem_width(ctx: &Context, ty: TypeHandle) -> u32 {
     let elem_ty = ty
         .deref(ctx)
@@ -157,7 +155,6 @@ lower_count_bits_intrinsic!(CountOnesOp => "llvm.ctpop");
 lower_count_bits_intrinsic!(LeadingZerosBitsOp => "llvm.ctlz", true);
 lower_count_bits_intrinsic!(TrailingZerosBitsOp => "llvm.cttz", true);
 
-// See https://llvm.org/docs/LangRef.html#id1822 for more info
 const IS_NAN: i32 = 0x0003;
 const IS_INF: i32 = 0x0204;
 
@@ -182,7 +179,6 @@ macro_rules! lower_float_fpclass {
                     bool_ty =
                         LlvmVectorType::get(ctx, bool_ty, num_elems, VectorTypeKind::Fixed).into();
                 }
-                // `llvm.is.fpclass` is not variadic; the test mask is a plain `i32 immarg`.
                 let intrinsic_type =
                     FuncType::get(ctx, bool_ty, vec![elem_ty, int_ty.into()], false);
 
@@ -292,10 +288,7 @@ impl ToLLVMDialect for ShiftRightOp {
     ) -> Result<()> {
         let lhs = self.lhs(ctx);
         let rhs = self.rhs(ctx);
-        // Whether the shift is arithmetic or logical is decided by the signedness the operand
-        // had before the conversion started erasing it. A value the conversion never saw --
-        // one a polyfill built during this same pass, as the `mma.sync` index formulas do --
-        // has no history, and then its current type is still the original one.
+        // Shift signedness comes from the original operand type.
         let original_lhs_ty = operands_info
             .lookup_operand_history(lhs)
             .first()
@@ -314,7 +307,6 @@ impl ToLLVMDialect for ShiftRightOp {
 
 lower_int_bin_with_overflow_arith!(ShiftLeftOp => llvm::ShlOp);
 
-// LLVM has no boolean negation, so `!x` becomes `x ^ true`.
 #[op_interface_impl]
 impl ToLLVMDialect for BoolNotOp {
     fn rewrite(
@@ -340,8 +332,7 @@ impl ToLLVMDialect for BoolNotOp {
     }
 }
 
-/// Whether a multiply feeding an add may fuse into an FMA: `contract` only, and on the GPU only,
-/// so a CPU f32 kernel stays the exact reference the other runtimes are compared against.
+/// FMA contraction is enabled only on GPU targets.
 fn fma_contraction(ctx: &Context) -> FastmathFlagsAttr {
     match ctx.target() {
         #[cfg(feature = "amdgpu")]
@@ -378,7 +369,6 @@ macro_rules! lower_float_bin_arith {
     };
 }
 
-/// No flags. A division or a remainder has nothing to contract into.
 fn no_fast_math(_ctx: &Context) -> FastmathFlagsAttr {
     FastmathFlagsAttr::default()
 }

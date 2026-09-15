@@ -51,7 +51,6 @@ pub mod prelude {
 #[type_interface]
 pub trait CubeToLLVMType {
     verify_ty_succ!();
-    /// Build the LLVM-dialect type equivalent to this cube type.
     fn convert(&self, ctx: &Context) -> TypeHandle;
 }
 

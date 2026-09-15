@@ -18,7 +18,6 @@ impl ToLLVMDialect for DeclareVariableOp {
         let value_ty = self.value_ty(ctx).get_type(ctx);
 
         if value_ty.deref(ctx).is::<BarrierType>() {
-            // Only there to replace by something easy to optimize out
             let useless = insert_i32_const(ctx, rewriter, 0);
             rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![useless]);
             return Ok(());
@@ -58,7 +57,6 @@ impl ToLLVMDialect for DeclareVariableOp {
     }
 }
 
-/// The entry block of the function `op` lives in.
 fn enclosing_entry_block(ctx: &Context, op: Ptr<Operation>) -> Ptr<BasicBlock> {
     let mut op = op;
     loop {
@@ -72,12 +70,7 @@ fn enclosing_entry_block(ctx: &Context, op: Ptr<Operation>) -> Ptr<BasicBlock> {
     }
 }
 
-/// `index` at the width a `getelementptr` operand is taken at.
-///
-/// A target whose `cube.index` is already that wide gets the value back untouched. A narrower
-/// one is *zero*-extended: the operand is signed where `cube.index` is not, so leaving the
-/// widening to the `getelementptr` itself would address negatively from 2^31 up. See
-/// [`index_width`] for why a target would narrow it in the first place.
+/// Unsigned cube indices require zero extension before signed GEP indexing.
 fn widen_gep_index(
     ctx: &mut Context,
     rewriter: &mut DialectConversionRewriter,
@@ -88,9 +81,6 @@ fn widen_gep_index(
         .deref(ctx)
         .downcast_ref::<IntegerType>()
         .map(|int| int.width());
-    // Anything but a narrower integer is handed back as it is -- a wider index, or a type that
-    // is not an integer at all, is not this function's to reinterpret, and the
-    // `getelementptr` verifier is the right place for it to be caught.
     if width.is_none_or(|width| width >= GEP_INDEX_WIDTH) {
         return index;
     }

@@ -1,4 +1,4 @@
-//! Lowering of the cubecl structured `scf` dialect to an unstructured LLVM CFG.
+//! Structured control flow lowering.
 
 use cubecl_core::ir::dialect::branch::{self, ConditionOp, IsExitTerminator};
 use cubecl_core::ir::dialect::cmp::{SLessThanOp, ULessThanOp};
@@ -42,7 +42,6 @@ impl LowerCpuCF for IfOp {
         let then_term = terminator(ctx, then_block);
         let else_term = terminator(ctx, else_block);
 
-        // Split off the merge block so ops after the `if` continue there.
         let (pre, merge) = split_join_block(ctx, rewriter, op, "if_merge");
 
         rewriter.set_insertion_point_to_block_end(pre);
@@ -89,8 +88,6 @@ impl LowerCpuCF for WhileOp {
         let br_to_before = llvm::BrOp::new(ctx, before_block, init);
         rewriter.append_op(ctx, &br_to_before);
 
-        // The `before` region decides whether to run another iteration. The values it forwards go
-        // to the `after` block when the loop continues, and out of the loop when it doesn't.
         if let Some(condition) = before_term.as_op::<ConditionOp>(ctx) {
             let cond = condition.condition(ctx);
             let forwarded = condition.forward_values(ctx);
@@ -106,7 +103,6 @@ impl LowerCpuCF for WhileOp {
             );
         }
 
-        // Back-edge to the condition.
         branch_to_yielded(ctx, rewriter, after_term, before_block);
 
         rewriter.inline_region(ctx, before_region, BlockInsertionPoint::AfterBlock(pre));
@@ -145,8 +141,6 @@ impl LowerCpuCF for RangeLoopOp {
 
         let (pre, exit) = split_join_block(ctx, rewriter, op, "for_exit");
 
-        // The header carries the induction variable followed by the loop carried values, in the
-        // same order as the body block arguments it feeds.
         let header_args = body_block
             .arguments(ctx)
             .into_iter()
@@ -178,7 +172,6 @@ impl LowerCpuCF for RangeLoopOp {
         );
         rewriter.append_op(ctx, &cond_br);
 
-        // The back-edge steps the induction variable and forwards the values yielded by the body.
         if !body_term.impls::<dyn IsExitTerminator>(ctx) {
             rewriter.set_insertion_point_before_operation(body_term);
             let next = IAddOp::new(ctx, self.iter_var(ctx), step);
@@ -302,8 +295,6 @@ fn terminator(ctx: &Context, block: Ptr<BasicBlock>) -> Ptr<Operation> {
         .expect("structured region blocks must be terminated")
 }
 
-/// Split the block holding `op` so that everything following it becomes the block the lowered
-/// control flow joins back into. The join block takes the results of `op` as block arguments.
 fn split_join_block(
     ctx: &mut Context,
     rewriter: &mut DialectConversionRewriter,
@@ -326,8 +317,6 @@ fn split_join_block(
     (pre, join)
 }
 
-/// Replace a `branch.yield` terminator with a branch to `dest`, forwarding the yielded values as
-/// block arguments. Terminators that leave the function are kept as is, they lower on their own.
 fn branch_to_yielded(
     ctx: &mut Context,
     rewriter: &mut DialectConversionRewriter,

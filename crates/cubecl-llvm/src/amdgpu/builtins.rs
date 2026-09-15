@@ -1,10 +1,4 @@
-//! Resolves `cube.read_builtin` against the AMDGPU hardware.
-//!
-//! Where the CPU target emulates the launch grid with a loop nest
-//! (see `shared::entrypoint::InsertConstantEmulationPass`), the GPU *is* the
-//! grid: the positional builtins come from `llvm.amdgcn` intrinsics, `CubeCount*`
-//! comes from the HSA kernel dispatch packet, and the dimensional builtins are
-//! compile-time constants, so the whole pass is a substitution with no control flow.
+//! AMDGPU builtins.
 
 use cubecl_core::ir::attributes::EntrypointInterface;
 use cubecl_core::ir::dialect::general::ReadBuiltinOp;
@@ -26,7 +20,6 @@ use crate::cpu::entrypoint::{
     constant, cube_count, cube_pos, set_dim_and_cluster_constants, unit_pos,
 };
 
-/// The `llvm.amdgcn` intrinsics providing each positional builtin.
 const WORKITEM_ID: [(&str, Builtin); 3] = [
     ("llvm.amdgcn.workitem.id.x", Builtin::UnitPosX),
     ("llvm.amdgcn.workitem.id.y", Builtin::UnitPosY),
@@ -39,21 +32,17 @@ const WORKGROUP_ID: [(&str, Builtin); 3] = [
     ("llvm.amdgcn.workgroup.id.z", Builtin::CubePosZ),
 ];
 
-/// AMDGPU's constant address space. This is where the HSA runtime maps the kernel dispatch
-/// packet that `llvm.amdgcn.dispatch.ptr` points to.
+/// The HSA dispatch packet uses the constant address space.
 const CONSTANT_ADDRESS_SPACE: u32 = 4;
 
-/// Byte offsets of the `grid_size_{x,y,z}` fields within `has_kernel_dispatch_packet_t`
-/// (verified against `rocm-runtime`'s `hsa/hsa.h`). These fields count work-items launched
-/// along each axis, not workgroups.
+/// Byte offsets of the work-item grid dimensions in the HSA dispatch packet.
 const GRID_SIZE_X_OFFSET: u32 = 12;
 const GRID_SIZE_Y_OFFSET: u32 = 16;
 const GRID_SIZE_Z_OFFSET: u32 = 20;
 
-/// Substitutes every `cube.read_builtin` with an intrinsic call or a constant.
 #[derive(Debug)]
 pub struct InsertAmdgpuBuiltinsPass {
-    /// Wavefront width of the target: 32 on RDNA, 64 on CDNA.
+    /// Device wavefront width.
     pub plane_dim: u32,
 }
 
@@ -78,11 +67,7 @@ impl Pass for InsertAmdgpuBuiltinsPass {
 
         let entry_block = func.get_entry_block(ctx);
 
-        // Block start, not before the terminator: a branchless kernel's entry block
-        // ends in `return`, so "before the terminator" puts these *after* the very
-        // `cube.read_builtin` uses being substituted, leaving a use that references a
-        // later definition and failing dominance. Everything computed here is
-        // self-contained, so nothing is lost by computing it first.
+        // Builtin values must dominate their uses.
         let mut builtins = BuiltinValues::default();
         {
             let mut inserter = OpInserter::new_at_block_start(entry_block);
@@ -118,7 +103,6 @@ impl Pass for InsertAmdgpuBuiltinsPass {
 }
 
 impl InsertAmdgpuBuiltinsPass {
-    /// The builtins the hardware does not report because they are fixed at launch.
     fn set_constants(
         &self,
         scope: &Scope,
@@ -135,9 +119,7 @@ impl InsertAmdgpuBuiltinsPass {
     }
 }
 
-/// `CubeCount*` has no intrinsic; it comes from the dispatch packet via
-/// `llvm.amdgcn.dispatch.ptr`. `grid_size_*` counts work-items, not workgroups, so
-/// `cube_count = grid_size / cube_dim` per axis.
+/// Dispatch dimensions count work-items; cube counts use workgroups.
 fn set_cube_count(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3) {
     let dispatch_ptr = dispatch_ptr(scope);
     let grid_size_x = load_u32_at(scope, dispatch_ptr, GRID_SIZE_X_OFFSET);
@@ -164,14 +146,11 @@ fn set_cube_count(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3) {
     builtins.set(Builtin::CubeCount, cube_count);
 }
 
-/// `cube_count = grid_size / cube_dim`, per axis. `cube_dim` is comptime, so this constant-folds.
 #[cube]
 fn cube_count_component(grid_size: u32, #[comptime] cube_dim: u32) -> u32 {
     grid_size / cube_dim
 }
 
-/// Derived arithmetically from the hardware builtins, reusing the CPU target's
-/// `#[cube]` helpers.
 fn derive_positions(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3) {
     let unit_pos_x = builtins.expect(Builtin::UnitPosX);
     let unit_pos_y = builtins.expect(Builtin::UnitPosY);
@@ -224,7 +203,6 @@ fn derive_positions(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3)
     builtins.set(Builtin::AbsolutePos, absolute_pos);
 }
 
-/// The lane's index within its wavefront.
 fn unit_pos_plane(scope: &Scope) -> Value {
     let (ops, lane) = lane_id_ops(scope.ctx_mut());
     for op in ops {
@@ -233,7 +211,6 @@ fn unit_pos_plane(scope: &Scope) -> Value {
     lane
 }
 
-/// Emits a call to LLVM intrinsic `name` returning `ret_ty`.
 fn call_intrinsic(scope: &Scope, name: &str, ret_ty: TypeHandle) -> Value {
     let op = call_op(scope.ctx_mut(), name, ret_ty, vec![]);
     scope.register_with_result(&op)
@@ -244,15 +221,11 @@ fn call_i32_intrinsic(scope: &Scope, name: &str) -> Value {
     call_intrinsic(scope, name, ty)
 }
 
-/// `llvm.amdgcn.dispatch.ptr` returns a `ptr addrspace(4)` to the HSA kernel dispatch packet
-/// the runtime prepared for this launch.
 fn dispatch_ptr(scope: &Scope) -> Value {
     let ptr_ty = LlvmPointerType::get(scope.ctx_mut(), CONSTANT_ADDRESS_SPACE).into();
     call_intrinsic(scope, "llvm.amdgcn.dispatch.ptr", ptr_ty)
 }
 
-/// Loads a `u32` at `byte_offset` past `ptr`, via a single-index GEP over `i8` —
-/// LLVM's only way to express "add N bytes".
 fn load_u32_at(scope: &Scope, ptr: Value, byte_offset: u32) -> Value {
     let i8_ty = IntegerType::get(scope.ctx_mut(), 8, Signedness::Signless).into();
     let gep = GetElementPtrOp::new(

@@ -1,14 +1,4 @@
-//! The matrix operations, dispatched to the target that has the instructions for them.
-//!
-//! Nothing about a matrix fragment is shared between the two GPUs: AMD spreads a documented
-//! layout across the wavefront and `CubeCL`'s lowering addresses it element by element, while
-//! NVIDIA's WMMA fragment is opaque and only its own load and store instructions know where
-//! anything sits. So unlike [`plane`](super::plane), where the targets agree on primitives and
-//! differ only in the instructions, there is no shared body here worth writing -- each op is
-//! forwarded whole.
-//!
-//! What is shared is that these ops exist in one place, so a target that does not implement
-//! one says so rather than falling through to another target's instructions.
+//! Target-specific matrix lowering.
 
 use cubecl_core::ir::Scope;
 use cubecl_core::ir::dialect::matrix::{
@@ -27,7 +17,6 @@ use crate::target::{CtxTarget, LlvmTarget};
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 use cubecl_core::ir::types::ArrayType as CubeArrayType;
 
-/// A matrix operation on a target with no matrix instructions.
 #[derive(Debug, Error)]
 #[error(
     "the {0:?} target has no lowering for `{1}`; a runtime that reaches it here has advertised \
@@ -35,10 +24,6 @@ use cubecl_core::ir::types::ArrayType as CubeArrayType;
 )]
 pub struct MatrixOpUnsupported(LlvmTarget, &'static str);
 
-/// The LLVM value a fragment of `matrix` lives in.
-///
-/// Both targets hold one in a vector, which is what lets the fragment be an `alloca` the other
-/// ops load and store; what differs is how many elements of it a lane holds.
 #[type_interface_impl]
 impl CubeToLLVMType for MatrixType {
     fn convert(&self, ctx: &Context) -> TypeHandle {
@@ -47,9 +32,6 @@ impl CubeToLLVMType for MatrixType {
             LlvmTarget::AmdGpu => crate::amdgpu::matrix::fragment_ty(ctx, self),
             #[cfg(feature = "nvptx")]
             LlvmTarget::Nvptx => crate::nvptx::matrix::fragment_ty(ctx, self),
-            // Reached only if a CPU kernel declares a matrix, which needs a device advertising
-            // a matrix feature; the CPU advertises none. A type conversion cannot report an
-            // error, so this is the one place the refusal has to be a panic.
             LlvmTarget::Cpu => {
                 unimplemented!("the CPU target has no matrix fragments")
             }
@@ -57,7 +39,6 @@ impl CubeToLLVMType for MatrixType {
     }
 }
 
-/// Forwards one matrix op to the target that has the instructions for it.
 macro_rules! dispatch_matrix_op {
     ($cube_op:ty, $method:ident) => {
         #[op_interface_impl]
@@ -98,18 +79,7 @@ dispatch_matrix_op!(MmaManualOp, mma_manual);
 dispatch_matrix_op!(LdMatrixOp, ld_matrix);
 dispatch_matrix_op!(StMatrixOp, st_matrix);
 
-/// Answers `row_index` and `col_index` from the documented `mma.sync` layout.
-///
-/// A polyfill rather than a dialect conversion, because the answer is arithmetic on the lane
-/// index that `CubeCL` already writes once, in
-/// [`polyfills::mma`](cubecl_core::prelude::polyfills::mma) -- the same source the CUDA C++
-/// backend expands. Every backend emitting `mma.sync` has to agree with the instruction about
-/// which element of the tile a register holds, and one copy of the formulas is how that is
-/// kept true.
-///
-/// Only NVPTX takes this route: AMD's fragment layout is its own, and it answers these in its
-/// dialect conversion. Running before that conversion is what lets this be written in `CubeCL`
-/// at all, since the ops it expands to have not been lowered yet.
+/// NVPTX matrix coordinates use the shared MMA polyfills.
 macro_rules! lower_axis_index_polyfill {
     ($cube_op:ty, $formula:path) => {
         #[op_interface_impl]
@@ -124,8 +94,6 @@ macro_rules! lower_axis_index_polyfill {
 
             fn lower(&self, scope: &Scope) -> Vec<Value> {
                 let matrix = *self.matrix_ty(scope.ctx()).deref(scope.ctx());
-                // How many elements share a 32 bit register, which is what turns an element
-                // index into a register index in the formulas.
                 let elems_per_reg = 32 / matrix.unpacked_elem_size_bits(scope.ctx());
                 let lane_id = self.lane_id(scope.ctx());
                 let i = self.i(scope.ctx());
@@ -140,20 +108,12 @@ macro_rules! lower_axis_index_polyfill {
 lower_axis_index_polyfill!(RowIndexOp, polyfills::mma::row_index::expand);
 lower_axis_index_polyfill!(ColIndexOp, polyfills::mma::col_index::expand);
 
-/// The LLVM vector holding the registers `value` points at.
-///
-/// The manual ops carry their operands as arrays rather than fragments, but the registers are
-/// the same ones, so the array is read as the vector the instruction expects. Neither target
-/// has a say in this -- the array is the frontend's shape, not the hardware's -- so both read
-/// it the same way.
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) fn registers_as_vector(
     ctx: &Context,
     info: &OperandsInfo,
     value: Value,
 ) -> (TypeHandle, TypeHandle) {
-    // The inputs are array values and the output a pointer to one, so both shapes are looked
-    // for and the registers read accordingly.
     let array = info
         .lookup_operand_history(value)
         .into_iter()
@@ -170,8 +130,6 @@ pub(crate) fn registers_as_vector(
         })
         .expect("a manual matrix operand is an array of registers");
 
-    // The registers are packed as vectors, so the array is flattened into the one vector the
-    // instruction takes.
     let (scalar, per_register) = match array.inner.deref(ctx).downcast_ref::<CubeVectorType>() {
         Some(vector) => (vector.inner, vector.vectorization),
         None => (array.inner, 1),
@@ -182,10 +140,6 @@ pub(crate) fn registers_as_vector(
     (vector, scalar)
 }
 
-/// The registers of `value` as the one vector the instruction takes.
-///
-/// The registers arrive as an array, of vectors where several share a register. An array is not
-/// a vector as far as a bitcast is concerned, so it is taken apart and rebuilt.
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) fn registers_value(
     ctx: &mut Context,
@@ -235,11 +189,6 @@ pub(crate) fn registers_value(
     acc
 }
 
-/// The LLVM array a manual operand's registers are held in, as the frontend shaped it.
-///
-/// The counterpart of [`registers_as_vector`]: that answers what the instruction wants, this
-/// what the kernel has. Written back through [`vector_into_array`] so a destination keeps the
-/// type its later uses were built against.
 #[cfg(feature = "nvptx")]
 pub(crate) fn registers_array_ty(ctx: &Context, info: &OperandsInfo, value: Value) -> TypeHandle {
     let array = info
@@ -261,12 +210,7 @@ pub(crate) fn registers_array_ty(ctx: &Context, info: &OperandsInfo, value: Valu
     LlvmArrayType::get(ctx, elem, array.length as u64).into()
 }
 
-/// `vector` written back into the array shape `array_ty`.
-///
-/// Storing the flat vector into the destination instead would be bit-identical -- pointers are
-/// opaque -- but it tells the conversion that the array type maps to a vector, and every other
-/// value of that array type then gets rewritten to one, invalidating the `extractvalue`s built
-/// against them. Writing the array keeps the two shapes apart.
+/// Manual matrix outputs must preserve the frontend array type.
 #[cfg(feature = "nvptx")]
 pub(crate) fn vector_into_array(
     ctx: &mut Context,

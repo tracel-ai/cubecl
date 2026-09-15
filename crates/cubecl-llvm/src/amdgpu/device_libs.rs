@@ -1,7 +1,4 @@
-//! Linking `ROCm`'s device libraries into a kernel.
-//!
-//! Only the definitions the kernel calls are taken. They arrive `linkonce_odr hidden`, so the
-//! optimization pipeline inlines them and strips the rest back out.
+//! ROCm device libraries.
 
 use std::collections::HashMap;
 use std::ffi::{CStr, c_char};
@@ -13,26 +10,21 @@ use llvm_sys::prelude::LLVMModuleRef;
 use cubecl_core::ir::amd::GfxArch;
 
 unsafe extern "C" {
-    /// See `cpp_shims/device_libs.cpp`. Returns null on success, else an owned message.
+    /// Returns null on success or an owned error message.
     fn cubecl_link_device_bitcode(
         dest: LLVMModuleRef,
         data: *const c_char,
         len: usize,
     ) -> *mut c_char;
 
-    /// Frees what `cubecl_link_device_bitcode` returned.
     fn cubecl_free_message(message: *mut c_char);
 }
 
-/// Where to look for `amdgcn/bitcode`, in the order a `ROCm` install makes them true.
-///
-/// `CUBECL_ROCM_DEVICE_LIB_PATH` names the directory itself and is the escape hatch for an
-/// install none of the rest find. `HIP_DEVICE_LIB_PATH` is what hipcc itself reads.
+/// `CUBECL_ROCM_DEVICE_LIB_PATH` and `HIP_DEVICE_LIB_PATH` override the search paths.
 const DEVICE_LIB_PATH_VARS: [&str; 2] = ["CUBECL_ROCM_DEVICE_LIB_PATH", "HIP_DEVICE_LIB_PATH"];
 const ROCM_ROOT_VARS: [&str; 2] = ["ROCM_PATH", "HIP_PATH"];
 const DEFAULT_ROCM_ROOTS: [&str; 2] = ["/opt/rocm", "/usr"];
 
-/// The `amdgcn/bitcode` directory of the `ROCm` install, found once per process.
 fn bitcode_dir() -> Result<&'static PathBuf, String> {
     static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
@@ -64,8 +56,6 @@ fn bitcode_dir() -> Result<&'static PathBuf, String> {
     })
 }
 
-/// The bitcode of `name`, read once and kept: every kernel compiled for a given device links
-/// the same few hundred kilobytes.
 fn device_lib(name: &str) -> Result<&'static [u8], String> {
     static CACHE: OnceLock<Mutex<HashMap<String, &'static [u8]>>> = OnceLock::new();
     let cache = CACHE.get_or_init(Mutex::default);
@@ -82,15 +72,12 @@ fn device_lib(name: &str) -> Result<&'static [u8], String> {
     Ok(bitcode)
 }
 
-/// What a module needs out of the device libraries. A kernel that needs neither links nothing,
-/// and so still compiles on a machine with no `ROCm` installed.
+/// Device libraries required by a kernel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DeviceLibs {
-    /// `OCML`, for the float intrinsics the hardware has no correct answer for. See
-    /// [`ocml`](super::ocml).
+    /// Math functions.
     pub math: bool,
-    /// `OCKL`, for the `__printf_*` buffer a lowered `printf` writes into. See
-    /// [`printf`](super::printf).
+    /// Device printing.
     pub printf: bool,
 }
 
@@ -100,11 +87,7 @@ impl DeviceLibs {
     }
 }
 
-/// The device libraries a kernel for `arch` links against, in link order.
-///
-/// Each library leaves control globals undefined, one bitcode file per global. The math options
-/// take the conservative side: operands are not assumed finite and reassociation is not assumed
-/// safe. The other three follow the device and the code object.
+/// Device libraries in link order.
 fn device_libs_for(arch: &GfxArch, needs: DeviceLibs, code_object_version: u32) -> Vec<String> {
     let mut libs = Vec::new();
 
@@ -124,15 +107,12 @@ fn device_libs_for(arch: &GfxArch, needs: DeviceLibs, code_object_version: u32) 
         libs.push(format!("oclc_wavefrontsize64_{wave}.bc"));
     }
     if needs.any() {
-        // Wanted by both, so appended once.
         libs.push(format!("oclc_isa_version_{}.bc", arch.isa_version()));
     }
 
     libs
 }
 
-/// Links what `module` needs out of the `ROCm` device libraries for `arch`.
-///
 /// # Safety
 /// `module` must be a live LLVM module, already stamped with the AMDGPU triple and layout.
 pub unsafe fn link_device_libs(
@@ -171,8 +151,6 @@ mod tests {
         printf: true,
     };
 
-    /// The ISA control library is named by the bare architecture number, and comes along
-    /// whichever library asked.
     #[test]
     fn the_isa_library_follows_the_architecture() {
         for needs in [MATH, PRINTF] {
@@ -197,15 +175,11 @@ mod tests {
         }
     }
 
-    /// A kernel that needs nothing links nothing, so `ROCm` is only required by the kernels
-    /// that actually reach into it.
     #[test]
     fn needing_nothing_links_nothing() {
         assert!(device_libs_for(&GfxArch::parse("gfx1201"), DeviceLibs::default(), 500).is_empty());
     }
 
-    /// Printing pulls in OCKL, and with it the two control globals OCML never wanted: the
-    /// code object's ABI version and the wavefront width of the device.
     #[test]
     fn printing_pulls_in_ockl_and_its_controls() {
         let libs = device_libs_for(&GfxArch::parse("gfx1201"), PRINTF, 500);
@@ -214,12 +188,10 @@ mod tests {
             libs.contains(&"oclc_abi_version_500.bc".to_string()),
             "{libs:?}"
         );
-        // gfx1201 is RDNA, so wave32.
         assert!(
             libs.contains(&"oclc_wavefrontsize64_off.bc".to_string()),
             "{libs:?}"
         );
-        // gfx90a is CDNA, so wave64.
         let cdna = device_libs_for(&GfxArch::parse("gfx90a"), PRINTF, 500);
         assert!(
             cdna.contains(&"oclc_wavefrontsize64_on.bc".to_string()),
@@ -227,7 +199,6 @@ mod tests {
         );
     }
 
-    /// The ISA library is not linked twice when both halves want it.
     #[test]
     fn the_shared_control_library_is_listed_once() {
         let libs = device_libs_for(

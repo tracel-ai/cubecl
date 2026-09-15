@@ -32,7 +32,6 @@ impl LowerOp for Dp4aOp {
     }
 }
 
-/// Lower a unary op to `$polyfill`, unconditionally or only where `$gate` accepts the input.
 macro_rules! lower_unary_math_arith {
     ($cube_op:ty => $polyfill:ident $(, $gate:path)?) => {
         #[op_interface_impl]
@@ -54,11 +53,7 @@ macro_rules! lower_unary_math_arith {
     };
 }
 
-/// Where the polynomials beat the library call they replace, which is not everywhere.
-///
-/// A scalar keeps the target's own routine, since a table-driven libm wins one lane at a
-/// time: ungated it cost a quarter of a scalar `cos` kernel and half of an FFT. Double
-/// precision keeps it too, for want of a second set of coefficients.
+/// Polynomial approximations are limited to f32 vectors.
 fn is_narrow_float_line(input: Value, ctx: &Context) -> bool {
     input.vector_size(ctx) > 1 && !input.scalar_ty(ctx).is_float64(ctx)
 }
@@ -111,7 +106,7 @@ pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vecto
     let mut sq = base;
 
     for _ in 0..bits {
-        // TODO: implement peephole optimization for masked multiplication
+        // TODO: Optimize masked multiplication.
         acc *= select_many((e & one_u).equal(&one_u), sq, one_t);
         sq *= sq;
         e >>= one_u;

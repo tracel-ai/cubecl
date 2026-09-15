@@ -1,7 +1,6 @@
 use super::prelude::*;
 use cubecl_core::ir::dialect::cmp::*;
 
-/// Lower an integer/index comparison op to `llvm.icmp` with the given predicate.
 macro_rules! lower_int_cmp {
     ($cube_op:ty => $pred:ident) => {
         #[op_interface_impl]
@@ -40,7 +39,6 @@ lower_int_cmp!(INotEqualOp => NE);
 lower_int_cmp!(BoolEqualOp => EQ);
 lower_int_cmp!(BoolNotEqualOp => NE);
 
-/// Lower an float comparison op to `llvm.fcmp` with the given predicate.
 macro_rules! lower_float_cmp {
     ($cube_op:ty => $pred:ident) => {
         #[op_interface_impl]

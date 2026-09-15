@@ -4,22 +4,16 @@ use cubecl_core::prelude::*;
 use super::base::horner;
 use super::exponential::exp;
 
-// Least worst-case relative error fit of `tanh(x)/x` in `x^2` on `[0, 1/4]`, the window
-// below where the exponential form stops cancelling, by Remez exchange at degree four.
+// Degree-four Remez fit of tanh(x)/x in x² over [0, 1/4].
 const TANH_0: f32 = 1.0;
 const TANH_1: f32 = -0.3333307;
 const TANH_2: f32 = 0.1332478;
 const TANH_3: f32 = -0.052986074;
 const TANH_4: f32 = 0.017135007;
 
-/// Where the series and the exponential form change places, which is where `1 - 2/(e+1)`
-/// stops losing digits to cancellation.
+/// Threshold between the series and exponential approximations.
 const SERIES_LIMIT: f32 = 0.5;
 
-/// `tanh x` as a series around zero and as `1 - 2/(e^2x + 1)` away from it.
-///
-/// Both arms are evaluated on every lane, since a vector has no cheaper way to take one
-/// branch, and the exponential's own clamp is what makes the far tail return exactly one.
 #[cube]
 pub fn tanh<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let x = Vector::<f32, N>::cast_from(x);
@@ -44,7 +38,6 @@ mod tests {
     use super::super::base::{evaluate, worst_relative_error};
     use super::*;
 
-    /// The series fits `tanh` over the window the exponential form loses digits on.
     #[test]
     fn the_series_fits_the_tangent_around_zero() {
         let limit = SERIES_LIMIT as f64;

@@ -1,8 +1,4 @@
-//! Which machine the pliron pipeline is lowering for.
-//!
-//! Chosen once from the environment and put on the [`Context`], so the passes both pipelines
-//! share can ask. The gfx architecture is not part of it: that belongs to the device and
-//! arrives later, on [`PlironOptions`](crate::PlironOptions).
+//! LLVM compilation targets.
 
 use cubecl_core::ir::ContextExt;
 use pliron::context::Context;
@@ -18,11 +14,7 @@ pub enum LlvmTarget {
 }
 
 impl LlvmTarget {
-    /// Whether the target *is* the launch grid, rather than emulating it.
-    ///
-    /// The two GPU targets share every lowering that only needs a cube to be a real group of
-    /// units running together: one block of shared memory, plane operations across the lanes
-    /// of a hardware plane. The CPU has neither, and answers `false`.
+    /// Whether the target provides a hardware launch grid.
     pub fn is_gpu(self) -> bool {
         !matches!(self, LlvmTarget::Cpu)
     }
@@ -30,10 +22,9 @@ impl LlvmTarget {
 
 impl CtxTarget for Context {}
 
-/// Minimum alignment promised by the CPU runtime for this kernel's buffer views.
+/// Minimum CPU buffer alignment, including view offsets.
 pub(crate) struct CpuBufferAlignment(pub u32);
 
-/// The target on the context, as the passes shared by both pipelines see it.
 pub trait CtxTarget: ContextExt {
     fn target(&self) -> LlvmTarget {
         *self.aux_ty::<LlvmTarget>()

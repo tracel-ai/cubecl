@@ -52,7 +52,7 @@ fn cast_int_to_int(
 
     let out_ty = cube_type_to_llvm(ctx, out_ty);
 
-    // Bool is `i1` by now; any non-zero integer is true, not its low bit.
+    // Any nonzero integer converts to true.
     if out_width == 1 && in_width > 1 {
         let zero = insert_zero(ctx, rewriter, input);
         let cmp = llvm::ICmpOp::new(ctx, ICmpPredicateAttr::NE, input, zero);
@@ -77,7 +77,6 @@ fn cast_int_to_int(
     Ok(())
 }
 
-/// A zero of `value`'s own type, vector or scalar, to compare it against.
 fn insert_zero(ctx: &mut Context, rewriter: &mut DialectConversionRewriter, value: Value) -> Value {
     let zero = constant_op(ctx, ZeroAttr::new(value.get_type(ctx)).into());
     rewriter.insert_op(ctx, &*zero.dyn_op(ctx));
@@ -94,7 +93,7 @@ fn cast_float_to_int(
     let input = cast_op.input(ctx);
     let old_op = cast_op.get_operation();
 
-    // Bool is any non-zero value, NaN included, not the truncated integer.
+    // Any nonzero float, including NaN, converts to true.
     if cast_op.result_type(ctx).scalar_ty(ctx).is_bool(ctx) {
         let zero = insert_zero(ctx, rewriter, input);
         let cmp = llvm::FCmpOp::new(ctx, FCmpPredicateAttr::UNE, input, zero);
@@ -211,8 +210,6 @@ impl ToLLVMDialect for CastOp {
     }
 }
 
-/// A copy declares a new name for a value that keeps the same type, which SSA gives for free:
-/// every use of the result becomes a use of the copied value.
 #[op_interface_impl]
 impl ToLLVMDialect for CopyOp {
     fn rewrite(
@@ -227,8 +224,6 @@ impl ToLLVMDialect for CopyOp {
     }
 }
 
-/// LLVM pointers are opaque, so reinterpreting one is a change of type and nothing else. Any other
-/// value keeps its bit pattern across the two types, which is what a bitcast is.
 #[op_interface_impl]
 impl ToLLVMDialect for ReinterpretCastOp {
     fn rewrite(
@@ -277,12 +272,8 @@ impl ToLLVMDialect for SelectOp {
     }
 }
 
-/// The C library function a lowered [`PrintfOp`] calls. The JIT resolves it out of the host
-/// process, which is already linked against libc.
 const PRINTF: &str = "printf";
 
-/// Walk up from `op` to the [`ModuleOp`] it lives in, which is where the `printf` declaration
-/// and the format string globals go.
 fn parent_module(ctx: &Context, op: Ptr<Operation>) -> Option<ModuleOp> {
     let mut current = Some(op);
     while let Some(op) = current {
@@ -294,8 +285,6 @@ fn parent_module(ctx: &Context, op: Ptr<Operation>) -> Option<ModuleOp> {
     None
 }
 
-/// Get the module-level global holding `format_string`, creating it on first use. The name is
-/// derived from the contents, so kernels that print the same string share one global.
 fn lookup_or_insert_format_string(
     ctx: &mut Context,
     symbol_tables: &mut SymbolTableCollection,
@@ -313,7 +302,6 @@ fn lookup_or_insert_format_string(
         return Ok(name);
     }
 
-    // `printf` reads the format up to a NUL, so it has to be part of the initializer.
     let mut bytes = format_string.as_bytes().to_vec();
     bytes.push(0);
 
@@ -329,9 +317,7 @@ fn lookup_or_insert_format_string(
     Ok(name)
 }
 
-/// Apply the C default argument promotions to a value passed through `printf`'s ellipsis:
-/// floats narrower than `double` widen to `double`, integers narrower than `int` widen to
-/// `int`.
+/// Variadic C arguments require promotion to at least int or double.
 fn promote_vararg(
     ctx: &mut Context,
     rewriter: &mut DialectConversionRewriter,

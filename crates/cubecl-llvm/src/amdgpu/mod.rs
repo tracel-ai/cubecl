@@ -1,4 +1,4 @@
-//! The AMDGPU (`amdgcn-amd-amdhsa`) target.
+//! AMDGPU target.
 
 pub mod abi;
 pub mod builtins;

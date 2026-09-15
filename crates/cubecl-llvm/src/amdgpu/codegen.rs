@@ -1,4 +1,4 @@
-//! Compiling the LLVM dialect to an AMD code object.
+//! AMDGPU code generation.
 
 use pliron::builtin::ops::ModuleOp;
 use pliron::context::Context;
@@ -18,25 +18,18 @@ use cubecl_core::ir::amd::GfxArch;
 use cubecl_core::ir::attributes::BufferIOAttr;
 use cubecl_environment::bytes::Bytes;
 
-/// The HSA target triple; the specific device is the `-mcpu`, not the triple.
 const TRIPLE: &CStr = c"amdgcn-amd-amdhsa";
 
-/// AMDGPU's private stack address space used by `alloca` instructions.
 const DATA_LAYOUT: &str = "A5";
 
-/// Code object version. v5 is what gfx1201's HSA loader accepts.
+/// HSA code object version.
 const CODE_OBJECT_VERSION: u32 = 500;
 
-/// LLVM's calling convention number for `amdgpu_kernel`
-/// (`llvm::CallingConv::AMDGPU_KERNEL`).
 const AMDGPU_KERNEL_CC: u32 = 91;
 
-/// The subtarget feature that selects wave32 on RDNA. Passed both as a function
-/// attribute and to the target machine so the two can never disagree.
+/// Wave32 feature for RDNA devices.
 const WAVE32: &str = "+wavefrontsize32";
 
-/// The pipeline run before machine-code emission. Same shape as the CPU path's,
-/// but handed the target machine, which is what makes it target-aware.
 const PASS_PIPELINE: &CStr = c"default<O3>";
 
 static INIT_AMDGPU: Once = Once::new();
@@ -50,7 +43,6 @@ fn init_amdgpu() {
     });
 }
 
-/// Subtarget feature string for `arch`, empty on the wave64 parts.
 fn features_for(arch: &GfxArch) -> &'static str {
     if arch.plane_dim() == Some(32) {
         WAVE32
@@ -59,7 +51,6 @@ fn features_for(arch: &GfxArch) -> &'static str {
     }
 }
 
-/// Lowers `module` to LLVM IR, compiles it to AMDGPU machine code, and links it.
 pub fn emit_code_object(
     ctx: &Context,
     module: ModuleOp,
@@ -100,9 +91,6 @@ pub fn emit_code_object(
     })
 }
 
-/// Stamps `ir` with what the AMDGPU backend keys off: the HSA triple, the
-/// `amdgpu_kernel` calling convention on `entrypoint`, the subtarget attributes,
-/// and the code object version.
 fn finalize_ir(
     ir: &str,
     entrypoint: &str,
@@ -117,7 +105,6 @@ fn finalize_ir(
         LLVMValueAsMetadata,
     };
 
-    // Built before the module is parsed so this error path has nothing to dispose.
     let name = CString::new(entrypoint)
         .map_err(|_| format!("kernel name '{entrypoint}' contains a NUL"))?;
 
@@ -176,8 +163,6 @@ fn finalize_ir(
     }
 }
 
-/// Compiles `ir` to an AMDGPU relocatable object, and to assembly alongside it
-/// when `want_asm`.
 fn compile_to_object(
     ir: &str,
     arch: &GfxArch,
@@ -205,8 +190,7 @@ fn compile_to_object(
             return Err(message);
         }
 
-        // `LLVMRelocPIC` is required: an AMD code object is a shared object, and the
-        // default reloc model emits relocations LLD cannot resolve into an `ET_DYN`.
+        // AMD code objects require position-independent code.
         let tm = LLVMCreateTargetMachine(
             target,
             TRIPLE.as_ptr(),
@@ -228,8 +212,6 @@ fn compile_to_object(
             }
         };
 
-        // Layout from the target machine, so the two can never drift apart. It has to be
-        // set before the device libraries are linked, since they carry their own.
         let layout = LLVMCreateTargetDataLayout(tm);
         LLVMSetModuleDataLayout(module, layout);
         LLVMDisposeTargetData(layout);
@@ -244,9 +226,6 @@ fn compile_to_object(
     }
 }
 
-/// Rewrites what the AMDGPU backend cannot handle on its own into calls to the `ROCm` device
-/// libraries, and links those in.
-///
 /// # Safety
 /// `module` must be a live LLVM module.
 unsafe fn lower_to_device_libs(
@@ -266,8 +245,6 @@ unsafe fn lower_to_device_libs(
     }
 }
 
-/// Runs the pass `pipeline` over `module`.
-///
 /// # Safety
 /// `module` and `tm` must be live LLVM handles.
 unsafe fn run_passes(
@@ -294,9 +271,6 @@ unsafe fn run_passes(
     }
 }
 
-/// Optimizes `module` for `tm` and emits the object (and optionally assembly).
-/// Split out so the caller can dispose its handles on every path.
-///
 /// # Safety
 /// `module` and `tm` must be live LLVM handles.
 unsafe fn run_pipeline_and_emit(
@@ -310,7 +284,7 @@ unsafe fn run_pipeline_and_emit(
     unsafe {
         run_passes(module, tm, PASS_PIPELINE)?;
 
-        // Emission lowers the module in place, so a second file has to come off a copy.
+        // Emission modifies the module, so each output needs its own copy.
         let asm = if want_asm {
             let copy = LLVMCloneModule(module);
             let bytes = emit(copy, tm, LLVMCodeGenFileType::LLVMAssemblyFile);
@@ -324,8 +298,6 @@ unsafe fn run_pipeline_and_emit(
     }
 }
 
-/// One `LLVMTargetMachineEmitToMemoryBuffer` call, copied out and disposed.
-///
 /// # Safety
 /// `module` and `tm` must be live LLVM handles.
 unsafe fn emit(
@@ -354,9 +326,6 @@ unsafe fn emit(
     }
 }
 
-/// Parses textual `ir` into a fresh context, returning both so the caller can
-/// dispose them.
-///
 /// # Safety
 /// The returned context and module are owned by the caller.
 unsafe fn parse_ir(
@@ -383,7 +352,7 @@ unsafe fn parse_ir(
         );
         let mut module = std::ptr::null_mut();
         let mut parse_err = std::ptr::null_mut();
-        // `LLVMParseIRInContext2` consumes the buffer, on failure included.
+        // `LLVMParseIRInContext2` takes ownership of the buffer, including on failure.
         if LLVMParseIRInContext2(ctx, buffer, &mut module, &mut parse_err) != 0 {
             let msg = CStr::from_ptr(parse_err).to_string_lossy().into_owned();
             LLVMDisposeMessage(parse_err);
@@ -398,9 +367,6 @@ unsafe fn parse_ir(
 mod tests {
     use super::*;
 
-    /// The wave32 subtarget feature goes on the RDNA parts and nothing else. It is passed
-    /// both as a function attribute and to the target machine, so a wrong answer here has
-    /// every cross-lane lowering generating for the wrong wavefront width.
     #[test]
     fn only_the_rdna_parts_ask_for_wave32() {
         for name in ["gfx1201", "gfx1100", "gfx1030"] {
@@ -411,7 +377,6 @@ mod tests {
         }
     }
 
-    /// The finalized module carries everything the AMDGPU backend needs.
     #[test]
     fn finalize_sets_triple_callconv_and_arch() {
         let ir = r#"
@@ -437,9 +402,6 @@ entry:
         );
     }
 
-    /// The shared memory block reaches the code object as LDS: the slices become `ds_`
-    /// accesses with their offset folded in, the generic pointers the rest of the pipeline
-    /// works with are inferred away, and the barrier is the hardware's own.
     #[test]
     fn shared_memory_becomes_lds() {
         let ir = r#"
@@ -476,7 +438,6 @@ entry:
         );
         assert!(asm.contains("s_barrier"), "the cube barrier:\n{asm}");
 
-        // Dynamic, so the block costs the code object nothing and arrives as `sharedMemBytes`.
         assert!(
             asm.contains(".group_segment_fixed_size: 0"),
             "the block should be sized at launch, not baked in:\n{asm}"
@@ -485,10 +446,6 @@ entry:
         crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();
     }
 
-    /// The matrix instruction reaches the code object, in the shape each generation asks for:
-    /// RDNA4 splits `k` between the halves of the wave and takes half the A/B fragment RDNA3
-    /// does. Getting the fragment width wrong fails to select rather than computing the wrong
-    /// answer, so this pins both.
     #[test]
     fn wmma_reaches_the_code_object() {
         for (name, ab) in [("gfx1201", "<8 x half>"), ("gfx1100", "<16 x half>")] {
@@ -523,9 +480,6 @@ entry:
         }
     }
 
-    /// Codegen produces a relocatable ELF, and LLD turns it into the `ET_DYN`
-    /// shared object `hipModuleLoadData` requires. `e_type` is the 16-bit LE
-    /// field at offset 16: 1 = `ET_REL`, 3 = `ET_DYN`.
     #[test]
     fn emits_a_linked_shared_object() {
         let ir = r#"

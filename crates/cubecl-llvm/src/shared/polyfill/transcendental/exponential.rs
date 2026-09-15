@@ -5,13 +5,11 @@ use super::base::{leading_part, trailing_part};
 
 const LOG2_E: f32 = core::f32::consts::LOG2_E;
 
-// `ln 2` in two parts, so subtracting `k ln 2` from `x` keeps the digits of the difference.
+// Split ln(2) for accurate range reduction.
 const LN2_HI: f32 = leading_part(core::f64::consts::LN_2);
 const LN2_LO: f32 = trailing_part(core::f64::consts::LN_2);
 
-// Least worst-case relative error fit of `e^r` over the interval a round-to-nearest split
-// leaves, by Remez exchange at degree six. A further term buys nothing: the fit is good to
-// 29 bits and what remains is the rounding of the constants.
+// Degree-six Remez fit of exp(r) over the reduced interval.
 const EXP_0: f32 = 1.0;
 const EXP_1: f32 = 1.0;
 const EXP_2: f32 = 0.4999999;
@@ -20,17 +18,10 @@ const EXP_4: f32 = 0.041668225;
 const EXP_5: f32 = 0.008374816;
 const EXP_6: f32 = 0.0013836846;
 
-// Where the result leaves the format, and where the exponent arithmetic below would wrap
-// rather than saturate. The low bound is a binade under the smallest subnormal rather than
-// at it, where the series' own error tips the rounding to a subnormal.
+// Input bounds for overflow and underflow.
 const EXP_MAX: f32 = 88.72284;
 const EXP_MIN: f32 = -104.66522;
 
-/// `e^x` as `2^k` times a polynomial in what is left over, evaluated in single precision
-/// whatever the argument's own format.
-///
-/// The leftover comes of subtracting `k ln 2` in two pieces rather than of scaling `x`,
-/// since a single-precision `ln 2` would spend the accuracy the polynomial is about to earn.
 #[cube]
 pub fn exp<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let x = Vector::<f32, N>::cast_from(x).clamp(Vector::new(EXP_MIN), Vector::new(EXP_MAX));
@@ -59,8 +50,6 @@ pub fn exp<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     Vector::<F, N>::cast_from(series * power_of_two(half) * power_of_two(exponent - half))
 }
 
-/// `2^exponent` for an `exponent` an `f32` can hold, written straight into the exponent
-/// field.
 #[cube]
 fn power_of_two<N: Size>(exponent: Vector<i32, N>) -> Vector<f32, N> {
     Vector::<f32, N>::reinterpret(
@@ -73,8 +62,6 @@ mod tests {
     use super::super::base::{evaluate, worst_relative_error};
     use super::*;
 
-    /// The coefficients fit `e^r` over the interval the reduction leaves, which is all a
-    /// minimax fit can be checked against.
     #[test]
     fn the_series_fits_the_exponential_over_the_reduced_interval() {
         let half = core::f64::consts::LN_2 / 2.0;

@@ -27,8 +27,7 @@ pub const CPU_RUNTIME_BUILTINS: [Builtin; 6] = [
 
 const NB_BUILTIN: usize = 31;
 
-/// Every builtin the skeleton knows how to provide, whether it comes from a function argument, a
-/// compile time constant, or a value computed by the emulation loop.
+/// Builtins available to CPU kernels.
 #[derive(Default)]
 pub(crate) struct BuiltinValues([Option<Value>; NB_BUILTIN]);
 
@@ -47,8 +46,6 @@ impl BuiltinValues {
     }
 }
 
-/// Pending `cube.read_builtin` replacements, gathered during the IR walk so they can be applied
-/// afterwards, once the walker no longer holds the ops borrowed.
 pub(crate) struct Replacer<'a> {
     pub(crate) builtins: &'a BuiltinValues,
     pub(crate) replacements: Vec<(Value, Value)>,
@@ -108,12 +105,7 @@ pub(crate) fn cube_count(cube_count_x: u32, cube_count_y: u32, cube_count_z: u32
     cube_count_x as usize * cube_count_y as usize * cube_count_z as usize
 }
 
-/// Emulates the launch grid on the CPU.
-///
-/// The jitted kernel is invoked once per unit of a cube, and walks the whole cube grid itself
-/// through a `cube_pos_z / cube_pos_y / cube_pos_x` loop nest. The cube count and the unit position
-/// come from the host as arguments (see [`CPU_RUNTIME_BUILTINS`]), while the cube dim is compiled in as
-/// constants, so the positional math folds away in the constant propagation pass.
+/// CPU launch grid emulation.
 #[derive(Default)]
 pub struct InsertConstantEmulationPass;
 
@@ -166,8 +158,6 @@ impl Pass for InsertConstantEmulationPass {
                 builtins.set(builtin, value);
             }
 
-            // The cube barrier counters, reserved per launch by the host. Kernels that never
-            // synchronize simply ignore the argument, so the host ABI stays the same for all.
             let ptr_ty = LlvmPointerType::get(scope.ctx_mut(), 0).into();
             let state_arg = func.push_argument(scope.ctx(), ptr_ty);
             func.set_arg_attr_unit(scope.ctx(), state_arg, &ATTR_SYNC_CUBE_STATE);
@@ -187,8 +177,6 @@ impl Pass for InsertConstantEmulationPass {
             .get_operation()
             .insert_at_back(body_block, ctx);
 
-        // The walker keeps the visited op borrowed, so we can't replace uses in place. Collect the
-        // replacements first, then apply them once the walk is done.
         let mut replacer = Replacer {
             builtins: &builtins,
             replacements: Vec::new(),
@@ -207,7 +195,6 @@ impl Pass for InsertConstantEmulationPass {
     }
 }
 
-/// The kernel argument marked with `key`, i.e. one of the per launch blocks appended above.
 pub fn runtime_arg(ctx: &Context, func: FuncOp, key: &Identifier) -> Value {
     let entry = func.get_entry_block(ctx);
     let num_args = entry.deref(ctx).get_num_arguments();
@@ -217,11 +204,6 @@ pub fn runtime_arg(ctx: &Context, func: FuncOp, key: &Identifier) -> Value {
         .unwrap_or_else(|| panic!("entry point must carry the '{key}' argument"))
 }
 
-/// Sets the builtins that are the same fixed-at-launch shape on every target: the cube and
-/// cluster dimensions, plus the cluster position (always the origin, since clusters aren't
-/// modelled on either the CPU or the AMDGPU target yet). Shared between
-/// [`InsertConstantEmulationPass`] and `amdgpu::builtins::InsertAmdgpuBuiltinsPass`; each caller
-/// sets its own `PlaneDim`/`UnitPosPlane` afterward, since those differ per target.
 pub(crate) fn set_dim_and_cluster_constants(
     scope: &Scope,
     builtins: &mut BuiltinValues,
@@ -242,8 +224,7 @@ pub(crate) fn set_dim_and_cluster_constants(
     set_const(Builtin::CubeClusterDimZ, cluster_dim.z);
     set_const(Builtin::CubeClusterDim, cluster_dim.num_elems());
 
-    // Clusters are not modelled on this target yet, so a cube always sits
-    // at position 0 of its cluster.
+    // Clusters are not supported on this target.
     set_const(Builtin::CubePosCluster, 0);
     set_const(Builtin::CubePosClusterX, 0);
     set_const(Builtin::CubePosClusterY, 0);
@@ -262,7 +243,7 @@ fn insert_skeleton(
         builtins.set(builtin, constant::expand(scope, value).value(scope));
     };
 
-    // A unit is a scalar thread on the CPU, so a plane holds exactly one unit.
+    // CPU planes contain one unit.
     set_const(Builtin::PlaneDim, 1);
     set_const(Builtin::UnitPosPlane, 0);
 

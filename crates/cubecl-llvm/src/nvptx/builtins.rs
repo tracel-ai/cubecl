@@ -1,11 +1,4 @@
-//! Resolves `cube.read_builtin` against the NVIDIA hardware.
-//!
-//! Where the CPU target emulates the launch grid with a loop nest
-//! (see [`cpu::entrypoint`](crate::cpu::entrypoint)), the GPU *is* the grid. Every positional
-//! builtin is one `llvm.nvvm.read.ptx.sreg.*` special register, `CubeCount*` included — which
-//! is the one place NVIDIA is simpler than AMD, where the same answer has to be read out of
-//! the HSA dispatch packet and divided by the cube dimension. So the whole pass is a
-//! substitution with no control flow.
+//! NVPTX builtins.
 
 use cubecl_core::ir::attributes::EntrypointInterface;
 use cubecl_core::ir::dialect::general::ReadBuiltinOp;
@@ -21,8 +14,6 @@ use crate::cpu::entrypoint::{
 };
 use crate::shared::intrinsic::{call_op, i32_ty};
 
-/// The PTX special registers providing each positional builtin. `tid` is the unit within its
-/// cube, `ctaid` the cube within the grid, `nctaid` the size of the grid in cubes.
 const TID: [(&str, Builtin); 3] = [
     ("llvm.nvvm.read.ptx.sreg.tid.x", Builtin::UnitPosX),
     ("llvm.nvvm.read.ptx.sreg.tid.y", Builtin::UnitPosY),
@@ -41,15 +32,11 @@ const NCTAID: [(&str, Builtin); 3] = [
     ("llvm.nvvm.read.ptx.sreg.nctaid.z", Builtin::CubeCountZ),
 ];
 
-/// This lane's index within its warp.
 const LANEID: &str = "llvm.nvvm.read.ptx.sreg.laneid";
 
-/// Substitutes every `cube.read_builtin` with a special register read or a constant.
 #[derive(Debug)]
 pub struct InsertNvptxBuiltinsPass {
-    /// Warp width of the target, which is 32 on every CUDA device. Carried rather than
-    /// hardcoded so the value the builtin reports and the value the plane lowerings generate
-    /// for are the same one.
+    /// Device warp width.
     pub plane_dim: u32,
 }
 
@@ -74,11 +61,7 @@ impl Pass for InsertNvptxBuiltinsPass {
 
         let entry_block = func.get_entry_block(ctx);
 
-        // Block start, not before the terminator: a branchless kernel's entry block ends in
-        // `return`, so "before the terminator" puts these *after* the very `cube.read_builtin`
-        // uses being substituted, leaving a use that references a later definition and failing
-        // dominance. Everything computed here is self-contained, so nothing is lost by
-        // computing it first. Same reasoning as the AMDGPU pass.
+        // Builtin values must dominate their uses.
         let mut builtins = BuiltinValues::default();
         {
             let mut inserter = OpInserter::new_at_block_start(entry_block);
@@ -113,9 +96,6 @@ impl Pass for InsertNvptxBuiltinsPass {
 }
 
 impl InsertNvptxBuiltinsPass {
-    /// The builtins fixed at launch, which the hardware would report from `ntid` but which are
-    /// better as constants: they are known here, and constant-folding the index arithmetic
-    /// built on them is most of what makes the derived positions cheap.
     fn set_constants(
         &self,
         scope: &Scope,
@@ -132,9 +112,6 @@ impl InsertNvptxBuiltinsPass {
     }
 }
 
-/// Derived arithmetically from the hardware builtins, reusing the CPU target's `#[cube]`
-/// helpers — the arithmetic relating a position to its components is the same everywhere, so
-/// only where the components come from is a target's business.
 fn derive_positions(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3) {
     let unit_pos_x = builtins.expect(Builtin::UnitPosX);
     let unit_pos_y = builtins.expect(Builtin::UnitPosY);
@@ -197,7 +174,6 @@ fn derive_positions(scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3)
     builtins.set(Builtin::AbsolutePos, absolute_pos);
 }
 
-/// Reads the `i32` PTX special register `name`.
 fn read_sreg(scope: &Scope, name: &str) -> Value {
     let ty = i32_ty(scope.ctx_mut());
     let op = call_op(scope.ctx_mut(), name, ty, vec![]);

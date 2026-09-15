@@ -1,17 +1,4 @@
-//! Lowering of the plane operations, as the two GPU targets share them.
-//!
-//! A plane is a wavefront on AMD and a warp on NVIDIA, and the two hardware families expose
-//! very nearly the same set of primitives over one: route a value from a named lane, and take
-//! the mask of lanes where a predicate holds. Everything the cube dialect asks for is built
-//! from those, so this module holds the ops once and [`PlaneLowering`] holds what differs.
-//!
-//! The derived operations come with default bodies, which is what a new target gets for free:
-//! `all` is a ballot compared against the running lanes, the directional shuffles are lane
-//! arithmetic in front of an absolute one. A target with an instruction of its own for any of
-//! them overrides that method rather than reimplementing the op.
-//!
-//! The reductions and scans are not here at all: they are polyfills over these shuffles, in
-//! [`plane_reduce`](super::plane_reduce).
+//! Shared plane operations.
 
 use cubecl_core::ir::ContextExt;
 use cubecl_core::ir::dialect::plane::{
@@ -25,16 +12,13 @@ use crate::shared::intrinsic::{call_op, i32_ty};
 use crate::shared::to_llvm::prelude::*;
 use crate::target::{CtxTarget, LlvmTarget};
 
-/// Counts the trailing zeros of an integer, i.e. finds the lowest set bit.
 pub(crate) const CTTZ: &str = "llvm.cttz";
 
-/// Width of the plane, which the shuffles need to know where a plane ends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlaneDim(pub u32);
 
 impl CtxPlaneDim for Context {}
 
-/// The plane width on the context.
 pub trait CtxPlaneDim: ContextExt {
     fn plane_dim(&self) -> u32 {
         self.aux_ty::<PlaneDim>().0
@@ -44,7 +28,6 @@ pub trait CtxPlaneDim: ContextExt {
     }
 }
 
-/// A plane operation on a target that has no plane wider than one unit.
 #[derive(Debug, Error)]
 #[error(
     "plane operations need a plane of more than one unit, which the CPU target does not have; \
@@ -52,15 +35,12 @@ pub trait CtxPlaneDim: ContextExt {
 )]
 pub struct PlaneOpsUnsupported;
 
-/// What one target contributes to the plane operations.
-///
-/// The three required methods are the hardware primitives; the rest are derived from them and
-/// overridden only where a target has something better.
+/// Target plane primitives with defaults for derived operations.
 pub trait PlaneLowering {
-    /// This lane's index within its plane.
+    /// Lane index within the plane.
     fn lane_id(&self, ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Value;
 
-    /// `value` as held by the lane `src_lane` of this plane, whatever its type.
+    /// Value from `src_lane`.
     fn shuffle(
         &self,
         ctx: &mut Context,
@@ -70,7 +50,7 @@ pub trait PlaneLowering {
         value_ty: TypeHandle,
     ) -> Value;
 
-    /// The mask of the lanes where `predicate` holds, as an integer of the plane's width.
+    /// Mask of lanes where the predicate holds.
     fn ballot_mask(
         &self,
         ctx: &mut Context,
@@ -78,13 +58,13 @@ pub trait PlaneLowering {
         predicate: Value,
     ) -> Value;
 
-    /// The mask of the lanes that are running at all.
+    /// Mask of active lanes.
     fn active_lanes(&self, ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Value {
         let all = insert_bool_const(ctx, rw, true);
         self.ballot_mask(ctx, rw, all)
     }
 
-    /// A butterfly: the partner lane differs from this one in the bits of `mask`.
+    /// Value from the lane selected by XOR with `mask`.
     fn shuffle_xor(
         &self,
         ctx: &mut Context,
@@ -98,7 +78,7 @@ pub trait PlaneLowering {
         self.shuffle(ctx, rw, value, src, value_ty)
     }
 
-    /// Reading from a lower lane, and from itself where there is no lower lane to read.
+    /// Value from a lower lane, or the current lane when out of bounds.
     fn shuffle_up(
         &self,
         ctx: &mut Context,
@@ -114,7 +94,7 @@ pub trait PlaneLowering {
         self.shuffle(ctx, rw, value, src, value_ty)
     }
 
-    /// The same upward, bounded by the end of the plane.
+    /// Value from a higher lane, or the current lane when out of bounds.
     fn shuffle_down(
         &self,
         ctx: &mut Context,
@@ -132,24 +112,22 @@ pub trait PlaneLowering {
         self.shuffle(ctx, rw, value, src, value_ty)
     }
 
-    /// Whether `predicate` holds on every lane that is running.
+    /// Whether the predicate holds on all active lanes.
     fn all(&self, ctx: &mut Context, rw: &mut DialectConversionRewriter, input: Value) -> Value {
-        // True everywhere it is running, which is what makes this `all` and not `any`.
         let holds = self.ballot_mask(ctx, rw, input);
         let running = self.active_lanes(ctx, rw);
         icmp(ctx, rw, ICmpPredicateAttr::EQ, holds, running)
     }
 
-    /// Whether `predicate` holds on any lane that is running.
+    /// Whether the predicate holds on any active lane.
     fn any(&self, ctx: &mut Context, rw: &mut DialectConversionRewriter, input: Value) -> Value {
         let holds = self.ballot_mask(ctx, rw, input);
         let zero = mask_const(ctx, rw, 0);
         icmp(ctx, rw, ICmpPredicateAttr::NE, holds, zero)
     }
 
-    /// Whether this is the one lane the plane elects.
+    /// Whether this is the elected lane.
     fn elect(&self, ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Value {
-        // The lowest lane still running, and only it, answers yes.
         let running = self.active_lanes(ctx, rw);
         let mask_ty = mask_ty(ctx);
         let poison_if_zero = insert_bool_const(ctx, rw, false);
@@ -162,7 +140,6 @@ pub trait PlaneLowering {
     }
 }
 
-/// The plane lowering for the target the context is compiling for.
 fn lowering(ctx: &Context) -> Option<Box<dyn PlaneLowering>> {
     match ctx.target() {
         #[cfg(feature = "amdgpu")]
@@ -173,8 +150,6 @@ fn lowering(ctx: &Context) -> Option<Box<dyn PlaneLowering>> {
     }
 }
 
-/// Lowers a plane op through the target's [`PlaneLowering`], reporting the CPU's absence of a
-/// plane as an error on the op rather than as a panic.
 macro_rules! lower_plane_op {
     ($cube_op:ty, |$this:ident, $lowering:ident, $ctx:ident, $rw:ident, $info:ident| $body:block) => {
         #[op_interface_impl]
@@ -199,7 +174,6 @@ macro_rules! lower_plane_op {
     };
 }
 
-/// The four shuffles, which differ only in the lane each one reads from.
 macro_rules! lower_shuffle {
     ($cube_op:ty, $method:ident, $operand:ident) => {
         lower_plane_op!($cube_op, |op, lowering, ctx, rw, info| {
@@ -215,7 +189,6 @@ macro_rules! lower_shuffle {
     };
 }
 
-// An absolute lane, so nothing to derive: the value is read from where it is asked for.
 lower_plane_op!(ShuffleOp, |op, lowering, ctx, rw, info| {
     let old_op = op.get_operation();
     let input = op.input(ctx);
@@ -231,7 +204,6 @@ lower_shuffle!(ShuffleXorOp, shuffle_xor, mask);
 lower_shuffle!(ShuffleUpOp, shuffle_up, delta);
 lower_shuffle!(ShuffleDownOp, shuffle_down, delta);
 
-// The lane is an attribute here rather than a value, so it is a constant to build.
 lower_plane_op!(BroadcastOp, |op, lowering, ctx, rw, info| {
     let old_op = op.get_operation();
     let input = op.input(ctx);
@@ -272,8 +244,6 @@ lower_plane_op!(BallotOp, |op, lowering, ctx, rw, info| {
     let input = op.input(ctx);
     let mask = lowering.ballot_mask(ctx, rw, input);
 
-    // The result is four words whatever the plane's width, so the mask goes in the low ones
-    // and the rest stay clear.
     let i32_ty = i32_ty(ctx);
     let words = ctx.plane_dim() / 32;
     let vec_ty = LlvmVectorType::get(ctx, i32_ty, 4, VectorTypeKind::Fixed).into();
@@ -302,19 +272,16 @@ lower_plane_op!(BallotOp, |op, lowering, ctx, rw, info| {
     Ok(())
 });
 
-/// An integer as wide as the plane, which is what a ballot returns.
 pub fn mask_ty(ctx: &mut Context) -> TypeHandle {
     let width = ctx.plane_dim();
     IntegerType::get(ctx, width, Signedness::Signless).into()
 }
 
-/// A mask constant of the plane's width.
 pub fn mask_const(ctx: &mut Context, rw: &mut DialectConversionRewriter, value: i128) -> Value {
     let width = ctx.plane_dim();
     insert_int_const(ctx, rw, width, value)
 }
 
-/// Widens a lane index to the width a ballot mask is compared at.
 pub fn extend_to_mask(ctx: &mut Context, rw: &mut DialectConversionRewriter, lane: Value) -> Value {
     if ctx.plane_dim() == 32 {
         return lane;
@@ -324,8 +291,6 @@ pub fn extend_to_mask(ctx: &mut Context, rw: &mut DialectConversionRewriter, lan
     insert(ctx, rw, &op)
 }
 
-/// Emits a call to the LLVM intrinsic `name` over `args`, inserted before the op being
-/// replaced.
 pub fn call_intrinsic(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -337,13 +302,11 @@ pub fn call_intrinsic(
     insert(ctx, rw, &op)
 }
 
-/// The type an operand carries at this point in the conversion.
 pub fn operand_ty(ctx: &Context, info: &OperandsInfo, value: Value) -> TypeHandle {
     info.lookup_most_recent_type(value)
         .unwrap_or_else(|| value.get_type(ctx))
 }
 
-/// A bitcast, skipped when it would be to the type the value already has.
 pub fn bitcast(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -357,7 +320,6 @@ pub fn bitcast(
     insert(ctx, rw, &op)
 }
 
-/// `value` as one `i32`, whatever its own type is.
 pub fn widen_to_i32(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -374,7 +336,6 @@ pub fn widen_to_i32(
     insert(ctx, rw, &zext)
 }
 
-/// The inverse of [`widen_to_i32`].
 pub fn narrow_from_i32(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -391,7 +352,6 @@ pub fn narrow_from_i32(
     bitcast(ctx, rw, narrowed, result_ty)
 }
 
-/// An integer comparison between two values of the same width.
 pub fn icmp(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -403,7 +363,6 @@ pub fn icmp(
     insert(ctx, rw, &op)
 }
 
-/// `condition ? on_true : on_false`.
 pub fn select(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -415,8 +374,6 @@ pub fn select(
     insert(ctx, rw, &op)
 }
 
-/// The bitwise and arithmetic ops the lane arithmetic above is built from. The arithmetic ones
-/// carry overflow flags, left at their default: a lane index cannot overflow anything.
 macro_rules! lane_arith {
     ($(#[$doc:meta])* $name:ident, bitwise, $op:path) => {
         $(#[$doc])*
@@ -449,23 +406,8 @@ macro_rules! lane_arith {
     };
 }
 
-lane_arith!(
-    /// Bitwise exclusive or.
-    xor, bitwise, llvm::XorOp
-);
-lane_arith!(
-    /// Logical right shift.
-    lshr, bitwise, llvm::LShrOp
-);
-lane_arith!(
-    /// Left shift.
-    shl, arith, llvm::ShlOp
-);
-lane_arith!(
-    /// Addition.
-    add, arith, llvm::AddOp
-);
-lane_arith!(
-    /// Subtraction.
-    sub, arith, llvm::SubOp
-);
+lane_arith!(xor, bitwise, llvm::XorOp);
+lane_arith!(lshr, bitwise, llvm::LShrOp);
+lane_arith!(shl, arith, llvm::ShlOp);
+lane_arith!(add, arith, llvm::AddOp);
+lane_arith!(sub, arith, llvm::SubOp);

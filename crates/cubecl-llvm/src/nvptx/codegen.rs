@@ -1,11 +1,4 @@
-//! Compiling the LLVM dialect to PTX.
-//!
-//! Shorter than the AMDGPU path by the linking that path needs and this one does not. The
-//! NVPTX backend emits PTX assembly rather than an object file, and PTX is what the CUDA
-//! driver already takes: `cuModuleLoadData` JITs it exactly as it does the PTX NVRTC hands
-//! back today, so there is no LLD step and nothing to turn into a shared object. What is left
-//! is the same shape — stamp the module, pull in the device library the math needs, run the
-//! pipeline, emit — with `LLVMAssemblyFile` as the output kind.
+//! PTX code generation.
 
 use pliron::builtin::ops::ModuleOp;
 use pliron::context::Context;
@@ -21,25 +14,14 @@ use crate::shared::math_library::redirect_intrinsics;
 use cubecl_core::ir::attributes::BufferIOAttr;
 use cubecl_core::ir::nvidia::SmArch;
 
-/// The NVPTX target triple; the specific device is the `-mcpu`, not the triple.
 const TRIPLE: &CStr = c"nvptx64-nvidia-cuda";
 
-/// LLVM's calling convention number for `ptx_kernel`
-/// (`llvm::CallingConv::PTX_Kernel`). What marks a function as a grid entry point: since
-/// LLVM 21 the `nvvm.annotations` metadata that used to say so is gone, and this is the only
-/// way left to say it.
+/// LLVM calling convention for PTX kernel entry points.
 const PTX_KERNEL_CC: u32 = 71;
 
-/// No subtarget features are asked for, which is deliberate: the one that would go here is the
-/// PTX ISA version, and LLVM already picks the lowest that supports the `-mcpu` -- 7.1 for
-/// `sm_86`. That is both the most compatible answer, since the driver rejects a `.version`
-/// above what it knows, and the only safe one: an architecture needs a minimum ISA version to
-/// be nameable at all, and pinning one below it is a hard `LLVM ERROR` rather than a
-/// diagnostic. `sm_90a` needs 8.0, and the Blackwell parts more again.
+/// LLVM selects the PTX version required by the target architecture.
 const NO_FEATURES: &CStr = c"";
 
-/// The pipeline run before machine-code emission. The same one the AMDGPU path runs, handed
-/// the target machine, which is what makes it target-aware.
 const PASS_PIPELINE: &CStr = c"default<O3>";
 
 static INIT_NVPTX: Once = Once::new();
@@ -53,20 +35,17 @@ fn init_nvptx() {
     });
 }
 
-/// How the kernel's metadata reaches it, which is the tail of its parameter list past the
-/// buffers.
+/// Kernel metadata layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MetadataParams {
-    /// One buffer, holding the scalars, the static metadata and the shape and stride arrays.
+    /// Scalars, static metadata, shapes and strides in one buffer.
     Buffer,
-    /// The scalars and static metadata as a by-value block of `bytes`, which the host copies
-    /// into the parameter space instead of uploading. `dynamic_buffer` says whether the shape
-    /// and stride arrays came with it as a buffer of their own, ahead of the block.
+    /// Scalars and static metadata passed by value. Shapes and strides use a
+    /// separate buffer when `dynamic_buffer` is set.
     GridConstant { bytes: usize, dynamic_buffer: bool },
 }
 
 impl MetadataParams {
-    /// How many of the kernel's trailing parameters they are.
     fn count(self) -> u32 {
         match self {
             MetadataParams::Buffer => 1,
@@ -75,20 +54,18 @@ impl MetadataParams {
     }
 }
 
-/// What the lowering settled that the emitted kernel has to declare: everything about the entry
-/// point that is not the code itself.
+/// Kernel entry point requirements.
 pub struct NvptxEntry {
-    /// Units per cube, which becomes `nvvm.maxntid`.
+    /// Maximum units per cube.
     pub cube_dim: u32,
-    /// Bytes of shared memory a launch must reserve for the kernel's one block.
+    /// Shared memory required per launch, in bytes.
     pub shared_memory_size: usize,
-    /// What the kernel does with each buffer binding, by binding position.
+    /// Buffer access modes in binding order.
     pub io: Vec<BufferIOAttr>,
-    /// The shape of the metadata tail.
+    /// Metadata parameter layout.
     pub metadata: MetadataParams,
 }
 
-/// Lowers `module` to LLVM IR and compiles it to PTX for `arch`.
 pub fn emit_ptx(
     ctx: &Context,
     module: ModuleOp,
@@ -98,9 +75,6 @@ pub fn emit_ptx(
 ) -> Result<NvptxModule, String> {
     let llvm_ctx = LLVMContext::default();
 
-    // No data layout is set here, where the AMDGPU path has to name address space 5 for its
-    // allocas: NVPTX puts them in the generic space, so the layout the target machine reports
-    // below is the whole of it.
     let llvm_module =
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
@@ -122,8 +96,6 @@ pub fn emit_ptx(
     })
 }
 
-/// Stamps `ir` with what the NVPTX backend keys off: the triple, the `ptx_kernel` calling
-/// convention on `entrypoint`, and the launch bounds.
 fn finalize_ir(
     ir: &str,
     entrypoint: &str,
@@ -136,14 +108,11 @@ fn finalize_ir(
         LLVMSetTarget,
     };
 
-    // Built before the module is parsed so this error path has nothing to dispose.
     let name = CString::new(entrypoint)
         .map_err(|_| format!("kernel name '{entrypoint}' contains a NUL"))?;
 
     let target_cpu = arch.target_cpu();
-    // `maxntid` is what `__launch_bounds__` sets: it caps the registers the kernel may use so
-    // a cube of this size can be resident, and a cube launched larger than it is rejected.
-    // One number rather than three because the launch flattens the cube the same way.
+    // Launch bounds limit register use for the requested cube size.
     let max_threads = entry.cube_dim.to_string();
     let attributes = [
         ("target-cpu", target_cpu.as_str()),
@@ -190,19 +159,9 @@ fn finalize_ir(
     }
 }
 
-/// Alignment of the info parameter block, which is the alignment every field in it was laid
-/// out to: `INFO_ALIGN` in `cubecl_ir::metadata`.
+/// Alignment required by the host metadata layout.
 const INFO_PARAM_ALIGN: u32 = 8;
 
-/// Declares the last parameter of `func` as a by-value block of `bytes`, which is how the
-/// scalars and the static metadata reach the kernel through its own parameter space rather than
-/// through a buffer the launch had to upload.
-///
-/// `byval` is the form `NVPTXLowerArgs` recognises: it rewrites a load from such a parameter
-/// into `ld.param`, so what was a dependent global load per scalar becomes a read of the
-/// constant bank. A plain aggregate parameter would not do -- the backend scalarizes those into
-/// one parameter each, which is not the single slot the host pushes.
-///
 /// # Safety
 /// `func` must be a live function in `ctx` whose last parameter is the info pointer the entry
 /// ABI lowering appended.
@@ -220,16 +179,12 @@ unsafe fn mark_info_param_byval(
         let enum_kind =
             |name: &str| LLVMGetEnumAttributeKindForName(name.as_ptr() as *const _, name.len());
         let (byval, align) = (enum_kind("byval"), enum_kind("align"));
-        // Zero is "no such attribute", and building one from it crashes rather than
-        // diagnosing. Nothing is emitted instead: the parameter stays an ordinary pointer,
-        // which the host is not passing, so fail loudly rather than silently miscompiling.
         assert!(
             byval != 0 && align != 0,
             "this LLVM has no `byval` or `align` attribute, so the grid-constant parameter \
              cannot be declared"
         );
 
-        // Parameter attributes are indexed from one; zero is the return value.
         let index = LLVMCountParams(func);
         let block = LLVMArrayType2(LLVMInt8TypeInContext(ctx), bytes as u64);
         LLVMAddAttributeAtIndex(func, index, LLVMCreateTypeAttribute(ctx, byval, block));
@@ -241,21 +196,6 @@ unsafe fn mark_info_param_byval(
     }
 }
 
-/// Tells the backend what the kernel's pointer parameters are, which is the other half of what
-/// puts a load in the read-only cache.
-///
-/// `NVPTXTagInvariantLoads` marks a load invariant -- and only an invariant load becomes
-/// `ld.global.nc` -- when every object behind its pointer is a kernel parameter that is both
-/// `readonly` and `noalias`. The address space comes from the entry ABI; these are the
-/// attributes, and they are exactly what the C++ backend asserts by declaring every binding
-/// `const __restrict__`.
-///
-/// `noalias` goes on every buffer for the same reason `__restrict__` does: two bindings of one
-/// launch are distinct allocations, which is a contract `CubeCL` already relies on everywhere
-/// else. `readonly` goes only where the compiler proved it, which is what
-/// `AnnotateGlobalVisibilityPass` computed and the launch path already trusts to decide which
-/// buffers a failed kernel taints.
-///
 /// # Safety
 /// `func` must be a live function in `ctx` whose parameters are the buffers in binding order
 /// followed by the metadata pointer.
@@ -274,8 +214,6 @@ unsafe fn annotate_buffer_params(
     unsafe {
         let enum_attr = |index: u32, name: &str| {
             let kind = LLVMGetEnumAttributeKindForName(name.as_ptr() as *const _, name.len());
-            // Zero is "no such attribute": building one from it crashes rather than
-            // diagnosing, so a name this LLVM does not know is skipped instead.
             if kind == 0 {
                 return;
             }
@@ -283,22 +221,18 @@ unsafe fn annotate_buffer_params(
             LLVMAddAttributeAtIndex(func, index, attribute);
         };
 
-        // Whether `readonly` is safe to state at all here; see `reads_atomically`.
+        // Atomic loads must retain coherent memory access.
         let may_say_readonly = !reads_atomically(func);
 
         let params = LLVMCountParams(func);
-        // The metadata is the tail of the list, past the buffers, and the kernel only reads it.
         let first_metadata = params.saturating_sub(metadata.count());
         for param in 0..params {
-            // Both attributes are only meaningful on a pointer, and applying one to anything
-            // else is rejected by the verifier rather than ignored.
             if LLVMGetTypeKind(LLVMTypeOf(LLVMGetParam(func, param)))
                 != LLVMTypeKind::LLVMPointerTypeKind
             {
                 continue;
             }
 
-            // Parameter attributes are indexed from one; zero is the return value.
             let index = param + 1;
             enum_attr(index, "noalias");
 
@@ -313,20 +247,6 @@ unsafe fn annotate_buffer_params(
     }
 }
 
-/// Whether `func` loads atomically, which is what makes `readonly` unsafe to state on any of
-/// its parameters.
-///
-/// `NVPTXTagInvariantLoads` matches every `LoadInst` whose pointer comes from a `readonly
-/// noalias` kernel parameter in the global space, with no guard against the load being atomic,
-/// and `ISel` then sends it to `tryLDG` -- which emits `ld.global.nc`, an instruction that has no
-/// atomic form. In LLVM 23 that is a segfault in the backend rather than a diagnostic.
-///
-/// The attribute is what creates the precondition, so the attribute is what is withheld. It is
-/// withheld for the whole function rather than for the one parameter because the pass looks
-/// through the pointer's whole use chain to find the argument behind it, and reproducing that
-/// reachability here to be precise would be a worse trade than losing the read-only cache in
-/// the kernels that use atomics at all.
-///
 /// # Safety
 /// `func` must be a live LLVM function.
 unsafe fn reads_atomically(func: llvm_sys::prelude::LLVMValueRef) -> bool {
@@ -354,7 +274,6 @@ unsafe fn reads_atomically(func: llvm_sys::prelude::LLVMValueRef) -> bool {
     }
 }
 
-/// Compiles `ir` to PTX for `arch`.
 fn compile_to_ptx(ir: &str, arch: &SmArch) -> Result<String, String> {
     use llvm_sys::core::{LLVMContextDispose, LLVMDisposeMessage, LLVMDisposeModule};
     use llvm_sys::target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout};
@@ -379,9 +298,6 @@ fn compile_to_ptx(ir: &str, arch: &SmArch) -> Result<String, String> {
             return Err(message);
         }
 
-        // PTX has no relocations to speak of -- the driver's JIT resolves everything when it
-        // loads the module -- so the reloc model is the default rather than the PIC the
-        // AMDGPU path needs to get a shared object out of LLD.
         let tm = LLVMCreateTargetMachine(
             target,
             TRIPLE.as_ptr(),
@@ -403,7 +319,6 @@ fn compile_to_ptx(ir: &str, arch: &SmArch) -> Result<String, String> {
             }
         };
 
-        // Layout from the target machine, so the two can never drift apart.
         let layout = LLVMCreateTargetDataLayout(tm);
         LLVMSetModuleDataLayout(module, layout);
         LLVMDisposeTargetData(layout);
@@ -420,14 +335,6 @@ fn compile_to_ptx(ir: &str, arch: &SmArch) -> Result<String, String> {
     }
 }
 
-/// Rewrites what the NVPTX backend cannot emit as it stands: the transcendentals into
-/// `libdevice` calls, with the library linked in behind them, and the variadic `printf` into
-/// the `vprintf` the device actually has.
-///
-/// Before the pipeline rather than after, so the inliner sees the library bodies and the
-/// optimizer works on what they expand to -- which is the whole reason the toolkit ships
-/// `libdevice` as bitcode rather than as a linked library.
-///
 /// # Safety
 /// `module` must be a live LLVM module.
 unsafe fn lower_to_device_libs(module: llvm_sys::prelude::LLVMModuleRef) -> Result<(), String> {
@@ -440,8 +347,6 @@ unsafe fn lower_to_device_libs(module: llvm_sys::prelude::LLVMModuleRef) -> Resu
     }
 }
 
-/// Runs the pass `pipeline` over `module`.
-///
 /// # Safety
 /// `module` and `tm` must be live LLVM handles.
 unsafe fn run_passes(
@@ -468,8 +373,6 @@ unsafe fn run_passes(
     }
 }
 
-/// One `LLVMTargetMachineEmitToMemoryBuffer` call, copied out and disposed.
-///
 /// # Safety
 /// `module` and `tm` must be live LLVM handles.
 unsafe fn emit_assembly(
@@ -504,8 +407,6 @@ unsafe fn emit_assembly(
     }
 }
 
-/// Parses textual `ir` into a fresh context, returning both so the caller can dispose them.
-///
 /// # Safety
 /// The returned context and module are owned by the caller.
 unsafe fn parse_ir(
@@ -532,7 +433,7 @@ unsafe fn parse_ir(
         );
         let mut module = std::ptr::null_mut();
         let mut parse_err = std::ptr::null_mut();
-        // `LLVMParseIRInContext2` consumes the buffer, on failure included.
+        // `LLVMParseIRInContext2` takes ownership of the buffer, including on failure.
         if LLVMParseIRInContext2(ctx, buffer, &mut module, &mut parse_err) != 0 {
             let msg = CStr::from_ptr(parse_err).to_string_lossy().into_owned();
             LLVMDisposeMessage(parse_err);
@@ -543,13 +444,10 @@ unsafe fn parse_ir(
     }
 }
 
-/// PTX as the NUL-terminated `c_char` buffer `cuModuleLoadData` reads and the compilation cache
-/// stores, which is the shape NVRTC hands its own PTX back in.
+/// NUL-terminated PTX for the CUDA driver.
 fn as_c_chars(ptx: &str) -> Vec<std::ffi::c_char> {
     let mut bytes: Vec<std::ffi::c_char> =
         ptx.bytes().map(|byte| byte as std::ffi::c_char).collect();
-    // The driver reads to the terminator rather than being given a length, and LLVM's buffer
-    // does not carry one.
     bytes.push(0);
     bytes
 }
@@ -558,9 +456,6 @@ fn as_c_chars(ptx: &str) -> Vec<std::ffi::c_char> {
 mod tests {
     use super::*;
 
-    /// The entry facts a test kernel declares: a cube of `cube_dim` units, no shared memory, no
-    /// buffers with anything to say about them, and metadata in a buffer rather than the
-    /// parameter block. Tests that care about one of those set it after.
     fn entry(cube_dim: u32) -> NvptxEntry {
         NvptxEntry {
             cube_dim,
@@ -570,9 +465,6 @@ mod tests {
         }
     }
 
-    /// The finalized module carries everything the NVPTX backend needs: without the calling
-    /// convention the function is a device function and no entry point at all, so the module
-    /// would load and `cuModuleGetFunction` would then not find it.
     #[test]
     fn finalize_sets_triple_callconv_and_arch() {
         let ir = r#"
@@ -592,8 +484,6 @@ entry:
         assert!(finalized.contains(r#""nvvm.maxntid"="256""#), "{finalized}");
     }
 
-    /// A kernel reaches PTX with the entry point visible to `cuModuleGetFunction`, and the
-    /// `.target` the device was named for.
     #[test]
     fn emits_ptx_naming_its_entry_point() {
         let ir = r#"
@@ -612,10 +502,6 @@ entry:
         assert!(ptx.contains(".maxntid 256"), "{ptx}");
     }
 
-    /// The shared memory block reaches the PTX as `.extern .shared`, which is what makes it
-    /// dynamic: the module reserves none of its own and the launch gives it a block through
-    /// `sharedMemBytes`. The generic pointers the rest of the pipeline works with are inferred
-    /// away, and the barrier is the hardware's own.
     #[test]
     fn shared_memory_becomes_dynamic_shared() {
         let ir = r#"
@@ -654,9 +540,6 @@ entry:
         assert!(ptx.contains("bar.sync"), "the cube barrier:\n{ptx}");
     }
 
-    /// The cross-lane instructions the plane lowering is built on reach the PTX. Getting an
-    /// intrinsic name wrong fails to select rather than computing the wrong answer, so this
-    /// pins the ones every plane operation goes through.
     #[test]
     fn the_plane_primitives_reach_the_ptx() {
         let ir = r#"
@@ -682,12 +565,6 @@ entry:
         assert!(ptx.contains("vote.sync.ballot"), "{ptx}");
     }
 
-    /// The matrix instructions reach the PTX, in the shape the lowering names them.
-    ///
-    /// Getting an intrinsic's name or its register count wrong fails to select rather than
-    /// computing a wrong answer, and needs no device to catch, so the three the cooperative
-    /// path goes through are pinned here: the load, the multiply and the store. The register
-    /// counts are the ones `nvptx::matrix` builds its fragments from.
     #[test]
     fn the_matrix_instructions_reach_the_ptx() {
         let list = |ty: &str| [ty; 8].join(", ");
@@ -748,13 +625,6 @@ entry:
         );
     }
 
-    /// The manual `mma.sync` family reaches the PTX: the multiply itself, and the two tile
-    /// moves that feed it.
-    ///
-    /// `test_cmma_manual` covers the multiply end to end on a device, but nothing in the suite
-    /// reaches `ldmatrix` without a barrier to stage through, and `stmatrix` is `sm_90` and up
-    /// where this machine is `sm_86`. So the names are pinned here, where no device is needed:
-    /// a wrong one fails to select rather than computing a wrong answer.
     #[test]
     fn the_manual_matrix_instructions_reach_the_ptx() {
         let half2 = |n: usize| vec!["<2 x half>"; n].join(", ");
@@ -766,7 +636,6 @@ entry:
                 .join(", ")
         };
 
-        // `mma.sync` at the shape the manual API is built around, on `sm_86`.
         let ir = format!(
             "declare {{{float4}}} @llvm.nvvm.mma.m16n8k16.row.col.f32.f32({a}, {b}, {float4})\n\
              define void @k(ptr %dst, {a_named}, {b_named}) {{\n\
@@ -792,8 +661,6 @@ entry:
             "{ptx}"
         );
 
-        // `ldmatrix` reads its tiles out of shared memory, which is why the pointer is cast
-        // into address space 3 before the call.
         let ir = "\
 declare {i32, i32} @llvm.nvvm.ldmatrix.sync.aligned.m8n8.x2.b16.p3(ptr addrspace(3))
 define void @k(ptr addrspace(3) %src, ptr %dst) {
@@ -810,8 +677,6 @@ entry:
             "{ptx}"
         );
 
-        // `stmatrix` only exists from `sm_90`, which is also the only architecture the runtime
-        // advertises it on.
         let ir = "\
 declare void @llvm.nvvm.stmatrix.sync.aligned.m8n8.x2.b16.p3(ptr addrspace(3), i32, i32)
 define void @k(ptr addrspace(3) %dst, i32 %a, i32 %b) {

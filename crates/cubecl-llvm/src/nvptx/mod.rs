@@ -1,4 +1,4 @@
-//! The NVPTX (`nvptx64-nvidia-cuda`) target.
+//! NVPTX target.
 
 pub mod abi;
 pub mod builtins;
