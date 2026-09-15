@@ -4,8 +4,6 @@ use crate::{
     device::AmdDevice,
 };
 use core::ffi::c_int;
-use cubecl_server::runtime::Runtime;
-use std::sync::OnceLock;
 
 use cubecl_common::{
     device::{Device, DeviceService},
@@ -17,8 +15,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ContiguousElements, DeviceIdentity, DeviceProperties, HardwareProperties,
-        MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, amd::GfxArch,
-        features::Plane,
+        MemoryDeviceProperties, MmaProperties, PciAddress, PciVendor, PhysicalDevice,
+        TargetProperties, VectorSize, amd::GfxArch, features::Plane,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -39,8 +37,14 @@ use cubecl_cpp::{
     },
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
-use cubecl_server::{allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger};
-use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
+use cubecl_server::{
+    allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
+};
+use std::{
+    ffi::CStr,
+    mem::MaybeUninit,
+    sync::{Arc, OnceLock},
+};
 
 static AMD_WMMA: OnceLock<Option<AmdWmma>> = OnceLock::new();
 
@@ -156,6 +160,7 @@ impl DeviceService for HipServer {
             DeviceIdentity {
                 name: probe.name.clone(),
                 fingerprint: fingerprint.clone(),
+                physical: Some(probe.physical.clone()),
             },
         );
         register_supported_types(&mut device_props);
@@ -309,6 +314,8 @@ struct DeviceProbe {
     /// An APU, sharing its memory and IOMMU with the host. The drop queue
     /// flushes more often on one, to keep the GPU off a 0-to-100% transition.
     integrated: bool,
+    /// The card itself, for telling it apart from the same card under Vulkan.
+    physical: PhysicalDevice,
 }
 
 impl DeviceProbe {
@@ -348,6 +355,20 @@ impl DeviceProbe {
             )
         };
 
+        let mut physical = PhysicalDevice {
+            pci_address: Some(PciAddress {
+                domain: props.pciDomainID as u32,
+                bus: props.pciBusID as u8,
+                device: props.pciDeviceID as u8,
+                function: 0,
+            }),
+            uuid: Some(props.uuid.bytes.map(|byte| byte as u8)),
+            vendor: Some(PciVendor::Amd),
+            total_memory: Some(props.totalGlobalMem as u64),
+            ..Default::default()
+        };
+        physical.read_pci_ids();
+
         Self {
             arch_name,
             name,
@@ -368,6 +389,7 @@ impl DeviceProbe {
             // Both are checked: 32 is the floor either way.
             alignment: 32.max(props.textureAlignment).max(props.surfaceAlignment),
             integrated: props.integrated != 0,
+            physical,
         }
     }
 }

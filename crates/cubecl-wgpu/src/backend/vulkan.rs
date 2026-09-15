@@ -13,7 +13,7 @@ use cubecl_core::{
     server::{IoError, KernelArguments},
 };
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_ir::{DeviceProperties, Type, features::*};
+use cubecl_ir::{AdapterLuid, DeviceProperties, PciAddress, Type, features::*};
 use cubecl_server::compiler::CompilationError;
 use cubecl_server::kernel::CompiledKernel;
 use cubecl_spirv::{SpirvCompiler, SpirvKernel};
@@ -783,4 +783,57 @@ where
         });
     }
     Ok(compiled)
+}
+
+/// Fill what only Vulkan reports about the card behind `adapter`: the driver's UUID, the PCI
+/// address behind `VK_EXT_pci_bus_info`, and the device-local memory.
+pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::PhysicalDevice) {
+    // SAFETY: the hal adapter is only read, and the physical device it names belongs to an
+    // instance that outlives `adapter`.
+    unsafe {
+        let Some(hal_adapter) = adapter.as_hal::<hal::api::Vulkan>() else {
+            return;
+        };
+        let instance = hal_adapter.shared_instance();
+        let raw_instance = instance.raw_instance();
+        let physical_device = hal_adapter.raw_physical_device();
+        let capabilities = hal_adapter.physical_device_capabilities();
+
+        // `get_physical_device_properties2` is core from 1.1; wgpu enables the extension form
+        // on 1.0 instances, but `ash` only binds the core entry point.
+        if instance.instance_api_version() >= ash::vk::API_VERSION_1_1
+            && capabilities.properties().api_version >= ash::vk::API_VERSION_1_1
+        {
+            let has_pci = capabilities.supports_extension(ash::ext::pci_bus_info::NAME);
+            let mut ids = ash::vk::PhysicalDeviceIDProperties::default();
+            let mut pci = ash::vk::PhysicalDevicePCIBusInfoPropertiesEXT::default();
+            let mut properties = ash::vk::PhysicalDeviceProperties2::default().push_next(&mut ids);
+            if has_pci {
+                properties = properties.push_next(&mut pci);
+            }
+            raw_instance.get_physical_device_properties2(physical_device, &mut properties);
+            physical.uuid = Some(ids.device_uuid);
+            if ids.device_luid_valid == vk::TRUE {
+                physical.luid = Some(AdapterLuid::new(ids.device_luid));
+            }
+            if has_pci {
+                physical.pci_address = Some(PciAddress {
+                    domain: pci.pci_domain,
+                    bus: pci.pci_bus as u8,
+                    device: pci.pci_device as u8,
+                    function: pci.pci_function as u8,
+                });
+            }
+        }
+
+        let memory = raw_instance.get_physical_device_memory_properties(physical_device);
+        physical.total_memory = Some(
+            memory
+                .memory_heaps_as_slice()
+                .iter()
+                .filter(|heap| heap.flags.contains(ash::vk::MemoryHeapFlags::DEVICE_LOCAL))
+                .map(|heap| heap.size)
+                .sum(),
+        );
+    }
 }

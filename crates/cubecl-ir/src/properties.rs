@@ -1,10 +1,13 @@
 use alloc::string::String;
-use core::hash::{BuildHasher, Hash, Hasher};
+use core::{
+    fmt,
+    hash::{BuildHasher, Hash, Hasher},
+    str::FromStr,
+};
 
-use crate::EnumSet;
-use crate::EnumSetType;
 use crate::{
-    AddressType, ElemType, OpaqueType, SemanticType, Type, TypeHash, VectorSize,
+    AddressType, ElemType, EnumSet, EnumSetType, OpaqueType, SemanticType, Type, TypeHash,
+    VectorSize,
     features::{AtomicUsage, ComplexUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
@@ -97,6 +100,187 @@ pub struct DeviceIdentity {
     /// Verbatim the `compilation_store` fingerprint, so a namespace read back
     /// out of a bundle compares against it directly.
     pub fingerprint: String,
+    /// The card behind the device, `None` for a CPU or a virtual device.
+    pub physical: Option<PhysicalDevice>,
+}
+
+/// The card a device runs on, so one card reached through two runtimes (an
+/// NVIDIA GPU under CUDA and under Vulkan) is recognized as one card.
+///
+/// `pci_address` is the key wherever the runtime reads it: every runtime that
+/// sees a card on a bus reports the same address. `uuid` is the driver's own id and
+/// NVIDIA reports one through CUDA and Vulkan; other vendors may not. The
+/// ids and memory are what a placement needs to size a card.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct PhysicalDevice {
+    /// The card's address on the PCI bus, when the runtime reports it.
+    pub pci_address: Option<PciAddress>,
+    /// The driver's id for the card, when the runtime reports it.
+    pub uuid: Option<[u8; 16]>,
+    /// Who makes the card, when the runtime reports it.
+    pub vendor: Option<PciVendor>,
+    /// PCI device id of the part, when the runtime reports it.
+    pub device_id: Option<u32>,
+    /// Bytes of memory on the card, when the runtime reports it.
+    pub total_memory: Option<u64>,
+    /// The adapter's Windows LUID, which only holds until the machine restarts.
+    pub luid: Option<AdapterLuid>,
+}
+
+/// The locally unique id Windows gives a graphics adapter when its driver loads, which DirectX,
+/// Vulkan and CUDA all report on Windows.
+///
+/// It changes on a restart, and can change when the driver restarts, so it tells two devices of
+/// one running process apart and nothing more. A key that is stored, cached or sent elsewhere
+/// wants [`PhysicalDevice::pci_address`] or [`PhysicalDevice::uuid`]; this type has no
+/// serialization and no text form so it cannot end up in one by accident.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AdapterLuid([u8; 8]);
+
+impl AdapterLuid {
+    /// The LUID as the eight bytes of the Windows `LUID` struct, low part first.
+    pub fn new(bytes: [u8; 8]) -> Self {
+        Self(bytes)
+    }
+
+    /// The eight bytes of the Windows `LUID` struct, low part first.
+    pub fn bytes(self) -> [u8; 8] {
+        self.0
+    }
+}
+
+impl PhysicalDevice {
+    /// Fills a vendor or device id the runtime left unset from the kernel's record of the card at
+    /// `pci_address`. Linux only; elsewhere this does nothing.
+    pub fn read_pci_ids(&mut self) {
+        #[cfg(target_os = "linux")]
+        if let Some(address) = self.pci_address {
+            let read = |attribute: &str| {
+                let path = std::format!("/sys/bus/pci/devices/{address}/{attribute}");
+                let text = std::fs::read_to_string(path).ok()?;
+                u32::from_str_radix(text.trim().trim_start_matches("0x"), 16).ok()
+            };
+            self.vendor = self.vendor.or_else(|| read("vendor").map(PciVendor::from));
+            self.device_id = self.device_id.or_else(|| read("device"));
+        }
+    }
+}
+
+/// The maker of a card, by PCI vendor id. The vendors with a runtime here are named; any
+/// other keeps its id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PciVendor {
+    /// PCI vendor id `0x10de`.
+    Nvidia,
+    /// PCI vendor id `0x1002`.
+    Amd,
+    /// PCI vendor id `0x8086`.
+    Intel,
+    /// PCI vendor id `0x106b`.
+    Apple,
+    /// PCI vendor id `0x13b5`, the Mali GPUs.
+    Arm,
+    /// PCI vendor id `0x5143`, the Adreno GPUs.
+    Qualcomm,
+    /// A vendor this crate does not name.
+    Other(u32),
+}
+
+impl PciVendor {
+    /// The PCI vendor id.
+    pub fn id(self) -> u32 {
+        match self {
+            Self::Nvidia => 0x10de,
+            Self::Amd => 0x1002,
+            Self::Intel => 0x8086,
+            Self::Apple => 0x106b,
+            Self::Arm => 0x13b5,
+            Self::Qualcomm => 0x5143,
+            Self::Other(id) => id,
+        }
+    }
+}
+
+impl From<u32> for PciVendor {
+    fn from(id: u32) -> Self {
+        match id {
+            0x10de => Self::Nvidia,
+            0x1002 => Self::Amd,
+            0x8086 => Self::Intel,
+            0x106b => Self::Apple,
+            0x13b5 => Self::Arm,
+            0x5143 => Self::Qualcomm,
+            other => Self::Other(other),
+        }
+    }
+}
+
+impl fmt::Display for PciVendor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nvidia => f.write_str("NVIDIA"),
+            Self::Amd => f.write_str("AMD"),
+            Self::Intel => f.write_str("Intel"),
+            Self::Apple => f.write_str("Apple"),
+            Self::Arm => f.write_str("Arm"),
+            Self::Qualcomm => f.write_str("Qualcomm"),
+            Self::Other(id) => write!(f, "{id:#06x}"),
+        }
+    }
+}
+
+/// A function's address on the PCI bus, `domain:bus:device.function`, spelled `0000:07:00.0`
+/// as `lspci -D` and sysfs spell it. CUDA and NVML call this same string the bus id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PciAddress {
+    /// The PCI domain (segment).
+    pub domain: u32,
+    /// The bus number.
+    pub bus: u8,
+    /// The device number on the bus.
+    pub device: u8,
+    /// The function of the device.
+    pub function: u8,
+}
+
+impl fmt::Display for PciAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:04x}:{:02x}:{:02x}.{:x}",
+            self.domain, self.bus, self.device, self.function
+        )
+    }
+}
+
+/// A PCI address that could not be parsed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PciAddressError(pub String);
+
+impl fmt::Display for PciAddressError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "not a PCI address: {}", self.0)
+    }
+}
+
+impl FromStr for PciAddress {
+    type Err = PciAddressError;
+
+    /// Accepts `0000:07:00.0` and the domainless `07:00.0` CUDA also emits.
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let err = || PciAddressError(String::from(text));
+        let (rest, function) = text.rsplit_once('.').ok_or_else(err)?;
+        let mut parts = rest.rsplitn(3, ':');
+        let device = parts.next().ok_or_else(err)?;
+        let bus = parts.next().ok_or_else(err)?;
+        let domain = parts.next().unwrap_or("0");
+        Ok(Self {
+            domain: u32::from_str_radix(domain, 16).map_err(|_| err())?,
+            bus: u8::from_str_radix(bus, 16).map_err(|_| err())?,
+            device: u8::from_str_radix(device, 16).map_err(|_| err())?,
+            function: u8::from_str_radix(function, 16).map_err(|_| err())?,
+        })
+    }
 }
 
 /// Properties of what the device can do, like what `Feature` are
@@ -252,5 +436,45 @@ pub enum FastMath {
 impl FastMath {
     pub const fn all() -> EnumSet<FastMath> {
         EnumSet::all()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+
+    #[test]
+    fn a_vendor_keeps_its_id_whether_named_or_not() {
+        for id in [0x10de, 0x1002, 0x8086, 0x106b, 0x13b5, 0x5143, 0x1af4] {
+            assert_eq!(PciVendor::from(id).id(), id);
+        }
+        assert_eq!(PciVendor::from(0x10de), PciVendor::Nvidia);
+        assert_eq!(PciVendor::from(0x1af4), PciVendor::Other(0x1af4));
+        assert_eq!(PciVendor::Other(0x1af4).to_string(), "0x1af4");
+    }
+
+    #[test]
+    fn a_pci_address_round_trips_and_defaults_its_domain() {
+        let id = PciAddress {
+            domain: 0,
+            bus: 7,
+            device: 0,
+            function: 0,
+        };
+        assert_eq!(id.to_string(), "0000:07:00.0");
+        assert_eq!("0000:07:00.0".parse::<PciAddress>(), Ok(id));
+        assert_eq!("07:00.0".parse::<PciAddress>(), Ok(id));
+        assert_eq!(
+            "0001:a3:1f.7".parse::<PciAddress>(),
+            Ok(PciAddress {
+                domain: 1,
+                bus: 0xa3,
+                device: 0x1f,
+                function: 7
+            })
+        );
+        assert!("07:00".parse::<PciAddress>().is_err());
+        assert!("gpu".parse::<PciAddress>().is_err());
     }
 }
