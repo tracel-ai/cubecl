@@ -13,17 +13,20 @@ pub fn build_kernel(
 
         let (_, duration) = client
             .profile(
-                || unsafe {
+                || {
+                    let _real_run = cubecl_runtime::dry_run::RealRun::new();
                     for _ in 0..iterations {
-                        launch_overhead::launch_unchecked(
-                            &client,
-                            cubecl_core::CubeCount::new_single(),
-                            cubecl_core::server::CubeDim::new_single(),
-                            1,
-                            cubecl_core::frontend::BufferArg::from_raw_parts(input.clone(), 1),
-                            cubecl_core::frontend::BufferArg::from_raw_parts(output.clone(), 1),
-                            cubecl_core::ir::ElemType::Int(cubecl_core::ir::IntKind::I32),
-                        );
+                        unsafe {
+                            launch_overhead::launch_unchecked(
+                                &client,
+                                cubecl_core::CubeCount::new_single(),
+                                cubecl_core::server::CubeDim::new_single(),
+                                1,
+                                cubecl_core::frontend::BufferArg::from_raw_parts(input.clone(), 1),
+                                cubecl_core::frontend::BufferArg::from_raw_parts(output.clone(), 1),
+                                cubecl_core::ir::ElemType::Int(cubecl_core::ir::IntKind::I32),
+                            );
+                        }
                     }
                 },
                 "launch_overhead",
