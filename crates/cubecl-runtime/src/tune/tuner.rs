@@ -304,12 +304,21 @@ impl<K: AutotuneKey> Tuner<K> {
 
             #[cfg(persistence)]
             if matches!(cache.fastest(key), TuneCacheResult::Miss) && !cache.hydrated() {
-                drop(cache);
-                let cache = self.cache.clone();
-                cubecl_environment::future::spawn_detached(async move {
-                    cache.lock().await.sync_persistent().await;
-                });
-                return TuneCacheResult::Pending;
+                // With the environment's storage already open, hydrating
+                // waits on nothing and lands in this call: the picks are read
+                // where the fallback would have run. Otherwise it goes to the
+                // event loop, where the storage can open.
+                let hydrated = cubecl_environment::persistence::opened()
+                    && cubecl_environment::future::reader::try_read_sync(cache.sync_persistent())
+                        .is_some();
+                if !hydrated {
+                    drop(cache);
+                    let cache = self.cache.clone();
+                    cubecl_environment::future::spawn_detached(async move {
+                        cache.lock().await.sync_persistent().await;
+                    });
+                    return TuneCacheResult::Pending;
+                }
             }
 
             if let Some(answer) = self.decide(&mut cache, key, tunables, checksum) {

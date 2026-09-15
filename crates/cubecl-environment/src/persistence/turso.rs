@@ -478,6 +478,22 @@ async fn open_database(location: &str) -> Result<turso::Database, turso::Error> 
         .await
 }
 
+/// Opens the active environment's database ahead of any storage on it.
+pub(crate) async fn open_database_ahead() -> Result<(), String> {
+    shared_database(&location()?).await.map(|_| ())
+}
+
+/// Whether the active environment's database is open, so a storage on it
+/// opens without waiting on anything.
+pub(crate) fn database_open() -> bool {
+    location().is_ok_and(|location| {
+        matches!(
+            DATABASES.lock().get(&location),
+            Some(DatabaseState::Ready(_))
+        )
+    })
+}
+
 #[cfg(native_cache)]
 fn location() -> Result<String, String> {
     crate::environment::path()

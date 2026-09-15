@@ -351,6 +351,38 @@ pub async fn summary() -> Vec<NamespaceSummary> {
     }
 }
 
+/// Opens the active environment's database ahead of the storages on it.
+///
+/// A storage opens on first use, which is fine wherever the first use can
+/// wait. The browser's launch path cannot: a store it reaches first hydrates
+/// on the event loop while the calls that need it run their fallback for the
+/// whole of that reply, and compile the fallback's shaders for nothing. With
+/// the database open beforehand — from a place that can await, before the
+/// device comes up — a storage opens without waiting on anything, and the
+/// launch path hydrates its store in the call that reaches it
+/// ([`opened`] is how it knows).
+pub async fn open_ahead() {
+    cfg_if::cfg_if! {
+        if #[cfg(any(native_cache, browser_cache))] {
+            if let Err(error) = super::turso::open_database_ahead().await {
+                log::warn!("Unable to open the Turso cache ahead of its use: {error}");
+            }
+        }
+    }
+}
+
+/// Whether the active environment's database is open, so a storage on it
+/// opens without waiting on anything. Memory-backed environments always are.
+pub fn opened() -> bool {
+    cfg_if::cfg_if! {
+        if #[cfg(any(native_cache, browser_cache))] {
+            super::turso::database_open()
+        } else {
+            true
+        }
+    }
+}
+
 /// The storage serving `namespace` in the active environment, degrading to
 /// process-wide memory when the database can't be opened.
 ///
