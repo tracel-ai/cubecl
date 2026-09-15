@@ -6,15 +6,14 @@ use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
 };
-use cubecl_core::ir::PhysicalDevice;
 use cubecl_core::{
     MemoryConfiguration,
     cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, TargetProperties,
-        Type, VectorSize,
+        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, PhysicalDevice,
+        TargetProperties, Type, VectorSize,
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
@@ -34,8 +33,9 @@ use cubecl_cpp::{
     },
     target::Cuda,
 };
-use cubecl_server::runtime::Runtime;
-use cubecl_server::{allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger};
+use cubecl_server::{
+    allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger, runtime::Runtime,
+};
 use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
