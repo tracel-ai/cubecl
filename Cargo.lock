@@ -1304,6 +1304,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "device_identity"
+version = "0.11.0-pre.3"
+dependencies = [
+ "cubecl",
+ "cubecl-environment",
+ "cubecl-runtime",
+ "cudarc",
+ "wgpu",
+]
+
+[[package]]
 name = "device_sharing"
 version = "0.11.0-pre.4"
 dependencies = [
