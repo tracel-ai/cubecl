@@ -36,8 +36,8 @@ use cubecl_cpp::{
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger, runtime::Runtime,
 };
-use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
-use std::{mem::MaybeUninit, sync::Arc};
+use cudarc::driver::sys::{CUDA_VERSION, CUdevice, cuDeviceGetPCIBusId, cuDeviceTotalMem_v2};
+use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
@@ -435,23 +435,20 @@ impl Runtime for CudaRuntime {
 
 /// The card behind `device`. A query the driver refuses leaves its field empty rather than
 /// failing initialization, since nothing here is needed to run a kernel.
-fn physical_device(device: cudarc::driver::sys::CUdevice) -> PhysicalDevice {
-    use cudarc::driver::{result, sys};
-    use std::ffi::CStr;
-
+fn physical_device(device: CUdevice) -> PhysicalDevice {
     let mut bus_id = [0u8; 32];
     // SAFETY: the buffer outlives the call and its length travels with it.
     let pci = unsafe {
-        sys::cuDeviceGetPCIBusId(bus_id.as_mut_ptr().cast(), bus_id.len() as _, device).result()
+        cuDeviceGetPCIBusId(bus_id.as_mut_ptr().cast(), bus_id.len() as _, device).result()
     }
     .ok()
     .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
     .and_then(|id| id.to_str().ok()?.parse().ok());
-    let uuid = result::device::get_uuid(device)
+    let uuid = cudarc::driver::result::device::get_uuid(device)
         .ok()
         .map(|id| id.bytes.map(|byte| byte as u8));
     // SAFETY: `device` is the validated handle every other query here uses.
-    let total_memory = unsafe { result::device::total_mem(device) }
+    let total_memory = unsafe { cudarc::driver::result::device::total_mem(device) }
         .ok()
         .map(|bytes| bytes as u64);
 
