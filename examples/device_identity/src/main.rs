@@ -1,6 +1,6 @@
 //! Prints who each device is, through every runtime this build reaches it with. On a machine
 //! whose cards are visible to both CUDA and Vulkan, the same card must report the same PCI
-//! address and UUID both ways.
+//! address and UUID both ways; on Windows, DirectX 12 and Vulkan must report the same LUID.
 
 use cubecl::ir::DeviceIdentity;
 use cubecl_runtime::runtime::Runtime;
@@ -22,24 +22,35 @@ fn main() {
     {
         use cubecl::wgpu::{WgpuBackend, WgpuDevice, WgpuDeviceKind, WgpuRuntime};
 
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN,
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
-        let adapters = cubecl_environment::future::block_on(
-            instance.enumerate_adapters(wgpu::Backends::VULKAN),
-        );
-        let discrete = adapters
-            .iter()
-            .filter(|adapter| adapter.get_info().device_type == wgpu::DeviceType::DiscreteGpu)
-            .count();
-        for index in 0..discrete {
-            let device = WgpuDevice {
-                kind: WgpuDeviceKind::DiscreteGpu(index),
-                backend: WgpuBackend::Vulkan,
+        let apis = [
+            (wgpu::Backends::VULKAN, WgpuBackend::Vulkan, "vulkan"),
+            (wgpu::Backends::DX12, WgpuBackend::Dx12, "dx12"),
+        ];
+        for (backends, backend, api) in apis {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends,
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
+            });
+            let adapters =
+                cubecl_environment::future::block_on(instance.enumerate_adapters(backends));
+            let count = |kind| {
+                adapters
+                    .iter()
+                    .filter(|adapter| adapter.get_info().device_type == kind)
+                    .count()
             };
-            let client = WgpuRuntime::<cubecl::wgpu::AutoCompiler>::client(&device);
-            report(&format!("vulkan:{index}"), &client.properties().identity);
+            let discrete =
+                (0..count(wgpu::DeviceType::DiscreteGpu)).map(WgpuDeviceKind::DiscreteGpu);
+            let integrated =
+                (0..count(wgpu::DeviceType::IntegratedGpu)).map(WgpuDeviceKind::IntegratedGpu);
+            for kind in discrete.chain(integrated) {
+                let label = format!("{api}:{kind:?}");
+                let client = WgpuRuntime::<cubecl::wgpu::AutoCompiler>::client(&WgpuDevice {
+                    kind,
+                    backend,
+                });
+                report(&label, &client.properties().identity);
+            }
         }
     }
 }
@@ -66,8 +77,16 @@ fn report(device: &str, identity: &DeviceIdentity) {
         .total_memory
         .map(|bytes| format!("{} MiB", bytes >> 20))
         .unwrap_or_else(|| "?".into());
+    let luid = physical
+        .luid
+        .map(|luid| {
+            luid.iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        })
+        .unwrap_or_else(|| "?".into());
     println!(
-        "  pci {pci_address}  uuid {uuid}  vendor {}  device {:?}  memory {memory}",
+        "  pci {pci_address}  uuid {uuid}  luid {luid}  vendor {}  device {:?}  memory {memory}",
         physical
             .vendor
             .map(|vendor| vendor.to_string())

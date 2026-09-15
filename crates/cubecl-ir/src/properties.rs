@@ -123,6 +123,25 @@ pub struct PhysicalDevice {
     pub device_id: Option<u32>,
     /// Bytes of memory on the card, when the runtime reports it.
     pub total_memory: Option<u64>,
+    /// The adapter's LUID, which Windows assigns and DirectX and Vulkan both report there.
+    pub luid: Option<[u8; 8]>,
+}
+
+impl PhysicalDevice {
+    /// Fills a vendor or device id the runtime left unset from the kernel's record of the card at
+    /// `pci_address`. Linux only; elsewhere this does nothing.
+    pub fn read_pci_ids(&mut self) {
+        #[cfg(target_os = "linux")]
+        if let Some(address) = self.pci_address {
+            let read = |attribute: &str| {
+                let path = std::format!("/sys/bus/pci/devices/{address}/{attribute}");
+                let text = std::fs::read_to_string(path).ok()?;
+                u32::from_str_radix(text.trim().trim_start_matches("0x"), 16).ok()
+            };
+            self.vendor = self.vendor.or_else(|| read("vendor").map(PciVendor::from));
+            self.device_id = self.device_id.or_else(|| read("device"));
+        }
+    }
 }
 
 /// The maker of a card, by PCI vendor id. The vendors with a runtime here are named; any
