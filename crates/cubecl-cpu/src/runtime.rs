@@ -1,5 +1,6 @@
 use crate::{compute::affinity, compute::server::CpuServer, device::CpuDevice};
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
+use cubecl_core::ir::PhysicalDevice;
 use cubecl_core::{
     MemoryConfiguration,
     device::{DeviceId, ServerUtilitiesHandle},
@@ -182,7 +183,12 @@ impl DeviceService for CpuServer {
             DeviceIdentity {
                 name: host_cpu_name(&system),
                 fingerprint: format!("cpu_{}_f16-{}", std::env::consts::ARCH, f16_evaluation),
-                physical: None,
+                // One device stands for every socket, so nothing but the memory a stage can
+                // count on is known here.
+                physical: Some(PhysicalDevice {
+                    total_memory: Some(total_memory as u64),
+                    ..Default::default()
+                }),
             },
         );
         register_supported_types(&mut device_props);

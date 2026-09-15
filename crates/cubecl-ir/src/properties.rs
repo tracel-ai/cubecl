@@ -99,17 +99,19 @@ pub struct DeviceIdentity {
     /// Verbatim the `compilation_store` fingerprint, so a namespace read back
     /// out of a bundle compares against it directly.
     pub fingerprint: String,
-    /// The card behind the device, `None` for a CPU or a virtual device.
+    /// The part behind the device, `None` for a virtual device.
     pub physical: Option<PhysicalDevice>,
 }
 
-/// The card a device runs on, so one card reached through two runtimes (an
+/// The part a device runs on, so one card reached through two runtimes (an
 /// NVIDIA GPU under CUDA and under Vulkan) is recognized as one card.
 ///
 /// `pci` is the key wherever the runtime reads it: every runtime that sees a
 /// card on a bus reports the same address. `uuid` is the driver's own id and
 /// NVIDIA reports one through CUDA and Vulkan; other vendors may not. The
-/// ids and memory are what a placement needs to size a card.
+/// ids and memory are what a placement needs to size a part. The CPU runtime
+/// reports the memory its one device can count on and nothing else, since
+/// that device stands for every socket of the host.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct PhysicalDevice {
     /// Where the card sits on the bus, when the runtime reports it.
