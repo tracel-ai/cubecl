@@ -12,8 +12,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, PhysicalDevice,
-        TargetProperties, Type, VectorSize,
+        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, PciVendor,
+        PhysicalDevice, TargetProperties, Type, VectorSize,
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
@@ -467,7 +467,7 @@ impl DeviceProbe {
             physical: PhysicalDevice {
                 pci_address,
                 uuid,
-                vendor_id: Some(PhysicalDevice::VENDOR_NVIDIA),
+                vendor: Some(PciVendor::Nvidia),
                 device_id: None,
                 total_memory,
             },
