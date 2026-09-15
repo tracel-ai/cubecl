@@ -12,8 +12,8 @@ default = ["wgpu"]
 wgpu = ["cubecl/wgpu-spirv"]
 
 [dependencies]
-cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.3" }
-cubecl-environment = { path = "../../crates/cubecl-environment", version = "=0.11.0-pre.3" }
-cubecl-runtime = { path = "../../crates/cubecl-runtime", version = "=0.11.0-pre.3" }
+cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.4" }
+cubecl-environment = { path = "../../crates/cubecl-environment", version = "=0.11.0-pre.4" }
+cubecl-runtime = { path = "../../crates/cubecl-runtime", version = "=0.11.0-pre.4" }
 cudarc = { workspace = true, optional = true }
 wgpu = { workspace = true, features = ["fragile-send-sync-non-atomic-wasm"] }
