@@ -77,17 +77,19 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 
 /// Computes the peak throughput for a given runtime and key.
 ///
-/// Native only, panics on WASM
-///
 /// # Errors
 ///
-/// [`Unsupported`](ThroughputError::Unsupported) where the device implements
-/// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
-/// and reported no elapsed time.
+/// Returns [`Unsupported`](ThroughputError::Unsupported) when the operation or
+/// synchronous readback is unavailable, and [`NoTiming`](ThroughputError::NoTiming)
+/// when profiling produces no timing data.
 pub fn measure_peak_throughput(
     client: &Client,
     key: ThroughputKey,
 ) -> Result<ThroughputValue, ThroughputError> {
+    if cfg!(target_family = "wasm") {
+        return Err(ThroughputError::Unsupported);
+    }
+
     // A throughput probe is a measurement: inside a dry run its launches must
     // still execute, or they would be timed anyway and cache a garbage peak in
     // the device-level throughput store. The guard is read where the launch is
