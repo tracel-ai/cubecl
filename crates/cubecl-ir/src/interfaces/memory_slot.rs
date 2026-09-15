@@ -1,17 +1,22 @@
-use core::{fmt::Display, hash::Hash};
+use core::{
+    fmt::{self, Display},
+    hash::Hash,
+};
 
 use derive_more::{Eq, PartialEq};
 use derive_new::new;
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
+    graph::HasLabel,
     opts::mem2reg::AllocInfo,
+    printable::{self, Printable},
     region::Region,
     utils::table::{HMap, SmallMap, SmallSet},
     value::DefiningEntity,
 };
 
-use crate::{interfaces::control_flow::RegionPredecessor, prelude::*};
+use crate::prelude::*;
 
 pub type LogicalResult = core::result::Result<(), ()>;
 
@@ -44,7 +49,7 @@ impl Hash for MemoryValue {
 }
 
 impl Display for MemoryValue {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self == &MemoryValue::LIVE_ON_ENTRY {
             write!(f, "LiveOnEntry")
         } else {
@@ -91,7 +96,25 @@ impl MemorySSAContext {
     }
 }
 
-pub type RegionMemoryPhiInputs = SmallMap<RegionPredecessor, MemoryValue, 2>;
+/// Different from `RegionPredecessor` because terminators don't actually matter for memory SSA
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MemoryRegionPredecessor {
+    Parent,
+    Block(Ptr<BasicBlock>),
+}
+
+impl Printable for MemoryRegionPredecessor {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MemoryRegionPredecessor::Parent => f.write_str("Parent"),
+            MemoryRegionPredecessor::Block(block) => {
+                write!(f, "{}", block.label(ctx))
+            }
+        }
+    }
+}
+
+pub type RegionMemoryPhiInputs = SmallMap<MemoryRegionPredecessor, MemoryValue, 2>;
 pub enum RegionMemoryValue {
     Forward(MemoryValue),
     RegionPhi(RegionMemoryPhiInputs),

@@ -142,6 +142,19 @@ pub enum MemoryEffect {
     Opaque,
 }
 
+impl MemoryEffect {
+    pub fn value(&self) -> Option<Value> {
+        match self {
+            MemoryEffect::Read(value) | MemoryEffect::Write(value) => Some(*value),
+            MemoryEffect::ReadAllInSpace(_)
+            | MemoryEffect::WriteAllInSpace(_)
+            | MemoryEffect::ReadAll
+            | MemoryEffect::WriteAll
+            | MemoryEffect::Opaque => None,
+        }
+    }
+}
+
 impl Printable for MemoryEffect {
     fn fmt(
         &self,
@@ -169,6 +182,9 @@ impl Printable for MemoryEffect {
 pub trait MemoryEffects {
     verify_op_succ!();
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect>;
+    fn has_effects(&self, ctx: &Context) -> bool {
+        !self.memory_effects(ctx).is_empty()
+    }
 }
 
 NoMemoryEffect!(ConstantOp);

@@ -17,7 +17,7 @@ use thiserror::Error;
 use crate::{
     CanMaterialize, NoMemoryEffect, ReturnLike,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
-    dialect::scf::terminator_mem_val,
+    dialect::scf::block_mem_val,
     interfaces::{
         CanonicalizeInterface,
         control_flow::{
@@ -25,8 +25,8 @@ use crate::{
             RegionPredecessor, RegionSuccessor,
         },
         memory_slot::{
-            MemorySSAContext, MemorySSARegionOpInterface, MemoryValue, RegionMemoryPhiInputs,
-            RegionMemoryValue,
+            MemoryRegionPredecessor, MemorySSAContext, MemorySSARegionOpInterface, MemoryValue,
+            RegionMemoryPhiInputs, RegionMemoryValue,
         },
         uniformity::{UniformRegionTerminatorOpInterface, Uniformity},
     },
@@ -351,14 +351,12 @@ impl MemorySSARegionOpInterface for IfOp {
             return RegionMemoryValue::Forward(entry_reaching_def);
         }
 
-        let (then_pred, reaching_then) = terminator_mem_val(
-            ctx,
+        let (then_pred, reaching_then) = block_mem_val(
             self.then_block(ctx),
             entry_reaching_def,
             reaching_at_block_end,
         );
-        let (else_pred, reaching_else) = terminator_mem_val(
-            ctx,
+        let (else_pred, reaching_else) = block_mem_val(
             self.else_block(ctx),
             entry_reaching_def,
             reaching_at_block_end,
@@ -565,8 +563,7 @@ impl MemorySSARegionOpInterface for SwitchOp {
 
         let mut phi_inputs = SmallMap::new();
 
-        let (default_pred, reaching_default) = terminator_mem_val(
-            ctx,
+        let (default_pred, reaching_default) = block_mem_val(
             self.default_block(ctx),
             entry_reaching_def,
             reaching_at_block_end,
@@ -575,7 +572,7 @@ impl MemorySSARegionOpInterface for SwitchOp {
 
         for (_, case_block) in self.cases(ctx) {
             let (case_pred, reaching_case) =
-                terminator_mem_val(ctx, case_block, entry_reaching_def, reaching_at_block_end);
+                block_mem_val(case_block, entry_reaching_def, reaching_at_block_end);
             phi_inputs.insert(case_pred, reaching_case);
         }
 
@@ -748,15 +745,14 @@ impl MemorySSARegionOpInterface for RangeLoopOp {
             return RegionMemoryValue::Forward(entry_reaching_def);
         }
 
-        let (body_pred, reaching_body) = terminator_mem_val(
-            ctx,
+        let (body_pred, reaching_body) = block_mem_val(
             self.loop_body(ctx),
             entry_reaching_def,
             reaching_at_block_end,
         );
 
         let phi_inputs = small_map! {
-            RegionPredecessor::Parent => entry_reaching_def,
+            MemoryRegionPredecessor::Parent => entry_reaching_def,
             body_pred => reaching_body
         };
 
@@ -869,14 +865,14 @@ impl MemorySSARegionOpInterface for WhileOp {
 
         let arg = reaching_at_region_entry[&before_region];
         let (before_pred, reaching_before) =
-            terminator_mem_val(ctx, self.before_block(ctx), arg, reaching_at_block_end);
+            block_mem_val(self.before_block(ctx), arg, reaching_at_block_end);
 
         let arg = reaching_at_region_entry[&after_region];
         let (after_pred, reaching_after) =
-            terminator_mem_val(ctx, self.after_block(ctx), arg, reaching_at_block_end);
+            block_mem_val(self.after_block(ctx), arg, reaching_at_block_end);
 
         let inputs_before = small_map! {
-            RegionPredecessor::Parent => entry_reaching_def,
+            MemoryRegionPredecessor::Parent => entry_reaching_def,
             after_pred => reaching_after
         };
         let inputs_after = small_map!(before_pred => reaching_before);

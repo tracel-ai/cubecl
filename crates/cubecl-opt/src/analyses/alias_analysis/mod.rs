@@ -1,10 +1,19 @@
-use core::ops::{BitAndAssign, BitOrAssign};
+use core::{
+    cell::RefMut,
+    ops::{BitAndAssign, BitOrAssign},
+};
 
 use alloc::{boxed::Box, vec::Vec};
-use cubecl_ir::interfaces::MemoryEffect;
-use pliron::{context::Context, value::Value};
+use cubecl_ir::{interfaces::MemoryEffect, prelude::*};
+use pliron::{context::Context, pass::AnalysisManager, value::Value};
+
+use crate::analyses::{
+    alias_analysis::{address_space::AddressSpaceAA, root_alloc::RootAllocAA},
+    memory_ssa::MemorySSA,
+};
 
 pub mod address_space;
+pub mod root_alloc;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum ModRefResult {
@@ -142,4 +151,21 @@ pub(crate) fn effect_mod_ref(effect: &MemoryEffect) -> ModRefResult {
         }
         MemoryEffect::Opaque => ModRefResult::ModRef,
     }
+}
+
+pub fn default_stack() -> AliasAnalysisStack {
+    let mut stack = AliasAnalysisStack::default();
+    stack.add_analysis(AddressSpaceAA);
+    stack.add_analysis(RootAllocAA);
+    stack
+}
+
+pub fn default_memory_ssa<'a>(
+    ctx: &Context,
+    op: Ptr<Operation>,
+    analyses: &'a mut AnalysisManager,
+) -> Result<RefMut<'a, MemorySSA>> {
+    let mut memory_ssa = analyses.get_analysis_mut::<MemorySSA>(op, ctx)?;
+    memory_ssa.set_alias_analysis_stack(default_stack());
+    Ok(memory_ssa)
 }

@@ -16,7 +16,6 @@ use cubecl_ir::{
         },
     },
     prelude::*,
-    small_set,
 };
 use derive_more::From;
 use derive_new::new;
@@ -38,7 +37,7 @@ use pliron::{
 
 use crate::analyses::alias_analysis::{AliasAnalysis, AliasAnalysisStack};
 
-type MemoryEffectsMap = HMap<Ptr<Operation>, SmallSet<MemoryEffect, 4>>;
+type MemoryEffectsMap = HMap<Ptr<Operation>, NodeMemoryEffects>;
 type RegionMemoryEffectsMap = IMap<Ptr<Region>, MemoryEffectsMap>;
 type DefiningBlocks = IMap<Ptr<Region>, SmallSet<Ptr<BasicBlock>, 16>>;
 
@@ -123,12 +122,10 @@ impl MemoryOpAnalyzer<'_> {
                         def_blocks.insert(block);
                     }
                     let region_effects = state.user_to_effects.entry(region).or_default();
-                    let op_effects = region_effects.entry(op).or_default();
-                    op_effects.extend(effects);
+                    region_effects.insert(op, NodeMemoryEffects::from_op(ctx, op));
                 } else {
                     let region_effects = state.user_to_effects.entry(region).or_default();
-                    let op_effects = region_effects.entry(op).or_default();
-                    op_effects.insert(MemoryEffect::Opaque);
+                    region_effects.insert(op, NodeMemoryEffects::Opaque);
                     state.regions_with_direct_use.insert(region);
                     state.regions_with_direct_def.insert(region);
                     let def_blocks = state.defining_blocks.entry(region).or_default();
@@ -209,11 +206,36 @@ impl MemoryOpAnalyzer<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum NodeMemoryEffects {
+    Opaque,
+    Op(TraitOpPtr<dyn MemoryEffects>),
+}
+
+impl NodeMemoryEffects {
+    fn from_op(ctx: &Context, op: Ptr<Operation>) -> NodeMemoryEffects {
+        NodeMemoryEffects::Op(TraitOpPtr::try_from_op(op, ctx).unwrap())
+    }
+
+    pub fn effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        match self {
+            NodeMemoryEffects::Opaque => vec![MemoryEffect::Opaque],
+            NodeMemoryEffects::Op(trait_op_ptr) => trait_op_ptr.deref(ctx).memory_effects(ctx),
+        }
+    }
+}
+
 #[derive(new)]
 pub struct MemoryDef {
     pub input: MemoryValue,
-    pub effects: SmallSet<MemoryEffect, 4>,
+    pub effects: NodeMemoryEffects,
     pub result: MemoryValue,
+}
+
+impl MemoryDef {
+    pub fn effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        self.effects.effects(ctx)
+    }
 }
 
 impl Printable for MemoryDef {
@@ -230,9 +252,15 @@ impl Printable for MemoryDef {
 #[derive(new, Clone)]
 pub struct MemoryUse {
     pub input: MemoryValue,
-    pub effects: SmallSet<MemoryEffect, 4>,
+    pub effects: NodeMemoryEffects,
     #[new(default)]
     pub is_optimized: bool,
+}
+
+impl MemoryUse {
+    pub fn effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        self.effects.effects(ctx)
+    }
 }
 
 impl Printable for MemoryUse {
@@ -282,6 +310,16 @@ pub enum MemorySSANode {
     RegionPhi(MemoryRegionPhi),
 }
 
+impl MemorySSANode {
+    pub fn input(&self) -> Option<MemoryValue> {
+        match self {
+            MemorySSANode::Def(def) => Some(def.input),
+            MemorySSANode::Use(r#use) => Some(r#use.input),
+            MemorySSANode::Phi(_) | MemorySSANode::RegionPhi(_) => None,
+        }
+    }
+}
+
 impl Printable for MemorySSANode {
     fn fmt(
         &self,
@@ -298,7 +336,8 @@ impl Printable for MemorySSANode {
     }
 }
 
-fn print_effects(ctx: &Context, effects: &SmallSet<MemoryEffect, 4>) -> String {
+fn print_effects(ctx: &Context, effects: &NodeMemoryEffects) -> String {
+    let effects = effects.effects(ctx);
     effects.iter().map(|it| it.disp(ctx).to_string()).join(", ")
 }
 
@@ -360,12 +399,13 @@ impl<'a> MemorySSAGraphBuilder<'a> {
             let region_effects = self.info.user_to_effects.entry(parent_region).or_default();
             if let Some(effects) = region_effects.remove(&op) {
                 self.reaching_defs.insert(op, reaching_def);
-                if effects.iter().any(effect_is_def) {
+                if effects.effects(ctx).iter().any(effect_is_def) {
                     let new_res = self.ctx.new_value_at_op(op);
                     let node = MemoryDef::new(reaching_def, effects, new_res);
                     self.nodes.insert(DefiningEntity::Op(op), node.into());
                     reaching_def = new_res;
                 } else {
+                    let effects = NodeMemoryEffects::from_op(ctx, op);
                     let node = MemoryUse::new(reaching_def, effects);
                     self.nodes.insert(DefiningEntity::Op(op), node.into());
                 }
@@ -440,7 +480,7 @@ impl<'a> MemorySSAGraphBuilder<'a> {
             DefiningEntity::Op(op) => self.ctx.new_value_at_op(op),
             DefiningEntity::Block(block) => self.ctx.new_value_in_block(block),
         };
-        let clobber = MemoryDef::new(input, small_set![MemoryEffect::Opaque], new_reaching);
+        let clobber = MemoryDef::new(input, NodeMemoryEffects::Opaque, new_reaching);
         self.nodes.insert(defining, clobber.into());
         new_reaching
     }
@@ -635,7 +675,7 @@ impl MemorySSA {
         &'a self,
         ctx: &'a Context,
         value: MemoryValue,
-        effects: &'a SmallSet<MemoryEffect, 4>,
+        effects: &'a [MemoryEffect],
     ) -> MemorySSAWalker<'a> {
         MemorySSAWalker {
             stop_at_phi: false,
@@ -644,6 +684,10 @@ impl MemorySSA {
             ctx,
             memory_ssa: self,
         }
+    }
+
+    pub fn set_alias_analysis_stack(&mut self, stack: AliasAnalysisStack) {
+        self.analysis_stack = stack;
     }
 
     pub fn add_alias_analysis(&mut self, analysis: impl AliasAnalysis + 'static) {
@@ -659,9 +703,10 @@ impl MemorySSA {
             if r#use.is_optimized {
                 continue;
             }
-            let walker = self.walker(ctx, r#use.input, &r#use.effects);
+            let effects = r#use.effects(ctx);
+            let walker = self.walker(ctx, r#use.input, &effects);
             let clobbering_access = walker.next_clobbering_def();
-            let mut new_use = MemoryUse::new(clobbering_access, r#use.effects.clone());
+            let mut new_use = MemoryUse::new(clobbering_access, r#use.effects);
             new_use.is_optimized = true;
 
             updated_nodes.push((*defining, new_use));
@@ -670,11 +715,27 @@ impl MemorySSA {
             self.nodes.insert(defining, node.into());
         }
     }
+
+    pub fn optimized_use(&mut self, ctx: &Context, op: Ptr<Operation>) -> Option<MemoryValue> {
+        let Some(MemorySSANode::Use(r#use)) = self.node_for_op(op) else {
+            return None;
+        };
+        if r#use.is_optimized {
+            return Some(r#use.input);
+        }
+        let effects = r#use.effects(ctx);
+        let walker = self.walker(ctx, r#use.input, &effects);
+        let clobbering_access = walker.next_clobbering_def();
+        let mut new_use = MemoryUse::new(clobbering_access, r#use.effects);
+        new_use.is_optimized = true;
+        self.nodes.insert(DefiningEntity::Op(op), new_use.into());
+        Some(clobbering_access)
+    }
 }
 
 pub struct MemorySSAWalker<'a> {
     stop_at_phi: bool,
-    effects: &'a SmallSet<MemoryEffect, 4>,
+    effects: &'a [MemoryEffect],
     start_value: MemoryValue,
     ctx: &'a Context,
     memory_ssa: &'a MemorySSA,
@@ -705,6 +766,7 @@ impl<'a> MemorySSAWalker<'a> {
     }
 
     fn next_clobbering_def_impl(&self, mut visited: HashSet<MemoryValue>) -> TraversalResult {
+        let ctx = self.ctx;
         let mut distance = 0;
         let mut current_value = self.start_value;
 
@@ -712,11 +774,11 @@ impl<'a> MemorySSAWalker<'a> {
             visited.insert(current_value);
             match node {
                 MemorySSANode::Def(def) => {
-                    let mod_ref = self.memory_ssa.analysis_stack.mod_ref(
-                        self.ctx,
-                        self.effects,
-                        &def.effects,
-                    );
+                    let effects = def.effects(ctx);
+                    let mod_ref =
+                        self.memory_ssa
+                            .analysis_stack
+                            .mod_ref(ctx, self.effects, &effects);
                     if mod_ref.contains_mod() {
                         return TraversalResult::Value(current_value, distance);
                     } else {

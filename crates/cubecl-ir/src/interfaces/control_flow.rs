@@ -1,8 +1,14 @@
+use core::fmt;
+
 use crate::{dialect::RegionPtrExt, prelude::*};
 use derive_more::From;
 use pliron::{
-    attribute::AttrObj, builtin::ops::FuncOp, graph::HasLabel, linked_list::ContainsLinkedList,
-    printable::Printable, region::Region,
+    attribute::AttrObj,
+    builtin::ops::FuncOp,
+    graph::HasLabel,
+    linked_list::ContainsLinkedList,
+    printable::{self, Printable},
+    region::Region,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -12,12 +18,7 @@ pub enum RegionPredecessor {
 }
 
 impl Printable for RegionPredecessor {
-    fn fmt(
-        &self,
-        ctx: &Context,
-        _state: &pliron::printable::State,
-        f: &mut core::fmt::Formatter<'_>,
-    ) -> core::fmt::Result {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RegionPredecessor::Parent => f.write_str("Parent"),
             RegionPredecessor::Terminator(op) => {
