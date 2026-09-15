@@ -861,6 +861,12 @@ impl Client {
         }
     }
 
+    /// Whether this runtime moves data between its devices itself. Without it, `to_client`
+    /// copies through the host and the collectives refuse.
+    pub fn has_device_transport(&self) -> bool {
+        self.utilities.server_comm_enabled
+    }
+
     /// Wait on the communication stream.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
@@ -899,6 +905,9 @@ impl Client {
         if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `all_reduce` with a blocking device handle");
         }
+        if !self.has_device_transport() {
+            panic!("Can't use `all_reduce` on a runtime with no transport between its devices");
+        }
 
         let stream_id = self.stream_id();
         let src = src.binding();
@@ -933,6 +942,11 @@ impl Client {
         dst_server: &Self,
         dtype: ElemType,
     ) -> Handle {
+        if !self.has_device_transport() {
+            panic!(
+                "Can't use `to_client_tensor` on a runtime with no transport between its devices; `to_client` copies through the host"
+            );
+        }
         self.expect_local(&src_descriptor.handle);
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();

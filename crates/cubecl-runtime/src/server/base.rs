@@ -332,6 +332,20 @@ pub enum ServerError {
         backtrace: BackTrace,
     },
 
+    /// The runtime has no transport between its devices, so the collective was
+    /// not run. `Client::to_client` copies through the host instead; a caller
+    /// reaching the collective itself asked this runtime for what it cannot do.
+    #[error(
+        "{operation} needs a transport between devices, and this runtime has none\nBacktrace:\n{backtrace}"
+    )]
+    NoDeviceTransport {
+        /// The collective that was asked for.
+        operation: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// A handle from one service was handed to a client of another: memory
     /// coordinates mean nothing there, so nothing was run.
     #[error("A handle of {handle} was used on {client}\nBacktrace:\n{backtrace}")]
@@ -441,6 +455,14 @@ impl Debug for ServerError {
 }
 
 impl ServerError {
+    /// The error every collective returns on a runtime with no transport between devices.
+    pub fn no_device_transport(operation: &str) -> Self {
+        Self::NoDeviceTransport {
+            operation: operation.into(),
+            backtrace: BackTrace::capture(),
+        }
+    }
+
     /// Whether this is the kernel being refused before it ran, rather than
     /// something going wrong while running it.
     ///
@@ -806,7 +828,8 @@ pub trait ServerCommunication {
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     #[allow(unused_variables)]
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        todo!() // For backends other than cuda.
+        // No communication stream means nothing to wait for.
+        Ok(())
     }
 
     /// Initialize the communication between the devices in `device_ids`.
@@ -820,7 +843,7 @@ pub trait ServerCommunication {
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     #[allow(unused_variables)]
     fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
-        unimplemented!()
+        Err(ServerError::no_device_transport("comm_init"))
     }
 
     /// Performs an `all_reduce` operation on the input data and writes it to the output buffer.
@@ -848,7 +871,7 @@ pub trait ServerCommunication {
         op: ReduceOperation,
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
-        unimplemented!()
+        Err(ServerError::no_device_transport("all_reduce"))
     }
 
     /// Sends data from this server to a destination server.
@@ -881,7 +904,7 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
-        unimplemented!()
+        Err(ServerError::no_device_transport("send"))
     }
 
     /// Receive data from another server.
@@ -904,7 +927,7 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
-        unimplemented!()
+        Err(ServerError::no_device_transport("recv"))
     }
 }
 
