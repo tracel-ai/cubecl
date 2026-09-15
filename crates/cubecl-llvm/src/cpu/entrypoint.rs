@@ -1,20 +1,16 @@
-use cubecl_core::ir::attributes::{EntrypointInterface, FuncInterface};
-use cubecl_core::ir::dialect::branch::{RangeLoopOp, YieldOp};
-use cubecl_core::ir::dialect::general::ReadBuiltinOp;
-use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope};
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::settings::Dim3;
-use cubecl_core::ir::{Builtin, OpInserter, Scope};
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl};
-use pliron::basic_block::BasicBlock;
-use pliron::builtin::ops::FuncOp;
-use pliron::identifier::Identifier;
+use crate::{
+    cpu::synchronization::ATTR_SYNC_CUBE_STATE, prelude::*,
+    shared::shared_memory::declares_shared_memory,
+};
+use cubecl_core::{
+    ir::dialect::{
+        branch::{RangeLoopOp, YieldOp},
+        general::ReadBuiltinOp,
+        synchronization::{SyncOp, SyncScope},
+    },
+    prelude::*,
+};
 use pliron::linked_list::ContainsLinkedList;
-use pliron_llvm::types::PointerType as LlvmPointerType;
-
-use crate::cpu::synchronization::ATTR_SYNC_CUBE_STATE;
-use crate::shared::shared_memory::declares_shared_memory;
 
 pub const CPU_RUNTIME_BUILTINS: [Builtin; 6] = [
     Builtin::CubeCountX,

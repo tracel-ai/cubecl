@@ -1,7 +1,6 @@
+use super::base::{leading_part, trailing_part};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::base::{leading_part, trailing_part};
 
 const LOG2_E: f32 = core::f32::consts::LOG2_E;
 

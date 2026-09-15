@@ -1,15 +1,16 @@
 //! Plane reductions and scans.
 
-use cubecl_core::ir::Scope;
-use cubecl_core::ir::dialect::plane;
-use cubecl_core::ir::prelude::*;
-use cubecl_core::prelude::polyfills::plane::{
-    OpAdd, OpMax, OpMin, OpMul, plane_reduce, plane_reduce_exclusive, plane_reduce_inclusive,
+use crate::prelude::*;
+use cubecl_core::{
+    ir::dialect::plane,
+    prelude::{
+        polyfills::plane::{
+            OpAdd, OpMax, OpMin, OpMul, plane_reduce, plane_reduce_exclusive,
+            plane_reduce_inclusive,
+        },
+        *,
+    },
 };
-use cubecl_core::prelude::*;
-
-use crate::shared::polyfill::LowerOp;
-use crate::target::CtxTarget;
 
 define_scalar!(T);
 define_size!(S);

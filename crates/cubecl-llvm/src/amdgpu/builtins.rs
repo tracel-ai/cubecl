@@ -1,24 +1,15 @@
 //! AMDGPU builtins.
 
-use cubecl_core::ir::attributes::EntrypointInterface;
-use cubecl_core::ir::dialect::general::ReadBuiltinOp;
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::settings::Dim3;
-use cubecl_core::ir::{Builtin, OpInserter, Scope};
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl};
-use pliron::builtin::ops::FuncOp;
-use pliron::builtin::types::{IntegerType, Signedness};
-
-use crate::amdgpu::intrinsic::lane_id_ops;
-use crate::shared::intrinsic::{call_op, i32_ty};
-use pliron_llvm::ops::{GepIndex, GetElementPtrOp, LoadOp};
-use pliron_llvm::types::PointerType as LlvmPointerType;
-
-use crate::cpu::entrypoint::{
-    BuiltinValues, Replacer, absolute_pos, absolute_pos_x, absolute_pos_y, absolute_pos_z,
-    constant, cube_count, cube_pos, set_dim_and_cluster_constants, unit_pos,
+use crate::{
+    amdgpu::intrinsic::lane_id_ops,
+    cpu::entrypoint::{
+        BuiltinValues, Replacer, absolute_pos, absolute_pos_x, absolute_pos_y, absolute_pos_z,
+        constant, cube_count, cube_pos, set_dim_and_cluster_constants, unit_pos,
+    },
+    prelude::*,
 };
+use cubecl_core::{ir::dialect::general::ReadBuiltinOp, prelude::*};
+use pliron_llvm::ops::{GepIndex, GetElementPtrOp, LoadOp};
 
 const WORKITEM_ID: [(&str, Builtin); 3] = [
     ("llvm.amdgcn.workitem.id.x", Builtin::UnitPosX),

@@ -1,7 +1,6 @@
+use super::base::{horner, leading_part, trailing_part};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::base::{horner, leading_part, trailing_part};
 
 // Split pi/2 for accurate range reduction.
 const PI_2: f64 = core::f64::consts::FRAC_PI_2;

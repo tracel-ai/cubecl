@@ -1,22 +1,22 @@
 //! AMDGPU code generation.
 
-use pliron::builtin::ops::ModuleOp;
-use pliron::context::Context;
-use pliron_llvm::attributes::set_data_layout;
-use pliron_llvm::llvm_sys::core::LLVMContext;
-use pliron_llvm::to_llvm_ir;
-use std::ffi::{CStr, CString};
-use std::sync::Once;
-
-use crate::amdgpu::device_libs::{DeviceLibs, link_device_libs};
-use crate::amdgpu::lld::link_relocatable;
-use crate::amdgpu::ocml::Ocml;
-use crate::amdgpu::printf::lower_printf_to_hostcall;
-use crate::shared::AmdGpuModule;
-use crate::shared::math_library::redirect_intrinsics;
+use crate::{
+    amdgpu::{
+        device_libs::{DeviceLibs, link_device_libs},
+        lld::link_relocatable,
+        ocml::Ocml,
+        printf::lower_printf_to_hostcall,
+    },
+    prelude::{BufferIOAttr, Context, ModuleOp},
+    shared::{AmdGpuModule, math_library::redirect_intrinsics},
+};
 use cubecl_core::ir::amd::GfxArch;
-use cubecl_core::ir::attributes::BufferIOAttr;
 use cubecl_environment::bytes::Bytes;
+use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext, to_llvm_ir};
+use std::{
+    ffi::{CStr, CString},
+    sync::Once,
+};
 
 const TRIPLE: &CStr = c"amdgcn-amd-amdhsa";
 

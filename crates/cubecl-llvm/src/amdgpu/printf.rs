@@ -1,7 +1,9 @@
 //! AMDGPU device printing.
 
-use llvm_sys::core::*;
-use llvm_sys::prelude::{LLVMModuleRef, LLVMValueRef};
+use llvm_sys::{
+    core::*,
+    prelude::{LLVMModuleRef, LLVMValueRef},
+};
 
 unsafe extern "C" {
     /// Consumes the call. The caller must not use it afterwards.

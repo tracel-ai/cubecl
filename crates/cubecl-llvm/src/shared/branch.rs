@@ -1,19 +1,15 @@
 //! Structured control flow lowering.
 
-use cubecl_core::ir::dialect::branch::{self, ConditionOp, IsExitTerminator};
-use cubecl_core::ir::dialect::cmp::{SLessThanOp, ULessThanOp};
-use cubecl_core::ir::dialect::general::CastOp;
-use cubecl_core::ir::dialect::math::IAddOp;
-use cubecl_core::ir::dialect::scf::{IfOp, RangeLoopOp, SwitchOp, WhileOp};
-use cubecl_core::ir::interfaces::ScalarType;
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::{NamedRewrite, dialect::BlockPtrExt};
-use pliron::basic_block::BasicBlock;
-use pliron::builtin::attributes::IntegerAttr;
-use pliron::builtin::types::{IntegerType, Signedness};
-use pliron::irbuild::inserter::{BlockInsertionPoint, OpInsertionPoint};
+use crate::prelude::*;
+use cubecl_core::ir::dialect::{
+    BlockPtrExt,
+    branch::{self, ConditionOp, IsExitTerminator},
+    cmp::{SLessThanOp, ULessThanOp},
+    general::CastOp,
+    math::IAddOp,
+    scf::{IfOp, RangeLoopOp, SwitchOp, WhileOp},
+};
 use pliron::region::Region;
-use pliron_llvm::ops as llvm;
 
 #[op_interface]
 pub trait LowerCpuCF {

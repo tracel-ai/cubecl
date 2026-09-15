@@ -1,13 +1,13 @@
 //! ROCm device libraries.
 
-use std::collections::HashMap;
-use std::ffi::{CStr, c_char};
-use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
-
-use llvm_sys::prelude::LLVMModuleRef;
-
 use cubecl_core::ir::amd::GfxArch;
+use llvm_sys::prelude::LLVMModuleRef;
+use std::{
+    collections::HashMap,
+    ffi::{CStr, c_char},
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+};
 
 unsafe extern "C" {
     /// Returns null on success or an owned error message.

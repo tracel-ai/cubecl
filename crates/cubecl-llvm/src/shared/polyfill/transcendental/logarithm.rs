@@ -1,7 +1,6 @@
+use super::base::{leading_part, trailing_part};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::base::{leading_part, trailing_part};
 
 const LN2_HI: f32 = leading_part(core::f64::consts::LN_2);
 const LN2_LO: f32 = trailing_part(core::f64::consts::LN_2);

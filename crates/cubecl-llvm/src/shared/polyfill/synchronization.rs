@@ -1,11 +1,7 @@
 //! Target-specific synchronization.
 
-use cubecl_core::ir::Scope;
+use crate::prelude::*;
 use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope};
-use cubecl_core::ir::prelude::*;
-
-use crate::shared::polyfill::LowerOp;
-use crate::target::{CtxTarget, LlvmTarget};
 
 #[op_interface_impl]
 impl LowerOp for SyncOp {

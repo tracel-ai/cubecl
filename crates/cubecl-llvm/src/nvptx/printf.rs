@@ -1,7 +1,9 @@
 //! CUDA device printing.
 
-use llvm_sys::core::*;
-use llvm_sys::prelude::{LLVMModuleRef, LLVMTypeRef, LLVMValueRef};
+use llvm_sys::{
+    core::*,
+    prelude::{LLVMModuleRef, LLVMTypeRef, LLVMValueRef},
+};
 
 const VPRINTF: &str = "vprintf";
 

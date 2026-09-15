@@ -1,22 +1,18 @@
 //! AMDGPU matrix operations.
 
-use cubecl_core::ir::ContextExt;
-use cubecl_core::ir::amd::AmdWmma;
-use cubecl_core::ir::dialect::matrix::{
-    CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RowIndexOp,
-    StMatrixOp, StoreOp,
+use crate::{
+    amdgpu::plane::lane_id,
+    prelude::*,
+    shared::matrix::{registers_as_vector, registers_value},
 };
-use cubecl_core::ir::types::matrix::MatrixType;
-use cubecl_core::ir::types::{MatrixIdent, MatrixLayout, MatrixShape};
-
-use pliron::input_err;
-use pliron::printable::Printable;
-use thiserror::Error;
-
-use crate::amdgpu::plane::lane_id;
-use crate::shared::matrix::{registers_as_vector, registers_value};
-use crate::shared::to_llvm::prelude::*;
-use crate::shared::to_llvm::ty::scalar_alignment;
+use cubecl_core::ir::{
+    amd::AmdWmma,
+    dialect::matrix::{
+        CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
+        RowIndexOp, StMatrixOp, StoreOp,
+    },
+    types::{MatrixIdent, MatrixLayout, MatrixShape, matrix::MatrixType},
+};
 
 #[derive(Debug, Error)]
 #[error(

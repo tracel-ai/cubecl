@@ -8,6 +8,7 @@ pub mod amdgpu;
 pub mod cpu;
 #[cfg(feature = "nvptx")]
 pub mod nvptx;
+pub(crate) mod prelude;
 pub mod shared;
 pub mod target;
 

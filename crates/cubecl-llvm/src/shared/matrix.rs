@@ -1,21 +1,16 @@
 //! Target-specific matrix lowering.
 
-use cubecl_core::ir::Scope;
-use cubecl_core::ir::dialect::matrix::{
-    CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RowIndexOp,
-    StMatrixOp, StoreOp,
+use crate::prelude::*;
+use cubecl_core::{
+    ir::{
+        dialect::matrix::{
+            CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
+            RowIndexOp, StMatrixOp, StoreOp,
+        },
+        types::matrix::MatrixType,
+    },
+    prelude::{polyfills, *},
 };
-use cubecl_core::ir::types::matrix::MatrixType;
-use cubecl_core::prelude::polyfills;
-use cubecl_core::prelude::*;
-use pliron::input_err;
-use thiserror::Error;
-
-use crate::shared::polyfill::LowerOp;
-use crate::shared::to_llvm::prelude::*;
-use crate::target::{CtxTarget, LlvmTarget};
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-use cubecl_core::ir::types::ArrayType as CubeArrayType;
 
 #[derive(Debug, Error)]
 #[error(

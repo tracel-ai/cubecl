@@ -1,15 +1,15 @@
 //! Atomics with explicit memory ordering.
 
-use cubecl_core::ir::dialect::atomic::AtomicLoadOp;
-use cubecl_core::ir::dialect::memory::LoadOp;
-use cubecl_core::ir::dialect::plane::{AtomicUniformLoadOp, UniformLoadOp};
-use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope, SyncScopeAttr};
-use cubecl_core::ir::prelude::*;
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl};
-use pliron_llvm::attributes::AtomicOrderingAttr;
-
-use crate::shared::polyfill::LowerOp;
+use crate::prelude::*;
+use cubecl_core::{
+    ir::dialect::{
+        atomic::AtomicLoadOp,
+        memory::LoadOp,
+        plane::{AtomicUniformLoadOp, UniformLoadOp},
+        synchronization::{SyncOp, SyncScope, SyncScopeAttr},
+    },
+    prelude::*,
+};
 
 #[cube_op(name = "cpu.ordered_atomic_load")]
 #[result_ty(argument)]

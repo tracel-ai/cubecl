@@ -1,8 +1,8 @@
-use std::ffi::c_void;
-use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
-
 use crate::cpu::synchronization::SYNC_CUBE_STATE_LEN;
+use std::{
+    ffi::c_void,
+    sync::{Arc, atomic::AtomicU32},
+};
 
 /// Resources shared by all units of a launch.
 #[derive(Default)]

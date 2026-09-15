@@ -1,11 +1,11 @@
 //! Device math library support.
 
-use std::ffi::CStr;
-use std::ffi::CString;
-
-use llvm_sys::LLVMTypeKind;
-use llvm_sys::core::*;
-use llvm_sys::prelude::{LLVMBuilderRef, LLVMModuleRef, LLVMTypeRef, LLVMValueRef};
+use llvm_sys::{
+    LLVMTypeKind,
+    core::*,
+    prelude::{LLVMBuilderRef, LLVMModuleRef, LLVMTypeRef, LLVMValueRef},
+};
+use std::ffi::{CStr, CString};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FloatWidth {

@@ -1,69 +1,62 @@
+#[cfg(feature = "amdgpu")]
+use crate::amdgpu::{abi::AmdGpuLowering, matrix::CtxWmma};
+#[cfg(feature = "nvptx")]
+use crate::nvptx::{
+    abi::NvptxLowering,
+    codegen::{MetadataParams, NvptxEntry},
+};
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+use crate::shared::{plane::CtxPlaneDim, shared_memory::CtxSharedMemory};
+use crate::{
+    cpu::{
+        abi::CpuLowering,
+        jit::engine::{KernelRequirements, PlironEngine},
+        shared_memory::SharedMemories,
+        synchronization::uses_cube_barrier,
+    },
+    prelude::{
+        AnalysisManager, Context, ContextExt, CtxTarget, FuncOp, LlvmTarget, ModuleOp,
+        NestedOpsPass, Op, OpPass, Operation, PMConfig, Pass, Passes, Printable, Ptr,
+        TargetLowering,
+    },
+    shared::{
+        branch::SCFToLlvmCf,
+        metadata::{CtxGridConstants, LowerEntryAbiPass},
+        polyfill::LowerComplexOpPass,
+        shared_memory::declares_shared_memory,
+        to_llvm::CubeToLLVMPass,
+    },
+};
 use core::cell::RefCell;
-use cubecl_core::ir::ContextExt;
 #[cfg(feature = "nvptx")]
 use cubecl_core::ir::nvidia::SmArch;
-use cubecl_runtime::kernel::BufferIOAttr;
-use std::rc::Rc;
-
+use cubecl_core::{
+    Compiler,
+    ir::{amd::GfxArch, dialect::scf::BranchToSCFPass, metadata::Info, rewrite::SimplifyOpsPass},
+    post_processing::{
+        bitwise::PromoteBitwisePass,
+        minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
+    },
+    prelude::*,
+};
 use cubecl_environment::backtrace::BackTrace;
 #[cfg(feature = "amdgpu")]
 use cubecl_environment::bytes::Bytes;
-use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
-#[cfg(feature = "pliron-dump")]
-use std::{path::PathBuf, str::FromStr};
-
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
     sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
-use cubecl_runtime::compiler::CompilationError;
-
-use cubecl_core::{
-    Compiler,
-    ir::amd::GfxArch,
-    ir::dialect::scf::BranchToSCFPass,
-    ir::metadata::Info,
-    ir::rewrite::SimplifyOpsPass,
-    post_processing::bitwise::PromoteBitwisePass,
-    post_processing::minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
-    prelude::*,
+use cubecl_runtime::{
+    compiler::CompilationError, config::compilation::F16Evaluation, kernel::BufferIOAttr,
 };
 use pliron::{
-    builtin::ops::{FuncOp, ModuleOp},
-    context::{Context, Ptr},
-    op::Op,
-    operation::Operation,
     operation::verify_operation,
     opts::{dce::DCEPass, mem2reg::Mem2RegPass, simplify_cfg::SimplifyCFGPass},
-    pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
-    printable::Printable,
 };
-
-#[cfg(feature = "amdgpu")]
-use crate::amdgpu::{abi::AmdGpuLowering, matrix::CtxWmma};
-use cubecl_runtime::config::compilation::F16Evaluation;
-
-use crate::cpu::{
-    abi::CpuLowering,
-    jit::engine::{KernelRequirements, PlironEngine},
-    shared_memory::SharedMemories,
-    synchronization::uses_cube_barrier,
-};
-#[cfg(feature = "nvptx")]
-use crate::nvptx::abi::NvptxLowering;
-#[cfg(feature = "nvptx")]
-use crate::nvptx::codegen::{MetadataParams, NvptxEntry};
-use crate::shared::{
-    branch::SCFToLlvmCf,
-    lowering::TargetLowering,
-    metadata::{CtxGridConstants, LowerEntryAbiPass},
-    polyfill::LowerComplexOpPass,
-    shared_memory::declares_shared_memory,
-    to_llvm::CubeToLLVMPass,
-};
-#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
-use crate::shared::{plane::CtxPlaneDim, shared_memory::CtxSharedMemory};
-use crate::target::{CtxTarget, LlvmTarget};
+use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
+use std::rc::Rc;
+#[cfg(feature = "pliron-dump")]
+use std::{path::PathBuf, str::FromStr};
 
 #[derive(Clone, Debug, Default)]
 pub struct PlironCompiler {

@@ -1,11 +1,12 @@
 //! AMDGPU plane operations.
 
-use crate::amdgpu::intrinsic::lane_id_ops;
-use crate::shared::intrinsic::i32_ty;
-use crate::shared::plane::{
-    PlaneLowering, bitcast, call_intrinsic, mask_ty, narrow_from_i32, shl, widen_to_i32,
+use crate::{
+    amdgpu::intrinsic::lane_id_ops,
+    prelude::*,
+    shared::plane::{
+        PlaneLowering, bitcast, call_intrinsic, mask_ty, narrow_from_i32, shl, widen_to_i32,
+    },
 };
-use crate::shared::to_llvm::prelude::*;
 
 /// Lane routing uses byte addresses.
 const DS_BPERMUTE: &str = "llvm.amdgcn.ds.bpermute";

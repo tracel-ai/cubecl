@@ -1,4 +1,4 @@
-use super::prelude::*;
+use crate::prelude::*;
 use cubecl_core::ir::dialect::vector::{
     self, CompositeExtractOp, CompositeInsertOp, VectorBroadcastOp, VectorExtractDynamicOp,
     VectorInsertDynamicOp,

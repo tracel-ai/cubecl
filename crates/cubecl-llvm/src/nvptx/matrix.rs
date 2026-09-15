@@ -1,22 +1,20 @@
 //! NVPTX matrix operations.
 
-use cubecl_core::ir::dialect::matrix::{
-    CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp, RowIndexOp,
-    StMatrixOp, StoreOp,
+use crate::{
+    prelude::*,
+    shared::{
+        matrix::{registers_array_ty, registers_as_vector, registers_value, vector_into_array},
+        plane::bitcast,
+    },
 };
-use cubecl_core::ir::types::matrix::MatrixType;
-use cubecl_core::ir::types::{MatrixIdent, MatrixLayout, MatrixShape};
-
-use pliron::input_err;
-use pliron::printable::Printable;
+use cubecl_core::ir::{
+    dialect::matrix::{
+        CastOp, ColIndexOp, FillOp, LdMatrixOp, LoadOp, MmaManualOp, MultiplyAccumulateOp,
+        RowIndexOp, StMatrixOp, StoreOp,
+    },
+    types::{MatrixIdent, MatrixLayout, MatrixShape, matrix::MatrixType},
+};
 use pliron_llvm::types::{StructLayout, StructType};
-use thiserror::Error;
-
-use crate::shared::matrix::{
-    registers_array_ty, registers_as_vector, registers_value, vector_into_array,
-};
-use crate::shared::plane::bitcast;
-use crate::shared::to_llvm::prelude::*;
 
 #[derive(Debug, Error)]
 #[error("no WMMA instruction takes a {0} fragment element on this target")]

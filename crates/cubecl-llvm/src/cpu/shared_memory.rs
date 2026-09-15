@@ -1,9 +1,9 @@
 //! Host-managed shared memory for CPU kernels.
 
-use cubecl_core::ir::prelude::*;
-
-use crate::shared::metadata::load_table;
-use crate::shared::shared_memory::{SharedDeclarations, SharedMemoryBlock};
+use crate::{
+    prelude::*,
+    shared::{metadata::load_table, shared_memory::SharedMemoryBlock},
+};
 
 /// Shared memory blocks and their pointer table offset.
 #[derive(Clone, Debug, Default)]

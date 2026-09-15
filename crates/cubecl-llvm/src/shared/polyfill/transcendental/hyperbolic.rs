@@ -1,8 +1,6 @@
+use super::{base::horner, exponential::exp};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::base::horner;
-use super::exponential::exp;
 
 // Degree-four Remez fit of tanh(x)/x in x² over [0, 1/4].
 const TANH_0: f32 = 1.0;

@@ -1,7 +1,6 @@
-use super::prelude::*;
+use crate::prelude::*;
 #[cfg(feature = "nvptx")]
 use cubecl_core::ir::AddressType;
-use cubecl_core::ir::ContextExt;
 use cubecl_core::ir::types::{
     ArrayType, AtomicType,
     scalar::{
@@ -9,9 +8,6 @@ use cubecl_core::ir::types::{
         FloatFlex32Type,
     },
 };
-use pliron::printable::Printable;
-
-use crate::target::{CtxTarget, LlvmTarget};
 
 /// Index width in bits. CPU and AMDGPU use 64 bits; NVPTX follows the address type.
 pub fn index_width(ctx: &Context) -> u32 {

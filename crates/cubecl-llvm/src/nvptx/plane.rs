@@ -1,8 +1,9 @@
 //! NVPTX plane operations.
 
-use crate::shared::intrinsic::i32_ty;
-use crate::shared::plane::{PlaneLowering, bitcast, call_intrinsic, narrow_from_i32, widen_to_i32};
-use crate::shared::to_llvm::prelude::*;
+use crate::{
+    prelude::*,
+    shared::plane::{PlaneLowering, bitcast, call_intrinsic, narrow_from_i32, widen_to_i32},
+};
 
 const LANEID: &str = "llvm.nvvm.read.ptx.sreg.laneid";
 

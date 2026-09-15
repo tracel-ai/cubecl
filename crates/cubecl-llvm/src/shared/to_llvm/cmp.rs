@@ -1,4 +1,4 @@
-use super::prelude::*;
+use crate::prelude::*;
 use cubecl_core::ir::dialect::cmp::*;
 
 macro_rules! lower_int_cmp {

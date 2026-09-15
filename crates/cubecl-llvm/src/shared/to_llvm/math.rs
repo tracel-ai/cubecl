@@ -1,9 +1,10 @@
-use super::prelude::*;
-use crate::target::{CtxTarget, LlvmTarget};
-use cubecl_core::ir::dialect::bitwise::*;
-use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp};
-use cubecl_core::ir::dialect::general::{BoolAndOp, BoolNotOp, BoolOrOp};
-use cubecl_core::ir::dialect::math::*;
+use crate::prelude::*;
+use cubecl_core::ir::dialect::{
+    bitwise::*,
+    cmp::{FMaxOp, FMinOp, SMaxOp, SMinOp, UMaxOp, UMinOp},
+    general::{BoolAndOp, BoolNotOp, BoolOrOp},
+    math::*,
+};
 
 macro_rules! lower_unary_intrinsic_arith {
     ($cube_op:ty => $llvm_op:expr) => {

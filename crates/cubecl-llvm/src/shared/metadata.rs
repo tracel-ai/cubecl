@@ -1,25 +1,17 @@
 //! Kernel arguments and metadata.
 
-use cubecl_core::ir::attributes::{
-    ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface, IndexAttr,
+use crate::prelude::*;
+use cubecl_core::ir::{
+    ElemType,
+    attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr},
+    dialect::{
+        general::{BufferLenOp, CastOp, ReadScalarOp, ReinterpretCastOp, ShapeOp, StrideOp},
+        math::IAddOp,
+        memory::{IndexOp, LoadOp},
+    },
+    metadata::Info,
+    types::{BytesType, PointerType, RuntimeArrayType},
 };
-use cubecl_core::ir::dialect::general::{
-    BufferLenOp, CastOp, ReadScalarOp, ReinterpretCastOp, ShapeOp, StrideOp,
-};
-use cubecl_core::ir::dialect::math::IAddOp;
-use cubecl_core::ir::dialect::memory::{IndexOp, LoadOp};
-use cubecl_core::ir::metadata::Info;
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::types::scalar::IndexType;
-use cubecl_core::ir::types::{BytesType, PointerType, RuntimeArrayType};
-use cubecl_core::ir::{AddressSpace, ElemType};
-use pliron::basic_block::BasicBlock;
-use pliron::builtin::attributes::TypeAttr;
-use pliron::builtin::ops::{ConstantOp, FuncOp};
-use pliron::builtin::types::FunctionType;
-
-use crate::shared::shared_memory::SharedDeclarations;
-use crate::shared::to_llvm::ty::cube_type_to_llvm;
 
 #[derive(Default)]
 struct BufferLens(Vec<(Ptr<Operation>, usize, Value)>);

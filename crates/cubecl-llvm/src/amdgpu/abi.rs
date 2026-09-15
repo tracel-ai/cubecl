@@ -1,16 +1,9 @@
 //! AMDGPU kernel arguments.
 
-use cubecl_core::ir::prelude::*;
-use pliron::builtin::ops::FuncOp;
-use pliron_llvm::types::PointerType as LlvmPointerType;
-
+use crate::{
+    amdgpu::builtins::InsertAmdgpuBuiltinsPass, prelude::*, shared::metadata::rebuild_func_type,
+};
 use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
-use pliron::pass::{OpPass, Passes};
-
-use crate::amdgpu::builtins::InsertAmdgpuBuiltinsPass;
-use crate::shared::lowering::TargetLowering;
-use crate::shared::metadata::{EntryArgLayout, rebuild_func_type};
-use crate::shared::shared_memory::SharedDeclarations;
 
 const GLOBAL_ADDRESS_SPACE: u32 = 1;
 

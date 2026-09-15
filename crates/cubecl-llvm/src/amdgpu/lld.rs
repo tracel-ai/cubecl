@@ -1,9 +1,13 @@
 //! AMDGPU code object linking.
 
-use std::ffi::{CString, c_char};
-use std::path::Path;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    ffi::{CString, c_char},
+    path::Path,
+    sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 unsafe extern "C" {
     fn cubecl_lld_elf_link(argv: *const *const c_char, argc: usize) -> bool;

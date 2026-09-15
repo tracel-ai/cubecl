@@ -1,8 +1,7 @@
 //! Shared LLVM intrinsic helpers.
 
+use crate::prelude::*;
 use pliron_llvm::ops::CallIntrinsicOp;
-
-use crate::shared::to_llvm::prelude::*;
 
 /// LLVM intrinsics use signless integers.
 pub fn i32_ty(ctx: &mut Context) -> TypeHandle {

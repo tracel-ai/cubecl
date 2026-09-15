@@ -1,17 +1,11 @@
 //! PTX kernel arguments.
 
-use cubecl_core::ir::prelude::*;
-use pliron::builtin::ops::FuncOp;
-
+use crate::{
+    nvptx::builtins::InsertNvptxBuiltinsPass,
+    prelude::*,
+    shared::metadata::{CtxGridConstants, rebuild_func_type},
+};
 use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
-use pliron::pass::{OpPass, Passes};
-
-use pliron_llvm::types::PointerType as LlvmPointerType;
-
-use crate::nvptx::builtins::InsertNvptxBuiltinsPass;
-use crate::shared::lowering::TargetLowering;
-use crate::shared::metadata::{CtxGridConstants, EntryArgLayout, rebuild_func_type};
-use crate::shared::shared_memory::SharedDeclarations;
 
 const GLOBAL_ADDRESS_SPACE: u32 = 1;
 

@@ -1,18 +1,13 @@
 //! NVPTX builtins.
 
-use cubecl_core::ir::attributes::EntrypointInterface;
-use cubecl_core::ir::dialect::general::ReadBuiltinOp;
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::settings::Dim3;
-use cubecl_core::ir::{Builtin, OpInserter, Scope};
-use cubecl_core::prelude::*;
-use pliron::builtin::ops::FuncOp;
-
-use crate::cpu::entrypoint::{
-    BuiltinValues, Replacer, absolute_pos, absolute_pos_x, absolute_pos_y, absolute_pos_z,
-    constant, cube_count, cube_pos, set_dim_and_cluster_constants, unit_pos,
+use crate::{
+    cpu::entrypoint::{
+        BuiltinValues, Replacer, absolute_pos, absolute_pos_x, absolute_pos_y, absolute_pos_z,
+        constant, cube_count, cube_pos, set_dim_and_cluster_constants, unit_pos,
+    },
+    prelude::*,
 };
-use crate::shared::intrinsic::{call_op, i32_ty};
+use cubecl_core::{ir::dialect::general::ReadBuiltinOp, prelude::*};
 
 const TID: [(&str, Builtin); 3] = [
     ("llvm.nvvm.read.ptx.sreg.tid.x", Builtin::UnitPosX),

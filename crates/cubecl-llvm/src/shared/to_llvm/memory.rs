@@ -1,11 +1,8 @@
-use crate::shared::to_llvm::{constant::constant_op, ty::type_alignment};
-
-use super::prelude::*;
+use crate::prelude::*;
 use cubecl_core::ir::{
     dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp},
     types::barrier::BarrierType,
 };
-use pliron::{basic_block::BasicBlock, builtin::ops::FuncOp, irbuild::inserter::OpInsertionPoint};
 
 #[op_interface_impl]
 impl ToLLVMDialect for DeclareVariableOp {

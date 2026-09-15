@@ -1,22 +1,22 @@
 //! CPU f16 evaluation precision.
 
-use cubecl_core::ir::AddressSpace;
-use cubecl_core::ir::attributes::IndexAttr;
-use cubecl_core::ir::dialect::branch::{RangeLoopOp, WhileOp};
-use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp};
-use cubecl_core::ir::dialect::general::CastOp;
-use cubecl_core::ir::dialect::math::{
-    FAddOp, FDivOp, FMulOp, FNegOp, FRemOp, FSubOp, FmaOp, RecipOp, RsqrtOp, SqrtOp,
+use crate::prelude::*;
+use cubecl_core::ir::{
+    dialect::{
+        branch::{RangeLoopOp, WhileOp},
+        cmp::{FMaxOp, FMinOp},
+        general::CastOp,
+        math::{FAddOp, FDivOp, FMulOp, FNegOp, FRemOp, FSubOp, FmaOp, RecipOp, RsqrtOp, SqrtOp},
+        memory::{DeclareVariableOp, LoadOp, StoreOp},
+    },
+    try_cast_op,
+    types::{
+        PointerType, VectorType,
+        scalar::{Float16Type, Float32Type},
+    },
 };
-use cubecl_core::ir::dialect::memory::{DeclareVariableOp, LoadOp, StoreOp};
-use cubecl_core::ir::interfaces::{MaterializableOp, TypedExt};
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::try_cast_op;
-use cubecl_core::ir::types::scalar::{Float16Type, Float32Type};
-use cubecl_core::ir::types::{PointerType, VectorType};
 use cubecl_environment::collections::HashMap;
-use pliron::builtin::ops::FuncOp;
-use pliron::graph::walkers::{WALKCONFIG_PREORDER_FORWARD, uninterruptible::mutable::walk_op};
+use pliron::graph::walkers::uninterruptible::mutable::walk_op;
 
 /// F32 evaluation of f16 arithmetic.
 pub struct EvaluateF16Pass {

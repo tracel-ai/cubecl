@@ -1,11 +1,11 @@
 //! CUDA math library support.
 
-use std::ffi::{CStr, c_char};
-use std::path::{Path, PathBuf};
-
-use llvm_sys::prelude::LLVMModuleRef;
-
 use crate::shared::math_library::{FloatWidth, MathLibrary};
+use llvm_sys::prelude::LLVMModuleRef;
+use std::{
+    ffi::{CStr, c_char},
+    path::{Path, PathBuf},
+};
 
 /// Math intrinsics provided by libdevice.
 const NO_LIBCALL: [&str; 19] = [

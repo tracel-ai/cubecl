@@ -1,13 +1,6 @@
 //! AMDGPU synchronization.
 
-use cubecl_core::ir::Scope;
-use cubecl_core::ir::prelude::*;
-use pliron_llvm::attributes::AtomicOrderingAttr;
-use pliron_llvm::attributes::SyncScopeAttr;
-use pliron_llvm::ops as llvm;
-use pliron_llvm::types::VoidType;
-
-use crate::shared::intrinsic::call_op;
+use crate::prelude::*;
 
 const S_BARRIER: &str = "llvm.amdgcn.s.barrier";
 

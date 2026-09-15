@@ -1,7 +1,6 @@
 //! LLVM compilation targets.
 
-use cubecl_core::ir::ContextExt;
-use pliron::context::Context;
+use crate::prelude::{Context, ContextExt};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LlvmTarget {

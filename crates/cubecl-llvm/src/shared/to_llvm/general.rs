@@ -1,7 +1,4 @@
-use std::hash::{DefaultHasher, Hash, Hasher};
-
-use super::{constant::constant_op, prelude::*};
-use cubecl_core::ir::attributes::ZeroAttr;
+use crate::prelude::*;
 use cubecl_core::ir::dialect::{
     barrier::{
         ArriveAndExpectTxOp, ArriveAndWaitOp, ArriveOp, CommitCopyAsyncOp, ExpectTxOp, InitOp,
@@ -9,21 +6,13 @@ use cubecl_core::ir::dialect::{
     },
     general::{CastOp, CommentOp, CopyOp, FreeOp, PrintfOp, ReinterpretCastOp, SelectOp},
 };
-use pliron::{
-    builtin::{
-        attributes::BytesAttr,
-        op_interfaces::{CallOpCallable, SymbolOpInterface},
-        ops::ModuleOp,
-    },
-    identifier::Identifier,
-    symbol_table::SymbolTableCollection,
-};
+use pliron::builtin::attributes::BytesAttr;
 use pliron_llvm::{
-    attributes::LinkageAttr,
     function_call_utils::lookup_or_insert_function,
     ops::{FPExtOp, FPTruncOp},
     types::ArrayType,
 };
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
     let ty = ty.deref(ctx);

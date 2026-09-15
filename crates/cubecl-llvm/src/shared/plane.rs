@@ -1,16 +1,10 @@
 //! Shared plane operations.
 
-use cubecl_core::ir::ContextExt;
+use crate::prelude::*;
 use cubecl_core::ir::dialect::plane::{
     AllOp, AnyOp, BallotOp, BroadcastOp, ElectOp, ShuffleDownOp, ShuffleOp, ShuffleUpOp,
     ShuffleXorOp,
 };
-use pliron::input_err;
-use thiserror::Error;
-
-use crate::shared::intrinsic::{call_op, i32_ty};
-use crate::shared::to_llvm::prelude::*;
-use crate::target::{CtxTarget, LlvmTarget};
 
 pub(crate) const CTTZ: &str = "llvm.cttz";
 

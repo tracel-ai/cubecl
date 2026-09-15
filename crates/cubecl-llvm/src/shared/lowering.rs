@@ -1,9 +1,6 @@
 //! Target-specific lowering.
 
-use pliron::builtin::ops::FuncOp;
-use pliron::pass::{OpPass, Passes};
-
-use crate::shared::metadata::EntryArgLayout;
+use crate::prelude::{EntryArgLayout, FuncOp, OpPass, Passes};
 
 /// Target passes and kernel argument layout.
 pub trait TargetLowering {

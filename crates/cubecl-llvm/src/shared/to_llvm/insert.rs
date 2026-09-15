@@ -1,5 +1,4 @@
-use super::prelude::*;
-use pliron::builtin::op_interfaces::OneResultInterface;
+use crate::prelude::*;
 
 pub fn insert<O: Op + OneResultInterface>(
     ctx: &mut Context,

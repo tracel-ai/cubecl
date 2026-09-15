@@ -1,7 +1,6 @@
 //! AMDGPU lane intrinsics.
 
-use crate::shared::intrinsic::{call_op, i32_const_op, i32_ty};
-use crate::shared::to_llvm::prelude::*;
+use crate::prelude::*;
 
 const MBCNT_LO: &str = "llvm.amdgcn.mbcnt.lo";
 const MBCNT_HI: &str = "llvm.amdgcn.mbcnt.hi";

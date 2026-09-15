@@ -1,14 +1,12 @@
 //! CPU operation lowering.
 
-use crate::cpu::ordered_atomic::{
-    OrderedAtomicFetchAddOp, OrderedAtomicLoadOp, OrderedAtomicStoreOp,
+use crate::{
+    cpu::{
+        ordered_atomic::{OrderedAtomicFetchAddOp, OrderedAtomicLoadOp, OrderedAtomicStoreOp},
+        synchronization::SpinLoopHintOp,
+    },
+    prelude::*,
 };
-use crate::cpu::synchronization::SpinLoopHintOp;
-use crate::shared::to_llvm::prelude::*;
-use crate::shared::to_llvm::ty::scalar_alignment;
-
-use pliron_llvm::attributes::{AtomicRmwKindAttr, SyncScopeAttr};
-use pliron_llvm::types::VoidType;
 
 const fn spin_loop_instruction() -> Option<&'static str> {
     if cfg!(any(target_arch = "x86", target_arch = "x86_64")) {

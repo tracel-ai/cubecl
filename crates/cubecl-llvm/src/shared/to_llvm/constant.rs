@@ -1,13 +1,10 @@
-use super::prelude::*;
+use crate::prelude::*;
 use cubecl_core::ir::{
-    attributes::{BoolAttr, FloatAttr, IndexAttr, ZeroAttr},
+    attributes::{BoolAttr, FloatAttr},
     types::Fp8Format,
 };
 use half::f16;
-use pliron::{
-    builtin::ops::ConstantOp,
-    utils::apfloat::{self, Float},
-};
+use pliron::utils::apfloat::{self, Float};
 use pliron_llvm::ops::ZeroOp;
 
 /// LLVM width for vector indices, intrinsic flags and allocation sizes.

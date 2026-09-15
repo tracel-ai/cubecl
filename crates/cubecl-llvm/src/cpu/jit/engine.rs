@@ -1,17 +1,22 @@
-use cubecl_runtime::kernel::BufferIOAttr;
-use std::ffi::c_void;
-use std::fmt::Display;
-use std::sync::{Arc, Once};
-
-use pliron::builtin::ops::ModuleOp;
-use pliron::context::Context;
-use pliron_llvm::llvm_sys::core::{LLVMContext, LLVMMemoryBuffer, LLVMModule};
-use pliron_llvm::llvm_sys::lljit::LLVMLLJIT;
-use pliron_llvm::llvm_sys::target::initialize_native;
-use pliron_llvm::to_llvm_ir;
-
 use super::data::PlironData;
-use crate::cpu::shared_memory::SharedMemories;
+use crate::{
+    cpu::shared_memory::SharedMemories,
+    prelude::{Context, ModuleOp},
+};
+use cubecl_runtime::kernel::BufferIOAttr;
+use pliron_llvm::{
+    llvm_sys::{
+        core::{LLVMContext, LLVMMemoryBuffer, LLVMModule},
+        lljit::LLVMLLJIT,
+        target::initialize_native,
+    },
+    to_llvm_ir,
+};
+use std::{
+    ffi::c_void,
+    fmt::Display,
+    sync::{Arc, Once},
+};
 
 /// Kernel ABI: buffer pointers, cube count x/y/z, unit position x/y/z,
 /// barrier state, metadata.

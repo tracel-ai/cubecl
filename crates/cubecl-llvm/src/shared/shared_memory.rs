@@ -1,17 +1,9 @@
 //! Shared memory allocation and layout.
 
-use cubecl_core::ir::AddressSpace;
+use crate::prelude::*;
 use cubecl_core::ir::dialect::memory::DeclareVariableOp;
-use cubecl_core::ir::interfaces::SizedType;
-use cubecl_core::ir::prelude::*;
 use cubecl_opt::passes::alloc_shared_memory::{AllocSharedOp, SliceSharedOp};
-use pliron::builtin::ops::ModuleOp;
-use pliron::identifier::Identifier;
-use pliron::symbol_table::SymbolTableCollection;
-use pliron_llvm::attributes::LinkageAttr;
 use pliron_llvm::types::ArrayType;
-
-use crate::shared::to_llvm::prelude::*;
 
 /// Shared memory block required for a launch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

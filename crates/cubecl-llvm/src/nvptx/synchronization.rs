@@ -1,10 +1,6 @@
 //! NVPTX synchronization. CTA and warp barriers also order memory.
 
-use cubecl_core::ir::Scope;
-use cubecl_core::ir::prelude::*;
-use pliron_llvm::types::VoidType;
-
-use crate::shared::intrinsic::{call_op, i32_const_op};
+use crate::prelude::*;
 
 const BARRIER_CTA: &str = "llvm.nvvm.barrier.cta.sync.aligned.all";
 

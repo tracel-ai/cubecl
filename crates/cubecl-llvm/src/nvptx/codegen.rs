@@ -1,18 +1,19 @@
 //! PTX code generation.
 
-use pliron::builtin::ops::ModuleOp;
-use pliron::context::Context;
-use pliron_llvm::llvm_sys::core::LLVMContext;
-use pliron_llvm::to_llvm_ir;
-use std::ffi::{CStr, CString};
-use std::sync::Once;
-
-use crate::nvptx::libdevice::{Libdevice, link_libdevice};
-use crate::nvptx::printf::lower_printf_to_vprintf;
-use crate::shared::NvptxModule;
-use crate::shared::math_library::redirect_intrinsics;
-use cubecl_core::ir::attributes::BufferIOAttr;
+use crate::{
+    nvptx::{
+        libdevice::{Libdevice, link_libdevice},
+        printf::lower_printf_to_vprintf,
+    },
+    prelude::{BufferIOAttr, Context, ModuleOp},
+    shared::{NvptxModule, math_library::redirect_intrinsics},
+};
 use cubecl_core::ir::nvidia::SmArch;
+use pliron_llvm::{llvm_sys::core::LLVMContext, to_llvm_ir};
+use std::{
+    ffi::{CStr, CString},
+    sync::Once,
+};
 
 const TRIPLE: &CStr = c"nvptx64-nvidia-cuda";
 

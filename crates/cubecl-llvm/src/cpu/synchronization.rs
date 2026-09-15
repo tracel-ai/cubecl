@@ -1,20 +1,17 @@
 //! CPU cube synchronization.
 
-use cubecl_core::ir::attributes::EntrypointInterface;
-use cubecl_core::ir::dialect::synchronization::{SyncOp, SyncScope};
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::{Scope, dialect::base::OperationPtrExt};
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl};
-use pliron::builtin::ops::FuncOp;
-use pliron::builtin::types::{IntegerType, Signedness};
-use pliron::dict_key;
-use pliron_llvm::ops as llvm;
-
-use crate::cpu::entrypoint::runtime_arg;
-use crate::cpu::ordered_atomic::{
-    atomic_fetch_add_acq_rel, atomic_load_acquire, atomic_store_release,
+use crate::{
+    cpu::{
+        entrypoint::runtime_arg,
+        ordered_atomic::{atomic_fetch_add_acq_rel, atomic_load_acquire, atomic_store_release},
+    },
+    prelude::*,
 };
+use cubecl_core::{
+    ir::dialect::synchronization::{SyncOp, SyncScope},
+    prelude::*,
+};
+use pliron::dict_key;
 
 dict_key!(
     /// Kernel argument for the cube barrier state.
