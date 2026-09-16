@@ -425,10 +425,7 @@ pub fn register_metal_features(
     false
 }
 
-/// The card behind `adapter`, `None` for a software adapter such as llvmpipe or when nothing about
-/// the card is known, as on Metal and WebGPU.
-///
-/// wgpu reports the vendor; Vulkan and DirectX 12 say which card it is.
+/// The card behind `adapter`, `None` for a software adapter or when nothing is known about it.
 #[cfg_attr(not(any(feature = "spirv", windows)), expect(unused_variables))]
 pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<PhysicalDevice> {
     if info.device_type == wgpu::DeviceType::Cpu {

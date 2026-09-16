@@ -100,30 +100,24 @@ pub struct DeviceIdentity {
     /// Verbatim the `compilation_store` fingerprint, so a namespace read back
     /// out of a bundle compares against it directly.
     pub fingerprint: String,
-    /// The card behind the device, `None` when the runtime can say nothing about one, as for a
-    /// CPU.
+    /// The card behind the device, `None` when the runtime knows nothing about it.
     pub physical: Option<PhysicalDevice>,
 }
 
-/// The card a device runs on, so one card reached through two runtimes (an NVIDIA GPU under
-/// CUDA and under Vulkan, an Intel GPU under DirectX 12 and Vulkan) is recognized as one card.
-///
-/// The derived `==` compares what each runtime happened to report, so two runtimes on one card
-/// can differ; [`is_same_card`](Self::is_same_card) is the comparison that means "one card".
+/// The card a device runs on. Two runtimes report different fields for one card, so compare with
+/// [`is_same_card`](Self::is_same_card), not `==`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
 pub struct PhysicalDevice {
-    /// The card's address on the PCI bus, which every runtime on Linux reports alike.
+    /// The key every runtime reports alike on Linux.
     pub pci_address: Option<PciAddress>,
-    /// The adapter's Windows LUID, which every runtime on Windows reports alike.
+    /// The key every runtime reports alike on Windows.
     pub luid: Option<AdapterLuid>,
-    /// Who makes the card.
     pub vendor: Option<PciVendor>,
 }
 
 impl PhysicalDevice {
-    /// Whether `other` is this card seen through another runtime: the same PCI address when both
-    /// report one, otherwise the same LUID. A device with neither is only ever its own card.
+    /// Whether `other` is this card through another runtime: by PCI address, otherwise by LUID.
     pub fn is_same_card(&self, other: &Self) -> bool {
         if let (Some(mine), Some(theirs)) = (self.pci_address, other.pci_address) {
             return mine == theirs;
@@ -132,23 +126,17 @@ impl PhysicalDevice {
     }
 }
 
-/// The locally unique id Windows gives a graphics adapter when its driver loads, which DirectX,
-/// Vulkan and CUDA all report on Windows.
-///
-/// It changes on a restart, and can change when the driver restarts, so it tells two devices of
-/// one running process apart and nothing more. A key that is stored, cached or sent elsewhere
-/// wants [`PhysicalDevice::pci_address`]; this type has no serialization and no text form so it
-/// cannot end up in one by accident.
+/// The id Windows gives a graphics adapter. It changes on restart, so it has no serialization or
+/// text form: a stored key wants [`PhysicalDevice::pci_address`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AdapterLuid([u8; 8]);
 
 impl AdapterLuid {
-    /// From the eight bytes of a Windows `LUID`, low part first, as Vulkan and CUDA report it.
+    /// From the eight bytes of a Windows `LUID`, low part first.
     pub fn new(bytes: [u8; 8]) -> Self {
         Self(bytes)
     }
 
-    /// From the two halves of a Windows `LUID`, as DXGI reports it.
     pub fn from_parts(low_part: u32, high_part: i32) -> Self {
         let mut bytes = [0; 8];
         bytes[..4].copy_from_slice(&low_part.to_le_bytes());
@@ -156,34 +144,26 @@ impl AdapterLuid {
         Self(bytes)
     }
 
-    /// The bytes [`new`](Self::new) takes.
     pub fn bytes(self) -> [u8; 8] {
         self.0
     }
 }
 
-/// The maker of a card, by PCI vendor id. The vendors with a runtime here are named; any
-/// other keeps its id.
+/// The maker of a card, by PCI vendor id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PciVendor {
-    /// PCI vendor id `0x10de`.
     Nvidia,
-    /// PCI vendor id `0x1002`.
     Amd,
-    /// PCI vendor id `0x8086`.
     Intel,
-    /// PCI vendor id `0x106b`.
     Apple,
-    /// PCI vendor id `0x13b5`, the Mali GPUs.
+    /// Mali GPUs.
     Arm,
-    /// PCI vendor id `0x5143`, the Adreno GPUs.
+    /// Adreno GPUs.
     Qualcomm,
-    /// A vendor this crate does not name.
     Other(u32),
 }
 
 impl PciVendor {
-    /// The PCI vendor id.
     pub fn id(self) -> u32 {
         match self {
             Self::Nvidia => 0x10de,
@@ -225,17 +205,12 @@ impl fmt::Display for PciVendor {
     }
 }
 
-/// A function's address on the PCI bus, `domain:bus:device.function`, spelled `0000:07:00.0`
-/// as `lspci -D` and sysfs spell it. CUDA and NVML call this same string the bus id.
+/// `domain:bus:device.function`, written `0000:07:00.0`. CUDA and NVML call it the bus id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PciAddress {
-    /// The PCI domain (segment).
     pub domain: u32,
-    /// The bus number.
     pub bus: u8,
-    /// The device number on the bus.
     pub device: u8,
-    /// The function of the device.
     pub function: u8,
 }
 
@@ -249,7 +224,6 @@ impl fmt::Display for PciAddress {
     }
 }
 
-/// A PCI address that could not be parsed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PciAddressError(pub String);
 
@@ -264,7 +238,7 @@ impl core::error::Error for PciAddressError {}
 impl FromStr for PciAddress {
     type Err = PciAddressError;
 
-    /// Accepts `0000:07:00.0` and the domainless `07:00.0` CUDA also emits.
+    /// Also accepts the domainless `07:00.0` CUDA emits.
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let err = || PciAddressError(String::from(text));
         let (rest, function) = text.rsplit_once('.').ok_or_else(err)?;

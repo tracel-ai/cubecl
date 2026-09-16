@@ -1,6 +1,4 @@
-//! Prints who each device is, through every runtime this build reaches it with, then which
-//! devices are one card. A card visible to CUDA and Vulkan must report one PCI address both ways;
-//! on Windows, DirectX 12 and Vulkan must report one LUID.
+//! Prints every device this build reaches, then which of them are the same card.
 
 #[cfg(feature = "cuda")]
 use cubecl::cuda::{CudaDevice, CudaRuntime};

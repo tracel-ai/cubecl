@@ -825,8 +825,6 @@ where
     Ok(compiled)
 }
 
-/// Fill what only Vulkan reports about the card behind `adapter`: the PCI address behind
-/// `VK_EXT_pci_bus_info`, and the Windows LUID where the driver has one.
 pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::PhysicalDevice) {
     // SAFETY: the hal adapter is only read while `adapter` keeps it alive.
     let Some(hal_adapter) = (unsafe { adapter.as_hal::<hal::api::Vulkan>() }) else {
@@ -848,8 +846,7 @@ pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::Physical
     if has_pci {
         properties = properties.push_next(&mut pci);
     }
-    // SAFETY: the physical device belongs to this instance, both 1.1, and every structure chained
-    // onto `properties` is one the instance knows, the PCI one only when its extension is present.
+    // SAFETY: both are 1.1, and the PCI structure is chained only when its extension is present.
     unsafe {
         instance
             .raw_instance()

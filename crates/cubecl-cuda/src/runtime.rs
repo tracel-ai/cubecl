@@ -552,14 +552,11 @@ impl Runtime for CudaRuntime {
     }
 }
 
-/// What the driver says about a device before its context exists. A query the driver refuses
-/// leaves its field empty rather than failing initialization: none of this is needed to run a
-/// kernel.
+/// What the driver says about a device. A refused query leaves its field empty rather than
+/// failing initialization.
 struct DeviceProbe {
-    /// The marketing name, the only signal for tensor cores, so a driver that declines to give
-    /// one costs the tensor-core exception and nothing else.
+    /// The only signal for tensor cores.
     name: String,
-    /// The card itself, for telling it apart from the same card under Vulkan.
     physical: PhysicalDevice,
 }
 
@@ -583,8 +580,7 @@ impl DeviceProbe {
         {
             let mut luid = [0 as core::ffi::c_char; 8];
             let mut node_mask = 0;
-            // SAFETY: the driver writes eight bytes into `luid` and one mask, both outliving the
-            // call.
+            // SAFETY: both out-parameters outlive the call and `luid` has the eight bytes written.
             physical.luid = unsafe { cuDeviceGetLuid(luid.as_mut_ptr(), &mut node_mask, device) }
                 .result()
                 .ok()

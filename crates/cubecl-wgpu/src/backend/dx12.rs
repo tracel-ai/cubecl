@@ -1,7 +1,6 @@
 use cubecl_ir::{AdapterLuid, PhysicalDevice};
 use wgpu::hal;
 
-/// Fills the adapter LUID from DXGI, which reports no PCI address.
 pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut PhysicalDevice) {
     // SAFETY: the DXGI adapter is only read, while `adapter` keeps it alive.
     let Some(hal_adapter) = (unsafe { adapter.as_hal::<hal::api::Dx12>() }) else {

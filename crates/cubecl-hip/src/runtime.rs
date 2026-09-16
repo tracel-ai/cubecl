@@ -320,7 +320,6 @@ struct DeviceProbe {
     /// An APU, sharing its memory and IOMMU with the host. The drop queue
     /// flushes more often on one, to keep the GPU off a 0-to-100% transition.
     integrated: bool,
-    /// The card itself, for telling it apart from the same card under Vulkan.
     physical: PhysicalDevice,
 }
 
