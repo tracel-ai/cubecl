@@ -242,10 +242,9 @@ impl DeviceService for CudaServer {
         }
 
         // Consumer Blackwell (sm_120/121) shares Blackwell's base ISA but lacks the
-        // im2col TMA and cluster-shared/multicast TMA that the datacenter parts carry.
-        // ptxas assembles `cp.async.bulk.tensor ... im2col` for sm_120a, but the
-        // hardware traps it at launch (CUDA_ERROR_ILLEGAL_INSTRUCTION), so im2col TMA
-        // must not be advertised there. Tiled TMA (`Tma::Base`) does run and stays on.
+        // im2col TMA and cluster-shared/multicast TMA. ptxas assembles
+        // `cp.async.bulk.tensor ... im2col` for sm_120a, but the hardware traps it at
+        // launch (CUDA_ERROR_ILLEGAL_INSTRUCTION).
         let is_consumer_blackwell = (120..130).contains(&arch_version);
         if arch_version >= 90 {
             device_props.features.tma.insert(Tma::Base);
