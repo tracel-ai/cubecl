@@ -70,7 +70,7 @@ fn sweep(
 /// The largest working set `access` can be probed at: the largest window one
 /// buffer holds, times the buffers the access touches.
 fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
-    let max_alloc = client.properties().memory.max_page_size;
+    let max_alloc = memory_probe::servable_alloc(client);
 
     memory_probe::window_cap(max_alloc) * access.buffers()
 }

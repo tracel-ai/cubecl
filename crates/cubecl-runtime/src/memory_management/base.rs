@@ -174,6 +174,43 @@ pub struct MemoryReport {
     pub persistent: MemoryPoolReport,
 }
 
+impl MemoryReport {
+    /// The largest allocation the installed dynamic layout accepts, or `None`
+    /// where a pool accepts any size.
+    ///
+    /// This is what an allocation is routed against, unlike
+    /// [`MemoryDeviceProperties::max_page_size`], which sizes the default
+    /// layouts and says nothing about an installed one. A caller free to pick
+    /// its own size asks this, so a workload-sized layout narrows it instead of
+    /// refusing it.
+    pub fn max_servable(&self) -> Option<u64> {
+        let mut max = 0;
+
+        for pool in &self.dynamic {
+            match pool.kind {
+                MemoryPoolKind::Direct => return None,
+                // An uncapped sliced pool also takes near-page-size strays, so
+                // its page is the ceiling; a capped one routes on slice alone.
+                MemoryPoolKind::Sliced {
+                    page_size,
+                    max_slice_size,
+                    max_pool_size,
+                } => {
+                    max = max.max(match max_pool_size {
+                        None => page_size,
+                        Some(_) => max_slice_size,
+                    });
+                }
+                MemoryPoolKind::Exclusive { max_alloc_size } => max = max.max(max_alloc_size),
+                // Reserved for an explicit persistent window, never routed here.
+                MemoryPoolKind::Persistent => {}
+            }
+        }
+
+        Some(max)
+    }
+}
+
 /// The managed tensor buffer handle that points to some memory segment.
 /// It should not contain actual data.
 pub trait MemoryHandle<Binding>: Clone + core::fmt::Debug {
@@ -181,4 +218,96 @@ pub trait MemoryHandle<Binding>: Clone + core::fmt::Debug {
     fn can_mut(&self) -> bool;
     /// Get the binding associated to the current handle.
     fn binding(self) -> Binding;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    const MB: u64 = 1024 * 1024;
+
+    fn pool(kind: MemoryPoolKind) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind,
+            usage: MemoryUsage::default(),
+            pages: 0,
+            pages_peak: 0,
+            pages_unmapped: 0,
+            largest_alloc: 0,
+        }
+    }
+
+    fn report(dynamic: Vec<MemoryPoolReport>) -> MemoryReport {
+        MemoryReport {
+            dynamic,
+            persistent: pool(MemoryPoolKind::Persistent),
+        }
+    }
+
+    /// The ceiling is the most permissive pool, since an allocation is offered
+    /// to each in turn.
+    #[test]
+    fn the_widest_pool_sets_the_ceiling() {
+        let layout = report(vec![
+            pool(MemoryPoolKind::Sliced {
+                page_size: 8 * MB,
+                max_slice_size: 64 * 1024,
+                max_pool_size: None,
+            }),
+            pool(MemoryPoolKind::Exclusive {
+                max_alloc_size: 256 * MB,
+            }),
+        ]);
+
+        assert_eq!(layout.max_servable(), Some(256 * MB));
+    }
+
+    /// An uncapped sliced pool takes an allocation the size of its page, where
+    /// a capped one takes nothing above its slice.
+    #[test]
+    fn a_cap_holds_a_sliced_pool_to_its_slice() {
+        let uncapped = report(vec![pool(MemoryPoolKind::Sliced {
+            page_size: 513 * MB,
+            max_slice_size: 64 * MB,
+            max_pool_size: None,
+        })]);
+        assert_eq!(uncapped.max_servable(), Some(513 * MB));
+
+        let capped = report(vec![pool(MemoryPoolKind::Sliced {
+            page_size: 513 * MB,
+            max_slice_size: 64 * MB,
+            max_pool_size: Some(2 * 513 * MB),
+        })]);
+        assert_eq!(capped.max_servable(), Some(64 * MB));
+    }
+
+    /// A direct pool sizes every reservation to the request, so the layout
+    /// names no ceiling at all.
+    #[test]
+    fn a_direct_pool_has_no_ceiling() {
+        let layout = report(vec![
+            pool(MemoryPoolKind::Exclusive {
+                max_alloc_size: 64 * MB,
+            }),
+            pool(MemoryPoolKind::Direct),
+        ]);
+
+        assert_eq!(layout.max_servable(), None);
+    }
+
+    /// The persistent pool serves explicit windows, not the routing an
+    /// ordinary allocation takes, so it never raises the ceiling.
+    #[test]
+    fn the_persistent_pool_is_not_a_dynamic_ceiling() {
+        let layout = report(vec![
+            pool(MemoryPoolKind::Exclusive {
+                max_alloc_size: 64 * MB,
+            }),
+            pool(MemoryPoolKind::Persistent),
+        ]);
+
+        assert_eq!(layout.max_servable(), Some(64 * MB));
+        assert_eq!(report(vec![]).max_servable(), Some(0));
+    }
 }

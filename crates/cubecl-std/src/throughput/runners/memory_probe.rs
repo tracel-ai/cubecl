@@ -19,6 +19,33 @@ pub(crate) fn window_cap(max_alloc: u64) -> u64 {
     (DEFAULT_WORKING_SET_BYTES.min(max_alloc / POOL_WINDOWS as u64)).max(1)
 }
 
+/// What one probe buffer may ask for: the device's own limit, narrowed to what
+/// the installed pool layout will actually serve.
+///
+/// A workload-sized layout refuses allocations the device could host, and the
+/// probe picks its own size, so it asks for one it can get.
+///
+/// Never narrowed below [`DEFAULT_WORKING_SET_BYTES`]: a pool smaller than that
+/// is served from cache. Such a layout keeps the device's own limit instead, so
+/// the allocation fails, today by panicking the device thread. That is the
+/// deliberate trade: a peak measured out of cache is persisted, and silently
+/// divides every later measurement.
+pub(crate) fn servable_alloc(client: &Client) -> u64 {
+    probe_alloc(
+        client.properties().memory.max_page_size,
+        client.memory_report().max_servable(),
+    )
+}
+
+/// [`servable_alloc`]'s rule, with the device reduced to the two numbers it
+/// decides on so the floor can be exercised without one.
+fn probe_alloc(device: u64, servable: Option<u64>) -> u64 {
+    match servable {
+        Some(servable) if servable >= DEFAULT_WORKING_SET_BYTES => device.min(servable),
+        _ => device,
+    }
+}
+
 /// The buffer geometry and launch shape a memory probe uses to move a working
 /// set of a given size in one pass.
 ///
@@ -95,7 +122,7 @@ impl MemoryProbe {
     pub fn new(client: &Client, config: LaunchConfig, line_bytes: usize, spec: MemorySpec) -> Self {
         let blocked = config.plane_size == 1;
         let shape = DeviceShape {
-            max_alloc: client.properties().memory.max_page_size as usize,
+            max_alloc: servable_alloc(client) as usize,
             cube_dim: config.cube_dim.num_elems() as usize,
             cube_count: if blocked { 1 } else { config.cube_count },
         };
@@ -200,6 +227,39 @@ mod tests {
     fn probe(working_set: usize, access: MemoryAccess) -> MemoryProbe {
         let spec = MemorySpec::new(access, working_set as u64);
         MemoryProbe::sized(DEVICE, 16, spec, false)
+    }
+
+    /// A layout that serves less than the device could still gets a probe,
+    /// sized to what it will hand out rather than to what the device could.
+    #[test]
+    fn a_narrow_layout_narrows_the_buffer() {
+        let shape = DeviceShape {
+            max_alloc: 513 * MB,
+            ..DEVICE
+        };
+        let spec = MemorySpec::new(MemoryAccess::Copy, 1024 * MB as u64);
+        let probe = MemoryProbe::sized(shape, 16, spec, false);
+
+        assert_eq!(probe.buffer_bytes, 513 * MB);
+        assert!(probe.buffer_bytes <= shape.max_alloc);
+    }
+
+    /// The floor on that narrowing. A pool below the default working set is
+    /// served from cache, and a reading taken there would be cached as the
+    /// device's peak, so the probe keeps asking for what the device allows and
+    /// lets the allocation fail instead.
+    #[test]
+    fn a_layout_too_small_to_measure_is_not_followed_down() {
+        let device = 4096 * MB as u64;
+        let floor = DEFAULT_WORKING_SET_BYTES;
+
+        assert_eq!(probe_alloc(device, Some(floor)), floor);
+        assert_eq!(probe_alloc(device, Some(floor - 1)), device);
+        assert_eq!(probe_alloc(device, Some(8 * KB as u64)), device);
+
+        // A pool accepting any size, and a layout looser than the device.
+        assert_eq!(probe_alloc(device, None), device);
+        assert_eq!(probe_alloc(device, Some(8192 * MB as u64)), device);
     }
 
     #[test]
