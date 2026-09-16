@@ -7,7 +7,7 @@ use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, UIntKind};
 use cubecl_server::client::Client;
-use cubecl_server::server::{CubeCount, Handle, KernelArguments, ServerError};
+use cubecl_server::server::{CubeCount, Handle, KernelArguments, ReduceOperation, ServerError};
 use cubecl_server::{local_tuner, tune::LocalTuner};
 use dummy::*;
 
@@ -115,12 +115,9 @@ fn a_transfer_between_devices_of_the_same_runtime_round_trips() {
     assert_eq!(destination.read_one(transferred).unwrap().to_vec(), bytes);
 }
 
-/// A collective on a runtime with no transport between its devices stops on the calling
-/// thread. Left to the server, it would fail on the device thread, where the channel turns a
-/// panic into a log line and the first sign is a later read of memory that was never written.
 #[test_log::test]
 #[should_panic(expected = "no transport between its devices")]
-fn a_collective_without_a_device_transport_panics_on_the_caller() {
+fn a_transfer_without_a_device_transport_panics_on_the_caller() {
     let mut source = test_client(&DummyDevice);
     let destination = Client::load::<DummyServer>(DeviceId::new(0, 1));
     let handle = source.create_from_slice(&[1u8, 2, 3, 4]);
@@ -128,6 +125,28 @@ fn a_collective_without_a_device_transport_panics_on_the_caller() {
 
     let descriptor = handle.copy_descriptor([4].into(), [1].into(), 1);
     source.to_client_tensor(descriptor, &destination, ElemType::UInt(UIntKind::U8));
+}
+
+#[test_log::test]
+#[should_panic(expected = "no transport between its devices")]
+fn an_all_reduce_without_a_device_transport_panics_on_the_caller() {
+    let mut client = test_client(&DummyDevice);
+    let handle = client.create_from_slice(&[1u8, 2, 3, 4]);
+    let device_ids = vec![DeviceId::new(0, 0), DeviceId::new(0, 1)];
+
+    client.all_reduce(
+        handle.clone(),
+        handle,
+        ElemType::UInt(UIntKind::U8),
+        device_ids,
+        ReduceOperation::Sum,
+    );
+}
+
+#[test_log::test]
+fn a_sync_collective_without_a_device_transport_waits_for_nothing() {
+    let client = test_client(&DummyDevice);
+    client.sync_collective();
 }
 
 /// Two clients of different runtimes are the same type now, so nothing but

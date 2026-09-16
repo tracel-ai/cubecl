@@ -21,7 +21,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     hash::{BuildHasher, Hash},
 };
 use cubecl_common::{
@@ -136,8 +136,9 @@ pub struct ServerUtilities {
     /// How to create the allocation.
     pub layout_policy: Box<dyn MemoryLayoutPolicy>,
     /// Whether the server can move data to a peer server of the same runtime
-    /// directly, without a round trip through the host. Off unless the
-    /// backend turns it on at init.
+    /// directly, without a round trip through the host: the device transport
+    /// `Client::has_device_transport` reports. Off unless the backend turns it
+    /// on at init.
     pub server_comm_enabled: bool,
     /// How to enforce bounds checking on kernels.
     pub check_mode: BoundsCheckMode,
@@ -306,6 +307,34 @@ impl core::fmt::Debug for ResourceLimitError {
     }
 }
 
+/// A collective operation between the devices of one runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub enum Collective {
+    /// Setting up the communication between a group of devices.
+    CommInit,
+    /// Reducing a buffer across a group of devices.
+    AllReduce,
+    /// Sending a buffer to a peer device.
+    Send,
+    /// Receiving a buffer from a peer device.
+    Recv,
+    /// Waiting for queued collectives to finish.
+    SyncCollective,
+}
+
+impl Display for Collective {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::CommInit => "comm_init",
+            Self::AllReduce => "all_reduce",
+            Self::Send => "send",
+            Self::Recv => "recv",
+            Self::SyncCollective => "sync_collective",
+        })
+    }
+}
+
 /// Error that can happen asynchronously while executing registered kernels.
 #[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
@@ -333,14 +362,14 @@ pub enum ServerError {
     },
 
     /// The runtime has no transport between its devices, so the collective was
-    /// not run. `Client::to_client` copies through the host instead; a caller
-    /// reaching the collective itself asked this runtime for what it cannot do.
+    /// not run. Its own variant rather than a `Generic` reason, so a caller can
+    /// tell a runtime that cannot do this apart from a collective that failed.
     #[error(
         "{operation} needs a transport between devices, and this runtime has none\nBacktrace:\n{backtrace}"
     )]
     NoDeviceTransport {
         /// The collective that was asked for.
-        operation: String,
+        operation: Collective,
         /// The backtrace for this error.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
@@ -456,9 +485,9 @@ impl Debug for ServerError {
 
 impl ServerError {
     /// The error every collective returns on a runtime with no transport between devices.
-    pub fn no_device_transport(operation: &str) -> Self {
+    pub fn no_device_transport(operation: Collective) -> Self {
         Self::NoDeviceTransport {
-            operation: operation.into(),
+            operation,
             backtrace: BackTrace::capture(),
         }
     }
@@ -816,6 +845,10 @@ pub enum ReduceOperation {
 /// failed [`launch`](Server::launch) does). Skipping either lets a
 /// collective reduce stale bytes across every device in the group, or leave a
 /// destination that reads back clean when nothing wrote it.
+///
+/// The default methods are for a runtime with no transport between its devices:
+/// each returns [`ServerError::NoDeviceTransport`] before touching any buffer, so
+/// there is no destination to taint.
 pub trait ServerCommunication {
     /// Ensure that all queued collective operations have been executed.
     ///
@@ -826,10 +859,13 @@ pub trait ServerCommunication {
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
+    ///
+    /// # Errors
+    ///
+    /// The default returns [`ServerError::NoDeviceTransport`].
     #[allow(unused_variables)]
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        // No communication stream means nothing to wait for.
-        Ok(())
+        Err(ServerError::no_device_transport(Collective::SyncCollective))
     }
 
     /// Initialize the communication between the devices in `device_ids`.
@@ -841,9 +877,13 @@ pub trait ServerCommunication {
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
+    ///
+    /// # Errors
+    ///
+    /// The default returns [`ServerError::NoDeviceTransport`].
     #[allow(unused_variables)]
     fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
-        Err(ServerError::no_device_transport("comm_init"))
+        Err(ServerError::no_device_transport(Collective::CommInit))
     }
 
     /// Performs an `all_reduce` operation on the input data and writes it to the output buffer.
@@ -861,6 +901,10 @@ pub trait ServerCommunication {
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
+    ///
+    /// # Errors
+    ///
+    /// The default returns [`ServerError::NoDeviceTransport`].
     #[allow(unused_variables)]
     fn all_reduce(
         &mut self,
@@ -871,7 +915,7 @@ pub trait ServerCommunication {
         op: ReduceOperation,
         device_ids: Vec<DeviceId>,
     ) -> Result<(), ServerError> {
-        Err(ServerError::no_device_transport("all_reduce"))
+        Err(ServerError::no_device_transport(Collective::AllReduce))
     }
 
     /// Sends data from this server to a destination server.
@@ -896,6 +940,10 @@ pub trait ServerCommunication {
     /// is still right: completing the send would launder stale bytes onto a
     /// handle that carries no claim on the other device. Cross-device
     /// failure propagation needs a design pass of its own.
+    ///
+    /// # Errors
+    ///
+    /// The default returns [`ServerError::NoDeviceTransport`].
     #[allow(unused_variables)]
     fn send(
         &mut self,
@@ -904,7 +952,7 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
-        Err(ServerError::no_device_transport("send"))
+        Err(ServerError::no_device_transport(Collective::Send))
     }
 
     /// Receive data from another server.
@@ -919,6 +967,10 @@ pub trait ServerCommunication {
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
+    ///
+    /// # Errors
+    ///
+    /// The default returns [`ServerError::NoDeviceTransport`].
     #[allow(unused_variables)]
     fn recv(
         &mut self,
@@ -927,7 +979,7 @@ pub trait ServerCommunication {
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
-        Err(ServerError::no_device_transport("recv"))
+        Err(ServerError::no_device_transport(Collective::Recv))
     }
 }
 
