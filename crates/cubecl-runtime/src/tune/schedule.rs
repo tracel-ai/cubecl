@@ -20,8 +20,7 @@ pub(crate) struct BatchOutcome {
     pub(crate) steps: Vec<(String, Duration)>,
     pub(crate) short_circuit: Option<String>,
     pub(crate) any_success: bool,
-    /// The index the round robin picked, when it produced one. See [`Schedule::outcome`] for why
-    /// the caller must not re-derive it by comparing the results.
+    /// Candidate selected by the scheduler.
     pub(crate) decided: Option<usize>,
 }
 
@@ -44,17 +43,17 @@ pub(crate) struct Schedule<'i> {
     pub(crate) limit: Option<Duration>,
     pub(crate) short_circuit: bool,
     pub(crate) track_steps: bool,
-    /// What runs before every measured sample, when the set registered one.
     pub(crate) evictor: Option<Box<Evictor<'i>>>,
 }
 
 impl Schedule<'_> {
-    /// Benchmark one batch of candidates, blocking until the batch is decided.
+    /// Benchmark one batch of candidates, resolving once the batch is decided.
     ///
-    /// Takes exclusive device access for the entire round robin: candidates are interleaved, so
-    /// releasing the device between them would let unrelated work land in the middle of a
-    /// measurement.
-    pub(crate) fn run_batch<'a, F: TuneInputs, Out: AutotuneOutput>(
+    /// Natively this takes exclusive device access for the entire round robin: candidates are
+    /// interleaved, so releasing the device between them would let unrelated work land in the
+    /// middle of a measurement. The browser has no exclusive access to take; there the round
+    /// robin runs on the event loop.
+    pub(crate) async fn run_batch<'a, F: TuneInputs, Out: AutotuneOutput>(
         &mut self,
         indices: Vec<usize>,
         autotunables: &[&TuneFn<F, Out>],
@@ -64,31 +63,44 @@ impl Schedule<'_> {
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
-        let fallback = indices.clone();
-        let run = || {
+        #[cfg(target_family = "wasm")]
+        {
             let _real_run = crate::dry_run::RealRun::new();
+            self.drive(indices, autotunables, inputs, client).await
+        }
 
-            cubecl_environment::future::block_on(self.drive(indices, autotunables, inputs, client))
-        };
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let fallback = indices.clone();
+            let run = || {
+                let _real_run = crate::dry_run::RealRun::new();
+                cubecl_environment::future::block_on(self.drive(
+                    indices,
+                    autotunables,
+                    inputs,
+                    client,
+                ))
+            };
 
-        match client.clone().exclusive(run) {
-            Ok(outcome) => outcome,
-            Err(err) => BatchOutcome {
-                results: fallback
-                    .into_iter()
-                    .map(|index| {
-                        let error = AutotuneError::Unknown {
-                            name: autotunables[index].name.to_string(),
-                            err: err.to_string(),
-                        };
-                        (index, AutotuneResult::error(error))
-                    })
-                    .collect(),
-                steps: Vec::new(),
-                short_circuit: None,
-                any_success: false,
-                decided: None,
-            },
+            match client.clone().exclusive(run) {
+                Ok(outcome) => outcome,
+                Err(err) => BatchOutcome {
+                    results: fallback
+                        .into_iter()
+                        .map(|index| {
+                            let error = AutotuneError::Unknown {
+                                name: autotunables[index].name.to_string(),
+                                err: err.to_string(),
+                            };
+                            (index, AutotuneResult::error(error))
+                        })
+                        .collect(),
+                    steps: Vec::new(),
+                    short_circuit: None,
+                    any_success: false,
+                    decided: None,
+                },
+            }
         }
     }
 
@@ -394,7 +406,7 @@ impl Schedule<'_> {
     }
 
     /// Walk the plan batch by batch until one produces a usable measurement.
-    pub(crate) fn run_plan<'a, K, F, Out>(
+    pub(crate) async fn run_plan<'a, K, F, Out>(
         &mut self,
         key: &K,
         plan: &mut TunePlan,
@@ -451,7 +463,9 @@ impl Schedule<'_> {
                 );
             }
 
-            let outcome = self.run_batch(indices, autotunables, inputs.clone(), client);
+            let outcome = self
+                .run_batch(indices, autotunables, inputs.clone(), client)
+                .await;
 
             for (index, result) in outcome.results {
                 results[index] = result;

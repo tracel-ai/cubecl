@@ -24,7 +24,7 @@
 
 use crate::sync::{AtomicU32, Ordering};
 use alloc::string::{String, ToString};
-#[cfg(std_io)]
+#[cfg(any(std_io, browser_cache))]
 use alloc::vec::Vec;
 
 use crate::persistence::{StoreKey, StoreValue};
@@ -278,6 +278,15 @@ pub fn list() -> Vec<String> {
     names
 }
 
+/// Opens the active environment's storage ahead of its first use, from a
+/// place that can await: what a browser page does before its device comes
+/// up, so the launch path finds the storage open and reads its picks in the
+/// first call that needs them rather than running a fallback while the
+/// storage opens behind it. See [`persistence::open_ahead`](crate::persistence::open_ahead).
+pub async fn open() {
+    crate::persistence::open_ahead().await
+}
+
 /// A [`Store`] created from the options, bound to the active environment
 /// whenever the options name a storage.
 ///
@@ -286,10 +295,11 @@ pub fn list() -> Vec<String> {
 ///     StoreOptions::new()
 ///         .storage(Namespace::new("cuda/ptx"))
 ///         .cache(CacheOption::Lazy),
-/// );
+/// )
+/// .await;
 /// ```
-pub fn store<K: StoreKey, V: StoreValue>(options: StoreOptions) -> Store<K, V> {
-    Store::new(options)
+pub async fn store<K: StoreKey, V: StoreValue>(options: StoreOptions) -> Store<K, V> {
+    Store::open(options).await
 }
 
 /// The active environment, captured for shipping.
@@ -322,7 +332,7 @@ impl Bundle {
     /// A thin front for [`bundle::export`](crate::bundle::export) over this
     /// one environment; use `export` directly to merge several roots or
     /// restrict the namespaces.
-    pub fn save<P: AsRef<std::path::Path>>(
+    pub async fn save<P: AsRef<std::path::Path>>(
         &self,
         out: P,
         format: crate::bundle::BundleFormat,
@@ -333,7 +343,7 @@ impl Bundle {
             ..Default::default()
         };
 
-        crate::bundle::export(&[&self.source], out, &options)
+        crate::bundle::export(&[&self.source], out, &options).await
     }
 }
 
@@ -341,19 +351,9 @@ impl Bundle {
 ///
 /// This is what you consult before bundling, to see which namespaces are warm
 /// and worth shipping.
-#[cfg(std_io)]
-pub fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
-    #[cfg(native_cache)]
-    match crate::persistence::Database::open_active() {
-        Some(database) => database.summary(),
-        // No database means nothing was ever written to disk; whatever this
-        // process warmed is in memory.
-        None => crate::persistence::MemoryStorage::namespaces(),
-    }
-
-    // Without a persistence backend there is nothing durable to report on.
-    #[cfg(not(native_cache))]
-    crate::persistence::MemoryStorage::namespaces()
+#[cfg(any(std_io, browser_cache))]
+pub async fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
+    crate::persistence::summary().await
 }
 
 #[cfg(test)]

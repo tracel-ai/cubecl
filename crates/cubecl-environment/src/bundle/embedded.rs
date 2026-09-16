@@ -102,7 +102,7 @@ impl core::error::Error for EmbeddedBundleError {}
 /// static BUNDLE: &[u8] = include_bytes!("../bundles/h100.ccb");
 ///
 /// let bundle = EmbeddedBundle::from_static(BUNDLE).expect("valid bundle");
-/// bundle::import(&bundle);
+/// bundle::import(&bundle).await;
 /// ```
 #[derive(Debug)]
 pub struct EmbeddedBundle {
