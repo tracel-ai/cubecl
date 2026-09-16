@@ -69,8 +69,12 @@ fn sweep(
 
 /// The largest working set `access` can be probed at: the largest window one
 /// buffer holds, times the buffers the access touches.
+///
+/// The line the probe holds back is not known here and not worth threading a
+/// launch through: a sweep point over the probe's own window by that line is
+/// clamped back to it, the way every point above the cap already is.
 fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
-    let max_alloc = memory_probe::servable_alloc(client);
+    let max_alloc = memory_probe::buffer_cap(client, access, 0);
 
     memory_probe::window_cap(max_alloc) * access.buffers()
 }

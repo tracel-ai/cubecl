@@ -174,8 +174,44 @@ pub struct MemoryReport {
     pub persistent: MemoryPoolReport,
 }
 
+impl MemoryPoolKind {
+    /// The largest size each of `allocs` equally sized allocations may take
+    /// while all of them are held, or `None` where the pool accepts any size.
+    ///
+    /// A capped pool holds whole pages and a slice never spans two, so what
+    /// bounds a set of equal allocations is how many of them a page fits:
+    /// `ceil(allocs / pages)` share one, and each may take that fraction of it.
+    /// Alignment padding is not modelled, so a request at the ceiling can still
+    /// pad past it, as can an allocation of another size held alongside.
+    fn max_servable(&self, allocs: u64) -> Option<u64> {
+        match *self {
+            // Every reservation is sized to the request.
+            Self::Direct => None,
+            // An uncapped sliced pool grows a page per allocation and takes
+            // near-page-size strays, so its page is the ceiling. A capped one
+            // routes on slice size, within the pages it may hold.
+            Self::Sliced {
+                page_size,
+                max_slice_size,
+                max_pool_size,
+            } => Some(match max_pool_size {
+                None => page_size,
+                Some(cap) => {
+                    let pages = (cap / page_size.max(1)).max(1);
+
+                    max_slice_size.min(page_size / allocs.div_ceil(pages))
+                }
+            }),
+            Self::Exclusive { max_alloc_size } => Some(max_alloc_size),
+            // Reserved for an explicit persistent window, never routed here.
+            Self::Persistent => Some(0),
+        }
+    }
+}
+
 impl MemoryReport {
-    /// The largest allocation the installed dynamic layout accepts, or `None`
+    /// The largest size each of `allocs` equally sized allocations may take
+    /// while all of them are held by the installed dynamic layout, or `None`
     /// where a pool accepts any size.
     ///
     /// This is what an allocation is routed against, unlike
@@ -183,28 +219,19 @@ impl MemoryReport {
     /// layouts and says nothing about an installed one. A caller free to pick
     /// its own size asks this, so a workload-sized layout narrows it instead of
     /// refusing it.
-    pub fn max_servable(&self) -> Option<u64> {
+    ///
+    /// A capped pool bounds what it holds at once, not what it accepts once,
+    /// so a caller keeping several buffers live asks for `allocs` of them. Any
+    /// allocation of a *different* size held alongside is the caller's to make
+    /// room for.
+    pub fn max_servable(&self, allocs: u64) -> Option<u64> {
+        let allocs = allocs.max(1);
         let mut max = 0;
 
+        // An allocation is offered to each pool in turn, so the most permissive
+        // one sets the ceiling.
         for pool in &self.dynamic {
-            match pool.kind {
-                MemoryPoolKind::Direct => return None,
-                // An uncapped sliced pool also takes near-page-size strays, so
-                // its page is the ceiling; a capped one routes on slice alone.
-                MemoryPoolKind::Sliced {
-                    page_size,
-                    max_slice_size,
-                    max_pool_size,
-                } => {
-                    max = max.max(match max_pool_size {
-                        None => page_size,
-                        Some(_) => max_slice_size,
-                    });
-                }
-                MemoryPoolKind::Exclusive { max_alloc_size } => max = max.max(max_alloc_size),
-                // Reserved for an explicit persistent window, never routed here.
-                MemoryPoolKind::Persistent => {}
-            }
+            max = max.max(pool.kind.max_servable(allocs)?);
         }
 
         Some(max)
@@ -245,8 +272,7 @@ mod tests {
         }
     }
 
-    /// The ceiling is the most permissive pool, since an allocation is offered
-    /// to each in turn.
+    /// The ceiling is the most permissive pool.
     #[test]
     fn the_widest_pool_sets_the_ceiling() {
         let layout = report(vec![
@@ -260,7 +286,7 @@ mod tests {
             }),
         ]);
 
-        assert_eq!(layout.max_servable(), Some(256 * MB));
+        assert_eq!(layout.max_servable(1), Some(256 * MB));
     }
 
     /// An uncapped sliced pool takes an allocation the size of its page, where
@@ -272,14 +298,55 @@ mod tests {
             max_slice_size: 64 * MB,
             max_pool_size: None,
         })]);
-        assert_eq!(uncapped.max_servable(), Some(513 * MB));
+        assert_eq!(uncapped.max_servable(1), Some(513 * MB));
 
         let capped = report(vec![pool(MemoryPoolKind::Sliced {
             page_size: 513 * MB,
             max_slice_size: 64 * MB,
             max_pool_size: Some(2 * 513 * MB),
         })]);
-        assert_eq!(capped.max_servable(), Some(64 * MB));
+        assert_eq!(capped.max_servable(1), Some(64 * MB));
+    }
+
+    /// Allocations a capped pool cannot spread over pages of its own share a
+    /// page, so each may take a fraction of one.
+    #[test]
+    fn allocations_beyond_the_pages_share_one() {
+        let layout = |pages: u64| {
+            report(vec![pool(MemoryPoolKind::Sliced {
+                page_size: 512 * MB,
+                max_slice_size: 512 * MB,
+                max_pool_size: Some(pages * 512 * MB),
+            })])
+        };
+
+        // A page each, so the slice limit stands.
+        assert_eq!(layout(2).max_servable(2), Some(512 * MB));
+        // Both in one page, so each takes half of it.
+        assert_eq!(layout(1).max_servable(2), Some(256 * MB));
+        assert_eq!(layout(1).max_servable(3), Some(512 * MB / 3));
+        // Three across two pages: two of them share.
+        assert_eq!(layout(2).max_servable(3), Some(256 * MB));
+        // Holding nothing is holding one.
+        assert_eq!(layout(1).max_servable(0), layout(1).max_servable(1));
+    }
+
+    /// An uncapped pool grows a page per allocation, so holding several
+    /// narrows nothing.
+    #[test]
+    fn an_uncapped_pool_serves_any_number() {
+        let layout = report(vec![
+            pool(MemoryPoolKind::Sliced {
+                page_size: 512 * MB,
+                max_slice_size: 64 * MB,
+                max_pool_size: None,
+            }),
+            pool(MemoryPoolKind::Exclusive {
+                max_alloc_size: 256 * MB,
+            }),
+        ]);
+
+        assert_eq!(layout.max_servable(8), Some(512 * MB));
     }
 
     /// A direct pool sizes every reservation to the request, so the layout
@@ -293,7 +360,7 @@ mod tests {
             pool(MemoryPoolKind::Direct),
         ]);
 
-        assert_eq!(layout.max_servable(), None);
+        assert_eq!(layout.max_servable(1), None);
     }
 
     /// The persistent pool serves explicit windows, not the routing an
@@ -307,7 +374,7 @@ mod tests {
             pool(MemoryPoolKind::Persistent),
         ]);
 
-        assert_eq!(layout.max_servable(), Some(64 * MB));
-        assert_eq!(report(vec![]).max_servable(), Some(0));
+        assert_eq!(layout.max_servable(1), Some(64 * MB));
+        assert_eq!(report(vec![]).max_servable(1), Some(0));
     }
 }
