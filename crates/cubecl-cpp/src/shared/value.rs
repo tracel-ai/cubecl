@@ -121,11 +121,12 @@ impl CppConstantAttr for ZeroAttr {
 }
 
 shared_op_with_out!(ConstantOp, |op, ctx| {
-    format_const(ctx, op.get_value(ctx), op.get_result(ctx).get_type(ctx))
+    let attr = op.get_attr_builtin_constant_value(ctx).unwrap();
+    format_const(ctx, &attr, op.get_result(ctx).get_type(ctx))
 });
 
-pub(crate) fn format_const(ctx: &Context, value: AttrObj, ty: TypeHandle) -> String {
-    let const_attr = attr_cast::<dyn CppConstantAttr>(&*value).expect("Should be constant attr");
+pub(crate) fn format_const(ctx: &Context, value: &AttrObj, ty: TypeHandle) -> String {
+    let const_attr = attr_cast::<dyn CppConstantAttr>(&**value).expect("Should be constant attr");
     if let Some(attr) = value.downcast_ref::<FloatAttr>() {
         let val = attr.float_type(ctx).value_to_f64(attr.val);
         // minifloats are represented as raw bits, so use special handling

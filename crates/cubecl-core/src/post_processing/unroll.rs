@@ -603,7 +603,7 @@ impl UnrollPass {
     fn unroll_func(&self, ctx: &mut Context, op: Ptr<Operation>) {
         let func = op.as_op::<FuncOp>(ctx).expect("Should be func");
         let entry_block = func.get_entry_block(ctx);
-        let func_ty = func.get_attr_func_type(ctx).unwrap().get_type(ctx);
+        let func_ty = func.get_attr_builtin_func_type(ctx).unwrap().get_type(ctx);
         let func_ty = func_ty.deref(ctx);
         let func_ty = func_ty.downcast_ref::<FunctionType>().unwrap();
 
@@ -621,7 +621,7 @@ impl UnrollPass {
         }
 
         let new_func_ty = FunctionType::get(ctx, new_func_inputs, func_ty.res_types()).to_handle();
-        func.set_attr_func_type(ctx, new_func_ty.into());
+        func.set_attr_builtin_func_type(ctx, new_func_ty.into());
     }
 }
 

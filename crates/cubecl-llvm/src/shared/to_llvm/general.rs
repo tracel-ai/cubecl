@@ -11,7 +11,6 @@ use cubecl_core::ir::dialect::{
 };
 use pliron::{
     builtin::{
-        attributes::BytesAttr,
         op_interfaces::{CallOpCallable, SymbolOpInterface},
         ops::ModuleOp,
     },
@@ -19,7 +18,7 @@ use pliron::{
     symbol_table::SymbolTableCollection,
 };
 use pliron_llvm::{
-    attributes::LinkageAttr,
+    attributes::{BytesAttr, LinkageAttr},
     function_call_utils::lookup_or_insert_function,
     ops::{FPExtOp, FPTruncOp},
     types::ArrayType,

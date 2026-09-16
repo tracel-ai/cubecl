@@ -3034,7 +3034,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 [[package]]
 name = "pliron"
 version = "0.17.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=e23ff9faa16425f2bd995aa92d960dee6721f9aa#e23ff9faa16425f2bd995aa92d960dee6721f9aa"
+source = "git+https://github.com/pliron-org/pliron.git?rev=fa72d7f36385438173b8008f709ef179d0f4069e#fa72d7f36385438173b8008f709ef179d0f4069e"
 dependencies = [
  "awint",
  "combine",
@@ -3061,7 +3061,7 @@ dependencies = [
 [[package]]
 name = "pliron-derive"
 version = "0.17.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=e23ff9faa16425f2bd995aa92d960dee6721f9aa#e23ff9faa16425f2bd995aa92d960dee6721f9aa"
+source = "git+https://github.com/pliron-org/pliron.git?rev=fa72d7f36385438173b8008f709ef179d0f4069e#fa72d7f36385438173b8008f709ef179d0f4069e"
 dependencies = [
  "combine",
  "convert_case 0.11.0",
@@ -3075,7 +3075,7 @@ dependencies = [
 [[package]]
 name = "pliron-llvm"
 version = "0.17.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=e23ff9faa16425f2bd995aa92d960dee6721f9aa#e23ff9faa16425f2bd995aa92d960dee6721f9aa"
+source = "git+https://github.com/pliron-org/pliron.git?rev=fa72d7f36385438173b8008f709ef179d0f4069e#fa72d7f36385438173b8008f709ef179d0f4069e"
 dependencies = [
  "bitflags 2.13.1",
  "llvm-sys",
@@ -3087,7 +3087,7 @@ dependencies = [
 [[package]]
 name = "pliron-spirv"
 version = "0.14.1+sdk-1.4.357.0"
-source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=12e0e9b056956778ee824dc954dd37a50eb6d886#12e0e9b056956778ee824dc954dd37a50eb6d886"
+source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=0a51b9d88f033d47fc1111f10a87190ad782512d#0a51b9d88f033d47fc1111f10a87190ad782512d"
 dependencies = [
  "derive-new",
  "derive_more",
@@ -4311,7 +4311,7 @@ dependencies = [
 [[package]]
 name = "tracel-rspirv"
 version = "0.14.1+sdk-1.4.357.0"
-source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=12e0e9b056956778ee824dc954dd37a50eb6d886#12e0e9b056956778ee824dc954dd37a50eb6d886"
+source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=0a51b9d88f033d47fc1111f10a87190ad782512d#0a51b9d88f033d47fc1111f10a87190ad782512d"
 dependencies = [
  "bitflags 2.13.1",
  "pliron",

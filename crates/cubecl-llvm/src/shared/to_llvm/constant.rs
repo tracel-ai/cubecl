@@ -5,6 +5,7 @@ use cubecl_core::ir::{
 };
 use half::f16;
 use pliron::{
+    attribute::boxed_attr_cast,
     builtin::ops::ConstantOp,
     utils::apfloat::{self, Float},
 };
@@ -42,7 +43,7 @@ pub fn insert_int_const(
     value: i128,
 ) -> Value {
     let attr = int_attr(ctx, width, value);
-    let op = llvm::ConstantOp::new(ctx, attr.into());
+    let op = llvm::ConstantOp::new(ctx, Box::new(attr));
     rewriter.insert_op(ctx, &op);
     op.get_result(ctx)
 }
@@ -88,6 +89,7 @@ pub fn constant_op(ctx: &mut Context, value: AttrObj) -> Ptr<Operation> {
         ZeroOp::new(ctx, ty).get_operation()
     } else {
         let attr = convert_attr(ctx, value);
+        let attr = boxed_attr_cast(attr).unwrap();
         llvm::ConstantOp::new(ctx, attr).get_operation()
     }
 }
@@ -100,7 +102,7 @@ impl ToLLVMDialect for ConstantOp {
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let value = self.get_value(ctx);
+        let value = self.get_attr_builtin_constant_value(ctx).unwrap().clone();
 
         let llvm_const = constant_op(ctx, value);
         rewriter.insert_operation(ctx, llvm_const);
