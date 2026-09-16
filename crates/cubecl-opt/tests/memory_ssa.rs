@@ -756,6 +756,59 @@ fn memory_ssa_non_aliasing_defs_are_skipped() -> Result<()> {
 }
 
 #[test]
+fn memory_ssa_places_phi_after_iterated_dominance_frontier() -> Result<()> {
+    let input = r#"
+    builtin.func @f: builtin.function <(cube.bool, cube.bool) -> ()> [] {
+      ^entry(outer_cond: cube.bool, inner_cond: cube.bool):
+        cf.branch_conditional if outer_cond ^outer() else ^exit()
+
+      ^outer():
+        cf.branch_conditional if inner_cond ^write() else ^merge()
+
+      ^write():
+        memory_ssa.memory_def;
+        cf.branch ^merge()
+
+      ^merge():
+        cf.branch ^exit()
+
+      ^exit():
+        memory_ssa.memory_use;
+        branch.return
+    }
+  "#;
+
+    let ctx = &mut Context::default();
+    let printed = run_memory_ssa_on_text(ctx, input)?;
+
+    expect![[r#"
+        MemorySSA {
+          entry_block1v1:
+            cf.branch_conditional if outer_cond_v0 ^outer_block4v1() else ^exit_block5v3();
+
+          outer_block4v1:
+            cf.branch_conditional if inner_cond_v1 ^write_block6v1() else ^merge_block2v5();
+
+          write_block6v1:
+            ; M3 = MemoryDef(LiveOnEntry, WriteAll)
+            memory_ssa.memory_def;
+            cf.branch ^merge_block2v5();
+
+          ; M2 = MemoryPhi({outer_block4v1 -> LiveOnEntry}, {write_block6v1 -> M3})
+          merge_block2v5:
+            cf.branch ^exit_block5v3();
+
+          ; M1 = MemoryPhi({entry_block1v1 -> LiveOnEntry}, {merge_block2v5 -> M2})
+          exit_block5v3:
+            ; MemoryUse(M1, ReadAll)
+            memory_ssa.memory_use;
+            branch.return;
+
+        }"#]].assert_eq(&printed);
+    Ok(())
+}
+
+#[test]
 fn memory_ssa_optimized_use_skips_non_aliasing_defs() -> Result<()> {
     let input = r#"
     builtin.func @f: builtin.function <() -> ()> [] {

@@ -23,8 +23,7 @@ use itertools::Itertools;
 use pliron::{
     basic_block::BasicBlock,
     graph::{
-        ControlFlowGraph, HasLabel,
-        dominance::{DomFrontierMap, DomInfo},
+        ControlFlowGraph, HasLabel, dominance::DomInfo,
         walkers::uninterruptible::immutable::walk_region,
     },
     linked_list::ContainsLinkedList,
@@ -35,7 +34,10 @@ use pliron::{
     value::DefiningEntity,
 };
 
-use crate::analyses::alias_analysis::{AliasAnalysis, AliasAnalysisStack};
+use crate::analyses::{
+    alias_analysis::{AliasAnalysis, AliasAnalysisStack},
+    dominance::DomFrontierCalculator,
+};
 
 type MemoryEffectsMap = HMap<Ptr<Operation>, NodeMemoryEffects>;
 type RegionMemoryEffectsMap = IMap<Ptr<Region>, MemoryEffectsMap>;
@@ -164,16 +166,15 @@ impl MemoryOpAnalyzer<'_> {
         defining_blocks: &SmallSet<Ptr<BasicBlock>, 16>,
         merge_points: &mut ISet<Ptr<BasicBlock>>,
     ) {
-        if region.is_empty(ctx) {
+        if region.deref(ctx).iter(ctx).count() <= 1 {
             return;
         }
 
         let dom_tree = self.dom_info.get_dom_tree(ctx, region);
-        let frontiers = DomFrontierMap::new(ctx, &region, dom_tree);
+        let frontiers =
+            DomFrontierCalculator::new(ctx, &region, dom_tree, defining_blocks.iter().copied());
 
-        for block in defining_blocks.iter() {
-            merge_points.extend(frontiers.frontier(block));
-        }
+        merge_points.extend(frontiers.compute());
     }
 
     fn compute_info(&mut self, ctx: &Context) -> MemorySSAInfo {
