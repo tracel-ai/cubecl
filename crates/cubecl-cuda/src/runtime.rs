@@ -15,8 +15,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, IntKind, MemoryDeviceProperties, MmaProperties, OpaqueType,
-        TargetProperties, Type, UIntKind, VectorSize,
+        HardwareProperties, IntKind, MemoryDeviceProperties, MmaProperties, OpaqueType, PciVendor,
+        PhysicalDevice, TargetProperties, Type, UIntKind, VectorSize,
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
         nvidia::SmArch,
     },

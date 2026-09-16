@@ -1,62 +1,47 @@
 //! Prints every device this build reaches, then which of them are the same card.
 
-#[cfg(feature = "cuda")]
-use cubecl::cuda::{CudaDevice, CudaRuntime};
-use cubecl::ir::{DeviceIdentity, PhysicalDevice};
-#[cfg(feature = "wgpu")]
-use cubecl::wgpu::{AutoCompiler, WgpuBackend, WgpuDevice, WgpuDeviceKind, WgpuRuntime};
-#[cfg(any(feature = "cuda", feature = "wgpu"))]
-use cubecl_runtime::runtime::Runtime;
+use cubecl::{
+    Device,
+    device::{WgpuBackend, WgpuDeviceKind},
+    ir::{DeviceIdentity, PhysicalDevice},
+};
 
 fn main() {
-    #[cfg_attr(not(any(feature = "cuda", feature = "wgpu")), expect(unused_mut))]
-    let mut devices: Vec<(String, DeviceIdentity)> = Vec::new();
+    let mut devices: Vec<(String, Device)> = (0..)
+        .map_while(|index| Some((format!("cuda:{index}"), Device::cuda(index).ok()?)))
+        .collect();
 
-    #[cfg(feature = "cuda")]
-    if cudarc::driver::result::init().is_ok() {
-        let count = cudarc::driver::result::device::get_count().unwrap_or(0) as usize;
-        for index in 0..count {
-            let client = CudaRuntime::client(&CudaDevice { index });
-            devices.push((
-                format!("cuda:{index}"),
-                client.properties().identity.clone(),
-            ));
-        }
-    }
-
-    #[cfg(feature = "wgpu")]
-    for (backends, backend, api) in [
-        (wgpu::Backends::VULKAN, WgpuBackend::Vulkan, "vulkan"),
-        (wgpu::Backends::DX12, WgpuBackend::Dx12, "dx12"),
-    ] {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends,
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
-        let adapters = cubecl_environment::future::block_on(instance.enumerate_adapters(backends));
-        let count = |kind| {
-            adapters
-                .iter()
-                .filter(|adapter| adapter.get_info().device_type == kind)
-                .count()
-        };
-        let kinds = (0..count(wgpu::DeviceType::DiscreteGpu))
-            .map(WgpuDeviceKind::DiscreteGpu)
-            .chain((0..count(wgpu::DeviceType::IntegratedGpu)).map(WgpuDeviceKind::IntegratedGpu))
-            .chain((0..count(wgpu::DeviceType::VirtualGpu)).map(WgpuDeviceKind::VirtualGpu));
+    for api in [WgpuBackend::Vulkan, WgpuBackend::Dx12] {
+        let kinds = [
+            WgpuDeviceKind::DiscreteGpu,
+            WgpuDeviceKind::IntegratedGpu,
+            WgpuDeviceKind::VirtualGpu,
+        ];
         for kind in kinds {
-            let label = format!("{api}:{kind:?}");
-            let client = WgpuRuntime::<AutoCompiler>::client(&WgpuDevice { kind, backend });
-            devices.push((label, client.properties().identity.clone()));
+            for index in 0.. {
+                let device = match api {
+                    WgpuBackend::Vulkan => Device::vulkan(kind(index)),
+                    _ => Device::dx12(kind(index)),
+                };
+                let Ok(device) = device else {
+                    break;
+                };
+                devices.push((format!("{api:?}:{:?}", kind(index)), device));
+            }
         }
     }
 
-    for (label, identity) in &devices {
+    let identities: Vec<(String, DeviceIdentity)> = devices
+        .into_iter()
+        .map(|(label, device)| (label, device.client().properties().identity.clone()))
+        .collect();
+
+    for (label, identity) in &identities {
         report(label, identity);
     }
 
     let mut cards: Vec<(&PhysicalDevice, Vec<&str>)> = Vec::new();
-    for (label, identity) in &devices {
+    for (label, identity) in &identities {
         let Some(physical) = &identity.physical else {
             continue;
         };

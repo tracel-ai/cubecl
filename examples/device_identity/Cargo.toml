@@ -1,19 +1,17 @@
 [package]
 authors = []
-edition.workspace = true
-license.workspace = true
 name = "device_identity"
 publish = false
+edition.workspace = true
+license.workspace = true
 version.workspace = true
 
 [features]
-cuda = ["cubecl/cuda", "dep:cudarc"]
-default = ["wgpu"]
-wgpu = ["cubecl/wgpu-spirv"]
+# Vulkan and DirectX 12 are both wgpu, so the default reaches every GPU API but CUDA.
+# `--features cuda` adds it.
+default = ["vulkan"]
+vulkan = ["cubecl/vulkan"]
+cuda = ["cubecl/cuda"]
 
 [dependencies]
 cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.4" }
-cubecl-environment = { path = "../../crates/cubecl-environment", version = "=0.11.0-pre.4" }
-cubecl-runtime = { path = "../../crates/cubecl-runtime", version = "=0.11.0-pre.4" }
-cudarc = { workspace = true, optional = true }
-wgpu = { workspace = true, features = ["fragile-send-sync-non-atomic-wasm"] }
