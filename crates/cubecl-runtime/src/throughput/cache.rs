@@ -94,7 +94,9 @@ impl ThroughputCache {
 /// share a peak.
 fn device_key(runtime: &str, identity: &DeviceIdentity, capacity: u64, parallelism: u32) -> String {
     let DeviceIdentity {
-        name, fingerprint, ..
+        name,
+        fingerprint,
+        physical: _,
     } = identity;
     // A namespace is a path, and a runtime names itself `wgpu<spirv>`.
     let segment = |text: &str| text.replace(|c: char| !c.is_ascii_alphanumeric(), "-");

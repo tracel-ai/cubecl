@@ -425,28 +425,25 @@ pub fn register_metal_features(
     false
 }
 
-/// The card behind `adapter`, `None` for a software adapter such as llvmpipe.
+/// The card behind `adapter`, `None` for a software adapter such as llvmpipe or when nothing about
+/// the card is known, as on Metal and WebGPU.
 ///
-/// wgpu names the part; Vulkan and DirectX 12 say which card it is and how much memory it has.
+/// wgpu reports the vendor; Vulkan and DirectX 12 say which card it is.
 #[cfg_attr(not(any(feature = "spirv", windows)), expect(unused_variables))]
 pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<PhysicalDevice> {
     if info.device_type == wgpu::DeviceType::Cpu {
         return None;
     }
-    #[cfg_attr(not(any(feature = "spirv", windows)), expect(unused_mut))]
-    let mut physical = PhysicalDevice {
-        // Metal and WebGPU leave both ids at zero rather than report none.
-        vendor: (info.vendor != 0).then(|| info.vendor.into()),
-        device_id: (info.device != 0).then_some(info.device),
-        ..Default::default()
-    };
+    let mut physical = PhysicalDevice::default();
+    // Metal and WebGPU report a zero vendor rather than none.
+    physical.vendor = (info.vendor != 0).then(|| info.vendor.into());
     #[cfg(feature = "spirv")]
     if is_vulkan(adapter) {
         vulkan::describe_card(adapter, &mut physical);
     }
     #[cfg(windows)]
     dx12::describe_card(adapter, &mut physical);
-    Some(physical)
+    (physical != PhysicalDevice::default()).then_some(physical)
 }
 
 #[cfg(feature = "spirv")]

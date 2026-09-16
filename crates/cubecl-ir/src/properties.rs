@@ -78,7 +78,7 @@ pub struct MemoryDeviceProperties {
 
 /// Who a device is, and what its compiled code is keyed to.
 ///
-/// The two fields answer different questions and must not be confused. `name`
+/// `name` and `fingerprint` answer different questions and must not be confused. `name`
 /// is for people: it names the physical part, and two machines holding the same
 /// part report the same name. `fingerprint` is for correctness: it is verbatim
 /// the string this runtime passes to
@@ -100,31 +100,36 @@ pub struct DeviceIdentity {
     /// Verbatim the `compilation_store` fingerprint, so a namespace read back
     /// out of a bundle compares against it directly.
     pub fingerprint: String,
-    /// The card behind the device, `None` for a CPU or a virtual device.
+    /// The card behind the device, `None` when the runtime can say nothing about one, as for a
+    /// CPU.
     pub physical: Option<PhysicalDevice>,
 }
 
-/// The card a device runs on, so one card reached through two runtimes (an
-/// NVIDIA GPU under CUDA and under Vulkan) is recognized as one card.
+/// The card a device runs on, so one card reached through two runtimes (an NVIDIA GPU under
+/// CUDA and under Vulkan, an Intel GPU under DirectX 12 and Vulkan) is recognized as one card.
 ///
-/// `pci_address` is the key wherever the runtime reads it: every runtime that
-/// sees a card on a bus reports the same address. `uuid` is the driver's own id and
-/// NVIDIA reports one through CUDA and Vulkan; other vendors may not. The
-/// ids and memory are what a placement needs to size a card.
+/// The derived `==` compares what each runtime happened to report, so two runtimes on one card
+/// can differ; [`is_same_card`](Self::is_same_card) is the comparison that means "one card".
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub struct PhysicalDevice {
-    /// The card's address on the PCI bus, when the runtime reports it.
+    /// The card's address on the PCI bus, which every runtime on Linux reports alike.
     pub pci_address: Option<PciAddress>,
-    /// The driver's id for the card, when the runtime reports it.
-    pub uuid: Option<[u8; 16]>,
-    /// Who makes the card, when the runtime reports it.
-    pub vendor: Option<PciVendor>,
-    /// PCI device id of the part, when the runtime reports it.
-    pub device_id: Option<u32>,
-    /// Bytes of memory on the card, when the runtime reports it.
-    pub total_memory: Option<u64>,
-    /// The adapter's Windows LUID, which only holds until the machine restarts.
+    /// The adapter's Windows LUID, which every runtime on Windows reports alike.
     pub luid: Option<AdapterLuid>,
+    /// Who makes the card.
+    pub vendor: Option<PciVendor>,
+}
+
+impl PhysicalDevice {
+    /// Whether `other` is this card seen through another runtime: the same PCI address when both
+    /// report one, otherwise the same LUID. A device with neither is only ever its own card.
+    pub fn is_same_card(&self, other: &Self) -> bool {
+        if let (Some(mine), Some(theirs)) = (self.pci_address, other.pci_address) {
+            return mine == theirs;
+        }
+        matches!((self.luid, other.luid), (Some(mine), Some(theirs)) if mine == theirs)
+    }
 }
 
 /// The locally unique id Windows gives a graphics adapter when its driver loads, which DirectX,
@@ -132,37 +137,28 @@ pub struct PhysicalDevice {
 ///
 /// It changes on a restart, and can change when the driver restarts, so it tells two devices of
 /// one running process apart and nothing more. A key that is stored, cached or sent elsewhere
-/// wants [`PhysicalDevice::pci_address`] or [`PhysicalDevice::uuid`]; this type has no
-/// serialization and no text form so it cannot end up in one by accident.
+/// wants [`PhysicalDevice::pci_address`]; this type has no serialization and no text form so it
+/// cannot end up in one by accident.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AdapterLuid([u8; 8]);
 
 impl AdapterLuid {
-    /// The LUID as the eight bytes of the Windows `LUID` struct, low part first.
+    /// From the eight bytes of a Windows `LUID`, low part first, as Vulkan and CUDA report it.
     pub fn new(bytes: [u8; 8]) -> Self {
         Self(bytes)
     }
 
-    /// The eight bytes of the Windows `LUID` struct, low part first.
+    /// From the two halves of a Windows `LUID`, as DXGI reports it.
+    pub fn from_parts(low_part: u32, high_part: i32) -> Self {
+        let mut bytes = [0; 8];
+        bytes[..4].copy_from_slice(&low_part.to_le_bytes());
+        bytes[4..].copy_from_slice(&high_part.to_le_bytes());
+        Self(bytes)
+    }
+
+    /// The bytes [`new`](Self::new) takes.
     pub fn bytes(self) -> [u8; 8] {
         self.0
-    }
-}
-
-impl PhysicalDevice {
-    /// Fills a vendor or device id the runtime left unset from the kernel's record of the card at
-    /// `pci_address`. Linux only; elsewhere this does nothing.
-    pub fn read_pci_ids(&mut self) {
-        #[cfg(target_os = "linux")]
-        if let Some(address) = self.pci_address {
-            let read = |attribute: &str| {
-                let path = std::format!("/sys/bus/pci/devices/{address}/{attribute}");
-                let text = std::fs::read_to_string(path).ok()?;
-                u32::from_str_radix(text.trim().trim_start_matches("0x"), 16).ok()
-            };
-            self.vendor = self.vendor.or_else(|| read("vendor").map(PciVendor::from));
-            self.device_id = self.device_id.or_else(|| read("device"));
-        }
     }
 }
 
@@ -262,6 +258,8 @@ impl fmt::Display for PciAddressError {
         write!(f, "not a PCI address: {}", self.0)
     }
 }
+
+impl core::error::Error for PciAddressError {}
 
 impl FromStr for PciAddress {
     type Err = PciAddressError;
@@ -452,6 +450,43 @@ mod tests {
         assert_eq!(PciVendor::from(0x10de), PciVendor::Nvidia);
         assert_eq!(PciVendor::from(0x1af4), PciVendor::Other(0x1af4));
         assert_eq!(PciVendor::Other(0x1af4).to_string(), "0x1af4");
+    }
+
+    #[test]
+    fn a_luid_from_parts_is_the_bytes_vulkan_reports() {
+        let bytes = [0x8a, 0x1d, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00];
+        assert_eq!(
+            AdapterLuid::from_parts(0x0001_1d8a, 0),
+            AdapterLuid::new(bytes)
+        );
+        assert_eq!(
+            AdapterLuid::from_parts(1, -1).bytes(),
+            [1, 0, 0, 0, 0xff, 0xff, 0xff, 0xff]
+        );
+    }
+
+    #[test]
+    fn a_card_is_matched_by_address_then_by_luid() {
+        let address = |bus| {
+            Some(PciAddress {
+                domain: 0,
+                bus,
+                device: 0,
+                function: 0,
+            })
+        };
+        let luid = |low| Some(AdapterLuid::from_parts(low, 0));
+        let card = |pci_address, luid| PhysicalDevice {
+            pci_address,
+            luid,
+            vendor: None,
+        };
+
+        assert!(card(address(7), None).is_same_card(&card(address(7), luid(1))));
+        assert!(!card(address(7), luid(1)).is_same_card(&card(address(8), luid(1))));
+        assert!(card(None, luid(1)).is_same_card(&card(address(7), luid(1))));
+        assert!(!card(None, luid(1)).is_same_card(&card(None, luid(2))));
+        assert!(!card(None, None).is_same_card(&card(None, None)));
     }
 
     #[test]

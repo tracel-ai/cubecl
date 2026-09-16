@@ -7,6 +7,8 @@ use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
 };
+#[cfg(windows)]
+use cubecl_core::ir::AdapterLuid;
 use cubecl_core::{
     MemoryConfiguration,
     cmma::MatrixLayout,
@@ -36,6 +38,8 @@ use cubecl_cpp::{
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger, runtime::Runtime,
 };
+#[cfg(windows)]
+use cudarc::driver::sys::cuDeviceGetLuid;
 use cudarc::driver::sys::{CUDA_VERSION, CUdevice, cuDeviceGetPCIBusId, cuDeviceTotalMem_v2};
 use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
@@ -572,22 +576,20 @@ impl DeviceProbe {
         .ok()
         .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
         .and_then(|id| id.to_str().ok()?.parse().ok());
-        let uuid = cudarc::driver::result::device::get_uuid(device)
-            .ok()
-            .map(|id| id.bytes.map(|byte| byte as u8));
-        // SAFETY: `device` is the validated handle every other query here uses.
-        let total_memory = unsafe { cudarc::driver::result::device::total_mem(device) }
-            .ok()
-            .map(|bytes| bytes as u64);
-
-        let mut physical = PhysicalDevice {
-            pci_address,
-            uuid,
-            vendor: Some(PciVendor::Nvidia),
-            total_memory,
-            ..Default::default()
-        };
-        physical.read_pci_ids();
+        let mut physical = PhysicalDevice::default();
+        physical.pci_address = pci_address;
+        physical.vendor = Some(PciVendor::Nvidia);
+        #[cfg(windows)]
+        {
+            let mut luid = [0 as core::ffi::c_char; 8];
+            let mut node_mask = 0;
+            // SAFETY: the driver writes eight bytes into `luid` and one mask, both outliving the
+            // call.
+            physical.luid = unsafe { cuDeviceGetLuid(luid.as_mut_ptr(), &mut node_mask, device) }
+                .result()
+                .ok()
+                .map(|()| AdapterLuid::new(luid.map(|byte| byte as u8)));
+        }
         Self { name, physical }
     }
 }

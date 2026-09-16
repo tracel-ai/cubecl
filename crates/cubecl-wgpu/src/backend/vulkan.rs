@@ -825,55 +825,46 @@ where
     Ok(compiled)
 }
 
-/// Fill what only Vulkan reports about the card behind `adapter`: the driver's UUID, the PCI
-/// address behind `VK_EXT_pci_bus_info`, and the device-local memory.
+/// Fill what only Vulkan reports about the card behind `adapter`: the PCI address behind
+/// `VK_EXT_pci_bus_info`, and the Windows LUID where the driver has one.
 pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::PhysicalDevice) {
-    // SAFETY: the hal adapter is only read, and the physical device it names belongs to an
-    // instance that outlives `adapter`.
+    // SAFETY: the hal adapter is only read while `adapter` keeps it alive.
+    let Some(hal_adapter) = (unsafe { adapter.as_hal::<hal::api::Vulkan>() }) else {
+        return;
+    };
+    let instance = hal_adapter.shared_instance();
+    let capabilities = hal_adapter.physical_device_capabilities();
+    // wgpu's instance only carries the core `get_physical_device_properties2`, which needs 1.1.
+    if instance.instance_api_version() < API_VERSION_1_1
+        || capabilities.properties().api_version < API_VERSION_1_1
+    {
+        return;
+    }
+
+    let has_pci = capabilities.supports_extension(ash::ext::pci_bus_info::NAME);
+    let mut ids = vk::PhysicalDeviceIDProperties::default();
+    let mut pci = vk::PhysicalDevicePCIBusInfoPropertiesEXT::default();
+    let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut ids);
+    if has_pci {
+        properties = properties.push_next(&mut pci);
+    }
+    // SAFETY: the physical device belongs to this instance, both 1.1, and every structure chained
+    // onto `properties` is one the instance knows, the PCI one only when its extension is present.
     unsafe {
-        let Some(hal_adapter) = adapter.as_hal::<hal::api::Vulkan>() else {
-            return;
-        };
-        let instance = hal_adapter.shared_instance();
-        let raw_instance = instance.raw_instance();
-        let physical_device = hal_adapter.raw_physical_device();
-        let capabilities = hal_adapter.physical_device_capabilities();
+        instance
+            .raw_instance()
+            .get_physical_device_properties2(hal_adapter.raw_physical_device(), &mut properties);
+    }
 
-        // `get_physical_device_properties2` is core from 1.1; wgpu enables the extension form
-        // on 1.0 instances, but `ash` only binds the core entry point.
-        if instance.instance_api_version() >= ash::vk::API_VERSION_1_1
-            && capabilities.properties().api_version >= ash::vk::API_VERSION_1_1
-        {
-            let has_pci = capabilities.supports_extension(ash::ext::pci_bus_info::NAME);
-            let mut ids = ash::vk::PhysicalDeviceIDProperties::default();
-            let mut pci = ash::vk::PhysicalDevicePCIBusInfoPropertiesEXT::default();
-            let mut properties = ash::vk::PhysicalDeviceProperties2::default().push_next(&mut ids);
-            if has_pci {
-                properties = properties.push_next(&mut pci);
-            }
-            raw_instance.get_physical_device_properties2(physical_device, &mut properties);
-            physical.uuid = Some(ids.device_uuid);
-            if ids.device_luid_valid == vk::TRUE {
-                physical.luid = Some(AdapterLuid::new(ids.device_luid));
-            }
-            if has_pci {
-                physical.pci_address = Some(PciAddress {
-                    domain: pci.pci_domain,
-                    bus: pci.pci_bus as u8,
-                    device: pci.pci_device as u8,
-                    function: pci.pci_function as u8,
-                });
-            }
-        }
-
-        let memory = raw_instance.get_physical_device_memory_properties(physical_device);
-        physical.total_memory = Some(
-            memory
-                .memory_heaps_as_slice()
-                .iter()
-                .filter(|heap| heap.flags.contains(ash::vk::MemoryHeapFlags::DEVICE_LOCAL))
-                .map(|heap| heap.size)
-                .sum(),
-        );
+    if ids.device_luid_valid == vk::TRUE {
+        physical.luid = Some(AdapterLuid::new(ids.device_luid));
+    }
+    if has_pci {
+        physical.pci_address = Some(PciAddress {
+            domain: pci.pci_domain,
+            bus: pci.pci_bus as u8,
+            device: pci.pci_device as u8,
+            function: pci.pci_function as u8,
+        });
     }
 }

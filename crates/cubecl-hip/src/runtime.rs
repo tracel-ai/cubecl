@@ -361,19 +361,15 @@ impl DeviceProbe {
             )
         };
 
-        let mut physical = PhysicalDevice {
-            pci_address: Some(PciAddress {
-                domain: props.pciDomainID as u32,
-                bus: props.pciBusID as u8,
-                device: props.pciDeviceID as u8,
-                function: 0,
-            }),
-            uuid: Some(props.uuid.bytes.map(|byte| byte as u8)),
-            vendor: Some(PciVendor::Amd),
-            total_memory: Some(props.totalGlobalMem as u64),
-            ..Default::default()
-        };
-        physical.read_pci_ids();
+        let mut physical = PhysicalDevice::default();
+        physical.pci_address = Some(PciAddress {
+            domain: props.pciDomainID as u32,
+            bus: props.pciBusID as u8,
+            device: props.pciDeviceID as u8,
+            // The driver reports no function number; a GPU is function 0.
+            function: 0,
+        });
+        physical.vendor = Some(PciVendor::Amd);
 
         Self {
             arch_name,
