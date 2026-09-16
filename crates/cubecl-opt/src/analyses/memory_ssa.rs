@@ -831,9 +831,6 @@ impl<'a> MemorySSAWalker<'a> {
                     explored.insert(current_value, ExploredResult::Clobber);
                     return TraversalResult::Value(current_value);
                 }
-                // There are two mutually exclusive approaches with tradeoffs (stop at phi and then
-                // continue from there, vs going all the way in one go). To get the best of both
-                // worlds, we can use the traversed distance as a heuristic for which option is "better".
                 MemorySSANode::Phi(phi) => {
                     let values = || phi.inputs.iter().map(|(_, value)| *value);
                     let res = self.visit_phi(explored, &visited, values);
