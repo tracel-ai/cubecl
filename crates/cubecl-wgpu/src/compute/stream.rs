@@ -52,6 +52,13 @@ enum Timings {
     System(TimestampProfiler),
 }
 
+/// Size from which a mapped write waits for in-flight work instead of yielding to the queue.
+///
+/// Below it the staging copy the mapped path skips is cheaper than the stall, and the stall
+/// also costs whatever the CPU had queued ahead of the GPU.
+#[cfg(not(target_family = "wasm"))]
+const MAPPED_WRITE_WAIT_MIN: u64 = 4 << 20;
+
 #[derive(Debug)]
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
@@ -606,13 +613,25 @@ impl WgpuStream {
             return false;
         }
 
-        // A pooled range may have belonged to a tensor whose kernels are still running.
-        if let Err(e) = self.device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: None,
-        }) {
-            log::warn!("wgpu: poll before a mapped write failed ({e})");
-            return false;
+        // A pooled range may have belonged to a tensor whose kernels are still running, so
+        // the copy needs an idle queue. Draining it costs the CPU/GPU overlap a pipelined
+        // loop lives on, which only a large copy earns back: a small one takes the mapped
+        // path when the queue happens to be idle and the queue otherwise.
+        let poll = if data.len() as u64 >= MAPPED_WRITE_WAIT_MIN {
+            wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            }
+        } else {
+            wgpu::PollType::Poll
+        };
+        match self.device.poll(poll) {
+            Ok(status) if status.wait_finished() => {}
+            Ok(_) => return false,
+            Err(e) => {
+                log::warn!("wgpu: poll before a mapped write failed ({e})");
+                return false;
+            }
         }
 
         // SAFETY: The range is in bounds and the queue is idle.
