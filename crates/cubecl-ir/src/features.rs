@@ -234,10 +234,7 @@ pub struct ScaledMmaConfig {
 pub enum Tma {
     /// Base feature set for tensor memory accelerator features. Includes tiling.
     Base,
-    /// im2col addressing for tensor map. Present on Hopper (sm_90) and datacenter
-    /// Blackwell (sm_100/101/103), but not consumer Blackwell (sm_120/121): ptxas
-    /// assembles the im2col `cp.async.bulk.tensor` there, yet the hardware traps it
-    /// at launch. Kept apart from `Base` so tiling stays available where im2col is not.
+    /// im2col addressing for tensor map.
     Im2col,
     /// im2colWide encoding for tensor map.
     Im2colWide,
