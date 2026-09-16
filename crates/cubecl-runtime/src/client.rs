@@ -164,6 +164,21 @@ impl Drop for GraphHandle {
     }
 }
 
+/// A profiling window opened by [`Client::profile_start`], closed by
+/// [`Client::profile_end`] or dropped by [`Client::profile_abandon`].
+///
+/// It remembers the stream it was opened on, so closing it from another
+/// thread still closes it on that stream. It is a plain value with no
+/// [`Drop`]: a window that is neither ended nor abandoned stays open on the
+/// server.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ProfileWindow {
+    /// The stream the window was opened on.
+    pub stream_id: StreamId,
+    /// The server's token for the window.
+    pub token: ProfilingToken,
+}
+
 /// The state a `DeviceHandle` reaches, seen as the server it is. A client
 /// keeps this cast, not the server type, so every operation reads the same
 /// whatever backend is underneath.
@@ -1495,26 +1510,41 @@ impl Client {
     /// it also holds the device for the closure. This pair is for a caller
     /// that cannot bracket the work in a closure because the work is launched
     /// from somewhere else — a lazy queue drained on another thread, say —
-    /// and only knows *when* on the stream its window opens and closes. The
-    /// token then has to be closed with [`profile_end`](Self::profile_end)
-    /// from the same stream, and nothing keeps other streams' work out of the
-    /// window.
-    pub fn profile_start(&self) -> Result<ProfilingToken, ProfileError> {
+    /// and only knows *when* on the stream its window opens and closes.
+    ///
+    /// The window keeps the stream it was opened on, and
+    /// [`profile_end`](Self::profile_end) closes it there whichever thread
+    /// calls it. Nothing keeps other streams' work out of the window.
+    ///
+    /// The window stays open on the server until it is ended or
+    /// [abandoned](Self::profile_abandon), and an open window costs something
+    /// on every backend, so a caller that bails out between the two calls has
+    /// to abandon it.
+    pub fn profile_start(&self) -> Result<ProfileWindow, ProfileError> {
         let stream_id = self.stream_id();
-        self.device
+        let token = self
+            .device
             .submit_blocking(move |server| server.start_profile(stream_id))
             .unwrap_or_resume()
-            .map_err(|err| ProfileError::from(&err))
+            .map_err(|err| ProfileError::from(&err))?;
+        Ok(ProfileWindow { stream_id, token })
     }
 
-    /// Close the window `token` opened with
-    /// [`profile_start`](Self::profile_start), at the current position of the
-    /// calling stream.
-    pub fn profile_end(&self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
-        let stream_id = self.stream_id();
+    /// Close `window` at the current position of the stream it was opened on.
+    pub fn profile_end(&self, window: ProfileWindow) -> Result<ProfileDuration, ProfileError> {
+        let ProfileWindow { stream_id, token } = window;
         self.device
             .submit_blocking(move |server| server.end_profile(stream_id, token))
             .unwrap_or_resume()
+    }
+
+    /// Drop `window` without measuring it, for a caller that will never reach
+    /// [`profile_end`](Self::profile_end), such as an error path between the
+    /// two calls.
+    pub fn profile_abandon(&self, window: ProfileWindow) {
+        let ProfileWindow { stream_id, token } = window;
+        self.device
+            .submit(move |server| server.abandon_profile(stream_id, token));
     }
 
     /// Measure the execution time of some inner operations.
