@@ -9,8 +9,6 @@ const SPINS_BEFORE_YIELD: u32 = 1_000;
 
 const YIELDS_BEFORE_PARK: u32 = 64;
 
-/// A unit-completion counter the pool advances and the client waits on.
-///
 /// The client is not pinned, so a busy wait lands on the SMT sibling of a worker and slows the
 /// plane that worker runs; parking gives that logical CPU back.
 pub struct CompletionCounter {
@@ -40,8 +38,6 @@ impl CompletionCounter {
         self.value.load(Ordering::Acquire)
     }
 
-    /// The target is read before the lock is taken, so a completion no waiter is due on costs a
-    /// load and a compare.
     pub fn add_done(&self) {
         let old = self.value.fetch_add(1, Ordering::Release);
         let new = old + 1;
