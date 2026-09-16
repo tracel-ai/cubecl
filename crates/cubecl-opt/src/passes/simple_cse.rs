@@ -78,7 +78,28 @@ pub enum SimpleCSEError {
 }
 
 #[derive(Default)]
-pub struct SimpleCSEPass;
+pub struct SimpleCSEPass {
+    with_memory_ssa: bool,
+}
+
+impl SimpleCSEPass {
+    /// Run without `MemorySSA`, should be used before [`Mem2Reg`](crate::passes::mem2reg::Mem2RegPass)
+    /// if the pass is run again afterwards.
+    pub fn without_memory() -> Self {
+        Self {
+            with_memory_ssa: false,
+        }
+    }
+
+    /// Run with `MemorySSA`, should be run after [`Mem2Reg`](crate::passes::mem2reg::Mem2RegPass)
+    /// to eliminate local loads/stores if there are multiple runs, and should always be used if
+    /// the pass is only run once.
+    pub fn with_memory() -> Self {
+        Self {
+            with_memory_ssa: true,
+        }
+    }
+}
 
 #[pass_name]
 impl Pass for SimpleCSEPass {
@@ -91,9 +112,15 @@ impl Pass for SimpleCSEPass {
         let mut res = PassResult::default();
         let mut rewriter = Rewriter::default();
         let mut expressions = ScopedMap::new();
-        let mut memory_ssa = default_memory_ssa(ctx, op, analyses)?;
 
-        res.ir_changed |= cse_op(ctx, op, &mut rewriter, &mut expressions, &mut memory_ssa)?;
+        if self.with_memory_ssa {
+            let mut memory_ssa = default_memory_ssa(ctx, op, analyses)?;
+            res.ir_changed |= cse_op(ctx, op, &mut rewriter, &mut expressions, &mut memory_ssa)?;
+        } else {
+            let mut memory_ssa = MemorySSA::empty(op);
+            res.ir_changed |= cse_op(ctx, op, &mut rewriter, &mut expressions, &mut memory_ssa)?;
+        }
+
         Ok(res)
     }
 }
