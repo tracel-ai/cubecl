@@ -804,7 +804,8 @@ fn memory_ssa_places_phi_after_iterated_dominance_frontier() -> Result<()> {
             memory_ssa.memory_use;
             branch.return;
 
-        }"#]].assert_eq(&printed);
+        }"#]]
+    .assert_eq(&printed);
     Ok(())
 }
 
