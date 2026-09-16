@@ -207,20 +207,22 @@ impl Barrier {
     }
 
     /// Create a shared memory barrier that can be accessed by all units in the cube. Initialized
-    /// by the `is_elected` unit with an arrival count of `arrival_count`. Exactly one unit must be
-    /// elected; use `UNIT_POS == 0` for the usual case. A constant election is rejected because
-    /// `true` makes every unit initialize the same barrier and `false` leaves it uninitialized.
-    /// This is the number of times `arrive` or one of its variants needs to be called before the
-    /// barrier advances.
+    /// by the `is_elected` unit with an arrival count of `arrival_count`. This is the number of
+    /// times `arrive` or one of its variants needs to be called before the barrier advances.
+    ///
+    /// Exactly one unit must be elected; use `UNIT_POS == 0` for the usual case. A constant
+    /// election is logged as a warning when the kernel is built, because `true` makes every unit
+    /// initialize the same barrier and `false` leaves it uninitialized.
     ///
     /// If all units in the cube arrive on the barrier, use `CUBE_DIM` as the arrival count. For
     /// other purposes, only a subset may need to arrive.
     pub fn shared(arrival_count: u32, is_elected: bool) -> Shared<Barrier> {
         intrinsic!(|scope| {
-            crate::expand_assert!(
-                is_elected.expand.as_const().is_none(),
-                "shared barrier election must select exactly one unit; use `UNIT_POS == 0` instead of a constant"
-            );
+            if is_elected.expand.as_const().is_some() {
+                scope.push_warning(
+                    "Barrier::shared: election must select exactly one unit; use `UNIT_POS == 0` instead of a constant",
+                );
+            }
             let value =
                 scope.create_shared(BarrierType::get(scope.ctx(), BarrierLevel::Cube), None);
             if_expand(scope, is_elected, |scope| {
@@ -233,7 +235,7 @@ impl Barrier {
         })
     }
 
-    /// Create a shared memory barrier that can be accesses by all units in the cube. Only declared,
+    /// Create a shared memory barrier that can be accessed by all units in the cube. Only declared,
     /// but not initialized.
     pub fn shared_uninit() -> Shared<Barrier> {
         intrinsic!(|scope| {
@@ -534,16 +536,32 @@ mod tests {
     use cubecl_ir::{
         AddressType,
         settings::{Dim3, ExecutionMode, KernelSettings},
+        types::scalar::BoolType,
     };
 
     #[test]
-    #[should_panic(expected = "shared barrier election must select exactly one unit")]
-    fn shared_barrier_rejects_a_constant_election() {
+    fn shared_barrier_warns_on_a_constant_election() {
         let scope = Scope::root(KernelSettings::new(
             Dim3::new_1d(64),
             ExecutionMode::Unchecked,
             AddressType::U32,
         ));
         let _ = Barrier::__expand_shared(&scope, 64u32.into(), true.into());
+        let warnings = scope.pop_warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("UNIT_POS == 0"), "{warnings:?}");
+    }
+
+    #[test]
+    fn shared_barrier_is_quiet_for_a_runtime_election() {
+        let scope = Scope::root(KernelSettings::new(
+            Dim3::new_1d(64),
+            ExecutionMode::Unchecked,
+            AddressType::U32,
+        ));
+        let elected: NativeExpand<bool> =
+            ExpandValue::from(scope.create_local_mut(BoolType::get(scope.ctx()), None)).into();
+        let _ = Barrier::__expand_shared(&scope, 64u32.into(), elected);
+        assert!(scope.pop_warnings().is_empty());
     }
 }
