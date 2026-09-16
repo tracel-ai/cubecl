@@ -41,15 +41,17 @@ impl CompletionCounter {
     pub fn add_done(&self) {
         let old = self.value.fetch_add(1, Ordering::Release);
         let new = old + 1;
-        // Without this fence and the one in `wait_until`, store-buffer reordering lets both sides
-        // read stale values and the last completion skips the only wake.
+        // This fence and the one in `wait_until` must both be SeqCst: a weaker pair lets store-buffer
+        // reordering hide each side's write from the other and skip the only wake.
         std::sync::atomic::fence(Ordering::SeqCst);
         if new >= self.wake_at.load(Ordering::Relaxed) {
             let _guard = self.lock.lock().unwrap();
-            self.condvar.notify_all();
+            self.condvar.notify_one();
         }
     }
 
+    /// At most one thread may wait on a counter: when the first waiter returns it resets the target
+    /// a second one registered, and that one is never woken.
     pub fn wait_until(&self, target: u64) {
         let mut spins = 0u32;
         while self.load() < target && spins < SPINS_BEFORE_YIELD {
@@ -69,8 +71,8 @@ impl CompletionCounter {
             return;
         }
 
-        // `add_done` notifies under the lock, so a completion in this window is either seen by the
-        // re-check or wakes the wait.
+        // `add_done` takes the lock to notify, so a completion after the check under the lock cannot
+        // notify before `wait` releases it.
         self.wake_at.fetch_min(target, Ordering::Relaxed);
         std::sync::atomic::fence(Ordering::SeqCst);
         if self.load() >= target {
@@ -81,8 +83,55 @@ impl CompletionCounter {
         while self.load() < target {
             guard = self.condvar.wait(guard).unwrap();
         }
-        // A CpuStream has one client thread, so there is never a second waiter to keep a target for.
         self.wake_at.store(u64::MAX, Ordering::Relaxed);
         drop(guard);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn a_reached_target_returns_at_once() {
+        let counter = CompletionCounter::new();
+        counter.wait_until(0);
+        for _ in 0..3 {
+            counter.add_done();
+        }
+        counter.wait_until(3);
+        assert_eq!(counter.load(), 3);
+    }
+
+    #[test]
+    fn a_parked_wait_wakes_on_the_last_completion() {
+        let counter = CompletionCounter::new();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(50));
+                for _ in 0..1_000 {
+                    counter.add_done();
+                }
+            });
+            counter.wait_until(1_000);
+        });
+        assert_eq!(counter.load(), 1_000);
+    }
+
+    #[test]
+    fn no_completion_timing_loses_the_wake() {
+        for round in 0..200u64 {
+            let counter = CompletionCounter::new();
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    for unit in 0..8u64 {
+                        std::thread::sleep(Duration::from_micros((round * 7 + unit * 13) % 400));
+                        counter.add_done();
+                    }
+                });
+                counter.wait_until(8);
+            });
+        }
     }
 }

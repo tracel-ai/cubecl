@@ -8,7 +8,7 @@ pub struct ComputeTask {
     pub pliron_engine: PlironEngine,
     pub pliron_data: PlironData,
     pub next_counter_step: u64,
-    pub atomic_counter: Arc<CompletionCounter>,
+    pub(crate) atomic_counter: Arc<CompletionCounter>,
 }
 
 impl ThreadTask for ComputeTask {

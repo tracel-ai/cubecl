@@ -16,7 +16,7 @@ use crate::compute::{
     },
 };
 
-pub mod completion_counter;
+pub(crate) mod completion_counter;
 pub mod compute_task;
 pub mod scheduler;
 
