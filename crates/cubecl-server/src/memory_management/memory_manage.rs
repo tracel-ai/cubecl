@@ -491,7 +491,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
         let id = binding.descriptor();
 
-        if id.location().init == 0 {
+        if !id.is_allocated() {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: "Memory location was never initialized".into(),
@@ -530,7 +530,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
         let id = binding.descriptor();
 
-        if id.location().init == 0 {
+        if !id.is_allocated() {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: "Memory location was never initialized".into(),
@@ -834,7 +834,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     ) -> Result<(), IoError> {
         let descriptor = reserved.descriptor();
 
-        if descriptor.location().init == 0 {
+        if !descriptor.is_allocated() {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: "Reserved memory isn't initialized".into(),

@@ -113,6 +113,15 @@ impl ManagedMemoryDescriptor {
         MemoryLocation::from_bits(self.location.load(Ordering::Relaxed))
     }
 
+    /// Whether a reservation ever gave this memory a location.
+    ///
+    /// A handle is minted before its memory exists, and the reservation that
+    /// follows can fail: a full device, a size no pool accepts.
+    #[doc(hidden)]
+    pub fn is_allocated(&self) -> bool {
+        self.location().init != 0
+    }
+
     #[doc(hidden)]
     pub fn slice(&self) -> usize {
         self.location().slice as usize

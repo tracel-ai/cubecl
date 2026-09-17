@@ -15,7 +15,7 @@
 
 use crate::id::KernelId;
 use crate::memory_management::ManagedMemoryId;
-use crate::server::ServerError;
+use crate::server::{IoError, ServerError};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::num::NonZeroU64;
@@ -44,6 +44,18 @@ impl core::fmt::Display for FailureId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "#{}", self.0)
     }
+}
+
+/// Why the bytes of one buffer cannot be trusted, as a read finds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Claim {
+    /// A failure claims bytes of the allocation: the work that was going to
+    /// write them did not run.
+    Failed(FailureId, ManagedMemoryId),
+    /// No reservation ever gave the memory a location. That failure has no
+    /// slice to be recorded on, so without this the buffer carries nothing,
+    /// passes every check, and a launch over it does nothing.
+    Unallocated(ManagedMemoryId),
 }
 
 /// Every failure the device is still holding, and how many allocations carry
@@ -175,7 +187,9 @@ impl ErrorGraph {
     }
 
     /// The report a read owes for the claims it found: one error per distinct
-    /// failure, however many of the buffers carry it.
+    /// failure, however many of the buffers carry it, and one per buffer that
+    /// was never allocated. The second kind is not in the graph, since nothing
+    /// could carry it, but it is the same answer to the same question.
     ///
     /// This is the shape of every "were these bytes written" answer in the
     /// system — [`FailureStore::ensure_written`](crate::stream::FailureStore::ensure_written)
@@ -187,14 +201,18 @@ impl ErrorGraph {
     /// [`ServerError::Several`] naming each failure once, in the order the
     /// claims were found. The caller has nothing to retry — the bytes are gone
     /// — so this is the answer to the read, not a hint to try again.
-    pub fn reports(
-        &self,
-        claims: impl Iterator<Item = (FailureId, ManagedMemoryId)>,
-    ) -> Result<(), ServerError> {
+    pub fn reports(&self, claims: impl Iterator<Item = Claim>) -> Result<(), ServerError> {
         let mut seen: Vec<FailureId> = Vec::new();
         let mut errors = Vec::new();
 
-        for (failure, memory) in claims {
+        for claim in claims {
+            let (failure, memory) = match claim {
+                Claim::Failed(failure, memory) => (failure, memory),
+                Claim::Unallocated(memory) => {
+                    errors.push(Self::unallocated(memory));
+                    continue;
+                }
+            };
             if seen.contains(&failure) {
                 continue;
             }
@@ -213,6 +231,19 @@ impl ErrorGraph {
                 backtrace: BackTrace::capture(),
             }),
         }
+    }
+
+    /// The cause is the reservation's own error, which the device thread logged
+    /// when it happened: nothing could carry it here.
+    fn unallocated(memory: ManagedMemoryId) -> ServerError {
+        IoError::NotFound {
+            backtrace: BackTrace::capture(),
+            reason: alloc::format!(
+                "memory {memory:?} was never allocated: the reservation behind it failed"
+            )
+            .into(),
+        }
+        .into()
     }
 
     /// One more allocation carries `failure`.

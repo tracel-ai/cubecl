@@ -10,7 +10,7 @@
 
 use crate::id::KernelId;
 use crate::logging::ServerLogger;
-use crate::memory_management::{ErrorGraph, FailureId, Skipped};
+use crate::memory_management::{Claim, ErrorGraph, FailureId, Skipped};
 use crate::server::{BufferBinding, ServerError};
 use crate::stream::{ReadFailure, StreamFactory, StreamMemory, StreamPool, base};
 use alloc::sync::Arc;
@@ -89,17 +89,22 @@ pub trait FailureStore {
     /// # Errors
     ///
     /// [`ServerError::Several`] naming every failure one of these buffers
-    /// carries, each failure once however many buffers carry it. The caller
-    /// has nothing to retry — the bytes are gone — so the error is the answer
-    /// to the read, not a hint to try again.
+    /// carries, each failure once however many buffers carry it, and every
+    /// buffer that was never allocated. The caller has nothing to retry — the
+    /// bytes are gone — so the error is the answer to the read, not a hint to
+    /// try again.
     fn ensure_written<'a>(
         &self,
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Result<(), ServerError> {
         let (pool, failures) = self.parts();
         failures.graph.reports(handles.filter_map(|handle| {
+            let memory = handle.memory.id();
+            if !handle.memory.descriptor().is_allocated() {
+                return Some(Claim::Unallocated(memory));
+            }
             let failure = pool.try_get(&handle.stream)?.failure(handle)?;
-            Some((failure, handle.memory.id()))
+            Some(Claim::Failed(failure, memory))
         }))
     }
 
