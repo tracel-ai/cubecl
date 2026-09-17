@@ -21,9 +21,9 @@ pub fn build_kernel(
     let line_bytes = config.vector_size * dtype.size();
     let probe = MemoryProbe::new(&client, config, line_bytes, spec);
 
-    let in_handle = client.empty(probe.buffer_bytes);
+    let in_handle = memory_probe::reserve(&client, probe.buffer_bytes);
     memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);
-    let out_handle = client.empty(probe.buffer_bytes);
+    let out_handle = memory_probe::reserve(&client, probe.buffer_bytes);
 
     let sample = Box::new(move |iterations: usize| {
         let start = cubecl_common::profile::Instant::now();

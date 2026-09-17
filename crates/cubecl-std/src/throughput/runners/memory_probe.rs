@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, ir::ElemType};
 use cubecl_runtime::{
     server::Handle,
-    throughput::{DEFAULT_WORKING_SET_BYTES, MemoryAccess, MemorySpec},
+    throughput::{DEFAULT_WORKING_SET_BYTES, MemorySpec},
 };
 
 use crate::throughput::LaunchConfig;
@@ -17,40 +17,6 @@ const POOL_WINDOWS: usize = 2;
 /// much of the device's allocation as leaves room for the pool around it.
 pub(crate) fn window_cap(max_alloc: u64) -> u64 {
     (DEFAULT_WORKING_SET_BYTES.min(max_alloc / POOL_WINDOWS as u64)).max(1)
-}
-
-/// What one probe buffer may ask for: the device's own limit, narrowed to what
-/// the installed pool layout serves to all the probe's buffers at once, less
-/// the line a read probe anchors its loads in.
-///
-/// A workload-sized layout refuses allocations the device could host, and the
-/// probe picks its own size, so it asks for one it can get. The ask is per
-/// buffer because a cap bounds what a pool holds at once and not what it
-/// accepts once: sizing each of a copy probe's two buffers to the whole cap
-/// fills it with the first and fails the second with `PoolCapacityExceeded`.
-///
-/// The line comes off every access, not just the read that allocates one. It is
-/// a single line against a buffer of hundreds of megabytes, and charging it
-/// everywhere keeps this the one place a probe's allocations are counted.
-pub(crate) fn buffer_cap(client: &Client, access: MemoryAccess, line_bytes: u64) -> u64 {
-    let servable = client.memory_report().max_servable(access.buffers());
-
-    narrow(client.properties().memory.max_page_size, servable).saturating_sub(line_bytes)
-}
-
-/// [`buffer_cap`]'s rule, with the device reduced to the two numbers it decides
-/// on so the narrowing can be exercised without one.
-///
-/// Never narrowed below [`DEFAULT_WORKING_SET_BYTES`]: a buffer smaller than
-/// that is served from cache. Such a layout keeps the device's own limit
-/// instead, so the allocation fails, today by panicking the device thread. That
-/// is the deliberate trade: a peak measured out of cache is persisted, and
-/// silently divides every later measurement.
-fn narrow(device: u64, servable: Option<u64>) -> u64 {
-    match servable {
-        Some(servable) if servable >= DEFAULT_WORKING_SET_BYTES => device.min(servable),
-        _ => device,
-    }
 }
 
 /// The buffer geometry and launch shape a memory probe uses to move a working
@@ -129,7 +95,7 @@ impl MemoryProbe {
     pub fn new(client: &Client, config: LaunchConfig, line_bytes: usize, spec: MemorySpec) -> Self {
         let blocked = config.plane_size == 1;
         let shape = DeviceShape {
-            max_alloc: buffer_cap(client, spec.access, line_bytes as u64) as usize,
+            max_alloc: client.properties().memory.max_page_size as usize,
             cube_dim: config.cube_dim.num_elems() as usize,
             cube_count: if blocked { 1 } else { config.cube_count },
         };
@@ -165,6 +131,17 @@ impl MemoryProbe {
             blocked,
         }
     }
+}
+
+/// Reserves a probe buffer in the persistent pool rather than the dynamic ones.
+///
+/// An installed pool layout is sized to a workload, and refuses or caps
+/// allocations the device could host: a probe's gigabyte is no part of what it
+/// was planned for. The persistent pool is exact-fit and uncapped whatever the
+/// layout, so every buffer a probe holds is served, and none of them counts
+/// against the layout's budget or its high-water marks.
+pub fn reserve(client: &Client, bytes: usize) -> Handle {
+    client.memory_persistent_allocation((), |_| client.empty(bytes))
 }
 
 /// Writes every line of `handle`, once, before it is handed to a probe that
@@ -217,29 +194,10 @@ fn prime_buffer<I: Numeric, N: Size>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cubecl_runtime::memory_management::{
-        MemoryPoolKind, MemoryPoolReport, MemoryReport, MemoryUsage,
-    };
+    use cubecl_runtime::throughput::MemoryAccess;
 
     const KB: usize = 1024;
     const MB: usize = 1024 * 1024;
-
-    /// A layout of one dynamic pool of that shape.
-    fn report(kind: MemoryPoolKind) -> MemoryReport {
-        let pool = |kind| MemoryPoolReport {
-            kind,
-            usage: MemoryUsage::default(),
-            pages: 0,
-            pages_peak: 0,
-            pages_unmapped: 0,
-            largest_alloc: 0,
-        };
-
-        MemoryReport {
-            dynamic: alloc::vec![pool(kind)],
-            persistent: pool(MemoryPoolKind::Persistent),
-        }
-    }
 
     /// A gigabyte of allocation, 256-thread cubes, and a full dispatch of
     /// 2048 cubes.
@@ -253,77 +211,6 @@ mod tests {
     fn probe(working_set: usize, access: MemoryAccess) -> MemoryProbe {
         let spec = MemorySpec::new(access, working_set as u64);
         MemoryProbe::sized(DEVICE, 16, spec, false)
-    }
-
-    /// A layout that serves less than the device could still gets a probe,
-    /// sized to what it will hand out rather than to what the device could.
-    #[test]
-    fn a_narrow_layout_narrows_the_buffer() {
-        let shape = DeviceShape {
-            max_alloc: 513 * MB,
-            ..DEVICE
-        };
-        let spec = MemorySpec::new(MemoryAccess::Copy, 1024 * MB as u64);
-        let probe = MemoryProbe::sized(shape, 16, spec, false);
-
-        assert_eq!(probe.buffer_bytes, 513 * MB);
-        assert!(probe.buffer_bytes <= shape.max_alloc);
-    }
-
-    /// A capped pool holds everything the probe allocates: both buffers of a
-    /// copy, or a read's buffer and the line it anchors its loads in.
-    #[test]
-    fn the_whole_probe_fits_inside_a_cap() {
-        const LINE: u64 = 16;
-
-        let cap = 2048 * MB as u64;
-        let device = 4096 * MB as u64;
-        let one_page = report(MemoryPoolKind::Sliced {
-            page_size: cap,
-            max_slice_size: cap,
-            max_pool_size: Some(cap),
-        });
-        let budget =
-            |access: MemoryAccess| narrow(device, one_page.max_servable(access.buffers())) - LINE;
-
-        // Two buffers share the page, so each takes half of it.
-        let copy = budget(MemoryAccess::Copy);
-        assert_eq!(copy, cap / 2 - LINE);
-        assert!(2 * copy <= cap);
-
-        // One buffer has the page to itself, less the line beside it.
-        let read = budget(MemoryAccess::Read);
-        assert_eq!(read, cap - LINE);
-        assert!(read + LINE <= cap);
-
-        let probe = MemoryProbe::sized(
-            DeviceShape {
-                max_alloc: copy as usize,
-                ..DEVICE
-            },
-            LINE as usize,
-            MemorySpec::new(MemoryAccess::Copy, DEFAULT_WORKING_SET_BYTES * 2),
-            false,
-        );
-        assert!(2 * probe.buffer_bytes as u64 <= cap);
-    }
-
-    /// The floor on that narrowing. A pool below the default working set is
-    /// served from cache, and a reading taken there would be cached as the
-    /// device's peak, so the probe keeps asking for what the device allows and
-    /// lets the allocation fail instead.
-    #[test]
-    fn a_layout_too_small_to_measure_is_not_followed_down() {
-        let device = 4096 * MB as u64;
-        let floor = DEFAULT_WORKING_SET_BYTES;
-
-        assert_eq!(narrow(device, Some(floor)), floor);
-        assert_eq!(narrow(device, Some(floor - 1)), device);
-        assert_eq!(narrow(device, Some(8 * KB as u64)), device);
-
-        // A pool accepting any size, and a layout looser than the device.
-        assert_eq!(narrow(device, None), device);
-        assert_eq!(narrow(device, Some(8192 * MB as u64)), device);
     }
 
     #[test]

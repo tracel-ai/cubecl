@@ -1222,6 +1222,39 @@ mod tests {
         );
     }
 
+    /// What the throughput probes rely on: a persistent window serves buffers
+    /// the installed layout refuses, however many are held at once, and leaves
+    /// the layout's budget alone.
+    #[test_log::test]
+    fn persistent_window_serves_what_a_capped_layout_refuses() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            capped_sliced_config(1024, Some(1024)),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let refused = memory_management.reserve(4096, &mut ErrorGraph::default());
+        assert!(matches!(refused, Err(IoError::BufferTooBig { .. })));
+
+        memory_management.mode(MemoryAllocationMode::Persistent);
+        let _input = memory_management
+            .reserve(4096, &mut ErrorGraph::default())
+            .unwrap();
+        let _output = memory_management
+            .reserve(4096, &mut ErrorGraph::default())
+            .unwrap();
+        let _line = memory_management
+            .reserve(16, &mut ErrorGraph::default())
+            .unwrap();
+        memory_management.mode(MemoryAllocationMode::Auto);
+
+        let report = memory_management.memory_report();
+        assert_eq!(report.persistent.usage.bytes_in_use, 2 * 4096 + 16);
+        assert_eq!(report.dynamic[0].pages_peak, 0);
+    }
+
     #[test_log::test]
     fn capped_sliced_pool_reuses_freed_memory() {
         let mut memory_management = MemoryManagement::from_configuration(
