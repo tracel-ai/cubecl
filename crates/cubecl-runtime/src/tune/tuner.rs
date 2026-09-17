@@ -267,6 +267,9 @@ impl<K: AutotuneKey> Tuner<K> {
 
             match cur {
                 TuneCacheResult::Hit { .. } | TuneCacheResult::Pending => return cur,
+                // Nothing is ever cached as deferred: the variant only travels out of a
+                // tuning round that was dropped, never back in from the cache.
+                TuneCacheResult::Deferred => return cur,
                 TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
                     cache.mark_pending(key.clone())
                 }
@@ -373,6 +376,13 @@ impl<K: AutotuneKey> Tuner<K> {
             client,
             &mut job.results,
         );
+
+        // The switch went up between two candidates, so the key keeps no trace of this
+        // round: the pending mark comes off and the next call for it tunes from scratch.
+        if outcome.abandoned {
+            self.cache.lock().unmark(&job.key);
+            return TuneCacheResult::Deferred;
+        }
 
         for (name, duration) in outcome.steps {
             job.log_context.push_tuning_step(name, duration);

@@ -138,6 +138,9 @@ pub enum TuneCacheResult {
     /// Callers that see this fall through to running the operation rather than blocking on
     /// the in-flight job.
     Pending,
+    /// Tuning was deferred for this call: run a default, nothing is cached. The next call
+    /// for this key tunes again, unless it is deferred too.
+    Deferred,
     /// No operation is found yet.
     Miss,
 }
@@ -254,6 +257,15 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// for the same key.
     pub(crate) fn mark_pending(&mut self, key: K) {
         self.in_memory_cache.insert(key, CacheEntry::Pending);
+    }
+
+    /// Undo a [`mark_pending`](Self::mark_pending) whose tuning job never produced a result,
+    /// so the key reads as a miss again instead of as a tune that is still in flight. A key
+    /// that has since been decided keeps its entry.
+    pub(crate) fn unmark(&mut self, key: &K) {
+        if matches!(self.in_memory_cache.get(key), Some(CacheEntry::Pending)) {
+            self.in_memory_cache.remove(key);
+        }
     }
 
     pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {

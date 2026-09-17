@@ -28,7 +28,8 @@ pub(crate) struct BatchOutcome {
 /// Round robin benchmarking with early elimination.
 ///
 /// A first pass gives each candidate one warmup and one sample, resolved inline so a candidate
-/// that already reaches the time limit can end the batch before the rest are compiled. After
+/// that already reaches the time limit can end the batch before the rest are sampled — every
+/// candidate of the batch is compiled ahead of the round, one at a time, by `run_plan`. After
 /// that, every live candidate gets one sample per round and the whole round is resolved at once:
 /// resolving per sample would serialize a device round trip per measurement, which for short
 /// kernels costs more than the samples it saves.
@@ -112,7 +113,8 @@ impl Schedule<'_> {
         let mut short_circuit = None;
 
         // First pass: one warmup and one sample each, resolved inline so a candidate that
-        // already hits the limit ends the batch before the remaining kernels are ever compiled.
+        // already hits the limit ends the batch before the remaining kernels are sampled
+        // (they are compiled already, one at a time, by `run_plan`).
         // This is the one place where paying a device round trip per sample is worth it.
         for slot in 0..candidates.len() {
             let launched = self.track_steps.then(Instant::now);
@@ -443,12 +445,38 @@ impl Schedule<'_> {
                         steps,
                         short_circuit: None,
                         decided: Some(index),
+                        abandoned: false,
                     };
                 }
 
                 panic!(
                     "Can't execute the autotune plan for key: {key:?}\n - plan: {plan:?}\n - results: {results:?}"
                 );
+            }
+
+            // One plain launch per candidate, outside the round's exclusive window: a first
+            // launch is what compiles a kernel, and paying for the whole batch's compiles
+            // under `run_batch`'s `exclusive` blocks every other launch on the device for
+            // their sum. The tuner already warms up on these same inputs, so this is one
+            // more of those; a candidate declining the problem surfaces again in the round.
+            //
+            // Drained one at a time: a launch is an enqueue, and issuing the whole batch
+            // back to back would queue every compile ahead of whatever another thread
+            // submits next — the very wait this pass exists to remove. Waiting for the
+            // device between candidates keeps the queue one compile deep and gives the
+            // switch a boundary at which to stop.
+            for &index in &indices {
+                if crate::tune::tuning_deferred() {
+                    return PlanOutcome {
+                        steps,
+                        short_circuit: None,
+                        decided: None,
+                        abandoned: true,
+                    };
+                }
+
+                let _ = autotunables[index].execute(inputs.clone());
+                let _ = cubecl_environment::future::block_on(client.sync());
             }
 
             let outcome = self.run_batch(indices, autotunables, inputs.clone(), client);
@@ -463,6 +491,7 @@ impl Schedule<'_> {
                     steps,
                     short_circuit: outcome.short_circuit,
                     decided: outcome.decided,
+                    abandoned: false,
                 };
             }
         }
@@ -475,6 +504,9 @@ pub(crate) struct PlanOutcome {
     pub(crate) steps: Vec<(String, Duration)>,
     pub(crate) short_circuit: Option<String>,
     pub(crate) decided: Option<usize>,
+    /// Whether the defer switch went up between two candidates and the plan was dropped
+    /// undecided.
+    pub(crate) abandoned: bool,
 }
 
 /// Candidates kept alive no matter how far behind they are, so a batch never narrows to a

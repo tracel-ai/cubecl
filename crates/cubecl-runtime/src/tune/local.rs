@@ -177,6 +177,12 @@ where
                 .expect("Should run when selected by autotune.");
         }
 
+        // The caller has deferred tuning, so the miss is answered from the plan and left
+        // uncached, for a later call to tune.
+        if crate::tune::tuning_deferred() {
+            return run_first_of_plan(&operations, &key, inputs);
+        }
+
         let fastest = tuner.check_tune::<I, Out>(
             &key,
             &inputs,
@@ -197,14 +203,42 @@ where
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."
                 )
             }
-            TuneCacheResult::Pending => {
-                // Still waiting (e.g. on wasm). Try all operations as a fallback.
-                for i in 0..operations.len() {
-                    if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
-                        return output;
-                    }
-                }
-                panic!("All autotune operations failed, no viable operation found.");
+            // Still waiting (e.g. on wasm), or the round was dropped by the defer switch.
+            // Either way nothing is decided yet, so the plan answers this call.
+            TuneCacheResult::Pending | TuneCacheResult::Deferred => {
+                run_first_of_plan(&operations, &key, inputs)
+            }
+        }
+    }
+}
+
+/// Run the first candidate of the plan that accepts the problem, benchmarking nothing and
+/// caching nothing.
+///
+/// The plan hands out its batches best first, so the ranks decide what is tried first and
+/// this serves whichever of them works.
+fn run_first_of_plan<AK, I, Out>(
+    operations: &TunableSet<AK, I, Out>,
+    key: &AK,
+    inputs: <I as TuneInputs>::At<'_>,
+) -> Out
+where
+    AK: AutotuneKey,
+    I: TuneInputs,
+    Out: AutotuneOutput,
+{
+    let mut plan = operations.plan(key);
+
+    loop {
+        let batch = plan.next();
+
+        if batch.is_empty() {
+            panic!("All autotune operations failed for key {key}, no viable operation found.");
+        }
+
+        for index in batch {
+            if let Ok(output) = operations.fastest(index).execute(inputs.clone()) {
+                return output;
             }
         }
     }
