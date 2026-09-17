@@ -45,7 +45,7 @@
 //! ordinary run. The kernel's name is a `&'static str` the kernel already
 //! carries, so an idle hook allocates and formats nothing. An observer that
 //! asks for timing is the expensive case, and pays per launch →
-//! [`wants_timing`](LaunchObserver::wants_timing).
+//! [`timing`](LaunchObserver::timing).
 //!
 //! # What it reports
 //!
@@ -82,6 +82,34 @@ use core::sync::atomic::{AtomicBool, Ordering};
 pub use cubecl_common::profile::{Duration, ProfileDuration, ProfileTicks, TimingMethod};
 use cubecl_environment::sync::RwLock;
 
+/// What an observer asks be done with each launch's measurement.
+///
+/// Declared once, by [`timing`](LaunchObserver::timing), rather than decided
+/// per launch: which of [`profiled`](LaunchObserver::profiled) and
+/// [`timed`](LaunchObserver::timed) a measurement reaches is a property of the
+/// observer, and the launch path has to know it *before* it takes one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TimingRequest {
+    /// Don't time launches. The default, because timing is not free.
+    #[default]
+    None,
+    /// Time each launch and read its measurement back, delivering the length
+    /// to [`timed`](LaunchObserver::timed).
+    ///
+    /// Reading blocks the issuing thread until the kernel has run, so the
+    /// kernels of a pass run one at a time and their sum is not the pass's
+    /// device time. Right for an observer that wants each kernel's own cost
+    /// and is not measuring a pipeline.
+    Resolved,
+    /// Time each launch and hand its measurement over **unread**, to
+    /// [`profiled`](LaunchObserver::profiled).
+    ///
+    /// Nothing waits, so the kernels around it keep running back to back and
+    /// the observer reads them once the pass is over. Right for an observer
+    /// measuring where a pass spends its time.
+    Deferred,
+}
+
 /// Notified of every kernel launch, on the thread that issued it.
 ///
 /// Implementations must be cheap, must not launch, and must not install or drop
@@ -93,39 +121,38 @@ pub trait LaunchObserver: Send + Sync {
     /// way the profiling logger does.
     fn launched(&self, kernel: &'static str);
 
-    /// Whether each launch should be timed, and [`profiled`](Self::profiled)
-    /// called with the measurement.
+    /// Whether each launch should be timed, and which of
+    /// [`profiled`](Self::profiled) and [`timed`](Self::timed) its measurement
+    /// reaches.
     ///
-    /// **Off by default, because it is not free.** Timing a launch means
-    /// bracketing it with profile markers, which costs the issuing thread a
-    /// round trip to the server per kernel. Reading a measurement back costs
-    /// more: it blocks until the kernel has run, and an observer that reads
-    /// every one as it arrives — which is what the default
-    /// [`profiled`](Self::profiled) asks for — removes the overlap between
-    /// kernels. An observer that only wants to know *which* kernels ran should
-    /// leave this alone; one measuring where a pass spends its time is paying
-    /// for the answer either way.
+    /// **[`None`](TimingRequest::None) by default, because timing is not free.**
+    /// Timing a launch means bracketing it with profile markers, which costs
+    /// the issuing thread a round trip to the server per kernel.
+    /// [`Resolved`](TimingRequest::Resolved) costs more: it blocks until the kernel
+    /// has run, which removes the overlap between kernels. An observer that
+    /// only wants to know *which* kernels ran should leave this alone; one
+    /// measuring where a pass spends its time wants
+    /// [`Deferred`](TimingRequest::Deferred).
     ///
     /// Two situations refuse the measurement without refusing the launch:
     ///
     /// * A profile the server cannot take — a graph capture window refuses
     ///   them on the spot. The kernel is still launched, still reported to
-    ///   [`launched`](Self::launched), and [`timed`](Self::timed) is skipped
-    ///   for it, with a warning in the log.
-    /// * Don't ask for timing around **collective** kernels while reading
-    ///   measurements as they arrive. Reading one blocks the issuing thread
-    ///   until the kernel completes, and a collective kernel completes only
-    ///   when its peers launch — a thread that issues more than one side of a
+    ///   [`launched`](Self::launched), and the measurement is skipped for it,
+    ///   with a warning in the log.
+    /// * Don't ask for [`Resolved`](TimingRequest::Resolved) around **collective**
+    ///   kernels. Reading a measurement blocks the issuing thread until the
+    ///   kernel completes, and a collective kernel completes only when its
+    ///   peers launch — a thread that issues more than one side of a
     ///   collective deadlocks waiting for the first.
-    fn wants_timing(&self) -> bool {
-        false
+    fn timing(&self) -> TimingRequest {
+        TimingRequest::None
     }
 
     /// A kernel was timed, and this is its measurement — **not yet read
-    /// back**. Keep it and return `None`, or hand it back to have it read for
-    /// you and its duration delivered to [`timed`](Self::timed).
+    /// back**. Keep it, and read it once the work being measured is over.
     ///
-    /// Only called when [`wants_timing`](Self::wants_timing) is true, on the
+    /// Only called under [`TimingRequest::Deferred`], on the
     /// thread that issued the launch, right after it. Where the backend times
     /// on the device without waiting — CUDA, HIP, and wgpu's timestamp
     /// queries — the measurement is two events in the stream, and nothing has
@@ -144,20 +171,25 @@ pub trait LaunchObserver: Send + Sync {
     /// read: its lengths are device time, its starts and ends do not line up
     /// across kernels, and keeping the measurement saves nothing there.
     ///
-    /// Called under the same lock as every other method here, which is why the
-    /// read-back is not done in it: the default hands the measurement back,
-    /// and the launch path reads it once the lock is released.
-    fn profiled(&self, _kernel: &'static str, profile: ProfileDuration) -> Option<ProfileDuration> {
-        Some(profile)
-    }
+    /// Called under the same lock as every other method here, so keeping the
+    /// measurement must be cheap — and reading it here would hold that lock
+    /// for the length of the kernel, which is the thing
+    /// [`Deferred`](TimingRequest::Deferred) exists to avoid.
+    ///
+    /// The default drops it, which is right for the observers that never ask
+    /// for one: an observer declaring [`Deferred`](TimingRequest::Deferred) owes an
+    /// implementation.
+    fn profiled(&self, _kernel: &'static str, _profile: ProfileDuration) {}
 
     /// A kernel finished, and took this long.
     ///
-    /// Called with every measurement [`profiled`](Self::profiled) hands back,
-    /// once it has been read — and directly, instead of `profiled`, while the
-    /// profiling logger is also reading measurements: one is read only once,
-    /// and the logger's copy is made from the reading. An observer that keeps
-    /// measurements unread therefore still implements this.
+    /// Called under [`TimingRequest::Resolved`] with every launch's measurement, once
+    /// the launch path has read it — and under [`TimingRequest::Deferred`] too, in
+    /// place of [`profiled`](Self::profiled), while the profiling logger is
+    /// also reading measurements: one measurement is read only once, and the
+    /// logger's copy is made from that reading. **So an observer that asked to
+    /// keep measurements unread still has to implement this**, or it loses
+    /// every timing whenever the logger is on.
     ///
     /// It arrives *after* the launch rather than before it, so an observer
     /// pairing kernels with its own state should do that in
@@ -243,13 +275,18 @@ pub(crate) fn notify_launch(kernel: &'static str) {
 
 /// Whether the installed observer asked for each launch to be timed.
 pub(crate) fn timing_wanted() -> bool {
+    timing_requested() != TimingRequest::None
+}
+
+/// What the installed observer asked be done with each measurement.
+fn timing_requested() -> TimingRequest {
     if !OBSERVING.load(Ordering::Relaxed) {
-        return false;
+        return TimingRequest::None;
     }
     OBSERVER
         .read()
         .as_ref()
-        .is_some_and(|observer| observer.wants_timing())
+        .map_or(TimingRequest::None, |observer| observer.timing())
 }
 
 /// Report what a launch took, and how it was measured.
@@ -262,15 +299,15 @@ pub(crate) fn notify_timed(kernel: &'static str, duration: Duration, method: Tim
     }
 }
 
-/// Hand a launch's measurement to the observer unread, and read back whatever
-/// it hands back.
+/// Deliver a launch's measurement the way the observer asked for it.
 ///
-/// The read-back happens with the slot's lock released: it blocks until the
-/// kernel has run, and holding the lock through that would stall every other
-/// launching thread's notification behind this one's kernel. The duration then
-/// goes back under the lock, and only to the observer that was handed the
-/// measurement, if it is still installed — an observation that ended while its
-/// kernel ran is done receiving.
+/// [`Deferred`](TimingRequest::Deferred) hands it over unread and is done.
+/// [`Resolved`](TimingRequest::Resolved) reads it here, with the slot's lock
+/// released: reading blocks until the kernel has run, and holding the lock
+/// through that would stall every other launching thread's notification behind
+/// this one's kernel. The duration then goes back under the lock, and only to
+/// the observer that was handed the measurement, if it is still installed — an
+/// observation that ended while its kernel ran is done receiving.
 pub(crate) fn notify_profiled(kernel: &'static str, profile: ProfileDuration) {
     if !OBSERVING.load(Ordering::Relaxed) {
         return;
@@ -280,9 +317,17 @@ pub(crate) fn notify_profiled(kernel: &'static str, profile: ProfileDuration) {
         let Some(observer) = slot.as_ref() else {
             return;
         };
-        match observer.profiled(kernel, profile) {
-            Some(profile) => (Arc::clone(observer), profile),
-            None => return,
+        match observer.timing() {
+            // Kept: the observer reads it once the work it is measuring is
+            // over, which is the whole point of handing it over unread.
+            TimingRequest::Deferred => {
+                observer.profiled(kernel, profile);
+                return;
+            }
+            // Asked for no timing between the launch being bracketed and this
+            // call — an observation that ended underneath it.
+            TimingRequest::None => return,
+            TimingRequest::Resolved => (Arc::clone(observer), profile),
         }
     };
 
@@ -483,16 +528,11 @@ mod tests {
 
     impl LaunchObserver for Kept {
         fn launched(&self, _kernel: &'static str) {}
-        fn wants_timing(&self) -> bool {
-            true
+        fn timing(&self) -> TimingRequest {
+            TimingRequest::Deferred
         }
-        fn profiled(
-            &self,
-            kernel: &'static str,
-            profile: ProfileDuration,
-        ) -> Option<ProfileDuration> {
+        fn profiled(&self, kernel: &'static str, profile: ProfileDuration) {
             self.0.lock().push((kernel, profile));
-            None
         }
     }
 
@@ -510,8 +550,8 @@ mod tests {
 
     impl LaunchObserver for Timed {
         fn launched(&self, _kernel: &'static str) {}
-        fn wants_timing(&self) -> bool {
-            true
+        fn timing(&self) -> TimingRequest {
+            TimingRequest::Resolved
         }
         fn timed(&self, kernel: &'static str, duration: Duration, method: TimingMethod) {
             self.0.lock().push((kernel, duration, method));
