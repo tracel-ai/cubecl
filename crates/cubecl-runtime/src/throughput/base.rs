@@ -145,6 +145,9 @@ pub enum ThroughputError {
     /// The device's timer reported no elapsed time for any shape of the probe.
     #[error("no timing")]
     NoTiming,
+    /// The device could not allocate the buffers the probe runs over.
+    #[error("allocation failed")]
+    Allocation,
 }
 
 /// Represents the throughput of a computation, including the number of operations and the duration.

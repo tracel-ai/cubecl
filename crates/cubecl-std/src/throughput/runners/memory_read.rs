@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputKey};
+use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputError, ThroughputKey};
 
 use crate::throughput::{
     LaunchConfig,
@@ -27,17 +27,17 @@ pub fn build_kernel(
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,
-) -> KernelConfig {
+) -> Result<KernelConfig, ThroughputError> {
     let client = client.clone();
     let dtype = key.dtype();
 
     let line_bytes = config.vector_size * dtype.size();
     let probe = MemoryProbe::new(&client, config, line_bytes, spec);
 
-    let in_handle = memory_probe::reserve(&client, probe.buffer_bytes);
+    // One line out: the kernel writes from a single thread, only to anchor the reads.
+    let [in_handle, out_handle] =
+        memory_probe::reserve(&client, [probe.buffer_bytes, line_bytes])?;
     memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);
-    // One line: the kernel writes from a single thread, only to anchor the reads.
-    let out_handle = memory_probe::reserve(&client, line_bytes);
 
     let sample = Box::new(move |iterations: usize| {
         let start = cubecl_common::profile::Instant::now();
@@ -62,11 +62,11 @@ pub fn build_kernel(
     // Reads only — no `2 *`. That factor is the whole difference from the copy.
     let ops_count = probe.window_lines * config.vector_size;
 
-    KernelConfig {
+    Ok(KernelConfig {
         sample,
         ops_count,
         min_iterations: probe.min_iterations(),
-    }
+    })
 }
 
 #[cube(launch_unchecked)]
