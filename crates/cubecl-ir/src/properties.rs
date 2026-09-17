@@ -346,6 +346,7 @@ mod tests {
 
     const AVX2: (u32, Option<u32>) = (256, Some(16));
     const AVX512: (u32, Option<u32>) = (512, Some(32));
+    const NEON: (u32, Option<u32>) = (128, Some(32));
 
     fn registers((width, count): (u32, Option<u32>), elem_size: usize) -> VectorRegisters {
         hardware(width, count).vector_registers(elem_size).unwrap()
@@ -365,6 +366,17 @@ mod tests {
         assert_eq!(f32.widest_lanes(9), 8);
         assert_eq!(registers(AVX2, 8).widest_lanes(6), 8);
         assert_eq!(registers(AVX512, 4).widest_lanes(6), 64);
+    }
+
+    #[test]
+    fn neon_and_avx2_budget_the_same_lanes_from_equal_register_files() {
+        let (neon, avx2) = (registers(NEON, 4), registers(AVX2, 4));
+        assert_eq!(neon.lanes_per_register(), 4);
+        assert_eq!(neon.widest_lanes(3), avx2.widest_lanes(3));
+        assert_eq!(neon.widest_lanes(6), avx2.widest_lanes(6));
+        // Past the budget both floor at one register, and NEON's holds half the lanes.
+        assert_eq!(neon.widest_lanes(40), 4);
+        assert_eq!(avx2.widest_lanes(40), 8);
     }
 
     #[test]
