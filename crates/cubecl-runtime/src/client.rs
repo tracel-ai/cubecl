@@ -1637,11 +1637,18 @@ impl Client {
                     ProfileDuration::new(
                         alloc::boxed::Box::pin(async move {
                             let ticks = result.resolve().await;
-                            let start_duration =
-                                ticks.start_duration_since(epoch).as_nanos() as i64;
-                            let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
-                            gpu_span.upload_timestamp_start(start_duration);
-                            gpu_span.upload_timestamp_end(end_duration);
+                            // A window that carried no measurement has no span
+                            // to place: `resolve` answers `None` rather than a
+                            // zero precisely so nothing reports it as an
+                            // instant at the epoch.
+                            if let Some(ticks) = &ticks {
+                                let start_duration =
+                                    ticks.start_duration_since(epoch).as_nanos() as i64;
+                                let end_duration =
+                                    ticks.end_duration_since(epoch).as_nanos() as i64;
+                                gpu_span.upload_timestamp_start(start_duration);
+                                gpu_span.upload_timestamp_end(end_duration);
+                            }
                             ticks
                         }),
                         TimingMethod::Device,
