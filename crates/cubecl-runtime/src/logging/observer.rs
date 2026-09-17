@@ -294,6 +294,30 @@ pub(crate) fn timing_wanted() -> bool {
     timing_requested() != TimingRequest::None
 }
 
+/// Say once that the profiling logger is taking the measurements an observer
+/// asked to keep.
+///
+/// A measurement is read once. With the logger set past `ExecutionOnly` it
+/// needs the measurement too, so the launch path reads it there and the
+/// observer is told a duration instead — its [`profiled`](LaunchObserver::profiled)
+/// never runs, and the kernels it is measuring stop overlapping. Both are
+/// exactly what [`TimingRequest::Deferred`] was asked for, so the observer
+/// gets numbers that describe a different pass from the one it wanted, and
+/// nothing in them says so.
+///
+/// Once per process, because it is a configuration mistake and not a per-launch
+/// event: at one line per kernel it would be the log.
+pub(crate) fn warn_logger_takes_deferred_measurements() {
+    static SAID: AtomicBool = AtomicBool::new(false);
+    if timing_requested() == TimingRequest::Deferred && !SAID.swap(true, Ordering::Relaxed) {
+        log::warn!(
+            "The profiling logger is reading every launch's measurement, so this run's \
+             launch observer is told durations instead of keeping them, and its kernels \
+             run one at a time. Turn the profile logging off to measure the pass as it runs."
+        );
+    }
+}
+
 /// What the installed observer asked be done with each measurement.
 fn timing_requested() -> TimingRequest {
     if !OBSERVING.load(Ordering::Relaxed) {

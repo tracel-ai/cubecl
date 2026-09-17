@@ -173,17 +173,40 @@ pub fn test_window_spans_every_pass_in_it<R: Runtime>(client: Client) {
 /// on another stream is the ordinary case. Closing there instead would find
 /// no window on that stream, or pair events recorded on two streams.
 pub fn test_split_window_closes_on_its_own_stream<R: Runtime>(client: Client) {
-    let output = client.empty(LEN * core::mem::size_of::<f32>());
+    let output = client.empty(core::mem::size_of::<f32>());
     let mut closer = client.clone();
     unsafe {
         closer.set_stream(StreamId { value: 10002 });
     }
 
-    let window = client.profile_start().unwrap();
-    launch(&client, &output);
-    let duration = resolve(closer.profile_end(window).unwrap());
+    // Compiling the kernel would otherwise land inside the first window.
+    touch(&client, &output);
+    cubecl_environment::future::block_on(client.sync()).unwrap();
 
-    assert!(duration > Duration::ZERO, "real GPU work must measure > 0");
+    let window = |launches: usize| {
+        let window = client.profile_start().unwrap();
+        for _ in 0..launches {
+            touch(&client, &output);
+        }
+        resolve(closer.profile_end(window).unwrap())
+    };
+
+    let few = window(FEW_LAUNCHES);
+    let many = window(MANY_LAUNCHES);
+
+    // Growth, not merely a positive number. A backend whose profiler keys its
+    // windows by token alone — CUDA and HIP both do — finds the window from
+    // any stream and answers something, so a close landing on the wrong
+    // stream pairs a start and an end recorded on two different streams and
+    // still measures *a* duration. What it cannot do is track the work on the
+    // opening stream, which is what this asks of it. On wgpu, whose windows
+    // are per stream, the wrong stream finds nothing and the close errors.
+    assert!(
+        many > few * MIN_GROWTH,
+        "closed from another stream, {MANY_LAUNCHES} launches measured {many:?} \
+         against {few:?} for {FEW_LAUNCHES}: the window did not span the work \
+         recorded on the stream it was opened on"
+    );
 }
 
 /// An abandoned window is gone: ending it afterwards finds nothing, and the

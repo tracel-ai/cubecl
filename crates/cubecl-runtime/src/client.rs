@@ -1172,6 +1172,10 @@ impl Client {
                 // one that can be deferred, an observer's cannot be recovered
                 // afterwards.
                 let profile = if observed_timing {
+                    // The observer asked to keep its measurements and cannot:
+                    // the logger reads this one, so the observer is told a
+                    // duration and its kernels stop overlapping.
+                    crate::logging::warn_logger_takes_deferred_measurements();
                     let method = profile.timing_method();
                     let ticks = cubecl_environment::future::block_on(profile.resolve());
                     match &ticks {
