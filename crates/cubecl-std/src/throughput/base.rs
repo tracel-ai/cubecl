@@ -84,7 +84,8 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 /// [`Unsupported`](ThroughputError::Unsupported) where the device implements
 /// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
 /// and reported no elapsed time, [`Allocation`](ThroughputError::Allocation)
-/// where it has no room for the probe's buffers. None of them is cached, so a
+/// where it has no room for the probe's buffers, [`Launch`](ThroughputError::Launch)
+/// where a memory probe's kernel did not run. None of them is cached, so a
 /// device that was full is measured the next time it is asked.
 pub fn measure_peak_throughput(
     client: &Client,

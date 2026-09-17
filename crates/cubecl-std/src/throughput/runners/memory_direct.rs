@@ -25,6 +25,7 @@ pub fn build_kernel(
         memory_probe::reserve(&client, [probe.buffer_bytes, probe.buffer_bytes])?;
     memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);
 
+    let (verifier, written) = (client.clone(), out_handle.clone());
     let sample = Box::new(move |iterations: usize| {
         let start = cubecl_common::profile::Instant::now();
         unsafe {
@@ -41,9 +42,11 @@ pub fn build_kernel(
                 dtype,
             )
         };
+        // A failure is not this sync's to report: `verify` asked the output.
         let _ = cubecl_core::future::block_on(client.sync());
         start.elapsed()
     });
+    memory_probe::verify(&verifier, &sample, &written)?;
 
     // One pass moves the window twice: once in, once out.
     let ops_count = 2 * probe.window_lines * config.vector_size;

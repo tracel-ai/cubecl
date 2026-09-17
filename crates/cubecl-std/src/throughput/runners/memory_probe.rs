@@ -6,6 +6,7 @@ use cubecl_runtime::{
 };
 
 use crate::throughput::LaunchConfig;
+use cubecl_common::profile::Duration;
 
 /// Windows the pool holds. What decides whether a rewritten line is still
 /// resident is the pool's size against the last level cache, not the positions
@@ -164,6 +165,27 @@ pub fn reserve<const N: usize>(
         .map_err(|_| ThroughputError::Allocation)?;
 
     Ok(handles)
+}
+
+/// Runs one pass and confirms it wrote `written`, before any pass is timed.
+///
+/// A launch that fails leaves its failure on the buffers it never wrote, and
+/// `sync` answers `Ok` regardless. A sample has no way to say so, and would
+/// time the launch overhead and report it as bandwidth.
+///
+/// # Errors
+///
+/// [`ThroughputError::Launch`] when the pass did not run. The cause is logged
+/// by the device where it happened.
+pub fn verify(
+    client: &Client,
+    sample: impl Fn(usize) -> Duration,
+    written: &Handle,
+) -> Result<(), ThroughputError> {
+    sample(1);
+
+    cubecl_core::future::block_on(client.sync_buffers([written]))
+        .map_err(|_| ThroughputError::Launch)
 }
 
 /// Writes every line of `handle`, once, before it is handed to a probe that
