@@ -166,16 +166,16 @@ winapi = { version = "^0.3.9", features = [
 inflections = "1"
 
 # Crates.io
-# pliron = { version = "0.17", default-features = false }
-# pliron-llvm = { version = "0.17", default-features = false }
+pliron = { version = "0.18", default-features = false }
+pliron-llvm = { version = "0.18", default-features = false }
 
 # Path
 # pliron = { path = "../pliron", default-features = false }
 # pliron-llvm = { path = "../pliron/pliron-llvm", default-features = false }
 
 # Git
-pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "fa72d7f36385438173b8008f709ef179d0f4069e", default-features = false }
-pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "fa72d7f36385438173b8008f709ef179d0f4069e", default-features = false }
+# pliron = { git = "https://github.com/pliron-org/pliron.git", rev = "fa72d7f36385438173b8008f709ef179d0f4069e", default-features = false }
+# pliron-llvm = { git = "https://github.com/pliron-org/pliron.git", rev = "fa72d7f36385438173b8008f709ef179d0f4069e", default-features = false }
 
 # These features stop llvm-sys from resolving LLVM itself; cubecl-llvm's build.rs
 # links the bundled toolchain instead.
@@ -200,8 +200,8 @@ cudarc = { version = "0.19.6", features = [
 # rspirv = { version = "0.14.1", package = "tracel-rspirv" }
 # pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
 # rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
-pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "0a51b9d88f033d47fc1111f10a87190ad782512d" }
-rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "0a51b9d88f033d47fc1111f10a87190ad782512d", package = "tracel-rspirv" }
+pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "9b2015237792ec535a711c4d1471da3750ac9a3f" }
+rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "9b2015237792ec535a711c4d1471da3750ac9a3f", package = "tracel-rspirv" }
 rustc_apfloat = "0.2"
 
 # CubeCL-WGPU
