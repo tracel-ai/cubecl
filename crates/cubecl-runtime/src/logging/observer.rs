@@ -88,6 +88,14 @@ use cubecl_environment::sync::RwLock;
 /// per launch: which of [`profiled`](LaunchObserver::profiled) and
 /// [`timed`](LaunchObserver::timed) a measurement reaches is a property of the
 /// observer, and the launch path has to know it *before* it takes one.
+///
+/// **It must not change while an observation is installed.** The launch path
+/// asks once to decide whether to bracket the launch, and again to deliver the
+/// measurement — on the issuing thread both times, but a launch bracketed
+/// under one answer and delivered under another loses its measurement, and it
+/// has already been paid for. An observer that measures only part of a run
+/// keeps that region in its own state and reports the launches outside it,
+/// rather than changing its answer here.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TimingRequest {
     /// Don't time launches. The default, because timing is not free.
@@ -107,6 +115,14 @@ pub enum TimingRequest {
     /// Nothing waits, so the kernels around it keep running back to back and
     /// the observer reads them once the pass is over. Right for an observer
     /// measuring where a pass spends its time.
+    ///
+    /// **Only while the profiling logger is off.** A measurement is read once,
+    /// and past [`ExecutionOnly`](super::ProfileLevel::ExecutionOnly) the
+    /// logger needs it too — so the launch path reads it there and delivers
+    /// the length to [`timed`](LaunchObserver::timed) instead, which runs the
+    /// kernels one at a time. An observer whose figures only mean something on
+    /// a pipelined pass should say so when timings arrive that way: the pass
+    /// it measured is not the pass it asked for.
     Deferred,
 }
 
@@ -325,8 +341,18 @@ pub(crate) fn notify_profiled(kernel: &'static str, profile: ProfileDuration) {
                 return;
             }
             // Asked for no timing between the launch being bracketed and this
-            // call — an observation that ended underneath it.
-            TimingRequest::None => return,
+            // call — an observation that ended underneath it, or one answering
+            // differently at two moments, which `TimingRequest` forbids. The
+            // measurement has already been paid for, so losing it is said out
+            // loud: the other two ways one can go missing warn as well, and a
+            // gap in a breakdown with nothing in the log is unattributable.
+            TimingRequest::None => {
+                log::warn!(
+                    "Dropped a timing of `{kernel}`: its observer asked for none by the time \
+                     the measurement arrived"
+                );
+                return;
+            }
             TimingRequest::Resolved => (Arc::clone(observer), profile),
         }
     };
@@ -445,8 +471,9 @@ mod tests {
         ProfileDuration::new_system_time(start, start + Duration::from_micros(micros))
     }
 
-    /// An observer that says nothing about measurements is told the duration,
-    /// read back for it — what every observer written against `timed` expects.
+    /// An observer asking for [`TimingRequest::Resolved`] is told the
+    /// duration, read back for it — the arm every observer written against
+    /// `timed` alone wants.
     #[test]
     #[serial_test::serial]
     fn a_measurement_is_read_back_for_an_observer_that_only_wants_durations() {
