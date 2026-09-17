@@ -1,3 +1,17 @@
+/// WGSL parser targeted by generated shaders.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WgslFrontend {
+    #[default]
+    Naga,
+    Tint,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WgslCompilationOptions {
+    pub frontend: WgslFrontend,
+    pub subgroup_size: Option<u32>,
+}
+
 // We cannot put this struct in cubecl-wgpu crate due to circular dependencies.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WgpuCompilationOptions {
@@ -5,6 +19,7 @@ pub struct WgpuCompilationOptions {
     /// Whether the Vulkan compiler is supported or we need to fall back to WGSL
     pub supports_vulkan_compiler: bool,
     pub supports_msl_compiler: bool,
+    pub wgsl: WgslCompilationOptions,
 
     pub vulkan: VulkanCompilationOptions,
 }

@@ -1,6 +1,7 @@
+use alloc::collections::BTreeSet;
 use core::fmt::{self, Display, Write};
 
-use cubecl_core::prelude::Visibility;
+use cubecl_core::{WgpuCompilationOptions, WgslFrontend, prelude::Visibility};
 use cubecl_ir::{
     AddressSpace, CanMaterialize, GlobalState, Pure,
     attributes::{
@@ -12,7 +13,6 @@ use cubecl_ir::{
     interfaces::TypedExt,
     prelude::*,
 };
-use hashbrown::HashSet;
 use itertools::Itertools;
 use pliron::{
     basic_block::BasicBlock,
@@ -161,11 +161,41 @@ wgsl_op!(EnableOp, |op, ctx| {
     format!("enable {};\n", op.feature(ctx).as_ref())
 });
 
+#[cube_op(name = "wgsl.diagnostic_off", format = "attr($rule, $IdentifierAttr)")]
+#[result_ty(none)]
+pub struct DiagnosticOffOp {
+    rule: IdentifierAttr,
+}
+
+wgsl_op!(DiagnosticOffOp, |op, ctx| {
+    format!("diagnostic(off, {});\n", op.rule(ctx).as_ref())
+});
+
 #[op_interface]
 pub trait RequiresFeatureOp {
     verify_op_succ!();
-    fn required_feature(&self, ctx: &Context) -> String;
+    fn required_feature(&self, ctx: &Context) -> WgslFeature;
 }
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum WgslFeature {
+    F16,
+    Subgroups,
+    SubgroupSizeControl,
+}
+
+impl WgslFeature {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::F16 => "f16",
+            Self::Subgroups => "subgroups",
+            Self::SubgroupSizeControl => "subgroup_size_control",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RequiredSubgroupSize(pub Option<u32>);
 
 pub struct EnableFeaturesPass;
 
@@ -178,12 +208,12 @@ impl Pass for EnableFeaturesPass {
         _analyses: &mut AnalysisManager,
     ) -> Result<PassResult> {
         let module_body = op.as_op::<ModuleOp>(ctx).unwrap().get_body(ctx, 0);
-        let mut feats = HashSet::new();
+        let mut feats = BTreeSet::new();
         visit_all_values(ctx, &mut feats, op, |ctx, feats, val| {
             if let Some(elem) = val.try_get_scalar_elem_ty(ctx)
                 && elem.is_float16(ctx)
             {
-                feats.insert("f16".to_string());
+                feats.insert(WgslFeature::F16);
             }
         });
         visit_all_ops_with_interface::<dyn RequiresFeatureOp, _>(
@@ -194,14 +224,26 @@ impl Pass for EnableFeaturesPass {
                 feats.insert(op.required_feature(ctx));
             },
         );
+        let options = ctx.aux_ty::<WgpuCompilationOptions>().wgsl;
+        if options.frontend == WgslFrontend::Naga {
+            feats.remove(&WgslFeature::Subgroups);
+        }
 
         let mut res = PassResult::default();
         if !feats.is_empty() {
             res.ir_changed = IRStatus::Changed;
         }
 
+        if feats.contains(&WgslFeature::Subgroups) {
+            let diagnostic = DiagnosticOffOp::new(ctx, ident("subgroup_uniformity"));
+            diagnostic.get_operation().insert_at_front(module_body, ctx);
+            if options.subgroup_size.is_some() {
+                feats.insert(WgslFeature::SubgroupSizeControl);
+                ctx.set_aux_ty(RequiredSubgroupSize(options.subgroup_size));
+            }
+        }
         for feat in feats {
-            let enable = EnableOp::new(ctx, ident(feat));
+            let enable = EnableOp::new(ctx, ident(feat.as_str()));
             enable.get_operation().insert_at_front(module_body, ctx);
         }
         Ok(res)
@@ -239,7 +281,11 @@ fn func_to_wgsl(ctx: &Context, op: &FuncOp) -> core::result::Result<String, fmt:
     let f = &mut sig;
     if let Some(entry) = op.get_entrypoint_abi(ctx) {
         let (x, y, z) = entry.cube_dim.into();
-        writeln!(f, "@compute @workgroup_size({x}, {y}, {z})")?;
+        write!(f, "@compute @workgroup_size({x}, {y}, {z})")?;
+        if let Some(width) = ctx.aux_ty::<RequiredSubgroupSize>().0 {
+            write!(f, " @subgroup_size({width})")?;
+        }
+        writeln!(f)?;
     }
     let name = op.get_symbol_name(ctx);
     let entry = op.get_entry_block(ctx);

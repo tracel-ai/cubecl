@@ -7,9 +7,8 @@
 //! # Model
 //!
 //! One database `"cubecl"` with a single object store `"kv"`. Each entry is
-//! stored under the record key `"{namespace}/{hex key}"` and holds the raw value
-//! bytes. The namespace's entries are mirrored in memory, loaded in the
-//! background at open, and served from there.
+//! stored under the record key `"{environment}/{namespace}/{hex key}"` and
+//! holds the raw value bytes. Namespace contents are mirrored in memory.
 //!
 //! # Concurrency
 //!
@@ -27,7 +26,7 @@
 
 use alloc::boxed::Box;
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use hashbrown::HashMap;
@@ -46,6 +45,61 @@ use super::storage::{Insertion, Origin, Storage, entries};
 const DB_NAME: &str = "cubecl";
 const STORE_NAME: &str = "kv";
 
+static PRELOADED: spin::Mutex<Option<HashMap<String, Bytes>>> = spin::Mutex::new(None);
+
+/// Preloads IndexedDB records for synchronous cache access.
+pub async fn preload() -> Result<usize, String> {
+    let records = load_all().await.map_err(|err| format!("{err:?}"))?;
+    let count = records.len();
+    *PRELOADED.lock() = Some(records);
+    Ok(count)
+}
+
+/// Exports records from the active environment.
+pub async fn export() -> Result<Vec<(String, Vec<u8>)>, String> {
+    let scope = environment_prefix();
+    let upper = format!("{scope}\u{10FFFF}");
+    let range = IdbKeyRange::bound(&JsValue::from_str(&scope), &JsValue::from_str(&upper))
+        .map_err(|err| format!("{err:?}"))?;
+    let records = load_records(Some(&range))
+        .await
+        .map_err(|err| format!("{err:?}"))?;
+    Ok(records
+        .into_iter()
+        .filter_map(|(record_key, value)| {
+            let key = record_key.strip_prefix(&scope)?.to_string();
+            Some((key, value.to_vec()))
+        })
+        .collect())
+}
+
+/// Imports records that do not already exist in the active environment.
+pub async fn seed(records: &[(String, Vec<u8>)]) -> Result<usize, String> {
+    let scope = environment_prefix();
+    let mut present = load_all().await.map_err(|err| format!("{err:?}"))?;
+    let mut written = 0;
+    for (key, value) in records {
+        let record_key = format!("{scope}{key}");
+        if present.contains_key(&record_key) {
+            continue;
+        }
+        put(&record_key, value)
+            .await
+            .map_err(|err| format!("{err:?}"))?;
+        let value = Bytes::from_bytes_vec(value.clone());
+        present.insert(record_key.clone(), value.clone());
+        if let Some(preloaded) = PRELOADED.lock().as_mut() {
+            preloaded.insert(record_key, value);
+        }
+        written += 1;
+    }
+    Ok(written)
+}
+
+fn environment_prefix() -> String {
+    format!("{}/", crate::environment::scope())
+}
+
 /// The mirrored content of one namespace.
 #[derive(Default, Debug)]
 struct State {
@@ -61,15 +115,43 @@ pub struct BrowserStorage {
     state: Arc<spin::Mutex<State>>,
 }
 
-/// The storage serving `namespace` in browser storage.
+/// The storage serving `namespace` in the active environment.
 pub(crate) fn open_storage(namespace: &str) -> Box<dyn Storage> {
-    Box::new(BrowserStorage::new(format!("{namespace}/")))
+    Box::new(BrowserStorage::new(format!(
+        "{}{namespace}/",
+        environment_prefix()
+    )))
 }
 
 impl BrowserStorage {
-    /// Creates the storage and starts loading existing entries under
-    /// `prefix` in the background.
+    /// Creates a storage and starts loading it when no preload is available.
     pub fn new(prefix: String) -> Self {
+        if let Some(records) = PRELOADED.lock().as_ref() {
+            let mut state = State {
+                entries: Default::default(),
+                loaded: true,
+            };
+            let mine: Vec<_> = records
+                .iter()
+                .filter(|(record_key, _)| record_key.starts_with(&prefix))
+                .map(|(record_key, value)| (record_key.clone(), value.clone()))
+                .collect();
+            for (record_key, value) in mine {
+                match decode_record_key(&record_key, &prefix) {
+                    Some(key) => {
+                        state.entries.insert(key, (value, Origin::Local));
+                    }
+                    None => log::warn!(
+                        "cubecl cache: unreadable browser storage record key '{record_key}'"
+                    ),
+                }
+            }
+            return Self {
+                prefix,
+                state: Arc::new(spin::Mutex::new(state)),
+            };
+        }
+
         let state = Arc::new(spin::Mutex::new(State::default()));
 
         {
@@ -95,6 +177,9 @@ impl BrowserStorage {
     /// recompute on the next page load.
     fn put_in_background(&self, key: &[u8], value: Bytes) {
         let record_key = format!("{}{}", self.prefix, to_hex(key));
+        if let Some(records) = PRELOADED.lock().as_mut() {
+            records.insert(record_key.clone(), value.clone());
+        }
 
         wasm_bindgen_futures::spawn_local(async move {
             if let Err(err) = put(&record_key, &value).await {
@@ -140,6 +225,9 @@ impl Storage for BrowserStorage {
         // authoritative for this process, and a failed delete costs stale
         // records resurfacing on the next page load.
         let prefix = self.prefix.clone();
+        if let Some(records) = PRELOADED.lock().as_mut() {
+            records.retain(|record_key, _| decode_record_key(record_key, &prefix).is_none());
+        }
         wasm_bindgen_futures::spawn_local(async move {
             if let Err(err) = delete_prefix(&prefix).await {
                 log::warn!("cubecl cache: browser storage purge('{prefix}') failed: {err:?}");
@@ -152,6 +240,9 @@ impl Storage for BrowserStorage {
 
         // Fire-and-forget, as above.
         let record_key = format!("{}{}", self.prefix, to_hex(key));
+        if let Some(records) = PRELOADED.lock().as_mut() {
+            records.remove(&record_key);
+        }
         wasm_bindgen_futures::spawn_local(async move {
             if let Err(err) = delete_record(&record_key).await {
                 log::warn!("cubecl cache: browser storage delete('{record_key}') failed: {err:?}");
@@ -268,48 +359,23 @@ async fn open_db() -> Result<IdbDatabase, JsValue> {
     result.dyn_into::<IdbDatabase>().map_err(JsValue::from)
 }
 
+fn decode_record_key(record_key: &str, prefix: &str) -> Option<Vec<u8>> {
+    record_key.strip_prefix(prefix).and_then(from_hex)
+}
+
 /// Loads every record under `prefix` into the mirrored state.
 async fn load(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue> {
-    let db = open_db().await?;
-
-    let transaction = db.transaction_with_str(STORE_NAME)?;
-    let store = transaction.object_store(STORE_NAME)?;
-
     // All keys starting with the prefix: [prefix, prefix + U+10FFFF).
     let upper = format!("{prefix}\u{10FFFF}");
     let range = IdbKeyRange::bound(&JsValue::from_str(prefix), &JsValue::from_str(&upper))?;
 
-    // Both requests report entries in record key order, so the two arrays line
-    // up index by index.
-    let keys: js_sys::Array = request_result(&store.get_all_keys_with_key(&range)?)
-        .await?
-        .dyn_into()?;
-    let values: js_sys::Array = request_result(&store.get_all_with_key(&range)?)
-        .await?
-        .dyn_into()?;
-
     let mut entries = HashMap::new();
-    for (key, value) in keys.iter().zip(values.iter()) {
-        let Some(record_key) = key.as_string() else {
-            log::warn!("cubecl cache: unexpected browser storage record key: {key:?}");
-            continue;
-        };
-        let Some(key) = record_key.strip_prefix(prefix).and_then(from_hex) else {
+    for (record_key, bytes) in load_records(Some(&range)).await? {
+        let Some(key) = decode_record_key(&record_key, prefix) else {
             log::warn!("cubecl cache: unreadable browser storage record key '{record_key}'");
             continue;
         };
-
-        match value.dyn_into::<Uint8Array>() {
-            Ok(bytes) => {
-                // Everything already durable is treated as local: an import
-                // that reached storage is indistinguishable from a local
-                // computation once the process restarts.
-                entries.insert(key, (Bytes::from_bytes_vec(bytes.to_vec()), Origin::Local));
-            }
-            Err(value) => {
-                log::warn!("cubecl cache: unexpected browser storage record type: {value:?}");
-            }
-        }
+        entries.insert(key, (bytes, Origin::Local));
     }
 
     if !entries.is_empty() {
@@ -321,6 +387,45 @@ async fn load(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue> {
     }
 
     Ok(())
+}
+
+async fn load_all() -> Result<HashMap<String, Bytes>, JsValue> {
+    Ok(load_records(None).await?.into_iter().collect())
+}
+
+async fn load_records(range: Option<&IdbKeyRange>) -> Result<Vec<(String, Bytes)>, JsValue> {
+    let db = open_db().await?;
+
+    let transaction = db.transaction_with_str(STORE_NAME)?;
+    let store = transaction.object_store(STORE_NAME)?;
+
+    // Both requests report entries in record key order, so the two arrays line
+    // up index by index.
+    let (keys, values) = match range {
+        Some(range) => (
+            store.get_all_keys_with_key(range)?,
+            store.get_all_with_key(range)?,
+        ),
+        None => (store.get_all_keys()?, store.get_all()?),
+    };
+    let keys: js_sys::Array = request_result(&keys).await?.dyn_into()?;
+    let values: js_sys::Array = request_result(&values).await?.dyn_into()?;
+
+    let mut records = Vec::with_capacity(keys.length() as usize);
+    for (key, value) in keys.iter().zip(values.iter()) {
+        let Some(record_key) = key.as_string() else {
+            log::warn!("cubecl cache: unexpected browser storage record key: {key:?}");
+            continue;
+        };
+        match value.dyn_into::<Uint8Array>() {
+            Ok(bytes) => records.push((record_key, Bytes::from_bytes_vec(bytes.to_vec()))),
+            Err(value) => {
+                log::warn!("cubecl cache: unexpected browser storage record type: {value:?}");
+            }
+        }
+    }
+
+    Ok(records)
 }
 
 /// Writes one record.

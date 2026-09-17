@@ -97,7 +97,14 @@ impl AttrToWgsl for IntegerAttr {
 #[attr_interface_impl]
 impl AttrToWgsl for FloatAttr {
     fn to_wgsl(&self, ctx: &Context) -> String {
-        let val = self.float_type(ctx).value_to_string(self.val);
+        let float = self.float_type(ctx);
+        // Preserve the exact f16/f32 value when formatting finite literals.
+        let value = float.value_to_f64(self.val);
+        let val = if value.is_finite() {
+            format!("{value:?}")
+        } else {
+            float.value_to_string(self.val)
+        };
         format!("{}({val})", self.ty.to_wgsl(ctx))
     }
 }

@@ -11,6 +11,7 @@ use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
 use cubecl_core::ir::TargetProperties;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
+use cubecl_core::{WgpuCompilationOptions, WgslFrontend};
 use cubecl_environment::future;
 use cubecl_ir::{DeviceIdentity, DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 use cubecl_server::allocator::ContiguousMemoryLayoutPolicy;
@@ -284,6 +285,81 @@ pub struct RuntimeOptions {
     pub tasks_max: usize,
     /// Configures the memory management.
     pub memory_config: MemoryConfiguration,
+    /// Options specific to the WebGPU backend.
+    pub webgpu: WebGpuOptions,
+}
+
+/// WebGPU backend options.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WebGpuOptions {
+    /// How variable plane widths are handled.
+    pub plane_width: WebGpuPlaneWidth,
+    /// WGSL parser provided by the WebGPU implementation.
+    pub wgsl_frontend: WgslFrontend,
+}
+
+impl Default for WebGpuOptions {
+    fn default() -> Self {
+        Self {
+            plane_width: WebGpuPlaneWidth::default(),
+            wgsl_frontend: WgslFrontend::Tint,
+        }
+    }
+}
+
+impl WebGpuOptions {
+    fn apply(
+        self,
+        properties: &mut DeviceProperties,
+        compilation_options: &mut WgpuCompilationOptions,
+    ) {
+        compilation_options.wgsl.frontend = self.wgsl_frontend;
+
+        let hardware = &mut properties.hardware;
+        if hardware.plane_size_min == hardware.plane_size_max {
+            return;
+        }
+
+        match self.plane_width {
+            WebGpuPlaneWidth::Pinned => {
+                assert_eq!(
+                    self.wgsl_frontend,
+                    WgslFrontend::Tint,
+                    "pinned plane widths require the Tint WGSL frontend",
+                );
+                compilation_options.wgsl.subgroup_size = Some(hardware.plane_size_min);
+                hardware.plane_size_max = hardware.plane_size_min;
+            }
+            WebGpuPlaneWidth::Assumed(width) => {
+                assert!(
+                    (hardware.plane_size_min..=hardware.plane_size_max).contains(&width),
+                    "assumed plane width {width} is outside the reported range {}..={}",
+                    hardware.plane_size_min,
+                    hardware.plane_size_max,
+                );
+                hardware.plane_size_min = width;
+                hardware.plane_size_max = width;
+            }
+            WebGpuPlaneWidth::Range => {
+                properties
+                    .features
+                    .plane
+                    .remove(cubecl_ir::features::Plane::Ops);
+            }
+        }
+    }
+}
+
+/// Policy for WebGPU adapters that report a range of plane widths.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WebGpuPlaneWidth {
+    /// Pin plane kernels to the minimum supported width.
+    Pinned,
+    /// Report a known fixed width without emitting a size attribute.
+    Assumed(u32),
+    /// Preserve the reported range and disable plane operations.
+    #[default]
+    Range,
 }
 
 impl Default for RuntimeOptions {
@@ -303,6 +379,7 @@ impl Default for RuntimeOptions {
         Self {
             tasks_max,
             memory_config: MemoryConfiguration::default(),
+            webgpu: WebGpuOptions::default(),
         }
     }
 }
@@ -487,7 +564,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         cube_mma_reserved_shared_memory: 0,
     };
 
-    let mut compilation_options = Default::default();
+    let mut compilation_options = WgpuCompilationOptions::default();
 
     let features = setup.adapter.features();
 
@@ -538,6 +615,12 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         &mut compilation_options,
         &options.memory_config,
     );
+
+    if setup.backend == wgpu::Backend::BrowserWebGpu {
+        options
+            .webgpu
+            .apply(&mut device_props, &mut compilation_options);
+    }
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
 

@@ -36,6 +36,12 @@ pub use sqlite::{Database, SqliteStorage, db_file_name};
 #[cfg(browser_cache)]
 pub(crate) mod browser;
 
+#[cfg(browser_cache)]
+pub use browser::{
+    export as export_browser_storage, preload as preload_browser_storage,
+    seed as seed_browser_storage,
+};
+
 /// Cache root location selection.
 ///
 /// Available wherever there is a file system, not only when the `SQLite`
