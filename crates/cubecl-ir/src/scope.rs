@@ -224,7 +224,7 @@ impl ContextExt for Context {
     }
 
     fn set_address_type(&mut self, addr: AddressType) {
-        if let Some(key) = self.aux_data_map.get(&*ADDRESS_TYPE_KEY).copied() {
+        if let Some(key) = self.aux_data_map.get(&ADDRESS_TYPE_KEY).copied() {
             *self.aux_data.get_mut(key).unwrap() = Box::new(addr);
         } else {
             let key = self.aux_data.insert(Box::new(addr));
@@ -233,7 +233,7 @@ impl ContextExt for Context {
     }
 
     fn address_type(&self) -> AddressType {
-        let key = self.aux_data_map[&*ADDRESS_TYPE_KEY];
+        let key = self.aux_data_map[&ADDRESS_TYPE_KEY];
         *self.aux_data[key].downcast_ref::<AddressType>().unwrap()
     }
 }
@@ -275,7 +275,7 @@ impl FuncOpExt for FuncOp {
         let new_func_ty = FunctionType::get(ctx, arg_types, res_types).to_handle();
         self.set_attr_builtin_func_type(ctx, new_func_ty.into());
         let mut op = self.get_operation().deref_mut(ctx);
-        let arg_attrs = op.attributes.0.get_mut(&*ATTR_KEY_ARG_ATTRS);
+        let arg_attrs = op.attributes.0.get_mut(&ATTR_KEY_ARG_ATTRS);
         if let Some(arg_attrs) = arg_attrs.and_then(|attr| attr.downcast_mut::<VecAttr>()) {
             arg_attrs.0.truncate(last_idx);
         }
@@ -295,7 +295,7 @@ impl FuncOpExt for FuncOp {
         self.set_attr_builtin_func_type(ctx, new_func_ty.into());
 
         let mut op = self.get_operation().deref_mut(ctx);
-        let arg_attrs = op.attributes.0.get_mut(&*ATTR_KEY_ARG_ATTRS);
+        let arg_attrs = op.attributes.0.get_mut(&ATTR_KEY_ARG_ATTRS);
         if let Some(arg_attrs) = arg_attrs.and_then(|attr| attr.downcast_mut::<VecAttr>()) {
             arg_attrs.0.remove(arg_idx);
         }
