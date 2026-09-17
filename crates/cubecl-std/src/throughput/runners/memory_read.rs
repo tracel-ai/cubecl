@@ -35,8 +35,7 @@ pub fn build_kernel(
     let probe = MemoryProbe::new(&client, config, line_bytes, spec);
 
     // One line out: the kernel writes from a single thread, only to anchor the reads.
-    let [in_handle, out_handle] =
-        memory_probe::reserve(&client, [probe.buffer_bytes, line_bytes])?;
+    let [in_handle, out_handle] = memory_probe::reserve(&client, [probe.buffer_bytes, line_bytes])?;
     memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);
 
     let sample = Box::new(move |iterations: usize| {
