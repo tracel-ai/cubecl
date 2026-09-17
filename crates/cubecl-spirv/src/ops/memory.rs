@@ -8,6 +8,7 @@ use cubecl_ir::{
 };
 use cubecl_opt::passes::{alloc_shared_memory::SliceSharedOp, uniformity::op_dyn_uniformity};
 use pliron::{
+    attribute::boxed_attr_cast,
     builtin::{
         given_names::set_operation_result_name,
         ops::{ConstantOp, FuncOp},
@@ -53,7 +54,7 @@ impl ToSpirvDialectOp for DeclareVariableOp {
         // Init needs to be converted to store because variables may be defined inside a loop, and
         // the initializer needs to be re-run on each iteration.
         if let Some(init) = init {
-            let attr = attr_to_spirv_dialect(ctx, &init);
+            let attr = boxed_attr_cast(attr_to_spirv_dialect(ctx, &init)).unwrap();
             let constant = ConstantOp::new(ctx, attr);
             let value = rewriter.append_op_with_result(ctx, &constant);
             let store = StoreOp::new(ctx, var.get_result(ctx), value);

@@ -149,7 +149,7 @@ impl ToSpirvDialectOp for plane::BroadcastOp {
         let uniformity = op_dyn_uniformity(ctx, op);
         let value = self.input(ctx);
         let lane = *self.lane(ctx);
-        let lane_const = ConstantOp::new(ctx, lane.into());
+        let lane_const = ConstantOp::new(ctx, Box::new(lane));
         rewriter.append_op(ctx, &lane_const);
         let lane = lane_const.get_result(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
