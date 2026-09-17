@@ -17,7 +17,7 @@ use cubecl_server::{
     kernel::{CubeKernel, KernelMetadata},
     logging::ServerLogger,
     memory_management::{
-        ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage,
+        Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage,
     },
     server::{
         BufferBinding, CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource,
@@ -407,10 +407,14 @@ impl<M: Marker> DummyServer<M> {
         handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> Result<(), ServerError> {
         self.failures.reports(handles.filter_map(|handle| {
+            let memory = handle.memory.id();
+            if !handle.memory.descriptor().is_allocated() {
+                return Some(Claim::Unallocated(memory));
+            }
             let failure = self
                 .memory_management
                 .failure(&handle.memory, handle.range())?;
-            Some((failure, handle.memory.id()))
+            Some(Claim::Failed(failure, memory))
         }))
     }
 
