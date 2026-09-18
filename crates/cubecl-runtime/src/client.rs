@@ -1742,9 +1742,9 @@ impl Client {
         &self,
         size: usize,
     ) -> impl Iterator<Item = VectorSize> + Clone {
-        let load_width = self.properties().hardware.load_width as usize;
+        let io_width = self.properties().hardware.io_width as usize;
         let size_bits = size * 8;
-        let max = load_width / size_bits;
+        let max = io_width / size_bits;
         let max = usize::min(self.properties().hardware.max_vector_size, max);
 
         // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
