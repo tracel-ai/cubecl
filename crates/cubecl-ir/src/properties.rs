@@ -69,13 +69,31 @@ pub struct HardwareProperties {
 
 /// Properties of the device related to allocation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct MemoryDeviceProperties {
     /// The maximum nr. of bytes that can be allocated in one go.
     pub max_page_size: u64,
     /// The required memory offset alignment in bytes.
     pub alignment: u64,
-    /// Everything the device can hold at once, in bytes, and `None`, never
-    /// `Some(0)`, where the runtime cannot read one.
+    /// Private so that [`max_memory`](Self::max_memory) can promise a caller
+    /// what it promises: only [`set_max_memory`](Self::set_max_memory) writes
+    /// it, and that is where a zero turns into `None`.
+    max_memory: Option<u64>,
+}
+
+impl MemoryDeviceProperties {
+    /// A memory stating no capacity. Whoever can read one adds it with
+    /// [`with_max_memory`](Self::with_max_memory).
+    pub const fn new(max_page_size: u64, alignment: u64) -> Self {
+        Self {
+            max_page_size,
+            alignment,
+            max_memory: None,
+        }
+    }
+
+    /// How much this memory may be asked to hold at once, in bytes, and
+    /// `None`, never `Some(0)`, where no figure is to be had.
     ///
     /// The capacity a whole workload is sized against, which is a different
     /// question from [`max_page_size`](Self::max_page_size): that one bounds a
@@ -83,11 +101,36 @@ pub struct MemoryDeviceProperties {
     /// HIP takes a quarter of it. A caller deciding whether a model fits before
     /// it starts loading it has nothing else to ask.
     ///
-    /// `None` is the honest answer on a runtime whose API states no total:
-    /// WebGPU, and wgpu on a backend it cannot reach through its HAL. Nothing
-    /// may substitute a guess for it — a fabricated capacity reads as a
+    /// It is a budget rather than a hardware census, because each runtime
+    /// reports the largest figure its own API stands behind. That is the
+    /// hardware total on CUDA, HIP and the CPU, while Metal states the working
+    /// set it recommends staying under, around two thirds of unified memory.
+    /// An allocation past the figure may well succeed; staying under it is what
+    /// keeps the device off its paging path.
+    ///
+    /// `None` is the answer wherever the total is unknown: WebGPU, which states
+    /// none, a wgpu build compiled without the backend feature that reads one,
+    /// and a memory whose space nobody measured, such as a host pinned pool.
+    /// Nothing may substitute a guess for it — a fabricated capacity reads as a
     /// measurement to every caller downstream.
-    pub max_memory: Option<u64>,
+    pub const fn max_memory(&self) -> Option<u64> {
+        self.max_memory
+    }
+
+    /// States the capacity, as [`set_max_memory`](Self::set_max_memory) does.
+    pub const fn with_max_memory(mut self, max_memory: u64) -> Self {
+        self.set_max_memory(max_memory);
+        self
+    }
+
+    /// States the capacity, dropping a zero: an API with nothing to report
+    /// reports `0`, and [`max_memory`](Self::max_memory) says that as `None`.
+    pub const fn set_max_memory(&mut self, max_memory: u64) {
+        self.max_memory = match max_memory {
+            0 => None,
+            size => Some(size),
+        };
+    }
 }
 
 /// Who a device is, and what its compiled code is keyed to.
@@ -444,6 +487,22 @@ impl FastMath {
 mod tests {
     use super::*;
     use alloc::string::ToString;
+
+    #[test]
+    fn a_memory_states_no_capacity_until_one_is_read() {
+        let props = MemoryDeviceProperties::new(1024, 32);
+        assert_eq!(props.max_memory(), None);
+        assert_eq!(props.clone().with_max_memory(4096).max_memory(), Some(4096));
+    }
+
+    #[test]
+    fn a_capacity_of_zero_is_no_capacity() {
+        // An API with nothing to report reports `0`, which must not reach a
+        // caller as a device that holds nothing.
+        let mut props = MemoryDeviceProperties::new(1024, 32).with_max_memory(4096);
+        props.set_max_memory(0);
+        assert_eq!(props.max_memory(), None);
+    }
 
     #[test]
     fn a_vendor_keeps_its_id_whether_named_or_not() {

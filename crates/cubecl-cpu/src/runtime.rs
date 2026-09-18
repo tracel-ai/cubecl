@@ -165,11 +165,8 @@ impl DeviceService for CpuServer {
 
         const ALIGNMENT: u64 = cubecl_server::storage::BytesStorage::ALIGNMENT as u64;
 
-        let mem_properties = MemoryDeviceProperties {
-            max_page_size: total_memory as u64,
-            alignment: ALIGNMENT,
-            max_memory: Some(total_memory as u64),
-        };
+        let mem_properties = MemoryDeviceProperties::new(total_memory as u64, ALIGNMENT)
+            .with_max_memory(total_memory as u64);
 
         let mut device_props = DeviceProperties::new(
             Features {

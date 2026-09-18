@@ -14,11 +14,7 @@ fn main() {
     let start = std::time::Instant::now();
     let storage = BytesStorage::default();
     let config = MemoryConfiguration::default();
-    let mem_props = MemoryDeviceProperties {
-        max_page_size: 2048 * MB,
-        alignment: 32,
-        max_memory: None,
-    };
+    let mem_props = MemoryDeviceProperties::new(2048 * MB, 32);
     let logger = Arc::new(ServerLogger::default());
     let mut mm = MemoryManagement::from_configuration(
         storage,

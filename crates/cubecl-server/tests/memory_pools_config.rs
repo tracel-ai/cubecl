@@ -34,11 +34,7 @@ fn sliced(page_size: u64, pages: u64) -> MemoryPoolsConfig {
 }
 
 fn props() -> MemoryDeviceProperties {
-    MemoryDeviceProperties {
-        max_page_size: 128 * MIB,
-        alignment: 32,
-        max_memory: None,
-    }
+    MemoryDeviceProperties::new(128 * MIB, 32)
 }
 
 fn manage(pools: &MemoryPoolsConfig) -> MemoryManagement<BytesStorage> {

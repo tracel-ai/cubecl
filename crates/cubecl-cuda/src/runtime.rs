@@ -104,17 +104,17 @@ impl DeviceService for CudaServer {
         };
 
         // SAFETY: `device_ptr` is valid. `cuDeviceTotalMem_v2` writes the total device memory
-        // into the `MaybeUninit`, making `assume_init()` valid on success.
+        // into the `MaybeUninit`, making `assume_init()` valid on the success asserted below.
         let max_memory = unsafe {
             let mut bytes = MaybeUninit::uninit();
-            cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
+            let status = cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
+            status
+                .result()
+                .expect("the memory pools are sized against the device's capacity");
             bytes.assume_init() as u64
         };
-        let mem_properties = MemoryDeviceProperties {
-            max_page_size: max_memory / 4,
-            alignment: mem_alignment as u64,
-            max_memory: Some(max_memory),
-        };
+        let mem_properties = MemoryDeviceProperties::new(max_memory / 4, mem_alignment as u64)
+            .with_max_memory(max_memory);
 
         let mut comp_opts = CompilationOptions {
             supports_features: CppSupportedFeatures {

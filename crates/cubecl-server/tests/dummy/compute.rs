@@ -44,11 +44,7 @@ impl<M: Marker> DeviceService for DummyServer<M> {
 
 fn init_server<M: Marker>(service: cubecl_common::device::ServiceId) -> DummyServer<M> {
     let storage = BytesStorage::default();
-    let mem_properties = MemoryDeviceProperties {
-        max_page_size: 1024 * 1024 * 512,
-        alignment: 32,
-        max_memory: None,
-    };
+    let mem_properties = MemoryDeviceProperties::new(1024 * 1024 * 512, 32);
 
     let memory_management = MemoryManagement::from_configuration(
         storage,

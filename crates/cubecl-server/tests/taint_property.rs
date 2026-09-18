@@ -203,11 +203,7 @@ fn reason(error: &ServerError) -> String {
 
 impl Harness {
     fn new(config: MemoryConfiguration, seed: u64) -> Self {
-        let properties = MemoryDeviceProperties {
-            max_page_size: 128 * 1024,
-            alignment: 32,
-            max_memory: None,
-        };
+        let properties = MemoryDeviceProperties::new(128 * 1024, 32);
         let logger = Arc::new(ServerLogger::default());
         Self {
             device: Device {

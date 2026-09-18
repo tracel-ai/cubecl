@@ -95,25 +95,20 @@ impl DeviceService for HipServer {
                 .expect("the current thread needs its device set before anything is issued");
         }
 
-        // SAFETY: Calling HIP FFI to query device memory info. The pointers to `free` and
-        // `total` are valid stack variables cast to mutable pointers; HIP writes the values
-        // through them on success (asserted below).
+        // SAFETY: Calling HIP FFI to query device memory info. `free` and `total` are valid
+        // stack variables borrowed mutably; HIP writes the values through them on success
+        // (asserted below).
         let max_memory = unsafe {
-            let free: usize = 0;
-            let total: usize = 0;
-            let status = cubecl_hip_sys::hipMemGetInfo(
-                &free as *const _ as *mut usize,
-                &total as *const _ as *mut usize,
-            );
+            let mut free: usize = 0;
+            let mut total: usize = 0;
+            let status = cubecl_hip_sys::hipMemGetInfo(&mut free, &mut total);
             checked("hipMemGetInfo", status)
                 .expect("the memory pools are sized against the device's capacity");
             total
         };
-        let mem_properties = MemoryDeviceProperties {
-            max_page_size: max_memory as u64 / 4,
-            alignment: probe.alignment as u64,
-            max_memory: Some(max_memory as u64),
-        };
+        let mem_properties =
+            MemoryDeviceProperties::new(max_memory as u64 / 4, probe.alignment as u64)
+                .with_max_memory(max_memory as u64);
 
         let supported_wmma_combinations =
             HipCmmaCompiler::RocWmma.supported_cmma_combinations(&arch);

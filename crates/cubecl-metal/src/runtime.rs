@@ -61,14 +61,12 @@ impl DeviceService for MetalServer {
 
         use cubecl_common::profile::TimingMethod;
 
-        let mem_props = MemoryDeviceProperties {
-            max_page_size: (*metal_device).maxBufferLength() as u64,
-            alignment: 256,
-            // What Metal states a working set may reach before the device
-            // starts paging — the capacity figure Apple offers, on unified
-            // memory as on a discrete card.
-            max_memory: Some((*metal_device).recommendedMaxWorkingSetSize()),
-        };
+        // Metal states no total, only the working set it recommends a device
+        // stay under before it starts paging — around two thirds of unified
+        // memory on Apple silicon. That is the capacity figure Apple offers,
+        // and `max_memory` is a budget, so it is the one to report.
+        let mem_props = MemoryDeviceProperties::new((*metal_device).maxBufferLength() as u64, 256)
+            .with_max_memory((*metal_device).recommendedMaxWorkingSetSize());
 
         let hardware_props = HardwareProperties {
             load_width: 128,
