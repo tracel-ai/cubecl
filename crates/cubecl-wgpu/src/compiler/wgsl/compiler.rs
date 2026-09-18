@@ -155,7 +155,7 @@ impl WgslCompiler {
 
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(InstCombinePass::default());
-        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimpleCSEPass::without_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SROAPass);
@@ -165,7 +165,7 @@ impl WgslCompiler {
 
         func_passes.add_pass(SROAPass);
         func_passes.add_pass(SCCPPass);
-        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimpleCSEPass::with_memory());
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(DCEPass);
 

@@ -11,6 +11,7 @@ use cubecl_runtime::runtime::Runtime;
 
 use cubecl::prelude::*;
 use cubecl_common::profile::{Duration, ProfileDuration, TimingMethod};
+use cubecl_environment::stream::StreamId;
 use cubecl_runtime::server::{Handle, ProfileError};
 
 /// Long enough that the window has something to measure on any device, short
@@ -164,6 +165,71 @@ pub fn test_window_spans_every_pass_in_it<R: Runtime>(client: Client) {
     );
 }
 
+/// A split window closes on the stream it was opened on, whichever stream the
+/// closing client is on.
+///
+/// The split pair exists for a caller that closes the window from somewhere
+/// else, such as a lazy queue drained on another thread, so the close landing
+/// on another stream is the ordinary case. Closing there instead would find
+/// no window on that stream, or pair events recorded on two streams.
+pub fn test_split_window_closes_on_its_own_stream<R: Runtime>(client: Client) {
+    let output = client.empty(core::mem::size_of::<f32>());
+    let mut closer = client.clone();
+    unsafe {
+        closer.set_stream(StreamId { value: 10002 });
+    }
+
+    // Compiling the kernel would otherwise land inside the first window.
+    touch(&client, &output);
+    cubecl_environment::future::block_on(client.sync()).unwrap();
+
+    let window = |launches: usize| {
+        let window = client.profile_start().unwrap();
+        for _ in 0..launches {
+            touch(&client, &output);
+        }
+        resolve(closer.profile_end(window).unwrap())
+    };
+
+    let few = window(FEW_LAUNCHES);
+    let many = window(MANY_LAUNCHES);
+
+    // Growth, not merely a positive number. A backend that keys its windows by
+    // token alone — CUDA and HIP both do — finds the window from any stream, so
+    // a close landing on the wrong stream still measures *a* duration, pairing
+    // events recorded on two streams. What it cannot do is track the work on
+    // the opening stream, which is what this asks of it. On wgpu, whose windows
+    // are per stream, the wrong stream finds nothing and the close errors.
+    assert!(
+        many > few * MIN_GROWTH,
+        "closed from another stream, {MANY_LAUNCHES} launches measured {many:?} \
+         against {few:?} for {FEW_LAUNCHES}: the window did not span the work \
+         recorded on the stream it was opened on"
+    );
+}
+
+/// An abandoned window is gone: ending it afterwards finds nothing, and the
+/// next window measures as usual.
+pub fn test_abandoned_window_is_dropped<R: Runtime>(client: Client) {
+    let output = client.empty(LEN * core::mem::size_of::<f32>());
+
+    let window = client.profile_start().unwrap();
+    launch(&client, &output);
+    client.profile_abandon(window);
+
+    match client.profile_end(window) {
+        Err(ProfileError::NotRegistered { .. }) => {}
+        Ok(_) => panic!("an abandoned window must not measure"),
+        Err(err) => panic!("an abandoned window must be unknown, got {err}"),
+    }
+
+    let (_, profile) = client.profile(|| launch(&client, &output), "busy").unwrap();
+    assert!(
+        resolve(profile) > Duration::ZERO,
+        "real GPU work must measure > 0"
+    );
+}
+
 /// An outer window measures the work the inner ones measured, and none of the
 /// profiling around them.
 ///
@@ -243,6 +309,22 @@ macro_rules! testgen_profiling {
         fn test_window_spans_every_pass_in_it() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::profiling::test_window_spans_every_pass_in_it::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_split_window_closes_on_its_own_stream() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::profiling::test_split_window_closes_on_its_own_stream::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_abandoned_window_is_dropped() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::profiling::test_abandoned_window_is_dropped::<
                 TestRuntime,
             >(client);
         }

@@ -1,11 +1,8 @@
-use crate::shared::to_llvm::{constant::constant_op, ty::scalar_alignment};
-
-use super::prelude::*;
+use crate::prelude::*;
 use cubecl_core::ir::{
     dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp},
     types::barrier::BarrierType,
 };
-use pliron::{basic_block::BasicBlock, builtin::ops::FuncOp, irbuild::inserter::OpInsertionPoint};
 
 #[op_interface_impl]
 impl ToLLVMDialect for DeclareVariableOp {
@@ -18,7 +15,6 @@ impl ToLLVMDialect for DeclareVariableOp {
         let value_ty = self.value_ty(ctx).get_type(ctx);
 
         if value_ty.deref(ctx).is::<BarrierType>() {
-            // Only there to replace by something easy to optimize out
             let useless = insert_i32_const(ctx, rewriter, 0);
             rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![useless]);
             return Ok(());
@@ -32,7 +28,7 @@ impl ToLLVMDialect for DeclareVariableOp {
 
         let size = insert_i32_const(ctx, rewriter, 1);
 
-        let alloca = llvm::AllocaOp::new(ctx, elem_ty, size);
+        let alloca = llvm::AllocaOp::new(ctx, elem_ty, size, 0);
         let size_op = size.defining_op().expect("constant defines its result");
         rewriter.set_insertion_point(OpInsertionPoint::AfterOperation(size_op));
         rewriter.insert_op(ctx, &alloca);
@@ -58,7 +54,6 @@ impl ToLLVMDialect for DeclareVariableOp {
     }
 }
 
-/// The entry block of the function `op` lives in.
 fn enclosing_entry_block(ctx: &Context, op: Ptr<Operation>) -> Ptr<BasicBlock> {
     let mut op = op;
     loop {
@@ -70,6 +65,27 @@ fn enclosing_entry_block(ctx: &Context, op: Ptr<Operation>) -> Ptr<BasicBlock> {
             return func.get_entry_block(ctx);
         }
     }
+}
+
+/// Unsigned cube indices require zero extension before signed GEP indexing.
+fn widen_gep_index(
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+    index: Value,
+) -> Value {
+    let width = index
+        .get_type(ctx)
+        .deref(ctx)
+        .downcast_ref::<IntegerType>()
+        .map(|int| int.width());
+    if width.is_none_or(|width| width >= GEP_INDEX_WIDTH) {
+        return index;
+    }
+
+    let wide_ty = IntegerType::get(ctx, GEP_INDEX_WIDTH, Signedness::Signless).into();
+    let zext = llvm::ZExtOp::new_with_nneg(ctx, index, wide_ty, false);
+    rewriter.insert_op(ctx, &zext);
+    zext.get_result(ctx)
 }
 
 #[op_interface_impl]
@@ -93,6 +109,7 @@ impl ToLLVMDialect for IndexOp {
         };
         let elem_ty = cube_type_to_llvm(ctx, elem_ty);
 
+        let index = widen_gep_index(ctx, rewriter, index);
         let gep =
             llvm::GetElementPtrOp::new(ctx, base, vec![llvm::GepIndex::Value(index)], elem_ty);
         rewriter.insert_op(ctx, &gep);
@@ -118,7 +135,7 @@ impl ToLLVMDialect for LoadOp {
         let res_cube_ty = operands_info
             .lookup_most_recent_type(result)
             .unwrap_or_else(|| result.get_type(ctx));
-        let align = scalar_alignment(ctx, res_cube_ty);
+        let align = type_alignment(ctx, res_cube_ty);
         let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
 
         let load = llvm::LoadOp::new(ctx, ptr, res_ty);
@@ -146,7 +163,7 @@ impl ToLLVMDialect for StoreOp {
         let value_cube_ty = operands_info
             .lookup_most_recent_type(value)
             .unwrap_or_else(|| value.get_type(ctx));
-        let align = scalar_alignment(ctx, value_cube_ty);
+        let align = type_alignment(ctx, value_cube_ty);
 
         let store = llvm::StoreOp::new(ctx, value, ptr);
         store.set_alignment(ctx, align);

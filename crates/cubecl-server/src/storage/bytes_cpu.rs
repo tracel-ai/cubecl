@@ -11,6 +11,11 @@ pub struct BytesStorage {
     memory: HashMap<StorageId, AllocatedBytes>,
 }
 
+impl BytesStorage {
+    /// Base alignment for host buffers, including 512-bit SIMD accesses.
+    pub const ALIGNMENT: usize = 64;
+}
+
 impl core::fmt::Debug for BytesStorage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("BytesStorage")
@@ -82,7 +87,7 @@ impl ComputeStorage for BytesStorage {
     type Resource = BytesResource;
 
     fn alignment(&self) -> usize {
-        4
+        Self::ALIGNMENT
     }
 
     fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
@@ -114,13 +119,13 @@ impl ComputeStorage for BytesStorage {
         if size == 0 {
             // Zero-size allocations are valid handles but don't need real memory.
             let memory = AllocatedBytes {
-                ptr: core::ptr::NonNull::dangling().as_ptr(),
-                layout: Layout::new::<()>(),
+                ptr: core::ptr::without_provenance_mut(Self::ALIGNMENT),
+                layout: Layout::from_size_align(0, Self::ALIGNMENT).unwrap(),
             };
             self.memory.insert(id, memory);
         } else {
             unsafe {
-                let layout = Layout::array::<u8>(size as usize).unwrap();
+                let layout = Layout::from_size_align(size as usize, Self::ALIGNMENT).unwrap();
 
                 // We allocate zeroed memory since we expose it as &[u8] / &mut [u8]
                 // which requires initialization.

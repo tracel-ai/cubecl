@@ -8,6 +8,7 @@ use cubecl_ir::{
     verify_op_succ,
 };
 use pliron::{
+    attribute::boxed_attr_cast,
     builtin::ops::{ConstantOp, FuncOp},
     derive::{op_interface, op_interface_impl},
     irbuild::inserter::Inserter,
@@ -66,7 +67,7 @@ impl DialectConversion for ToSpirvDialect {
 #[op_interface_impl]
 impl ToSpirvDialectOp for FuncOp {
     fn should_convert(&self, ctx: &Context) -> bool {
-        let ty = self.get_attr_func_type(ctx).unwrap().get_type(ctx);
+        let ty = self.get_attr_builtin_func_type(ctx).unwrap().get_type(ctx);
         ty_to_spirv_dialect(ctx, ty) != ty
     }
 
@@ -76,9 +77,9 @@ impl ToSpirvDialectOp for FuncOp {
         _rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let func_ty = self.get_attr_func_type(ctx).unwrap().get_type(ctx);
+        let func_ty = self.get_attr_builtin_func_type(ctx).unwrap().get_type(ctx);
         let func_ty = ty_to_spirv_dialect(ctx, func_ty);
-        self.set_attr_func_type(ctx, func_ty.into());
+        self.set_attr_builtin_func_type(ctx, func_ty.into());
 
         Ok(())
     }
@@ -86,8 +87,10 @@ impl ToSpirvDialectOp for FuncOp {
 
 #[op_interface_impl]
 impl ToSpirvDialectOp for ConstantOp {
+    #[allow(clippy::op_ref, reason = "false positive")]
     fn should_convert(&self, ctx: &Context) -> bool {
-        attr_to_spirv_dialect(ctx, &self.get_value(ctx)) != self.get_value(ctx)
+        &attr_to_spirv_dialect(ctx, &self.get_attr_builtin_constant_value(ctx).unwrap())
+            != &*self.get_attr_builtin_constant_value(ctx).unwrap()
     }
 
     fn to_spirv_dialect(
@@ -96,7 +99,8 @@ impl ToSpirvDialectOp for ConstantOp {
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let attr = attr_to_spirv_dialect(ctx, &self.get_value(ctx));
+        let attr = attr_to_spirv_dialect(ctx, &self.get_attr_builtin_constant_value(ctx).unwrap());
+        let attr = boxed_attr_cast(attr).unwrap();
         let new_const = ConstantOp::new(ctx, attr);
         rewriter.insert_op(ctx, &new_const);
         rewriter.replace_operation(ctx, self.get_operation(), new_const.get_operation());

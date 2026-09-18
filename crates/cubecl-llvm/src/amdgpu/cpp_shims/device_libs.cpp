@@ -1,8 +1,4 @@
-// C ABI over LLVM's bitcode linker.
-//
-// `LLVMLinkModules2` links a module whole. ROCm's device libraries want the
-// `llvm-link --only-needed` behaviour instead, taking just the definitions the
-// kernel calls, and that flag lives on `llvm::Linker` with no C entry point.
+// C bindings for linking required bitcode definitions.
 
 #include <cstddef>
 #include <cstdlib>
@@ -19,7 +15,6 @@
 
 namespace {
 
-/// A copy of `message` the Rust side can take and free with `free`.
 char *owned(const std::string &message) {
   char *copy = static_cast<char *>(std::malloc(message.size() + 1));
   if (copy != nullptr) {
@@ -30,11 +25,8 @@ char *owned(const std::string &message) {
 
 } // namespace
 
-/// Links the definitions `dest` needs out of the bitcode in `[data, data +
-/// len)`.
-///
-/// Returns null on success, else a `malloc`'d message the caller owns. The
-/// bitcode is parsed into `dest`'s own context, as `llvm::Linker` requires.
+/// Returns null on success or an owned error message. Free it with
+/// `cubecl_free_message`.
 extern "C" char *cubecl_link_device_bitcode(LLVMModuleRef dest,
                                             const char *data, size_t len) {
   llvm::Module &module = *llvm::unwrap(dest);
@@ -56,6 +48,4 @@ extern "C" char *cubecl_link_device_bitcode(LLVMModuleRef dest,
   return nullptr;
 }
 
-/// Frees what `cubecl_link_device_bitcode` returned, on the allocator that made
-/// it.
 extern "C" void cubecl_free_message(char *message) { std::free(message); }

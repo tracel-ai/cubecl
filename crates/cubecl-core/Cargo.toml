@@ -22,7 +22,8 @@ workspace = true
 amd = ["cubecl-ir/amd"]
 default = ["cubecl-runtime/default", "cubecl-ir/default"]
 export_tests = ["tempfile", "test-log/trace", "test-log/log", "std"]
-std = ["cubecl-runtime/std", "cubecl-environment/std"]
+nvidia = ["cubecl-ir/nvidia"]
+std = ["cubecl-runtime/std", "pliron/std", "cubecl-environment/std"]
 template = []
 tokio = ["cubecl-runtime/tokio"]
 
@@ -60,9 +61,6 @@ tempfile = { workspace = true, optional = true }
 variadics_please = { workspace = true }
 
 pliron = { workspace = true }
-
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-pliron = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 test-log = { workspace = true, features = ["trace"] }

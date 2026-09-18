@@ -2,10 +2,12 @@
 extern crate derive_new;
 extern crate alloc;
 
+pub mod compiler;
 mod compute;
 mod device;
 mod runtime;
 
+pub use compiler::{CudaCompilationOptions, CudaCompiler, CudaRepresentation};
 pub use device::*;
 pub use runtime::*;
 
@@ -65,15 +67,35 @@ pub mod install {
 mod tests {
     pub type TestRuntime = crate::CudaRuntime;
 
-    pub use half::{bf16, f16};
+    #[cfg(feature = "cpp")]
+    pub use half::bf16;
+    pub use half::f16;
 
+    // `bf16` and the complex types are the C++ backend's: the LLVM backend has no type to
+    // lower either through, so it does not advertise them (see `restrict_to_llvm_backend`)
+    // and the tests for them are not generated. `testgen_complex_validation` runs either way
+    // -- it asserts that an unadvertised complex operation is refused, which is what the LLVM
+    // backend must do and what the C++ backend never reaches.
+    #[cfg(feature = "cpp")]
     cubecl_core::testgen_all!(f32: [f16, bf16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
+    #[cfg(not(feature = "cpp"))]
+    cubecl_core::testgen_all!(f32: [f16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
+
     cubecl_core::testgen_launch_dynamic_count!();
     cubecl_std::testgen!();
+
+    #[cfg(feature = "cpp")]
     cubecl_std::testgen_tensor_identity!([f16, bf16, f32, u32]);
+    #[cfg(not(feature = "cpp"))]
+    cubecl_std::testgen_tensor_identity!([f16, f32, u32]);
+
     cubecl_std::testgen_quantized_view!(f16);
+
+    #[cfg(feature = "cpp")]
     cubecl_core::testgen_complex_core!();
+    #[cfg(feature = "cpp")]
     cubecl_core::testgen_complex_compare!();
+    #[cfg(feature = "cpp")]
     cubecl_core::testgen_complex_math!();
     cubecl_core::testgen_complex_validation!();
     cubecl_core::testgen_profiling!();

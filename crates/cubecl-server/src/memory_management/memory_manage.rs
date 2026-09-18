@@ -491,7 +491,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
         let id = binding.descriptor();
 
-        if id.location().init == 0 {
+        if !id.is_allocated() {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: "Memory location was never initialized".into(),
@@ -530,7 +530,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
         let id = binding.descriptor();
 
-        if id.location().init == 0 {
+        if !id.is_allocated() {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: "Memory location was never initialized".into(),
@@ -834,7 +834,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     ) -> Result<(), IoError> {
         let descriptor = reserved.descriptor();
 
-        if descriptor.location().init == 0 {
+        if !descriptor.is_allocated() {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: "Reserved memory isn't initialized".into(),
@@ -1220,6 +1220,39 @@ mod tests {
             2048,
             "a failed reservation must not grow the pool"
         );
+    }
+
+    /// What the throughput probes rely on: a persistent window serves buffers
+    /// the installed layout refuses, however many are held at once, and leaves
+    /// the layout's budget alone.
+    #[test_log::test]
+    fn persistent_window_serves_what_a_capped_layout_refuses() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            capped_sliced_config(1024, Some(1024)),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let refused = memory_management.reserve(4096, &mut ErrorGraph::default());
+        assert!(matches!(refused, Err(IoError::BufferTooBig { .. })));
+
+        memory_management.mode(MemoryAllocationMode::Persistent);
+        let _input = memory_management
+            .reserve(4096, &mut ErrorGraph::default())
+            .unwrap();
+        let _output = memory_management
+            .reserve(4096, &mut ErrorGraph::default())
+            .unwrap();
+        let _line = memory_management
+            .reserve(16, &mut ErrorGraph::default())
+            .unwrap();
+        memory_management.mode(MemoryAllocationMode::Auto);
+
+        let report = memory_management.memory_report();
+        assert_eq!(report.persistent.usage.bytes_in_use, 2 * 4096 + 16);
+        assert_eq!(report.dynamic[0].pages_peak, 0);
     }
 
     #[test_log::test]

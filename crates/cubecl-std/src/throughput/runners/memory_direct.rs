@@ -1,7 +1,7 @@
 use super::timed;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputKey};
+use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputError, ThroughputKey};
 
 use crate::throughput::{
     LaunchConfig,
@@ -15,17 +15,18 @@ pub async fn build_kernel(
     key: ThroughputKey,
     config: LaunchConfig,
     spec: MemorySpec,
-) -> KernelConfig {
+) -> Result<KernelConfig, ThroughputError> {
     let client = client.clone();
     let dtype = key.dtype();
 
     let line_bytes = config.vector_size * dtype.size();
     let probe = MemoryProbe::new(&client, config, line_bytes, spec);
 
-    let in_handle = client.empty(probe.buffer_bytes);
+    let [in_handle, out_handle] =
+        memory_probe::reserve(&client, [probe.buffer_bytes, probe.buffer_bytes])?;
     memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype).await;
-    let out_handle = client.empty(probe.buffer_bytes);
 
+    let (verifier, written) = (client.clone(), out_handle.clone());
     let sample = timed(client.clone(), move |iterations| unsafe {
         memory_direct_throughput::launch_unchecked(
             &client,
@@ -40,15 +41,16 @@ pub async fn build_kernel(
             dtype,
         )
     });
+    memory_probe::verify(&verifier, &sample, &written).await?;
 
     // One pass moves the window twice: once in, once out.
     let ops_count = 2 * probe.window_lines * config.vector_size;
 
-    KernelConfig {
+    Ok(KernelConfig {
         sample,
         ops_count,
         min_iterations: probe.min_iterations(),
-    }
+    })
 }
 
 #[cube(launch_unchecked)]

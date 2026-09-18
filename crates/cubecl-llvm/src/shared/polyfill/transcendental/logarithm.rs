@@ -1,18 +1,16 @@
+use super::base::{leading_part, trailing_part};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::base::{leading_part, trailing_part};
 
 const LN2_HI: f32 = leading_part(core::f64::consts::LN_2);
 const LN2_LO: f32 = trailing_part(core::f64::consts::LN_2);
 const SQRT_2: f32 = core::f32::consts::SQRT_2;
 
-/// What a subnormal is multiplied by to reach the normals, and the exponent that buys.
+/// Scale and exponent adjustment for subnormal inputs.
 const SUBNORMAL_SCALE: f32 = (1u32 << 24) as f32;
 const SUBNORMAL_SHIFT: i32 = 24;
 
-// Least worst-case relative error fit of `(ln(1+f) - f + f^2/2) / f^3` over the mantissa
-// window the fold leaves, by Remez exchange at degree seven.
+// Degree-seven Remez fit of (ln(1+f) - f + f²/2) / f³ over the reduced interval.
 const LOG_0: f32 = 0.3333333;
 const LOG_1: f32 = -0.25000304;
 const LOG_2: f32 = 0.20001201;
@@ -22,11 +20,6 @@ const LOG_5: f32 = -0.12989277;
 const LOG_6: f32 = 0.12655699;
 const LOG_7: f32 = -0.079742186;
 
-/// `ln x` as the exponent times `ln 2`, plus a series on the mantissa, evaluated in single
-/// precision whatever the argument's own format.
-///
-/// The mantissa is folded at the geometric mean of its octave so the series argument is
-/// centred on zero; left in `[1, 2)` the top of the range would need twice the terms.
 #[cube]
 pub fn ln<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let x = Vector::<f32, N>::cast_from(x);
@@ -84,8 +77,6 @@ mod tests {
     use super::super::base::{evaluate, worst_relative_error};
     use super::*;
 
-    /// The coefficients fit `ln(1 + f)` over the mantissa window the fold leaves, measured
-    /// on the logarithm rather than on the tail, which carries a twentieth of the result.
     #[test]
     fn the_series_fits_the_logarithm_over_the_mantissa_window() {
         let from = (0.5f64).sqrt() - 1.0;

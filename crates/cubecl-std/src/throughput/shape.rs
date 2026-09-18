@@ -17,26 +17,30 @@ impl<S: Copy> ShapeSweep<S> {
     ///
     /// Shapes are built one at a time: a memory probe's pool is a large fraction
     /// of what the device will allocate. A rate that is not finite did not run.
+    ///
+    /// # Errors
+    ///
+    /// Whatever `build` reports, and [`ThroughputError::NoTiming`] where no
+    /// shape ran.
     pub(super) async fn fastest<F, Fut>(
         &self,
         build: F,
     ) -> Result<(ThroughputValue, S), ThroughputError>
     where
         F: Fn(S) -> Fut,
-        Fut: core::future::Future<Output = KernelConfig>,
+        Fut: core::future::Future<Output = Result<KernelConfig, ThroughputError>>,
     {
         let (fastest, warmed) = match self.shapes.len() {
             0 => return Err(ThroughputError::NoTiming),
             1 => (self.shapes[0], None),
             _ => {
-                let (fastest, iterations) =
-                    self.ranked(&build).await.ok_or(ThroughputError::NoTiming)?;
+                let (fastest, iterations) = self.ranked(&build).await?;
 
                 (fastest, Some(iterations))
             }
         };
 
-        let config = build(fastest).await;
+        let config = build(fastest).await?;
         let value = match warmed {
             Some(iterations) => ThroughputBenchmarker::sample_at(&config, iterations).await,
             None => ThroughputBenchmarker::sample(config).await,
@@ -52,16 +56,16 @@ impl<S: Copy> ShapeSweep<S> {
     /// The shape that answers fastest over a ranking pass, and the count the
     /// device was warmed at. Every shape is timed at that same count, so they
     /// are ordered on what they do rather than on which was warmed.
-    async fn ranked<F, Fut>(&self, build: &F) -> Option<(S, usize)>
+    async fn ranked<F, Fut>(&self, build: &F) -> Result<(S, usize), ThroughputError>
     where
         F: Fn(S) -> Fut,
-        Fut: core::future::Future<Output = KernelConfig>,
+        Fut: core::future::Future<Output = Result<KernelConfig, ThroughputError>>,
     {
         let mut warmed = None;
         let mut fastest: Option<(f64, S)> = None;
 
         for shape in &self.shapes {
-            let config = build(*shape).await;
+            let config = build(*shape).await?;
             let start = match warmed {
                 Some(iterations) => iterations,
                 None => ThroughputBenchmarker::warm(&config).await,
@@ -78,7 +82,10 @@ impl<S: Copy> ShapeSweep<S> {
             }
         }
 
-        Some((fastest?.1, warmed?))
+        fastest
+            .zip(warmed)
+            .map(|((_, shape), iterations)| (shape, iterations))
+            .ok_or(ThroughputError::NoTiming)
     }
 }
 
@@ -86,12 +93,9 @@ impl<S: Copy> ShapeSweep<S> {
 mod tests {
     use super::*;
 
-    /// The reported value is a full measurement of the winner, not the
-    /// ranking pass that found it.
-    #[test]
-    fn the_shape_that_ranks_fastest_is_the_one_measured() {
-        // A shape here is its rate: the faster it is, the less time a pass takes.
-        let build = |rate: u64| KernelConfig {
+    /// A kernel whose pass costs what the shape's rate says it does.
+    fn config_at(rate: u64) -> KernelConfig {
+        KernelConfig {
             sample: alloc::boxed::Box::new(
                 move |iterations| -> cubecl_environment::future::DynFut<_> {
                     Box::pin(async move {
@@ -101,14 +105,34 @@ mod tests {
             ),
             ops_count: 1,
             min_iterations: 1,
-        };
+        }
+    }
 
+    /// The reported value is a full measurement of the winner, not the
+    /// ranking pass that found it.
+    #[test]
+    fn the_shape_that_ranks_fastest_is_the_one_measured() {
+        // A shape here is its rate: the faster it is, the less time a pass takes.
         let (value, fastest) = cubecl_environment::future::block_on(
-            ShapeSweep::new(alloc::vec![1, 4, 2]).fastest(|rate| async move { build(rate) }),
+            ShapeSweep::new(alloc::vec![1, 4, 2])
+                .fastest(|rate| async move { Ok(config_at(rate)) }),
         )
         .expect("a shape ran");
 
         assert_eq!(fastest, 4);
         assert!(value.ops_per_s().is_finite());
+    }
+
+    /// A shape that cannot be built stops the sweep with its own error, rather
+    /// than being outranked by the shapes that could.
+    #[test]
+    fn a_shape_that_cannot_be_built_fails_the_sweep() {
+        for shapes in [alloc::vec![1], alloc::vec![1, 2]] {
+            let failed = cubecl_environment::future::block_on(ShapeSweep::new(shapes).fastest(
+                |_: u64| async move { Err::<KernelConfig, _>(ThroughputError::Allocation) },
+            ));
+
+            assert_eq!(failed.err(), Some(ThroughputError::Allocation));
+        }
     }
 }

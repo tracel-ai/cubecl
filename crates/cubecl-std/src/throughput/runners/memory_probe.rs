@@ -2,10 +2,12 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, ir::ElemType};
 use cubecl_runtime::{
     server::Handle,
-    throughput::{DEFAULT_WORKING_SET_BYTES, MemorySpec},
+    throughput::{DEFAULT_WORKING_SET_BYTES, MemorySpec, ThroughputError},
 };
 
 use crate::throughput::LaunchConfig;
+use cubecl_common::profile::Duration;
+use cubecl_environment::future::DynFut;
 
 /// Windows the pool holds. What decides whether a rewritten line is still
 /// resident is the pool's size against the last level cache, not the positions
@@ -131,6 +133,62 @@ impl MemoryProbe {
             blocked,
         }
     }
+}
+
+/// Reserves a probe's buffers in the persistent pool rather than the dynamic
+/// ones.
+///
+/// An installed pool layout is sized to a workload, and refuses or caps
+/// allocations the device could host: a probe's gigabyte is no part of what it
+/// was planned for. The persistent pool is exact-fit and uncapped whatever the
+/// layout, so every buffer a probe holds is served, and none of them counts
+/// against the layout's budget or its high-water marks.
+///
+/// Only an explicit [`Client::memory_cleanup`] returns persistent memory to the
+/// device. [`measure_peak_throughput`](crate::throughput::measure_peak_throughput)
+/// runs one, and a caller building a probe kernel directly owes it.
+///
+/// # Errors
+///
+/// [`ThroughputError::Allocation`] when the device has no room for them. A
+/// reservation is only enqueued, and one that fails still leaves a handle, over
+/// which a launch does nothing: the probe would time an empty pass and cache it
+/// as the device's peak.
+pub fn reserve<const N: usize>(
+    client: &Client,
+    bytes: [usize; N],
+) -> Result<[Handle; N], ThroughputError> {
+    let handles =
+        client.memory_persistent_allocation((), |_| bytes.map(|bytes| client.empty(bytes)));
+
+    client
+        .check(&handles)
+        .map_err(|_| ThroughputError::Allocation)?;
+
+    Ok(handles)
+}
+
+/// Runs one pass and confirms it wrote `written`, before any pass is timed.
+///
+/// A launch that fails leaves its failure on the buffers it never wrote, and
+/// `sync` answers `Ok` regardless. A sample has no way to say so, and would
+/// time the launch overhead and report it as bandwidth.
+///
+/// # Errors
+///
+/// [`ThroughputError::Launch`] when the pass did not run. The cause is logged
+/// by the device where it happened.
+pub async fn verify(
+    client: &Client,
+    sample: impl Fn(usize) -> DynFut<Duration>,
+    written: &Handle,
+) -> Result<(), ThroughputError> {
+    sample(1).await;
+
+    client
+        .sync_buffers([written])
+        .await
+        .map_err(|_| ThroughputError::Launch)
 }
 
 /// Writes every line of `handle`, once, before it is handed to a probe that
