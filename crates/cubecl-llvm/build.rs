@@ -8,11 +8,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
     {
-        println!("cargo::rerun-if-changed=src/amdgpu/cpp_shims/device_libs.cpp");
+        println!("cargo::rerun-if-changed=src/shared/cpp_shims/bitcode.cpp");
         let prefix = tracel_llvm_bundler::config::llvm_path()?.into_os_string();
         let mut shim = cc::Build::new();
-        // NVPTX links libdevice through this bitcode linker too.
-        shim.cpp(true).file("src/amdgpu/cpp_shims/device_libs.cpp");
+        shim.cpp(true).file("src/shared/cpp_shims/bitcode.cpp");
         #[cfg(feature = "amdgpu")]
         {
             println!("cargo::rerun-if-changed=src/amdgpu/cpp_shims/lld.cpp");
