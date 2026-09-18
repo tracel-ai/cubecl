@@ -28,7 +28,7 @@ impl ToLLVMDialect for DeclareVariableOp {
 
         let size = insert_i32_const(ctx, rewriter, 1);
 
-        let alloca = llvm::AllocaOp::new(ctx, elem_ty, size);
+        let alloca = llvm::AllocaOp::new(ctx, elem_ty, size, 0);
         let size_op = size.defining_op().expect("constant defines its result");
         rewriter.set_insertion_point(OpInsertionPoint::AfterOperation(size_op));
         rewriter.insert_op(ctx, &alloca);

@@ -350,6 +350,108 @@ pub fn test_workgroup_uniform_load_atomic_synchronizes<R: Runtime>(client: Clien
     assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
+/// One cube reads what the others published, with no second dispatch: every cube reduces its
+/// units to one partial, releases it with [`sync_storage`], and announces itself on a counter.
+/// The cube whose arrival is the last acquires the rest and sums them.
+///
+/// Both halves of the scope are under test, and the shape is chosen so that each of them has to
+/// work. The partial is written by *one* unit and is a reduction over all of them, so the
+/// release has to cover a store the cube made together rather than one store per unit. The count
+/// is taken by one unit and read by every one of them, which is the cube barrier. Nothing spins
+/// — the cubes that are not last simply end — so this cannot hang on a device that does not run
+/// them all at once.
+///
+/// It catches a lowering with no device release at all, which is what CUDA and Metal both had.
+/// It does *not* catch one whose release sits on the wrong side of the barrier: on an M2 this
+/// kernel answers correctly under that too, and the case that does not is a longer one, in
+/// cubek's `the_last_cube_in_merges_the_others`.
+#[cube(launch)]
+fn kernel_test_sync_storage_across_cubes(
+    partials: &mut [u32],
+    counter: &mut [Atomic<u32>],
+    out: &mut [u32],
+    #[comptime] cubes: u32,
+    #[comptime] units: u32,
+) {
+    let mut mine = Shared::<[u32]>::new_slice(units as usize);
+    mine[UNIT_POS as usize] = CUBE_POS as u32 * units + UNIT_POS + 1;
+    sync_cube();
+    if UNIT_POS == 0 {
+        let mut total = 0u32;
+        let mut i = 0u32;
+        while i < units {
+            total += mine[i as usize];
+            i += 1u32;
+        }
+        partials[CUBE_POS] = total;
+    }
+
+    let mut arrived = Shared::<u32>::new();
+    // Release: the partial this cube just published is visible to whichever cube is last.
+    sync_storage();
+    if UNIT_POS == 0 {
+        *arrived = counter[0].fetch_add(1u32);
+    }
+    // Acquire, and the cube half of the same scope: the count reaches every unit, and what the
+    // cubes that arrived before published is visible to this one.
+    sync_storage();
+
+    if *arrived == cubes - 1 {
+        // A stripe per unit, so the count has to have reached all of them.
+        let mut sum = 0u32;
+        let mut cube = UNIT_POS;
+        while cube < cubes {
+            sum += partials[cube as usize];
+            cube += units;
+        }
+        out[UNIT_POS as usize] = sum;
+    }
+}
+
+pub fn test_sync_storage_across_cubes<R: Runtime>(client: Client) {
+    if !client.properties().features.device_memory_scope {
+        // The runtime does not promise that one cube's writes reach another, so say so rather
+        // than pass silently.
+        std::println!("device memory scope not supported - skipped");
+        return;
+    }
+    let ty = Type::atomic(u32::elem_type_native());
+    if !client
+        .properties()
+        .atomic_type_usage(ty)
+        .contains(AtomicUsage::Add)
+    {
+        std::println!("u32 atomic add not supported - skipped");
+        return;
+    }
+
+    let cubes = 32u32;
+    let units = core::cmp::min(32, client.properties().hardware.max_units_per_cube);
+
+    let partials = client.empty(cubes as usize * core::mem::size_of::<u32>());
+    let counter = client.create_from_slice(u32::as_bytes(&[0u32]));
+    let out = client.create_from_slice(u32::as_bytes(&vec![0u32; units as usize]));
+
+    kernel_test_sync_storage_across_cubes::launch(
+        &client,
+        CubeCount::Static(cubes, 1, 1),
+        CubeDim::new_1d(units),
+        unsafe { BufferArg::from_raw_parts(partials, cubes as usize) },
+        unsafe { BufferArg::from_raw_parts(counter, 1) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), units as usize) },
+        cubes,
+        units,
+    );
+
+    let partial = |cube: u32| (0..units).map(|unit| cube * units + unit + 1).sum::<u32>();
+    let expected: Vec<u32> = (0..units)
+        .map(|unit| (unit..cubes).step_by(units as usize).map(partial).sum())
+        .collect();
+
+    let actual = client.read_one_unchecked(out);
+    assert_eq!(u32::from_bytes(&actual), &expected);
+}
+
 #[macro_export]
 macro_rules! testgen_sync_plane {
     () => {
@@ -373,6 +475,14 @@ macro_rules! testgen_sync_plane {
             cubecl_core::runtime_tests::synchronization::test_finished_sync_cube::<TestRuntime>(
                 client,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_sync_storage_across_cubes() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_sync_storage_across_cubes::<
+                TestRuntime,
+            >(client);
         }
 
         #[$crate::runtime_tests::test_log::test]

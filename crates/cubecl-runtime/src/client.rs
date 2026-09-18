@@ -1575,13 +1575,13 @@ impl Client {
                     o,
                     ProfileDuration::new(
                         alloc::boxed::Box::pin(async move {
-                            let ticks = result.resolve().await;
+                            let ticks = result.resolve().await?;
                             let start_duration =
                                 ticks.start_duration_since(epoch).as_nanos() as i64;
                             let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
                             gpu_span.upload_timestamp_start(start_duration);
                             gpu_span.upload_timestamp_end(end_duration);
-                            ticks
+                            Some(ticks)
                         }),
                         TimingMethod::Device,
                     ),

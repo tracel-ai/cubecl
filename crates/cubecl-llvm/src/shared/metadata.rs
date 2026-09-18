@@ -223,7 +223,7 @@ pub(crate) fn rebuild_func_type(ctx: &mut Context, func: FuncOp) {
         .expect("FuncOp must have a function type")
         .res_types();
     let new_ty = FunctionType::get(ctx, arg_types, res_types);
-    func.set_attr_func_type(ctx, TypeAttr::new(new_ty.into()));
+    func.set_attr_builtin_func_type(ctx, TypeAttr::new(new_ty.into()));
 }
 
 fn ptr_to(ctx: &Context, inner: TypeHandle) -> TypeHandle {

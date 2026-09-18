@@ -41,19 +41,19 @@ tracing = [
 
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4", default-features = false, features = [
     "std",
 ] }
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", default-features = false, features = [
     "std",
 ] }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.3", default-features = false }
-cubecl-llvm = { path = "../cubecl-llvm", version = "=0.11.0-pre.3", default-features = false }
-cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.3", default-features = false, features = [
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", default-features = false }
+cubecl-llvm = { path = "../cubecl-llvm", version = "=0.11.0-pre.4", default-features = false }
+cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.4", default-features = false, features = [
     "std",
     "storage-bytes",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.3", default-features = false }
+cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.4", default-features = false }
 
 bytemuck = { workspace = true }
 crossbeam-utils = "0.8.21"
@@ -71,10 +71,10 @@ bytemuck = { workspace = true }
 winapi = { workspace = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.3", features = [
+cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.4", features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.3", features = [
+cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.4", features = [
     "export_tests",
 ] }
 half = { workspace = true }

@@ -329,14 +329,14 @@ impl<'a, D: Driver> Command<'a, D> {
             strides,
             elem_size,
         } = descriptor;
-        let layout = CopyLayout::of(&shape, &strides, elem_size)?;
-
         // Nothing to copy for an empty tensor, and `bytes` has no real backing
         // for the driver to write into — a dangling zero-size buffer.
+        // Its strides may contain zeros, so skip copy-layout validation too.
         if bytes.is_empty() {
             return Ok(());
         }
 
+        let layout = CopyLayout::of(&shape, &strides, elem_size)?;
         let resource = self.resource(binding)?;
         let stream = match stream_id {
             Some(id) => self.streams.get(&id),
@@ -363,19 +363,18 @@ impl<'a, D: Driver> Command<'a, D> {
             strides,
             elem_size,
         } = descriptor;
-        let layout = CopyLayout::of(&shape, &strides, elem_size)?;
-
-        let resource = self.resource(binding)?;
         let size = data.len();
 
         // An empty tensor (a zero dim in its shape) has nothing to copy. Bail
-        // before staging: the zero-size staging buffer has no real backing (a
-        // dangling pointer), and a 2D copy would still transfer `width_bytes`
-        // from it when only the leading dims are zero.
+        // before validating its potentially zero strides or staging: the zero-size
+        // staging buffer has no real backing (a dangling pointer), and a 2D copy
+        // would still transfer `width_bytes` from it when only the leading dims are zero.
         if size == 0 {
             return Ok(());
         }
 
+        let layout = CopyLayout::of(&shape, &strides, elem_size)?;
+        let resource = self.resource(binding)?;
         let staging = Staging::of(size, data.property());
 
         let data = match staging.through_pinned {

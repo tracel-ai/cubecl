@@ -6,8 +6,8 @@ use cubecl_core::ir::dialect::{
     },
     general::{CastOp, CommentOp, CopyOp, FreeOp, PrintfOp, ReinterpretCastOp, SelectOp},
 };
-use pliron::builtin::attributes::BytesAttr;
 use pliron_llvm::{
+    attributes::BytesAttr,
     function_call_utils::lookup_or_insert_function,
     ops::{FPExtOp, FPTruncOp},
     types::ArrayType,

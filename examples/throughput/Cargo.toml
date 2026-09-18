@@ -29,5 +29,5 @@ cpu = ["cubecl/cpu"]
 metal-native = ["cubecl/metal-native"]
 
 [dependencies]
-cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.3", features = ["stdlib"] }
+cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.4", features = ["stdlib"] }
 half = { workspace = true }

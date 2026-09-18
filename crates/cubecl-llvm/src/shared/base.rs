@@ -412,7 +412,7 @@ fn lower(
     target.prologue(&mut func_passes);
     func_passes.add_pass(SROAPass);
     func_passes.add_pass(SCCPPass);
-    func_passes.add_pass(SimpleCSEPass);
+    func_passes.add_pass(SimpleCSEPass::with_memory());
     func_passes.add_pass(SimplifyOpsPass::default());
     func_passes.add_pass(PromoteBitwisePass);
     func_passes.add_pass(InstCombinePass::default());

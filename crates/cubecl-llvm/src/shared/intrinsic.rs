@@ -21,5 +21,5 @@ pub fn call_op(
 
 pub fn i32_const_op(ctx: &mut Context, value: i32) -> llvm::ConstantOp {
     let attr = int_attr(ctx, I32_WIDTH, value as i128);
-    llvm::ConstantOp::new(ctx, attr.into())
+    llvm::ConstantOp::new(ctx, Box::new(attr))
 }
