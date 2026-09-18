@@ -112,6 +112,7 @@ impl DeviceService for HipServer {
         let mem_properties = MemoryDeviceProperties {
             max_page_size: max_memory as u64 / 4,
             alignment: probe.alignment as u64,
+            max_memory: Some(max_memory as u64),
         };
 
         let supported_wmma_combinations =

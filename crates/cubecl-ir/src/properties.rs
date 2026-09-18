@@ -74,6 +74,20 @@ pub struct MemoryDeviceProperties {
     pub max_page_size: u64,
     /// The required memory offset alignment in bytes.
     pub alignment: u64,
+    /// Everything the device can hold at once, in bytes, and `None`, never
+    /// `Some(0)`, where the runtime cannot read one.
+    ///
+    /// The capacity a whole workload is sized against, which is a different
+    /// question from [`max_page_size`](Self::max_page_size): that one bounds a
+    /// single allocation, and a runtime is free to derive it from this one —
+    /// HIP takes a quarter of it. A caller deciding whether a model fits before
+    /// it starts loading it has nothing else to ask.
+    ///
+    /// `None` is the honest answer on a runtime whose API states no total:
+    /// WebGPU, and wgpu on a backend it cannot reach through its HAL. Nothing
+    /// may substitute a guess for it — a fabricated capacity reads as a
+    /// measurement to every caller downstream.
+    pub max_memory: Option<u64>,
 }
 
 /// Who a device is, and what its compiled code is keyed to.

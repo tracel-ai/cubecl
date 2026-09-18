@@ -17,6 +17,7 @@ fn main() {
     let mem_props = MemoryDeviceProperties {
         max_page_size: 2048 * MB,
         alignment: 32,
+        max_memory: None,
     };
     let logger = Arc::new(ServerLogger::default());
     let mut mm = MemoryManagement::from_configuration(

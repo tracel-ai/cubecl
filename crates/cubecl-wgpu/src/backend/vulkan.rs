@@ -439,17 +439,20 @@ fn register_features(
         comp_options.vulkan.supports_arbitrary_bitwise = true;
     }
 
-    if let Some(index_64) = &extended_feat.index_64
-        && index_64.shader64_bit_indexing == TRUE
-        && let Some(heap) =
-            device_local_heap(adapter.shared_instance(), adapter.raw_physical_device())
+    if let Some(heap) = device_local_heap(adapter.shared_instance(), adapter.raw_physical_device())
     {
         let heap_size = heap.size;
-        let max_page_size = match memory_config.is_sub_slices() {
-            true => heap_size / 4,
-            false => heap_size,
-        };
-        props.memory.max_page_size = max_page_size;
+        // What the card holds, whatever this build can address in one go.
+        props.memory.max_memory = Some(heap_size);
+        if let Some(index_64) = &extended_feat.index_64
+            && index_64.shader64_bit_indexing == TRUE
+        {
+            let max_page_size = match memory_config.is_sub_slices() {
+                true => heap_size / 4,
+                false => heap_size,
+            };
+            props.memory.max_page_size = max_page_size;
+        }
     }
 
     if extended_feat.cooperative_matrix.is_some() {

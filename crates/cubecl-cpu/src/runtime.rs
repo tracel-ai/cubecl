@@ -168,6 +168,7 @@ impl DeviceService for CpuServer {
         let mem_properties = MemoryDeviceProperties {
             max_page_size: total_memory as u64,
             alignment: ALIGNMENT,
+            max_memory: Some(total_memory as u64),
         };
 
         let mut device_props = DeviceProperties::new(

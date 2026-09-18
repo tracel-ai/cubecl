@@ -47,6 +47,7 @@ fn init_server<M: Marker>(service: cubecl_common::device::ServiceId) -> DummySer
     let mem_properties = MemoryDeviceProperties {
         max_page_size: 1024 * 1024 * 512,
         alignment: 32,
+        max_memory: None,
     };
 
     let memory_management = MemoryManagement::from_configuration(

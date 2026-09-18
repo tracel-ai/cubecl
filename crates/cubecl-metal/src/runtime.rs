@@ -64,6 +64,10 @@ impl DeviceService for MetalServer {
         let mem_props = MemoryDeviceProperties {
             max_page_size: (*metal_device).maxBufferLength() as u64,
             alignment: 256,
+            // What Metal states a working set may reach before the device
+            // starts paging — the capacity figure Apple offers, on unified
+            // memory as on a discrete card.
+            max_memory: Some((*metal_device).recommendedMaxWorkingSetSize()),
         };
 
         let hardware_props = HardwareProperties {

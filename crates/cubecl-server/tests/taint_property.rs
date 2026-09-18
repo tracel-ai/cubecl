@@ -206,6 +206,7 @@ impl Harness {
         let properties = MemoryDeviceProperties {
             max_page_size: 128 * 1024,
             alignment: 32,
+            max_memory: None,
         };
         let logger = Arc::new(ServerLogger::default());
         Self {
