@@ -15,8 +15,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ContiguousElements, DeviceIdentity, DeviceProperties, HardwareProperties,
-        MemoryDeviceProperties, MmaProperties, PciAddress, PciVendor, PhysicalDevice,
-        TargetProperties, VectorSize, amd::GfxArch, features::Plane,
+        MemoryDeviceProperties, MmaProperties, PciVendor, PhysicalDevice, TargetProperties,
+        VectorSize, amd::GfxArch, features::Plane,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -360,14 +360,20 @@ impl DeviceProbe {
             )
         };
 
+        let mut bus_id = [0u8; 32];
+        // SAFETY: the buffer outlives the call and its length travels with it.
+        let status = unsafe {
+            cubecl_hip_sys::hipDeviceGetPCIBusId(
+                bus_id.as_mut_ptr().cast(),
+                bus_id.len() as c_int,
+                index,
+            )
+        };
         let mut physical = PhysicalDevice::default();
-        physical.pci_address = Some(PciAddress {
-            domain: props.pciDomainID as u32,
-            bus: props.pciBusID as u8,
-            device: props.pciDeviceID as u8,
-            // The driver reports no function number; a GPU is function 0.
-            function: 0,
-        });
+        physical.pci_address = checked("hipDeviceGetPCIBusId", status)
+            .ok()
+            .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
+            .and_then(|id| id.to_str().ok()?.parse().ok());
         physical.vendor = Some(PciVendor::Amd);
 
         Self {
