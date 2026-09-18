@@ -7,7 +7,9 @@ use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, UIntKind};
 use cubecl_server::client::Client;
-use cubecl_server::server::{CubeCount, Handle, KernelArguments, ReduceOperation, ServerError};
+use cubecl_server::server::{
+    CubeCount, Handle, IoError, KernelArguments, ReduceOperation, ServerError,
+};
 use cubecl_server::{local_tuner, tune::LocalTuner};
 use dummy::*;
 
@@ -47,6 +49,26 @@ fn a_handle_of_this_client_passes_the_check() {
     let handle = client.empty(8);
 
     assert!(client.check(&[handle]).is_ok());
+}
+
+/// A reservation that fails leaves no slice to carry the failure, so the check
+/// has to notice the missing allocation itself. Past the device's page size,
+/// so no pool accepts it and nothing is allocated on the host either.
+#[test_log::test]
+fn a_handle_whose_reservation_failed_is_refused() {
+    let client = test_client(&DummyDevice);
+    let served = client.empty(8);
+    let refused = client.empty(1024 * 1024 * 1024);
+
+    assert!(client.check([&served]).is_ok());
+    let Err(ServerError::Several { errors, .. }) = client.check([&served, &refused]) else {
+        panic!("the refused buffer passed the check");
+    };
+    assert!(matches!(
+        errors[..],
+        [ServerError::Io(IoError::NotFound { .. })]
+    ));
+    assert!(client.read_one(refused).is_err());
 }
 
 #[test_log::test]
@@ -216,7 +238,9 @@ fn execute_elementwise_addition() {
 #[test_log::test]
 #[serial_test::serial]
 fn a_refused_profile_degrades_to_an_untimed_launch() {
-    use cubecl_server::logging::{Duration, LaunchObservation, LaunchObserver, TimingMethod};
+    use cubecl_server::logging::{
+        Duration, LaunchObservation, LaunchObserver, TimingMethod, TimingRequest,
+    };
 
     #[derive(Default)]
     struct WantsTiming {
@@ -227,8 +251,8 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
         fn launched(&self, kernel: &'static str) {
             self.launched.lock().unwrap().push(kernel);
         }
-        fn wants_timing(&self) -> bool {
-            true
+        fn timing(&self) -> TimingRequest {
+            TimingRequest::Resolved
         }
         fn timed(&self, kernel: &'static str, _duration: Duration, _method: TimingMethod) {
             self.timed.lock().unwrap().push(kernel);

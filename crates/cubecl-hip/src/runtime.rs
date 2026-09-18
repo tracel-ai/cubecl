@@ -166,6 +166,8 @@ impl DeviceService for HipServer {
 
         device_props.features.memory_reinterpret = true;
         device_props.features.alignment = true;
+        // `__threadfence` carries a block's writes to device scope.
+        device_props.features.device_memory_scope = true;
         device_props.features.plane.insert(Plane::Ops);
         device_props
             .features
@@ -257,6 +259,10 @@ impl Runtime for HipRuntime {
 
     fn enumerate_devices(_: u16) -> Vec<cubecl_core::device::DeviceId> {
         fn device_count() -> usize {
+            if !cubecl_hip_sys::is_available() {
+                return 0;
+            }
+
             let mut device_count: c_int = 0;
             let result;
             // SAFETY: Calling HIP FFI to get the number of available devices.

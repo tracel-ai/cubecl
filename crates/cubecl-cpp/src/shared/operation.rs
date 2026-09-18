@@ -16,7 +16,7 @@ use cubecl_opt::passes::alloc_shared_memory::SliceSharedOp;
 use itertools::Itertools;
 use pliron::{
     arg_err,
-    attribute::AttrObj,
+    attribute::{AttrObj, boxed_attr_cast},
     builtin::{attributes::TypeAttr, ops::ConstantOp},
     opts::mem2reg::{AllocInfo, PromotableAllocationInterface},
 };
@@ -113,6 +113,7 @@ impl PromotableAllocationInterface for DeclareLocalOp {
             return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
         }
         if let Some(initializer) = self.initializer(ctx).map(|it| it.clone()) {
+            let initializer = boxed_attr_cast(initializer).unwrap();
             let constant = ConstantOp::new(ctx, initializer);
             inserter.insert_op(ctx, &constant);
             Ok(constant.get_result(ctx))
@@ -142,9 +143,7 @@ shared_op!(DeclareLocalOp, |op, ctx| {
     let name = op.get_result(ctx).name(ctx);
     let value_ty = ty.to_cpp(ctx);
     let out_ty = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
-    let init = op
-        .initializer(ctx)
-        .map(|init| format_const(ctx, init.clone(), ty));
+    let init = op.initializer(ctx).map(|init| format_const(ctx, &init, ty));
     if let Some(init) = init {
         format!("{value_ty} {name}_store = {init};\n{out_ty} {name} = &{name}_store;")
     } else {

@@ -1,23 +1,10 @@
-//! The AMDGPU kernarg layout.
-//!
-//! Buffers stay as individual `ptr addrspace(1)` arguments in binding order, with
-//! the metadata pointer last. `HipServer::execute` pushes resources
-//! in exactly that order and `HipContext::execute_task` hands them to
-//! `hipModuleLaunchKernel` as `kernelParams`
+//! AMDGPU kernel arguments.
 
-use cubecl_core::ir::prelude::*;
-use pliron::builtin::ops::FuncOp;
-use pliron_llvm::types::PointerType as LlvmPointerType;
-
+use crate::{
+    amdgpu::builtins::InsertAmdgpuBuiltinsPass, prelude::*, shared::metadata::rebuild_func_type,
+};
 use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
-use pliron::pass::{OpPass, Passes};
 
-use crate::amdgpu::builtins::InsertAmdgpuBuiltinsPass;
-use crate::shared::lowering::TargetLowering;
-use crate::shared::metadata::{EntryArgLayout, rebuild_func_type};
-use crate::shared::shared_memory::SharedDeclarations;
-
-/// Address space 1 is the AMDGPU global address space.
 const GLOBAL_ADDRESS_SPACE: u32 = 1;
 
 #[derive(Debug, Default)]
@@ -36,10 +23,7 @@ impl EntryArgLayout for KernargArgs {
             "shared memory should have been lowered to LDS by AllocateSharedMemoryBlockPass"
         );
 
-        // Kernarg slot N must be buffer N. Holds because `KernelBuilder` assigns
-        // `buffer_pos` from a monotonic counter and pushes the argument in the same
-        // call. If that stops being true, fail here rather than passing buffers to
-        // the wrong kernargs.
+        // Kernel arguments must follow buffer binding order.
         debug_assert!(
             buffers
                 .iter()
@@ -49,13 +33,6 @@ impl EntryArgLayout for KernargArgs {
             buffers.iter().map(|(i, p, _)| (*i, *p)).collect::<Vec<_>>()
         );
 
-        // Retype the buffers, and the `%info` pointer the shared half appended, into
-        // the global address space.
-        //
-        // Bind each argument before calling `set_type`: `get_argument` holds a `Ref`
-        // on the entry block and `set_type` re-borrows it mutably, so chaining the
-        // two keeps the guard alive across the statement and panics with
-        // "RefCell already borrowed".
         let global_ptr = LlvmPointerType::get(ctx, GLOBAL_ADDRESS_SPACE).into();
         let entry = func.get_entry_block(ctx);
         for (arg_idx, _, _) in buffers {
@@ -70,20 +47,13 @@ impl EntryArgLayout for KernargArgs {
     }
 }
 
-/// The AMDGPU target's contribution to the pipeline.
-///
-/// The hardware *is* the launch grid, so nothing is emulated: the shared memories are packed
-/// into the one LDS block a launch reserves, and the builtins become intrinsic calls once the
-/// polyfills that read them have been expanded.
 pub struct AmdGpuLowering {
-    /// Wavefront width of the device, which `PlaneDim` resolves to.
+    /// Device wavefront width.
     pub plane_dim: u32,
 }
 
 impl TargetLowering for AmdGpuLowering {
     fn prologue(&self, passes: &mut OpPass<FuncOp, Passes>) {
-        // Packs every shared memory into one block of offsets, which the AMDGPU lowering then
-        // gives an address in LDS. Same pass the C++ backends run.
         passes.add_pass(AllocateSharedMemoryBlockPass);
     }
 

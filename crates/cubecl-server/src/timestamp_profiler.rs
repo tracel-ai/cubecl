@@ -48,6 +48,15 @@ impl TimestampProfiler {
         Ok(ProfileDuration::new_system_time(start, Instant::now()))
     }
 
+    /// Drop the window `token` opened without measuring it, for a caller that
+    /// has no way to record its end.
+    ///
+    /// Nothing to wait for: a system-timed window is two host instants, and
+    /// the one that would be taken here is not going to be read.
+    pub fn abandon(&mut self, token: ProfilingToken) {
+        self.state.remove(&token);
+    }
+
     /// Register an error during profiling.
     pub fn error(&mut self, error: ProfileError) {
         self.state

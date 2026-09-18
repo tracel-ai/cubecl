@@ -1,8 +1,5 @@
-use crate::shared::to_llvm::ty::scalar_alignment;
-
-use super::prelude::*;
+use crate::prelude::*;
 use cubecl_core::ir::dialect::atomic::*;
-use pliron_llvm::attributes::{AtomicOrderingAttr, AtomicRmwKindAttr, SyncScopeAttr};
 
 macro_rules! lower_atomic_rmw {
     ($cube_op:ty => $pred:expr) => {

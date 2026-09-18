@@ -1,15 +1,14 @@
-use super::prelude::*;
+use crate::prelude::*;
 use cubecl_core::ir::dialect::vector::{
     self, CompositeExtractOp, CompositeInsertOp, VectorBroadcastOp, VectorExtractDynamicOp,
     VectorInsertDynamicOp,
 };
+use pliron::attribute::boxed_attr_cast;
 
 fn is_vector(ctx: &Context, ty: impl Typed) -> bool {
     ty.get_type(ctx).deref(ctx).is::<LlvmVectorType>()
 }
 
-/// Broadcast `scalar` to every lane of `vec_ty`, with the poison/insertelement/shufflevector idiom
-/// LLVM folds back into a splat.
 pub fn insert_splat(
     ctx: &mut Context,
     rewriter: &mut impl Inserter,
@@ -148,8 +147,9 @@ impl ToLLVMDialect for vector::FSumOp {
         let input = self.input(ctx);
         let elem_ty = input.get_type(ctx);
         let res_ty = self.get_result(ctx).get_type(ctx);
-        // `llvm.vector.reduce.fadd` takes the accumulator start value as its first argument.
+        // Floating-point reductions require an initial accumulator value.
         let attr = float_attr(ctx, res_ty, 0.0).unwrap_or_else(|| FPSingleAttr::from(0.0).into());
+        let attr = boxed_attr_cast(attr).unwrap();
 
         let res_ty = cube_type_to_llvm(ctx, res_ty);
 

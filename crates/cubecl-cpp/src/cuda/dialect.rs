@@ -67,7 +67,10 @@ op_includes!(Cuda, [SyncAsyncProxyOp] => "cuda/barrier");
 cuda_op!(SyncOp, |op, ctx| {
     match op.scope(ctx).0 {
         SyncScope::Plane => "__syncwarp();\n",
-        SyncScope::Cube | SyncScope::Device => "__syncthreads();\n",
+        SyncScope::Cube => "__syncthreads();\n",
+        // `__syncthreads` orders this block's memory for this block. The fence is what carries
+        // the writes out to device scope, so a cube that synchronizes later reads them.
+        SyncScope::Device => "__threadfence();\n__syncthreads();\n",
         SyncScope::Unit => "",
     }
     .into()

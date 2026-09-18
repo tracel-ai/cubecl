@@ -14,9 +14,7 @@ use pliron::{
     basic_block::BasicBlock,
     context::{Context, Ptr},
     graph::{
-        ControlFlowGraph,
-        dominance::{DomFrontierMap, DomInfo},
-        walkers::uninterruptible::immutable::walk_region,
+        ControlFlowGraph, dominance::DomInfo, walkers::uninterruptible::immutable::walk_region,
     },
     irbuild::listener::DummyListener,
     linked_list::ContainsLinkedList,
@@ -32,7 +30,7 @@ use pliron::{
     value::{Use, Value},
 };
 
-use crate::analyses::slices::get_value_forward_slice;
+use crate::analyses::{dominance::DomFrontierCalculator, slices::get_value_forward_slice};
 
 type BlockingUsesMap = IMap<Ptr<Operation>, SmallSet<Use<Value>, 4>>;
 type RegionBlockingUsesMap = SmallMap<Ptr<Region>, BlockingUsesMap, 2>;
@@ -60,7 +58,7 @@ struct AllocPromotionAnalyzer<'a> {
 impl AllocPromotionAnalyzer<'_> {
     fn compute_blocking_uses(
         &mut self,
-        ctx: &mut Context,
+        ctx: &Context,
         user_to_blocking_uses: &mut RegionBlockingUsesMap,
         regions_to_promote: &mut IMap<Ptr<Region>, RegionPromotionInfo>,
     ) -> LogicalResult {
@@ -152,21 +150,20 @@ impl AllocPromotionAnalyzer<'_> {
 
     fn compute_merge_points(
         &mut self,
-        ctx: &mut Context,
+        ctx: &Context,
         region: Ptr<Region>,
         defining_blocks: &SmallSet<Ptr<BasicBlock>, 16>,
         merge_points: &mut ISet<Ptr<BasicBlock>>,
     ) {
-        if region.is_empty(ctx) {
+        if region.deref(ctx).iter(ctx).count() <= 1 {
             return;
         }
 
         let dom_tree = self.dom_info.get_dom_tree(ctx, region);
-        let frontiers = DomFrontierMap::new(ctx, &region, dom_tree);
+        let frontiers =
+            DomFrontierCalculator::new(ctx, &region, dom_tree, defining_blocks.iter().copied());
 
-        for block in defining_blocks.iter() {
-            merge_points.extend(frontiers.frontier(block));
-        }
+        merge_points.extend(frontiers.compute());
     }
 
     fn are_merge_points_usable(&self, ctx: &Context, merge_points: &ISet<Ptr<BasicBlock>>) -> bool {

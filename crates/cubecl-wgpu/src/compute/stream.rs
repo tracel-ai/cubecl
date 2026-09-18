@@ -261,7 +261,9 @@ impl WgpuStream {
                 // into the QUEUE not the encoder. We want to make sure all outstanding work
                 // happens _before_ the write operation.
                 self.submit(failures);
-                self.write_to_buffer(&buffer, &data);
+                if !self.write_mapped(&buffer, &data) {
+                    self.write_to_buffer(&buffer, &data);
+                }
             }
             ScheduleTask::Execute {
                 pipeline,
@@ -503,12 +505,30 @@ impl WgpuStream {
                 match result {
                     Ok(_) => timing.stop_profile(buffer, poll),
                     Err(err) => {
-                        // Just to clean the timing buffer.
-                        let _ = timing.stop_profile(buffer, poll).ok();
+                        // Dropped rather than mapped: the flush this window
+                        // needed has failed, so a map requested here may never
+                        // complete, and the map's callback is what releases the
+                        // poll handle. The query sets were already given back in
+                        // `stop_profile_setup`, so there is nothing else to undo.
+                        drop(buffer);
+                        drop(poll);
                         Err(ProfileError::Server(Box::new(err)))
                     }
                 }
             }
+        }
+    }
+
+    /// Drop `token`'s window without measuring it.
+    ///
+    /// Neither arm syncs or flushes, which is the whole difference from
+    /// [`end_profile`](Self::end_profile): the device arm hands the query set
+    /// back, the system arm forgets the start instant, and the work in the
+    /// window carries on as if it had never been bracketed.
+    pub fn abandon_profile(&mut self, token: ProfilingToken) {
+        match &mut self.timings {
+            Timings::System(profiler) => profiler.abandon(token),
+            Timings::Device(timing) => timing.abandon_profile(token),
         }
     }
 
@@ -589,6 +609,47 @@ impl WgpuStream {
         self.write_to_buffer(&resource, bytemuck::cast_slice(&words));
         self.info_cache.insert(words, (handle, resource.clone()));
         resource
+    }
+
+    /// Copies into a mapped buffer, skipping staging. Returns `false` to fall back to the queue.
+    ///
+    /// Not ordered by the queue, so call it only after a submit, never for uniforms.
+    #[cfg(not(target_family = "wasm"))]
+    fn write_mapped(&mut self, resource: &WgpuResource, data: &[u8]) -> bool {
+        let Some(host_ptr) = resource.host_ptr else {
+            return false;
+        };
+        // The copy below is unchecked; the queue path validates.
+        if data.len() as u64 > resource.size {
+            return false;
+        }
+
+        // A pooled range may have belonged to a tensor whose kernels are still running, so
+        // the copy needs an idle queue. Never drain one to get it: the stall costs a
+        // pipelined loop the CPU/GPU overlap it lives on, and it buys nothing on a bulk
+        // upload, which finds the queue idle anyway because nothing is queued behind what
+        // it is loading. So take the mapping when the queue is already free, and leave the
+        // write to the queue when it is not.
+        match self.device.poll(wgpu::PollType::Poll) {
+            Ok(status) if status.wait_finished() => {}
+            Ok(_) => return false,
+            Err(e) => {
+                log::warn!("wgpu: poll before a mapped write failed ({e})");
+                return false;
+            }
+        }
+
+        // SAFETY: The range is in bounds and the queue is idle.
+        unsafe {
+            let dst = host_ptr.0.as_ptr().add(resource.offset as usize);
+            core::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
+        }
+        true
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn write_mapped(&mut self, _resource: &WgpuResource, _data: &[u8]) -> bool {
+        false
     }
 
     // Nb: this function submits a command to the _queue_ not to the encoder,

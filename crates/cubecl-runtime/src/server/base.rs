@@ -782,6 +782,20 @@ pub trait Server:
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError>;
 
+    /// Drop the window `token` opened without measuring it, for a caller that
+    /// will never close it with [`end_profile`](Self::end_profile).
+    ///
+    /// An open window is not free: depending on the backend it retains
+    /// command buffers, keeps timestamp writes on, or holds a device event.
+    ///
+    /// Every backend overrides this, and should: the default closes the window
+    /// and throws the measurement away, which is the most expensive way to be
+    /// rid of it — [`end_profile`](Self::end_profile) is where the syncing and
+    /// flushing live, and this is the one call that needs none of it.
+    fn abandon_profile(&mut self, stream_id: StreamId, token: ProfilingToken) {
+        let _ = self.end_profile(stream_id, token);
+    }
+
     /// Update the memory mode of allocation in the server.
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
