@@ -127,6 +127,18 @@ impl PhysicalDevice {
         }
         matches!((self.luid, other.luid), (Some(mine), Some(theirs)) if mine == theirs)
     }
+
+    /// Takes what this runtime left out from `other`, the same card seen through another runtime.
+    pub fn fill_from(&mut self, other: &Self) {
+        let Self {
+            pci_address,
+            luid,
+            vendor,
+        } = *other;
+        self.pci_address = self.pci_address.or(pci_address);
+        self.luid = self.luid.or(luid);
+        self.vendor = self.vendor.or(vendor);
+    }
 }
 
 /// The id Windows gives a graphics adapter. It changes on restart, so it has no serialization or
@@ -464,6 +476,39 @@ mod tests {
         assert!(card(None, luid(1)).is_same_card(&card(address(7), luid(1))));
         assert!(!card(None, luid(1)).is_same_card(&card(None, luid(2))));
         assert!(!card(None, None).is_same_card(&card(None, None)));
+    }
+
+    #[test]
+    fn a_card_filled_from_another_runtime_keeps_what_it_reported() {
+        let address = |bus| {
+            Some(PciAddress {
+                domain: 0,
+                bus,
+                device: 0,
+                function: 0,
+            })
+        };
+        let luid = Some(AdapterLuid::from_parts(1, 0));
+        let mut card = PhysicalDevice {
+            pci_address: address(7),
+            luid: None,
+            vendor: None,
+        };
+
+        card.fill_from(&PhysicalDevice {
+            pci_address: address(8),
+            luid,
+            vendor: Some(PciVendor::Nvidia),
+        });
+
+        assert_eq!(
+            card,
+            PhysicalDevice {
+                pci_address: address(7),
+                luid,
+                vendor: Some(PciVendor::Nvidia),
+            }
+        );
     }
 
     #[test]
