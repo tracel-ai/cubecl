@@ -159,8 +159,8 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     }
 }
 
-#[cfg(persistence)]
-/// Trait alias with support for persistent caching
+#[cfg(serializable)]
+/// Trait alias, serializable for the persistent cache and the autotune log
 pub trait AutotuneKey:
     Clone
     + Debug
@@ -175,7 +175,7 @@ pub trait AutotuneKey:
     + 'static
 {
 }
-#[cfg(not(persistence))]
+#[cfg(not(serializable))]
 /// Trait alias
 pub trait AutotuneKey:
     Clone + Debug + PartialEq + Eq + Hash + Display + Send + Sync + 'static

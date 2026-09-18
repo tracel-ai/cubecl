@@ -15,10 +15,7 @@ use crate::sync::{LazyLock, Mutex};
 /// version has its entries table dropped and rebuilt: it is a cache, so the
 /// only cost is one cold start. Bump this on any change to
 /// [`CREATE_ENTRIES`], including a renamed column.
-///
-/// Versions 1 to 3 were written by the rusqlite backend into a table named
-/// `entries`; opening such a file drops that table too.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// The `meta` key holding [`SCHEMA_VERSION`].
 pub(crate) const SCHEMA_VERSION_KEY: &str = "schema_version";
@@ -38,7 +35,7 @@ const META_SET: &str = "INSERT INTO meta (k, v) VALUES (?1, ?2) \
                         ON CONFLICT(k) DO UPDATE SET v = excluded.v";
 
 const CREATE_ENTRIES: &str = "
-    CREATE TABLE IF NOT EXISTS cache_entries (
+    CREATE TABLE IF NOT EXISTS entries (
         namespace TEXT NOT NULL,
         key BLOB NOT NULL,
         value BLOB NOT NULL,
@@ -47,29 +44,24 @@ const CREATE_ENTRIES: &str = "
     )
 ";
 
-/// The tables a schema change leaves behind: this build's, and the rusqlite
-/// backend's.
-const DROP_ENTRIES: [&str; 2] = [
-    "DROP TABLE IF EXISTS cache_entries",
-    "DROP TABLE IF EXISTS entries",
-];
+const DROP_ENTRIES: &str = "DROP TABLE IF EXISTS entries";
 
 /// The [`Storage`] insert rule in one statement: insert-only, except that a
 /// local value (origin 0) replaces an imported one (origin 1). The primary
 /// key arbitrates, so the check and the write are one atomic step, and the
 /// count of changed rows says whether anything was stored.
-const INSERT: &str = "INSERT INTO cache_entries (namespace, key, value, origin) \
+const INSERT: &str = "INSERT INTO entries (namespace, key, value, origin) \
                       VALUES (?1, ?2, ?3, ?4) \
                       ON CONFLICT(namespace, key) DO UPDATE \
                       SET value = excluded.value, origin = excluded.origin \
-                      WHERE cache_entries.origin = 1 AND excluded.origin = 0";
+                      WHERE entries.origin = 1 AND excluded.origin = 0";
 
-const REPLACE: &str = "INSERT INTO cache_entries (namespace, key, value, origin) \
+const REPLACE: &str = "INSERT INTO entries (namespace, key, value, origin) \
                        VALUES (?1, ?2, ?3, ?4) \
                        ON CONFLICT(namespace, key) DO UPDATE \
                        SET value = excluded.value, origin = excluded.origin";
 
-const SELECT: &str = "SELECT value FROM cache_entries WHERE namespace = ?1 AND key = ?2";
+const SELECT: &str = "SELECT value FROM entries WHERE namespace = ?1 AND key = ?2";
 
 type DatabaseResult = Result<Arc<turso::Database>, String>;
 
@@ -163,7 +155,7 @@ impl TursoStorage {
         let Ok(mut rows) = connection
             .query(
                 "SELECT namespace, COUNT(*), SUM(length(key) + length(value)) \
-                 FROM cache_entries GROUP BY namespace ORDER BY namespace",
+                 FROM entries GROUP BY namespace ORDER BY namespace",
                 (),
             )
             .await
@@ -286,7 +278,7 @@ impl Storage for TursoStorage {
             let connection = self.connection().await?;
             let mut rows = connection
                 .query(
-                    "SELECT key, value FROM cache_entries WHERE namespace = ?1",
+                    "SELECT key, value FROM entries WHERE namespace = ?1",
                     (self.namespace.as_str(),),
                 )
                 .await
@@ -311,7 +303,7 @@ impl Storage for TursoStorage {
         if let Ok(connection) = self.connection().await
             && let Err(error) = connection
                 .execute(
-                    "DELETE FROM cache_entries WHERE namespace = ?1",
+                    "DELETE FROM entries WHERE namespace = ?1",
                     (self.namespace.as_str(),),
                 )
                 .await
@@ -324,7 +316,7 @@ impl Storage for TursoStorage {
         if let Ok(connection) = self.connection().await
             && let Err(error) = connection
                 .execute(
-                    "DELETE FROM cache_entries WHERE namespace = ?1 AND key = ?2",
+                    "DELETE FROM entries WHERE namespace = ?1 AND key = ?2",
                     (self.namespace.as_str(), key.to_vec()),
                 )
                 .await
@@ -552,9 +544,7 @@ pub(crate) async fn migrate(database: &turso::Database) -> Result<(), turso::Err
             // whatever entries it holds cannot be trusted either.
             None => log::debug!("cubecl cache: initializing database schema {expected}"),
         }
-        for drop in DROP_ENTRIES {
-            transaction.execute(drop, ()).await?;
-        }
+        transaction.execute(DROP_ENTRIES, ()).await?;
         meta_set(&transaction, SCHEMA_VERSION_KEY, &expected).await?;
     }
 
@@ -678,14 +668,15 @@ mod tests {
         location().unwrap()
     }
 
-    /// A file written by the rusqlite backend carries its `entries` table and
-    /// an older schema version. Opening it must leave neither behind: the
-    /// entries are unreadable to this build, and the stale table would
-    /// otherwise sit in the file forever.
+    /// A database written by another schema must be rebuilt, not misread.
+    ///
+    /// The table is dropped rather than emptied, so a schema that renamed or
+    /// retyped a column still recovers. Emptying it would leave the old
+    /// columns in place and make every later statement fail forever.
     #[tokio::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn a_legacy_file_is_rebuilt_on_open() {
+    async fn an_incompatible_schema_is_rebuilt() {
         let dir = tempfile::tempdir().unwrap();
         let location = active_location(dir.path());
 
@@ -694,26 +685,35 @@ mod tests {
             let connection = connect(&database).await.unwrap();
             connection.execute(CREATE_META, ()).await.unwrap();
             connection
-                .execute(META_SET, (SCHEMA_VERSION_KEY, "3"))
+                .execute(META_SET, (SCHEMA_VERSION_KEY, "999"))
                 .await
                 .unwrap();
             connection
                 .execute(
-                    "CREATE TABLE entries (namespace TEXT, key BLOB, value BLOB, origin INTEGER)",
+                    "CREATE TABLE entries (store TEXT NOT NULL, key BLOB NOT NULL, \
+                     value BLOB NOT NULL, PRIMARY KEY (store, key))",
                     (),
                 )
                 .await
                 .unwrap();
             connection
-                .execute("INSERT INTO entries VALUES ('old', X'01', X'02', 0)", ())
+                .execute("INSERT INTO entries VALUES ('old', X'01', X'02')", ())
                 .await
                 .unwrap();
         }
 
-        let storage = TursoStorage::open("migrated".to_string()).await.unwrap();
-        assert_eq!(storage.get(b"\x01").await, None);
+        let storage = TursoStorage::open("old".to_string()).await.unwrap();
+        assert_eq!(storage.get(b"\x01").await, None, "stale rows are gone");
+        // The rebuilt table must be usable, which an emptied one would not be.
+        assert_eq!(
+            storage
+                .insert(b"key", Bytes::from_bytes_vec(vec![1]), Origin::Local)
+                .await,
+            Insertion::Stored,
+            "the rebuilt table accepts the current column layout"
+        );
 
-        assert_eq!(tables(&location).await, vec!["cache_entries", "meta"]);
+        assert_eq!(tables(&location).await, vec!["entries", "meta"]);
 
         let database = open_database(&location).await.unwrap();
         let connection = connect(&database).await.unwrap();

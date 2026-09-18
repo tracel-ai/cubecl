@@ -239,7 +239,7 @@ mod tests {
     /// A build drops what its own earlier probes wrote and nothing else:
     /// another crate version may be in use, and a later probe version is
     /// running right now.
-    #[cfg(std_io)]
+    #[cfg(persistence)]
     #[test]
     fn only_this_crate_version_s_earlier_probes_are_dropped() {
         let stale = |ns: &str| is_earlier_generation(ns, "throughput/0.11.0/", 2);
@@ -255,7 +255,7 @@ mod tests {
 
     /// The crate version in the namespace does not move when a probe changes
     /// what it measures inside a release, so the probes carry their own.
-    #[cfg(std_io)]
+    #[cfg(persistence)]
     #[test]
     fn the_namespace_carries_the_probe_version() {
         let generation = namespace("").as_str().to_string();

@@ -12,7 +12,7 @@ use super::{
     flat_bundle_version,
 };
 
-const SELECT: &str = "SELECT namespace, key, value FROM cache_entries";
+const SELECT: &str = "SELECT namespace, key, value FROM entries";
 /// A plain prefix match on whole segments, avoiding LIKE's wildcards.
 ///
 /// Both formats select their rows with it, so restricting an export picks the
@@ -23,7 +23,7 @@ const NAMESPACE_PREFIX: &str = "namespace = ?1 OR substr(namespace, 1, length(?1
 /// (namespace, key) primary key collapses duplicates instead of appending them
 /// twice, and an entry already exported from an earlier root wins. Shipped
 /// rows are marked imported, which is what they become.
-const INSERT: &str = "INSERT INTO cache_entries (namespace, key, value, origin) \
+const INSERT: &str = "INSERT INTO entries (namespace, key, value, origin) \
                       VALUES (?1, ?2, ?3, 1) ON CONFLICT DO NOTHING";
 
 /// Files `SQLite` writes next to a database, which belong to it.

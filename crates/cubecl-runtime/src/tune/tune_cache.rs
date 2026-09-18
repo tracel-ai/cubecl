@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use cubecl_environment::persistence::StoreError;
 #[cfg(persistence)]
 use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
-#[cfg(persistence)]
+#[cfg(serializable)]
 use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
@@ -65,7 +65,7 @@ pub struct PersistentCacheValue {
     pub limit: Option<core::time::Duration>,
 }
 
-#[cfg_attr(persistence, derive(Serialize, Deserialize))]
+#[cfg_attr(serializable, derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 /// The result of an autotune job.
 pub struct AutotuneResult {

@@ -102,7 +102,7 @@ impl SqliteBundle {
             let Ok(mut rows) = connection
                 .query(
                     "SELECT namespace, COUNT(*), SUM(length(key) + length(value)) \
-                     FROM cache_entries GROUP BY namespace ORDER BY namespace",
+                     FROM entries GROUP BY namespace ORDER BY namespace",
                     (),
                 )
                 .await
@@ -138,7 +138,7 @@ impl Bundle for SqliteBundle {
             let connection = self.connection().await?;
             let mut rows = connection
                 .query(
-                    "SELECT value FROM cache_entries WHERE namespace = ?1 AND key = ?2",
+                    "SELECT value FROM entries WHERE namespace = ?1 AND key = ?2",
                     (namespace, key.to_vec()),
                 )
                 .await
@@ -158,7 +158,7 @@ impl Bundle for SqliteBundle {
             };
             let Ok(mut rows) = connection
                 .query(
-                    "SELECT key, value FROM cache_entries WHERE namespace = ?1",
+                    "SELECT key, value FROM entries WHERE namespace = ?1",
                     (namespace,),
                 )
                 .await
@@ -181,7 +181,7 @@ impl Bundle for SqliteBundle {
             };
             let Ok(mut rows) = connection
                 .query(
-                    "SELECT DISTINCT namespace FROM cache_entries ORDER BY namespace",
+                    "SELECT DISTINCT namespace FROM entries ORDER BY namespace",
                     (),
                 )
                 .await

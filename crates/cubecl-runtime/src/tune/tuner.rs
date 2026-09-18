@@ -39,7 +39,7 @@ pub struct Tuner<K: AutotuneKey> {
 }
 
 /// The measured outcome for a given autotune invocation.
-#[cfg_attr(persistence, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 #[derive(new, Debug, Clone, PartialEq, Eq)]
 pub struct AutotuneOutcome {
     /// The name of the tunable.
@@ -62,7 +62,7 @@ impl core::fmt::Display for AutotuneOutcome {
 
 /// Error from running autotune.
 #[derive(Clone, Display)]
-#[cfg_attr(persistence, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneError {
     /// An unknown error happened.
     #[display("{name}: An unknown error happened.\n{err}")]
