@@ -107,6 +107,16 @@ pub fn register_metal_features(
         };
         let raw = adapter.raw_device();
 
+        // The working set Metal recommends this device stay under, which is
+        // the capacity figure Apple offers and no hardware total. Read here
+        // rather than in `register_features` below, because capacity is not a
+        // feature: it holds whatever this device's family or compiler version
+        // turns out to be, and both of those can decline the backend before
+        // that runs, leaving the device on WGSL with its capacity still true.
+        props
+            .memory
+            .set_max_memory(raw.recommendedMaxWorkingSetSize());
+
         // The native feature profile includes plane and CMMA operations that rely on Metal's
         // SIMD-scoped capabilities. Metal can report those capabilities through overlapping
         // programming-model and hardware families:
