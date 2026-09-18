@@ -4,6 +4,7 @@ use std::string::{String, ToString};
 use std::vec::Vec;
 
 use crate::bytes::Bytes;
+use crate::future::block_on;
 use crate::persistence::turso::{self as database, connect};
 
 use super::flat;
@@ -75,7 +76,7 @@ pub struct ExportOptions {
 /// The bundle is built next to `out` and renamed onto it once complete, so a
 /// failed export leaves the previous bundle, or no file at all, rather than a
 /// truncated one.
-pub async fn export<R: AsRef<Path>, O: AsRef<Path>>(
+pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
     cache_roots: &[R],
     out: O,
     options: &ExportOptions,
@@ -112,8 +113,8 @@ pub async fn export<R: AsRef<Path>, O: AsRef<Path>>(
 
     let namespaces = filters(&options.namespaces);
     let exported = match options.format {
-        BundleFormat::Sqlite => export_sqlite(&staged, &sources, namespaces, &manifest).await,
-        BundleFormat::Flat => export_flat(&staged, &sources, namespaces, &manifest).await,
+        BundleFormat::Sqlite => export_sqlite(&staged, &sources, namespaces, &manifest),
+        BundleFormat::Flat => export_flat(&staged, &sources, namespaces, &manifest),
     };
     let exported = match exported {
         Ok(exported) => exported,
@@ -148,43 +149,37 @@ fn filters(namespaces: &[String]) -> Option<&[String]> {
 
 /// Writes the sources into a database at `out` and leaves it standing on its
 /// own: one file, checkpointed, that any reader can open.
-async fn export_sqlite(
+fn export_sqlite(
     out: &Path,
     sources: &[PathBuf],
     namespaces: Option<&[String]>,
     manifest: &BundleManifest,
 ) -> Result<usize, BundleError> {
     let location = location(out)?;
-    let target = turso::Builder::new_local(location)
-        .build()
-        .await
-        .map_err(storage_error)?;
+    let target = block_on(turso::Builder::new_local(location).build()).map_err(storage_error)?;
     // The bundle carries the environment's own schema and version, so
     // `environment::load` can mount it as it would any environment file.
-    database::migrate(&target).await.map_err(storage_error)?;
+    database::migrate(&target).map_err(storage_error)?;
 
-    let mut connection = connect(&target).await.map_err(storage_error)?;
-    manifest.write(&connection).await?;
+    let mut connection = connect(&target).map_err(storage_error)?;
+    manifest.write(&connection)?;
 
     // One transaction for the whole copy: a row per statement would be a
     // WAL frame per row, and a partial bundle is not a bundle.
-    let transaction = connection
-        .transaction_with_behavior(turso::transaction::TransactionBehavior::Immediate)
-        .await
-        .map_err(storage_error)?;
+    let transaction = block_on(
+        connection.transaction_with_behavior(turso::transaction::TransactionBehavior::Immediate),
+    )
+    .map_err(storage_error)?;
     let mut exported = 0;
     for source in sources {
-        exported += read_entries(source, namespaces, &mut Sink::Sqlite(&transaction)).await?;
+        exported += read_entries(source, namespaces, &mut Sink::Sqlite(&transaction))?;
     }
-    transaction.commit().await.map_err(storage_error)?;
+    block_on(transaction.commit()).map_err(storage_error)?;
 
     // A shipped bundle is read from wherever it was installed, which is often
     // a read-only directory, and the engine never checkpoints on close: a
     // file copied without its `-wal` is a file missing every row.
-    if !database::checkpoint(&connection)
-        .await
-        .map_err(storage_error)?
-    {
+    if !database::checkpoint(&connection).map_err(storage_error)? {
         return Err(BundleError::Storage(
             "the bundle's WAL checkpoint did not complete".to_string(),
         ));
@@ -233,7 +228,7 @@ fn finalize_for_shipping(out: &Path) -> Result<(), BundleError> {
     Ok(())
 }
 
-async fn export_flat(
+fn export_flat(
     out: &Path,
     sources: &[PathBuf],
     namespaces: Option<&[String]>,
@@ -242,7 +237,7 @@ async fn export_flat(
     let mut entries = flat::Entries::new();
 
     for source in sources {
-        read_entries(source, namespaces, &mut Sink::Flat(&mut entries)).await?;
+        read_entries(source, namespaces, &mut Sink::Flat(&mut entries))?;
     }
 
     flat::write(out, &entries, manifest)?;
@@ -261,7 +256,7 @@ enum Sink<'a> {
 }
 
 impl Sink<'_> {
-    async fn push(
+    fn push(
         &mut self,
         namespace: String,
         key: Vec<u8>,
@@ -269,9 +264,7 @@ impl Sink<'_> {
     ) -> Result<usize, BundleError> {
         match self {
             Sink::Sqlite(connection) => {
-                let inserted = connection
-                    .execute(INSERT, (namespace, key, value))
-                    .await
+                let inserted = block_on(connection.execute(INSERT, (namespace, key, value)))
                     .map_err(storage_error)?;
                 Ok(inserted as usize)
             }
@@ -292,46 +285,41 @@ impl Sink<'_> {
 /// The source is opened read-only: a root may live where nobody can write —
 /// a mounted bundle, a store path — and a read-only open still sees what a
 /// live cache keeps in its WAL until the next checkpoint.
-async fn read_entries(
+fn read_entries(
     source: &Path,
     namespaces: Option<&[String]>,
     sink: &mut Sink<'_>,
 ) -> Result<usize, BundleError> {
     let location = location(source)?;
-    let database = turso::Builder::new_local(location)
-        .read_only(true)
-        .build()
-        .await
+    let database = block_on(turso::Builder::new_local(location).read_only(true).build())
         .map_err(storage_error)?;
-    let connection = connect(&database).await.map_err(storage_error)?;
+    let connection = connect(&database).map_err(storage_error)?;
 
     match namespaces {
         None => {
-            let rows = connection.query(SELECT, ()).await.map_err(storage_error)?;
-            collect(rows, sink).await
+            let rows = block_on(connection.query(SELECT, ())).map_err(storage_error)?;
+            collect(rows, sink)
         }
         Some(namespaces) => {
             let query = std::format!("{SELECT} WHERE {NAMESPACE_PREFIX}");
             let mut accepted = 0;
             for namespace in namespaces {
-                let rows = connection
-                    .query(&query, (namespace.as_str(),))
-                    .await
+                let rows = block_on(connection.query(&query, (namespace.as_str(),)))
                     .map_err(storage_error)?;
-                accepted += collect(rows, sink).await?;
+                accepted += collect(rows, sink)?;
             }
             Ok(accepted)
         }
     }
 }
 
-async fn collect(mut rows: turso::Rows, sink: &mut Sink<'_>) -> Result<usize, BundleError> {
+fn collect(mut rows: turso::Rows, sink: &mut Sink<'_>) -> Result<usize, BundleError> {
     let mut accepted = 0;
-    while let Some(row) = rows.next().await.map_err(storage_error)? {
+    while let Some(row) = block_on(rows.next()).map_err(storage_error)? {
         let namespace: String = row.get(0).map_err(storage_error)?;
         let key: Vec<u8> = row.get(1).map_err(storage_error)?;
         let value: Vec<u8> = row.get(2).map_err(storage_error)?;
-        accepted += sink.push(namespace, key, value).await?;
+        accepted += sink.push(namespace, key, value)?;
     }
     Ok(accepted)
 }

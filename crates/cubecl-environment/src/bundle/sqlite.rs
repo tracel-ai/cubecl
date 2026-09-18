@@ -22,8 +22,6 @@ const MAGIC: &[u8; 16] = b"SQLite format 3\0";
 /// a shipped bundle sits wherever it was installed, often somewhere nobody
 /// may write.
 ///
-/// The reads block on the engine. This format only exists where there is a
-/// file system, and the [`Bundle`] contract is synchronous.
 #[derive(Debug)]
 pub struct SqliteBundle {
     database: turso::Database,
@@ -52,38 +50,29 @@ impl SqliteBundle {
             BundleError::Storage(std::format!("bundle path {path:?} is not valid UTF-8"))
         })?;
 
-        block_on(async {
-            let database = turso::Builder::new_local(location)
-                .read_only(true)
-                .build()
-                .await
-                .map_err(storage_error)?;
-            let connection = connect(&database).await.map_err(storage_error)?;
+        let database = block_on(turso::Builder::new_local(location).read_only(true).build())
+            .map_err(storage_error)?;
+        let connection = connect(&database).map_err(storage_error)?;
 
-            // "Not a bundle" is a narrow condition: a database without a
-            // `meta` table, or with no version in it. Anything else — a
-            // locked, corrupt, or unreadable database — is a real failure and
-            // must surface as such rather than as the misleading "the file
-            // carries no bundle manifest".
-            let expected = SCHEMA_VERSION.to_string();
-            match database::meta_get(&connection, SCHEMA_VERSION_KEY)
-                .await
-                .map_err(missing_meta)?
-            {
-                Some(found) if found == expected => {}
-                Some(found) => return Err(BundleError::UnsupportedDatabase(found)),
-                // A database with no version is not one of ours.
-                None => return Err(BundleError::NotABundle),
-            }
+        // "Not a bundle" is a narrow condition: a database without a `meta`
+        // table, or with no version in it. Anything else — a locked, corrupt,
+        // or unreadable database — is a real failure and must surface as such
+        // rather than as the misleading "the file carries no bundle manifest".
+        let expected = SCHEMA_VERSION.to_string();
+        match database::meta_get(&connection, SCHEMA_VERSION_KEY).map_err(missing_meta)? {
+            Some(found) if found == expected => {}
+            Some(found) => return Err(BundleError::UnsupportedDatabase(found)),
+            // A database with no version is not one of ours.
+            None => return Err(BundleError::NotABundle),
+        }
 
-            let manifest = BundleManifest::read(&connection).await?;
-            manifest.warn_on_version_mismatch();
+        let manifest = BundleManifest::read(&connection)?;
+        manifest.warn_on_version_mismatch();
 
-            Ok(Self {
-                database,
-                manifest,
-                path: path.to_path_buf(),
-            })
+        Ok(Self {
+            database,
+            manifest,
+            path: path.to_path_buf(),
         })
     }
 
@@ -95,107 +84,69 @@ impl SqliteBundle {
     /// Entry count and total size per namespace, for reporting: what the
     /// file holds, without reading any of it.
     pub fn summary(&self) -> Vec<NamespaceSummary> {
-        block_on(async {
-            let Some(connection) = self.connection().await else {
-                return Vec::new();
-            };
-            let Ok(mut rows) = connection
-                .query(
-                    "SELECT namespace, COUNT(*), SUM(length(key) + length(value)) \
-                     FROM entries GROUP BY namespace ORDER BY namespace",
-                    (),
-                )
-                .await
-            else {
-                return Vec::new();
-            };
-            let mut summary = Vec::new();
-            while let Ok(Some(row)) = rows.next().await {
-                let Ok(namespace) = row.get::<String>(0) else {
-                    continue;
-                };
-                summary.push(NamespaceSummary {
-                    namespace,
-                    entries: row.get::<i64>(1).unwrap_or_default() as u64,
-                    bytes: row.get::<i64>(2).unwrap_or_default() as u64,
-                });
-            }
-            summary
-        })
+        self.read("summarize", database::summarize)
+            .unwrap_or_default()
     }
 
-    async fn connection(&self) -> Option<turso::Connection> {
+    /// Runs `read` on a fresh connection, logging a failure under `name`.
+    fn read<T>(
+        &self,
+        name: &str,
+        read: impl FnOnce(&turso::Connection) -> Result<T, turso::Error>,
+    ) -> Option<T> {
         connect(&self.database)
-            .await
-            .inspect_err(|err| log::warn!("Bundle {}: {err}", self.describe()))
+            .and_then(|connection| read(&connection))
+            .inspect_err(|err| log::warn!("Unable to {name} {}: {err}", self.describe()))
             .ok()
     }
 }
 
 impl Bundle for SqliteBundle {
     fn get(&self, namespace: &str, key: &[u8]) -> Option<Bytes> {
-        block_on(async {
-            let connection = self.connection().await?;
-            let mut rows = connection
-                .query(
-                    "SELECT value FROM entries WHERE namespace = ?1 AND key = ?2",
-                    (namespace, key.to_vec()),
-                )
-                .await
-                .ok()?;
-            let row = rows.next().await.ok()??;
+        self.read("read", |connection| {
+            let mut rows = block_on(connection.query(
+                "SELECT value FROM entries WHERE namespace = ?1 AND key = ?2",
+                (namespace, key.to_vec()),
+            ))?;
+            let Some(row) = block_on(rows.next())? else {
+                return Ok(None);
+            };
             // A database row is materialized by the engine, so there is
             // nothing to serve a zero-copy window into.
-            let value: Vec<u8> = row.get(0).ok()?;
-            Some(Bytes::from_bytes_vec(value))
+            let value: Vec<u8> = row.get(0)?;
+            Ok(Some(Bytes::from_bytes_vec(value)))
         })
+        .flatten()
     }
 
     fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
-        block_on(async {
-            let Some(connection) = self.connection().await else {
-                return;
-            };
-            let Ok(mut rows) = connection
-                .query(
-                    "SELECT key, value FROM entries WHERE namespace = ?1",
-                    (namespace,),
-                )
-                .await
-            else {
-                return;
-            };
-            while let Ok(Some(row)) = rows.next().await {
-                let (Ok(key), Ok(value)) = (row.get::<Vec<u8>>(0), row.get::<Vec<u8>>(1)) else {
-                    continue;
-                };
+        self.read("scan", |connection| {
+            let mut rows = block_on(connection.query(
+                "SELECT key, value FROM entries WHERE namespace = ?1",
+                (namespace,),
+            ))?;
+            while let Some(row) = block_on(rows.next())? {
+                let key: Vec<u8> = row.get(0)?;
+                let value: Vec<u8> = row.get(1)?;
                 visit(&key, &value);
             }
-        })
+            Ok(())
+        });
     }
 
     fn namespaces(&self) -> Vec<String> {
-        block_on(async {
-            let Some(connection) = self.connection().await else {
-                return Vec::new();
-            };
-            let Ok(mut rows) = connection
-                .query(
-                    "SELECT DISTINCT namespace FROM entries ORDER BY namespace",
-                    (),
-                )
-                .await
-            else {
-                return Vec::new();
-            };
+        self.read("list", |connection| {
+            let mut rows = block_on(connection.query(
+                "SELECT DISTINCT namespace FROM entries ORDER BY namespace",
+                (),
+            ))?;
             let mut namespaces = Vec::new();
-            while let Ok(Some(row)) = rows.next().await {
-                if let Ok(namespace) = row.get::<String>(0) {
-                    namespaces.push(namespace);
-                }
+            while let Some(row) = block_on(rows.next())? {
+                namespaces.push(row.get::<String>(0)?);
             }
-            namespaces
+            Ok(namespaces)
         })
+        .unwrap_or_default()
     }
 
     fn describe(&self) -> String {

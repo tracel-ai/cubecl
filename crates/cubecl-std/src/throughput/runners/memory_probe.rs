@@ -7,7 +7,6 @@ use cubecl_runtime::{
 
 use crate::throughput::LaunchConfig;
 use cubecl_common::profile::Duration;
-use cubecl_environment::future::DynFut;
 
 /// Windows the pool holds. What decides whether a rewritten line is still
 /// resident is the pool's size against the last level cache, not the positions
@@ -178,16 +177,14 @@ pub fn reserve<const N: usize>(
 ///
 /// [`ThroughputError::Launch`] when the pass did not run. The cause is logged
 /// by the device where it happened.
-pub async fn verify(
+pub fn verify(
     client: &Client,
-    sample: impl Fn(usize) -> DynFut<Duration>,
+    sample: impl Fn(usize) -> Duration,
     written: &Handle,
 ) -> Result<(), ThroughputError> {
-    sample(1).await;
+    sample(1);
 
-    client
-        .sync_buffers([written])
-        .await
+    cubecl_core::future::block_on(client.sync_buffers([written]))
         .map_err(|_| ThroughputError::Launch)
 }
 
@@ -200,7 +197,7 @@ pub async fn verify(
 /// bandwidth well past the device's real ceiling. Writing real data in first
 /// gives each line its own page, the way a buffer a real kernel reads
 /// already got one from whoever produced it.
-pub async fn prime(
+pub fn prime(
     client: &Client,
     handle: &Handle,
     pool_lines: usize,
@@ -218,7 +215,7 @@ pub async fn prime(
             dtype,
         );
     }
-    let _ = client.sync().await;
+    let _ = cubecl_core::future::block_on(client.sync());
 }
 
 #[cube(launch_unchecked)]

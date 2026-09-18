@@ -71,7 +71,6 @@ toml = { workspace = true, optional = true }
 
 # Async
 async-channel = { workspace = true, default-features = false }
-async-trait = { workspace = true }
 embassy-futures = { workspace = true }
 futures-lite = { workspace = true, features = [
     "std",

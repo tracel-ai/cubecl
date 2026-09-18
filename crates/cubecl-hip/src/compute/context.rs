@@ -144,7 +144,7 @@ impl HipContext {
         let key = if let Some(cache) = self.compilation_cache.as_mut() {
             let key = KernelCacheKey::new(kernel_id, self.build_id);
 
-            if let Some(entry) = cache.remove_sync(&key) {
+            if let Some(entry) = cache.remove(&key) {
                 log::trace!("Using compilation cache");
 
                 self.load_compiled_binary(
@@ -305,8 +305,8 @@ impl HipContext {
             let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
             let cpp_hash = StableHasher::hash_one(&jitc_kernel.source);
 
-            if let Some(old_key) = second_line_cache.purge_key_sync(&cpp_hash)
-                && let Some(entry) = cache.purge_key_sync(&old_key)
+            if let Some(old_key) = second_line_cache.purge_key(&cpp_hash)
+                && let Some(entry) = cache.purge_key(&old_key)
             {
                 log::trace!("Using second-line compilation cache");
                 store_compiled(cache, key, entry);

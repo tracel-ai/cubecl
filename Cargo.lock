@@ -244,17 +244,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-lock"
-version = "3.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "290f7f2596bd5b78a9fec8088ccd89180d7f9f55b94b0576823bbbdc72ee8311"
-dependencies = [
- "event-listener",
- "event-listener-strategy",
- "pin-project-lite",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1100,7 +1089,6 @@ name = "cubecl-environment"
 version = "0.11.0-pre.4"
 dependencies = [
  "async-channel",
- "async-trait",
  "backtrace",
  "bytemuck",
  "bytes",
@@ -1299,7 +1287,6 @@ dependencies = [
 name = "cubecl-runtime"
 version = "0.11.0-pre.4"
 dependencies = [
- "async-lock",
  "buildid",
  "bytemuck",
  "cfg-if",
@@ -1327,6 +1314,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracy-client",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]

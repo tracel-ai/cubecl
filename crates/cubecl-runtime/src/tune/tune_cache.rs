@@ -139,7 +139,7 @@ pub enum TuneCacheResult {
 }
 
 impl<K: AutotuneKey> TuneCache<K> {
-    pub(crate) async fn new(
+    pub(crate) fn new(
         #[cfg_attr(not(persistence), allow(unused_variables))] name: &str,
         #[cfg_attr(not(persistence), allow(unused_variables))] device_id: &str,
     ) -> Self {
@@ -166,19 +166,16 @@ impl<K: AutotuneKey> TuneCache<K> {
             let namespace = Namespace::scoped("autotune", format!("{device_id}/{name}"));
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
-                persistent_cache: Some(
-                    Store::open(
-                        StoreOptions::new()
-                            .storage(namespace)
-                            .cache(CacheOption::Lazy),
-                    )
-                    .await,
-                ),
+                persistent_cache: Some(Store::new(
+                    StoreOptions::new()
+                        .storage(namespace)
+                        .cache(CacheOption::Lazy),
+                )),
                 hydrated: false,
                 generation,
             };
             log::info!("Load autotune cache ...");
-            let loaded = cache.sync_persistent().await;
+            let loaded = cache.sync_persistent();
             log::info!("Loaded {loaded} autotune cached entries");
 
             cache
@@ -291,12 +288,6 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.hydrated = false;
     }
 
-    /// Whether everything the persistent cache holds has been ingested.
-    #[cfg(target_family = "wasm")]
-    pub(crate) fn hydrated(&self) -> bool {
-        self.hydrated
-    }
-
     /// Ingest everything the persistent store holds into the in-memory cache,
     /// as unverified entries.
     ///
@@ -306,7 +297,7 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// under the tuner mutex.
     ///
     /// Returns how many entries the store delivered.
-    pub(crate) async fn sync_persistent(&mut self) -> usize {
+    pub(crate) fn sync_persistent(&mut self) -> usize {
         if self.hydrated {
             return 0;
         }
@@ -316,29 +307,21 @@ impl<K: AutotuneKey> TuneCache<K> {
         };
 
         let mut delivered = 0;
-        persistent_cache
-            .scan(|key, value| {
-                delivered += 1;
-                self.in_memory_cache
-                    .entry(key.key)
-                    .or_insert(CacheEntry::Done {
-                        checksum: ChecksumState::ToBeVerified(key.checksum),
-                        fastest_index: value.fastest_index,
-                    });
-            })
-            .await;
+        persistent_cache.scan(|key, value| {
+            delivered += 1;
+            self.in_memory_cache
+                .entry(key.key)
+                .or_insert(CacheEntry::Done {
+                    checksum: ChecksumState::ToBeVerified(key.checksum),
+                    fastest_index: value.fastest_index,
+                });
+        });
         self.hydrated = true;
 
         delivered
     }
 
     /// Records a tuning result durably.
-    ///
-    /// Synchronous on purpose: this runs under the tuner's mutex, and the
-    /// browser's launch path probes that mutex without waiting, so holding it
-    /// across the storage's I/O would answer a cached hit with a fallback.
-    /// Natively the write lands before this returns; in the browser it lands
-    /// on the event loop.
     pub(crate) fn persistent_cache_insert(
         &mut self,
         key: K,
@@ -349,8 +332,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             return;
         };
 
-        if let Err(err) = persistent_cache.insert_sync(PersistentCacheKey { key, checksum }, value)
-        {
+        if let Err(err) = persistent_cache.insert(PersistentCacheKey { key, checksum }, value) {
             match err {
                 StoreError::DuplicatedKey {
                     key,

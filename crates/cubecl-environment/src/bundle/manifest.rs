@@ -160,9 +160,8 @@ impl BundleManifest {
 
     /// Reads and validates the manifest of a bundle database.
     #[cfg(native_cache)]
-    pub(super) async fn read(connection: &turso::Connection) -> Result<Self, BundleError> {
+    pub(super) fn read(connection: &turso::Connection) -> Result<Self, BundleError> {
         let content = crate::persistence::turso::meta_get(connection, MANIFEST_KEY)
-            .await
             .map_err(super::sqlite::missing_meta)?
             .ok_or(BundleError::NotABundle)?;
 
@@ -171,12 +170,11 @@ impl BundleManifest {
 
     /// Writes the manifest into a bundle database.
     #[cfg(native_cache)]
-    pub(super) async fn write(&self, connection: &turso::Connection) -> Result<(), BundleError> {
+    pub(super) fn write(&self, connection: &turso::Connection) -> Result<(), BundleError> {
         let content = serde_json::to_string_pretty(self)
             .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
 
         crate::persistence::turso::meta_set(connection, MANIFEST_KEY, &content)
-            .await
             .map_err(super::export::storage_error)
     }
 }

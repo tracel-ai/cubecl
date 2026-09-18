@@ -5,22 +5,18 @@ use core::{future::Future, pin::Pin};
 /// are not capturing any of their inputs.
 pub type DynFut<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
-/// Spawns a future on the platform executor.
-#[cfg(target_family = "wasm")]
-pub fn spawn_detached(fut: impl Future<Output = ()> + 'static) {
-    wasm_bindgen_futures::spawn_local(fut);
-}
-
-/// Spawns a future on a background thread.
-#[cfg(not(target_family = "wasm"))]
+/// Spawns a future to run detached. This will use a thread on native, or the browser runtime
+/// on WASM.
 pub fn spawn_detached(fut: impl Future<Output = ()> + Send + 'static) {
-    #[cfg(feature = "std")]
-    std::thread::spawn(|| block_on(fut));
-
-    #[cfg(not(feature = "std"))]
-    {
-        drop(fut);
-        panic!("spawn_detached requires the `std` feature");
+    cfg_if::cfg_if! {
+        if #[cfg(target_family = "wasm")] {
+            wasm_bindgen_futures::spawn_local(fut);
+        } else if #[cfg(feature = "std")] {
+            std::thread::spawn(|| block_on(fut));
+        } else {
+            drop(fut); // Just to prevent unused.
+            panic!("spawn_detached is only supported with 'std' or on 'wasm' targets");
+        }
     }
 }
 

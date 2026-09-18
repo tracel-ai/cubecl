@@ -4,11 +4,9 @@ use crate::{
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use async_lock::Mutex;
-use core::future::Future;
 use cubecl_common::profile::{Duration, Instant};
 use cubecl_environment::config::RuntimeConfig;
-use cubecl_environment::future::DynFut;
+use cubecl_environment::sync::Mutex;
 
 type Cache = Arc<Mutex<ThroughputCache>>;
 
@@ -41,8 +39,8 @@ const RANK_SAMPLES: usize = 3;
 
 /// Configuration and payload for a benchmarkable compute kernel.
 pub struct KernelConfig {
-    /// A closure that executes the kernel for the given number of iterations and resolves to the duration.
-    pub sample: Box<dyn Fn(usize) -> DynFut<Duration>>,
+    /// A closure that executes the kernel for the given number of iterations and returns the duration.
+    pub sample: Box<dyn Fn(usize) -> Duration>,
     /// The number of operations processed in one iteration.
     pub ops_count: usize,
     /// Iterations a launch must carry however quickly they turn out to run,
@@ -81,37 +79,33 @@ impl ThroughputBenchmarker {
     /// # Errors
     ///
     /// Whatever `probe` reports. Only a measurement is cached.
-    pub async fn measure<F, Fut>(
+    pub fn measure(
         &mut self,
         key: ThroughputKey,
-        probe: F,
-    ) -> Result<ThroughputValue, ThroughputError>
-    where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<ThroughputValue, ThroughputError>>,
-    {
+        probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
+    ) -> Result<ThroughputValue, ThroughputError> {
         if self.cache_enabled
-            && let Some(cached_value) = self.cache.lock().await.get(&key)
+            && let Some(cached_value) = self.cache.lock().get(&key)
         {
             return Ok(*cached_value);
         }
 
-        let value = probe().await?;
+        let value = probe()?;
 
         if self.cache_enabled {
-            self.cache.lock().await.insert(key, value).await;
+            self.cache.lock().insert(key, value);
         }
 
         Ok(value)
     }
 
     /// Warm one shape of a kernel up to its plateau, then keep its fastest sample.
-    pub async fn sample(kernel_config: KernelConfig) -> ThroughputValue {
+    pub fn sample(kernel_config: KernelConfig) -> ThroughputValue {
         let sample = kernel_config.sample;
 
-        let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample).await;
+        let iterations = Self::warmup(kernel_config.min_iterations, WARMUP_BUDGET, &sample);
         let duration =
-            Self::sample_peak_duration(iterations, &sample, SAMPLE_BUDGET, SAMPLE_PATIENCE).await;
+            Self::sample_peak_duration(iterations, &sample, SAMPLE_BUDGET, SAMPLE_PATIENCE);
 
         ThroughputValue {
             ops_count: kernel_config.ops_count,
@@ -121,26 +115,24 @@ impl ThroughputBenchmarker {
 
     /// Warms the device on one shape and reports the count a sample should carry.
     /// It is the device that is warmed, not the shape, so a sweep pays once.
-    pub async fn warm(kernel_config: &KernelConfig) -> usize {
+    pub fn warm(kernel_config: &KernelConfig) -> usize {
         Self::warmup(
             kernel_config.min_iterations,
             WARMUP_BUDGET,
             &kernel_config.sample,
         )
-        .await
     }
 
     /// Keeps the fastest sample of a shape the device is already warm on, at the
     /// count [`warm`](Self::warm) settled.
-    pub async fn sample_at(kernel_config: &KernelConfig, iterations: usize) -> ThroughputValue {
+    pub fn sample_at(kernel_config: &KernelConfig, iterations: usize) -> ThroughputValue {
         let iterations = iterations.max(kernel_config.min_iterations).max(1);
         let duration = Self::sample_peak_duration(
             iterations,
             &kernel_config.sample,
             SAMPLE_BUDGET,
             SAMPLE_PATIENCE,
-        )
-        .await;
+        );
 
         ThroughputValue {
             ops_count: kernel_config.ops_count,
@@ -150,12 +142,12 @@ impl ThroughputBenchmarker {
 
     /// Times one shape briefly, to order it against the others rather than to
     /// report its peak, and reports the count the next shape starts from.
-    pub async fn rank(kernel_config: &KernelConfig, iterations: usize) -> Ranked {
+    pub fn rank(kernel_config: &KernelConfig, iterations: usize) -> Ranked {
         let settling = iterations.max(kernel_config.min_iterations).max(1);
         // A first launch is what compiling and faulting in cost, so it is spent
         // and the count settled from a second.
-        let _ = (kernel_config.sample)(settling).await;
-        let took = (kernel_config.sample)(settling).await;
+        let _ = (kernel_config.sample)(settling);
+        let took = (kernel_config.sample)(settling);
 
         let iterations = Self::retarget(settling, took)
             .max(kernel_config.min_iterations)
@@ -163,7 +155,7 @@ impl ThroughputBenchmarker {
 
         let mut fastest = Duration::MAX;
         for _ in 0..RANK_SAMPLES {
-            fastest = fastest.min((kernel_config.sample)(iterations).await);
+            fastest = fastest.min((kernel_config.sample)(iterations));
         }
 
         let duration = fastest / iterations as u32;
@@ -204,10 +196,10 @@ impl ThroughputBenchmarker {
     /// `budget` bounds the growing, not the sampling: a timer too coarse to
     /// ever reach the target reports the same reading at every count, which
     /// asks for a larger one each round without converging.
-    async fn warmup(
+    fn warmup(
         min_iterations: usize,
         budget: Duration,
-        sample: &dyn Fn(usize) -> DynFut<Duration>,
+        sample: impl Fn(usize) -> Duration,
     ) -> usize {
         const MAX_WARMUP: usize = 50;
         const MAX_ITERATIONS: usize = 1 << 24;
@@ -226,7 +218,7 @@ impl ThroughputBenchmarker {
         let mut plateau_start = start;
 
         for _ in 0..MAX_WARMUP {
-            let duration = sample(iterations).await.as_secs_f64() * 1000.0;
+            let duration = sample(iterations).as_secs_f64() * 1000.0;
             if duration < target_ms {
                 let (extra_iters, ceiling) = if duration > 1e-6 {
                     let duration_per_iter = duration / iterations as f64;
@@ -268,9 +260,9 @@ impl ThroughputBenchmarker {
 
     /// Sample the peak throughput of the kernel by running it multiple times
     /// and measuring the duration of each iteration.
-    async fn sample_peak_duration(
+    fn sample_peak_duration(
         iterations: usize,
-        sample_once: &dyn Fn(usize) -> DynFut<Duration>,
+        sample_once: impl Fn(usize) -> Duration,
         budget: Duration,
         patience: usize,
     ) -> Duration {
@@ -289,7 +281,7 @@ impl ThroughputBenchmarker {
         let start = Instant::now();
 
         for _ in 0..MAX_SAMPLES {
-            let s = sample_once(iterations).await.as_secs_f64();
+            let s = sample_once(iterations).as_secs_f64();
             if s < best * (1.0 - REL_TOL) {
                 best = s;
                 stale = 0;
@@ -317,16 +309,12 @@ mod tests {
     }
 
     /// A device that takes as long as it reports, at whatever rate it is asked for.
-    fn ready(duration: Duration) -> DynFut<Duration> {
-        Box::pin(async move { duration })
-    }
-
-    fn timed_device(per_iter_nanos: impl Fn() -> u64) -> impl Fn(usize) -> DynFut<Duration> {
+    fn timed_device(per_iter_nanos: impl Fn() -> u64) -> impl Fn(usize) -> Duration {
         move |iterations| {
             let duration = Duration::from_nanos(per_iter_nanos() * iterations as u64);
             spin(duration);
 
-            ready(duration)
+            duration
         }
     }
 
@@ -335,12 +323,7 @@ mod tests {
     /// duration target drives.
     #[test]
     fn a_timer_reading_zero_does_not_climb_to_the_duration_ceiling() {
-        let sample = |_| ready(Duration::ZERO);
-        let iterations = cubecl_environment::future::block_on(ThroughputBenchmarker::warmup(
-            1,
-            WARMUP_BUDGET,
-            &sample,
-        ));
+        let iterations = ThroughputBenchmarker::warmup(1, WARMUP_BUDGET, |_| Duration::ZERO);
 
         assert!(iterations <= 1 << 10, "climbed to {iterations}");
     }
@@ -350,15 +333,8 @@ mod tests {
     #[test]
     fn a_blind_timer_never_cuts_below_the_passes_a_probe_needs() {
         let needed = 1 << 20;
-        let sample = |_| ready(Duration::ZERO);
 
-        assert!(
-            cubecl_environment::future::block_on(ThroughputBenchmarker::warmup(
-                needed,
-                WARMUP_BUDGET,
-                &sample,
-            )) >= needed
-        );
+        assert!(ThroughputBenchmarker::warmup(needed, WARMUP_BUDGET, |_| Duration::ZERO) >= needed);
     }
 
     /// A timer too coarse to resolve the target reports the same reading at
@@ -367,16 +343,11 @@ mod tests {
     /// rounds it takes to reach it, which the probe pays for in real launches.
     #[test]
     fn a_timer_that_never_reaches_the_target_stops_growing_on_the_budget() {
-        let sample = |_| {
+        let iterations = ThroughputBenchmarker::warmup(1, Duration::from_millis(12), |_| {
             spin(Duration::from_millis(5));
 
-            ready(Duration::from_millis(1))
-        };
-        let iterations = cubecl_environment::future::block_on(ThroughputBenchmarker::warmup(
-            1,
-            Duration::from_millis(12),
-            &sample,
-        ));
+            Duration::from_millis(1)
+        });
 
         assert!(iterations < 1 << 20, "climbed to {iterations}");
     }
@@ -384,16 +355,15 @@ mod tests {
     #[test]
     fn a_timer_reading_zero_still_stops_sampling() {
         let calls = Cell::new(0);
-        let sample = |_| {
-            calls.set(calls.get() + 1);
-            ready(Duration::ZERO)
-        };
-        let _ = cubecl_environment::future::block_on(ThroughputBenchmarker::sample_peak_duration(
+        let _ = ThroughputBenchmarker::sample_peak_duration(
             1,
-            &sample,
+            |_| {
+                calls.set(calls.get() + 1);
+                Duration::ZERO
+            },
             SAMPLE_BUDGET,
             SAMPLE_PATIENCE,
-        ));
+        );
 
         assert!(calls.get() < 200, "ran {} samples", calls.get());
     }
@@ -407,11 +377,7 @@ mod tests {
         let lifts_once = timed_device(move || if clock.elapsed() < lift { 3000 } else { 1000 });
 
         let start = Instant::now();
-        cubecl_environment::future::block_on(ThroughputBenchmarker::warmup(
-            1,
-            WARMUP_BUDGET,
-            &lifts_once,
-        ));
+        ThroughputBenchmarker::warmup(1, WARMUP_BUDGET, lifts_once);
 
         assert!(
             start.elapsed() >= lift + PLATEAU_FLOOR,
@@ -431,11 +397,7 @@ mod tests {
         });
 
         let start = Instant::now();
-        cubecl_environment::future::block_on(ThroughputBenchmarker::warmup(
-            1,
-            WARMUP_BUDGET,
-            &steady,
-        ));
+        ThroughputBenchmarker::warmup(1, WARMUP_BUDGET, steady);
 
         assert!(
             start.elapsed() >= PLATEAU_FLOOR,
@@ -449,12 +411,11 @@ mod tests {
     /// device that is genuinely slow answers the same however long it is held.
     #[test]
     fn a_device_slow_for_the_whole_measurement_reports_its_slow_rate() {
-        let value =
-            cubecl_environment::future::block_on(ThroughputBenchmarker::sample(KernelConfig {
-                sample: Box::new(timed_device(|| 3000)),
-                ops_count: 1,
-                min_iterations: 1,
-            }));
+        let value = ThroughputBenchmarker::sample(KernelConfig {
+            sample: Box::new(timed_device(|| 3000)),
+            ops_count: 1,
+            min_iterations: 1,
+        });
 
         assert!(
             (Duration::from_nanos(2900)..Duration::from_nanos(3100)).contains(&value.duration),
@@ -475,16 +436,14 @@ mod tests {
         };
         let (fast, slow) = (config(1000), config(3000));
 
-        let iterations = cubecl_environment::future::block_on(ThroughputBenchmarker::warm(&fast));
+        let iterations = ThroughputBenchmarker::warm(&fast);
         let start = Instant::now();
-        let fast_rate =
-            cubecl_environment::future::block_on(ThroughputBenchmarker::rank(&fast, iterations))
-                .value
-                .ops_per_s();
-        let slow_rate =
-            cubecl_environment::future::block_on(ThroughputBenchmarker::rank(&slow, iterations))
-                .value
-                .ops_per_s();
+        let fast_rate = ThroughputBenchmarker::rank(&fast, iterations)
+            .value
+            .ops_per_s();
+        let slow_rate = ThroughputBenchmarker::rank(&slow, iterations)
+            .value
+            .ops_per_s();
 
         assert!(fast_rate > slow_rate, "{fast_rate} against {slow_rate}");
         assert!(
@@ -501,16 +460,14 @@ mod tests {
     fn ranking_times_each_shape_over_the_same_span() {
         let config = |per_iter_nanos: u64| KernelConfig {
             sample: Box::new(move |iterations| {
-                ready(Duration::from_nanos(per_iter_nanos * iterations as u64))
+                Duration::from_nanos(per_iter_nanos * iterations as u64)
             }),
             ops_count: 1,
             min_iterations: 1,
         };
 
-        let slow =
-            cubecl_environment::future::block_on(ThroughputBenchmarker::rank(&config(1000), 1000));
-        let fast =
-            cubecl_environment::future::block_on(ThroughputBenchmarker::rank(&config(100), 1000));
+        let slow = ThroughputBenchmarker::rank(&config(1000), 1000);
+        let fast = ThroughputBenchmarker::rank(&config(100), 1000);
 
         assert_eq!(slow.iterations, 20_000);
         assert_eq!(fast.iterations, 200_000);
@@ -527,14 +484,13 @@ mod tests {
                 launches.set(launches.get() + 1);
                 let per_iter = if launches.get() == 1 { 100_000 } else { 1_000 };
 
-                ready(Duration::from_nanos(per_iter * iterations as u64))
+                Duration::from_nanos(per_iter * iterations as u64)
             }),
             ops_count: 1,
             min_iterations: 1,
         };
 
-        let ranked =
-            cubecl_environment::future::block_on(ThroughputBenchmarker::rank(&config, 1_000));
+        let ranked = ThroughputBenchmarker::rank(&config, 1_000);
 
         assert_eq!(ranked.iterations, 20_000);
     }
@@ -545,12 +501,12 @@ mod tests {
     fn ranking_never_carries_fewer_passes_than_a_shape_needs() {
         let needed = 64;
         let config = KernelConfig {
-            sample: Box::new(|iterations| ready(Duration::from_nanos(iterations as u64))),
+            sample: Box::new(|iterations| Duration::from_nanos(iterations as u64)),
             ops_count: 1,
             min_iterations: needed,
         };
 
-        let ranked = cubecl_environment::future::block_on(ThroughputBenchmarker::rank(&config, 1));
+        let ranked = ThroughputBenchmarker::rank(&config, 1);
 
         assert_eq!(ranked.value.duration, Duration::from_nanos(1));
         assert!(ranked.iterations >= needed);
@@ -559,12 +515,9 @@ mod tests {
     /// A working timer still drives the count to the duration target.
     #[test]
     fn a_pass_far_under_the_target_grows_until_it_reaches_it() {
-        let sample = |iterations| ready(Duration::from_micros(iterations as u64));
-        let iterations = cubecl_environment::future::block_on(ThroughputBenchmarker::warmup(
-            1,
-            WARMUP_BUDGET,
-            &sample,
-        ));
+        let iterations = ThroughputBenchmarker::warmup(1, WARMUP_BUDGET, |iterations| {
+            Duration::from_micros(iterations as u64)
+        });
 
         assert_eq!(iterations, 20_000);
     }

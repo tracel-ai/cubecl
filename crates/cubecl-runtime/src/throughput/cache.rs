@@ -5,22 +5,20 @@ use crate::throughput::{ThroughputKey, ThroughputValue};
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
-use async_lock::Mutex;
 use cubecl_environment::collections::HashMap;
-use cubecl_environment::sync::Mutex as SyncMutex;
+use cubecl_environment::sync::Mutex;
 use cubecl_ir::{DeviceIdentity, DeviceProperties};
 
 /// The namespace segment naming which generation of probes wrote a value.
 #[cfg(persistence)]
 const GENERATION: &str = "probe-v";
 
-static GLOBAL_CACHE: SyncMutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>> =
-    SyncMutex::new(None);
+static GLOBAL_CACHE: Mutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>> = Mutex::new(None);
 
 /// Caches the [`ThroughputValue`] for a given [`ThroughputKey`].
 ///
 /// This cache is used to avoid recomputing throughput values for the same key.
-/// Stores durably when persistence is available, otherwise in memory.
+/// Stores on disk when std is available, otherwise stores in memory.
 pub struct ThroughputCache {
     #[cfg(not(persistence))]
     cache: HashMap<ThroughputKey, ThroughputValue>,
@@ -30,7 +28,7 @@ pub struct ThroughputCache {
 
 impl ThroughputCache {
     /// Gets or creates the global `ThroughputCache` for one device.
-    pub async fn get_for_device(runtime: &str, properties: &DeviceProperties) -> Arc<Mutex<Self>> {
+    pub fn get_for_device(runtime: &str, properties: &DeviceProperties) -> Arc<Mutex<Self>> {
         let hardware = &properties.hardware;
         let name = device_key(
             runtime,
@@ -41,28 +39,20 @@ impl ThroughputCache {
                 .or(hardware.num_streaming_multiprocessors)
                 .unwrap_or(0),
         );
+        let mut cache_map = GLOBAL_CACHE.lock();
+        let cache_map = cache_map.get_or_insert_with(HashMap::new);
+
         #[cfg(persistence)]
-        drop_earlier_generations().await;
+        drop_earlier_generations();
 
-        if let Some(cache) = GLOBAL_CACHE
-            .lock()
-            .as_ref()
-            .and_then(|caches| caches.get(&name).cloned())
-        {
-            return cache;
-        }
-
-        let candidate = Arc::new(Mutex::new(Self::new(&name).await));
-        GLOBAL_CACHE
-            .lock()
-            .get_or_insert_with(HashMap::new)
-            .entry(name)
-            .or_insert(candidate)
+        cache_map
+            .entry(name.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(Self::new(&name))))
             .clone()
     }
 
     /// Creates a new `ThroughputCache` with the given name.
-    pub async fn new(#[cfg_attr(not(persistence), allow(unused_variables))] name: &str) -> Self {
+    pub fn new(#[cfg_attr(not(persistence), allow(unused_variables))] name: &str) -> Self {
         #[cfg(not(persistence))]
         {
             ThroughputCache {
@@ -73,7 +63,7 @@ impl ThroughputCache {
         #[cfg(persistence)]
         {
             Self {
-                cache: Store::open(StoreOptions::new().storage(namespace(name))).await,
+                cache: Store::new(StoreOptions::new().storage(namespace(name))),
             }
         }
     }
@@ -83,9 +73,9 @@ impl ThroughputCache {
     /// Throughput measurements are nondeterministic, so a concurrent process (or an
     /// earlier run) may have recorded a different value for the same key; the cache
     /// keeps the existing value in that case rather than failing.
-    pub async fn insert(&mut self, key: ThroughputKey, value: ThroughputValue) {
+    pub fn insert(&mut self, key: ThroughputKey, value: ThroughputValue) {
         #[cfg(persistence)]
-        if let Err(err) = self.cache.insert(key, value).await {
+        if let Err(err) = self.cache.insert(key, value) {
             log::warn!("Concurrent throughput measurement, keeping the existing value: {err}");
         }
 
@@ -136,7 +126,7 @@ fn is_earlier_generation(candidate: &str, scope: &str, current: u32) -> bool {
 }
 
 #[cfg(persistence)]
-async fn drop_earlier_generations() {
+fn drop_earlier_generations() {
     use core::sync::atomic::{AtomicBool, Ordering};
 
     static DROPPED: AtomicBool = AtomicBool::new(false);
@@ -148,12 +138,9 @@ async fn drop_earlier_generations() {
     let scope = String::from(Namespace::scoped("throughput", "").as_str());
     let current = crate::throughput::PROBE_VERSION;
 
-    for candidate in cubecl_environment::persistence::namespaces().await {
+    for candidate in cubecl_environment::persistence::namespaces() {
         if is_earlier_generation(&candidate, &scope, current) {
-            cubecl_environment::persistence::open(&candidate)
-                .await
-                .purge()
-                .await;
+            cubecl_environment::persistence::open(&candidate).purge();
         }
     }
 }

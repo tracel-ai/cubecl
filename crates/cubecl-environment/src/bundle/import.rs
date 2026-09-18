@@ -43,29 +43,35 @@ pub struct ImportReport {
 /// Fills the *active* environment; switch with
 /// [`environment::activate`](crate::environment::activate) beforehand to
 /// target another one.
-pub async fn import(bundle: &dyn Bundle) -> ImportReport {
+pub fn import(bundle: &dyn Bundle) -> ImportReport {
     let mut report = ImportReport::default();
 
     for namespace in bundle.namespaces() {
-        let target = storage::open(&namespace).await;
+        let target = storage::open(&namespace);
 
         let mut batch: Vec<(Bytes, Bytes)> = Vec::with_capacity(BATCH);
         let mut total = InsertSummary::default();
+        let commit = |batch: &mut Vec<(Bytes, Bytes)>, total: &mut InsertSummary| {
+            if batch.is_empty() {
+                return;
+            }
+
+            let summary = target.insert_many(&mut batch.drain(..), Origin::Imported);
+            total.stored += summary.stored;
+            total.conflict += summary.conflict;
+            total.failed += summary.failed;
+        };
+
         bundle.scan(&namespace, &mut |key, value| {
             batch.push((
                 Bytes::from_bytes_vec(key.to_vec()),
                 Bytes::from_bytes_vec(value.to_vec()),
             ));
+            if batch.len() == BATCH {
+                commit(&mut batch, &mut total);
+            }
         });
-
-        for entries in batch.chunks_mut(BATCH) {
-            let summary = target
-                .insert_many(&mut entries.iter().cloned(), Origin::Imported)
-                .await;
-            total.stored += summary.stored;
-            total.conflict += summary.conflict;
-            total.failed += summary.failed;
-        }
+        commit(&mut batch, &mut total);
 
         let (imported, skipped) = (total.stored, total.conflict);
         log::debug!("Imported {imported} entries into {namespace} ({skipped} already present)");

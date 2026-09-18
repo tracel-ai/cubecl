@@ -1,4 +1,3 @@
-use super::timed;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputError, ThroughputKey};
@@ -10,7 +9,7 @@ use crate::throughput::{
 
 /// Builds the copy kernel, moving `working_set` bytes per pass: half read out
 /// of the input buffer, half written into the output one.
-pub async fn build_kernel(
+pub fn build_kernel(
     client: &Client,
     key: ThroughputKey,
     config: LaunchConfig,
@@ -24,24 +23,30 @@ pub async fn build_kernel(
 
     let [in_handle, out_handle] =
         memory_probe::reserve(&client, [probe.buffer_bytes, probe.buffer_bytes])?;
-    memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype).await;
+    memory_probe::prime(&client, &in_handle, probe.pool_lines, config, dtype);
 
     let (verifier, written) = (client.clone(), out_handle.clone());
-    let sample = timed(client.clone(), move |iterations| unsafe {
-        memory_direct_throughput::launch_unchecked(
-            &client,
-            CubeCount::Static(probe.cube_count as u32, 1, 1),
-            config.cube_dim,
-            config.vector_size,
-            BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines),
-            BufferArg::from_raw_parts(out_handle.clone(), probe.pool_lines),
-            probe.window_lines,
-            iterations,
-            probe.blocked,
-            dtype,
-        )
+    let sample = Box::new(move |iterations: usize| {
+        let start = cubecl_common::profile::Instant::now();
+        unsafe {
+            memory_direct_throughput::launch_unchecked(
+                &client,
+                CubeCount::Static(probe.cube_count as u32, 1, 1),
+                config.cube_dim,
+                config.vector_size,
+                BufferArg::from_raw_parts(in_handle.clone(), probe.pool_lines),
+                BufferArg::from_raw_parts(out_handle.clone(), probe.pool_lines),
+                probe.window_lines,
+                iterations,
+                probe.blocked,
+                dtype,
+            )
+        };
+        // A failure is not this sync's to report: `verify` asked the output.
+        let _ = cubecl_core::future::block_on(client.sync());
+        start.elapsed()
     });
-    memory_probe::verify(&verifier, &sample, &written).await?;
+    memory_probe::verify(&verifier, &sample, &written)?;
 
     // One pass moves the window twice: once in, once out.
     let ops_count = 2 * probe.window_lines * config.vector_size;

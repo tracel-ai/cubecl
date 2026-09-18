@@ -2,7 +2,6 @@ use core::{fmt::Display, hash::Hash};
 
 use alloc::boxed::Box;
 use alloc::string::String;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use hashbrown::{HashMap, HashSet};
@@ -85,12 +84,12 @@ impl<K: core::fmt::Debug, V: core::fmt::Debug> Display for StoreError<K, V> {
 impl<K: core::fmt::Debug, V: core::fmt::Debug> core::error::Error for StoreError<K, V> {}
 
 /// Trait to be implemented for store keys.
-pub trait StoreKey: Serialize + DeserializeOwned + PartialEq + Eq + Hash + Clone + 'static {}
+pub trait StoreKey: Serialize + DeserializeOwned + PartialEq + Eq + Hash + Clone {}
 /// Trait to be implemented for store values.
-pub trait StoreValue: Serialize + DeserializeOwned + PartialEq + Eq + Clone + 'static {}
+pub trait StoreValue: Serialize + DeserializeOwned + PartialEq + Eq + Clone {}
 
-impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone + Hash + 'static> StoreKey for T {}
-impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone + 'static> StoreValue for T {}
+impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone + Hash> StoreKey for T {}
+impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone> StoreValue for T {}
 
 /// How a [`Store`] populates its in-memory map from its storage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -114,7 +113,7 @@ enum StorageOption {
     /// The active environment's storage for this namespace.
     Environment(Namespace),
     /// An explicitly provided storage, addressing this namespace.
-    Explicit(Arc<dyn Storage>, Namespace),
+    Explicit(Box<dyn Storage>, Namespace),
 }
 
 /// Defines how to create a [`Store`].
@@ -143,7 +142,7 @@ impl StoreOptions {
         storage: Box<dyn Storage>,
         namespace: N,
     ) -> Self {
-        self.storage = StorageOption::Explicit(storage.into(), namespace.into());
+        self.storage = StorageOption::Explicit(storage, namespace.into());
         self
     }
 
@@ -185,16 +184,6 @@ impl StoreOptions {
 /// [`get_mut`](Store::get_mut) changes only the in-memory copy, never the
 /// storage.
 ///
-/// Every storage is asynchronous, so the operations that may touch it are
-/// `async`. The launch path can't await, so [`remove`](Store::remove),
-/// [`insert`](Store::insert) and [`purge_key`](Store::purge_key) have
-/// synchronous forms — [`remove_sync`](Store::remove_sync),
-/// [`insert_sync`](Store::insert_sync),
-/// [`purge_key_sync`](Store::purge_key_sync). Natively they block on the
-/// storage and are exactly their `async` counterparts. The browser can't
-/// block: there the read serves memory alone, and the writes apply to memory
-/// now and reach the storage on a detached task.
-///
 /// # Environment switches
 ///
 /// A store opened on the active environment stays bound to *the environment*,
@@ -214,7 +203,7 @@ pub struct Store<K, V> {
     /// [`remove`](Store::remove)d entries. What tells a reinsert collision
     /// [`StoreError::DuplicatedKey`] apart from [`StoreError::KeyOutOfSync`].
     known: HashSet<K>,
-    storage: Option<Arc<dyn Storage>>,
+    storage: Option<Box<dyn Storage>>,
     namespace: Option<Namespace>,
     cache: CacheOption,
     /// The environment generation the state belongs to, for stores bound to
@@ -222,14 +211,10 @@ pub struct Store<K, V> {
     /// none). A mismatch with the current generation means everything here
     /// describes an environment that is no longer active.
     generation: Option<u32>,
-    /// `true` once a switch was detected on a synchronous path, which can drop
-    /// the stale state but not reopen the storage: the next `async` operation
-    /// does.
-    reopen: bool,
 }
 
 impl<K: StoreKey, V: StoreValue> Store<K, V> {
-    /// Opens a store from the options.
+    /// Create a new store from the options.
     ///
     /// With an [`Eager`](CacheOption::Eager) cache over a storage, everything
     /// the storage holds is ingested before returning.
@@ -237,7 +222,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip_all, fields(options = ?options))
     )]
-    pub async fn open(options: StoreOptions) -> Self {
+    pub fn new(options: StoreOptions) -> Self {
         let (storage, namespace, generation) = match options.storage {
             StorageOption::InMemory => (None, None, None),
             StorageOption::Environment(namespace) => {
@@ -246,7 +231,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
                 // never as "this storage belongs to the new environment".
                 let generation = crate::environment::generation();
                 (
-                    Some(super::storage::open(namespace.as_str()).await),
+                    Some(super::storage::open(namespace.as_str())),
                     Some(namespace),
                     Some(generation),
                 )
@@ -261,11 +246,10 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
             namespace,
             cache: options.cache,
             generation,
-            reopen: false,
         };
 
         if matches!(store.cache, CacheOption::Eager) && store.storage.is_some() {
-            store.sync().await;
+            store.ingest();
         }
 
         store
@@ -293,128 +277,16 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         self.entries.get(key)
     }
 
-    /// [`remove`](Store::remove) for the launch path, where nothing can be
-    /// awaited.
-    ///
-    /// Natively this *is* `remove`, blocking on the storage: a lazy store
-    /// reads through, and a switched environment is reopened first. The
-    /// browser can't block, so there it serves memory alone — on an eager
-    /// store the map is complete, so a miss is a miss — and after a switch
-    /// drops the stale state and misses until the next `async` operation
-    /// reopens the storage.
-    pub fn remove_sync(&mut self, key: &K) -> Option<V> {
-        #[cfg(not(target_family = "wasm"))]
-        {
-            crate::future::block_on(self.remove(key))
-        }
-
-        #[cfg(target_family = "wasm")]
-        {
-            self.invalidate_if_stale();
-
-            let value = self.entries.remove(key);
-            if value.is_some() && self.storage.is_some() {
-                self.known.insert(key.clone());
-            }
-            value
-        }
-    }
-
-    /// [`insert`](Store::insert) for the launch path, where nothing can be
-    /// awaited.
-    ///
-    /// Natively this *is* `insert`, durable before it returns. The browser
-    /// can't block, so there the in-memory map is updated now and the durable
-    /// write lands on a detached task: a refused write is logged there, never
-    /// reported here, and only the in-memory rules apply — a key present with
-    /// a different value is [`StoreError::DuplicatedKey`], while a conflict
-    /// with another process is arbitrated by the storage and logged.
-    pub fn insert_sync(&mut self, key: K, value: V) -> Result<(), StoreError<K, V>> {
-        #[cfg(not(target_family = "wasm"))]
-        {
-            crate::future::block_on(self.insert(key, value))
-        }
-
-        #[cfg(target_family = "wasm")]
-        {
-            self.invalidate_if_stale();
-
-            if let Some(existing) = self.entries.get(&key) {
-                return if existing == &value {
-                    Ok(())
-                } else {
-                    Err(StoreError::DuplicatedKey {
-                        key,
-                        value_previous: existing.clone(),
-                        value_updated: value,
-                    })
-                };
-            }
-
-            self.entries.insert(key.clone(), value.clone());
-            let (key, value) = (encode(&key), encode(&value));
-            self.detach(move |storage| async move {
-                match storage.insert(&key, value, Origin::Local).await {
-                    Insertion::Stored => {}
-                    Insertion::Conflict(_) => {
-                        log::debug!(
-                            "Cache entry was stored concurrently in {}",
-                            storage.describe()
-                        )
-                    }
-                    Insertion::Failed(error) => {
-                        log::warn!(
-                            "Unable to write cache entry to {}: {error}",
-                            storage.describe()
-                        )
-                    }
-                }
-            });
-
-            Ok(())
-        }
-    }
-
-    /// [`purge_key`](Store::purge_key) for the launch path, where nothing can
-    /// be awaited.
-    ///
-    /// Natively this *is* `purge_key`: the entry is gone durably before it
-    /// returns, and the key is free to reinsert. The browser can't block, so
-    /// there the entry leaves memory now and the storage on a detached task;
-    /// until that lands the storage still holds it and arbitrates a write of
-    /// the *same* key against it. A failed delete is logged by the storage,
-    /// not reported.
-    pub fn purge_key_sync(&mut self, key: &K) -> Option<V> {
-        #[cfg(not(target_family = "wasm"))]
-        {
-            crate::future::block_on(self.purge_key(key))
-        }
-
-        #[cfg(target_family = "wasm")]
-        {
-            self.invalidate_if_stale();
-
-            let value = self.entries.remove(key);
-            // A purged key is a fresh key.
-            self.known.remove(key);
-
-            let key = encode(key);
-            self.detach(move |storage| async move { storage.purge_key(&key).await });
-
-            value
-        }
-    }
-
     /// Fetch an item, reading it from the storage on the first lookup of a
     /// lazy store and memoizing it afterwards.
     ///
     /// Mutating the value changes only the in-memory copy, never the storage.
-    pub async fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.reset_if_stale().await;
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.reset_if_stale();
 
         if matches!(self.cache, CacheOption::Lazy)
             && !self.entries.contains_key(key)
-            && let Some(value) = self.fetch(key).await
+            && let Some(value) = self.fetch(key)
         {
             self.entries.insert(key.clone(), value);
         }
@@ -430,14 +302,14 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// [`known`](StoreError::DuplicatedKey) to the store. This is the read
     /// for a value consumed once per process — a compiled kernel about to be
     /// loaded — because nothing is cloned and nothing stays memoized.
-    pub async fn remove(&mut self, key: &K) -> Option<V> {
-        self.reset_if_stale().await;
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.reset_if_stale();
 
         let value = match self.entries.remove(key) {
             Some(value) => Some(value),
             None => match self.cache {
                 CacheOption::Eager => None,
-                CacheOption::Lazy => self.fetch(key).await,
+                CacheOption::Lazy => self.fetch(key),
             },
         };
 
@@ -462,8 +334,8 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// The exception is an entry that came from a bundle: the storage lets a
     /// locally computed value replace it, so a stale bundle can never wedge
     /// the application that imported it.
-    pub async fn insert(&mut self, key: K, value: V) -> Result<(), StoreError<K, V>> {
-        self.reset_if_stale().await;
+    pub fn insert(&mut self, key: K, value: V) -> Result<(), StoreError<K, V>> {
+        self.reset_if_stale();
 
         let known = match self.entries.get(&key) {
             Some(existing) if existing == &value => return Ok(()),
@@ -487,7 +359,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         // Only memory is consulted above: `write_through` asks the storage
         // atomically, so reading it first would cost a second round trip and
         // still not know whether the existing entry is imported.
-        match write_through(storage, &key, &value).await {
+        match write_through(storage, &key, &value) {
             Written::Stored => {
                 self.record(key, value);
                 Ok(())
@@ -529,14 +401,14 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// where `remove` only evicts the in-memory copy, this also deletes the
     /// storage entry, so the key is gone for every process sharing the
     /// environment and free to reinsert.
-    pub async fn purge_key(&mut self, key: &K) -> Option<V> {
-        self.reset_if_stale().await;
+    pub fn purge_key(&mut self, key: &K) -> Option<V> {
+        self.reset_if_stale();
 
         let value = match self.entries.remove(key) {
             Some(value) => Some(value),
             None => match self.cache {
                 CacheOption::Eager => None,
-                CacheOption::Lazy => self.fetch(key).await,
+                CacheOption::Lazy => self.fetch(key),
             },
         };
 
@@ -544,7 +416,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         // what memory held: another process may have written it since.
         self.known.remove(key);
         if let Some(storage) = self.storage.as_deref() {
-            storage.purge_key(&encode(key)).await;
+            storage.purge_key(&encode(key));
         }
 
         value
@@ -556,8 +428,8 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// is to [`purge_key`](Store::purge_key): the in-memory half only. On an
     /// eager store the entries come back on the next [`sync`](Store::sync);
     /// the keys stay known, exactly as with `remove`.
-    pub async fn clear(&mut self) {
-        self.reset_if_stale().await;
+    pub fn clear(&mut self) {
+        self.reset_if_stale();
 
         if self.storage.is_some() {
             self.known.extend(self.entries.drain().map(|(key, _)| key));
@@ -573,38 +445,46 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// free to reinsert. Only this namespace is touched, never the rest of
     /// the environment. Other stores on the same namespace keep what they
     /// already ingested until they sync.
-    pub async fn purge(&mut self) {
-        self.reset_if_stale().await;
+    pub fn purge(&mut self) {
+        self.reset_if_stale();
 
         self.entries.clear();
         self.known.clear();
 
         if let Some(storage) = self.storage.as_deref() {
-            storage.purge().await;
+            storage.purge();
         }
     }
 
     /// Ingest everything the storage holds into memory.
     ///
-    /// This is what makes an eager store complete, and [`open`](Store::open)
+    /// This is what makes an eager store complete, and [`new`](Store::new)
     /// performs it; call it again to ingest content another store or process
     /// wrote to the storage since.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip_all, fields(namespace = ?self.namespace))
     )]
-    pub async fn sync(&mut self) {
-        self.reset_if_stale().await;
+    pub fn sync(&mut self) {
+        // A reset re-ingests an eager store on its own.
+        if self.reset_if_stale() && matches!(self.cache, CacheOption::Eager) {
+            return;
+        }
+        self.ingest();
+    }
 
+    /// Reads every entry of the storage into memory.
+    fn ingest(&mut self) {
         let Some(storage) = self.storage.as_deref() else {
             return;
         };
+        let entries = &mut self.entries;
 
-        for (key, value) in storage.scan().await {
-            if let Some((key, value)) = decode_entry::<K, V>(&key, &value) {
-                self.entries.insert(key, value);
+        storage.scan(&mut |key, value| {
+            if let Some((key, value)) = decode_entry::<K, V>(key, value) {
+                entries.insert(key, value);
             }
-        }
+        });
     }
 
     /// Visits every entry the storage holds, decoded and handed out owned,
@@ -615,8 +495,8 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// hydration read for a caller keeping its own index over a
     /// [`Lazy`](CacheOption::Lazy) store — everything is visited once, and
     /// nothing stays resident afterwards.
-    pub async fn scan<F: FnMut(K, V)>(&mut self, mut func: F) {
-        self.reset_if_stale().await;
+    pub fn scan<F: FnMut(K, V)>(&mut self, mut func: F) {
+        self.reset_if_stale();
 
         let Some(storage) = self.storage.as_deref() else {
             for (key, value) in self.entries.iter() {
@@ -625,11 +505,11 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
             return;
         };
 
-        for (key, value) in storage.scan().await {
-            if let Some((key, value)) = decode_entry::<K, V>(&key, &value) {
+        storage.scan(&mut |key, value| {
+            if let Some((key, value)) = decode_entry::<K, V>(key, value) {
                 func(key, value);
             }
-        }
+        });
     }
 
     /// Iterate over all in-memory entries of the store.
@@ -658,8 +538,8 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     }
 
     /// One entry read straight from the storage.
-    async fn fetch(&self, key: &K) -> Option<V> {
-        let bytes = self.storage.as_deref()?.get(&encode(key)).await?;
+    fn fetch(&self, key: &K) -> Option<V> {
+        let bytes = self.storage.as_deref()?.get(&encode(key))?;
         decode::<V>(&bytes)
     }
 
@@ -677,8 +557,9 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         }
     }
 
-    /// Whether a bound store's state describes an environment that is no
-    /// longer active. One relaxed atomic load.
+    /// Whether the in-memory state belongs to an environment that is no
+    /// longer active. One relaxed atomic load for bound stores; unbound ones
+    /// are never stale.
     fn stale(&self) -> bool {
         match self.generation {
             Some(generation) => generation != crate::environment::generation(),
@@ -686,63 +567,17 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         }
     }
 
-    /// Runs `write` against the storage on a detached task: the store's, or
-    /// the active environment's when a switch was detected on the synchronous
-    /// path and the store hasn't reopened yet.
-    #[cfg(target_family = "wasm")]
-    fn detach<F, Fut>(&self, write: F)
-    where
-        F: FnOnce(Arc<dyn Storage>) -> Fut + 'static,
-        Fut: core::future::Future<Output = ()> + 'static,
-    {
-        let storage = self.storage.clone();
-        let namespace = self.namespace.clone();
-        let reopen = self.reopen;
-
-        crate::future::spawn_detached(async move {
-            let storage = if reopen {
-                let Some(namespace) = namespace else {
-                    return;
-                };
-                super::storage::open(namespace.as_str()).await
-            } else {
-                let Some(storage) = storage else {
-                    return;
-                };
-                storage
-            };
-
-            write(storage).await
-        });
-    }
-
-    /// Drops everything belonging to the previous environment.
-    ///
-    /// The storage is not reopened here: this is the synchronous half, for
-    /// paths that can't await. It marks the store for
-    /// [`reset_if_stale`](Self::reset_if_stale) to finish.
-    fn invalidate_if_stale(&mut self) {
+    /// Drops everything belonging to the previous environment and reopens the
+    /// storage against the active one, re-ingesting it when eager. Reports
+    /// whether a reset happened.
+    fn reset_if_stale(&mut self) -> bool {
         if !self.stale() {
-            return;
+            return false;
         }
 
         // `stale` implies `generation` and an environment-bound namespace.
-        self.generation = Some(crate::environment::generation());
-        self.reopen = true;
-        self.entries.clear();
-        self.known.clear();
-    }
-
-    /// Drops everything belonging to the previous environment and reopens the
-    /// storage against the active one, re-ingesting it when eager.
-    async fn reset_if_stale(&mut self) {
-        self.invalidate_if_stale();
-        if !self.reopen {
-            return;
-        }
-
         let (Some(namespace), Some(_)) = (&self.namespace, self.generation) else {
-            return;
+            return false;
         };
 
         log::debug!("Environment switched, resetting the store for {namespace}");
@@ -750,18 +585,14 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         // Generation first, storage second, mirroring `new`: a switch landing
         // in between reads as stale again, never as up to date.
         self.generation = Some(crate::environment::generation());
-        self.storage = Some(super::storage::open(namespace.as_str()).await);
-        self.reopen = false;
+        self.storage = Some(super::storage::open(namespace.as_str()));
         self.entries.clear();
         self.known.clear();
         if matches!(self.cache, CacheOption::Eager) {
-            let persisted = self.storage.as_deref().unwrap().scan().await;
-            for (key, value) in persisted {
-                if let Some((key, value)) = decode_entry::<K, V>(&key, &value) {
-                    self.entries.insert(key, value);
-                }
-            }
+            self.ingest();
         }
+
+        true
     }
 }
 
@@ -792,7 +623,8 @@ impl<K: StoreKey, V: StoreValue> Display for Store<K, V> {
 }
 
 /// The outcome of writing an entry through to the storage.
-enum Written<V> {
+pub(crate) enum Written<V> {
+    /// The storage now holds this value, or already held an identical one.
     Stored,
     /// The storage kept a different value, which is the durable one.
     Conflict(V),
@@ -806,17 +638,14 @@ enum Written<V> {
 /// replace an imported one, and otherwise refuses to overwrite. Both stores go
 /// through here, so the rule is identical for eager and lazy caches rather
 /// than reimplemented per store.
-async fn write_through<K: StoreKey, V: StoreValue>(
+pub(crate) fn write_through<K: StoreKey, V: StoreValue>(
     storage: &dyn Storage,
     key: &K,
     value: &V,
 ) -> Written<V> {
     let key_bytes = encode(key);
 
-    match storage
-        .insert(&key_bytes, encode(value), Origin::Local)
-        .await
-    {
+    match storage.insert(&key_bytes, encode(value), Origin::Local) {
         Insertion::Stored => Written::Stored,
         Insertion::Failed(error) => Written::Failed(error),
         Insertion::Conflict(existing) => match decode::<V>(&existing) {
@@ -826,10 +655,7 @@ async fn write_through<K: StoreKey, V: StoreValue>(
             // agree with, so leaving them in place would refuse every write
             // for this key forever — a permanent recompile for a lazily read
             // key. Repair the row instead.
-            None => match storage
-                .replace(&key_bytes, encode(value), Origin::Local)
-                .await
-            {
+            None => match storage.replace(&key_bytes, encode(value), Origin::Local) {
                 Insertion::Failed(error) => Written::Failed(error),
                 _ => Written::Stored,
             },
@@ -846,7 +672,7 @@ async fn write_through<K: StoreKey, V: StoreValue>(
 /// caller just constructed with a derived `Serialize`, and writing CBOR into a
 /// `Vec` has no I/O to fail on: a failure here is a broken `StoreKey`/
 /// `StoreValue` impl, a bug to surface loudly, not a cache miss to swallow.
-fn encode<T: Serialize>(value: &T) -> Bytes {
+pub(crate) fn encode<T: Serialize>(value: &T) -> Bytes {
     let mut bytes = Vec::new();
     ciborium::ser::into_writer(value, &mut bytes).expect("Can serialize data");
     Bytes::from_bytes_vec(bytes)
@@ -854,7 +680,7 @@ fn encode<T: Serialize>(value: &T) -> Bytes {
 
 /// Deserializes a key or a value, reporting corrupted content instead of
 /// failing: a cache entry we can't read is one we recompute.
-fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Option<T> {
+pub(crate) fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Option<T> {
     match ciborium::de::from_reader(bytes) {
         Ok(value) => Some(value),
         Err(err) => {
@@ -883,10 +709,10 @@ mod tests {
         eager(path).cache(CacheOption::Lazy)
     }
 
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn test_cache_simple() {
+    fn test_cache_simple() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
 
@@ -896,11 +722,11 @@ mod tests {
         let value1 = || "value1".to_string();
         let value2 = || "value2".to_string();
 
-        let mut cache = Store::<String, String>::open(eager("test")).await;
-        cache.insert(key1(), value1()).await.unwrap();
-        cache.insert(key2(), value2()).await.unwrap();
+        let mut cache = Store::<String, String>::new(eager("test"));
+        cache.insert(key1(), value1()).unwrap();
+        cache.insert(key2(), value2()).unwrap();
 
-        let result = cache.insert(key1(), value2()).await;
+        let result = cache.insert(key1(), value2());
         assert!(
             result.is_err(),
             "Can't reinsert the same key with a different value."
@@ -918,16 +744,16 @@ mod tests {
     /// Guards the on-disk contract: the database file location and the exact
     /// namespace a given set of options resolves to. Breaking either
     /// invalidates every existing cache on users' machines.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn test_on_disk_format_is_stable() {
+    fn test_on_disk_format_is_stable() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
         let namespace = Namespace::scoped("golden", "device0/matmul");
 
-        let mut cache = Store::<String, u32>::open(StoreOptions::new().storage(namespace)).await;
-        cache.insert("shape=2x2".to_string(), 42).await.unwrap();
+        let mut cache = Store::<String, u32>::new(StoreOptions::new().storage(namespace));
+        cache.insert("shape=2x2".to_string(), 42).unwrap();
 
         let expected_namespace =
             std::format!("golden/{}/device0/matmul", env!("CARGO_PKG_VERSION"));
@@ -936,200 +762,126 @@ mod tests {
         let path = crate::environment::path();
         assert!(path.exists(), "Database missing at {path:?}");
 
-        // Read it back through a fresh connection: the entry must be
-        // addressable by namespace and encoded key alone.
-        let reopened = Store::<String, u32>::open(
+        // Read it back through a fresh store: the entry must be addressable
+        // by namespace and encoded key alone.
+        let reopened = Store::<String, u32>::new(
             StoreOptions::new().storage(Namespace::scoped("golden", "device0/matmul")),
-        )
-        .await;
+        );
         assert_eq!(reopened.get(&"shape=2x2".to_string()), Some(&42));
-    }
-
-    /// The launch path's insert must be durable before it returns natively: a
-    /// store reopened right after sees it.
-    #[tokio::test]
-    #[serial_test::serial]
-    #[cfg_attr(miri, ignore)]
-    async fn test_sync_insert_is_durable() {
-        let dir = tempfile::tempdir().unwrap();
-        crate::environment::set_root(dir.path());
-
-        let mut cache = Store::<String, u32>::open(eager("sync")).await;
-        cache.insert_sync("key".to_string(), 7).unwrap();
-        assert_eq!(cache.get(&"key".to_string()), Some(&7));
-
-        let reopened = Store::<String, u32>::open(eager("sync")).await;
-        assert_eq!(reopened.get(&"key".to_string()), Some(&7));
-    }
-
-    /// The launch path's move of an entry between keys: the old key is purged
-    /// durably — not just evicted — so the store doesn't keep a row nothing
-    /// will read, and the new key holds the value.
-    #[tokio::test]
-    #[serial_test::serial]
-    #[cfg_attr(miri, ignore)]
-    async fn test_sync_purge_deletes_durably() {
-        let dir = tempfile::tempdir().unwrap();
-        crate::environment::set_root(dir.path());
-
-        let mut cache = Store::<String, u32>::open(eager("purged")).await;
-        cache.insert("key".to_string(), 7).await.unwrap();
-
-        let moved = cache.purge_key_sync(&"key".to_string()).unwrap();
-        cache.insert_sync("moved".to_string(), moved).unwrap();
-        // Free to reinsert at once, as after `purge_key`.
-        cache.insert_sync("key".to_string(), 8).unwrap();
-
-        let reopened = Store::<String, u32>::open(eager("purged")).await;
-        assert_eq!(reopened.get(&"key".to_string()), Some(&8));
-        assert_eq!(reopened.get(&"moved".to_string()), Some(&7));
-    }
-
-    /// The launch path reads through a lazy store and follows an environment
-    /// switch, exactly as `remove` does.
-    #[tokio::test]
-    #[serial_test::serial]
-    #[cfg_attr(miri, ignore)]
-    async fn test_sync_remove_reads_through_and_follows_a_switch() {
-        let first = tempfile::tempdir().unwrap();
-        let second = tempfile::tempdir().unwrap();
-        crate::environment::set_root(first.path());
-
-        let mut warm = Store::<String, u32>::open(lazy("switch")).await;
-        warm.insert("key".to_string(), 1).await.unwrap();
-        drop(warm);
-
-        let mut cache = Store::<String, u32>::open(lazy("switch")).await;
-        assert_eq!(cache.remove_sync(&"key".to_string()), Some(1));
-
-        crate::environment::set_root(second.path());
-        assert_eq!(cache.remove_sync(&"key".to_string()), None);
-        cache.insert_sync("key".to_string(), 2).unwrap();
-
-        crate::environment::set_root(first.path());
-        assert_eq!(cache.remove_sync(&"key".to_string()), Some(1));
     }
 
     /// A store reopened over the same root must see what the previous one
     /// wrote, without any bundle involved.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn test_entries_survive_reopen() {
+    fn test_entries_survive_reopen() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
 
-        let mut cache = Store::<String, u32>::open(eager("reopen")).await;
-        cache.insert("key".to_string(), 7).await.unwrap();
+        let mut cache = Store::<String, u32>::new(eager("reopen"));
+        cache.insert("key".to_string(), 7).unwrap();
         drop(cache);
 
-        let cache = Store::<String, u32>::open(eager("reopen")).await;
+        let cache = Store::<String, u32>::new(eager("reopen"));
         assert_eq!(cache.get(&"key".to_string()), Some(&7));
     }
 
     /// Two namespaces in the same root must not see each other's entries.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn test_stores_are_isolated() {
+    fn test_stores_are_isolated() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
 
-        let mut first = Store::<String, u32>::open(eager("device0/matmul")).await;
-        first.insert("key".to_string(), 1).await.unwrap();
+        let mut first = Store::<String, u32>::new(eager("device0/matmul"));
+        first.insert("key".to_string(), 1).unwrap();
 
-        let mut second = Store::<String, u32>::open(eager("device1/matmul")).await;
+        let mut second = Store::<String, u32>::new(eager("device1/matmul"));
         assert_eq!(second.get(&"key".to_string()), None);
-        second.insert("key".to_string(), 2).await.unwrap();
+        second.insert("key".to_string(), 2).unwrap();
 
         assert_eq!(first.get(&"key".to_string()), Some(&1));
         assert_eq!(second.get(&"key".to_string()), Some(&2));
     }
 
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn lazy_values_survive_reopen_and_load_lazily() {
+    fn lazy_values_survive_reopen_and_load_lazily() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
 
-        let mut cache = Store::<String, Bytes>::open(lazy("ptx_sm90")).await;
+        let mut cache = Store::<String, Bytes>::new(lazy("ptx_sm90"));
         cache
             .insert(
                 "kernel_a".to_string(),
                 Bytes::from_bytes_vec(std::vec![1, 2, 3]),
             )
-            .await
             .unwrap();
         cache
             .insert(
                 "kernel_b".to_string(),
                 Bytes::from_bytes_vec(std::vec![4, 5]),
             )
-            .await
             .unwrap();
         // A lazy insert records the key but never retains the artifact.
         assert!(cache.is_empty());
         drop(cache);
 
-        let mut cache = Store::<String, Bytes>::open(lazy("ptx_sm90")).await;
+        let mut cache = Store::<String, Bytes>::new(lazy("ptx_sm90"));
         // Nothing is read until a key is asked for.
         assert!(cache.is_empty());
 
         assert_eq!(
-            cache
-                .get_mut(&"kernel_a".to_string())
-                .await
-                .map(|v| v.to_vec()),
+            cache.get_mut(&"kernel_a".to_string()).map(|v| v.to_vec()),
             Some(std::vec![1, 2, 3])
         );
         assert_eq!(cache.len(), 1, "get_mut memoizes");
         assert_eq!(
-            cache
-                .remove(&"kernel_b".to_string())
-                .await
-                .map(|v| v.to_vec()),
+            cache.remove(&"kernel_b".to_string()).map(|v| v.to_vec()),
             Some(std::vec![4, 5])
         );
         assert_eq!(cache.len(), 1, "remove reads through without memoizing");
-        assert_eq!(cache.get_mut(&"missing".to_string()).await, None);
+        assert_eq!(cache.get_mut(&"missing".to_string()), None);
     }
 
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn lazy_reinserting_a_different_value_errors() {
+    fn lazy_reinserting_a_different_value_errors() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
 
-        let mut cache = Store::<String, Bytes>::open(lazy("ptx_sm90")).await;
+        let mut cache = Store::<String, Bytes>::new(lazy("ptx_sm90"));
         let kernel = |byte: u8| Bytes::from_bytes_vec(std::vec![byte]);
-        cache.insert("kernel".to_string(), kernel(1)).await.unwrap();
+        cache.insert("kernel".to_string(), kernel(1)).unwrap();
 
-        assert!(cache.insert("kernel".to_string(), kernel(1)).await.is_ok());
-        let error = cache.insert("kernel".to_string(), kernel(2)).await;
+        assert!(cache.insert("kernel".to_string(), kernel(1)).is_ok());
+        let error = cache.insert("kernel".to_string(), kernel(2));
         assert!(matches!(error, Err(StoreError::DuplicatedKey { .. })));
 
         // Taking the value out doesn't forget the key: the entry is still
         // durable, so a disagreeing reinsert stays a duplicate.
-        assert!(cache.remove(&"kernel".to_string()).await.is_some());
-        let error = cache.insert("kernel".to_string(), kernel(2)).await;
+        assert!(cache.remove(&"kernel".to_string()).is_some());
+        let error = cache.insert("kernel".to_string(), kernel(2));
         assert!(matches!(error, Err(StoreError::DuplicatedKey { .. })));
     }
 
     /// A bound store follows the environment: a switch makes reads miss
     /// instead of serving the old environment, and the next `&mut` access
     /// reopens against the new one.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn switching_environments_resets_bound_stores() {
+    fn switching_environments_resets_bound_stores() {
         let first = tempfile::tempdir().unwrap();
         let second = tempfile::tempdir().unwrap();
 
         crate::environment::set_root(first.path());
-        let mut store = Store::<String, u32>::open(eager("reset")).await;
-        store.insert("key".to_string(), 1).await.unwrap();
+        let mut store = Store::<String, u32>::new(eager("reset"));
+        store.insert("key".to_string(), 1).unwrap();
         assert_eq!(store.get(&"key".to_string()), Some(&1));
 
         // The old environment's entries are never served after the switch.
@@ -1139,25 +891,25 @@ mod tests {
 
         // The next write lands in the new environment, with no conflict
         // against the value the old one holds.
-        store.insert("key".to_string(), 2).await.unwrap();
+        store.insert("key".to_string(), 2).unwrap();
         assert_eq!(store.get(&"key".to_string()), Some(&2));
 
         // Switching back serves the first environment's value again.
         crate::environment::set_root(first.path());
-        store.sync().await;
+        store.sync();
         assert_eq!(store.get(&"key".to_string()), Some(&1));
     }
 
     /// Stores on an explicit or absent storage are not bound to the
     /// environment and must not reset on a switch.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn unbound_stores_survive_environment_switches() {
+    fn unbound_stores_survive_environment_switches() {
         let root = tempfile::tempdir().unwrap();
 
-        let mut store = Store::<String, u32>::open(StoreOptions::new()).await;
-        store.insert("key".to_string(), 1).await.unwrap();
+        let mut store = Store::<String, u32>::new(StoreOptions::new());
+        store.insert("key".to_string(), 1).unwrap();
 
         crate::environment::set_root(root.path());
         assert_eq!(store.get(&"key".to_string()), Some(&1));
@@ -1165,121 +917,123 @@ mod tests {
 
     /// `purge_key` is `remove` with a durable delete: the entry is handed out
     /// owned, gone from the storage, and the key is fresh again.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn purge_key_deletes_one_entry_durably() {
+    fn purge_key_deletes_one_entry_durably() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
 
-        let mut store = Store::<String, u32>::open(eager("purge_key")).await;
-        store.insert("gone".to_string(), 1).await.unwrap();
-        store.insert("kept".to_string(), 2).await.unwrap();
+        let mut store = Store::<String, u32>::new(eager("purge_key"));
+        store.insert("gone".to_string(), 1).unwrap();
+        store.insert("kept".to_string(), 2).unwrap();
 
-        assert_eq!(store.purge_key(&"gone".to_string()).await, Some(1));
+        assert_eq!(store.purge_key(&"gone".to_string()), Some(1));
         // Fresh key: a different value is a plain insert, not a duplicate.
-        store.insert("gone".to_string(), 3).await.unwrap();
-        assert_eq!(store.purge_key(&"gone".to_string()).await, Some(3));
+        store.insert("gone".to_string(), 3).unwrap();
+        assert_eq!(store.purge_key(&"gone".to_string()), Some(3));
         drop(store);
 
-        let store = Store::<String, u32>::open(eager("purge_key")).await;
+        let store = Store::<String, u32>::new(eager("purge_key"));
         assert_eq!(store.get(&"gone".to_string()), None);
         assert_eq!(store.get(&"kept".to_string()), Some(&2));
     }
 
     /// `clear` evicts memory only: the storage keeps everything, the keys
     /// stay known, and a sync brings the entries back.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn clear_evicts_memory_but_not_the_storage() {
+    fn clear_evicts_memory_but_not_the_storage() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
 
-        let mut store = Store::<String, u32>::open(eager("clear")).await;
-        store.insert("key".to_string(), 1).await.unwrap();
+        let mut store = Store::<String, u32>::new(eager("clear"));
+        store.insert("key".to_string(), 1).unwrap();
 
-        store.clear().await;
+        store.clear();
         assert!(store.is_empty());
         // Still durable and still known: a disagreeing reinsert is a
         // duplicate, not a fresh insert.
         assert!(matches!(
-            store.insert("key".to_string(), 2).await,
+            store.insert("key".to_string(), 2),
             Err(StoreError::DuplicatedKey { .. })
         ));
 
-        store.sync().await;
+        store.sync();
         assert_eq!(store.get(&"key".to_string()), Some(&1));
     }
 
     /// Unlike `remove`, which only evicts the in-memory copy, `purge` deletes
     /// the whole namespace durably and frees every key for reinsertion.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn purge_deletes_durably_and_frees_the_keys() {
+    fn purge_deletes_durably_and_frees_the_keys() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
 
-        let mut store = Store::<String, u32>::open(eager("purge")).await;
-        store.insert("kept".to_string(), 1).await.unwrap();
-        store.insert("gone".to_string(), 2).await.unwrap();
+        let mut store = Store::<String, u32>::new(eager("purge"));
+        store.insert("kept".to_string(), 1).unwrap();
+        store.insert("gone".to_string(), 2).unwrap();
 
         // An isolated namespace must survive its neighbor's purge.
-        let mut other = Store::<String, u32>::open(eager("other")).await;
-        other.insert("kept".to_string(), 9).await.unwrap();
+        let mut other = Store::<String, u32>::new(eager("other"));
+        other.insert("kept".to_string(), 9).unwrap();
 
-        store.purge().await;
+        store.purge();
         assert!(store.is_empty());
 
         // A purged key is a fresh key, even with a different value.
-        store.insert("kept".to_string(), 3).await.unwrap();
+        store.insert("kept".to_string(), 3).unwrap();
         drop(store);
 
-        let store = Store::<String, u32>::open(eager("purge")).await;
+        let store = Store::<String, u32>::new(eager("purge"));
         assert_eq!(store.get(&"kept".to_string()), Some(&3));
         assert_eq!(store.get(&"gone".to_string()), None);
-        let other = Store::<String, u32>::open(eager("other")).await;
-        assert_eq!(other.get(&"kept".to_string()), Some(&9));
+        assert_eq!(
+            Store::<String, u32>::new(eager("other")).get(&"kept".to_string()),
+            Some(&9)
+        );
     }
 
     /// `scan` visits the whole storage owned, without retaining anything —
     /// the hydration read for consumers keeping their own index.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn scan_visits_the_storage_without_retaining() {
+    fn scan_visits_the_storage_without_retaining() {
         let dir = tempfile::tempdir().unwrap();
         crate::environment::set_root(dir.path());
 
-        let mut store = Store::<String, u32>::open(lazy("scan")).await;
-        store.insert("a".to_string(), 1).await.unwrap();
-        store.insert("b".to_string(), 2).await.unwrap();
+        let mut store = Store::<String, u32>::new(lazy("scan"));
+        store.insert("a".to_string(), 1).unwrap();
+        store.insert("b".to_string(), 2).unwrap();
 
         let mut seen = std::vec::Vec::new();
-        store.scan(|key, value| seen.push((key, value))).await;
+        store.scan(|key, value| seen.push((key, value)));
         seen.sort();
 
         assert_eq!(seen, std::vec![("a".to_string(), 1), ("b".to_string(), 2)]);
         assert!(store.is_empty(), "nothing stays resident after a scan");
     }
 
-    #[tokio::test]
-    async fn in_memory_store_needs_no_storage() {
-        let mut store = Store::<String, u32>::open(StoreOptions::new()).await;
+    #[test]
+    fn in_memory_store_needs_no_storage() {
+        let mut store = Store::<String, u32>::new(StoreOptions::new());
 
-        store.insert("key".to_string(), 1).await.unwrap();
+        store.insert("key".to_string(), 1).unwrap();
         assert_eq!(store.get(&"key".to_string()), Some(&1));
-        assert!(store.insert("key".to_string(), 1).await.is_ok());
+        assert!(store.insert("key".to_string(), 1).is_ok());
         assert!(matches!(
-            store.insert("key".to_string(), 2).await,
+            store.insert("key".to_string(), 2),
             Err(StoreError::DuplicatedKey { .. })
         ));
 
         // Nothing durable behind the map: a removed entry is simply gone and
         // the key is free again.
-        assert_eq!(store.remove(&"key".to_string()).await, Some(1));
-        store.insert("key".to_string(), 2).await.unwrap();
+        assert_eq!(store.remove(&"key".to_string()), Some(1));
+        store.insert("key".to_string(), 2).unwrap();
         assert_eq!(store.get(&"key".to_string()), Some(&2));
     }
 }

@@ -278,11 +278,13 @@ pub fn list() -> Vec<String> {
     names
 }
 
-/// Opens the active environment's storage ahead of its first use, from a
-/// place that can await: what a browser page does before its device comes
-/// up, so the launch path finds the storage open and reads its picks in the
-/// first call that needs them rather than running a fallback while the
-/// storage opens behind it. See [`persistence::open_ahead`](crate::persistence::open_ahead).
+/// Opens the active environment's database, from a place that can await.
+///
+/// Opening is the one step of persistence that has to be awaited, because the
+/// browser reaches its files through promises. A browser page awaits this
+/// before its device comes up; a store opened before it serves memory alone.
+/// Natively it is optional: a store opens the database itself on first use.
+/// See [`persistence::open_ahead`](crate::persistence::open_ahead).
 pub async fn open() {
     crate::persistence::open_ahead().await
 }
@@ -295,11 +297,10 @@ pub async fn open() {
 ///     StoreOptions::new()
 ///         .storage(Namespace::new("cuda/ptx"))
 ///         .cache(CacheOption::Lazy),
-/// )
-/// .await;
+/// );
 /// ```
-pub async fn store<K: StoreKey, V: StoreValue>(options: StoreOptions) -> Store<K, V> {
-    Store::open(options).await
+pub fn store<K: StoreKey, V: StoreValue>(options: StoreOptions) -> Store<K, V> {
+    Store::new(options)
 }
 
 /// The active environment, captured for shipping.
@@ -332,7 +333,7 @@ impl Bundle {
     /// A thin front for [`bundle::export`](crate::bundle::export) over this
     /// one environment; use `export` directly to merge several roots or
     /// restrict the namespaces.
-    pub async fn save<P: AsRef<std::path::Path>>(
+    pub fn save<P: AsRef<std::path::Path>>(
         &self,
         out: P,
         format: crate::bundle::BundleFormat,
@@ -343,7 +344,7 @@ impl Bundle {
             ..Default::default()
         };
 
-        crate::bundle::export(&[&self.source], out, &options).await
+        crate::bundle::export(&[&self.source], out, &options)
     }
 }
 
@@ -352,8 +353,8 @@ impl Bundle {
 /// This is what you consult before bundling, to see which namespaces are warm
 /// and worth shipping.
 #[cfg(any(std_io, browser_cache))]
-pub async fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
-    crate::persistence::summary().await
+pub fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
+    crate::persistence::summary()
 }
 
 #[cfg(test)]

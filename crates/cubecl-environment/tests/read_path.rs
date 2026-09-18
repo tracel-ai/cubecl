@@ -34,14 +34,13 @@ impl Counting {
     }
 }
 
-#[async_trait::async_trait]
 impl Storage for Counting {
-    async fn get(&self, key: &[u8]) -> Option<Bytes> {
+    fn get(&self, key: &[u8]) -> Option<Bytes> {
         self.0.gets.fetch_add(1, Ordering::Relaxed);
         self.0.entries.lock().unwrap().get(key).cloned()
     }
 
-    async fn insert(&self, key: &[u8], value: Bytes, _origin: Origin) -> Insertion {
+    fn insert(&self, key: &[u8], value: Bytes, _origin: Origin) -> Insertion {
         self.0.inserts.fetch_add(1, Ordering::Relaxed);
         let mut entries = self.0.entries.lock().unwrap();
 
@@ -53,29 +52,25 @@ impl Storage for Counting {
         Insertion::Stored
     }
 
-    async fn replace(&self, key: &[u8], value: Bytes, _origin: Origin) -> Insertion {
+    fn replace(&self, key: &[u8], value: Bytes, _origin: Origin) -> Insertion {
         self.0.inserts.fetch_add(1, Ordering::Relaxed);
         self.0.entries.lock().unwrap().insert(key.to_vec(), value);
 
         Insertion::Stored
     }
 
-    async fn scan(&self) -> Vec<(Bytes, Bytes)> {
+    fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
         self.0.scans.fetch_add(1, Ordering::Relaxed);
-        self.0
-            .entries
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|(key, value)| (Bytes::from_bytes_vec(key.clone()), value.clone()))
-            .collect()
+        for (key, value) in self.0.entries.lock().unwrap().iter() {
+            visit(key, value);
+        }
     }
 
-    async fn purge(&self) {
+    fn purge(&self) {
         self.0.entries.lock().unwrap().clear();
     }
 
-    async fn purge_key(&self, key: &[u8]) {
+    fn purge_key(&self, key: &[u8]) {
         self.0.entries.lock().unwrap().remove(key);
     }
 
@@ -84,17 +79,16 @@ impl Storage for Counting {
     }
 }
 
-#[tokio::test]
-async fn reads_never_reach_the_storage() {
+#[test]
+fn reads_never_reach_the_storage() {
     let storage = Counting::default();
 
     // Warm it the way an application would.
-    let mut store = Store::<String, u32>::open(
+    let mut store = Store::<String, u32>::new(
         StoreOptions::new().storage_with(Box::new(storage.clone()), "bench/ns"),
-    )
-    .await;
+    );
     for index in 0..1_000u32 {
-        store.insert(format!("key{index}"), index).await.unwrap();
+        store.insert(format!("key{index}"), index).unwrap();
     }
 
     let (gets, inserts, _) = storage.counts();
@@ -102,10 +96,9 @@ async fn reads_never_reach_the_storage() {
     assert_eq!(inserts, 1_000);
 
     // Reopen: exactly one scan ingests everything, and nothing else.
-    let store = Store::<String, u32>::open(
+    let store = Store::<String, u32>::new(
         StoreOptions::new().storage_with(Box::new(storage.clone()), "bench/ns"),
-    )
-    .await;
+    );
     let (_, _, scans_after_open) = storage.counts();
 
     // Now hammer the read path.
@@ -138,19 +131,18 @@ async fn reads_never_reach_the_storage() {
 
 /// Re-inserting a value the store already holds must not reach the storage
 /// either: autotune does this on every duplicate tune.
-#[tokio::test]
-async fn reinserting_a_known_value_stays_in_memory() {
+#[test]
+fn reinserting_a_known_value_stays_in_memory() {
     let storage = Counting::default();
-    let mut store = Store::<String, u32>::open(
+    let mut store = Store::<String, u32>::new(
         StoreOptions::new().storage_with(Box::new(storage.clone()), "bench/ns"),
-    )
-    .await;
+    );
 
-    store.insert("key".to_string(), 1).await.unwrap();
+    store.insert("key".to_string(), 1).unwrap();
     let (_, inserts, _) = storage.counts();
 
     for _ in 0..1_000 {
-        store.insert("key".to_string(), 1).await.unwrap();
+        store.insert("key".to_string(), 1).unwrap();
     }
 
     assert_eq!(

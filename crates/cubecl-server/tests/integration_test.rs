@@ -324,73 +324,59 @@ fn autotune_basic_multiplication_execution() {
 fn autotune_resets_when_the_environment_switches() {
     use cubecl_server::tune::{TuneCacheResult, Tuner};
 
-    cubecl_environment::future::block_on(async {
-        let first = tempfile::tempdir().unwrap();
-        let second = tempfile::tempdir().unwrap();
-        cubecl_environment::environment::set_root(first.path());
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    cubecl_environment::environment::set_root(first.path());
 
-        let client = test_client(&DummyDevice);
-        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-        let set = dummy::addition_set(test_client(&DummyDevice), shapes);
+    let client = test_client(&DummyDevice);
+    let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let set = dummy::addition_set(test_client(&DummyDevice), shapes);
 
-        let handles = vec![
-            client.create_from_slice(&[0, 1, 2]),
-            client.create_from_slice(&[4, 4, 4]),
-            client.empty(3),
-        ];
-        let key = set.generate_key(&handles);
+    let handles = vec![
+        client.create_from_slice(&[0, 1, 2]),
+        client.create_from_slice(&[4, 4, 4]),
+        client.empty(3),
+    ];
+    let key = set.generate_key(&handles);
 
-        let tuner: Tuner<String> = Tuner::new("environment-switch", "device0").await;
-        tuner
-            .check_tune(
-                &key,
-                &handles,
-                &set,
-                || set.compute_checksum(),
-                &client,
-                None,
-            )
-            .await;
-        assert!(matches!(
-            tuner.fastest(&key).await,
-            TuneCacheResult::Hit { .. }
-        ));
+    let tuner: Tuner<String> = Tuner::new("environment-switch", "device0");
+    tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Hit { .. }));
 
-        // The pick was tuned under `first`: after the switch it must not be
-        // served, and tuning again fills `second`.
-        cubecl_environment::environment::set_root(second.path());
-        assert!(matches!(tuner.fastest(&key).await, TuneCacheResult::Miss));
-        tuner
-            .check_tune(
-                &key,
-                &handles,
-                &set,
-                || set.compute_checksum(),
-                &client,
-                None,
-            )
-            .await;
-        assert!(matches!(
-            tuner.fastest(&key).await,
-            TuneCacheResult::Hit { .. }
-        ));
+    // The pick was tuned under `first`: after the switch it must not be
+    // served, and tuning again fills `second`.
+    cubecl_environment::environment::set_root(second.path());
+    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Miss));
+    tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Hit { .. }));
 
-        // Switching back serves `first`'s persisted result through hydration and
-        // checksum validation, with no third tune.
-        cubecl_environment::environment::set_root(first.path());
-        assert!(matches!(tuner.fastest(&key).await, TuneCacheResult::Miss));
-        let rehydrated = tuner
-            .check_tune(
-                &key,
-                &handles,
-                &set,
-                || set.compute_checksum(),
-                &client,
-                None,
-            )
-            .await;
-        assert!(matches!(rehydrated, TuneCacheResult::Hit { .. }));
-    });
+    // Switching back serves `first`'s persisted result through hydration and
+    // checksum validation, with no third tune.
+    cubecl_environment::environment::set_root(first.path());
+    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Miss));
+    let rehydrated = tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+    assert!(matches!(rehydrated, TuneCacheResult::Hit { .. }));
 }
 
 /// A throughput bound with a generous `time_limit` makes the tuner short-circuit: it

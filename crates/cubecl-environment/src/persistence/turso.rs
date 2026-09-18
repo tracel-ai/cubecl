@@ -1,8 +1,26 @@
+//! Turso persistence: the database file shared by every namespace of an
+//! environment.
+//!
+//! The engine's API is a set of futures, but its work is synchronous: a
+//! statement steps, asks its I/O for a page, and steps again once the I/O has
+//! answered. Natively the file system answers within the call, and the
+//! browser's files are synchronous access handles that do the same, so a
+//! statement never waits on anything an event loop would deliver. Every
+//! statement here is driven to completion on the spot ([`drive`]), and the
+//! [`Storage`] this module hands out is synchronous like every other.
+//!
+//! Opening is the exception: the browser reaches its files through promises.
+//! The database therefore opens through an `async` step ([`open_ahead`]),
+//! which a page awaits once before anything needs it; natively a storage
+//! opens the database itself on first use, blocking on the file system as a
+//! file read would.
+
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::future::Future;
 
 use hashbrown::HashMap;
 use turso::transaction::TransactionBehavior;
@@ -63,6 +81,15 @@ const REPLACE: &str = "INSERT INTO entries (namespace, key, value, origin) \
 
 const SELECT: &str = "SELECT value FROM entries WHERE namespace = ?1 AND key = ?2";
 
+const SCAN: &str = "SELECT key, value FROM entries WHERE namespace = ?1";
+
+const PURGE: &str = "DELETE FROM entries WHERE namespace = ?1";
+
+const PURGE_KEY: &str = "DELETE FROM entries WHERE namespace = ?1 AND key = ?2";
+
+const SUMMARY: &str = "SELECT namespace, COUNT(*), SUM(length(key) + length(value)) \
+                       FROM entries GROUP BY namespace ORDER BY namespace";
+
 type DatabaseResult = Result<Arc<turso::Database>, String>;
 
 enum DatabaseState {
@@ -70,11 +97,16 @@ enum DatabaseState {
     Ready(Arc<turso::Database>),
 }
 
+/// The databases this process has opened, by location, so that every
+/// namespace of an environment shares one.
 static DATABASES: LazyLock<Mutex<HashMap<String, DatabaseState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// One namespace of the active environment's database.
 pub struct TursoStorage {
-    database: Arc<turso::Database>,
+    /// The engine rejects concurrent use of a connection at runtime rather
+    /// than serializing it, so each storage holds one and takes it in turn.
+    connection: Mutex<turso::Connection>,
     namespace: String,
     location: String,
 }
@@ -90,49 +122,53 @@ impl core::fmt::Debug for TursoStorage {
 }
 
 impl TursoStorage {
-    pub async fn open(namespace: String) -> Result<Self, String> {
+    /// Binds a storage to `namespace` in the active environment's database.
+    pub fn open(namespace: String) -> Result<Self, String> {
         let location = location()?;
-        let database = shared_database(&location).await?;
+        let database = database()?;
+        let connection = connect(&database).map_err(error)?;
 
         Ok(Self {
-            database,
+            connection: Mutex::new(connection),
             namespace,
             location,
         })
     }
 
-    async fn connection(&self) -> Result<turso::Connection, String> {
-        connect(&self.database).await.map_err(error)
+    /// Runs `operation` on the storage's connection, logging a failure under
+    /// `name` and reporting it as a message.
+    fn run<T>(
+        &self,
+        name: &str,
+        operation: impl FnOnce(&mut turso::Connection) -> Result<T, turso::Error>,
+    ) -> Result<T, String> {
+        operation(&mut self.connection.lock()).map_err(|err| {
+            log::warn!("Unable to {name} {}: {err}", self.describe());
+            err.to_string()
+        })
     }
 
     /// One insert on `connection`: the statement arbitrates, and only a
     /// declined write costs a second one, to fetch the value that won.
-    async fn insert_on(
+    fn insert_on(
         &self,
         connection: &turso::Connection,
         key: &[u8],
         value: &[u8],
         origin: Origin,
     ) -> Result<Insertion, turso::Error> {
-        let changed = connection
-            .execute(
-                INSERT,
-                (
-                    self.namespace.as_str(),
-                    key.to_vec(),
-                    value.to_vec(),
-                    origin_code(origin),
-                ),
-            )
-            .await?;
-        if changed == 1 {
+        let params = (
+            self.namespace.as_str(),
+            key.to_vec(),
+            value.to_vec(),
+            origin_code(origin),
+        );
+        if drive(connection.execute(INSERT, params))? == 1 {
             return Ok(Insertion::Stored);
         }
 
-        let mut rows = connection
-            .query(SELECT, (self.namespace.as_str(), key.to_vec()))
-            .await?;
-        match rows.next().await? {
+        let mut rows = drive(connection.query(SELECT, (self.namespace.as_str(), key.to_vec())))?;
+        match drive(rows.next())? {
             Some(row) => Ok(Insertion::Conflict(Bytes::from_bytes_vec(row.get(0)?))),
             // Purged between the two statements: nothing to report as the
             // winner, and nothing stored.
@@ -141,193 +177,170 @@ impl TursoStorage {
             )),
         }
     }
-
-    pub async fn summary() -> Vec<NamespaceSummary> {
-        let Ok(location) = location() else {
-            return Vec::new();
-        };
-        let Ok(database) = shared_database(&location).await else {
-            return Vec::new();
-        };
-        let Ok(connection) = connect(&database).await else {
-            return Vec::new();
-        };
-        let Ok(mut rows) = connection
-            .query(
-                "SELECT namespace, COUNT(*), SUM(length(key) + length(value)) \
-                 FROM entries GROUP BY namespace ORDER BY namespace",
-                (),
-            )
-            .await
-        else {
-            return Vec::new();
-        };
-
-        let mut summaries = Vec::new();
-        while let Ok(Some(row)) = rows.next().await {
-            let Ok(namespace) = row.get::<String>(0) else {
-                continue;
-            };
-            summaries.push(NamespaceSummary {
-                namespace,
-                entries: row.get::<i64>(1).unwrap_or_default() as u64,
-                bytes: row.get::<i64>(2).unwrap_or_default() as u64,
-            });
-        }
-        summaries
-    }
 }
 
-#[async_trait::async_trait]
 impl Storage for TursoStorage {
-    async fn get(&self, key: &[u8]) -> Option<Bytes> {
-        let result: Result<Option<Bytes>, String> = async {
-            let connection = self.connection().await?;
-            let mut rows = connection
-                .query(SELECT, (self.namespace.as_str(), key.to_vec()))
-                .await
-                .map_err(error)?;
-            let Some(row) = rows.next().await.map_err(error)? else {
+    fn get(&self, key: &[u8]) -> Option<Bytes> {
+        self.run("read", |connection| {
+            let mut rows =
+                drive(connection.query(SELECT, (self.namespace.as_str(), key.to_vec())))?;
+            let Some(row) = drive(rows.next())? else {
                 return Ok(None);
             };
-            let value: Vec<u8> = row.get(0).map_err(error)?;
+            let value: Vec<u8> = row.get(0)?;
             Ok(Some(Bytes::from_bytes_vec(value)))
-        }
-        .await;
-
-        match result {
-            Ok(value) => value,
-            Err(error) => {
-                log::warn!("Unable to read {}: {error}", self.describe());
-                None
-            }
-        }
+        })
+        .unwrap_or_default()
     }
 
-    async fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        let result = async {
-            let connection = self.connection().await?;
-            self.insert_on(&connection, key, &value, origin)
-                .await
-                .map_err(error)
-        }
-        .await;
-
-        result.unwrap_or_else(Insertion::Failed)
+    fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+        self.run("write", |connection| {
+            self.insert_on(connection, key, &value, origin)
+        })
+        .unwrap_or_else(Insertion::Failed)
     }
 
-    async fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        let result = async {
-            let connection = self.connection().await?;
-            connection
-                .execute(
-                    REPLACE,
-                    (
-                        self.namespace.as_str(),
-                        key.to_vec(),
-                        value.to_vec(),
-                        origin_code(origin),
-                    ),
-                )
-                .await
-                .map_err(error)?;
-            Ok::<_, String>(Insertion::Stored)
-        }
-        .await;
-
-        result.unwrap_or_else(Insertion::Failed)
+    fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+        self.run("replace", |connection| {
+            let params = (
+                self.namespace.as_str(),
+                key.to_vec(),
+                value.to_vec(),
+                origin_code(origin),
+            );
+            drive(connection.execute(REPLACE, params))?;
+            Ok(Insertion::Stored)
+        })
+        .unwrap_or_else(Insertion::Failed)
     }
 
-    async fn insert_many(
+    /// One transaction for the batch: it holds the writer once rather than
+    /// once per entry, and lands as a whole.
+    fn insert_many(
         &self,
-        entries: &mut (dyn Iterator<Item = (Bytes, Bytes)> + Send),
+        entries: &mut dyn Iterator<Item = (Bytes, Bytes)>,
         origin: Origin,
     ) -> InsertSummary {
-        // One transaction for the batch: it holds the writer once rather
-        // than once per entry, and lands as a whole.
-        let refused = |entries: &mut dyn Iterator<Item = (Bytes, Bytes)>| InsertSummary {
-            failed: entries.count(),
-            ..InsertSummary::default()
-        };
-        let Ok(mut connection) = connect(&self.database).await else {
-            return refused(entries);
-        };
-        let Ok(transaction) = connection
-            .transaction_with_behavior(write_transaction())
-            .await
-        else {
-            return refused(entries);
+        let mut connection = self.connection.lock();
+        let transaction = match drive(connection.transaction_with_behavior(write_transaction())) {
+            Ok(transaction) => transaction,
+            Err(err) => {
+                log::warn!("Unable to batch write {}: {err}", self.describe());
+                return InsertSummary {
+                    failed: entries.count(),
+                    ..InsertSummary::default()
+                };
+            }
         };
 
         let mut summary = InsertSummary::default();
         for (key, value) in entries {
-            match self.insert_on(&transaction, &key, &value, origin).await {
+            match self.insert_on(&transaction, &key, &value, origin) {
                 Ok(insertion) => summary.record(&insertion),
                 Err(_) => summary.failed += 1,
             }
         }
-        if transaction.commit().await.is_err() {
+        if let Err(err) = drive(transaction.commit()) {
+            log::warn!(
+                "Unable to commit a batch write to {}: {err}",
+                self.describe()
+            );
             summary.failed += summary.stored;
             summary.stored = 0;
         }
         summary
     }
 
-    async fn scan(&self) -> Vec<(Bytes, Bytes)> {
-        let result = async {
-            let connection = self.connection().await?;
-            let mut rows = connection
-                .query(
-                    "SELECT key, value FROM entries WHERE namespace = ?1",
-                    (self.namespace.as_str(),),
-                )
-                .await
-                .map_err(error)?;
-            let mut entries = Vec::new();
-            while let Some(row) = rows.next().await.map_err(error)? {
-                let key: Vec<u8> = row.get(0).map_err(error)?;
-                let value: Vec<u8> = row.get(1).map_err(error)?;
-                entries.push((Bytes::from_bytes_vec(key), Bytes::from_bytes_vec(value)));
+    fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
+        let _ = self.run("scan", |connection| {
+            let mut rows = drive(connection.query(SCAN, (self.namespace.as_str(),)))?;
+            while let Some(row) = drive(rows.next())? {
+                let key: Vec<u8> = row.get(0)?;
+                let value: Vec<u8> = row.get(1)?;
+                visit(&key, &value);
             }
-            Ok::<_, String>(entries)
-        }
-        .await;
-
-        result.unwrap_or_else(|error| {
-            log::warn!("Unable to scan {}: {error}", self.describe());
-            Vec::new()
-        })
+            Ok(())
+        });
     }
 
-    async fn purge(&self) {
-        if let Ok(connection) = self.connection().await
-            && let Err(error) = connection
-                .execute(
-                    "DELETE FROM entries WHERE namespace = ?1",
-                    (self.namespace.as_str(),),
-                )
-                .await
-        {
-            log::warn!("Unable to purge {}: {error}", self.describe());
-        }
+    fn purge(&self) {
+        let _ = self.run("purge", |connection| {
+            drive(connection.execute(PURGE, (self.namespace.as_str(),))).map(|_| ())
+        });
     }
 
-    async fn purge_key(&self, key: &[u8]) {
-        if let Ok(connection) = self.connection().await
-            && let Err(error) = connection
-                .execute(
-                    "DELETE FROM entries WHERE namespace = ?1 AND key = ?2",
-                    (self.namespace.as_str(), key.to_vec()),
-                )
-                .await
-        {
-            log::warn!("Unable to purge a key from {}: {error}", self.describe());
-        }
+    fn purge_key(&self, key: &[u8]) {
+        let _ = self.run("purge a key from", |connection| {
+            drive(connection.execute(PURGE_KEY, (self.namespace.as_str(), key.to_vec())))
+                .map(|_| ())
+        });
     }
 
     fn describe(&self) -> String {
         format!("Turso {} ({})", self.location, self.namespace)
     }
+}
+
+/// Runs one of the engine's futures to completion.
+///
+/// Natively this blocks the thread, as reading a file would. In the browser
+/// nothing can block, and nothing has to: an engine future is pending only
+/// between a step that asked for I/O and the next, and the browser's files
+/// ([`super::turso_browser`]) answer within the call, so the next poll
+/// finds the answer. Polling in a loop is therefore how it is driven — and
+/// why a future that awaits the event loop must never come through here.
+/// Opening the database does, and stays `async`.
+fn drive<T>(future: impl Future<Output = T>) -> T {
+    #[cfg(not(browser_cache))]
+    {
+        crate::future::block_on(future)
+    }
+
+    #[cfg(browser_cache)]
+    {
+        use core::pin::pin;
+        use core::task::{Context, Poll, Waker};
+
+        let mut future = pin!(future);
+        let mut context = Context::from_waker(Waker::noop());
+        loop {
+            if let Poll::Ready(output) = future.as_mut().poll(&mut context) {
+                return output;
+            }
+        }
+    }
+}
+
+/// The active environment's database.
+///
+/// Natively a database that isn't open yet is opened here, blocking on the
+/// file system. The browser can't block on its files' promises: there the
+/// database must have been opened ahead ([`open_ahead`]), and a storage that
+/// finds it closed is told so, and falls back to memory.
+pub(crate) fn database() -> DatabaseResult {
+    let location = location()?;
+    if let Some(DatabaseState::Ready(database)) = DATABASES.lock().get(&location) {
+        return Ok(database.clone());
+    }
+
+    #[cfg(native_cache)]
+    {
+        crate::future::block_on(shared_database(&location))
+    }
+
+    #[cfg(browser_cache)]
+    {
+        Err(format!(
+            "the database of environment '{}' is not open; await `environment::open()` \
+             before the first use of its caches",
+            crate::environment::active()
+        ))
+    }
+}
+
+/// Opens the active environment's database, from a place that can await.
+pub(crate) async fn open_ahead() -> Result<(), String> {
+    shared_database(&location()?).await.map(|_| ())
 }
 
 async fn shared_database(location: &str) -> DatabaseResult {
@@ -361,12 +374,10 @@ async fn shared_database(location: &str) -> DatabaseResult {
         result: Err("database initialization was cancelled".to_string()),
     };
 
-    let writable = async {
-        let database = open_database(location).await?;
-        migrate(&database).await?;
-        Ok::<_, turso::Error>(database)
-    }
-    .await;
+    let writable = match open_database(location).await {
+        Ok(database) => migrate(&database).map(|()| database),
+        Err(err) => Err(err),
+    };
 
     opener.result = match writable {
         Ok(database) => Ok(Arc::new(database)),
@@ -444,13 +455,10 @@ async fn open_read_only(location: &str, err: &str) -> Result<turso::Database, St
         .build()
         .await
         .map_err(error)?;
-    let connection = connect(&database).await.map_err(error)?;
+    let connection = connect(&database).map_err(error)?;
 
     let expected = SCHEMA_VERSION.to_string();
-    match meta_get(&connection, SCHEMA_VERSION_KEY)
-        .await
-        .map_err(error)?
-    {
+    match meta_get(&connection, SCHEMA_VERSION_KEY).map_err(error)? {
         Some(found) if found == expected => Ok(database),
         found => Err(format!(
             "read-only database at {location} has schema {found:?}, expected {expected}"
@@ -468,22 +476,6 @@ async fn open_database(location: &str) -> Result<turso::Database, turso::Error> 
         .with_io_impl(Arc::new(io))
         .build()
         .await
-}
-
-/// Opens the active environment's database ahead of any storage on it.
-pub(crate) async fn open_database_ahead() -> Result<(), String> {
-    shared_database(&location()?).await.map(|_| ())
-}
-
-/// Whether the active environment's database is open, so a storage on it
-/// opens without waiting on anything.
-pub(crate) fn database_open() -> bool {
-    location().is_ok_and(|location| {
-        matches!(
-            DATABASES.lock().get(&location),
-            Some(DatabaseState::Ready(_))
-        )
-    })
 }
 
 #[cfg(native_cache)]
@@ -524,16 +516,14 @@ fn write_transaction() -> TransactionBehavior {
 /// rebuilt under one write lock, so two processes opening the same file at
 /// once rebuild it once: the second waits, then reads the version the first
 /// wrote.
-pub(crate) async fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
-    let mut connection = connect(database).await?;
-    connection.execute(CREATE_META, ()).await?;
+pub(crate) fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
+    let mut connection = connect(database)?;
+    drive(connection.execute(CREATE_META, ()))?;
 
-    let transaction = connection
-        .transaction_with_behavior(write_transaction())
-        .await?;
+    let transaction = drive(connection.transaction_with_behavior(write_transaction()))?;
 
     let expected = SCHEMA_VERSION.to_string();
-    let found = meta_get(&transaction, SCHEMA_VERSION_KEY).await?;
+    let found = meta_get(&transaction, SCHEMA_VERSION_KEY)?;
 
     if found.as_deref() != Some(expected.as_str()) {
         match &found {
@@ -544,36 +534,68 @@ pub(crate) async fn migrate(database: &turso::Database) -> Result<(), turso::Err
             // whatever entries it holds cannot be trusted either.
             None => log::debug!("cubecl cache: initializing database schema {expected}"),
         }
-        transaction.execute(DROP_ENTRIES, ()).await?;
-        meta_set(&transaction, SCHEMA_VERSION_KEY, &expected).await?;
+        drive(transaction.execute(DROP_ENTRIES, ()))?;
+        meta_set(&transaction, SCHEMA_VERSION_KEY, &expected)?;
     }
 
-    transaction.execute(CREATE_ENTRIES, ()).await?;
-    transaction.commit().await
+    drive(transaction.execute(CREATE_ENTRIES, ()))?;
+    drive(transaction.commit())
 }
 
 /// Reads a `meta` row, or `None` when the key is absent.
 ///
 /// This module owns the table, so everything that touches it goes through
 /// here: the schema version, and a bundle's manifest.
-pub(crate) async fn meta_get(
+pub(crate) fn meta_get(
     connection: &turso::Connection,
     key: &str,
 ) -> Result<Option<String>, turso::Error> {
-    match connection.query(META_GET, (key,)).await?.next().await? {
+    let mut rows = drive(connection.query(META_GET, (key,)))?;
+    match drive(rows.next())? {
         Some(row) => Ok(Some(row.get(0)?)),
         None => Ok(None),
     }
 }
 
 /// Writes a `meta` row, replacing the key's previous value.
-pub(crate) async fn meta_set(
+pub(crate) fn meta_set(
     connection: &turso::Connection,
     key: &str,
     value: &str,
 ) -> Result<(), turso::Error> {
-    connection.execute(META_SET, (key, value)).await?;
+    drive(connection.execute(META_SET, (key, value)))?;
     Ok(())
+}
+
+/// Entry count and total size per namespace of the active environment's
+/// database, for reporting. Empty when the database isn't open.
+pub(crate) fn summary() -> Vec<NamespaceSummary> {
+    let result = database().and_then(|database| {
+        let connection = connect(&database).map_err(error)?;
+        summarize(&connection).map_err(error)
+    });
+
+    result.unwrap_or_else(|err| {
+        log::warn!("Unable to summarize the cache: {err}");
+        Vec::new()
+    })
+}
+
+/// Entry count and total size per namespace of the database behind
+/// `connection`.
+pub(crate) fn summarize(
+    connection: &turso::Connection,
+) -> Result<Vec<NamespaceSummary>, turso::Error> {
+    let mut rows = drive(connection.query(SUMMARY, ()))?;
+    let mut summaries = Vec::new();
+    while let Some(row) = drive(rows.next())? {
+        summaries.push(NamespaceSummary {
+            namespace: row.get(0)?,
+            entries: row.get::<i64>(1)? as u64,
+            bytes: row.get::<i64>(2)? as u64,
+        });
+    }
+    Ok(summaries)
 }
 
 /// Folds the WAL into the main file and truncates it, so the file stands on
@@ -584,16 +606,14 @@ pub(crate) async fn meta_set(
 /// connection holds the WAL, and Turso folds every other cause into the same
 /// flag while logging the reason itself.
 #[cfg(native_cache)]
-pub(crate) async fn checkpoint(connection: &turso::Connection) -> Result<bool, turso::Error> {
+pub(crate) fn checkpoint(connection: &turso::Connection) -> Result<bool, turso::Error> {
     // The closure's error type is the SDK's, not this crate's; a row that
     // doesn't decode is read as "did not complete" rather than converted.
     let mut incomplete = false;
-    connection
-        .pragma_query("wal_checkpoint(TRUNCATE)", |row| {
-            incomplete |= row.get::<i64>(0).map_or(true, |busy| busy != 0);
-            Ok(())
-        })
-        .await?;
+    drive(connection.pragma_query("wal_checkpoint(TRUNCATE)", |row| {
+        incomplete |= row.get::<i64>(0).map_or(true, |busy| busy != 0);
+        Ok(())
+    }))?;
     Ok(!incomplete)
 }
 
@@ -610,14 +630,12 @@ const BUSY_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(5);
 /// cut, which for a cache costs a recompute — the same trade the rusqlite
 /// backend made. It is set on read-only connections too, where it is a no-op,
 /// so that every connection this module hands out is configured alike.
-pub(crate) async fn connect(database: &turso::Database) -> Result<turso::Connection, turso::Error> {
+pub(crate) fn connect(database: &turso::Database) -> Result<turso::Connection, turso::Error> {
     let connection = database.connect()?;
     connection.busy_timeout(BUSY_TIMEOUT)?;
     // A `PRAGMA` that assigns answers with no rows, which `execute` reports as
     // `Misuse`; `pragma_query` takes it either way.
-    connection
-        .pragma_query("synchronous = NORMAL", |_| Ok(()))
-        .await?;
+    drive(connection.pragma_query("synchronous = NORMAL", |_| Ok(())))?;
     Ok(connection)
 }
 
@@ -632,31 +650,29 @@ fn error(error: turso::Error) -> String {
     error.to_string()
 }
 
-pub async fn open(namespace: &str) -> Result<Arc<dyn Storage>, String> {
-    TursoStorage::open(namespace.to_string())
-        .await
-        .map(|storage| Arc::new(storage) as Arc<dyn Storage>)
+/// The storage serving `namespace` in the active environment's database.
+pub fn open(namespace: &str) -> Result<Box<dyn Storage>, String> {
+    TursoStorage::open(namespace.to_string()).map(|storage| Box::new(storage) as Box<dyn Storage>)
 }
 
 #[cfg(all(test, native_cache))]
 mod tests {
     use super::*;
+    use crate::future::block_on;
     use alloc::vec;
 
     /// The tables a database file holds, by name.
-    async fn tables(location: &str) -> Vec<String> {
-        let database = open_database(location).await.unwrap();
-        let connection = connect(&database).await.unwrap();
-        let mut rows = connection
-            .query(
-                "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name",
-                (),
-            )
-            .await
-            .unwrap();
+    fn tables(location: &str) -> Vec<String> {
+        let database = block_on(open_database(location)).unwrap();
+        let connection = connect(&database).unwrap();
+        let mut rows = drive(connection.query(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name",
+            (),
+        ))
+        .unwrap();
 
         let mut names = Vec::new();
-        while let Some(row) = rows.next().await.unwrap() {
+        while let Some(row) = drive(rows.next()).unwrap() {
             names.push(row.get::<String>(0).unwrap());
         }
         names
@@ -673,64 +689,53 @@ mod tests {
     /// The table is dropped rather than emptied, so a schema that renamed or
     /// retyped a column still recovers. Emptying it would leave the old
     /// columns in place and make every later statement fail forever.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn an_incompatible_schema_is_rebuilt() {
+    fn an_incompatible_schema_is_rebuilt() {
         let dir = tempfile::tempdir().unwrap();
         let location = active_location(dir.path());
 
         {
-            let database = open_database(&location).await.unwrap();
-            let connection = connect(&database).await.unwrap();
-            connection.execute(CREATE_META, ()).await.unwrap();
-            connection
-                .execute(META_SET, (SCHEMA_VERSION_KEY, "999"))
-                .await
-                .unwrap();
-            connection
-                .execute(
-                    "CREATE TABLE entries (store TEXT NOT NULL, key BLOB NOT NULL, \
-                     value BLOB NOT NULL, PRIMARY KEY (store, key))",
-                    (),
-                )
-                .await
-                .unwrap();
-            connection
-                .execute("INSERT INTO entries VALUES ('old', X'01', X'02')", ())
-                .await
+            let database = block_on(open_database(&location)).unwrap();
+            let connection = connect(&database).unwrap();
+            drive(connection.execute(CREATE_META, ())).unwrap();
+            drive(connection.execute(META_SET, (SCHEMA_VERSION_KEY, "999"))).unwrap();
+            drive(connection.execute(
+                "CREATE TABLE entries (store TEXT NOT NULL, key BLOB NOT NULL, \
+                 value BLOB NOT NULL, PRIMARY KEY (store, key))",
+                (),
+            ))
+            .unwrap();
+            drive(connection.execute("INSERT INTO entries VALUES ('old', X'01', X'02')", ()))
                 .unwrap();
         }
 
-        let storage = TursoStorage::open("old".to_string()).await.unwrap();
-        assert_eq!(storage.get(b"\x01").await, None, "stale rows are gone");
+        let storage = TursoStorage::open("old".to_string()).unwrap();
+        assert_eq!(storage.get(b"\x01"), None, "stale rows are gone");
         // The rebuilt table must be usable, which an emptied one would not be.
         assert_eq!(
-            storage
-                .insert(b"key", Bytes::from_bytes_vec(vec![1]), Origin::Local)
-                .await,
+            storage.insert(b"key", Bytes::from_bytes_vec(vec![1]), Origin::Local),
             Insertion::Stored,
             "the rebuilt table accepts the current column layout"
         );
 
-        assert_eq!(tables(&location).await, vec!["entries", "meta"]);
+        assert_eq!(tables(&location), vec!["entries", "meta"]);
 
-        let database = open_database(&location).await.unwrap();
-        let connection = connect(&database).await.unwrap();
-        let mut rows = connection
-            .query(META_GET, (SCHEMA_VERSION_KEY,))
-            .await
-            .unwrap();
-        let version: String = rows.next().await.unwrap().unwrap().get(0).unwrap();
-        assert_eq!(version, SCHEMA_VERSION.to_string());
+        let database = block_on(open_database(&location)).unwrap();
+        let connection = connect(&database).unwrap();
+        assert_eq!(
+            meta_get(&connection, SCHEMA_VERSION_KEY).unwrap(),
+            Some(SCHEMA_VERSION.to_string())
+        );
     }
 
     /// An opener dropped before it finished — a timeout, a panic — must
     /// settle the registry: the location is free to open again, and whoever
     /// was waiting on it is told rather than left waiting forever.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
-    async fn a_cancelled_open_releases_the_location() {
+    fn a_cancelled_open_releases_the_location() {
         let location = "cancelled.db";
         let (sender, receiver) = async_channel::bounded(1);
         DATABASES
@@ -743,35 +748,57 @@ mod tests {
         });
 
         assert!(!DATABASES.lock().contains_key(location));
-        assert!(receiver.recv().await.unwrap().is_err());
+        assert!(block_on(receiver.recv()).unwrap().is_err());
     }
 
     /// The version is written once and survives reopening; entries do too,
     /// because a file already at this version is not rebuilt.
-    #[tokio::test]
+    #[test_log::test]
     #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
-    async fn a_current_file_keeps_its_entries() {
+    fn a_current_file_keeps_its_entries() {
         let dir = tempfile::tempdir().unwrap();
         let location = active_location(dir.path());
 
-        let storage = TursoStorage::open("kept".to_string()).await.unwrap();
+        let storage = TursoStorage::open("kept".to_string()).unwrap();
         assert_eq!(
-            storage
-                .insert(b"key", Bytes::from_bytes_vec(vec![7]), Origin::Local)
-                .await,
+            storage.insert(b"key", Bytes::from_bytes_vec(vec![7]), Origin::Local),
             Insertion::Stored
         );
 
         // The registry hands the same database back; go around it to make
         // `migrate` run again on the file as it is on disk.
-        let database = open_database(&location).await.unwrap();
-        migrate(&database).await.unwrap();
+        let database = block_on(open_database(&location)).unwrap();
+        migrate(&database).unwrap();
 
-        let reopened = TursoStorage::open("kept".to_string()).await.unwrap();
+        let reopened = TursoStorage::open("kept".to_string()).unwrap();
+        assert_eq!(reopened.get(b"key"), Some(Bytes::from_bytes_vec(vec![7])));
+    }
+
+    /// Two independent connections to one file, which is what two processes
+    /// sharing a cache root come down to. Exactly one insert may win, and the
+    /// loser must be told which value is actually stored.
+    #[test_log::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    fn concurrent_connections_agree_on_the_winner() {
+        let dir = tempfile::tempdir().unwrap();
+        active_location(dir.path());
+
+        let first = TursoStorage::open("namespace".to_string()).unwrap();
+        let second = TursoStorage::open("namespace".to_string()).unwrap();
+
+        let bytes = |value: &[u8]| Bytes::from_bytes_vec(value.to_vec());
         assert_eq!(
-            reopened.get(b"key").await,
-            Some(Bytes::from_bytes_vec(vec![7]))
+            first.insert(b"key", bytes(b"first"), Origin::Local),
+            Insertion::Stored
         );
+
+        // The second connection sees the committed entry and leaves it alone.
+        assert_eq!(
+            second.insert(b"key", bytes(b"second"), Origin::Local),
+            Insertion::Conflict(bytes(b"first"))
+        );
+        assert_eq!(second.get(b"key"), Some(bytes(b"first")));
     }
 }

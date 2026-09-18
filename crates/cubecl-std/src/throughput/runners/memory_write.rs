@@ -1,4 +1,3 @@
-use super::timed;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{KernelConfig, MemorySpec, ThroughputError, ThroughputKey};
@@ -20,7 +19,7 @@ use crate::throughput::{
 /// because half of the copy's traffic is a direction they never use.
 ///
 /// Reported `ops_count` is the write count alone.
-pub async fn build_kernel(
+pub fn build_kernel(
     client: &Client,
     key: ThroughputKey,
     config: LaunchConfig,
@@ -35,20 +34,26 @@ pub async fn build_kernel(
     let [out_handle] = memory_probe::reserve(&client, [probe.buffer_bytes])?;
 
     let (verifier, written) = (client.clone(), out_handle.clone());
-    let sample = timed(client.clone(), move |iterations| unsafe {
-        memory_write_throughput::launch_unchecked(
-            &client,
-            CubeCount::Static(probe.cube_count as u32, 1, 1),
-            config.cube_dim,
-            config.vector_size,
-            BufferArg::from_raw_parts(out_handle.clone(), probe.pool_lines),
-            probe.window_lines,
-            iterations,
-            probe.blocked,
-            dtype,
-        )
+    let sample = Box::new(move |iterations: usize| {
+        let start = cubecl_common::profile::Instant::now();
+        unsafe {
+            memory_write_throughput::launch_unchecked(
+                &client,
+                CubeCount::Static(probe.cube_count as u32, 1, 1),
+                config.cube_dim,
+                config.vector_size,
+                BufferArg::from_raw_parts(out_handle.clone(), probe.pool_lines),
+                probe.window_lines,
+                iterations,
+                probe.blocked,
+                dtype,
+            )
+        };
+        // A failure is not this sync's to report: `verify` asked the output.
+        let _ = cubecl_core::future::block_on(client.sync());
+        start.elapsed()
     });
-    memory_probe::verify(&verifier, &sample, &written).await?;
+    memory_probe::verify(&verifier, &sample, &written)?;
 
     // Writes only, no `2 *`. That factor is the whole difference from the copy.
     let ops_count = probe.window_lines * config.vector_size;

@@ -32,34 +32,26 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
     backend: &'static str,
     fingerprint: impl AsRef<str>,
 ) -> Option<Store<K, V>> {
-    // The browser compiles its shaders itself; there is no artifact to
-    // persist, so the caller keeps its in-memory map.
-    #[cfg(target_family = "wasm")]
-    {
-        let _ = (backend, fingerprint);
-        None
-    }
+    cfg_if::cfg_if! {
+        // The browser compiles its shaders itself, so it has no artifact to
+        // persist even with persistence on.
+        if #[cfg(all(persistence, not(target_family = "wasm")))] {
+            use crate::config::RuntimeConfig;
 
-    #[cfg(all(not(target_family = "wasm"), persistence))]
-    {
-        use crate::config::RuntimeConfig;
+            if !crate::config::CubeClRuntimeConfig::get().compilation.cache {
+                return None;
+            }
 
-        if !crate::config::CubeClRuntimeConfig::get().compilation.cache {
-            return None;
+            Some(Store::new(
+                StoreOptions::new()
+                    .storage(Namespace::scoped(backend, fingerprint))
+                    .cache(CacheOption::Lazy),
+            ))
+        } else {
+            // Nothing to persist to; the caller keeps its in-memory map.
+            let _ = (backend, fingerprint);
+            None
         }
-
-        Some(cubecl_environment::future::block_on(Store::open(
-            StoreOptions::new()
-                .storage(Namespace::scoped(backend, fingerprint))
-                .cache(CacheOption::Lazy),
-        )))
-    }
-
-    // No file system to persist to; the caller keeps its in-memory map.
-    #[cfg(all(not(target_family = "wasm"), not(persistence)))]
-    {
-        let _ = (backend, fingerprint);
-        None
     }
 }
 
@@ -70,7 +62,7 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
 /// declined it. The artifact was just compiled either way, so the whole cost
 /// is compiling it again next run.
 pub fn store_compiled<K: StoreKey, V: StoreValue>(store: &mut Store<K, V>, key: K, value: V) {
-    if let Err(err) = store.insert_sync(key, value) {
+    if let Err(err) = store.insert(key, value) {
         log::warn!("Unable to cache the compiled kernel: {}", err.reason());
     }
 }

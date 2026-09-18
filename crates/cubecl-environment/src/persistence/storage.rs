@@ -83,58 +83,61 @@ impl InsertSummary {
 ///   than passing for success, so a caller can tell "someone else got there
 ///   first" from "the write did not happen". Implementations log failures but
 ///   never panic on them.
-/// - [`scan`](Storage::scan) returns the whole namespace at once; it is what
-///   an eager store ingests at open.
+/// - [`scan`](Storage::scan) may run the visitor while holding the backend's
+///   lock, and several namespaces of one environment share that lock. The
+///   visitor must therefore not touch any other store of the same
+///   environment: doing so deadlocks.
 ///
 /// Methods take `&self` because reads happen behind shared references on the
-/// hot path; implementations use interior mutability. They are `async`
-/// because the durable backends complete their I/O on an event loop, the
-/// browser's in particular, which nothing can block on.
-#[async_trait::async_trait]
-pub trait Storage: Send + Sync + core::fmt::Debug {
+/// hot path; implementations use interior mutability.
+pub trait Storage: Send + core::fmt::Debug {
     /// The value stored under `key`, if any.
-    async fn get(&self, key: &[u8]) -> Option<Bytes>;
+    fn get(&self, key: &[u8]) -> Option<Bytes>;
 
     /// Stores `value` under `key`. See the trait contract for when the write
     /// is declined.
-    async fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion;
+    fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion;
 
     /// Stores `value` under `key`, overwriting whatever is there.
     ///
     /// Bypasses the insert-only rule, so it never reports a conflict. Only for
     /// repairing an entry that can't be decoded; ordinary writes go through
     /// [`insert`](Storage::insert).
-    async fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion;
+    fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion;
 
     /// Stores many entries under the same rules as
     /// [`insert`](Storage::insert).
     ///
     /// Backends that can commit a batch atomically override this; the default
     /// is one `insert` per entry.
-    async fn insert_many(
+    fn insert_many(
         &self,
-        entries: &mut (dyn Iterator<Item = (Bytes, Bytes)> + Send),
+        entries: &mut dyn Iterator<Item = (Bytes, Bytes)>,
         origin: Origin,
     ) -> InsertSummary {
         let mut summary = InsertSummary::default();
         for (key, value) in entries {
-            summary.record(&self.insert(&key, value, origin).await);
+            summary.record(&self.insert(&key, value, origin));
         }
         summary
     }
 
-    /// Returns every entry of the namespace.
-    async fn scan(&self) -> Vec<(Bytes, Bytes)>;
+    /// Visits every entry of the namespace.
+    ///
+    /// The visitor must not read or write another store of the same
+    /// environment; see the trait contract.
+    fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8]));
 
     /// Deletes every entry of the namespace, durably.
     ///
     /// A failed delete is logged, not reported: the entries were expendable
     /// cache content either way, and whatever survives is arbitrated like any
     /// other pre-existing entry.
-    async fn purge(&self);
+    fn purge(&self);
 
-    /// Deletes one entry.
-    async fn purge_key(&self, key: &[u8]);
+    /// Deletes the entry under `key`, durably. Same failure contract as
+    /// [`purge`](Storage::purge).
+    fn purge_key(&self, key: &[u8]);
 
     /// Human-readable location for log messages.
     fn describe(&self) -> String;
@@ -185,6 +188,12 @@ mod entries {
 
         Insertion::Stored
     }
+
+    pub(crate) fn scan(entries: &Entries, visit: &mut dyn FnMut(&[u8], &[u8])) {
+        for (key, (value, _)) in entries.iter() {
+            visit(key, value);
+        }
+    }
 }
 
 /// A storage that keeps entries in memory for the lifetime of the process.
@@ -219,6 +228,9 @@ impl MemoryStorage {
     /// resets after a switch would reopen the memory storage and immediately
     /// re-ingest the previous environment's entries.
     fn in_environment(namespace: &str) -> Self {
+        // `\u{1f}` (unit separator) can appear in neither a `/`-separated
+        // namespace nor a file-system path, so the split back out is
+        // unambiguous.
         let key = alloc::format!("{}\u{1f}{namespace}", crate::environment::scope());
         Self::with_key(key, namespace)
     }
@@ -267,33 +279,28 @@ impl MemoryStorage {
     }
 }
 
-#[async_trait::async_trait]
 impl Storage for MemoryStorage {
-    async fn get(&self, key: &[u8]) -> Option<Bytes> {
+    fn get(&self, key: &[u8]) -> Option<Bytes> {
         entries::get(&self.entries.lock(), key)
     }
 
-    async fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+    fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
         entries::insert(&mut self.entries.lock(), key, value, origin)
     }
 
-    async fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+    fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
         entries::replace(&mut self.entries.lock(), key, value, origin)
     }
 
-    async fn scan(&self) -> Vec<(Bytes, Bytes)> {
-        self.entries
-            .lock()
-            .iter()
-            .map(|(key, (value, _))| (Bytes::from_bytes_vec(key.clone()), value.clone()))
-            .collect()
+    fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
+        entries::scan(&self.entries.lock(), visit)
     }
 
-    async fn purge(&self) {
+    fn purge(&self) {
         self.entries.lock().clear();
     }
 
-    async fn purge_key(&self, key: &[u8]) {
+    fn purge_key(&self, key: &[u8]) {
         self.entries.lock().remove(key);
     }
 
@@ -326,11 +333,10 @@ pub struct NamespaceSummary {
 ///
 /// Empty without a durable backend: memory namespaces do not outlive the
 /// process that wrote them.
-pub async fn namespaces() -> Vec<String> {
+pub fn namespaces() -> Vec<String> {
     cfg_if::cfg_if! {
         if #[cfg(any(native_cache, browser_cache))] {
-            super::turso::TursoStorage::summary()
-                .await
+            super::turso::summary()
                 .into_iter()
                 .map(|summary| summary.namespace)
                 .collect()
@@ -340,11 +346,16 @@ pub async fn namespaces() -> Vec<String> {
     }
 }
 
-/// Summarizes the namespaces stored in the active environment.
-pub async fn summary() -> Vec<NamespaceSummary> {
+/// Summarizes the namespaces stored in the active environment: the durable
+/// ones when the database is open, otherwise whatever this process warmed in
+/// memory.
+pub fn summary() -> Vec<NamespaceSummary> {
     cfg_if::cfg_if! {
         if #[cfg(any(native_cache, browser_cache))] {
-            super::turso::TursoStorage::summary().await
+            match super::turso::database() {
+                Ok(_) => super::turso::summary(),
+                Err(_) => MemoryStorage::namespaces(),
+            }
         } else {
             MemoryStorage::namespaces()
         }
@@ -353,32 +364,18 @@ pub async fn summary() -> Vec<NamespaceSummary> {
 
 /// Opens the active environment's database ahead of the storages on it.
 ///
-/// A storage opens on first use, which is fine wherever the first use can
-/// wait. The browser's launch path cannot: a store it reaches first hydrates
-/// on the event loop while the calls that need it run their fallback for the
-/// whole of that reply, and compile the fallback's shaders for nothing. With
-/// the database open beforehand — from a place that can await, before the
-/// device comes up — a storage opens without waiting on anything, and the
-/// launch path hydrates its store in the call that reaches it
-/// ([`opened`] is how it knows).
+/// Opening is the one step of persistence that has to be awaited: the
+/// browser reaches its files through promises. Natively a storage opens the
+/// database itself on first use, blocking briefly; in the browser nothing can
+/// block, so a page awaits this before its device comes up, and a storage
+/// that finds the database closed serves memory for the life of the process
+/// and says so.
 pub async fn open_ahead() {
     cfg_if::cfg_if! {
         if #[cfg(any(native_cache, browser_cache))] {
-            if let Err(error) = super::turso::open_database_ahead().await {
+            if let Err(error) = super::turso::open_ahead().await {
                 log::warn!("Unable to open the Turso cache ahead of its use: {error}");
             }
-        }
-    }
-}
-
-/// Whether the active environment's database is open, so a storage on it
-/// opens without waiting on anything. Memory-backed environments always are.
-pub fn opened() -> bool {
-    cfg_if::cfg_if! {
-        if #[cfg(any(native_cache, browser_cache))] {
-            super::turso::database_open()
-        } else {
-            true
         }
     }
 }
@@ -389,18 +386,18 @@ pub fn opened() -> bool {
 /// The location is not a parameter: an environment is the store, so a cache
 /// can't be opened somewhere else without making "a single active
 /// environment" false. See [`crate::environment`].
-pub async fn open(namespace: &str) -> Arc<dyn Storage> {
+pub fn open(namespace: &str) -> Box<dyn Storage> {
     cfg_if::cfg_if! {
         if #[cfg(any(native_cache, browser_cache))] {
-            match super::turso::open(namespace).await {
+            match super::turso::open(namespace) {
                 Ok(storage) => storage,
                 Err(error) => {
-                    log::warn!("Unable to open Turso cache, using memory: {error}");
-                    Arc::new(MemoryStorage::in_environment(namespace))
+                    log::warn!("Unable to open Turso cache for '{namespace}', using memory: {error}");
+                    Box::new(MemoryStorage::in_environment(namespace))
                 }
             }
         } else {
-            Arc::new(MemoryStorage::in_environment(namespace))
+            Box::new(MemoryStorage::in_environment(namespace))
         }
     }
 }

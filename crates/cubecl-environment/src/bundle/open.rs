@@ -15,9 +15,9 @@ use super::{Bundle, BundleError, EmbeddedBundle, SqliteBundle, flat_bundle_versi
 /// the only thing a bundle is for.
 ///
 /// ```no_run
-/// # async fn run() -> Result<(), cubecl_environment::bundle::BundleError> {
+/// # fn main() -> Result<(), cubecl_environment::bundle::BundleError> {
 /// let bundle = cubecl_environment::bundle::open("h100.bundle")?;
-/// let report = cubecl_environment::bundle::import(bundle.as_ref()).await;
+/// let report = cubecl_environment::bundle::import(bundle.as_ref());
 /// # Ok(())
 /// # }
 /// ```
