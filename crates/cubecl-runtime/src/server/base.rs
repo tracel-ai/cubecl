@@ -736,8 +736,11 @@ pub trait Server:
     ///
     /// An open window is not free: depending on the backend it retains
     /// command buffers, keeps timestamp writes on, or holds a device event.
-    /// The default closes it and discards the measurement; a backend that can
-    /// drop a window without recording its end does that instead.
+    ///
+    /// Every backend overrides this, and should: the default closes the window
+    /// and throws the measurement away, which is the most expensive way to be
+    /// rid of it — [`end_profile`](Self::end_profile) is where the syncing and
+    /// flushing live, and this is the one call that needs none of it.
     fn abandon_profile(&mut self, stream_id: StreamId, token: ProfilingToken) {
         let _ = self.end_profile(stream_id, token);
     }

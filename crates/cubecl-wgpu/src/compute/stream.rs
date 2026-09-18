@@ -505,12 +505,30 @@ impl WgpuStream {
                 match result {
                     Ok(_) => timing.stop_profile(buffer, poll),
                     Err(err) => {
-                        // Just to clean the timing buffer.
-                        let _ = timing.stop_profile(buffer, poll).ok();
+                        // Dropped rather than mapped: the flush this window
+                        // needed has failed, so a map requested here may never
+                        // complete, and the map's callback is what releases the
+                        // poll handle. The query sets were already given back in
+                        // `stop_profile_setup`, so there is nothing else to undo.
+                        drop(buffer);
+                        drop(poll);
                         Err(ProfileError::Server(Box::new(err)))
                     }
                 }
             }
+        }
+    }
+
+    /// Drop `token`'s window without measuring it.
+    ///
+    /// Neither arm syncs or flushes, which is the whole difference from
+    /// [`end_profile`](Self::end_profile): the device arm hands the query set
+    /// back, the system arm forgets the start instant, and the work in the
+    /// window carries on as if it had never been bracketed.
+    pub fn abandon_profile(&mut self, token: ProfilingToken) {
+        match &mut self.timings {
+            Timings::System(profiler) => profiler.abandon(token),
+            Timings::Device(timing) => timing.abandon_profile(token),
         }
     }
 

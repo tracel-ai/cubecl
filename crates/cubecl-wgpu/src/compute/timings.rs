@@ -319,6 +319,30 @@ impl QueryProfiler {
         });
     }
 
+    /// Drop the window `token` opened without measuring it.
+    ///
+    /// Gives back the reference it holds on its start query set, which is what
+    /// [`stop_profile_setup`](Self::stop_profile_setup) does, and stops there:
+    /// no resolve, no copy, no map buffer, and no flush, because nothing is
+    /// going to read this window. A token still waiting for a query set is
+    /// simply gone when [`init_query_set`](Self::init_query_set) drains the
+    /// queue, which skips what it cannot find.
+    pub fn abandon_profile(&mut self, token: ProfilingToken) {
+        let Some(Ok(Timestamp {
+            start: Some(start), ..
+        })) = self.timestamps.remove(&token)
+        else {
+            return;
+        };
+
+        if let Some(query_set) = self.query_sets.get_mut(&start) {
+            query_set.num_ref -= 1;
+            if query_set.num_ref == 0 {
+                self.cleanups.push(start);
+            }
+        }
+    }
+
     /// Stop the profiling on a device.
     pub fn stop_profile_setup(
         &mut self,

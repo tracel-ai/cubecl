@@ -648,6 +648,13 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         stream.end_profile(token, stream_id, failures)
     }
 
+    fn abandon_profile(&mut self, stream_id: StreamId, token: ProfilingToken) {
+        // No `execute_streams`: the default reaches this through `end_profile`,
+        // which has to flush what it is about to measure. An abandon measures
+        // nothing, so it leaves the stream's queued work where it found it.
+        self.scheduler.stream(&stream_id).abandon_profile(token);
+    }
+
     fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
         self.scheduler.execute_streams(vec![stream_id]);
         self.scheduler.stream(&stream_id).mem_manage.memory_usage()
