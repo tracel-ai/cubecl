@@ -147,16 +147,19 @@ embassy-time = { workspace = true }
 cfg_aliases = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
 serial_test = { workspace = true }
 tempfile = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+criterion = { workspace = true }
 tokio = { workspace = true, default-features = false, features = [
     "macros",
     "rt-multi-thread",
 ] }
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
 
 [[bench]]
 harness = false
