@@ -14,7 +14,7 @@ use cubecl_core::{
     server::{IoError, KernelArguments},
 };
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_ir::{AdapterLuid, DeviceProperties, PciAddress, Type, features::*};
+use cubecl_ir::{AdapterLuid, DeviceProperties, Type, features::*};
 use cubecl_server::compiler::CompilationError;
 use cubecl_server::kernel::CompiledKernel;
 use cubecl_spirv::{SpirvCompiler, SpirvKernel};
@@ -839,14 +839,9 @@ pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::Physical
         return;
     }
 
-    let has_pci = capabilities.supports_extension(ash::ext::pci_bus_info::NAME);
     let mut ids = vk::PhysicalDeviceIDProperties::default();
-    let mut pci = vk::PhysicalDevicePCIBusInfoPropertiesEXT::default();
     let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut ids);
-    if has_pci {
-        properties = properties.push_next(&mut pci);
-    }
-    // SAFETY: both are 1.1, and the PCI structure is chained only when its extension is present.
+    // SAFETY: both structures are core in 1.1, checked above.
     unsafe {
         instance
             .raw_instance()
@@ -855,13 +850,5 @@ pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::Physical
 
     if ids.device_luid_valid == vk::TRUE {
         physical.luid = Some(AdapterLuid::new(ids.device_luid));
-    }
-    if has_pci {
-        physical.pci_address = Some(PciAddress {
-            domain: pci.pci_domain,
-            bus: pci.pci_bus as u8,
-            device: pci.pci_device as u8,
-            function: pci.pci_function as u8,
-        });
     }
 }

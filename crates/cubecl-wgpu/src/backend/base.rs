@@ -434,6 +434,11 @@ pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<Ph
     let mut physical = PhysicalDevice::default();
     // Metal and WebGPU report a zero vendor rather than none.
     physical.vendor = (info.vendor != 0).then(|| info.vendor.into());
+    // wgpu gives a DX12 adapter the address of the first card with its vendor and device id, so
+    // identical cards would share one.
+    if info.backend == wgpu::Backend::Vulkan {
+        physical.pci_address = info.device_pci_bus_id.parse().ok();
+    }
     #[cfg(feature = "spirv")]
     if is_vulkan(adapter) {
         vulkan::describe_card(adapter, &mut physical);
