@@ -1,9 +1,11 @@
 use cubecl_ir::dialect::atomic::*;
 
 use crate::compiler::wgsl::{
-    to_wgsl::{wgsl_op, wgsl_op_with_out},
+    to_wgsl::{wasm_inventory_root, wgsl_op, wgsl_op_with_out},
     value::WgslValue,
 };
+
+wasm_inventory_root!(AtomicExchangeOp);
 
 wgsl_op_with_out!(AtomicExchangeOp; |op, ctx| {
     let ptr = op.ptr(ctx).name(ctx);

@@ -53,6 +53,17 @@ macro_rules! wgsl_op_with_out {
 }
 pub(crate) use wgsl_op_with_out;
 
+macro_rules! wasm_inventory_root {
+    ($ty:ty) => {
+        #[cfg(target_family = "wasm")]
+        #[inline(never)]
+        pub(super) fn wasm_inventory_root() {
+            core::hint::black_box(<$ty as $crate::compiler::wgsl::to_wgsl::OpToWgsl>::to_wgsl);
+        }
+    };
+}
+pub(crate) use wasm_inventory_root;
+
 pub(crate) fn closure_inference_hack<T, R>(
     val: &T,
     ctx: &Context,
