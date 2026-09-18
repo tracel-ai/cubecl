@@ -526,6 +526,12 @@ impl Server for CpuServer {
         stream.end_profile(token, stream_id)
     }
 
+    fn abandon_profile(&mut self, stream_id: StreamId, token: ProfilingToken) {
+        // No `execute_streams`: an abandon measures nothing, so it leaves the
+        // stream's queued work where it found it.
+        self.scheduler.stream(&stream_id).abandon_profile(token);
+    }
+
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         stream.allocation_mode(mode);

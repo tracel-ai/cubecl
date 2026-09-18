@@ -202,7 +202,9 @@ fn execute_elementwise_addition() {
 #[test_log::test]
 #[serial_test::serial]
 fn a_refused_profile_degrades_to_an_untimed_launch() {
-    use cubecl_server::logging::{Duration, LaunchObservation, LaunchObserver, TimingMethod};
+    use cubecl_server::logging::{
+        Duration, LaunchObservation, LaunchObserver, TimingMethod, TimingRequest,
+    };
 
     #[derive(Default)]
     struct WantsTiming {
@@ -213,8 +215,8 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
         fn launched(&self, kernel: &'static str) {
             self.launched.lock().unwrap().push(kernel);
         }
-        fn wants_timing(&self) -> bool {
-            true
+        fn timing(&self) -> TimingRequest {
+            TimingRequest::Resolved
         }
         fn timed(&self, kernel: &'static str, _duration: Duration, _method: TimingMethod) {
             self.timed.lock().unwrap().push(kernel);
