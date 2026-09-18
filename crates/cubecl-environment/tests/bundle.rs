@@ -895,6 +895,49 @@ async fn a_bundle_installed_read_only_still_imports() {
 }
 
 /// The same install, mounted rather than imported: `environment::load` on a
+/// A shipped bundle is one file with a rollback-journal header: nothing
+/// beside it, and nothing a reader has to create beside it.
+///
+/// Turso is WAL-only and leaves a WAL header behind however the file was
+/// checkpointed, and `SQLite` reads that header as "build me a `-shm` first" —
+/// which fails in the read-only directory a bundle is usually installed into.
+/// The export rewrites the field once the WAL is folded in.
+#[tokio::test]
+#[serial_test::serial]
+async fn a_shipped_bundle_is_a_single_rollback_journal_file() {
+    let source = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+
+    warm(source.path(), "autotune", "device0/matmul", &[("k", 7)]).await;
+    let bundle = out.path().join("shipped.db");
+    export_to(source.path(), &bundle, BundleFormat::Sqlite).await;
+
+    // Nothing beside it: a bundle copied without its sidecars is still whole.
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = out.path().join(std::format!("shipped.db{suffix}"));
+        assert!(!sidecar.exists(), "{sidecar:?} was left behind");
+    }
+
+    let header = std::fs::read(&bundle).unwrap();
+    assert_eq!(
+        &header[18..20],
+        &[1, 1],
+        "the shipped header still says WAL"
+    );
+
+    // And it is still a bundle this build reads: the rewritten field must not
+    // cost the engine its own WAL.
+    let expected = cubecl_environment::environment::namespaces().await;
+    let opened = SqliteBundle::open(&bundle).unwrap();
+    assert_eq!(opened.summary(), expected);
+
+    // Importing it fills a cold root, which is what a shipped bundle is for.
+    let cold = tempfile::tempdir().unwrap();
+    import_into(cold.path(), &opened).await;
+    let store = open(cold.path(), "autotune", "device0/matmul").await;
+    assert_eq!(store.get(&"k".to_string()).copied(), Some(7));
+}
+
 /// file nobody may write opens it read-only and serves its entries, instead
 /// of degrading to memory because the rebuild-on-open can't write.
 #[cfg(unix)]
