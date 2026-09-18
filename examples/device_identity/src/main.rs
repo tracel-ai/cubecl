@@ -9,6 +9,7 @@ use cubecl::{
 fn main() {
     let mut devices: Vec<(String, Device)> = (0..)
         .map_while(|index| Some((format!("cuda:{index}"), Device::cuda(index).ok()?)))
+        .chain((0..).map_while(|index| Some((format!("rocm:{index}"), Device::rocm(index).ok()?))))
         .collect();
 
     for api in [WgpuBackend::Vulkan, WgpuBackend::Dx12] {

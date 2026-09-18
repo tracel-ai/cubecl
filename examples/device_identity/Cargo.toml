@@ -7,11 +7,14 @@ license.workspace = true
 version.workspace = true
 
 [features]
-# Vulkan and DirectX 12 are both wgpu, so the default reaches every GPU API but CUDA.
-# `--features cuda` adds it.
-default = ["vulkan"]
+# Vulkan and DirectX 12 are both wgpu, so the default reaches every GPU API but CUDA and ROCm.
+# `--features cuda,rocm` adds them.
+default = ["wgpu"]
+wgpu = ["cubecl/wgpu"]
+# Also reads a Vulkan card's LUID on Windows.
 vulkan = ["cubecl/vulkan"]
 cuda = ["cubecl/cuda"]
+rocm = ["cubecl/rocm"]
 
 [dependencies]
 cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.4" }
