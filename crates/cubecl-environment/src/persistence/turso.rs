@@ -109,8 +109,8 @@ impl TursoStorage {
         })
     }
 
-    fn connection(&self) -> Result<turso::Connection, String> {
-        connect(&self.database).map_err(error)
+    async fn connection(&self) -> Result<turso::Connection, String> {
+        connect(&self.database).await.map_err(error)
     }
 
     /// One insert on `connection`: the statement arbitrates, and only a
@@ -157,7 +157,7 @@ impl TursoStorage {
         let Ok(database) = shared_database(&location).await else {
             return Vec::new();
         };
-        let Ok(connection) = connect(&database) else {
+        let Ok(connection) = connect(&database).await else {
             return Vec::new();
         };
         let Ok(mut rows) = connection
@@ -190,7 +190,7 @@ impl TursoStorage {
 impl Storage for TursoStorage {
     async fn get(&self, key: &[u8]) -> Option<Bytes> {
         let result: Result<Option<Bytes>, String> = async {
-            let connection = self.connection()?;
+            let connection = self.connection().await?;
             let mut rows = connection
                 .query(SELECT, (self.namespace.as_str(), key.to_vec()))
                 .await
@@ -214,7 +214,7 @@ impl Storage for TursoStorage {
 
     async fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
         let result = async {
-            let connection = self.connection()?;
+            let connection = self.connection().await?;
             self.insert_on(&connection, key, &value, origin)
                 .await
                 .map_err(error)
@@ -226,7 +226,7 @@ impl Storage for TursoStorage {
 
     async fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
         let result = async {
-            let connection = self.connection()?;
+            let connection = self.connection().await?;
             connection
                 .execute(
                     REPLACE,
@@ -257,7 +257,7 @@ impl Storage for TursoStorage {
             failed: entries.count(),
             ..InsertSummary::default()
         };
-        let Ok(mut connection) = connect(&self.database) else {
+        let Ok(mut connection) = connect(&self.database).await else {
             return refused(entries);
         };
         let Ok(transaction) = connection
@@ -283,7 +283,7 @@ impl Storage for TursoStorage {
 
     async fn scan(&self) -> Vec<(Bytes, Bytes)> {
         let result = async {
-            let connection = self.connection()?;
+            let connection = self.connection().await?;
             let mut rows = connection
                 .query(
                     "SELECT key, value FROM cache_entries WHERE namespace = ?1",
@@ -308,7 +308,7 @@ impl Storage for TursoStorage {
     }
 
     async fn purge(&self) {
-        if let Ok(connection) = self.connection()
+        if let Ok(connection) = self.connection().await
             && let Err(error) = connection
                 .execute(
                     "DELETE FROM cache_entries WHERE namespace = ?1",
@@ -321,7 +321,7 @@ impl Storage for TursoStorage {
     }
 
     async fn purge_key(&self, key: &[u8]) {
-        if let Ok(connection) = self.connection()
+        if let Ok(connection) = self.connection().await
             && let Err(error) = connection
                 .execute(
                     "DELETE FROM cache_entries WHERE namespace = ?1 AND key = ?2",
@@ -452,7 +452,7 @@ async fn open_read_only(location: &str, err: &str) -> Result<turso::Database, St
         .build()
         .await
         .map_err(error)?;
-    let connection = connect(&database).map_err(error)?;
+    let connection = connect(&database).await.map_err(error)?;
 
     let expected = SCHEMA_VERSION.to_string();
     match meta_get(&connection, SCHEMA_VERSION_KEY)
@@ -533,7 +533,7 @@ fn write_transaction() -> TransactionBehavior {
 /// once rebuild it once: the second waits, then reads the version the first
 /// wrote.
 pub(crate) async fn migrate(database: &turso::Database) -> Result<(), turso::Error> {
-    let mut connection = connect(database)?;
+    let mut connection = connect(database).await?;
     connection.execute(CREATE_META, ()).await?;
 
     let transaction = connection
@@ -613,10 +613,21 @@ pub(crate) async fn checkpoint(connection: &turso::Connection) -> Result<bool, t
 /// can't afford.
 const BUSY_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(5);
 
-/// A connection to `database` with the busy timeout set.
-pub(crate) fn connect(database: &turso::Database) -> Result<turso::Connection, turso::Error> {
+/// A connection to `database`, with the busy timeout and `synchronous` set.
+///
+/// `synchronous` is per-connection and Turso defaults it to `FULL`, which
+/// fsyncs on every commit. `NORMAL` may lose the last commits on a power
+/// cut, which for a cache costs a recompute — the same trade the rusqlite
+/// backend made. It is set on read-only connections too, where it is a no-op,
+/// so that every connection this module hands out is configured alike.
+pub(crate) async fn connect(database: &turso::Database) -> Result<turso::Connection, turso::Error> {
     let connection = database.connect()?;
     connection.busy_timeout(BUSY_TIMEOUT)?;
+    // A `PRAGMA` that assigns answers with no rows, which `execute` reports as
+    // `Misuse`; `pragma_query` takes it either way.
+    connection
+        .pragma_query("synchronous = NORMAL", |_| Ok(()))
+        .await?;
     Ok(connection)
 }
 
@@ -645,7 +656,7 @@ mod tests {
     /// The tables a database file holds, by name.
     async fn tables(location: &str) -> Vec<String> {
         let database = open_database(location).await.unwrap();
-        let connection = connect(&database).unwrap();
+        let connection = connect(&database).await.unwrap();
         let mut rows = connection
             .query(
                 "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name",
@@ -680,7 +691,7 @@ mod tests {
 
         {
             let database = open_database(&location).await.unwrap();
-            let connection = connect(&database).unwrap();
+            let connection = connect(&database).await.unwrap();
             connection.execute(CREATE_META, ()).await.unwrap();
             connection
                 .execute(META_SET, (SCHEMA_VERSION_KEY, "3"))
@@ -705,7 +716,7 @@ mod tests {
         assert_eq!(tables(&location).await, vec!["cache_entries", "meta"]);
 
         let database = open_database(&location).await.unwrap();
-        let connection = connect(&database).unwrap();
+        let connection = connect(&database).await.unwrap();
         let mut rows = connection
             .query(META_GET, (SCHEMA_VERSION_KEY,))
             .await

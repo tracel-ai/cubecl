@@ -163,7 +163,7 @@ async fn export_sqlite(
     // `environment::load` can mount it as it would any environment file.
     database::migrate(&target).await.map_err(storage_error)?;
 
-    let mut connection = connect(&target).map_err(storage_error)?;
+    let mut connection = connect(&target).await.map_err(storage_error)?;
     manifest.write(&connection).await?;
 
     // One transaction for the whole copy: a row per statement would be a
@@ -263,7 +263,7 @@ async fn read_entries(
         .build()
         .await
         .map_err(storage_error)?;
-    let connection = connect(&database).map_err(storage_error)?;
+    let connection = connect(&database).await.map_err(storage_error)?;
 
     match namespaces {
         None => {

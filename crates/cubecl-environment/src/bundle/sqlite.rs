@@ -58,7 +58,7 @@ impl SqliteBundle {
                 .build()
                 .await
                 .map_err(storage_error)?;
-            let connection = connect(&database).map_err(storage_error)?;
+            let connection = connect(&database).await.map_err(storage_error)?;
 
             // "Not a bundle" is a narrow condition: a database without a
             // `meta` table, or with no version in it. Anything else — a
@@ -95,11 +95,10 @@ impl SqliteBundle {
     /// Entry count and total size per namespace, for reporting: what the
     /// file holds, without reading any of it.
     pub fn summary(&self) -> Vec<NamespaceSummary> {
-        let Some(connection) = self.connection() else {
-            return Vec::new();
-        };
-
         block_on(async {
+            let Some(connection) = self.connection().await else {
+                return Vec::new();
+            };
             let Ok(mut rows) = connection
                 .query(
                     "SELECT namespace, COUNT(*), SUM(length(key) + length(value)) \
@@ -125,8 +124,9 @@ impl SqliteBundle {
         })
     }
 
-    fn connection(&self) -> Option<turso::Connection> {
+    async fn connection(&self) -> Option<turso::Connection> {
         connect(&self.database)
+            .await
             .inspect_err(|err| log::warn!("Bundle {}: {err}", self.describe()))
             .ok()
     }
@@ -134,9 +134,8 @@ impl SqliteBundle {
 
 impl Bundle for SqliteBundle {
     fn get(&self, namespace: &str, key: &[u8]) -> Option<Bytes> {
-        let connection = self.connection()?;
-
         block_on(async {
+            let connection = self.connection().await?;
             let mut rows = connection
                 .query(
                     "SELECT value FROM cache_entries WHERE namespace = ?1 AND key = ?2",
@@ -153,11 +152,10 @@ impl Bundle for SqliteBundle {
     }
 
     fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
-        let Some(connection) = self.connection() else {
-            return;
-        };
-
         block_on(async {
+            let Some(connection) = self.connection().await else {
+                return;
+            };
             let Ok(mut rows) = connection
                 .query(
                     "SELECT key, value FROM cache_entries WHERE namespace = ?1",
@@ -177,11 +175,10 @@ impl Bundle for SqliteBundle {
     }
 
     fn namespaces(&self) -> Vec<String> {
-        let Some(connection) = self.connection() else {
-            return Vec::new();
-        };
-
         block_on(async {
+            let Some(connection) = self.connection().await else {
+                return Vec::new();
+            };
             let Ok(mut rows) = connection
                 .query(
                     "SELECT DISTINCT namespace FROM cache_entries ORDER BY namespace",
