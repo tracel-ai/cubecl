@@ -194,12 +194,11 @@ pub fn test_split_window_closes_on_its_own_stream<R: Runtime>(client: Client) {
     let few = window(FEW_LAUNCHES);
     let many = window(MANY_LAUNCHES);
 
-    // Growth, not merely a positive number. A backend whose profiler keys its
-    // windows by token alone — CUDA and HIP both do — finds the window from
-    // any stream and answers something, so a close landing on the wrong
-    // stream pairs a start and an end recorded on two different streams and
-    // still measures *a* duration. What it cannot do is track the work on the
-    // opening stream, which is what this asks of it. On wgpu, whose windows
+    // Growth, not merely a positive number. A backend that keys its windows by
+    // token alone — CUDA and HIP both do — finds the window from any stream, so
+    // a close landing on the wrong stream still measures *a* duration, pairing
+    // events recorded on two streams. What it cannot do is track the work on
+    // the opening stream, which is what this asks of it. On wgpu, whose windows
     // are per stream, the wrong stream finds nothing and the close errors.
     assert!(
         many > few * MIN_GROWTH,

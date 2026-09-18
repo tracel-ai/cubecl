@@ -1153,11 +1153,10 @@ impl Client {
                     }
                 };
                 // The observer alone: it takes the measurement unread, so the
-                // kernels around this one keep running back to back until it
-                // chooses to read them. An observer does not change what the
-                // logger writes: `ExecutionOnly` is documented as the kernels
-                // that ran without their timings, so it logs the execution and
-                // never the profile.
+                // kernels around this one keep running back to back. An observer
+                // does not change what the logger writes, and `ExecutionOnly` is
+                // documented as the kernels that ran without their timings, so
+                // it logs the execution and never the profile.
                 if observed_timing && matches!(level, None | Some(ProfileLevel::ExecutionOnly)) {
                     crate::logging::notify_profiled(name, profile);
                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
@@ -1166,32 +1165,19 @@ impl Client {
                     }
                     return;
                 }
-                // The observer and the logger both read this measurement, and a
-                // measurement is read once. The observer is told first, because
-                // resolving the profile consumes it: the logger's copy is the
-                // one that can be deferred, an observer's cannot be recovered
-                // afterwards.
+                // Both read this measurement, and a measurement is read once.
+                // The observer is told first because resolving consumes it: the
+                // logger's copy is the one that can be deferred, an observer's
+                // cannot be recovered afterwards.
                 let profile = if observed_timing {
                     // The observer asked to keep its measurements and cannot:
                     // the logger reads this one, so the observer is told a
                     // duration and its kernels stop overlapping.
                     crate::logging::warn_logger_takes_deferred_measurements();
-                    let method = profile.timing_method();
-                    let ticks = cubecl_environment::future::block_on(profile.resolve());
-                    match &ticks {
-                        Some(ticks) => crate::logging::notify_timed(name, ticks.duration(), method),
-                        // Nothing to tell the observer: the window carried no
-                        // measurement, and reporting it as zero would put a
-                        // launch that was never timed in the timings.
-                        None => log::warn!(
-                            "Skipped timing a launch of `{name}` for its observer: \
-                             the profiled window carried no measurement"
-                        ),
-                    }
-                    // Handed on already resolved rather than measured again:
+                    // Comes back already resolved rather than measured again:
                     // the logger and the observer are two readers of one
                     // measurement, and a second would not be the same launch.
-                    ProfileDuration::new(alloc::boxed::Box::pin(async move { ticks }), method)
+                    crate::logging::read_and_notify_timed(name, profile)
                 } else {
                     profile
                 };
@@ -1510,20 +1496,18 @@ impl Client {
 
     /// Open a profiling window at the current position of the calling stream.
     ///
-    /// The bracketed form, [`profile`](Self::profile), is the one to reach for:
-    /// it also holds the device for the closure. This pair is for a caller
-    /// that cannot bracket the work in a closure because the work is launched
-    /// from somewhere else — a lazy queue drained on another thread, say —
-    /// and only knows *when* on the stream its window opens and closes.
+    /// Prefer the bracketed [`profile`](Self::profile), which also holds the
+    /// device for the closure. This pair is for a caller that cannot bracket the
+    /// work in a closure — a lazy queue drained on another thread, say — and
+    /// only knows *when* on the stream its window opens and closes.
     ///
     /// The window keeps the stream it was opened on, and
     /// [`profile_end`](Self::profile_end) closes it there whichever thread
     /// calls it. Nothing keeps other streams' work out of the window.
     ///
-    /// The window stays open on the server until it is ended or
-    /// [abandoned](Self::profile_abandon), and an open window costs something
-    /// on every backend, so a caller that bails out between the two calls has
-    /// to abandon it.
+    /// An open window costs something on every backend and stays open until it
+    /// is ended or [abandoned](Self::profile_abandon), so a caller that bails
+    /// out between the two calls has to abandon it.
     pub fn profile_start(&self) -> Result<ProfileWindow, ProfileError> {
         let stream_id = self.stream_id();
         let token = self
@@ -1545,10 +1529,16 @@ impl Client {
     /// Drop `window` without measuring it, for a caller that will never reach
     /// [`profile_end`](Self::profile_end), such as an error path between the
     /// two calls.
+    ///
+    /// Does not wait for the server to drop it, but does flush, because this
+    /// is usually a caller's last word: an abandon left sitting in the queue
+    /// holds the window open for exactly as long as it is the only thing in
+    /// there, which is the case it exists for.
     pub fn profile_abandon(&self, window: ProfileWindow) {
         let ProfileWindow { stream_id, token } = window;
         self.device
             .submit(move |server| server.abandon_profile(stream_id, token));
+        self.device.flush_queue();
     }
 
     /// Measure the execution time of some inner operations.
@@ -1643,8 +1633,8 @@ impl Client {
                             let ticks = result.resolve().await;
                             // A window that carried no measurement has no span
                             // to place: `resolve` answers `None` rather than a
-                            // zero precisely so nothing reports it as an
-                            // instant at the epoch.
+                            // zero so nothing reports it as an instant at the
+                            // epoch.
                             if let Some(ticks) = &ticks {
                                 let start_duration =
                                     ticks.start_duration_since(epoch).as_nanos() as i64;
