@@ -370,7 +370,8 @@ impl DeviceService for CudaServer {
             logger,
             policy,
         );
-        utilities.server_comm_enabled = true;
+        // SAFETY: the call only tries to `dlopen` each candidate name.
+        utilities.server_comm_enabled = unsafe { cudarc::nccl::sys::is_culib_present() };
 
         CudaServer::new(
             cuda_ctx,
