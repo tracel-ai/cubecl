@@ -1,58 +1,62 @@
+#[cfg(feature = "amdgpu")]
+use crate::amdgpu::{abi::AmdGpuLowering, matrix::CtxWmma};
+#[cfg(feature = "nvptx")]
+use crate::nvptx::{
+    abi::NvptxLowering,
+    codegen::{MetadataParams, NvptxEntry},
+};
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+use crate::shared::{plane::CtxPlaneDim, shared_memory::CtxSharedMemory};
+use crate::{
+    cpu::{
+        abi::CpuLowering,
+        jit::engine::{KernelRequirements, PlironEngine},
+        shared_memory::SharedMemories,
+        synchronization::uses_cube_barrier,
+    },
+    prelude::{
+        AnalysisManager, Context, ContextExt, CtxTarget, FuncOp, LlvmTarget, ModuleOp,
+        NestedOpsPass, Op, OpPass, Operation, PMConfig, Pass, Passes, Printable, Ptr,
+        TargetLowering,
+    },
+    shared::{
+        branch::SCFToLlvmCf,
+        metadata::{CtxGridConstants, LowerEntryAbiPass},
+        polyfill::LowerComplexOpPass,
+        shared_memory::declares_shared_memory,
+        to_llvm::CubeToLLVMPass,
+    },
+};
 use core::cell::RefCell;
-use cubecl_runtime::kernel::BufferIOAttr;
-use std::rc::Rc;
-
+#[cfg(feature = "nvptx")]
+use cubecl_core::ir::nvidia::SmArch;
+use cubecl_core::{
+    Compiler,
+    ir::{amd::GfxArch, dialect::scf::BranchToSCFPass, metadata::Info, rewrite::SimplifyOpsPass},
+    post_processing::{
+        bitwise::PromoteBitwisePass,
+        minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
+    },
+    prelude::*,
+};
 use cubecl_environment::backtrace::BackTrace;
 #[cfg(feature = "amdgpu")]
 use cubecl_environment::bytes::Bytes;
-use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
-#[cfg(feature = "pliron-dump")]
-use std::{path::PathBuf, str::FromStr};
-
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
     sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
-use cubecl_runtime::compiler::CompilationError;
-
-use cubecl_core::{
-    Compiler,
-    ir::amd::GfxArch,
-    ir::dialect::scf::BranchToSCFPass,
-    ir::metadata::Info,
-    ir::rewrite::SimplifyOpsPass,
-    post_processing::bitwise::PromoteBitwisePass,
-    post_processing::minifloat::{LowerMinifloatCastPass, LowerMinifloatComparePass},
-    prelude::*,
+use cubecl_runtime::{
+    compiler::CompilationError, config::compilation::F16Evaluation, kernel::BufferIOAttr,
 };
 use pliron::{
-    builtin::ops::{FuncOp, ModuleOp},
-    context::{Context, Ptr},
-    op::Op,
-    operation::Operation,
     operation::verify_operation,
     opts::{dce::DCEPass, mem2reg::Mem2RegPass, simplify_cfg::SimplifyCFGPass},
-    pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
-    printable::Printable,
 };
-
-#[cfg(feature = "amdgpu")]
-use crate::amdgpu::{
-    abi::AmdGpuLowering, matrix::CtxWmma, plane::CtxPlaneDim, shared_memory::CtxSharedMemory,
-};
-use cubecl_runtime::config::compilation::F16Evaluation;
-
-use crate::cpu::{
-    abi::CpuLowering,
-    jit::engine::{KernelRequirements, PlironEngine},
-    shared_memory::SharedMemories,
-    synchronization::uses_cube_barrier,
-};
-use crate::shared::{
-    branch::SCFToLlvmCf, lowering::TargetLowering, metadata::LowerEntryAbiPass,
-    polyfill::LowerComplexOpPass, shared_memory::declares_shared_memory, to_llvm::CubeToLLVMPass,
-};
-use crate::target::{CtxTarget, LlvmTarget};
+use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
+use std::rc::Rc;
+#[cfg(feature = "pliron-dump")]
+use std::{path::PathBuf, str::FromStr};
 
 #[derive(Clone, Debug, Default)]
 pub struct PlironCompiler {
@@ -61,45 +65,66 @@ pub struct PlironCompiler {
 
 #[derive(Clone, Debug, Default)]
 pub struct PlironOptions {
-    /// The device [`LlvmTarget::AmdGpu`] compiles for. `None` on the CPU, which has no gfx
-    /// architecture to name.
+    /// Minimum CPU buffer alignment, including view offsets. Must be a power of two.
+    /// `None` makes no alignment promise.
+    pub cpu_buffer_alignment: Option<u32>,
+    /// AMDGPU architecture, or `None` for other targets.
     pub arch: Option<GfxArch>,
-    /// How wide f16 intermediates are held. CPU only: a GPU has f16 arithmetic of its own and
-    /// rounds after every operation.
+    /// CPU f16 evaluation precision.
     pub f16_evaluation: F16Evaluation,
+    /// NVPTX architecture, or `None` for other targets.
+    #[cfg(feature = "nvptx")]
+    pub sm_arch: Option<SmArch>,
+    /// Pass scalars and static metadata in the kernel parameter block.
+    /// The host must use the same layout.
+    pub grid_constants: bool,
 }
 
 #[cfg(feature = "amdgpu")]
-/// A finished AMD code object, compiled and linked by this crate.
+/// Compiled AMDGPU module.
 #[derive(Clone, Debug)]
 pub struct AmdGpuModule {
-    /// A linked `ET_DYN` code object, ready for `hipModuleLoadData`.
+    /// Loadable AMD code object.
     pub code_object: Bytes,
-    /// Symbol name of the `amdgpu_kernel` entry point.
+    /// Kernel entry point symbol.
     pub entrypoint: String,
-    /// Textual IR, kept for logging and for hashing into the compilation cache.
+    /// IR for logging and cache keys.
     pub ir: String,
-    /// AMDGPU assembly, populated only when `CUBECL_DEBUG_PLIRON` is set.
+    /// Assembly available when `CUBECL_DEBUG_PLIRON` is set.
     pub asm: Option<String>,
-    /// Bytes of LDS a launch must reserve, which the kernel takes as dynamic shared memory.
+    /// Shared memory required per launch, in bytes.
     pub shared_memory_size: usize,
-    /// What the kernel does with each buffer binding, by buffer position, as
-    /// stamped by `AnnotateGlobalVisibilityPass` before the entry ABI lowering
-    /// folded the buffer arguments away.
+    /// Buffer access modes in binding order.
     pub io: Vec<BufferIOAttr>,
 }
 
-/// What [`PlironCompiler`] produces. Both targets yield something directly
-/// runnable: the CPU a JIT'd function, the GPU a linked code object.
+/// Compiled PTX module.
+#[derive(Clone, Debug)]
+#[cfg(feature = "nvptx")]
+pub struct NvptxModule {
+    /// NUL-terminated PTX assembly.
+    pub ptx: Vec<core::ffi::c_char>,
+    /// Kernel entry point symbol.
+    pub entrypoint: String,
+    /// IR for logging and cache keys.
+    pub ir: String,
+    /// Shared memory required per launch, in bytes.
+    pub shared_memory_size: usize,
+    /// Buffer access modes in binding order.
+    pub io: Vec<BufferIOAttr>,
+}
+
+/// Compiled kernel artifact.
 #[derive(Clone)]
 pub enum PlironArtifact {
     Jit(PlironEngine),
     #[cfg(feature = "amdgpu")]
     AmdGpuCode(AmdGpuModule),
+    #[cfg(feature = "nvptx")]
+    NvptxCode(NvptxModule),
 }
 
 impl PlironArtifact {
-    /// The JIT engine, for hosts that only ever compile for the CPU.
     pub fn expect_jit(self) -> PlironEngine {
         match self {
             PlironArtifact::Jit(engine) => engine,
@@ -107,6 +132,8 @@ impl PlironArtifact {
             PlironArtifact::AmdGpuCode(_) => {
                 panic!("expected a JIT engine, got an AMDGPU code object")
             }
+            #[cfg(feature = "nvptx")]
+            PlironArtifact::NvptxCode(_) => panic!("expected a JIT engine, got a PTX module"),
         }
     }
 }
@@ -117,6 +144,8 @@ impl core::fmt::Display for PlironArtifact {
             PlironArtifact::Jit(engine) => write!(f, "{engine}"),
             #[cfg(feature = "amdgpu")]
             PlironArtifact::AmdGpuCode(module) => write!(f, "{}", module.ir),
+            #[cfg(feature = "nvptx")]
+            PlironArtifact::NvptxCode(module) => write!(f, "{}", module.ir),
         }
     }
 }
@@ -131,6 +160,8 @@ impl Compiler for PlironCompiler {
             PlironArtifact::Jit(engine) => Some(engine.buffer_io().to_vec()),
             #[cfg(feature = "amdgpu")]
             PlironArtifact::AmdGpuCode(module) => Some(module.io.clone()),
+            #[cfg(feature = "nvptx")]
+            PlironArtifact::NvptxCode(module) => Some(module.io.clone()),
         }
     }
 
@@ -161,6 +192,8 @@ impl Compiler for PlironCompiler {
             LlvmTarget::Cpu => "plir",
             #[cfg(feature = "amdgpu")]
             LlvmTarget::AmdGpu => "ll",
+            #[cfg(feature = "nvptx")]
+            LlvmTarget::Nvptx => "ll",
         }
     }
 
@@ -169,6 +202,8 @@ impl Compiler for PlironCompiler {
             LlvmTarget::Cpu => "mlir",
             #[cfg(feature = "amdgpu")]
             LlvmTarget::AmdGpu => "llvm",
+            #[cfg(feature = "nvptx")]
+            LlvmTarget::Nvptx => "llvm",
         }
     }
 }
@@ -190,6 +225,17 @@ impl PlironCompiler {
                     self.compile_amdgpu(kernel, arch)?,
                 ))
             }
+            #[cfg(feature = "nvptx")]
+            LlvmTarget::Nvptx => {
+                let arch = options.sm_arch.ok_or_else(|| {
+                    generic("the NVPTX target needs the device it compiles for".to_string())
+                })?;
+                Ok(PlironArtifact::NvptxCode(self.compile_nvptx(
+                    kernel,
+                    arch,
+                    options.grid_constants,
+                )?))
+            }
         }
     }
 
@@ -204,10 +250,13 @@ impl PlironCompiler {
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
         ctx.set_target(LlvmTarget::Cpu);
+        let alignment = options.cpu_buffer_alignment.unwrap_or(1);
+        assert!(alignment.is_power_of_two());
+        ctx.set_aux_ty(crate::target::CpuBufferAlignment(alignment));
+        ctx.set_grid_constants(false);
 
         let needs_parallelism = kernel.settings.cube_dim.num_elems() > 1
             && (uses_cube_barrier(&ctx, module_op) || declares_shared_memory(&ctx, module_op));
-        // Filled in by the entry ABI pass, which is where the shared memories get their slot.
         let shared_memories = Rc::new(RefCell::new(SharedMemories::default()));
 
         let lowering = CpuLowering::new(shared_memories.clone(), options.f16_evaluation);
@@ -222,7 +271,6 @@ impl PlironCompiler {
             .map_err(|err| generic(format!("converting to LLVM IR: {err}")))
     }
 
-    /// Lowers `kernel` for `arch` and compiles it into a linked AMD code object.
     #[cfg(feature = "amdgpu")]
     fn compile_amdgpu(
         self,
@@ -233,8 +281,6 @@ impl PlironCompiler {
         let ir = KernelIr::of(&kernel);
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
-        // The runtime checks this against what the driver reports before it compiles
-        // anything, so an architecture with no known width should not reach here.
         let plane_dim = arch.plane_dim().ok_or_else(|| {
             generic(format!(
                 "no known wavefront width for '{}', so a kernel cannot be generated for it",
@@ -243,14 +289,13 @@ impl PlironCompiler {
         })?;
 
         ctx.set_target(LlvmTarget::AmdGpu);
-        // Left at zero for the kernels that never declare any.
+        ctx.set_grid_constants(false);
         ctx.set_shared_memory_size(0);
         ctx.set_plane_dim(plane_dim);
         ctx.set_wmma(arch.wmma());
 
         let io = lower(&mut ctx, &ir, &AmdGpuLowering { plane_dim })?;
 
-        // Filled in by the block's lowering, which is the last point it is known.
         let shared_memory_size = ctx.shared_memory_size();
 
         crate::amdgpu::codegen::emit_code_object(
@@ -270,11 +315,59 @@ impl PlironCompiler {
             ))
         })
     }
+
+    #[cfg(feature = "nvptx")]
+    fn compile_nvptx(
+        self,
+        kernel: KernelDefinition,
+        arch: SmArch,
+        grid_constants: bool,
+    ) -> Result<NvptxModule, CompilationError> {
+        let module = kernel.body.state().module;
+        let ir = KernelIr::of(&kernel);
+        let mut ctx = kernel.body.into_context().expect("Should be owned scope");
+
+        ctx.set_target(LlvmTarget::Nvptx);
+        ctx.set_shared_memory_size(0);
+        ctx.set_grid_constants(grid_constants);
+        let plane_dim = arch.plane_dim();
+        ctx.set_plane_dim(plane_dim);
+
+        let io = lower(&mut ctx, &ir, &NvptxLowering { plane_dim })?;
+
+        let shared_memory_size = ctx.shared_memory_size();
+
+        let metadata = if grid_constants && ir.info.has_info() {
+            MetadataParams::GridConstant {
+                bytes: ir.info.dynamic_meta_offset,
+                dynamic_buffer: ir.info.has_dynamic_meta,
+            }
+        } else {
+            MetadataParams::Buffer
+        };
+
+        crate::nvptx::codegen::emit_ptx(
+            &ctx,
+            module,
+            &kernel.settings.kernel_name,
+            &arch,
+            NvptxEntry {
+                cube_dim: kernel.settings.cube_dim.num_elems(),
+                shared_memory_size,
+                io,
+                metadata,
+            },
+        )
+        .map_err(|err| {
+            generic(format!(
+                "compiling '{}' for sm_{}: {err}",
+                kernel.settings.kernel_name,
+                arch.version()
+            ))
+        })
+    }
 }
 
-/// The module and the facts about it the pipeline needs, taken while the kernel still owns
-/// its scope: lowering starts by consuming that scope into the context, after which the
-/// kernel cannot be asked anything.
 struct KernelIr {
     module_op: Ptr<Operation>,
     entry_func: FuncOp,
@@ -295,11 +388,6 @@ impl KernelIr {
     }
 }
 
-/// Runs `kernel` down to the LLVM dialect, with `target` contributing the passes around the
-/// optimizations both share, and answers what the kernel does with each buffer binding.
-///
-/// The context is left holding a verified LLVM-dialect module, which each target then takes
-/// to machine code its own way.
 fn lower(
     ctx: &mut Context,
     kernel: &KernelIr,
@@ -324,7 +412,7 @@ fn lower(
     target.prologue(&mut func_passes);
     func_passes.add_pass(SROAPass);
     func_passes.add_pass(SCCPPass);
-    func_passes.add_pass(SimpleCSEPass);
+    func_passes.add_pass(SimpleCSEPass::with_memory());
     func_passes.add_pass(SimplifyOpsPass::default());
     func_passes.add_pass(PromoteBitwisePass);
     func_passes.add_pass(InstCombinePass::default());
@@ -349,14 +437,10 @@ fn lower(
 
     let mut passes = OpPass::<ModuleOp, Passes>::default();
     passes.add_pass(NestedOpsPass::new(func_passes));
-    // Reads cube-dialect memory effects, so it has to run after the optimizations that shape
-    // them and before the lowering group erases the cube ops, which is the same
-    // post-optimization point the other backends annotate at.
+    // Memory effects must be annotated before cube operations are lowered.
     passes.add_pass(AnnotateGlobalVisibilityPass);
     run(&mut passes, module_op, ctx, &mut analyses)?;
 
-    // Read the stamped answer now: the entry ABI lowering below folds the buffer arguments
-    // behind the target's own layout and erases them, attributes included.
     let io = cubecl_core::ir::attributes::buffer_io_by_position(ctx, entry_func);
 
     let mut passes = OpPass::<ModuleOp, Passes>::default();
@@ -374,7 +458,6 @@ fn lower(
     Ok(io)
 }
 
-/// Runs `passes`, reporting a failure as a compilation error rather than unwinding.
 fn run(
     passes: &mut OpPass<ModuleOp, Passes>,
     module_op: Ptr<Operation>,
@@ -387,11 +470,6 @@ fn run(
         .map_err(|err| generic(format!("{}", err.disp(ctx))))
 }
 
-/// A compilation error carrying `reason`.
-///
-/// Everything below the `Compiler` impl reports with a `String`, and this is where those
-/// become the error the server enqueues: a kernel the backend cannot compile is a failed
-/// launch to report, not a process to take down.
 fn generic(reason: String) -> CompilationError {
     CompilationError::Generic {
         reason,

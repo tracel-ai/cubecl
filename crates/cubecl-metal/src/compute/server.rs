@@ -654,6 +654,18 @@ impl Server for MetalServer {
         Ok(ProfileDuration::new_device_time(async move { ticks }))
     }
 
+    fn abandon_profile(&mut self, stream_id: StreamId, token: ProfilingToken) {
+        // Disarm the collector and drop what it has retained: left armed it
+        // would hold every later flush's command buffers until the next
+        // `start_profile`. No sync, which is the whole difference from
+        // `end_profile`: nothing is going to read these timestamps.
+        self.streams
+            .resolve(stream_id, std::iter::empty())
+            .current()
+            .profiling = None;
+        self.timestamps.abandon(token);
+    }
+
     fn memory_usage(
         &mut self,
         stream_id: StreamId,

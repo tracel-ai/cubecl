@@ -9,9 +9,10 @@ use crate::{
         MemoryUsage,
     },
     server::{
-        BufferBinding, CommunicationId, CopyDescriptor, CubeCount, Handle, KernelArguments,
-        KernelResource, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutStrategy, ProfileError,
-        ReduceOperation, Server, ServerError, ServerStorage, ServerUtilities,
+        BufferBinding, Collective, CommunicationId, CopyDescriptor, CubeCount, Handle,
+        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
+        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Server, ServerError,
+        ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -162,6 +163,21 @@ impl Drop for GraphHandle {
         self.device
             .submit(move |server| server.graph_destroy(id, stream_id));
     }
+}
+
+/// A profiling window opened by [`Client::profile_start`], closed by
+/// [`Client::profile_end`] or dropped by [`Client::profile_abandon`].
+///
+/// It remembers the stream it was opened on, so closing it from another
+/// thread still closes it on that stream. It is a plain value with no
+/// [`Drop`]: a window that is neither ended nor abandoned stays open on the
+/// server.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ProfileWindow {
+    /// The stream the window was opened on.
+    pub stream_id: StreamId,
+    /// The server's token for the window.
+    pub token: ProfilingToken,
 }
 
 /// The state a `DeviceHandle` reaches, seen as the server it is. A client
@@ -830,7 +846,7 @@ impl Client {
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         let same_runtime = dst_server.service_id().service == self.service_id().service;
-        if self.utilities.server_comm_enabled && same_runtime {
+        if self.has_device_transport() && same_runtime {
             self.to_client_tensor(src_descriptor, dst_server, dtype)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
@@ -849,6 +865,7 @@ impl Client {
         tracing::instrument(level = "trace", skip(self, device_ids))
     )]
     pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
+        self.expect_device_transport(Collective::CommInit);
         let comm_id = CommunicationId::from(device_ids.clone());
         let is_comms_init = self.utilities.initialized_comms.read().contains(&comm_id);
         if !is_comms_init {
@@ -861,11 +878,37 @@ impl Client {
         }
     }
 
+    /// Whether this runtime moves data between its devices itself. Without it, `to_client`
+    /// copies through the host and the collectives refuse.
+    pub fn has_device_transport(&self) -> bool {
+        self.utilities.server_comm_enabled
+    }
+
+    /// Panics on the caller when the runtime has no device transport.
+    fn expect_device_transport(&self, operation: Collective) {
+        // The server refuses too, but on the device thread, where the channel turns the panic into
+        // a log line and the caller only sees a later read fail.
+        if !self.has_device_transport() {
+            let alternative = match operation {
+                Collective::Send | Collective::Recv => "; `to_client` copies through the host",
+                _ => "",
+            };
+            panic!(
+                "Can't use `{operation}` on {}, which has no transport between its devices{alternative}",
+                self.utilities.name
+            );
+        }
+    }
+
     /// Wait on the communication stream.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `sync_collective` with a blocking device handle");
+        }
+        // Nothing was sent between devices, so there is nothing to wait for.
+        if !self.has_device_transport() {
+            return;
         }
         let stream_id = self.stream_id();
 
@@ -899,6 +942,7 @@ impl Client {
         if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `all_reduce` with a blocking device handle");
         }
+        self.expect_device_transport(Collective::AllReduce);
 
         let stream_id = self.stream_id();
         let src = src.binding();
@@ -933,6 +977,7 @@ impl Client {
         dst_server: &Self,
         dtype: ElemType,
     ) -> Handle {
+        self.expect_device_transport(Collective::Send);
         self.expect_local(&src_descriptor.handle);
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
@@ -1137,51 +1182,44 @@ impl Client {
                         return;
                     }
                 };
-                // The observer is told first, because resolving the profile
-                // consumes it: the logger's copy is the one that can be
-                // deferred, an observer's cannot be recovered afterwards.
-                let profile = if observed_timing {
-                    let method = profile.timing_method();
-                    let ticks = cubecl_environment::future::block_on(profile.resolve());
-                    match &ticks {
-                        Some(ticks) => crate::logging::notify_timed(name, ticks.duration(), method),
-                        // Nothing to tell the observer: the window carried no
-                        // measurement, and reporting it as zero would put a
-                        // launch that was never timed in the timings.
-                        None => log::warn!(
-                            "Skipped timing a launch of `{name}` for its observer: \
-                             the profiled window carried no measurement"
-                        ),
-                    }
-                    // Handed on already resolved rather than measured again:
-                    // the logger and the observer are two readers of one
-                    // measurement, and a second would not be the same launch.
-                    ProfileDuration::new(alloc::boxed::Box::pin(async move { ticks }), method)
-                } else {
-                    profile
-                };
-                match level {
-                    // An observer does not change what the logger writes.
-                    // `ExecutionOnly` is documented as the kernels that ran
-                    // without their timings, and it reaches here only because
-                    // an observer asked for the profiled path — registering
-                    // the profile would turn a log the caller configured into
-                    // one it did not.
-                    Some(ProfileLevel::ExecutionOnly) => {
+                // The observer alone: it takes the measurement unread, so the
+                // kernels around this one keep running back to back. An observer
+                // does not change what the logger writes, and `ExecutionOnly` is
+                // documented as the kernels that ran without their timings, so
+                // it logs the execution and never the profile.
+                if observed_timing && matches!(level, None | Some(ProfileLevel::ExecutionOnly)) {
+                    crate::logging::notify_profiled(name, profile);
+                    if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                         let info = profile_label(name, &kernel_id);
                         self.utilities.logger.register_execution(info);
                     }
-                    Some(level) => {
-                        let info = match level {
-                            ProfileLevel::Full => {
-                                format!("{name}: {kernel_id} CubeCount {count:?}")
-                            }
-                            _ => profile_label(name, &kernel_id),
-                        };
-                        self.utilities.logger.register_profiled(info, profile);
-                    }
-                    None => {}
+                    return;
                 }
+                // Both read this measurement, and a measurement is read once.
+                // The observer is told first because resolving consumes it: the
+                // logger's copy is the one that can be deferred, an observer's
+                // cannot be recovered afterwards.
+                let profile = if observed_timing {
+                    // The observer asked to keep its measurements and cannot:
+                    // the logger reads this one, so the observer is told a
+                    // duration and its kernels stop overlapping.
+                    crate::logging::warn_logger_takes_deferred_measurements();
+                    // Comes back already resolved rather than measured again:
+                    // the logger and the observer are two readers of one
+                    // measurement, and a second would not be the same launch.
+                    crate::logging::read_and_notify_timed(name, profile)
+                } else {
+                    profile
+                };
+                // Every level left times its launches: the ones that don't
+                // either never took this path or returned above.
+                let info = match level {
+                    Some(ProfileLevel::Full) => {
+                        format!("{name}: {kernel_id} CubeCount {count:?}")
+                    }
+                    _ => profile_label(name, &kernel_id),
+                };
+                self.utilities.logger.register_profiled(info, profile);
             }
         }
     }
@@ -1486,6 +1524,53 @@ impl Client {
             .unwrap_or_resume()
     }
 
+    /// Open a profiling window at the current position of the calling stream.
+    ///
+    /// Prefer the bracketed [`profile`](Self::profile), which also holds the
+    /// device for the closure. This pair is for a caller that cannot bracket the
+    /// work in a closure — a lazy queue drained on another thread, say — and
+    /// only knows *when* on the stream its window opens and closes.
+    ///
+    /// The window keeps the stream it was opened on, and
+    /// [`profile_end`](Self::profile_end) closes it there whichever thread
+    /// calls it. Nothing keeps other streams' work out of the window.
+    ///
+    /// An open window costs something on every backend and stays open until it
+    /// is ended or [abandoned](Self::profile_abandon), so a caller that bails
+    /// out between the two calls has to abandon it.
+    pub fn profile_start(&self) -> Result<ProfileWindow, ProfileError> {
+        let stream_id = self.stream_id();
+        let token = self
+            .device
+            .submit_blocking(move |server| server.start_profile(stream_id))
+            .unwrap_or_resume()
+            .map_err(|err| ProfileError::from(&err))?;
+        Ok(ProfileWindow { stream_id, token })
+    }
+
+    /// Close `window` at the current position of the stream it was opened on.
+    pub fn profile_end(&self, window: ProfileWindow) -> Result<ProfileDuration, ProfileError> {
+        let ProfileWindow { stream_id, token } = window;
+        self.device
+            .submit_blocking(move |server| server.end_profile(stream_id, token))
+            .unwrap_or_resume()
+    }
+
+    /// Drop `window` without measuring it, for a caller that will never reach
+    /// [`profile_end`](Self::profile_end), such as an error path between the
+    /// two calls.
+    ///
+    /// Does not wait for the server to drop it, but does flush, because this
+    /// is usually a caller's last word: an abandon left sitting in the queue
+    /// holds the window open for exactly as long as it is the only thing in
+    /// there, which is the case it exists for.
+    pub fn profile_abandon(&self, window: ProfileWindow) {
+        let ProfileWindow { stream_id, token } = window;
+        self.device
+            .submit(move |server| server.abandon_profile(stream_id, token));
+        self.device.flush_queue();
+    }
+
     /// Measure the execution time of some inner operations.
     #[track_caller]
     pub fn profile<O: Send + 'static>(
@@ -1576,11 +1661,18 @@ impl Client {
                     ProfileDuration::new(
                         alloc::boxed::Box::pin(async move {
                             let ticks = result.resolve().await;
-                            let start_duration =
-                                ticks.start_duration_since(epoch).as_nanos() as i64;
-                            let end_duration = ticks.end_duration_since(epoch).as_nanos() as i64;
-                            gpu_span.upload_timestamp_start(start_duration);
-                            gpu_span.upload_timestamp_end(end_duration);
+                            // A window that carried no measurement has no span
+                            // to place: `resolve` answers `None` rather than a
+                            // zero so nothing reports it as an instant at the
+                            // epoch.
+                            if let Some(ticks) = &ticks {
+                                let start_duration =
+                                    ticks.start_duration_since(epoch).as_nanos() as i64;
+                                let end_duration =
+                                    ticks.end_duration_since(epoch).as_nanos() as i64;
+                                gpu_span.upload_timestamp_start(start_duration);
+                                gpu_span.upload_timestamp_end(end_duration);
+                            }
                             ticks
                         }),
                         TimingMethod::Device,

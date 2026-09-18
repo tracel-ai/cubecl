@@ -113,8 +113,8 @@ impl Threadpool {
 /// block into the slot of `table` the kernel reads it from. Those slots follow the buffers, so
 /// the table is padded first when the kernel takes fewer buffers than the launch provides.
 ///
-/// The pool guarantees an alignment of its own too small for a vector, so a block is
-/// over-reserved and its base rounded up.
+/// Blocks requiring more than the pool's SIMD alignment are over-reserved and their bases
+/// rounded up.
 ///
 /// The reservations are released right away: shared-memory launches never overlap — the stream
 /// drains before enqueuing one (see `CpuStream::enqueue_task`).
@@ -134,8 +134,13 @@ fn reserve_shared_memories(
     let mut handles = Vec::with_capacity(shared_memories.blocks.len());
 
     for (slot, block) in shared_memories.blocks.iter().enumerate() {
+        let padding = if block.align > BytesStorage::ALIGNMENT {
+            block.align - 1
+        } else {
+            0
+        };
         let handle = memory
-            .reserve((block.size + block.align - 1) as u64, failures)
+            .reserve((block.size + padding) as u64, failures)
             .expect("Failed to reserve the shared memory of the launch");
         let reserved = memory
             .get_resource(handle.clone().binding(), None, None)

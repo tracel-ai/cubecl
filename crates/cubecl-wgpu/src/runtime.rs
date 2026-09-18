@@ -513,6 +513,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         DeviceIdentity {
             name: adapter_info.name.clone(),
             fingerprint,
+            physical: backend::physical_device(&setup.adapter, &adapter_info),
         },
     );
 

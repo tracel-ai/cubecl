@@ -372,6 +372,12 @@ impl Server for CudaServer {
         self.ctx.profiler.stop(sys, token)
     }
 
+    fn abandon_profile(&mut self, _stream_id: StreamId, token: ProfilingToken) {
+        // Nothing to record on the device: dropping the window returns its
+        // start event to the pool.
+        self.ctx.profiler.abandon(token);
+    }
+
     fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
         self.command_no_inputs(stream_id).memory_usage()
     }
@@ -853,6 +859,7 @@ impl CudaServer {
         let grid_constants = self
             .ctx
             .compilation_options
+            .cpp
             .supports_features
             .grid_constants;
         let mut command = self.command(stream_id, bindings.buffers());
