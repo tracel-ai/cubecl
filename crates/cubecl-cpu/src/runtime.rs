@@ -191,6 +191,8 @@ impl DeviceService for CpuServer {
         let topology = HardwareProperties {
             load_width,
             vector_register_count: vector_registers.count,
+            // Past one register, a wider vector still amortizes each IO iteration's index math.
+            io_width: 512,
             plane_size_min: 1,
             plane_size_max: 1,
             max_bindings: u32::MAX,

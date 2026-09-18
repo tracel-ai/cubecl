@@ -28,11 +28,14 @@ use cubecl_common::profile::TimingMethod;
 /// be assumed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HardwareProperties {
-    /// The maximum size of a single load instruction, in bits. Used for optimized vector sizes.
+    /// The widest single load instruction, in bits.
     pub load_width: u32,
     /// How many `load_width`-bit vector registers the device has, or `None` where it has no
     /// fixed set. A kernel keeping more vectors live than this spills them to memory.
     pub vector_register_count: Option<u32>,
+    /// The widest vector, in bits, that reads and writes are sized to, which can exceed
+    /// `load_width` where a vector spanning several loads still moves data faster.
+    pub io_width: u32,
     /// The minimum size of a plane on this device
     pub plane_size_min: u32,
     /// The maximum size of a plane on this device
@@ -499,6 +502,7 @@ mod tests {
         HardwareProperties {
             load_width,
             vector_register_count,
+            io_width: 512,
             plane_size_min: 1,
             plane_size_max: 1,
             max_bindings: u32::MAX,
