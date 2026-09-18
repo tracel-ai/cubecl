@@ -38,7 +38,7 @@ use std::{collections::HashMap, sync::Arc};
 pub struct CpuServer {
     scheduler: SchedulerMultiStream<ScheduledCpuBackend>,
     utilities: Arc<ServerUtilities>,
-    compilation_cache: HashMap<KernelId, CpuKernel>,
+    compilation_cache: HashMap<(KernelId, u32), CpuKernel>,
     compilation_options: PlironOptions,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
@@ -120,7 +120,7 @@ impl CpuServer {
 
     fn prepare_task(
         &mut self,
-        kernel_id: KernelId,
+        kernel_id: (KernelId, u32),
         count: CubeCount,
         bindings: BindingsResource,
         stream_id: StreamId,
@@ -149,18 +149,22 @@ impl CpuServer {
 
     /// Compile and cache `kernel` without scheduling anything — everything a
     /// skipped launch owes the caches, touching no buffer.
-    fn compile_only(&mut self, kernel: &dyn CubeKernel) -> Result<(), CompilationError> {
-        let kernel_id = kernel.id();
+    fn compile_only(
+        &mut self,
+        kernel: &dyn CubeKernel,
+        alignment: u32,
+    ) -> Result<(), CompilationError> {
+        let kernel_id = (kernel.id(), alignment);
         if self.compilation_cache.contains_key(&kernel_id) {
             return Ok(());
         }
         let definition = kernel.define();
-        let compiled = CompiledKernel::compile(
-            kernel,
-            definition,
-            &mut CpuCompiler::default(),
-            &self.compilation_options,
-        )?;
+        let options = PlironOptions {
+            cpu_buffer_alignment: Some(alignment),
+            ..self.compilation_options.clone()
+        };
+        let compiled =
+            CompiledKernel::compile(kernel, definition, &mut CpuCompiler::default(), &options)?;
         // The executable artifact here is the JIT engine the compiler built,
         // not the text. A precompiled kernel brings text and no engine.
         if compiled.repr.is_none() {
@@ -179,7 +183,7 @@ impl CpuServer {
 
     fn prepare_task_inner(
         &mut self,
-        kernel_id: KernelId,
+        kernel_id: (KernelId, u32),
         cube_count: [u32; 3],
         bindings: BindingsResource,
         stream_id: StreamId,
@@ -390,8 +394,26 @@ impl Server for CpuServer {
         // no stream dependency either, which is correct rather than an
         // oversight — nothing is scheduled, so there is no work for a later
         // stream to order against.
+        // Storage bases and pool offsets are 64-byte aligned. A view can weaken that
+        // guarantee, so cache a separate specialization for its common alignment.
+        // Inspect only descriptors: dry runs must not materialize any buffer.
+        let alignment =
+            bindings
+                .resources
+                .iter()
+                .fold(
+                    BytesStorage::ALIGNMENT as u32,
+                    |align, resource| match resource {
+                        KernelResource::Buffer(binding) => {
+                            let bits = binding.offset_start.unwrap_or(0).trailing_zeros();
+                            1u32 << bits.min(align.trailing_zeros())
+                        }
+                        _ => align,
+                    },
+                );
         let kernel_id = kernel.id();
-        if let Err(err) = self.compile_only(kernel.as_ref()) {
+        let cache_key = (kernel_id.clone(), alignment);
+        if let Err(err) = self.compile_only(kernel.as_ref(), alignment) {
             let error = ServerError::Launch(LaunchError::CompilationError(err));
             self.scheduler.stream(&stream_id).profile_failure(&error);
             if !launch_mode.is_skipped() {
@@ -407,7 +429,7 @@ impl Server for CpuServer {
 
         let io = self
             .compilation_cache
-            .get(&kernel_id)
+            .get(&cache_key)
             .and_then(|kernel| kernel.mlir.io.clone());
 
         // The scope claims what the launch writes until the body proves the
@@ -446,7 +468,7 @@ impl Server for CpuServer {
                 .for_each(|b| server.streams_pool.push(b.stream));
             let bindings = server.prepare_bindings(bindings);
             let task = server
-                .prepare_task(kernel_id, count, bindings, stream_id)
+                .prepare_task(cache_key, count, bindings, stream_id)
                 .map_err(|err| ServerError::Launch(LaunchError::CompilationError(err)))?;
 
             server

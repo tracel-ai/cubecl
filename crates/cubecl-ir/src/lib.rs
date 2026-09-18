@@ -29,6 +29,8 @@ pub mod convert;
 pub mod dialect;
 pub mod interfaces;
 pub mod metadata;
+#[cfg(feature = "nvidia")]
+pub mod nvidia;
 pub mod rewrite;
 pub mod settings;
 pub mod types;

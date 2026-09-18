@@ -1,4 +1,6 @@
-use super::prelude::*;
+use crate::prelude::*;
+#[cfg(feature = "nvptx")]
+use cubecl_core::ir::AddressType;
 use cubecl_core::ir::types::{
     ArrayType, AtomicType,
     scalar::{
@@ -6,56 +8,23 @@ use cubecl_core::ir::types::{
         FloatFlex32Type,
     },
 };
-use pliron::printable::Printable;
 
-/// LLVM width of a `cube.index`, in bits.
-///
-/// Fixed at 64 **on purpose**, and not from the kernel's
-/// [`AddressType`](cubecl_core::ir::AddressType) as one might expect — note
-/// that `IndexType::size` does read `ctx.address_type()`, which defaults to
-/// `U32`, so the two genuinely disagree and this is the one that decides the
-/// emitted IR.
-///
-/// Narrowing it to follow the address type was tried and measured on gfx1151.
-/// It is a pessimisation, because the pointer is 64-bit whatever the index is:
-///
-/// ```text
-/// index i64                           index i32
-/// ---------                           ---------
-/// v_lshlrev_b64   v[10:11], 4, ...    v_ashrrev_i32 v9, 31, v8   <- extra
-/// v_add_co_u32    v10, s0, v10        v_lshlrev_b64 v[8:9], 4, ...
-/// v_add_co_ci_u32 v11, s1, v11        v_add_co_u32  v8, s0, v8
-/// global_load_b128                    v_add_co_ci_u32 v9, s1, v9
-///                                     global_load_b128
-/// ```
-///
-/// The 32-bit form still does the 64-bit shift and add to form the address, and
-/// pays one more VALUE op to widen the index first. A decode benchmark measured
-/// flat to slightly worse across three runs, and the memory probe did not move.
-///
-/// It is also **not correct as-is**: that widening is `v_ashrrev`, an
-/// *arithmetic* shift, so the backend sign-extends the GEP index. The index
-/// arithmetic itself is emitted unsigned (`udiv`, `icmp ult`), but an index at
-/// or above 2^31 would address negatively — while `required_address_type` only
-/// promotes to `U64` past `u32::MAX`. Narrowing would need an explicit `zext`
-/// at the GEP, and would still not pay.
-///
-/// # The disagreement is not harmless, and is not fixed here
-///
-/// Keeping 64 is right for the *arithmetic*, but `IndexType::size` still
-/// answers 4, and other code believes it. `shared_memory.rs` reserves a block
-/// from `SizedType::size`, and `ArrayType::size` multiplies the inner one — so
-/// a shared `[n x cube.index]` reserves `4n` bytes for a type this backend
-/// emits as `[n x i64]` and writes `8n` into, overrunning whatever block was
-/// laid out next. Nothing in tree allocates shared memory of index type today,
-/// which is the only reason it has not bitten.
-///
-/// Fixing it properly means either sizing shared memory from the *converted*
-/// LLVM type rather than the cube type, or making `IndexType::size` agree with
-/// what this backend emits. Both are the owners' call; this comment exists so
-/// the next reader does not conclude, as the old one invited, that two numbers
-/// disagreeing is merely untidy.
-pub const INDEX_WIDTH: u32 = 64;
+/// Index width in bits. CPU and AMDGPU use 64 bits; NVPTX follows the address type.
+pub fn index_width(ctx: &Context) -> u32 {
+    match ctx.target() {
+        #[cfg(feature = "nvptx")]
+        LlvmTarget::Nvptx => match ctx.address_type() {
+            AddressType::U32 => 32,
+            AddressType::U64 => 64,
+        },
+        #[cfg(feature = "amdgpu")]
+        LlvmTarget::AmdGpu => 64,
+        LlvmTarget::Cpu => 64,
+    }
+}
+
+/// Pointer index width in bits.
+pub const GEP_INDEX_WIDTH: u32 = 64;
 
 macro_rules! impl_cube_to_llvm_type {
     ($src:ty, $self:ident, $ctx:ident => $body:expr) => {
@@ -70,7 +39,7 @@ macro_rules! impl_cube_to_llvm_type {
 
 impl_cube_to_llvm_type!(IntegerType, self, ctx => IntegerType::get(ctx, self.width(), Signedness::Signless));
 impl_cube_to_llvm_type!(BoolType, self, ctx => IntegerType::get(ctx, 1, Signedness::Signless));
-impl_cube_to_llvm_type!(IndexType, self, ctx => IntegerType::get(ctx, INDEX_WIDTH, Signedness::Signless));
+impl_cube_to_llvm_type!(IndexType, self, ctx => IntegerType::get(ctx, index_width(ctx), Signedness::Signless));
 impl_cube_to_llvm_type!(Float64Type, self, ctx => FP64Type::get(ctx));
 impl_cube_to_llvm_type!(Float32Type, self, ctx => FP32Type::get(ctx));
 impl_cube_to_llvm_type!(FloatFlex32Type, self, ctx => FP32Type::get(ctx));
@@ -86,12 +55,24 @@ impl_cube_to_llvm_type!(ArrayType, self, ctx => {
     LlvmArrayType::get(ctx, inner, self.length as u64)
 });
 
-/// Convert a cubecl type to its LLVM-dialect equivalent, or return it unchanged when no
-/// conversion applies.
 pub fn cube_type_to_llvm(ctx: &Context, ty: TypeHandle) -> TypeHandle {
     type_cast::<dyn CubeToLLVMType>(&*ty.deref(ctx))
         .map(|convertible| convertible.convert(ctx))
         .unwrap_or(ty)
+}
+
+/// Access alignment is limited by CPU buffer guarantees. GPU accesses use type
+/// alignment. Matrix tiles use [`scalar_alignment`] to allow padded strides.
+pub fn type_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
+    let ty = ty.deref(ctx);
+    let alignment = type_cast::<dyn AlignedType>(&*ty)
+        .expect("load/store value type must implement AlignedType")
+        .align(ctx) as u32;
+    if ctx.target() == LlvmTarget::Cpu {
+        alignment.min(ctx.aux_ty::<crate::target::CpuBufferAlignment>().0)
+    } else {
+        alignment
+    }
 }
 
 pub fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
@@ -132,6 +113,7 @@ impl_llvm_type_to_mangled_overload!(IntegerType, self, _ctx => format!("i{}", se
 impl_llvm_type_to_mangled_overload!(FP16Type, self, _ctx => "f16".to_string());
 impl_llvm_type_to_mangled_overload!(FP32Type, self, _ctx => "f32".to_string());
 impl_llvm_type_to_mangled_overload!(FP64Type, self, _ctx => "f64".to_string());
+impl_llvm_type_to_mangled_overload!(LlvmPointerType, self, _ctx => format!("p{}", self.address_space()));
 impl_llvm_type_to_mangled_overload!(LlvmVectorType, self, ctx => {
     let prefix = if self.is_scalable() {
         "nx"
@@ -142,7 +124,6 @@ impl_llvm_type_to_mangled_overload!(LlvmVectorType, self, ctx => {
     format!("{prefix}v{n}{}", llvm_mangled_ty(ctx, elem))
 });
 
-/// Convert a llvm type to the string
 pub fn llvm_mangled_ty(ctx: &Context, ty: TypeHandle) -> String {
     type_cast::<dyn LlvmTypeToMangledOverload>(&*ty.deref(ctx))
         .map(|ty| ty.to_string(ctx))
