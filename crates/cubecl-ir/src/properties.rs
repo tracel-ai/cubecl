@@ -100,7 +100,8 @@ pub struct DeviceIdentity {
     /// Verbatim the `compilation_store` fingerprint, so a namespace read back
     /// out of a bundle compares against it directly.
     pub fingerprint: String,
-    /// The card behind the device, `None` when the runtime knows nothing about it.
+    /// The card behind the device, `None` for a device that is no card: a CPU, or a software
+    /// rasterizer.
     pub physical: Option<PhysicalDevice>,
 }
 
@@ -117,7 +118,9 @@ pub struct PhysicalDevice {
 }
 
 impl PhysicalDevice {
-    /// Whether `other` is this card through another runtime: by PCI address, otherwise by LUID.
+    /// Whether `other` is known to be this card through another runtime: by PCI address, otherwise
+    /// by LUID. A card with neither matches nothing, itself included, since two such cards of one
+    /// make compare equal.
     pub fn is_same_card(&self, other: &Self) -> bool {
         if let (Some(mine), Some(theirs)) = (self.pci_address, other.pci_address) {
             return mine == theirs;

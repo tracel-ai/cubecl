@@ -425,7 +425,7 @@ pub fn register_metal_features(
     false
 }
 
-/// The card behind `adapter`, `None` for a software adapter or when nothing is known about it.
+/// The card behind `adapter`, `None` for a software adapter, which is no card at all.
 #[cfg_attr(not(any(feature = "spirv", windows)), expect(unused_variables))]
 pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<PhysicalDevice> {
     if info.device_type == wgpu::DeviceType::Cpu {
@@ -445,7 +445,7 @@ pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<Ph
     }
     #[cfg(windows)]
     dx12::describe_card(adapter, &mut physical);
-    (physical != PhysicalDevice::default()).then_some(physical)
+    Some(physical)
 }
 
 #[cfg(feature = "spirv")]
