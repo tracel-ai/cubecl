@@ -1,11 +1,11 @@
 //! CUDA math library support.
 
-use crate::shared::math_library::{FloatWidth, MathLibrary};
-use llvm_sys::prelude::LLVMModuleRef;
-use std::{
-    ffi::{CStr, c_char},
-    path::{Path, PathBuf},
+use crate::shared::{
+    bitcode::link_bitcode,
+    math_library::{FloatWidth, MathLibrary},
 };
+use llvm_sys::prelude::LLVMModuleRef;
+use std::path::{Path, PathBuf};
 
 /// Math intrinsics provided by libdevice.
 const NO_LIBCALL: [&str; 19] = [
@@ -61,28 +61,7 @@ pub unsafe fn link_libdevice(module: LLVMModuleRef) -> Result<(), String> {
     })?;
     let bitcode =
         std::fs::read(&path).map_err(|err| format!("reading {}: {err}", path.display()))?;
-
-    // SAFETY: `module` is live, and the shim only reads `bitcode` for the length given. It
-    // returns an owned message on failure, freed below.
-    let err = unsafe {
-        cubecl_link_device_bitcode(module, bitcode.as_ptr() as *const c_char, bitcode.len())
-    };
-    if !err.is_null() {
-        // SAFETY: the shim returns a NUL-terminated `malloc`'d string we now own.
-        let message = unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() };
-        unsafe { cubecl_free_message(err) };
-        return Err(format!("{}: {message}", path.display()));
-    }
-    Ok(())
-}
-
-unsafe extern "C" {
-    /// Returns null on success or an owned error message.
-    fn cubecl_link_device_bitcode(
-        dest: LLVMModuleRef,
-        data: *const c_char,
-        len: usize,
-    ) -> *mut c_char;
-
-    fn cubecl_free_message(message: *mut c_char);
+    // SAFETY: the caller keeps `module` live.
+    unsafe { link_bitcode(module, &bitcode) }
+        .map_err(|message| format!("{}: {message}", path.display()))
 }
