@@ -1,7 +1,8 @@
 use crate::compute::{
-    alloc_controller::CpuAllocController, schedule::ScheduleTask, threadpool::Threadpool,
+    alloc_controller::CpuAllocController,
+    schedule::ScheduleTask,
+    threadpool::{Threadpool, completion_counter::CompletionCounter},
 };
-use crossbeam_utils::CachePadded;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
@@ -19,7 +20,7 @@ use cubecl_server::{
     stream::StreamMemory,
     timestamp_profiler::TimestampProfiler,
 };
-use std::sync::{Arc, atomic::AtomicU64};
+use std::sync::Arc;
 
 pub struct CpuStream {
     pub(crate) memory_management: MemoryManagement<BytesStorage>,
@@ -33,7 +34,7 @@ pub struct CpuStream {
     pub(crate) timestamps: TimestampProfiler,
     threadpool: &'static spin::Mutex<Threadpool>,
     next_counter_step: u64,
-    atomic_counter: Arc<CachePadded<AtomicU64>>,
+    atomic_counter: Arc<CompletionCounter>,
 }
 
 impl StreamMemory for CpuStream {
@@ -86,7 +87,7 @@ impl CpuStream {
         );
         let threadpool = Threadpool::get();
         let next_counter_step = 0;
-        let atomic_counter = Arc::new(CachePadded::new(AtomicU64::new(0)));
+        let atomic_counter = Arc::new(CompletionCounter::new());
         Self {
             memory_management,
             shared_memory_management,
@@ -150,23 +151,7 @@ impl CpuStream {
     /// scheduler aligning streams. Whatever is queued stays queued, for the
     /// flush of the stream that owns it.
     pub fn submit(&mut self) {
-        // Spin briefly, then yield between polls: the client is not pinned,
-        // and a pure spin parked on a worker's logical CPU keeps that worker
-        // off it until the next timer tick (~3 ms unit-start stalls).
-        const SPINS_BEFORE_YIELD: u32 = 1_000;
-        let mut spins = 0u32;
-        while self
-            .atomic_counter
-            .load(std::sync::atomic::Ordering::Acquire)
-            != self.next_counter_step
-        {
-            spins += 1;
-            if spins < SPINS_BEFORE_YIELD {
-                std::hint::spin_loop();
-            } else {
-                std::thread::yield_now();
-            }
-        }
+        self.atomic_counter.wait_until(self.next_counter_step);
     }
 
     /// Wait for the queued work. A launch failure is not the flush's to
