@@ -43,7 +43,7 @@ pub fn call_op(
 /// A signless `i32` constant, which is what the intrinsics here take.
 pub fn i32_const_op(ctx: &mut Context, value: i32) -> llvm::ConstantOp {
     let attr = int_attr(ctx, I32_WIDTH, value as i128);
-    llvm::ConstantOp::new(ctx, attr.into())
+    llvm::ConstantOp::new(ctx, Box::new(attr))
 }
 
 /// This lane's index within its wavefront: the operations that compute it, in the order they

@@ -39,6 +39,8 @@ pub struct DropBump {
     drop_thunks: Vec<DropThunk>,
 }
 
+unsafe impl Send for DropBump {}
+
 #[derive(Debug, TypeHash)]
 struct DropThunk {
     func: fn(*mut ()),
