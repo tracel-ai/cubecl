@@ -1445,3 +1445,52 @@ fn memory_ssa_optimized_use_clobbered_by_opaque_boundary() -> Result<()> {
     .assert_eq(&printed);
     Ok(())
 }
+
+/// Loops in sequence chain their region phis: resolving the use below walks every one of them.
+/// The walk used to recurse once per phi and overflowed the thread compiling a kernel with many
+/// rolled loops, so this runs on a stack far smaller than the chain would need that way.
+#[test]
+fn memory_ssa_optimized_use_walks_a_long_phi_chain_without_recursing() {
+    const LOOPS: usize = 2000;
+    let loops: String = (0..LOOPS)
+        .map(|i| {
+            format!(
+                "y{i} = scf.for start to end step step iter_args(c) {{
+                  ^body{i}(i{i}: builtin.integer i32, c{i}: builtin.integer i64):
+                    memory_ssa.memory_def_in_space Local;
+                    branch.yield (c{i})
+                }};\n"
+            )
+        })
+        .collect();
+    let input = format!(
+        r#"
+    builtin.func @f: builtin.function <(builtin.integer i32) -> ()> [] {{
+      ^entry(end: builtin.integer i32):
+        start = builtin.constant <builtin.integer <0: i32>> : builtin.integer i32;
+        step = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32;
+        c = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
+        memory_ssa.memory_def_in_space Shared;
+        {loops}
+        memory_ssa.memory_use_in_space Shared;
+        branch.return
+    }}
+  "#
+    );
+
+    let printed = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || {
+            let ctx = &mut Context::default();
+            run_optimized_memory_ssa_on_text(ctx, &input).map_err(|err| err.to_string())
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        printed.contains("MemoryUse(M1, ReadAllInSpace(Shared))"),
+        "the use should skip every loop's Local def and reach the Shared def at entry"
+    );
+}
