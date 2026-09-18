@@ -13,7 +13,8 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    Builtin, CanMaterialize, ConstantValue, NoMemoryEffect, PropagatesUniformity, Pure,
+    Builtin, CanMaterialize, ConstantValue, HasSideEffects, NoMemoryEffect, PropagatesUniformity,
+    Pure,
     attributes::{BoolAttr, IndexAttr},
     dialect::{
         math::{index_attr, int_attr},
@@ -344,13 +345,13 @@ impl UniformOpInterface for StrideOp {
 
 #[cube_op(name = "cube.comment")]
 #[result_ty(none)]
-#[op_traits(NoMemoryEffect)]
+#[op_traits(NoMemoryEffect, HasSideEffects)]
 pub struct CommentOp {
     pub comment: StringAttr,
 }
 
 #[pliron_op(name = "cube.printf", format, attributes = (cube_printf_format_string: StringAttr), verifier = "succ")]
-#[op_traits(NoMemoryEffect)]
+#[op_traits(NoMemoryEffect, HasSideEffects)]
 pub struct PrintfOp;
 
 impl PrintfOp {

@@ -119,7 +119,7 @@ impl LowerCpuCF for WhileOp {
 }
 
 #[op_interface_impl]
-impl LowerCpuCF for RangeLoopOp {
+impl LowerCpuCF for ForOp {
     fn rewrite(
         &self,
         ctx: &mut Context,

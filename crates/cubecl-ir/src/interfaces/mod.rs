@@ -1,5 +1,5 @@
 use crate::{
-    AddressSpace, CanMaterialize, ConstantValue, ElemType, NoMemoryEffect,
+    CanMaterialize, ConstantValue, ElemType,
     dialect::synchronization::SyncScope,
     prelude::*,
     types::{AtomicType, PointerType, VectorType, scalar::*},
@@ -10,8 +10,6 @@ use pliron::{
     builtin::{attr_interfaces::TypedAttrInterface, ops::ConstantOp, types::IntegerType},
     context::Context,
     derive::{op_interface, type_interface},
-    opts::dce::SideEffects,
-    printable::Printable,
     r#type::{TypeHandle, type_cast},
     utils::apint::APInt,
     value::Use,
@@ -20,6 +18,7 @@ use pliron::{
 pub mod aliasing;
 pub mod control_flow;
 pub mod memory_slot;
+pub mod side_effects;
 pub mod traits;
 pub mod uniformity;
 
@@ -96,7 +95,7 @@ pub trait MaterializableOp {
 CanMaterialize!(ConstantOp);
 
 #[op_interface]
-pub trait Synchronizes: SideEffects {
+pub trait Synchronizes {
     verify_op_succ!();
 
     /// Synchronizes at least at this scope. Should be used for optimizations where smaller scopes
@@ -120,74 +119,9 @@ macro_rules! synchronizes {
                 $scope
             }
         }
-        #[pliron::derive::op_interface_impl]
-        impl pliron::opts::dce::SideEffects for $ty {
-            fn has_side_effects(&self, _ctx: &Context) -> bool {
-                true
-            }
-        }
     };
 }
 pub(crate) use synchronizes;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum MemoryEffect {
-    Read(Value),
-    Write(Value),
-    ReadAllInSpace(AddressSpace),
-    WriteAllInSpace(AddressSpace),
-    ReadAll,
-    WriteAll,
-    // Not analyzable, clobber the entire state
-    Opaque,
-}
-
-impl MemoryEffect {
-    pub fn value(&self) -> Option<Value> {
-        match self {
-            MemoryEffect::Read(value) | MemoryEffect::Write(value) => Some(*value),
-            MemoryEffect::ReadAllInSpace(_)
-            | MemoryEffect::WriteAllInSpace(_)
-            | MemoryEffect::ReadAll
-            | MemoryEffect::WriteAll
-            | MemoryEffect::Opaque => None,
-        }
-    }
-}
-
-impl Printable for MemoryEffect {
-    fn fmt(
-        &self,
-        ctx: &Context,
-        _state: &pliron::printable::State,
-        f: &mut core::fmt::Formatter<'_>,
-    ) -> core::fmt::Result {
-        match self {
-            MemoryEffect::Read(value) => write!(f, "Read({})", value.disp(ctx)),
-            MemoryEffect::Write(value) => write!(f, "Write({})", value.disp(ctx)),
-            MemoryEffect::ReadAllInSpace(address_space) => {
-                write!(f, "ReadAllInSpace({})", address_space.disp(ctx))
-            }
-            MemoryEffect::WriteAllInSpace(address_space) => {
-                write!(f, "WriteAllInSpace({})", address_space.disp(ctx))
-            }
-            MemoryEffect::ReadAll => write!(f, "ReadAll"),
-            MemoryEffect::WriteAll => write!(f, "WriteAll"),
-            MemoryEffect::Opaque => write!(f, "Opaque"),
-        }
-    }
-}
-
-#[op_interface]
-pub trait MemoryEffects {
-    verify_op_succ!();
-    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect>;
-    fn has_effects(&self, ctx: &Context) -> bool {
-        !self.memory_effects(ctx).is_empty()
-    }
-}
-
-NoMemoryEffect!(ConstantOp);
 
 #[type_interface]
 pub trait AlignedType {

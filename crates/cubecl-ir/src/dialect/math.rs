@@ -14,7 +14,10 @@ use crate::{
     CanMaterialize, ConstantValue, NoMemoryEffect, NoSideEffects, PropagatesUniformity, Pure,
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttrExt},
     dialect::{pure_binop, pure_unop},
-    interfaces::{TriviallyUnrollable, TypedExt},
+    interfaces::{
+        TriviallyUnrollable, TypedExt,
+        side_effects::{ConditionallySpeculatable, Speculatability},
+    },
     prelude::*,
     types::{VectorType, scalar::BoolType},
 };
@@ -429,6 +432,20 @@ simplify!(SDivOp, {
     }
 });
 
+#[op_interface_impl]
+impl ConditionallySpeculatable for SDivOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        let Some(const_val) = const_operand::<IntegerAttr>(ctx, self.get_operation(), 1) else {
+            return Speculatability::NotSpeculatable;
+        };
+        if const_val.value().is_zero() || const_val.value().to_i128() == -1 {
+            Speculatability::NotSpeculatable
+        } else {
+            Speculatability::Speculatable
+        }
+    }
+}
+
 #[cube_op(name = "math.u_div")]
 #[result_ty(same_as = lhs)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
@@ -460,6 +477,20 @@ simplify!(UDivOp, {
         _ => None?,
     }
 });
+
+#[op_interface_impl]
+impl ConditionallySpeculatable for UDivOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        let Some(const_val) = const_operand::<IntegerAttr>(ctx, self.get_operation(), 1) else {
+            return Speculatability::NotSpeculatable;
+        };
+        if const_val.value().is_zero() {
+            Speculatability::NotSpeculatable
+        } else {
+            Speculatability::Speculatable
+        }
+    }
+}
 
 pure_binop!("math.f_div", FDivOp);
 const_eval!(FDivOp, {
@@ -537,6 +568,20 @@ simplify!(SRemOp, {
     }
 });
 
+#[op_interface_impl]
+impl ConditionallySpeculatable for SRemOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        let Some(const_val) = const_operand::<IntegerAttr>(ctx, self.get_operation(), 1) else {
+            return Speculatability::NotSpeculatable;
+        };
+        if const_val.value().is_zero() || const_val.value().to_i128() == -1 {
+            Speculatability::NotSpeculatable
+        } else {
+            Speculatability::Speculatable
+        }
+    }
+}
+
 #[cube_op(name = "math.u_rem")]
 #[result_ty(same_as = lhs)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
@@ -564,6 +609,20 @@ simplify!(URemOp, {
         _ => None?,
     }
 });
+
+#[op_interface_impl]
+impl ConditionallySpeculatable for URemOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        let Some(const_val) = const_operand::<IntegerAttr>(ctx, self.get_operation(), 1) else {
+            return Speculatability::NotSpeculatable;
+        };
+        if const_val.value().is_zero() {
+            Speculatability::NotSpeculatable
+        } else {
+            Speculatability::Speculatable
+        }
+    }
+}
 
 pure_binop!("math.f_rem", FRemOp);
 const_eval!(FRemOp, {
@@ -604,6 +663,20 @@ const_eval!(SModFloorOp, {
         _ => None?
     }
 });
+
+#[op_interface_impl]
+impl ConditionallySpeculatable for SModFloorOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        let Some(const_val) = const_operand::<IntegerAttr>(ctx, self.get_operation(), 1) else {
+            return Speculatability::NotSpeculatable;
+        };
+        if const_val.value().is_zero() {
+            Speculatability::NotSpeculatable
+        } else {
+            Speculatability::Speculatable
+        }
+    }
+}
 
 pure_binop!("math.f_mod_floor", FModFloorOp);
 const_eval!(FModFloorOp, {

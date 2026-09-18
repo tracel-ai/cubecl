@@ -4,7 +4,7 @@ use cubecl_macros_internal::NamedRewrite;
 use derive_more::{Deref, DerefMut, From};
 use derive_new::new;
 use pliron::{
-    attribute::AttrObj,
+    attribute::{AttrObj, Attribute},
     builtin::{
         given_names::{get_operation_result_name, set_operation_result_name},
         ops::ConstantOp,
@@ -122,6 +122,10 @@ impl MatchRewrite for SimplifyOps {
         }
         Ok(())
     }
+}
+
+pub fn const_operand<T: Attribute>(ctx: &Context, op: Ptr<Operation>, idx: usize) -> Option<T> {
+    Some(*const_operands(ctx, op).remove(idx)?.downcast().ok()?)
 }
 
 pub fn const_operands(ctx: &Context, op: Ptr<Operation>) -> Vec<Option<AttrObj>> {

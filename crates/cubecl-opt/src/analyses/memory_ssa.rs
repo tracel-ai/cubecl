@@ -9,11 +9,11 @@ use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
     dialect::RegionPtrExt,
     interfaces::{
-        MemoryEffect, MemoryEffects,
         memory_slot::{
             MemorySSAContext, MemorySSARegionOpInterface, MemoryValue, RegionMemoryPhiInputs,
             RegionMemoryValue,
         },
+        side_effects::{MemoryEffect, MemoryEffectsOp},
     },
     prelude::*,
 };
@@ -112,7 +112,7 @@ impl MemoryOpAnalyzer<'_> {
                 let region = op.deref(ctx).get_parent_region(ctx).unwrap();
                 if op.deref(ctx).num_regions() > 0 {
                     // Region ops are processed separately
-                } else if let Some(mem_effects) = op_cast::<dyn MemoryEffects>(&*op.dyn_op(ctx)) {
+                } else if let Some(mem_effects) = op_cast::<dyn MemoryEffectsOp>(&*op.dyn_op(ctx)) {
                     let effects = mem_effects.memory_effects(ctx);
                     if effects.is_empty() {
                         return;
@@ -210,7 +210,7 @@ impl MemoryOpAnalyzer<'_> {
 #[derive(Clone, Copy)]
 pub enum NodeMemoryEffects {
     Opaque,
-    Op(TraitOpPtr<dyn MemoryEffects>),
+    Op(TraitOpPtr<dyn MemoryEffectsOp>),
 }
 
 impl NodeMemoryEffects {

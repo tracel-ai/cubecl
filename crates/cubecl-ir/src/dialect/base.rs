@@ -50,6 +50,10 @@ pub trait RegionPtrExt: Sized {
     fn is_empty(&self, ctx: &Context) -> bool;
 }
 
+pub trait OperationExt {
+    fn immediately_nested_ops(&self, ctx: &Context) -> impl Iterator<Item = Ptr<Operation>>;
+}
+
 impl OperationPtrExt for Ptr<Operation> {
     fn as_op<T: Op>(self, ctx: &Context) -> Option<T> {
         Operation::get_op(self, ctx)
@@ -118,6 +122,14 @@ impl OperationPtrExt for Ptr<Operation> {
             child = parent;
         }
         false
+    }
+}
+
+impl OperationExt for Operation {
+    fn immediately_nested_ops(&self, ctx: &Context) -> impl Iterator<Item = Ptr<Operation>> {
+        self.regions()
+            .flat_map(|region| region.deref(ctx).iter(ctx))
+            .flat_map(|block| block.deref(ctx).iter(ctx))
     }
 }
 

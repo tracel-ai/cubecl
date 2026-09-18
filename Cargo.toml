@@ -230,6 +230,9 @@ renderdoc = "0.12"
 cc = "1.2"
 cfg_aliases = "0.2.2"
 
+[patch.crates-io]
+pliron = { path = "../pliron" }
+pliron-llvm = { path = "../pliron/pliron-llvm" }
 
 [profile.dev.build-override]
 opt-level = 3

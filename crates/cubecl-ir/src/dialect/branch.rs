@@ -4,9 +4,9 @@ use pliron::{
     builtin::attributes::IntegerAttr,
     irbuild::inserter::OpInsertionPoint,
     linked_list::ContainsLinkedList,
-    opts::dce::SideEffects,
     region::Region,
     utils::{
+        apint::APInt,
         const_bound_n::I,
         table::{HMap, SmallMap},
     },
@@ -15,7 +15,8 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    CanMaterialize, NoMemoryEffect, ReturnLike,
+    AlwaysSpeculatable, CanMaterialize, NoMemoryEffect, RecursiveMemoryEffects,
+    RecursiveSideEffects, RecursivelySpeculatable, ReturnLike,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     dialect::scf::block_mem_val,
     interfaces::{
@@ -28,6 +29,7 @@ use crate::{
             MemoryRegionPredecessor, MemorySSAContext, MemorySSARegionOpInterface, MemoryValue,
             RegionMemoryPhiInputs, RegionMemoryValue,
         },
+        side_effects::{ConditionallySpeculatable, Speculatability},
         uniformity::{UniformRegionTerminatorOpInterface, Uniformity},
     },
     prelude::*,
@@ -56,7 +58,7 @@ pub enum YieldOpVerifyErr {
 
 #[pliron_op(name = "branch.yield", format = "`(` operands(CharSpace(`,`)) `)`")]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>)]
-#[op_traits(NoMemoryEffect, ReturnLike, CanMaterialize)]
+#[op_traits(NoMemoryEffect, AlwaysSpeculatable, ReturnLike, CanMaterialize)]
 pub struct YieldOp;
 
 impl YieldOp {
@@ -98,7 +100,7 @@ impl Verify for YieldOp {
 
 #[pliron_op(name = "branch.condition", format = "`(` operands(CharSpace(`,`)) `)`")]
 #[op_interfaces(IsTerminatorInterface, NResultsInterface<0>, OperandNOfType<0, BoolType>)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_traits(CanMaterialize, NoMemoryEffect, AlwaysSpeculatable)]
 pub struct ConditionOp;
 
 impl ConditionOp {
@@ -234,26 +236,13 @@ impl UnreachableOp {
     }
 }
 
-pub(super) fn block_side_effects(ctx: &Context, block: Ptr<BasicBlock>) -> bool {
-    block.deref(ctx).iter(ctx).any(|op| {
-        // Yield should not count as an effect in a region, but also can't implement
-        // `SideEffects = true` because then it would immediately get eliminated
-        if op.is_op::<YieldOp>(ctx) {
-            return false;
-        }
-        match op_cast::<dyn SideEffects>(&*op.dyn_op(ctx)) {
-            Some(side_effects) => side_effects.has_side_effects(ctx),
-            None => true,
-        }
-    })
-}
-
 #[pliron_op(
     name = "branch.if",
     format = "$0 ` then ` region($0) ` else ` region($1)",
     verifier = "succ"
 )]
 #[op_interfaces(NOpdsInterface<1>, NResultsInterface<0>, NRegionsInterface<2>, SingleBlockRegionInterface, OperandNOfType<0, BoolType>)]
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable)]
 pub struct IfOp;
 
 impl IfOp {
@@ -312,14 +301,6 @@ fn inline_block(
             rewriter.move_operation(ctx, op, insertion_pt);
             insertion_pt = OpInsertionPoint::AfterOperation(op);
         }
-    }
-}
-
-#[op_interface_impl]
-impl SideEffects for IfOp {
-    fn has_side_effects(&self, ctx: &Context) -> bool {
-        block_side_effects(ctx, self.then_block(ctx))
-            || block_side_effects(ctx, self.else_block(ctx))
     }
 }
 
@@ -456,6 +437,7 @@ impl CanonicalizeInterface for IfOp {
     verifier = "succ"
 )]
 #[op_interfaces(NOpdsInterface<1>, NResultsInterface<0>, SingleBlockRegionInterface)]
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable)]
 pub struct SwitchOp;
 
 impl SwitchOp {
@@ -664,6 +646,7 @@ impl CanonicalizeInterface for SwitchOp {
 
 #[pliron_op(name = "branch.range_loop", format, verifier = "succ")]
 #[op_interfaces(NResultsInterface<0>, OneRegionInterface, SingleBlockRegionInterface, SameOperandsType)]
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects)]
 pub struct RangeLoopOp;
 
 impl RangeLoopOp {
@@ -699,6 +682,10 @@ impl RangeLoopOp {
 
     pub fn step(&self, ctx: &Context) -> Value {
         self.get_operation().deref(ctx).get_operand(2)
+    }
+
+    pub fn constant_step(&self, ctx: &Context) -> Option<APInt> {
+        Some(const_operand::<IntegerAttr>(ctx, self.get_operation(), 2)?.value())
     }
 
     pub fn loop_region(&self, ctx: &Context) -> Ptr<Region> {
@@ -777,6 +764,19 @@ impl RegionBranchOpInterface for RangeLoopOp {
     }
 }
 
+#[op_interface_impl]
+impl ConditionallySpeculatable for RangeLoopOp {
+    fn speculatability(&self, ctx: &Context) -> Speculatability {
+        if let Some(constant_step) = self.constant_step(ctx)
+            && constant_step.to_i128() == 1
+        {
+            Speculatability::RecursivelySpeculatable
+        } else {
+            Speculatability::NotSpeculatable
+        }
+    }
+}
+
 #[pliron_op(
     name = "branch.while",
     format = "`while ` region($0) ` do ` region($1)",
@@ -787,6 +787,7 @@ impl RegionBranchOpInterface for RangeLoopOp {
     NRegionsInterface<2>,
     SingleBlockRegionInterface
 )]
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects)]
 pub struct WhileOp;
 
 impl WhileOp {

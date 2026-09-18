@@ -22,7 +22,7 @@ use pliron::{
     linked_list::ContainsLinkedList,
     location::Location,
     op::{OpBox, OpObj},
-    opts::{dce::SideEffects, mem2reg::AllocInfo},
+    opts::mem2reg::AllocInfo,
     parsable::{IntoParseResult, Parsable, ParseResult, StateStream},
     printable::Printable,
     region::Region,
@@ -30,10 +30,11 @@ use pliron::{
 };
 
 use crate::{
+    RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable,
     attributes::{BoolAttr, IntegerVecAttr, ZeroAttr},
     dialect::{
         BlockPtrExt,
-        branch::{self, ConditionOp, YieldOp, block_side_effects},
+        branch::{self, ConditionOp, YieldOp},
     },
     interfaces::{
         CanonicalizeInterface,
@@ -57,6 +58,7 @@ use crate::{
     verifier = "succ"
 )]
 #[op_interfaces(NOpdsInterface<1>, NRegionsInterface<2>, SingleBlockRegionInterface, OperandNOfType<0, BoolType>)]
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable)]
 pub struct IfOp;
 
 impl IfOp {
@@ -120,6 +122,7 @@ fn inline_block(
     block: Ptr<BasicBlock>,
     insertion_point: OpInsertionPoint,
 ) {
+    // test
     let ops = block.deref(ctx).iter(ctx).collect::<Vec<_>>();
     let mut insertion_pt = insertion_point;
     for op in ops {
@@ -127,14 +130,6 @@ fn inline_block(
             rewriter.move_operation(ctx, op, insertion_pt);
             insertion_pt = OpInsertionPoint::AfterOperation(op);
         }
-    }
-}
-
-#[op_interface_impl]
-impl SideEffects for IfOp {
-    fn has_side_effects(&self, ctx: &Context) -> bool {
-        block_side_effects(ctx, self.then_block(ctx))
-            || block_side_effects(ctx, self.else_block(ctx))
     }
 }
 
@@ -385,6 +380,7 @@ impl CanonicalizeInterface for IfOp {
     verifier = "succ"
 )]
 #[op_interfaces(NOpdsInterface<1>, SingleBlockRegionInterface)]
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects, RecursivelySpeculatable)]
 pub struct SwitchOp;
 
 impl SwitchOp {
@@ -735,9 +731,10 @@ impl CanonicalizeInterface for SwitchOp {
     SingleBlockRegionInterface,
     OperandSegmentInterface
 )]
-pub struct RangeLoopOp;
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects)]
+pub struct ForOp;
 
-impl RangeLoopOp {
+impl ForOp {
     pub fn new(
         ctx: &mut Context,
         results: Vec<TypeHandle>,
@@ -834,7 +831,7 @@ impl RangeLoopOp {
     }
 }
 
-impl Printable for RangeLoopOp {
+impl Printable for ForOp {
     fn fmt(
         &self,
         ctx: &Context,
@@ -867,7 +864,7 @@ impl Printable for RangeLoopOp {
     }
 }
 
-impl Parsable for RangeLoopOp {
+impl Parsable for ForOp {
     type Arg = Vec<(Identifier, Location)>;
     type Parsed = OpObj;
 
@@ -915,7 +912,7 @@ impl Parsable for RangeLoopOp {
         process_parsed_ssa_defs(state_stream, &results, op)?;
 
         Region::parse(state_stream, op)?;
-        let op = RangeLoopOp { op };
+        let op = ForOp { op };
         op.set_operand_segment_sizes(state_stream.state.ctx, segments);
 
         Ok(OpBox::new(op)).into_parse_result()
@@ -931,8 +928,8 @@ impl BranchToSCFOp for branch::RangeLoopOp {
         _: &OperandsInfo,
     ) -> Result<()> {
         let opds = self.get_operation().operands(ctx);
-        let (operands, segments) = RangeLoopOp::compute_segment_sizes(vec![opds, vec![]]);
-        let info = RangeLoopOp::get_concrete_op_info();
+        let (operands, segments) = ForOp::compute_segment_sizes(vec![opds, vec![]]);
+        let info = ForOp::get_concrete_op_info();
         let op = Operation::new(ctx, info, vec![], operands, vec![], 0);
 
         let regions = self.get_operation().regions(ctx);
@@ -943,7 +940,7 @@ impl BranchToSCFOp for branch::RangeLoopOp {
         rewriter.append_operation(ctx, op);
         rewriter.replace_operation(ctx, self.get_operation(), op);
 
-        let op = RangeLoopOp { op };
+        let op = ForOp { op };
         op.set_operand_segment_sizes(ctx, segments);
 
         Ok(())
@@ -951,7 +948,7 @@ impl BranchToSCFOp for branch::RangeLoopOp {
 }
 
 #[op_interface_impl]
-impl PromotableRegionOpInterface for RangeLoopOp {
+impl PromotableRegionOpInterface for ForOp {
     fn is_region_promotable(&self, _: &Context, _: &AllocInfo, _: Ptr<Region>, _: bool) -> bool {
         true
     }
@@ -1001,7 +998,7 @@ impl PromotableRegionOpInterface for RangeLoopOp {
 }
 
 #[op_interface_impl]
-impl MemorySSARegionOpInterface for RangeLoopOp {
+impl MemorySSARegionOpInterface for ForOp {
     fn setup_memory_ssa(
         &self,
         ctx: &Context,
@@ -1052,7 +1049,7 @@ impl MemorySSARegionOpInterface for RangeLoopOp {
 }
 
 #[op_interface_impl]
-impl RegionBranchOpInterface for RangeLoopOp {
+impl RegionBranchOpInterface for ForOp {
     fn entry_successor_operands(&self, ctx: &Context, _successor: RegionSuccessor) -> Vec<Value> {
         self.initial_carried_values(ctx)
     }
@@ -1071,7 +1068,7 @@ impl RegionBranchOpInterface for RangeLoopOp {
 }
 
 #[op_interface_impl]
-impl UniformRegionOpInterface for RangeLoopOp {
+impl UniformRegionOpInterface for ForOp {
     fn result_uniformity(&self, _ctx: &Context, operands: &[Uniformity]) -> Uniformity {
         operands[0].min(operands[1]).min(operands[2])
     }
@@ -1087,7 +1084,7 @@ impl UniformRegionOpInterface for RangeLoopOp {
 }
 
 #[op_interface_impl]
-impl CanonicalizeInterface for RangeLoopOp {
+impl CanonicalizeInterface for ForOp {
     fn canonicalize(&self, ctx: &mut Context, _rewriter: &mut MatchRewriter) -> Result<()> {
         let results = self.get_operation().results(ctx);
         let body_block = self.loop_body(ctx);
@@ -1111,6 +1108,7 @@ impl CanonicalizeInterface for RangeLoopOp {
     verifier = "succ"
 )]
 #[op_interfaces(NRegionsInterface<2>, SingleBlockRegionInterface)]
+#[op_traits(RecursiveMemoryEffects, RecursiveSideEffects)]
 pub struct WhileOp;
 
 impl WhileOp {
