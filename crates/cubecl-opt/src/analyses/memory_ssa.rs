@@ -755,7 +755,7 @@ pub struct MemorySSAWalker<'a> {
 
 type VisitedSet = SmallSet<MemoryValue, 8>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum TraversalResult {
     Value(MemoryValue),
     Cycle,
@@ -769,69 +769,77 @@ enum ExploredResult {
 
 /// One walk on the explicit stack of [`MemorySSAWalker::next_clobbering_def_impl`].
 struct WalkFrame {
-    current_value: MemoryValue,
+    state: WalkState,
     visited: VisitedSet,
-    /// The phi this walk is stopped at, waiting on its inputs' sub-walks.
-    phi: Option<PhiWalk>,
-    /// Set when a sub-walk's result settles this walk.
-    outcome: Option<TraversalResult>,
+}
+
+/// Where a walk stands.
+enum WalkState {
+    /// Walking up from this value.
+    Walking(MemoryValue),
+    /// Stopped at a phi, waiting on its inputs' sub-walks.
+    AtPhi(PhiWalk),
+    /// Done, with this result.
+    Settled(TraversalResult),
 }
 
 impl WalkFrame {
-    fn new(current_value: MemoryValue, visited: VisitedSet) -> Self {
+    fn new(start: MemoryValue, visited: VisitedSet) -> Self {
         Self {
-            current_value,
+            state: WalkState::Walking(start),
             visited,
-            phi: None,
-            outcome: None,
         }
     }
 
     /// Takes the result of the sub-walk from the phi's latest input. A cycle is dropped, since
     /// cycles only happen on paths without clobbers; two inputs reaching different clobbers make
     /// the phi itself the clobber.
-    fn receive(
+    fn take_input_result(
         &mut self,
         result: TraversalResult,
         explored: &mut HashMap<MemoryValue, ExploredResult>,
     ) {
-        let phi = self.phi.as_mut().expect("a sub-walk only runs for a phi");
+        let WalkState::AtPhi(phi) = &mut self.state else {
+            unreachable!("a sub-walk only runs for a phi");
+        };
         let TraversalResult::Value(value) = result else {
             return;
         };
-        match phi.first {
-            None => phi.first = Some(value),
-            Some(first) if first == value => {}
+        match phi.agreed {
+            None => phi.agreed = Some(value),
+            Some(agreed) if agreed == value => {}
             Some(_) => {
                 explored.insert(phi.value, ExploredResult::Clobber);
-                self.outcome = Some(TraversalResult::Value(phi.value));
-                self.phi = None;
+                self.state = WalkState::Settled(TraversalResult::Value(phi.value));
             }
         }
     }
 }
 
-/// A phi being resolved: its inputs, which of them has been walked, and the clobber the walked
-/// ones agree on.
+/// A phi being resolved: which of its inputs has been walked, and the clobber the walked ones
+/// agree on.
 struct PhiWalk {
     value: MemoryValue,
-    inputs: Vec<MemoryValue>,
     next: usize,
-    first: Option<MemoryValue>,
+    agreed: Option<MemoryValue>,
 }
 
 impl PhiWalk {
-    fn new(value: MemoryValue, inputs: Vec<MemoryValue>) -> Self {
+    fn new(value: MemoryValue) -> Self {
         Self {
             value,
-            inputs,
             next: 0,
-            first: None,
+            agreed: None,
         }
     }
 
-    fn next_unvisited(&mut self, visited: &VisitedSet) -> Option<MemoryValue> {
-        while let Some(&input) = self.inputs.get(self.next) {
+    /// The next input not on the current path, read off the phi's node.
+    fn next_unvisited(
+        &mut self,
+        memory_ssa: &MemorySSA,
+        visited: &VisitedSet,
+    ) -> Option<MemoryValue> {
+        while let Some(input) = self.next_input(memory_ssa) {
             self.next += 1;
             if !visited.contains(&input) {
                 return Some(input);
@@ -839,10 +847,37 @@ impl PhiWalk {
         }
         None
     }
+
+    fn next_input(&self, memory_ssa: &MemorySSA) -> Option<MemoryValue> {
+        match memory_ssa.node_for_value(self.value)? {
+            MemorySSANode::Phi(phi) => phi.inputs.iter().nth(self.next).map(|(_, value)| *value),
+            MemorySSANode::RegionPhi(phi) => {
+                phi.inputs.iter().nth(self.next).map(|(_, value)| *value)
+            }
+            MemorySSANode::Def(_) | MemorySSANode::Use(_) => None,
+        }
+    }
+
+    /// Every input walked: the clobber they agree on, or a cycle if none reached one.
+    fn resolve(&self, explored: &mut HashMap<MemoryValue, ExploredResult>) -> WalkState {
+        match self.agreed {
+            Some(value) => {
+                explored.insert(self.value, ExploredResult::Advance(value));
+                WalkState::Walking(value)
+            }
+            None => {
+                explored.insert(self.value, ExploredResult::Cycle);
+                WalkState::Settled(TraversalResult::Cycle)
+            }
+        }
+    }
 }
 
+/// What a frame needs next from the stack driving it.
 enum WalkStep {
+    /// A sub-walk from this phi input.
     Descend(MemoryValue),
+    /// Nothing: the frame is done.
     Return(TraversalResult),
 }
 
@@ -879,7 +914,7 @@ impl<'a> MemorySSAWalker<'a> {
                 WalkStep::Return(result) => {
                     stack.pop();
                     match stack.last_mut() {
-                        Some(parent) => parent.receive(result, explored),
+                        Some(parent) => parent.take_input_result(result, explored),
                         None => return result,
                     }
                 }
@@ -893,75 +928,65 @@ impl<'a> MemorySSAWalker<'a> {
         frame: &mut WalkFrame,
         explored: &mut HashMap<MemoryValue, ExploredResult>,
     ) -> WalkStep {
-        let ctx = self.ctx;
         loop {
-            if let Some(result) = frame.outcome.take() {
-                return WalkStep::Return(result);
-            }
-            if let Some(phi) = &mut frame.phi {
-                if let Some(input) = phi.next_unvisited(&frame.visited) {
-                    return WalkStep::Descend(input);
+            match &mut frame.state {
+                WalkState::Walking(value) => {
+                    frame.state = self.step(*value, &mut frame.visited, explored);
                 }
-                let phi = frame.phi.take().expect("checked above");
-                match phi.first {
-                    Some(value) => {
-                        explored.insert(phi.value, ExploredResult::Advance(value));
-                        frame.current_value = value;
-                    }
-                    None => {
-                        explored.insert(phi.value, ExploredResult::Cycle);
-                        return WalkStep::Return(TraversalResult::Cycle);
+                WalkState::AtPhi(phi) => {
+                    match phi.next_unvisited(self.memory_ssa, &frame.visited) {
+                        Some(input) => return WalkStep::Descend(input),
+                        None => frame.state = phi.resolve(explored),
                     }
                 }
+                WalkState::Settled(result) => return WalkStep::Return(*result),
             }
+        }
+    }
 
-            let current_value = frame.current_value;
-            let Some(node) = self.memory_ssa.node_for_value(current_value) else {
-                return WalkStep::Return(TraversalResult::Value(current_value));
+    /// One step up from `value`.
+    fn step(
+        &self,
+        value: MemoryValue,
+        visited: &mut VisitedSet,
+        explored: &mut HashMap<MemoryValue, ExploredResult>,
+    ) -> WalkState {
+        let Some(node) = self.memory_ssa.node_for_value(value) else {
+            return WalkState::Settled(TraversalResult::Value(value));
+        };
+        visited.insert(value);
+        if let Some(next) = explored.get(&value) {
+            return match next {
+                ExploredResult::Advance(next) => WalkState::Walking(*next),
+                ExploredResult::Clobber => WalkState::Settled(TraversalResult::Value(value)),
+                ExploredResult::Cycle => WalkState::Settled(TraversalResult::Cycle),
             };
-            frame.visited.insert(current_value);
-            if let Some(next) = explored.get(&current_value) {
-                match next {
-                    ExploredResult::Advance(value) => {
-                        frame.current_value = *value;
-                        continue;
-                    }
-                    ExploredResult::Clobber => {
-                        return WalkStep::Return(TraversalResult::Value(current_value));
-                    }
-                    ExploredResult::Cycle => return WalkStep::Return(TraversalResult::Cycle),
+        }
+        match node {
+            MemorySSANode::Def(def) => {
+                let effects = def.effects(self.ctx);
+                let mod_ref =
+                    self.memory_ssa
+                        .analysis_stack
+                        .mod_ref(self.ctx, self.effects, &effects);
+                if mod_ref.contains_mod() {
+                    explored.insert(value, ExploredResult::Clobber);
+                    WalkState::Settled(TraversalResult::Value(value))
+                } else {
+                    explored.insert(value, ExploredResult::Advance(def.input));
+                    WalkState::Walking(def.input)
                 }
             }
-            match node {
-                MemorySSANode::Def(def) => {
-                    let effects = def.effects(ctx);
-                    let mod_ref =
-                        self.memory_ssa
-                            .analysis_stack
-                            .mod_ref(ctx, self.effects, &effects);
-                    if mod_ref.contains_mod() {
-                        explored.insert(current_value, ExploredResult::Clobber);
-                        return WalkStep::Return(TraversalResult::Value(current_value));
-                    }
-                    explored.insert(current_value, ExploredResult::Advance(def.input));
-                    frame.current_value = def.input;
-                }
-                MemorySSANode::Use(r#use) => {
-                    explored.insert(current_value, ExploredResult::Advance(r#use.input));
-                    frame.current_value = r#use.input;
-                }
-                MemorySSANode::Phi(_) | MemorySSANode::RegionPhi(_) if self.stop_at_phi => {
-                    explored.insert(current_value, ExploredResult::Clobber);
-                    return WalkStep::Return(TraversalResult::Value(current_value));
-                }
-                MemorySSANode::Phi(phi) => {
-                    let inputs = phi.inputs.iter().map(|(_, value)| *value).collect();
-                    frame.phi = Some(PhiWalk::new(current_value, inputs));
-                }
-                MemorySSANode::RegionPhi(phi) => {
-                    let inputs = phi.inputs.iter().map(|(_, value)| *value).collect();
-                    frame.phi = Some(PhiWalk::new(current_value, inputs));
-                }
+            MemorySSANode::Use(r#use) => {
+                explored.insert(value, ExploredResult::Advance(r#use.input));
+                WalkState::Walking(r#use.input)
+            }
+            MemorySSANode::Phi(_) | MemorySSANode::RegionPhi(_) if self.stop_at_phi => {
+                explored.insert(value, ExploredResult::Clobber);
+                WalkState::Settled(TraversalResult::Value(value))
+            }
+            MemorySSANode::Phi(_) | MemorySSANode::RegionPhi(_) => {
+                WalkState::AtPhi(PhiWalk::new(value))
             }
         }
     }
