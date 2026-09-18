@@ -259,6 +259,10 @@ impl Runtime for HipRuntime {
 
     fn enumerate_devices(_: u16) -> Vec<cubecl_core::device::DeviceId> {
         fn device_count() -> usize {
+            if !cubecl_hip_sys::is_available() {
+                return 0;
+            }
+
             let mut device_count: c_int = 0;
             let result;
             // SAFETY: Calling HIP FFI to get the number of available devices.
