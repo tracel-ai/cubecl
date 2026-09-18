@@ -14,7 +14,7 @@ use cubecl_core::{
     server::{IoError, KernelArguments},
 };
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_ir::{DeviceProperties, Type, features::*};
+use cubecl_ir::{AdapterLuid, DeviceProperties, Type, features::*};
 use cubecl_server::compiler::CompilationError;
 use cubecl_server::kernel::CompiledKernel;
 use cubecl_spirv::{SpirvCompiler, SpirvKernel};
@@ -823,4 +823,32 @@ where
         });
     }
     Ok(compiled)
+}
+
+pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::PhysicalDevice) {
+    // SAFETY: the hal adapter is only read while `adapter` keeps it alive.
+    let Some(hal_adapter) = (unsafe { adapter.as_hal::<hal::api::Vulkan>() }) else {
+        return;
+    };
+    let instance = hal_adapter.shared_instance();
+    let capabilities = hal_adapter.physical_device_capabilities();
+    // wgpu's instance only carries the core `get_physical_device_properties2`, which needs 1.1.
+    if instance.instance_api_version() < API_VERSION_1_1
+        || capabilities.properties().api_version < API_VERSION_1_1
+    {
+        return;
+    }
+
+    let mut ids = vk::PhysicalDeviceIDProperties::default();
+    let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut ids);
+    // SAFETY: both structures are core in 1.1, checked above.
+    unsafe {
+        instance
+            .raw_instance()
+            .get_physical_device_properties2(hal_adapter.raw_physical_device(), &mut properties);
+    }
+
+    if ids.device_luid_valid == vk::TRUE {
+        physical.luid = Some(AdapterLuid::new(ids.device_luid));
+    }
 }

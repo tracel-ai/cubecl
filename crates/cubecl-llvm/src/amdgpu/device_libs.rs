@@ -1,24 +1,13 @@
 //! `ROCm` device libraries.
 
+use crate::shared::bitcode::link_bitcode;
 use cubecl_core::ir::amd::GfxArch;
 use llvm_sys::prelude::LLVMModuleRef;
 use std::{
     collections::HashMap,
-    ffi::{CStr, c_char},
     path::PathBuf,
     sync::{Mutex, OnceLock},
 };
-
-unsafe extern "C" {
-    /// Returns null on success or an owned error message.
-    fn cubecl_link_device_bitcode(
-        dest: LLVMModuleRef,
-        data: *const c_char,
-        len: usize,
-    ) -> *mut c_char;
-
-    fn cubecl_free_message(message: *mut c_char);
-}
 
 /// `CUBECL_ROCM_DEVICE_LIB_PATH` and `HIP_DEVICE_LIB_PATH` override the search paths.
 const DEVICE_LIB_PATH_VARS: [&str; 2] = ["CUBECL_ROCM_DEVICE_LIB_PATH", "HIP_DEVICE_LIB_PATH"];
@@ -123,17 +112,8 @@ pub unsafe fn link_device_libs(
 ) -> Result<(), String> {
     for name in device_libs_for(arch, needs, code_object_version) {
         let bitcode = device_lib(&name)?;
-
-        // SAFETY: `bitcode` lives for the process, and the shim only reads it.
-        let err = unsafe {
-            cubecl_link_device_bitcode(module, bitcode.as_ptr() as *const c_char, bitcode.len())
-        };
-        if !err.is_null() {
-            // SAFETY: the shim returns a NUL-terminated `malloc`'d string we now own.
-            let message = unsafe { CStr::from_ptr(err).to_string_lossy().into_owned() };
-            unsafe { cubecl_free_message(err) };
-            return Err(format!("{name}: {message}"));
-        }
+        // SAFETY: the caller keeps `module` live.
+        unsafe { link_bitcode(module, bitcode) }.map_err(|message| format!("{name}: {message}"))?;
     }
     Ok(())
 }

@@ -375,6 +375,7 @@ impl<M: Marker> DummyServer<M> {
             DeviceIdentity {
                 name: "dummy".to_string(),
                 fingerprint: "dummy".to_string(),
+                physical: None,
             },
         );
         let logger = Arc::new(ServerLogger::default());

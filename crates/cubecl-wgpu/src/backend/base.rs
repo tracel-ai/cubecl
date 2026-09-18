@@ -1,9 +1,10 @@
 use super::wgsl;
-use crate::WgpuServer;
-use crate::{AutoRepresentationRef, WgpuCompiler};
-use cubecl_core::{CubeDim, ExecutionMode, WgpuCompilationOptions, server::KernelArguments};
-use cubecl_core::{MemoryConfiguration, prelude::Visibility};
-use cubecl_ir::DeviceProperties;
+use crate::{AutoRepresentationRef, WgpuCompiler, WgpuServer};
+use cubecl_core::{
+    CubeDim, ExecutionMode, MemoryConfiguration, WgpuCompilationOptions, prelude::Visibility,
+    server::KernelArguments,
+};
+use cubecl_ir::{DeviceProperties, PhysicalDevice};
 use cubecl_server::{
     compiler::{CompilationError, KernelCacheKey},
     id::KernelId,
@@ -20,6 +21,9 @@ use super::vulkan;
 
 #[cfg(all(feature = "msl", target_os = "macos"))]
 use super::metal;
+
+#[cfg(windows)]
+use super::dx12;
 
 /// What a shader module is built from: the compiler's representation and the
 /// source text, reconciled.
@@ -419,6 +423,29 @@ pub fn register_metal_features(
     _memory_config: &MemoryConfiguration,
 ) -> bool {
     false
+}
+
+/// The card behind `adapter`, `None` for a software adapter, which is no card at all.
+#[cfg_attr(not(any(feature = "spirv", windows)), expect(unused_variables))]
+pub fn physical_device(adapter: &Adapter, info: &wgpu::AdapterInfo) -> Option<PhysicalDevice> {
+    if info.device_type == wgpu::DeviceType::Cpu {
+        return None;
+    }
+    let mut physical = PhysicalDevice::default();
+    // Metal and WebGPU report a zero vendor rather than none.
+    physical.vendor = (info.vendor != 0).then(|| info.vendor.into());
+    // wgpu gives a DX12 adapter the address of the first card with its vendor and device id, so
+    // identical cards would share one.
+    if info.backend == wgpu::Backend::Vulkan {
+        physical.pci_address = info.device_pci_bus_id.parse().ok();
+    }
+    #[cfg(feature = "spirv")]
+    if is_vulkan(adapter) {
+        vulkan::describe_card(adapter, &mut physical);
+    }
+    #[cfg(windows)]
+    dx12::describe_card(adapter, &mut physical);
+    Some(physical)
 }
 
 #[cfg(feature = "spirv")]

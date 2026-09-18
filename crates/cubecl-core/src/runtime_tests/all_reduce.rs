@@ -15,6 +15,13 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
         .iter()
         .map(|id| R::Device::from_id(*id))
         .collect();
+    if !R::client(&devices[0]).has_device_transport() {
+        log::warn!(
+            "skipping all_reduce: {} devices but no transport between them",
+            device_count
+        );
+        return;
+    }
 
     const SIZE: usize = 100;
     const NUM_HANDLES: usize = 8;

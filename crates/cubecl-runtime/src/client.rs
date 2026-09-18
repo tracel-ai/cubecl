@@ -9,9 +9,10 @@ use crate::{
         MemoryUsage,
     },
     server::{
-        BufferBinding, CommunicationId, CopyDescriptor, CubeCount, Handle, KernelArguments,
-        KernelResource, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutStrategy, ProfileError,
-        ProfilingToken, ReduceOperation, Server, ServerError, ServerStorage, ServerUtilities,
+        BufferBinding, Collective, CommunicationId, CopyDescriptor, CubeCount, Handle,
+        KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
+        MemoryLayoutStrategy, ProfileError, ProfilingToken, ReduceOperation, Server, ServerError,
+        ServerStorage, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -845,7 +846,7 @@ impl Client {
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         let same_runtime = dst_server.service_id().service == self.service_id().service;
-        if self.utilities.server_comm_enabled && same_runtime {
+        if self.has_device_transport() && same_runtime {
             self.to_client_tensor(src_descriptor, dst_server, dtype)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
@@ -864,6 +865,7 @@ impl Client {
         tracing::instrument(level = "trace", skip(self, device_ids))
     )]
     pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
+        self.expect_device_transport(Collective::CommInit);
         let comm_id = CommunicationId::from(device_ids.clone());
         let is_comms_init = self.utilities.initialized_comms.read().contains(&comm_id);
         if !is_comms_init {
@@ -876,11 +878,37 @@ impl Client {
         }
     }
 
+    /// Whether this runtime moves data between its devices itself. Without it, `to_client`
+    /// copies through the host and the collectives refuse.
+    pub fn has_device_transport(&self) -> bool {
+        self.utilities.server_comm_enabled
+    }
+
+    /// Panics on the caller when the runtime has no device transport.
+    fn expect_device_transport(&self, operation: Collective) {
+        // The server refuses too, but on the device thread, where the channel turns the panic into
+        // a log line and the caller only sees a later read fail.
+        if !self.has_device_transport() {
+            let alternative = match operation {
+                Collective::Send | Collective::Recv => "; `to_client` copies through the host",
+                _ => "",
+            };
+            panic!(
+                "Can't use `{operation}` on {}, which has no transport between its devices{alternative}",
+                self.utilities.name
+            );
+        }
+    }
+
     /// Wait on the communication stream.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn sync_collective(&self) {
         if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `sync_collective` with a blocking device handle");
+        }
+        // Nothing was sent between devices, so there is nothing to wait for.
+        if !self.has_device_transport() {
+            return;
         }
         let stream_id = self.stream_id();
 
@@ -914,6 +942,7 @@ impl Client {
         if DeviceHandle::<dyn Server>::is_blocking() {
             panic!("Can't use `all_reduce` with a blocking device handle");
         }
+        self.expect_device_transport(Collective::AllReduce);
 
         let stream_id = self.stream_id();
         let src = src.binding();
@@ -948,6 +977,7 @@ impl Client {
         dst_server: &Self,
         dtype: ElemType,
     ) -> Handle {
+        self.expect_device_transport(Collective::Send);
         self.expect_local(&src_descriptor.handle);
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
