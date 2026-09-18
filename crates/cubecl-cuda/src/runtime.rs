@@ -7,14 +7,16 @@ use cubecl_common::{
     device::{Device, DeviceService},
     profile::TimingMethod,
 };
+#[cfg(windows)]
+use cubecl_core::ir::AdapterLuid;
 use cubecl_core::{
     MemoryConfiguration,
     cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, IntKind, MemoryDeviceProperties, MmaProperties, OpaqueType,
-        TargetProperties, Type, UIntKind, VectorSize,
+        HardwareProperties, IntKind, MemoryDeviceProperties, MmaProperties, OpaqueType, PciVendor,
+        PhysicalDevice, TargetProperties, Type, UIntKind, VectorSize,
         features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
         nvidia::SmArch,
     },
@@ -33,10 +35,13 @@ use cubecl_cpp::{
         register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_server::runtime::Runtime;
-use cubecl_server::{allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger};
-use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
-use std::{mem::MaybeUninit, sync::Arc};
+use cubecl_server::{
+    allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger, runtime::Runtime,
+};
+#[cfg(windows)]
+use cudarc::driver::sys::cuDeviceGetLuid;
+use cudarc::driver::sys::{CUDA_VERSION, CUdevice, cuDeviceGetPCIBusId, cuDeviceTotalMem_v2};
+use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
@@ -79,15 +84,12 @@ impl DeviceService for CudaServer {
         // Querying texture row align is a heuristic, but also not guaranteed to be the same.
         let mem_alignment = 512;
 
-        // The name is the only signal for tensor cores. A driver that declines to give one
-        // costs only the tensor-core exception, never initialization.
-        let device_name = cudarc::driver::result::device::get_name(device_ptr)
-            .unwrap_or_else(|_| "unknown CUDA device".to_string());
+        let probe = DeviceProbe::of(device_ptr);
 
         // Ask the wmma compiler for its supported combinations
         let arch = CudaArchitecture {
             version: arch_version,
-            tensor_cores: CudaArchitecture::has_tensor_cores(arch_version, &device_name),
+            tensor_cores: CudaArchitecture::has_tensor_cores(arch_version, &probe.name),
         };
         let supported_cmma_combinations = CudaCmmaCompiler::Cpp.supported_cmma_combinations(&arch);
         let supported_mma_combinations = cuda::supported_mma_combinations(&arch);
@@ -189,8 +191,9 @@ impl DeviceService for CudaServer {
             hardware_props,
             TimingMethod::Device,
             DeviceIdentity {
-                name: device_name,
+                name: probe.name,
                 fingerprint: fingerprint.clone(),
+                physical: Some(probe.physical),
             },
         );
         register_supported_types(&mut device_props);
@@ -547,5 +550,43 @@ impl Runtime for CudaRuntime {
                 index_id: i as u16,
             })
             .collect()
+    }
+}
+
+/// What the driver says about a device. A refused query leaves its field empty rather than
+/// failing initialization.
+struct DeviceProbe {
+    /// The only signal for tensor cores.
+    name: String,
+    physical: PhysicalDevice,
+}
+
+impl DeviceProbe {
+    fn of(device: CUdevice) -> Self {
+        let name = cudarc::driver::result::device::get_name(device)
+            .unwrap_or_else(|_| "unknown CUDA device".to_string());
+
+        let mut bus_id = [0u8; 32];
+        // SAFETY: the buffer outlives the call and its length travels with it.
+        let pci_address = unsafe {
+            cuDeviceGetPCIBusId(bus_id.as_mut_ptr().cast(), bus_id.len() as _, device).result()
+        }
+        .ok()
+        .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
+        .and_then(|id| id.to_str().ok()?.parse().ok());
+        let mut physical = PhysicalDevice::default();
+        physical.pci_address = pci_address;
+        physical.vendor = Some(PciVendor::Nvidia);
+        #[cfg(windows)]
+        {
+            let mut luid = [0 as core::ffi::c_char; 8];
+            let mut node_mask = 0;
+            // SAFETY: both out-parameters outlive the call and `luid` has the eight bytes written.
+            physical.luid = unsafe { cuDeviceGetLuid(luid.as_mut_ptr(), &mut node_mask, device) }
+                .result()
+                .ok()
+                .map(|()| AdapterLuid::new(luid.map(|byte| byte as u8)));
+        }
+        Self { name, physical }
     }
 }
