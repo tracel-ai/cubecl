@@ -16,9 +16,10 @@
 //! adds the checks that make the recovery sound, which is also what lets the
 //! new bounds be a loose superset instead of an exact range.
 //!
-//! A zero `s` maps every `i` to one `q`, and a zero `d` divides nothing, so
-//! neither can be re-indexed. Rather than keep a second copy of the loop for
-//! them, the bounds and the recovered `i` select back to the original range.
+//! A zero `s` maps every `i` to one `q`, a zero `d` divides nothing, and an
+//! `i * s` past `base` wraps the numerator onto a quotient the bounds do not
+//! cover. Rather than keep a second copy of the loop for those, the bounds and
+//! the recovered `i` select back to the original range.
 
 use alloc::{boxed::Box, vec::Vec};
 use cubecl_ir::{
@@ -126,11 +127,16 @@ fn has_effects(ctx: &Context, op: Ptr<Operation>) -> bool {
     op_cast::<dyn SideEffects>(&*op.dyn_op(ctx)).is_none_or(|it| it.has_side_effects(ctx))
 }
 
-/// Whether every effect reachable from `block` is inside `gate`. Only `if`s are
-/// descended into, so any other region holder is taken to be effectful.
-fn effects_only_under(ctx: &Context, block: Ptr<BasicBlock>, gate: Ptr<Operation>) -> bool {
+/// Whether every effect reachable from `block` is inside the `then` arm of
+/// `gate`. Only `if`s are descended into, so any other region holder is taken
+/// to be effectful.
+fn effects_only_under(ctx: &Context, block: Ptr<BasicBlock>, gate: IfOp) -> bool {
     block.deref(ctx).iter(ctx).all(|op| {
-        if op == gate || op.is_terminator(ctx) {
+        if op == gate.get_operation() {
+            // Only the iterations that enter the gate survive the rewrite, so
+            // the arm its skipped ones take has to be effect free as well.
+            effects_only_under(ctx, gate.else_block(ctx), gate)
+        } else if op.is_terminator(ctx) {
             true
         } else if let Some(nested) = op.as_op::<IfOp>(ctx) {
             [nested.then_block(ctx), nested.else_block(ctx)]
@@ -173,7 +179,7 @@ fn matched(ctx: &Context, op: Ptr<Operation>) -> Option<Guarded> {
         .into_iter()
         .all(|it| invariant(ctx, it, region));
     // Skipping an iteration is only sound if it could not have done anything.
-    (stable && effects_only_under(ctx, body, gate.get_operation())).then_some(Guarded {
+    (stable && effects_only_under(ctx, body, gate)).then_some(Guarded {
         loop_op,
         base,
         s,
@@ -223,9 +229,19 @@ impl MatchRewrite for QuotientRange {
         // clamped divisors keep the bounds below well defined meanwhile.
         let s_zero = emit!(ctx, rewriter, IEqualOp::new(ctx, s, zero));
         let d_zero = emit!(ctx, rewriter, IEqualOp::new(ctx, d, zero));
-        let degenerate = emit!(ctx, rewriter, BoolOrOp::new(ctx, s_zero, d_zero));
+        let zeroed = emit!(ctx, rewriter, BoolOrOp::new(ctx, s_zero, d_zero));
         let d_safe = emit!(ctx, rewriter, UMaxOp::new(ctx, d, one));
         let s_safe = emit!(ctx, rewriter, UMaxOp::new(ctx, s, one));
+
+        // The quotient reads `base - i * s` as a number, so an `i` that wraps
+        // it is one the new bounds cannot reach, and the loop must not have
+        // had any. `(hi - 1) * s <= base` says so, divided through by `s` to
+        // keep the product itself from overflowing. An empty `hi == 0` wraps
+        // into the fallback, which is the same empty loop.
+        let last = emit!(ctx, rewriter, ISubOp::new(ctx, hi, one));
+        let reach = emit!(ctx, rewriter, UDivOp::new(ctx, base, s_safe));
+        let wraps = emit!(ctx, rewriter, ULessThanOp::new(ctx, reach, last));
+        let degenerate = emit!(ctx, rewriter, BoolOrOp::new(ctx, zeroed, wraps));
 
         // `base - i * s` is widest at `i == lo` and narrowest at `i == hi`, so
         // those two ends bracket every quotient the loop can produce. The
@@ -250,7 +266,14 @@ impl MatchRewrite for QuotientRange {
         let body = new_loop.loop_body(ctx);
         rewriter.set_insertion_point(OpInsertionPoint::AtBlockStart(body));
 
-        let offset = emit!(ctx, rewriter, IMulOp::new(ctx, q, d));
+        // `i` falls as `q` climbs, so a forward `q` would run the body in
+        // reverse. Counting back down from the top of the range restores the
+        // order the source loop had. Reflecting through `q_start + q_last`
+        // would take one op rather than two, but that sum can overflow where
+        // neither difference can.
+        let travelled = emit!(ctx, rewriter, ISubOp::new(ctx, q, q_start));
+        let descending = emit!(ctx, rewriter, ISubOp::new(ctx, q_last, travelled));
+        let offset = emit!(ctx, rewriter, IMulOp::new(ctx, descending, d));
         let reachable = emit!(ctx, rewriter, UGreaterThanOrEqualOp::new(ctx, base, offset));
         let scaled = emit!(ctx, rewriter, ISubOp::new(ctx, base, offset));
         let remainder = emit!(ctx, rewriter, URemOp::new(ctx, scaled, s_safe));

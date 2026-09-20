@@ -44,8 +44,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::bytes::Bytes;
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    quotient_range::QuotientRangePass,
-    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    quotient_range::QuotientRangePass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::{
     compiler::CompilationError, config::compilation::F16Evaluation, kernel::BufferIOAttr,

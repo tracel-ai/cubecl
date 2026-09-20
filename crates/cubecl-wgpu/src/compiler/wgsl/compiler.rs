@@ -32,8 +32,7 @@ use cubecl_ir::{
 };
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    quotient_range::QuotientRangePass,
-    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    quotient_range::QuotientRangePass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_server::compiler::CompilationError;
 use cubecl_server::kernel;
