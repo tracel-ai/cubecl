@@ -12,9 +12,12 @@ use cubecl_core::{
     zspace::{Shape, Strides},
 };
 use cubecl_llvm::PlironCompiler;
-use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation};
-use cubecl_server::runtime::Runtime;
-use cubecl_server::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
+use cubecl_server::{
+    allocator::ContiguousMemoryLayoutPolicy,
+    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
+    logging::ServerLogger,
+    runtime::Runtime,
+};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, System};
@@ -160,7 +163,7 @@ impl DeviceService for CpuServer {
             cube_mma_reserved_shared_memory: 0,
         };
 
-        const ALIGNMENT: u64 = 8;
+        const ALIGNMENT: u64 = cubecl_server::storage::BytesStorage::ALIGNMENT as u64;
 
         let mem_properties = MemoryDeviceProperties {
             max_page_size: total_memory as u64,
@@ -182,6 +185,7 @@ impl DeviceService for CpuServer {
             DeviceIdentity {
                 name: host_cpu_name(&system),
                 fingerprint: format!("cpu_{}_f16-{}", std::env::consts::ARCH, f16_evaluation),
+                physical: None,
             },
         );
         register_supported_types(&mut device_props);

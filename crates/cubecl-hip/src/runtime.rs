@@ -4,8 +4,6 @@ use crate::{
     device::AmdDevice,
 };
 use core::ffi::c_int;
-use cubecl_server::runtime::Runtime;
-use std::sync::OnceLock;
 
 use cubecl_common::{
     device::{Device, DeviceService},
@@ -17,8 +15,8 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         ContiguousElements, DeviceIdentity, DeviceProperties, HardwareProperties,
-        MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, amd::GfxArch,
-        features::Plane,
+        MemoryDeviceProperties, MmaProperties, PciVendor, PhysicalDevice, TargetProperties,
+        VectorSize, amd::GfxArch, features::Plane,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -39,8 +37,14 @@ use cubecl_cpp::{
     },
 };
 use cubecl_hip_sys::{hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
-use cubecl_server::{allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger};
-use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
+use cubecl_server::{
+    allocator::PitchedMemoryLayoutPolicy, driver::checked, logging::ServerLogger, runtime::Runtime,
+};
+use std::{
+    ffi::CStr,
+    mem::MaybeUninit,
+    sync::{Arc, OnceLock},
+};
 
 static AMD_WMMA: OnceLock<Option<AmdWmma>> = OnceLock::new();
 
@@ -156,6 +160,7 @@ impl DeviceService for HipServer {
             DeviceIdentity {
                 name: probe.name.clone(),
                 fingerprint: fingerprint.clone(),
+                physical: Some(probe.physical.clone()),
             },
         );
         register_supported_types(&mut device_props);
@@ -259,6 +264,10 @@ impl Runtime for HipRuntime {
 
     fn enumerate_devices(_: u16) -> Vec<cubecl_core::device::DeviceId> {
         fn device_count() -> usize {
+            if !cubecl_hip_sys::is_available() {
+                return 0;
+            }
+
             let mut device_count: c_int = 0;
             let result;
             // SAFETY: Calling HIP FFI to get the number of available devices.
@@ -311,6 +320,7 @@ struct DeviceProbe {
     /// An APU, sharing its memory and IOMMU with the host. The drop queue
     /// flushes more often on one, to keep the GPU off a 0-to-100% transition.
     integrated: bool,
+    physical: PhysicalDevice,
 }
 
 impl DeviceProbe {
@@ -350,6 +360,22 @@ impl DeviceProbe {
             )
         };
 
+        let mut bus_id = [0u8; 32];
+        // SAFETY: the buffer outlives the call and its length travels with it.
+        let status = unsafe {
+            cubecl_hip_sys::hipDeviceGetPCIBusId(
+                bus_id.as_mut_ptr().cast(),
+                bus_id.len() as c_int,
+                index,
+            )
+        };
+        let mut physical = PhysicalDevice::default();
+        physical.pci_address = checked("hipDeviceGetPCIBusId", status)
+            .ok()
+            .and_then(|()| CStr::from_bytes_until_nul(&bus_id).ok())
+            .and_then(|id| id.to_str().ok()?.parse().ok());
+        physical.vendor = Some(PciVendor::Amd);
+
         Self {
             arch_name,
             name,
@@ -370,6 +396,7 @@ impl DeviceProbe {
             // Both are checked: 32 is the floor either way.
             alignment: 32.max(props.textureAlignment).max(props.surfaceAlignment),
             integrated: props.integrated != 0,
+            physical,
         }
     }
 }

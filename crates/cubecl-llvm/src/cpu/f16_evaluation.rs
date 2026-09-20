@@ -1,36 +1,26 @@
-//! How wide f16 arithmetic is evaluated in.
-//!
-//! Without AVX512-FP16, x86 has no f16 arithmetic at all, so the backend wraps every f16
-//! operation in a convert pair. Running a chain in f32 and rounding once at its end pays that
-//! pair once instead of once per operation. `gcc` and `clang` do the same with `_Float16` within
-//! an expression but round at every assignment, where a chain here follows SSA values: it runs
-//! through an immutable `let` and across operations the fusion layer joined.
-//!
-//! Holding a private variable in f32 as well goes further than any C compiler does, and doubles
-//! the bytes a long-lived value occupies in vector registers, so it is asked for separately.
+//! CPU f16 evaluation precision.
 
-use cubecl_core::ir::AddressSpace;
-use cubecl_core::ir::attributes::IndexAttr;
-use cubecl_core::ir::dialect::branch::{RangeLoopOp, WhileOp};
-use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp};
-use cubecl_core::ir::dialect::general::CastOp;
-use cubecl_core::ir::dialect::math::{
-    FAddOp, FDivOp, FMulOp, FNegOp, FRemOp, FSubOp, FmaOp, RecipOp, RsqrtOp, SqrtOp,
+use crate::prelude::*;
+use cubecl_core::ir::{
+    dialect::{
+        branch::{RangeLoopOp, WhileOp},
+        cmp::{FMaxOp, FMinOp},
+        general::CastOp,
+        math::{FAddOp, FDivOp, FMulOp, FNegOp, FRemOp, FSubOp, FmaOp, RecipOp, RsqrtOp, SqrtOp},
+        memory::{DeclareVariableOp, LoadOp, StoreOp},
+    },
+    try_cast_op,
+    types::{
+        PointerType, VectorType,
+        scalar::{Float16Type, Float32Type},
+    },
 };
-use cubecl_core::ir::dialect::memory::{DeclareVariableOp, LoadOp, StoreOp};
-use cubecl_core::ir::interfaces::{MaterializableOp, TypedExt};
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::try_cast_op;
-use cubecl_core::ir::types::scalar::{Float16Type, Float32Type};
-use cubecl_core::ir::types::{PointerType, VectorType};
 use cubecl_environment::collections::HashMap;
-use pliron::builtin::ops::FuncOp;
-use pliron::graph::walkers::{WALKCONFIG_PREORDER_FORWARD, uninterruptible::mutable::walk_op};
+use pliron::graph::walkers::uninterruptible::mutable::walk_op;
 
-/// Rewrites f16 arithmetic to f32 arithmetic between a widening and a narrowing convert, reusing
-/// the f32 value where one rewritten operation feeds another.
+/// F32 evaluation of f16 arithmetic.
 pub struct EvaluateF16Pass {
-    /// Whether a private variable of f16 is retyped, which is what carries a chain across a loop.
+    /// Allow f16 local variables to use f32 storage.
     pub accumulators: bool,
 }
 
@@ -75,15 +65,11 @@ impl Pass for EvaluateF16Pass {
             return Ok(res);
         }
 
-        // A preorder walk visits definitions before uses, so an operand that a previous
-        // iteration narrowed is already in `widened` and its f32 source is reused directly.
         let mut widened = HashMap::default();
         let mut rewriter = PassRewriter::default();
         for target in found.arithmetic {
             promote(ctx, &mut widened, &mut rewriter, target);
         }
-        // After the arithmetic, so that a variable is judged on the converts the rewrite
-        // actually left around it.
         let candidates: Vec<Candidate> = found
             .variables
             .into_iter()
@@ -126,8 +112,6 @@ fn is_f16(ctx: &Context, value: impl Typed) -> bool {
     scalar_is::<Float16Type>(ctx, value)
 }
 
-/// Guarded rather than a plain `scalar_ty`, which panics on the types that carry no element at
-/// all: a barrier, a matrix, a tensor map.
 fn scalar_is<T: pliron::r#type::Type>(ctx: &Context, value: impl Typed) -> bool {
     value
         .try_get_scalar_elem_ty(ctx)
@@ -166,10 +150,6 @@ fn promote(
     rewriter.erase_operation(ctx, op);
 }
 
-/// The f32 form of `value`, converting it where it is not already one this pass produced.
-///
-/// The convert goes next to the definition rather than next to the use, so that it dominates
-/// every later use and one value is never converted twice.
 fn widen(
     ctx: &mut Context,
     widened: &mut HashMap<Value, Value>,
@@ -195,17 +175,12 @@ fn widen(
     wide
 }
 
-/// A private variable of f16, which is how a loop carries an accumulator before `mem2reg` turns
-/// it into a value. An initializer would have to be rewritten with it, and an accumulator gets
-/// its starting value from a store instead.
 fn is_f16_local(ctx: &Context, variable: &DeclareVariableOp) -> bool {
     variable.addr_space(ctx).0 == AddressSpace::Local
         && variable.initializer(ctx).is_none()
         && is_widenable_f16(ctx, variable.value_ty(ctx).get_type(ctx))
 }
 
-/// f16 or a vector of it, which is all [`widen_ty`] knows: an atomic, an array or a matrix of
-/// f16 answers to [`is_f16`] just as readily and would come back a bare `f32`.
 fn is_widenable_f16(ctx: &Context, ty: TypeHandle) -> bool {
     let elem = ty
         .deref(ctx)
@@ -224,8 +199,6 @@ struct Candidate {
     declared_at: usize,
 }
 
-/// The accesses to `variable`, or `None` where its pointer reaches anything but a load or a store
-/// of its own, since retyping it would change what that op reads.
 fn accesses(ctx: &Context, variable: DeclareVariableOp) -> Option<Candidate> {
     let pointer = variable.get_result(ctx);
     let mut loads = Vec::new();
@@ -253,8 +226,6 @@ fn accesses(ctx: &Context, variable: DeclareVariableOp) -> Option<Candidate> {
     })
 }
 
-/// The candidates a copy joins, as groups of index into `candidates`. A copy between two f16
-/// locals stops converting only when both sides are held, so they are weighed and held together.
 fn copy_groups(ctx: &Context, candidates: &[Candidate]) -> Vec<Vec<usize>> {
     let owner: HashMap<Value, usize> = candidates
         .iter()
@@ -273,7 +244,6 @@ fn copy_groups(ctx: &Context, candidates: &[Candidate]) -> Vec<Vec<usize>> {
         }
     }
 
-    // By candidate order rather than by root, so the promotions run in the same order every time.
     let mut groups: Vec<Vec<usize>> = Vec::new();
     let mut group_of: HashMap<usize, usize> = HashMap::default();
     for index in 0..candidates.len() {
@@ -303,8 +273,6 @@ fn join(parent: &mut [usize], a: usize, b: usize) {
     }
 }
 
-/// Holds a group of variables in f32 so that a loop reading and writing them every iteration stops
-/// converting on both sides.
 fn promote_group(
     ctx: &mut Context,
     widened: &mut HashMap<Value, Value>,
@@ -321,8 +289,6 @@ fn promote_group(
     }
 }
 
-/// Converts under a loop the group is declared outside of decide first, because one paid every
-/// iteration outweighs any fixed number at the boundary, whatever the two counts are.
 fn worth_holding(
     ctx: &Context,
     widened: &HashMap<Value, Value>,
@@ -333,7 +299,6 @@ fn worth_holding(
         .iter()
         .map(|&index| candidates[index].pointer)
         .collect();
-    // The outermost declaration anchors the group, so one ledger covers every member of it.
     let declared_at = group
         .iter()
         .map(|&index| candidates[index].declared_at)
@@ -364,7 +329,6 @@ fn worth_holding(
                     false => narrowed = true,
                 }
             }
-            // The rewrite narrows a load once, beside it, however many uses it has.
             if narrowed {
                 ledger(ctx, load.get_operation(), false);
             }
@@ -374,7 +338,7 @@ fn worth_holding(
             if loaded_from(ctx, stored).is_some_and(|source| inside.contains(&source)) {
                 continue;
             }
-            // Only a convert this pass made is bypassed; one the kernel wrote is kept and widened.
+            // Explicit kernel conversions must retain their rounding.
             ledger(ctx, store.get_operation(), widened.contains_key(&stored));
         }
     }
@@ -382,7 +346,6 @@ fn worth_holding(
     per_iteration.verdict().or_else(|| once.verdict()) == Some(true)
 }
 
-/// The variable `value` was loaded from, where it is a load at all.
 fn loaded_from(ctx: &Context, value: Value) -> Option<Value> {
     let load = value.defining_op()?.as_op::<LoadOp>(ctx)?;
     Some(load.ptr(ctx))
@@ -411,8 +374,6 @@ fn hold_in_f32(
 
     for load in &candidate.loads {
         let loaded = load.get_result(ctx);
-        // Both lists come first: the retype makes a widening convert stop looking like one, and
-        // erasing one hands its users to the load, where they then look like f16 consumers.
         let (widening, narrowing): (Vec<_>, Vec<_>) = loaded
             .uses(ctx)
             .into_iter()
@@ -447,7 +408,6 @@ fn hold_in_f32(
     }
 }
 
-/// Converts a promotion would remove against ones it would add.
 #[derive(Default)]
 struct Converts {
     removed: usize,
@@ -462,14 +422,11 @@ impl Converts {
         }
     }
 
-    /// `None` where the two cancel, which leaves the decision to the next ledger.
     fn verdict(&self) -> Option<bool> {
         (self.removed != self.added).then_some(self.removed > self.added)
     }
 }
 
-/// Loops only. An `if` nests a region of its own, and counting one would let a convert paid
-/// once decide the ledger that exists for converts paid every iteration.
 fn loop_depth(ctx: &Context, op: Ptr<Operation>) -> usize {
     let mut depth = 0;
     let mut current = op;
