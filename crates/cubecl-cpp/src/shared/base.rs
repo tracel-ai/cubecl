@@ -42,6 +42,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
+    quotient_range::QuotientRangePass,
     sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
@@ -270,6 +271,7 @@ where
         func_passes.add_pass(LowerOpsAfterUnrollCppPass::<T>::default());
 
         func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(QuotientRangePass::default());
         func_passes.add_pass(InstCombinePass::default());
         func_passes.add_pass(SimpleCSEPass::without_memory());
         func_passes.add_pass(SimplifyOpsPass::default());

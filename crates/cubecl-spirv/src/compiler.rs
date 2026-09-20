@@ -39,6 +39,7 @@ use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass,
     inst_combine::InstCombinePass,
+    quotient_range::QuotientRangePass,
     mem2reg::Mem2RegPass,
     sccp::SCCPPass,
     simple_cse::SimpleCSEPass,
@@ -241,6 +242,7 @@ impl SpirvCompiler {
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
         func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(QuotientRangePass::default());
         func_passes.add_pass(InstCombinePass::default());
         func_passes.add_pass(SimpleCSEPass::without_memory());
         func_passes.add_pass(SimplifyOpsPass::default());

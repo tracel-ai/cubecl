@@ -16,6 +16,7 @@ pub mod complex;
 pub mod const_match;
 pub mod debug;
 pub mod different_rank;
+pub mod dilated_conv_transpose;
 pub mod enums;
 pub mod file;
 pub mod index;
@@ -167,6 +168,7 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_short_circuit!();
         cubecl_core::testgen_stream_errors!();
+        cubecl_core::testgen_dilated_conv_transpose!();
     };
 }
 
