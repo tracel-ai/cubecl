@@ -103,8 +103,7 @@ pub fn measure_peak_throughput(
         probe(client, key)
     });
 
-    // A cached answer left no pools behind, and every roofline bound asks for
-    // three of these on every thread that autotunes.
+    // A cached answer left no pools behind to release.
     if probed {
         PooledProbes::cleanup_unless_held(client);
     }

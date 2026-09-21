@@ -29,16 +29,12 @@ impl PooledProbes {
         Self { service }
     }
 
-    /// Releases what `client` holds, unless a sweep is still measuring against
-    /// it.
     pub(super) fn cleanup_unless_held(client: &Client) {
         Self::cleanup_unless_held_by(client.service_id(), || client.memory_cleanup());
     }
 
     /// `release` runs with the lock dropped: it blocks on the device thread,
-    /// which takes this lock itself when it autotunes. A sweep entering in
-    /// between pays a fault for pools it had not measured against yet, which
-    /// is the cheaper of the two.
+    /// which takes this lock itself when it autotunes.
     fn cleanup_unless_held_by(service: ServiceId, release: impl FnOnce()) {
         let held = {
             let pooled = POOLED_PROBES.lock();
@@ -156,9 +152,8 @@ mod tests {
         assert!(!released);
     }
 
-    /// The device thread takes this lock when it autotunes, and a release is a
-    /// submit that blocks until that thread drains it: one issued under the
-    /// lock waits on the thread it is blocking.
+    /// A release is a submit that blocks until the device thread drains it,
+    /// and that thread takes this lock when it autotunes.
     #[test]
     fn a_release_is_issued_with_the_lock_dropped() {
         use std::{sync::mpsc, time::Duration};
