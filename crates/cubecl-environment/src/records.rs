@@ -132,6 +132,58 @@ pub fn namespace(kind: &str) -> String {
     alloc::format!("{ROOT}/{}", kind.trim_matches('/'))
 }
 
+/// Opens a named span of the session in progress — a phase of the caller's
+/// work, `load weights`, `plan turn 7` — recorded as a [`MarkRecord`] when the
+/// returned guard drops. Everything else stamped meanwhile lies inside it on
+/// the session's clock, which is what lets a reader say what a phase cost.
+pub fn mark<S: Into<String>>(label: S) -> Mark {
+    Mark {
+        label: label.into(),
+        start: stamp(),
+    }
+}
+
+/// A span opened by [`mark`], recorded when it drops.
+#[must_use = "a mark records the span until it is dropped"]
+#[derive(Debug)]
+pub struct Mark {
+    label: String,
+    start: Option<Stamp>,
+}
+
+/// A named span of a session, as [`mark`] records it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarkRecord {
+    /// What the span was.
+    pub label: String,
+    /// How long it lasted.
+    pub wall: Duration,
+}
+
+impl MarkRecord {
+    /// The records namespace kind marks are written under.
+    pub const KIND: &str = "marks";
+}
+
+impl Drop for Mark {
+    fn drop(&mut self) {
+        let Some(start) = self.start else {
+            return;
+        };
+        // The end is read off the session's own clock. A span the
+        // environment switched away from in the meantime is dropped with its
+        // session.
+        let Some(end) = stamp().filter(|end| end.session == start.session) else {
+            return;
+        };
+        let record = MarkRecord {
+            label: core::mem::take(&mut self.label),
+            wall: end.offset.saturating_sub(start.offset),
+        };
+        write_stamped(MarkRecord::KIND, start, &record);
+    }
+}
+
 /// Deletes every session of `database` but the newest `keep`, with their
 /// records. Returns how many sessions went.
 #[cfg(native_cache)]
@@ -426,6 +478,23 @@ mod tests {
         let sessions = sessions(&database);
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].label.as_deref(), Some("models build test"));
+    }
+
+    #[test]
+    #[serial]
+    fn a_mark_spans_what_was_recorded_inside_it() {
+        let (_dir, database) = fresh(RecordLevel::Basic, None);
+        let inner = {
+            let _phase = mark("load weights");
+            write("test", &1u32).expect("recorded")
+        };
+
+        let marks = read::<MarkRecord>(&database, MarkRecord::KIND);
+        assert_eq!(marks.len(), 1);
+        let span = &marks[0];
+        assert_eq!(span.record.label, "load weights");
+        assert!(span.stamp.seq < inner.seq);
+        assert!(span.stamp.offset + span.record.wall >= inner.offset);
     }
 
     #[test]

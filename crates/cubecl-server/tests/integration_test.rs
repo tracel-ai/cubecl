@@ -1307,3 +1307,28 @@ fn a_compilation_is_recorded_with_its_outcome() {
     assert_eq!(compiled[0].record.key, compiled[1].record.key);
     assert_eq!(compiled[2].record.source.as_deref(), Some("source"));
 }
+
+/// A memory snapshot is recorded under the caller's label, carrying the same
+/// report the client answers.
+#[test_log::test]
+#[cfg(all(feature = "std", autotune_persistence))]
+#[serial_test::serial]
+fn a_memory_snapshot_is_recorded_under_its_label() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{self, RecordLevel};
+    use cubecl_server::memory_management::MemoryRecord;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    records::configure(RecordLevel::Basic, None);
+
+    let client = test_client(&DummyDevice);
+    let _held = client.create_from_slice(&[1, 2, 3]);
+    client.record_memory("model loaded");
+
+    let database = Database::open_active().unwrap();
+    let snapshots = records::read::<MemoryRecord>(&database, MemoryRecord::KIND);
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].record.label, "model loaded");
+    assert_eq!(snapshots[0].record.report, client.memory_report());
+}
