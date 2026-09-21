@@ -1004,3 +1004,37 @@ fn exporting_over_an_older_schema_bundle_replaces_it() {
         1
     );
 }
+
+/// An excluded prefix leaves its namespaces out of both formats, whole
+/// segments only, whatever the inclusion filter selected.
+#[test]
+#[serial_test::serial]
+fn exporting_can_leave_some_namespaces_out() {
+    let warm_root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+
+    warm(warm_root.path(), "autotune", "device0/matmul", &[("k", 1)]);
+    warm(warm_root.path(), "records", "sessions", &[("k", 2)]);
+    warm(warm_root.path(), "recordsmith", "device0", &[("k", 3)]);
+
+    let version = env!("CARGO_PKG_VERSION");
+    for format in [BundleFormat::Sqlite, BundleFormat::Flat] {
+        let bundle_path = bundle_dir.path().join(format!("stripped-{format:?}.ccb"));
+        let options = ExportOptions {
+            name: "Stripped".to_string(),
+            format,
+            excluded_namespaces: vec!["records".to_string()],
+            ..Default::default()
+        };
+        export(&[warm_root.path()], &bundle_path, &options).unwrap();
+
+        assert_eq!(
+            open_bundle(&bundle_path, format).namespaces(),
+            vec![
+                format!("autotune/{version}/device0/matmul"),
+                format!("recordsmith/{version}/device0"),
+            ],
+            "{format:?}"
+        );
+    }
+}

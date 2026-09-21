@@ -415,6 +415,191 @@ fn autotune_resets_when_the_environment_switches() {
     assert!(matches!(rehydrated, TuneCacheResult::Hit { .. }));
 }
 
+/// Roots the environment at `root` for the rest of the test.
+///
+/// The runtime configuration is loaded first: it loads on first use and roots
+/// the environment where it says, so a test running beside this one could
+/// otherwise load it halfway through and move this test's records elsewhere.
+#[cfg(all(feature = "std", persistence))]
+fn rooted_at(root: &std::path::Path) {
+    use cubecl_server::config::RuntimeConfig;
+
+    let _ = cubecl_server::config::CubeClRuntimeConfig::get();
+    cubecl_environment::environment::set_root(root);
+}
+
+/// Records at `level` from here on, keeping every session.
+#[cfg(all(feature = "std", persistence))]
+fn recording_at(level: cubecl_environment::records::RecordLevel) {
+    use cubecl_environment::records::{self, RecordsConfig};
+
+    records::configure(RecordsConfig {
+        level,
+        ..Default::default()
+    });
+}
+
+/// A tune leaves a record beside its answer: the candidates in the order they
+/// ran, each with its wall, the whole tune's wall, and the key and table the
+/// answer is stored under, stamped in the environment's session.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_tune_is_recorded_in_order_with_its_walls() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{RecordLevel, Records};
+    use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    recording_at(RecordLevel::Basic);
+
+    let client = test_client(&DummyDevice);
+    let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let set = dummy::addition_set(test_client(&DummyDevice), shapes);
+    let handles = vec![
+        client.create_from_slice(&[0, 1, 2]),
+        client.create_from_slice(&[4, 4, 4]),
+        client.empty(3),
+    ];
+    let key = set.generate_key(&handles);
+
+    let tuner: Tuner<String> = Tuner::new("recorded", "device0");
+    let answer = tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+    let TuneCacheResult::Hit { fastest_index } = answer else {
+        panic!("the tune answers inline: {answer:?}");
+    };
+
+    let database = Database::open_active().unwrap();
+    let tunes = Records::new(&database).read::<TuneRecord<String>>();
+    assert_eq!(tunes.len(), 1);
+    let tune = &tunes[0].record;
+    assert_eq!(tune.entry.key, key);
+    assert_eq!(tune.entry.checksum, set.compute_checksum());
+    assert_eq!(tune.winner, fastest_index);
+    assert!(tune.table.starts_with("autotune/") && tune.table.ends_with("device0/recorded"));
+    let names: Vec<&str> = tune
+        .trials
+        .iter()
+        .map(|trial| trial.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["add", "add_slow_wrong"],
+        "in registration order"
+    );
+    assert!(tune.trials.iter().all(|trial| !trial.wall.is_zero()));
+    assert!(
+        tune.trials
+            .iter()
+            .map(|trial| trial.wall)
+            .sum::<core::time::Duration>()
+            <= tune.wall
+    );
+    assert_eq!(tune.short_circuit, None);
+    assert!(!tune.dry_run);
+    assert!(tune.stored, "the table took the answer");
+
+    let sessions = Records::new(&database).sessions();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(tunes[0].stamp.session, sessions[0].id);
+}
+
+/// A tune stopped by the short circuit records which candidate stopped it.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence, not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_short_circuited_tune_records_where_it_stopped() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{RecordLevel, Records};
+    use cubecl_server::tune::{TuneRecord, Tuner};
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    recording_at(RecordLevel::Basic);
+
+    let client = test_client(&DummyDevice);
+    let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let set = dummy::bounded_addition_set_slow_first(test_client(&DummyDevice), shapes, 1.0, 1.0);
+    let handles = vec![
+        client.create_from_slice(&[0, 1, 2]),
+        client.create_from_slice(&[4, 4, 4]),
+        client.empty(3),
+    ];
+    let key = set.generate_key(&handles);
+
+    let tuner: Tuner<String> = Tuner::new("short-circuited", "device0");
+    tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+
+    let database = Database::open_active().unwrap();
+    let tunes = Records::new(&database).read::<TuneRecord<String>>();
+    let tune = &tunes.last().unwrap().record;
+    assert_eq!(tune.short_circuit.as_deref(), Some("add_slow_wrong"));
+    // How many ran before the limit was met is the scheduler's business: the
+    // adaptive one warms the whole round up first.
+    assert!(
+        tune.trials
+            .iter()
+            .any(|trial| trial.name == "add_slow_wrong")
+    );
+}
+
+/// Recording off writes nothing, and the tune answers as before.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn nothing_is_recorded_when_records_are_off() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{RecordLevel, Records};
+    use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    recording_at(RecordLevel::Off);
+
+    let client = test_client(&DummyDevice);
+    let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let set = dummy::addition_set(test_client(&DummyDevice), shapes);
+    let handles = vec![
+        client.create_from_slice(&[0, 1, 2]),
+        client.create_from_slice(&[4, 4, 4]),
+        client.empty(3),
+    ];
+    let key = set.generate_key(&handles);
+    let tuner: Tuner<String> = Tuner::new("unrecorded", "device0");
+    let answer = tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+    recording_at(RecordLevel::Basic);
+
+    assert!(matches!(answer, TuneCacheResult::Hit { .. }));
+    let database = Database::open_active().unwrap();
+    assert!(
+        Records::new(&database)
+            .read::<TuneRecord<String>>()
+            .is_empty()
+    );
+}
+
 /// A throughput bound with a generous `time_limit` makes the tuner short-circuit: it
 /// accepts the first candidate whose median is under the limit and never benchmarks the
 /// rest. The set registers the slow+wrong kernel first, so a hit proves the faster `add`
@@ -1090,4 +1275,178 @@ fn a_set_is_built_once_per_device_not_once_per_process() {
     );
     assert_eq!(client.read_one(out).unwrap().to_vec(), Vec::from([4, 5, 6]));
     assert_eq!(BUILDS.load(Ordering::Relaxed), 2);
+}
+
+/// A backend's trip through compilation is recorded where it starts, with how
+/// the artifact was obtained: its kernel, the store key naming the artifact,
+/// and what the trip took.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_compilation_is_recorded_with_its_outcome() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{RecordLevel, Records};
+    use cubecl_server::compiler::{CompilationOutcome, CompilationRecord, CompilationRecording};
+    use cubecl_server::id::KernelId;
+
+    struct Recorded;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    recording_at(RecordLevel::Basic);
+
+    let id = KernelId::new::<Recorded>().info(3u32);
+    let stored = true;
+    CompilationRecording::new(&id).compiled(stored);
+    CompilationRecording::new(&id).loaded();
+    CompilationRecording::new(&id).rekeyed(stored);
+
+    let database = Database::open_active().unwrap();
+    let trips = Records::new(&database).read::<CompilationRecord>();
+    let outcomes: Vec<CompilationOutcome> = trips.iter().map(|trip| trip.record.outcome).collect();
+    assert_eq!(
+        outcomes,
+        vec![
+            CompilationOutcome::Compiled,
+            CompilationOutcome::Loaded,
+            CompilationOutcome::Rekeyed
+        ]
+    );
+    assert!(trips[0].record.kernel.ends_with("Recorded"));
+    assert_eq!(trips[0].record.key, trips[1].record.key);
+}
+
+/// A kernel's code — the heaviest thing a record carries — is kept at the
+/// full level only, whatever the backend hands the recording: the level is
+/// the recording's to check, not each backend's.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_compilation_keeps_its_code_only_when_records_are_full() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{RecordLevel, Records};
+    use cubecl_server::compiler::{CompilationRecord, CompilationRecording};
+    use cubecl_server::id::KernelId;
+
+    struct Coded;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    let id = KernelId::new::<Coded>();
+    let stored = true;
+
+    for level in [RecordLevel::Basic, RecordLevel::Full] {
+        recording_at(level);
+        let mut recording = CompilationRecording::new(&id);
+        recording.source("source");
+        recording.compiled(stored);
+    }
+    recording_at(RecordLevel::Basic);
+
+    let database = Database::open_active().unwrap();
+    let sources: Vec<Option<String>> = Records::new(&database)
+        .read::<CompilationRecord>()
+        .into_iter()
+        .map(|trip| trip.record.source)
+        .collect();
+    assert_eq!(sources, vec![None, Some("source".to_string())]);
+}
+
+/// A kernel compiled with no store to take it — WGSL, or the compilation
+/// cache off — changes nothing, and a session that only does that leaves
+/// nothing behind. Storing an artifact is what changes the environment.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_compile_nothing_stored_leaves_no_session() {
+    use cubecl_environment::persistence::{Database, Namespace, Store, StoreOptions};
+    use cubecl_environment::records::{RecordLevel, Records};
+    use cubecl_server::compiler::{CompilationRecord, CompilationRecording, store_compiled};
+    use cubecl_server::id::KernelId;
+
+    struct Unstored;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    recording_at(RecordLevel::Basic);
+
+    let mut store: Store<u32, u32> =
+        Store::new(StoreOptions::new().storage(Namespace::new("test/compiled")));
+    assert!(store_compiled(&mut store, 1, 1), "the store took it");
+
+    let id = KernelId::new::<Unstored>();
+    let stored = false;
+    CompilationRecording::new(&id).compiled(stored);
+
+    let database = Database::open_active().unwrap();
+    let records = Records::new(&database);
+    assert!(records.sessions().is_empty());
+    assert!(records.read::<CompilationRecord>().is_empty());
+}
+
+/// A memory snapshot is recorded under the caller's label, carrying the same
+/// report the client answers — kept once the session changes something, as a
+/// build's does.
+#[test_log::test]
+#[cfg(all(feature = "std", persistence))]
+#[serial_test::serial]
+fn a_memory_snapshot_is_recorded_under_its_label() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{RecordLevel, Records};
+    use cubecl_server::memory_management::MemoryRecord;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    recording_at(RecordLevel::Basic);
+
+    let client = test_client(&DummyDevice);
+    let _held = client.create_from_slice(&[1, 2, 3]);
+    client.record_memory("model loaded");
+    let database = Database::open_active().unwrap();
+    assert!(
+        Records::new(&database).read::<MemoryRecord>().is_empty(),
+        "held until the session changes something"
+    );
+    // A kernel compiled into the store: the change a build makes.
+    struct Stored;
+    let id = cubecl_server::id::KernelId::new::<Stored>();
+    let stored = true;
+    cubecl_server::compiler::CompilationRecording::new(&id).compiled(stored);
+
+    let snapshots = Records::new(&database).read::<MemoryRecord>();
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0].record.label, "model loaded");
+    assert_eq!(snapshots[0].record.report, client.memory_report());
+}
+
+/// A launch is collected while a collection is open — the kernel a replay has
+/// to keep — and only then.
+#[test_log::test]
+#[serial_test::serial]
+fn a_launch_is_collected_while_a_collection_is_open() {
+    use cubecl_server::launched::LaunchedKernels;
+
+    let client = test_client(&DummyDevice);
+    let launch = || {
+        let lhs = client.create_from_slice(&[0, 1, 2]);
+        let rhs = client.create_from_slice(&[4, 4, 4]);
+        let out = client.empty(3);
+        let kernel = KernelTask::new(DummyElementwiseAddition);
+        let id = cubecl_server::kernel::KernelMetadata::id(&kernel);
+        client.launch(
+            Box::new(kernel),
+            CubeCount::Static(1, 1, 1),
+            KernelArguments::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.binding()]),
+        );
+        id
+    };
+
+    let collection = LaunchedKernels::new();
+    let id = launch();
+    let launched = collection.finish();
+    assert!(launched.contains(&id.stable_hash()));
+
+    let collection = LaunchedKernels::new();
+    let launched = collection.finish();
+    assert!(launched.is_empty(), "a new collection starts empty");
 }

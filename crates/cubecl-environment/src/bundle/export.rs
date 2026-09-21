@@ -57,6 +57,10 @@ pub struct ExportOptions {
     /// namespace itself and everything below it. No prefix, or an empty one,
     /// means every namespace.
     pub namespaces: Vec<String>,
+    /// Leave out the namespaces under any of these prefixes, applied after
+    /// [`namespaces`](Self::namespaces): `records` exports an environment
+    /// without the account of how it was built, for distribution.
+    pub excluded_namespaces: Vec<String>,
     /// The layout to write. Pick [`BundleFormat::Flat`] for wasm and no-std
     /// targets.
     pub format: BundleFormat,
@@ -112,9 +116,10 @@ pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
     discard(&staged);
 
     let namespaces = filters(&options.namespaces);
+    let excluded = &options.excluded_namespaces;
     let exported = match options.format {
-        BundleFormat::Sqlite => export_sqlite(&staged, &sources, namespaces, &manifest),
-        BundleFormat::Flat => export_flat(&staged, &sources, namespaces, &manifest),
+        BundleFormat::Sqlite => export_sqlite(&staged, &sources, namespaces, excluded, &manifest),
+        BundleFormat::Flat => export_flat(&staged, &sources, namespaces, excluded, &manifest),
     };
     let exported = match exported {
         Ok(exported) => exported,
@@ -136,6 +141,14 @@ pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
     Ok(manifest)
 }
 
+/// Whether `namespace` is `prefix` or below it, matching whole segments as
+/// [`NAMESPACE_PREFIX`] does.
+fn under(namespace: &str, prefix: &str) -> bool {
+    namespace
+        .strip_prefix(prefix)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
 /// The namespace prefixes to export, or `None` for every namespace.
 ///
 /// An empty prefix selects everything, so a list holding one collapses to no
@@ -153,10 +166,18 @@ fn export_sqlite(
     out: &Path,
     sources: &[PathBuf],
     namespaces: Option<&[String]>,
+    excluded: &[String],
     manifest: &BundleManifest,
 ) -> Result<usize, BundleError> {
     let location = location(out)?;
-    let target = block_on(turso::Builder::new_local(location).build()).map_err(storage_error)?;
+    // Compaction is behind a flag in the engine; the staged file is the one
+    // place a database of ours is ever compacted.
+    let target = block_on(
+        turso::Builder::new_local(location)
+            .experimental_vacuum(true)
+            .build(),
+    )
+    .map_err(storage_error)?;
     // The bundle carries the environment's own schema and version, so
     // `environment::load` can mount it as it would any environment file.
     database::migrate(&target).map_err(storage_error)?;
@@ -175,6 +196,21 @@ fn export_sqlite(
         exported += read_entries(source, namespaces, &mut Sink::Sqlite(&transaction))?;
     }
     block_on(transaction.commit()).map_err(storage_error)?;
+
+    // Copied, then deleted: the exclusion stays one statement per prefix
+    // beside the copy's own filter, and the staged file is compacted after,
+    // so what is left out costs nothing in the shipped one. Before the
+    // checkpoint, which is what folds the deletes into the file.
+    let delete = std::format!("DELETE FROM entries WHERE {NAMESPACE_PREFIX}");
+    let mut removed = 0;
+    for prefix in excluded.iter().filter(|prefix| !prefix.is_empty()) {
+        removed += block_on(connection.execute(&delete, (prefix.as_str(),)))
+            .map_err(storage_error)? as usize;
+    }
+    if removed > 0 {
+        block_on(connection.execute("VACUUM", ())).map_err(storage_error)?;
+    }
+    exported -= removed;
 
     // A shipped bundle is read from wherever it was installed, which is often
     // a read-only directory, and the engine never checkpoints on close: a
@@ -232,6 +268,7 @@ fn export_flat(
     out: &Path,
     sources: &[PathBuf],
     namespaces: Option<&[String]>,
+    excluded: &[String],
     manifest: &BundleManifest,
 ) -> Result<usize, BundleError> {
     let mut entries = flat::Entries::new();
@@ -239,6 +276,11 @@ fn export_flat(
     for source in sources {
         read_entries(source, namespaces, &mut Sink::Flat(&mut entries))?;
     }
+    entries.retain(|(namespace, _), _| {
+        !excluded
+            .iter()
+            .any(|prefix| !prefix.is_empty() && under(namespace, prefix))
+    });
 
     flat::write(out, &entries, manifest)?;
 

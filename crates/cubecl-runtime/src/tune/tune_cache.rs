@@ -35,7 +35,9 @@ pub(crate) enum ChecksumState {
 pub struct PersistentCacheKey<K> {
     /// The autotune key identifying the operation.
     pub key: K,
-    checksum: String,
+    /// The checksum of the candidate list the key was tuned under: an answer
+    /// to another list is an answer to another question.
+    pub checksum: String,
 }
 
 /// Persistent cache entry
@@ -112,6 +114,10 @@ pub(crate) struct TuneCache<K> {
     /// [`Self::in_memory_cache`] once hydrated, not here.
     #[cfg(persistence)]
     persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
+    /// The namespace the table is stored under, whether or not it is
+    /// persisted: what a [record](super::TuneRecord) names it by.
+    #[cfg(persistence)]
+    table: String,
     /// Whether everything the store holds has been ingested into
     /// [`Self::in_memory_cache`]. What makes an ordinary miss cost a bool
     /// check rather than a walk; `false` until the first sync, and again
@@ -153,11 +159,14 @@ impl<K: AutotuneKey> TuneCache<K> {
             use alloc::format;
 
             let config = crate::config::CubeClRuntimeConfig::get();
+            let namespace = Namespace::scoped("autotune", format!("{device_id}/{name}"));
+            let table = namespace.as_str().into();
 
             if config.autotune.disable_cache {
                 return TuneCache {
                     in_memory_cache: HashMap::new(),
                     persistent_cache: None,
+                    table,
                     hydrated: true,
                     generation: cubecl_environment::environment::generation(),
                 };
@@ -167,7 +176,6 @@ impl<K: AutotuneKey> TuneCache<K> {
             // reads as "rebuild", never as "this state belongs to the new
             // environment".
             let generation = cubecl_environment::environment::generation();
-            let namespace = Namespace::scoped("autotune", format!("{device_id}/{name}"));
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
                 persistent_cache: Some(Store::new(
@@ -175,6 +183,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                         .storage(namespace)
                         .cache(CacheOption::Lazy),
                 )),
+                table,
                 hydrated: false,
                 generation,
             };
@@ -327,36 +336,45 @@ impl<K: AutotuneKey> TuneCache<K> {
         delivered
     }
 
+    /// The namespace the table is stored under.
+    pub(crate) fn table(&self) -> &str {
+        &self.table
+    }
+
+    /// Store an answer in the table, and say whether it took it: never when
+    /// the cache is disabled.
     pub(crate) fn persistent_cache_insert(
         &mut self,
         key: K,
         checksum: String,
         value: PersistentCacheValue,
-    ) {
+    ) -> bool {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
-            return;
+            return false;
         };
 
-        if let Err(err) = persistent_cache.insert(PersistentCacheKey { key, checksum }, value) {
-            match err {
-                StoreError::DuplicatedKey {
-                    key,
-                    value_previous,
-                    value_updated,
-                } => log::warn!(
-                    "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
-                ),
-                // Another process sharing the cache root tuned this key first.
-                // Routine with N training processes on a cold cache, and both
-                // results are valid, so it stays quiet: warning here would
-                // print a full result payload per key on every cold start.
-                StoreError::KeyOutOfSync { key, .. } => {
-                    log::debug!("Autotune result for key {key:?} was already stored concurrently")
-                }
-                StoreError::Backend { key, error } => log::warn!(
-                    "Autotune result for key {key:?} could not be stored, it will be retuned: {error}"
-                ),
+        let Err(err) = persistent_cache.insert(PersistentCacheKey { key, checksum }, value) else {
+            return true;
+        };
+        match err {
+            StoreError::DuplicatedKey {
+                key,
+                value_previous,
+                value_updated,
+            } => log::warn!(
+                "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
+            ),
+            // Another process sharing the cache root tuned this key first.
+            // Routine with N training processes on a cold cache, and both
+            // results are valid, so it stays quiet: warning here would
+            // print a full result payload per key on every cold start.
+            StoreError::KeyOutOfSync { key, .. } => {
+                log::debug!("Autotune result for key {key:?} was already stored concurrently")
             }
+            StoreError::Backend { key, error } => log::warn!(
+                "Autotune result for key {key:?} could not be stored, it will be retuned: {error}"
+            ),
         }
+        false
     }
 }

@@ -102,88 +102,75 @@ enum DatabaseState {
 static DATABASES: LazyLock<Mutex<HashMap<String, DatabaseState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// One namespace of the active environment's database.
-pub struct TursoStorage {
+/// Every namespace of the active environment's database at once.
+///
+/// A [`TursoStorage`] is this bound to one namespace. The records of a build
+/// ([`crate::records`]) span namespaces — the sessions', and one per record
+/// kind — and are read and written through this instead.
+pub struct Database {
     /// The engine rejects concurrent use of a connection at runtime rather
-    /// than serializing it, so each storage holds one and takes it in turn.
+    /// than serializing it, so each handle holds one and takes it in turn.
     connection: Mutex<turso::Connection>,
-    namespace: String,
     location: String,
 }
 
-impl core::fmt::Debug for TursoStorage {
+impl core::fmt::Debug for Database {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter
-            .debug_struct("TursoStorage")
-            .field("namespace", &self.namespace)
+            .debug_struct("Database")
             .field("location", &self.location)
             .finish()
     }
 }
 
-impl TursoStorage {
-    /// Binds a storage to `namespace` in the active environment's database.
-    pub fn open(namespace: String) -> Result<Self, String> {
+impl Database {
+    /// A connection to the active environment's database.
+    fn open() -> Result<Self, String> {
         let location = location()?;
         let database = database()?;
         let connection = connect(&database).map_err(error)?;
 
         Ok(Self {
             connection: Mutex::new(connection),
-            namespace,
             location,
         })
     }
 
-    /// Runs `operation` on the storage's connection, logging a failure under
-    /// `name` and reporting it as a message.
+    /// The active environment's database, or `None` when it can't be opened:
+    /// a read-only mount, a missing parent directory, a browser page that
+    /// hasn't awaited [`crate::environment::open`]. Callers go without
+    /// rather than fail.
+    pub fn open_active() -> Option<Self> {
+        match Self::open() {
+            Ok(database) => Some(database),
+            Err(error) => {
+                log::warn!("Unable to open the Turso cache: {error}");
+                None
+            }
+        }
+    }
+
+    /// Runs `operation` on the connection, logging a failure under `name`
+    /// against `namespace` and reporting it as a message.
     fn run<T>(
         &self,
         name: &str,
+        namespace: &str,
         operation: impl FnOnce(&mut turso::Connection) -> Result<T, turso::Error>,
     ) -> Result<T, String> {
         operation(&mut self.connection.lock()).map_err(|err| {
-            log::warn!("Unable to {name} {}: {err}", self.describe());
+            log::warn!(
+                "Unable to {name} {}: {err}",
+                describe(&self.location, namespace)
+            );
             err.to_string()
         })
     }
 
-    /// One insert on `connection`: the statement arbitrates, and only a
-    /// declined write costs a second one, to fetch the value that won.
-    fn insert_on(
-        &self,
-        connection: &turso::Connection,
-        key: &[u8],
-        value: &[u8],
-        origin: Origin,
-    ) -> Result<Insertion, turso::Error> {
-        let params = (
-            self.namespace.as_str(),
-            key.to_vec(),
-            value.to_vec(),
-            origin_code(origin),
-        );
-        if drive(connection.execute(INSERT, params))? == 1 {
-            return Ok(Insertion::Stored);
-        }
-
-        let mut rows = drive(connection.query(SELECT, (self.namespace.as_str(), key.to_vec())))?;
-        match drive(rows.next())? {
-            Some(row) => Ok(Insertion::Conflict(Bytes::from_bytes_vec(row.get(0)?))),
-            // Purged between the two statements: nothing to report as the
-            // winner, and nothing stored.
-            None => Ok(Insertion::Failed(
-                "the entry was removed while it was being written".to_string(),
-            )),
-        }
-    }
-}
-
-impl Storage for TursoStorage {
-    fn get(&self, key: &[u8]) -> Option<Bytes> {
-        self.run("read", |connection| {
-            let mut rows =
-                drive(connection.query(SELECT, (self.namespace.as_str(), key.to_vec())))?;
+    /// The value stored under `key` in `namespace`.
+    pub fn get(&self, namespace: &str, key: &[u8]) -> Option<Bytes> {
+        self.run("read", namespace, |connection| {
+            let mut rows = drive(connection.query(SELECT, (namespace, key.to_vec())))?;
             let Some(row) = drive(rows.next())? else {
                 return Ok(None);
             };
@@ -193,31 +180,31 @@ impl Storage for TursoStorage {
         .unwrap_or_default()
     }
 
-    fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        self.run("write", |connection| {
-            self.insert_on(connection, key, &value, origin)
+    /// Stores `value` under `key`. See [`Storage`] for the rules; in short, a
+    /// local value replaces an imported one and nothing else overwrites.
+    pub fn insert(&self, namespace: &str, key: &[u8], value: &[u8], origin: Origin) -> Insertion {
+        self.run("write", namespace, |connection| {
+            insert_on(connection, namespace, key, value, origin)
         })
         .unwrap_or_else(Insertion::Failed)
     }
 
-    fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        self.run("replace", |connection| {
-            let params = (
-                self.namespace.as_str(),
-                key.to_vec(),
-                value.to_vec(),
-                origin_code(origin),
-            );
+    /// Stores `value` under `key`, overwriting whatever is there.
+    pub fn replace(&self, namespace: &str, key: &[u8], value: &[u8], origin: Origin) -> Insertion {
+        self.run("replace", namespace, |connection| {
+            let params = (namespace, key.to_vec(), value.to_vec(), origin_code(origin));
             drive(connection.execute(REPLACE, params))?;
             Ok(Insertion::Stored)
         })
         .unwrap_or_else(Insertion::Failed)
     }
 
-    /// One transaction for the batch: it holds the writer once rather than
-    /// once per entry, and lands as a whole.
-    fn insert_many(
+    /// Stores every entry of `entries` under the rules of
+    /// [`insert`](Self::insert), in one transaction: it holds the writer once
+    /// rather than once per entry, and lands as a whole.
+    pub fn insert_many(
         &self,
+        namespace: &str,
         entries: &mut dyn Iterator<Item = (Bytes, Bytes)>,
         origin: Origin,
     ) -> InsertSummary {
@@ -225,7 +212,10 @@ impl Storage for TursoStorage {
         let transaction = match drive(connection.transaction_with_behavior(write_transaction())) {
             Ok(transaction) => transaction,
             Err(err) => {
-                log::warn!("Unable to batch write {}: {err}", self.describe());
+                log::warn!(
+                    "Unable to batch write {}: {err}",
+                    describe(&self.location, namespace)
+                );
                 return InsertSummary {
                     failed: entries.count(),
                     ..InsertSummary::default()
@@ -235,7 +225,7 @@ impl Storage for TursoStorage {
 
         let mut summary = InsertSummary::default();
         for (key, value) in entries {
-            match self.insert_on(&transaction, &key, &value, origin) {
+            match insert_on(&transaction, namespace, &key, &value, origin) {
                 Ok(insertion) => summary.record(&insertion),
                 Err(_) => summary.failed += 1,
             }
@@ -243,7 +233,7 @@ impl Storage for TursoStorage {
         if let Err(err) = drive(transaction.commit()) {
             log::warn!(
                 "Unable to commit a batch write to {}: {err}",
-                self.describe()
+                describe(&self.location, namespace)
             );
             summary.failed += summary.stored;
             summary.stored = 0;
@@ -251,9 +241,10 @@ impl Storage for TursoStorage {
         summary
     }
 
-    fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
-        let _ = self.run("scan", |connection| {
-            let mut rows = drive(connection.query(SCAN, (self.namespace.as_str(),)))?;
+    /// Visits every entry of `namespace`.
+    pub fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
+        let _ = self.run("scan", namespace, |connection| {
+            let mut rows = drive(connection.query(SCAN, (namespace,)))?;
             while let Some(row) = drive(rows.next())? {
                 let key: Vec<u8> = row.get(0)?;
                 let value: Vec<u8> = row.get(1)?;
@@ -263,21 +254,122 @@ impl Storage for TursoStorage {
         });
     }
 
-    fn purge(&self) {
-        let _ = self.run("purge", |connection| {
-            drive(connection.execute(PURGE, (self.namespace.as_str(),))).map(|_| ())
+    /// Deletes every entry of `namespace`. Logs a failed delete rather than
+    /// reporting it; see the [`Storage`] contract.
+    pub fn purge(&self, namespace: &str) {
+        let _ = self.run("purge", namespace, |connection| {
+            drive(connection.execute(PURGE, (namespace,))).map(|_| ())
         });
+    }
+
+    /// Deletes the entry of `namespace` under `key`, with the same failure
+    /// contract as [`purge`](Self::purge).
+    pub fn purge_key(&self, namespace: &str, key: &[u8]) {
+        let _ = self.run("purge a key from", namespace, |connection| {
+            drive(connection.execute(PURGE_KEY, (namespace, key.to_vec()))).map(|_| ())
+        });
+    }
+
+    /// The names of every namespace this database holds.
+    pub fn namespaces(&self) -> Vec<String> {
+        self.run("summarize", "", |connection| summarize(connection))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|summary| summary.namespace)
+            .collect()
+    }
+}
+
+/// One insert on `connection`: the statement arbitrates, and only a declined
+/// write costs a second one, to fetch the value that won.
+fn insert_on(
+    connection: &turso::Connection,
+    namespace: &str,
+    key: &[u8],
+    value: &[u8],
+    origin: Origin,
+) -> Result<Insertion, turso::Error> {
+    let params = (namespace, key.to_vec(), value.to_vec(), origin_code(origin));
+    if drive(connection.execute(INSERT, params))? == 1 {
+        return Ok(Insertion::Stored);
+    }
+
+    let mut rows = drive(connection.query(SELECT, (namespace, key.to_vec())))?;
+    match drive(rows.next())? {
+        Some(row) => Ok(Insertion::Conflict(Bytes::from_bytes_vec(row.get(0)?))),
+        // Purged between the two statements: nothing to report as the
+        // winner, and nothing stored.
+        None => Ok(Insertion::Failed(
+            "the entry was removed while it was being written".to_string(),
+        )),
+    }
+}
+
+fn describe(location: &str, namespace: &str) -> String {
+    format!("Turso {location} ({namespace})")
+}
+
+/// One namespace of the active environment's database.
+pub struct TursoStorage {
+    database: Database,
+    namespace: String,
+}
+
+impl core::fmt::Debug for TursoStorage {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("TursoStorage")
+            .field("namespace", &self.namespace)
+            .field("location", &self.database.location)
+            .finish()
+    }
+}
+
+impl TursoStorage {
+    /// Binds a storage to `namespace` in the active environment's database.
+    pub fn open(namespace: String) -> Result<Self, String> {
+        Ok(Self {
+            database: Database::open()?,
+            namespace,
+        })
+    }
+}
+
+impl Storage for TursoStorage {
+    fn get(&self, key: &[u8]) -> Option<Bytes> {
+        self.database.get(&self.namespace, key)
+    }
+
+    fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+        self.database.insert(&self.namespace, key, &value, origin)
+    }
+
+    fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+        self.database.replace(&self.namespace, key, &value, origin)
+    }
+
+    fn insert_many(
+        &self,
+        entries: &mut dyn Iterator<Item = (Bytes, Bytes)>,
+        origin: Origin,
+    ) -> InsertSummary {
+        self.database.insert_many(&self.namespace, entries, origin)
+    }
+
+    fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
+        self.database.scan(&self.namespace, visit);
+    }
+
+    fn purge(&self) {
+        self.database.purge(&self.namespace);
     }
 
     fn purge_key(&self, key: &[u8]) {
-        let _ = self.run("purge a key from", |connection| {
-            drive(connection.execute(PURGE_KEY, (self.namespace.as_str(), key.to_vec())))
-                .map(|_| ())
-        });
+        self.database.purge_key(&self.namespace, key);
     }
 
     fn describe(&self) -> String {
-        format!("Turso {} ({})", self.location, self.namespace)
+        describe(&self.database.location, &self.namespace)
     }
 }
 
