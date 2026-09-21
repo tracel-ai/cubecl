@@ -491,7 +491,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
         let id = binding.descriptor();
 
-        if id.location().init == 0 {
+        if !id.is_allocated() {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: "Memory location was never initialized".into(),
@@ -530,7 +530,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
         let id = binding.descriptor();
 
-        if id.location().init == 0 {
+        if !id.is_allocated() {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: "Memory location was never initialized".into(),
@@ -834,7 +834,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     ) -> Result<(), IoError> {
         let descriptor = reserved.descriptor();
 
-        if descriptor.location().init == 0 {
+        if !descriptor.is_allocated() {
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: "Reserved memory isn't initialized".into(),
@@ -1005,10 +1005,8 @@ mod tests {
     };
     use alloc::vec;
 
-    const DUMMY_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties {
-        max_page_size: 128 * 1024 * 1024,
-        alignment: 32,
-    };
+    const DUMMY_MEM_PROPS: MemoryDeviceProperties =
+        MemoryDeviceProperties::new(128 * 1024 * 1024, 32);
 
     fn options() -> MemoryManagementOptions {
         MemoryManagementOptions {
@@ -1220,6 +1218,39 @@ mod tests {
             2048,
             "a failed reservation must not grow the pool"
         );
+    }
+
+    /// What the throughput probes rely on: a persistent window serves buffers
+    /// the installed layout refuses, however many are held at once, and leaves
+    /// the layout's budget alone.
+    #[test_log::test]
+    fn persistent_window_serves_what_a_capped_layout_refuses() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            capped_sliced_config(1024, Some(1024)),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let refused = memory_management.reserve(4096, &mut ErrorGraph::default());
+        assert!(matches!(refused, Err(IoError::BufferTooBig { .. })));
+
+        memory_management.mode(MemoryAllocationMode::Persistent);
+        let _input = memory_management
+            .reserve(4096, &mut ErrorGraph::default())
+            .unwrap();
+        let _output = memory_management
+            .reserve(4096, &mut ErrorGraph::default())
+            .unwrap();
+        let _line = memory_management
+            .reserve(16, &mut ErrorGraph::default())
+            .unwrap();
+        memory_management.mode(MemoryAllocationMode::Auto);
+
+        let report = memory_management.memory_report();
+        assert_eq!(report.persistent.usage.bytes_in_use, 2 * 4096 + 16);
+        assert_eq!(report.dynamic[0].pages_peak, 0);
     }
 
     #[test_log::test]
@@ -1532,10 +1563,7 @@ mod tests {
         let page_size = 500;
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: page_size,
-                alignment: 50,
-            },
+            &MemoryDeviceProperties::new(page_size, 50),
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
                     pool_type: PoolType::SlicedPages {
@@ -1574,10 +1602,7 @@ mod tests {
             .collect();
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: 128 * 1024 * 1024,
-                alignment: 10,
-            },
+            &MemoryDeviceProperties::new(128 * 1024 * 1024, 10),
             MemoryConfiguration::Custom {
                 pool_options: pools,
             },
@@ -1817,10 +1842,7 @@ mod tests {
     fn allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: 128 * 1024 * 1024,
-                alignment: 32,
-            },
+            &MemoryDeviceProperties::new(128 * 1024 * 1024, 32),
             MemoryConfiguration::SubSlices,
             Arc::new(ServerLogger::default()),
             options(),
@@ -1848,10 +1870,7 @@ mod tests {
     fn test_fragmentation_resistance() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: 128 * 1024 * 1024,
-                alignment: 32,
-            },
+            &MemoryDeviceProperties::new(128 * 1024 * 1024, 32),
             MemoryConfiguration::SubSlices,
             Arc::new(ServerLogger::default()),
             options(),
@@ -1887,10 +1906,7 @@ mod tests {
     fn noslice_test_handle_mutability() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &(MemoryDeviceProperties {
-                max_page_size: 128 * 1024 * 1024,
-                alignment: 32,
-            }),
+            &MemoryDeviceProperties::new(128 * 1024 * 1024, 32),
             MemoryConfiguration::ExclusivePages,
             Arc::new(ServerLogger::default()),
             options(),
@@ -1990,10 +2006,7 @@ mod tests {
     fn noslice_alloc_respects_alignment_size() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: DUMMY_MEM_PROPS.max_page_size,
-                alignment: 50,
-            },
+            &MemoryDeviceProperties::new(DUMMY_MEM_PROPS.max_page_size, 50),
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
                     pool_type: PoolType::ExclusivePages {
@@ -2028,10 +2041,7 @@ mod tests {
             .collect();
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: DUMMY_MEM_PROPS.max_page_size,
-                alignment: 10,
-            },
+            &MemoryDeviceProperties::new(DUMMY_MEM_PROPS.max_page_size, 10),
             MemoryConfiguration::Custom {
                 pool_options: pools,
             },
@@ -2396,10 +2406,7 @@ mod tests {
     fn noslice_allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: 128 * 1024 * 1024,
-                alignment: 32,
-            },
+            &MemoryDeviceProperties::new(128 * 1024 * 1024, 32),
             MemoryConfiguration::ExclusivePages,
             Arc::new(ServerLogger::default()),
             options(),

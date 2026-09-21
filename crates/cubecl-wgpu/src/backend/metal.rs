@@ -107,6 +107,14 @@ pub fn register_metal_features(
         };
         let raw = adapter.raw_device();
 
+        // Metal's capacity is the working set it recommends staying under.
+        // Read before the family and compiler checks below, because either can
+        // decline the backend and leave the device on WGSL, where the capacity
+        // still holds.
+        props
+            .memory
+            .set_max_memory(raw.recommendedMaxWorkingSetSize());
+
         // The native feature profile includes plane and CMMA operations that rely on Metal's
         // SIMD-scoped capabilities. Metal can report those capabilities through overlapping
         // programming-model and hardware families:

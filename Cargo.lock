@@ -823,6 +823,7 @@ dependencies = [
  "cubecl-core",
  "cubecl-cpp",
  "cubecl-environment",
+ "cubecl-llvm",
  "cubecl-server",
  "cubecl-std",
  "cudarc",
@@ -901,11 +902,12 @@ dependencies = [
 
 [[package]]
 name = "cubecl-hip-sys"
-version = "7.14.6085000"
+version = "7.14.6085001"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "760c605ca1b54d12ba9209d2a47992082ff66346fbd96d830af22ac43adfeebc"
+checksum = "3ba92853ebdf935ce68fdf96e4631a121ab72ce078201371ce7ace26603597f6"
 dependencies = [
  "libc",
+ "libloading 0.8.9",
  "regex",
 ]
 
@@ -1300,6 +1302,13 @@ dependencies = [
  "rustc_version",
  "syn 2.0.119",
  "unicode-xid",
+]
+
+[[package]]
+name = "device_identity"
+version = "0.11.0-pre.4"
+dependencies = [
+ "cubecl",
 ]
 
 [[package]]
@@ -3033,14 +3042,15 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "pliron"
-version = "0.17.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=fa72d7f36385438173b8008f709ef179d0f4069e#fa72d7f36385438173b8008f709ef179d0f4069e"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4569fbc8e56df3331511fbdf266664e97c851c894840a4dc166c1505c94a2492"
 dependencies = [
  "awint",
  "combine",
  "downcast-rs",
  "dyn-clone",
- "hashbrown 0.15.5",
+ "hashbrown 0.17.1",
  "hi_sparse_bitset",
  "indexmap",
  "inventory",
@@ -3060,8 +3070,9 @@ dependencies = [
 
 [[package]]
 name = "pliron-derive"
-version = "0.17.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=fa72d7f36385438173b8008f709ef179d0f4069e#fa72d7f36385438173b8008f709ef179d0f4069e"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f3aac081c3e21485f283f602816a337d4810e0c1b36191804e95dcca506ce66"
 dependencies = [
  "combine",
  "convert_case 0.11.0",
@@ -3074,8 +3085,9 @@ dependencies = [
 
 [[package]]
 name = "pliron-llvm"
-version = "0.17.0"
-source = "git+https://github.com/pliron-org/pliron.git?rev=fa72d7f36385438173b8008f709ef179d0f4069e#fa72d7f36385438173b8008f709ef179d0f4069e"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bb66ac18b5f3aecfe37b74d9b4e3c9f845cddf86601eacfb89d9b17406b3a02"
 dependencies = [
  "bitflags 2.13.1",
  "llvm-sys",
@@ -3086,8 +3098,9 @@ dependencies = [
 
 [[package]]
 name = "pliron-spirv"
-version = "0.14.1+sdk-1.4.357.0"
-source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=0a51b9d88f033d47fc1111f10a87190ad782512d#0a51b9d88f033d47fc1111f10a87190ad782512d"
+version = "0.15.0+sdk-1.4.357.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e4de33072f8752616fee5dd701fed15eb17a218913d36dde71556f4103cdfc9"
 dependencies = [
  "derive-new",
  "derive_more",
@@ -3958,7 +3971,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -4292,7 +4305,7 @@ dependencies = [
 [[package]]
 name = "tracel-llvm-bundler"
 version = "23.1.0-1"
-source = "git+https://github.com/tracel-ai/tracel-llvm.git?rev=809d73e1a49bba4c7fbe858ade27a983921b1ca8#809d73e1a49bba4c7fbe858ade27a983921b1ca8"
+source = "git+https://github.com/tracel-ai/tracel-llvm.git?rev=4769fd52f2205435134d6a3c606f94aad6876155#4769fd52f2205435134d6a3c606f94aad6876155"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4310,8 +4323,9 @@ dependencies = [
 
 [[package]]
 name = "tracel-rspirv"
-version = "0.14.1+sdk-1.4.357.0"
-source = "git+https://github.com/tracel-ai/tracel-rspirv.git?rev=0a51b9d88f033d47fc1111f10a87190ad782512d#0a51b9d88f033d47fc1111f10a87190ad782512d"
+version = "0.15.0+sdk-1.4.357.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe40b56cba6c5d88c88ff8b4d9cdd3d2b2972ac756e06f92fed7f81eb174da93"
 dependencies = [
  "bitflags 2.13.1",
  "pliron",

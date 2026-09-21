@@ -7,7 +7,9 @@ use cubecl_common::device::{DeviceId, ServiceId};
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{ElemType, UIntKind};
 use cubecl_server::client::Client;
-use cubecl_server::server::{CubeCount, Handle, KernelArguments, ServerError};
+use cubecl_server::server::{
+    CubeCount, Handle, IoError, KernelArguments, ReduceOperation, ServerError,
+};
 use cubecl_server::{local_tuner, tune::LocalTuner};
 use dummy::*;
 
@@ -47,6 +49,26 @@ fn a_handle_of_this_client_passes_the_check() {
     let handle = client.empty(8);
 
     assert!(client.check(&[handle]).is_ok());
+}
+
+/// A reservation that fails leaves no slice to carry the failure, so the check
+/// has to notice the missing allocation itself. Past the device's page size,
+/// so no pool accepts it and nothing is allocated on the host either.
+#[test_log::test]
+fn a_handle_whose_reservation_failed_is_refused() {
+    let client = test_client(&DummyDevice);
+    let served = client.empty(8);
+    let refused = client.empty(1024 * 1024 * 1024);
+
+    assert!(client.check([&served]).is_ok());
+    let Err(ServerError::Several { errors, .. }) = client.check([&served, &refused]) else {
+        panic!("the refused buffer passed the check");
+    };
+    assert!(matches!(
+        errors[..],
+        [ServerError::Io(IoError::NotFound { .. })]
+    ));
+    assert!(client.read_one(refused).is_err());
 }
 
 #[test_log::test]
@@ -113,6 +135,40 @@ fn a_transfer_between_devices_of_the_same_runtime_round_trips() {
 
     assert_eq!(transferred.service, destination.service_id());
     assert_eq!(destination.read_one(transferred).unwrap().to_vec(), bytes);
+}
+
+#[test_log::test]
+#[should_panic(expected = "no transport between its devices")]
+fn a_transfer_without_a_device_transport_panics_on_the_caller() {
+    let mut source = test_client(&DummyDevice);
+    let destination = Client::load::<DummyServer>(DeviceId::new(0, 1));
+    let handle = source.create_from_slice(&[1u8, 2, 3, 4]);
+    assert!(!source.has_device_transport());
+
+    let descriptor = handle.copy_descriptor([4].into(), [1].into(), 1);
+    source.to_client_tensor(descriptor, &destination, ElemType::UInt(UIntKind::U8));
+}
+
+#[test_log::test]
+#[should_panic(expected = "no transport between its devices")]
+fn an_all_reduce_without_a_device_transport_panics_on_the_caller() {
+    let mut client = test_client(&DummyDevice);
+    let handle = client.create_from_slice(&[1u8, 2, 3, 4]);
+    let device_ids = vec![DeviceId::new(0, 0), DeviceId::new(0, 1)];
+
+    client.all_reduce(
+        handle.clone(),
+        handle,
+        ElemType::UInt(UIntKind::U8),
+        device_ids,
+        ReduceOperation::Sum,
+    );
+}
+
+#[test_log::test]
+fn a_sync_collective_without_a_device_transport_waits_for_nothing() {
+    let client = test_client(&DummyDevice);
+    client.sync_collective();
 }
 
 /// Two clients of different runtimes are the same type now, so nothing but
@@ -182,7 +238,9 @@ fn execute_elementwise_addition() {
 #[test_log::test]
 #[serial_test::serial]
 fn a_refused_profile_degrades_to_an_untimed_launch() {
-    use cubecl_server::logging::{Duration, LaunchObservation, LaunchObserver, TimingMethod};
+    use cubecl_server::logging::{
+        Duration, LaunchObservation, LaunchObserver, TimingMethod, TimingRequest,
+    };
 
     #[derive(Default)]
     struct WantsTiming {
@@ -193,8 +251,8 @@ fn a_refused_profile_degrades_to_an_untimed_launch() {
         fn launched(&self, kernel: &'static str) {
             self.launched.lock().unwrap().push(kernel);
         }
-        fn wants_timing(&self) -> bool {
-            true
+        fn timing(&self) -> TimingRequest {
+            TimingRequest::Resolved
         }
         fn timed(&self, kernel: &'static str, _duration: Duration, _method: TimingMethod) {
             self.timed.lock().unwrap().push(kernel);

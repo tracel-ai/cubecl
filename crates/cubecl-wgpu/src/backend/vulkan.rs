@@ -1,4 +1,5 @@
-use alloc::collections::BTreeSet;
+use alloc::{collections::BTreeSet, vec::Vec};
+use core::{num::NonZeroU64, ptr::NonNull};
 
 use ash::vk::{
     self, API_VERSION_1_1, BufferDeviceAddressInfo, BufferUsageFlags,
@@ -13,7 +14,7 @@ use cubecl_core::{
     server::{IoError, KernelArguments},
 };
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_ir::{DeviceProperties, Type, features::*};
+use cubecl_ir::{AdapterLuid, DeviceProperties, Type, features::*};
 use cubecl_server::compiler::CompilationError;
 use cubecl_server::kernel::CompiledKernel;
 use cubecl_spirv::{SpirvCompiler, SpirvKernel};
@@ -35,7 +36,7 @@ use wgpu::{
     },
 };
 
-use crate::{WgpuCompiler, WgpuServer};
+use crate::{HostPtr, WgpuCompiler, WgpuMemory, WgpuServer};
 
 mod features;
 
@@ -188,7 +189,7 @@ fn request_device(
 pub(crate) fn create_storage_buffer(
     wgpu_device: &wgpu::Device,
     desc: &wgpu::BufferDescriptor,
-) -> Result<(wgpu::Buffer, u64), IoError> {
+) -> Result<WgpuMemory, IoError> {
     let device: &vulkan::Device = unsafe { &wgpu_device.as_hal::<hal::api::Vulkan>().unwrap() };
     let instance = device.shared_instance().raw_instance();
     let phys_device = device.raw_physical_device();
@@ -214,13 +215,30 @@ pub(crate) fn create_storage_buffer(
     let num_types = memory_props.memory_type_count as usize;
     let memory_types = memory_props.memory_types.iter().take(num_types);
 
-    let (memory_type_idx, _) = memory_types
-        .enumerate()
-        .filter(|(i, _)| requirements.memory_type_bits & (1 << *i) != 0)
-        .find(|(_, it)| {
-            it.property_flags
-                .contains(MemoryPropertyFlags::DEVICE_LOCAL)
+    let find_type = |flags: MemoryPropertyFlags| {
+        memory_types
+            .clone()
+            .enumerate()
+            .filter(|(i, _)| requirements.memory_type_bits & (1 << *i) != 0)
+            .find(|(_, it)| it.property_flags.contains(flags))
+            .map(|(i, _)| i)
+    };
+
+    // On a discrete GPU, host-visible memory is the BAR window, often only 256 MiB.
+    let integrated = unsafe { instance.get_physical_device_properties(phys_device) }.device_type
+        == vk::PhysicalDeviceType::INTEGRATED_GPU;
+    let unified_type = integrated
+        .then(|| {
+            find_type(
+                MemoryPropertyFlags::DEVICE_LOCAL
+                    | MemoryPropertyFlags::HOST_VISIBLE
+                    | MemoryPropertyFlags::HOST_COHERENT,
+            )
         })
+        .flatten();
+
+    let memory_type_idx = unified_type
+        .or_else(|| find_type(MemoryPropertyFlags::DEVICE_LOCAL))
         .ok_or_else(|| IoError::Unknown {
             description: "No device local heap found".into(),
             backtrace: BackTrace::capture(),
@@ -248,12 +266,31 @@ pub(crate) fn create_storage_buffer(
     let addr_info = BufferDeviceAddressInfo::default().buffer(buffer);
     let device_address = unsafe { device.get_buffer_device_address(&addr_info) };
 
+    // Never unmapped: freeing the memory does it. Writing through the mapping is outside the
+    // ownership wgpu-hal's `from_raw_managed` claims; it holds because wgpu never maps an
+    // imported buffer itself, so recheck on a wgpu bump.
+    let host_ptr = match unified_type {
+        Some(_) => {
+            let ptr = unsafe {
+                device
+                    .map_memory(memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty())
+                    .map_err(|err| as_io_error(err, desc.size))?
+            };
+            NonNull::new(ptr as *mut u8).map(HostPtr)
+        }
+        None => None,
+    };
+
     let buffer = unsafe {
         wgpu::hal::vulkan::Buffer::from_raw_managed(buffer, memory, 0, requirements.size)
     };
     let buffer = unsafe { wgpu_device.create_buffer_from_hal::<hal::api::Vulkan>(buffer, desc) };
 
-    Ok((buffer, device_address))
+    Ok(WgpuMemory {
+        buffer,
+        address: NonZeroU64::new(device_address),
+        host_ptr,
+    })
 }
 
 fn as_io_error(result: vk::Result, size: u64) -> IoError {
@@ -316,6 +353,20 @@ fn register_features(
     memory_config: &MemoryConfiguration,
 ) -> bool {
     let ash = adapter.shared_instance();
+    let heaps = device_local_heaps(ash, adapter.raw_physical_device());
+
+    // The largest device-local heap, not the first: a driver is free to
+    // enumerate a small one ahead of the real thing, and some report the
+    // host-visible BAR window first, which would take a 16 GB card for 256 MB.
+    // On an integrated adapter the heap is system RAM, so this is the share the
+    // driver hands the GPU rather than a card's own memory.
+    //
+    // Read before the checks below, because capacity is not a feature: it asks
+    // only for the memory properties every Vulkan device reports, and a device
+    // those checks decline runs on WGSL with its capacity still true.
+    if let Some(largest) = heaps.iter().map(|heap| heap.size).max() {
+        props.memory.set_max_memory(largest);
+    }
 
     // Can't even query for required features without `PhysicalDeviceFeatures2`
     if ash.instance_api_version() < API_VERSION_1_1
@@ -402,17 +453,17 @@ fn register_features(
         comp_options.vulkan.supports_arbitrary_bitwise = true;
     }
 
+    // Pages are still sized against the first device-local heap, which may be
+    // the small BAR window described above. Moving them to the largest heap
+    // needs a check that wgpu allocates storage buffers from it.
     if let Some(index_64) = &extended_feat.index_64
         && index_64.shader64_bit_indexing == TRUE
-        && let Some(heap) =
-            device_local_heap(adapter.shared_instance(), adapter.raw_physical_device())
+        && let Some(heap) = heaps.first()
     {
-        let heap_size = heap.size;
-        let max_page_size = match memory_config.is_sub_slices() {
-            true => heap_size / 4,
-            false => heap_size,
+        props.memory.max_page_size = match memory_config.is_sub_slices() {
+            true => heap.size / 4,
+            false => heap.size,
         };
-        props.memory.max_page_size = max_page_size;
     }
 
     if extended_feat.cooperative_matrix.is_some() {
@@ -432,17 +483,20 @@ fn register_features(
     true
 }
 
-fn device_local_heap(instance: &InstanceShared, device: PhysicalDevice) -> Option<MemoryHeap> {
+/// The device-local heaps, in the order the driver reports them. Empty when
+/// the driver reports none.
+fn device_local_heaps(instance: &InstanceShared, device: PhysicalDevice) -> Vec<MemoryHeap> {
     let memory_props = unsafe {
         instance
             .raw_instance()
             .get_physical_device_memory_properties(device)
     };
     let num_heaps = memory_props.memory_heap_count as usize;
-    let mut heaps = memory_props.memory_heaps.iter().take(num_heaps);
-    heaps
-        .find(|it| it.flags.contains(MemoryHeapFlags::DEVICE_LOCAL))
+    memory_props.memory_heaps[..num_heaps]
+        .iter()
+        .filter(|it| it.flags.contains(MemoryHeapFlags::DEVICE_LOCAL))
         .copied()
+        .collect()
 }
 
 fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>) {
@@ -786,4 +840,32 @@ where
         });
     }
     Ok(compiled)
+}
+
+pub fn describe_card(adapter: &wgpu::Adapter, physical: &mut cubecl_ir::PhysicalDevice) {
+    // SAFETY: the hal adapter is only read while `adapter` keeps it alive.
+    let Some(hal_adapter) = (unsafe { adapter.as_hal::<hal::api::Vulkan>() }) else {
+        return;
+    };
+    let instance = hal_adapter.shared_instance();
+    let capabilities = hal_adapter.physical_device_capabilities();
+    // wgpu's instance only carries the core `get_physical_device_properties2`, which needs 1.1.
+    if instance.instance_api_version() < API_VERSION_1_1
+        || capabilities.properties().api_version < API_VERSION_1_1
+    {
+        return;
+    }
+
+    let mut ids = vk::PhysicalDeviceIDProperties::default();
+    let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut ids);
+    // SAFETY: both structures are core in 1.1, checked above.
+    unsafe {
+        instance
+            .raw_instance()
+            .get_physical_device_properties2(hal_adapter.raw_physical_device(), &mut properties);
+    }
+
+    if ids.device_luid_valid == vk::TRUE {
+        physical.luid = Some(AdapterLuid::new(ids.device_luid));
+    }
 }

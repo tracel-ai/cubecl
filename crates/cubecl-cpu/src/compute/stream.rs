@@ -242,6 +242,16 @@ impl CpuStream {
         self.timestamps.stop(token)
     }
 
+    /// Drop `token`'s window without measuring it.
+    ///
+    /// Does not flush, which is the difference from
+    /// [`end_profile`](Self::end_profile): the flush is there to put the work
+    /// being measured behind the closing instant, and nothing is going to read
+    /// this one.
+    pub fn abandon_profile(&mut self, token: ProfilingToken) {
+        self.timestamps.abandon(token);
+    }
+
     pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {
         self.memory_management.mode(mode);
     }

@@ -83,7 +83,10 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 ///
 /// [`Unsupported`](ThroughputError::Unsupported) where the device implements
 /// no such operation, [`NoTiming`](ThroughputError::NoTiming) where it does
-/// and reported no elapsed time.
+/// and reported no elapsed time, [`Allocation`](ThroughputError::Allocation)
+/// where it has no room for the probe's buffers, [`Launch`](ThroughputError::Launch)
+/// where a memory probe's kernel did not run. None of them is cached, so a
+/// device that was full is measured the next time it is asked.
 pub fn measure_peak_throughput(
     client: &Client,
     key: ThroughputKey,
@@ -113,7 +116,7 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
             }
 
             ShapeSweep::new(compute_direct_shapes(client, dtype, launch_config))
-                .fastest(|(dtype, config)| compute_direct::build_kernel(client, dtype, config))
+                .fastest(|(dtype, config)| Ok(compute_direct::build_kernel(client, dtype, config)))
                 .map(|(value, _)| value)
         }
         ThroughputMode::ComputeCmma {
@@ -125,7 +128,7 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
             }
 
             ShapeSweep::new(alloc::vec![launch_config])
-                .fastest(|config| compute_cmma::build_kernel(client, key, cmma_config, config))
+                .fastest(|config| Ok(compute_cmma::build_kernel(client, key, cmma_config, config)))
                 .map(|(value, _)| value)
         }
         ThroughputMode::Memory(spec) => {
@@ -145,7 +148,7 @@ fn probe(client: &Client, key: ThroughputKey) -> Result<ThroughputValue, Through
             Ok(value)
         }
         ThroughputMode::Launch => ShapeSweep::new(alloc::vec![launch_config])
-            .fastest(|config| launch_overhead::build_kernel(client, key, config))
+            .fastest(|config| Ok(launch_overhead::build_kernel(client, key, config)))
             .map(|(value, _)| value),
     }
 }
