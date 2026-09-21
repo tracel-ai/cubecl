@@ -1554,6 +1554,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "device_identity"
+version = "0.11.0-pre.4"
+dependencies = [
+ "cubecl",
+]
+
+[[package]]
 name = "device_sharing"
 version = "0.11.0-pre.4"
 dependencies = [

@@ -1,5 +1,7 @@
 mod base;
 
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+pub(crate) mod bitcode;
 pub mod branch;
 pub mod intrinsic;
 pub mod lowering;

@@ -12,9 +12,12 @@ use cubecl_core::{
     zspace::{Shape, Strides},
 };
 use cubecl_llvm::PlironCompiler;
-use cubecl_server::config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation};
-use cubecl_server::runtime::Runtime;
-use cubecl_server::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
+use cubecl_server::{
+    allocator::ContiguousMemoryLayoutPolicy,
+    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::F16Evaluation},
+    logging::ServerLogger,
+    runtime::Runtime,
+};
 use cubecl_std::tensor::is_contiguous;
 use std::sync::Arc;
 use sysinfo::{CpuRefreshKind, System};
@@ -114,7 +117,8 @@ impl DeviceService for CpuServer {
         let mut system = System::new();
         system.refresh_memory();
         system.refresh_cpu_list(CpuRefreshKind::nothing());
-        // Bounds the allocator's page size, not a kernel's shared memory.
+        // The cgroup limit where one applies, else the host's RAM: the page size
+        // and the capacity both, and not a kernel's shared memory.
         let total_memory = system
             .cgroup_limits()
             .map(|g| g.total_memory)
@@ -162,10 +166,8 @@ impl DeviceService for CpuServer {
 
         const ALIGNMENT: u64 = cubecl_server::storage::BytesStorage::ALIGNMENT as u64;
 
-        let mem_properties = MemoryDeviceProperties {
-            max_page_size: total_memory as u64,
-            alignment: ALIGNMENT,
-        };
+        let mem_properties = MemoryDeviceProperties::new(total_memory as u64, ALIGNMENT)
+            .with_max_memory(total_memory as u64);
 
         let mut device_props = DeviceProperties::new(
             Features {
@@ -182,6 +184,7 @@ impl DeviceService for CpuServer {
             DeviceIdentity {
                 name: host_cpu_name(&system),
                 fingerprint: format!("cpu_{}_f16-{}", std::env::consts::ARCH, f16_evaluation),
+                physical: None,
             },
         );
         register_supported_types(&mut device_props);

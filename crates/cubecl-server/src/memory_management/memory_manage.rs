@@ -1005,10 +1005,8 @@ mod tests {
     };
     use alloc::vec;
 
-    const DUMMY_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties {
-        max_page_size: 128 * 1024 * 1024,
-        alignment: 32,
-    };
+    const DUMMY_MEM_PROPS: MemoryDeviceProperties =
+        MemoryDeviceProperties::new(128 * 1024 * 1024, 32);
 
     fn options() -> MemoryManagementOptions {
         MemoryManagementOptions {
@@ -1565,10 +1563,7 @@ mod tests {
         let page_size = 500;
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: page_size,
-                alignment: 50,
-            },
+            &MemoryDeviceProperties::new(page_size, 50),
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
                     pool_type: PoolType::SlicedPages {
@@ -1607,10 +1602,7 @@ mod tests {
             .collect();
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: 128 * 1024 * 1024,
-                alignment: 10,
-            },
+            &MemoryDeviceProperties::new(128 * 1024 * 1024, 10),
             MemoryConfiguration::Custom {
                 pool_options: pools,
             },
@@ -1850,10 +1842,7 @@ mod tests {
     fn allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: 128 * 1024 * 1024,
-                alignment: 32,
-            },
+            &MemoryDeviceProperties::new(128 * 1024 * 1024, 32),
             MemoryConfiguration::SubSlices,
             Arc::new(ServerLogger::default()),
             options(),
@@ -1881,10 +1870,7 @@ mod tests {
     fn test_fragmentation_resistance() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: 128 * 1024 * 1024,
-                alignment: 32,
-            },
+            &MemoryDeviceProperties::new(128 * 1024 * 1024, 32),
             MemoryConfiguration::SubSlices,
             Arc::new(ServerLogger::default()),
             options(),
@@ -1920,10 +1906,7 @@ mod tests {
     fn noslice_test_handle_mutability() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &(MemoryDeviceProperties {
-                max_page_size: 128 * 1024 * 1024,
-                alignment: 32,
-            }),
+            &MemoryDeviceProperties::new(128 * 1024 * 1024, 32),
             MemoryConfiguration::ExclusivePages,
             Arc::new(ServerLogger::default()),
             options(),
@@ -2023,10 +2006,7 @@ mod tests {
     fn noslice_alloc_respects_alignment_size() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: DUMMY_MEM_PROPS.max_page_size,
-                alignment: 50,
-            },
+            &MemoryDeviceProperties::new(DUMMY_MEM_PROPS.max_page_size, 50),
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
                     pool_type: PoolType::ExclusivePages {
@@ -2061,10 +2041,7 @@ mod tests {
             .collect();
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: DUMMY_MEM_PROPS.max_page_size,
-                alignment: 10,
-            },
+            &MemoryDeviceProperties::new(DUMMY_MEM_PROPS.max_page_size, 10),
             MemoryConfiguration::Custom {
                 pool_options: pools,
             },
@@ -2429,10 +2406,7 @@ mod tests {
     fn noslice_allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            &MemoryDeviceProperties {
-                max_page_size: 128 * 1024 * 1024,
-                alignment: 32,
-            },
+            &MemoryDeviceProperties::new(128 * 1024 * 1024, 32),
             MemoryConfiguration::ExclusivePages,
             Arc::new(ServerLogger::default()),
             options(),

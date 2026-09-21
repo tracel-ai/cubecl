@@ -93,7 +93,11 @@ impl ThroughputCache {
 /// whichever card was pinned. Two cards this cannot separate are one part, and
 /// share a peak.
 fn device_key(runtime: &str, identity: &DeviceIdentity, capacity: u64, parallelism: u32) -> String {
-    let DeviceIdentity { name, fingerprint } = identity;
+    let DeviceIdentity {
+        name,
+        fingerprint,
+        physical: _,
+    } = identity;
     // A namespace is a path, and a runtime names itself `wgpu<spirv>`.
     let segment = |text: &str| text.replace(|c: char| !c.is_ascii_alphanumeric(), "-");
 
@@ -165,6 +169,7 @@ mod tests {
         DeviceIdentity {
             name: name.to_string(),
             fingerprint: fingerprint.to_string(),
+            physical: None,
         }
     }
 

@@ -4,7 +4,7 @@ use cubecl_core::{
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
         AddressType, DeviceIdentity, DeviceProperties, ElemType, FloatKind, HardwareProperties,
-        IntKind, MemoryDeviceProperties, TargetProperties, Type, UIntKind,
+        IntKind, MemoryDeviceProperties, PhysicalDevice, TargetProperties, Type, UIntKind,
         features::{AtomicUsage, Plane, TypeUsage},
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -61,10 +61,11 @@ impl DeviceService for MetalServer {
 
         use cubecl_common::profile::TimingMethod;
 
-        let mem_props = MemoryDeviceProperties {
-            max_page_size: (*metal_device).maxBufferLength() as u64,
-            alignment: 256,
-        };
+        // Metal states no total, only the working set it recommends a device
+        // stay under before it starts paging, around two thirds of unified
+        // memory on Apple silicon. That is the budget `max_memory` asks for.
+        let mem_props = MemoryDeviceProperties::new((*metal_device).maxBufferLength() as u64, 256)
+            .with_max_memory((*metal_device).recommendedMaxWorkingSetSize());
 
         let hardware_props = HardwareProperties {
             load_width: 128,
@@ -103,6 +104,7 @@ impl DeviceService for MetalServer {
             DeviceIdentity {
                 fingerprint: format!("msl_{device_name}"),
                 name: device_name,
+                physical: Some(PhysicalDevice::default()),
             },
         );
 
