@@ -6,7 +6,9 @@
 //! and how long the key took from its miss to its answer. A [`TuneRecord`] is
 //! that account, written to [`cubecl_environment::records`] once per tune.
 
-use crate::tune::{AutotuneLogContext, AutotuneLogEvent};
+use crate::tune::{
+    AutotuneKey, AutotuneLogContext, AutotuneLogEvent, PersistentCacheKey, TuneCache,
+};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
@@ -18,11 +20,9 @@ use serde::{Deserialize, Serialize};
 pub struct TuneRecord<K> {
     /// The namespace of the table the answer is stored in.
     pub table: String,
-    /// The key, and the checksum of the candidate list it was tuned under:
-    /// together, what names the table's entry.
-    pub key: K,
-    /// See [`key`](Self::key).
-    pub checksum: String,
+    /// The table's entry the answer is stored under: the key, and the
+    /// checksum of the candidate list it was tuned under.
+    pub entry: PersistentCacheKey<K>,
     /// The index of the candidate the key runs.
     pub winner: usize,
     /// The candidates that ran, in the order they ran.
@@ -55,44 +55,58 @@ impl<K> Record for TuneRecord<K> {
     const KIND: &'static str = "autotune";
 }
 
-/// A tune being recorded: stamped when it began, written when it ends.
+/// A tune being recorded: stamped when it began, written when it ends. Every
+/// call is a no-op when the environment records nothing.
 #[derive(Debug)]
-pub(crate) struct TuneRecording {
+pub(crate) struct TuneRecording<K> {
+    open: Option<OpenRecording<K>>,
+}
+
+/// What a [`TuneRecording`] holds while the environment records.
+#[derive(Debug)]
+struct OpenRecording<K> {
     span: Span,
+    table: String,
+    entry: PersistentCacheKey<K>,
     dry_run: bool,
 }
 
 /// What [`TuneRecording::finish`] needs to know of the answer.
-pub(crate) struct Answer<'a, K> {
-    pub table: &'a str,
-    pub key: &'a K,
-    pub checksum: &'a str,
+pub(crate) struct Answer {
     pub winner: usize,
     /// Whether the table took it: see [`TuneRecord::stored`].
     pub stored: bool,
 }
 
-impl TuneRecording {
-    /// Begin recording a tune, when the environment records. The steps are
-    /// collected by the log context, which is created for the purpose when
-    /// neither the logger nor the decisions asked for one.
-    pub(crate) fn new(log_context: &mut Option<AutotuneLogContext>) -> Option<Self> {
-        let span = Span::new()?;
-        log_context.get_or_insert_with(AutotuneLogContext::default);
-        Some(Self {
+impl<K: AutotuneKey> TuneRecording<K> {
+    /// Begin recording the tune of `key` in `cache`'s table. The key is
+    /// cloned only when the environment records.
+    pub(crate) fn new(cache: &TuneCache<K>, key: &K, checksum: &str) -> Self {
+        let open = Span::new().map(|span| OpenRecording {
             span,
+            table: cache.table().into(),
+            entry: PersistentCacheKey {
+                key: key.clone(),
+                checksum: checksum.into(),
+            },
             dry_run: crate::dry_run::dry_run(),
-        })
+        });
+        Self { open }
+    }
+
+    /// Whether the tune is recorded, and so has to track its steps: the
+    /// record's trials are the ones the log context collects.
+    pub(crate) fn is_open(&self) -> bool {
+        self.open.is_some()
     }
 
     /// Write the record of the tune that just answered.
-    pub(crate) fn finish<K: Serialize + Clone>(
-        self,
-        answer: Answer<'_, K>,
-        log_context: Option<&AutotuneLogContext>,
-    ) {
+    pub(crate) fn finish(self, answer: Answer, log_context: Option<&AutotuneLogContext>) {
+        let Some(open) = self.open else {
+            return;
+        };
         // A tune the environment switched away from went with its session.
-        let Some(wall) = self.span.elapsed() else {
+        let Some(wall) = open.span.elapsed() else {
             return;
         };
         let mut trials = Vec::new();
@@ -107,14 +121,13 @@ impl TuneRecording {
             }
         }
         let record = TuneRecord {
-            table: answer.table.into(),
-            key: answer.key.clone(),
-            checksum: answer.checksum.into(),
+            table: open.table,
+            entry: open.entry,
             winner: answer.winner,
             trials,
             short_circuit,
             wall,
-            dry_run: self.dry_run,
+            dry_run: open.dry_run,
             stored: answer.stored,
         };
         // A stored winner is the environment changing; an answer kept in
@@ -124,6 +137,6 @@ impl TuneRecording {
         } else {
             RecordEffect::Observed
         };
-        self.span.close(effect, &record);
+        open.span.close(effect, &record);
     }
 }

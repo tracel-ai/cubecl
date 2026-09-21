@@ -35,7 +35,9 @@ pub(crate) enum ChecksumState {
 pub struct PersistentCacheKey<K> {
     /// The autotune key identifying the operation.
     pub key: K,
-    checksum: String,
+    /// The checksum of the candidate list the key was tuned under: an answer
+    /// to another list is an answer to another question.
+    pub checksum: String,
 }
 
 /// Persistent cache entry

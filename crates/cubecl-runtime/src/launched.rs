@@ -85,11 +85,9 @@ pub(crate) fn note(kernel: impl FnOnce() -> KernelId) {
     if COLLECTING.load(Ordering::Relaxed) == 0 {
         return;
     }
-    let mut collections = OPEN.lock();
-    if collections.open.is_empty() {
-        return;
-    }
+    // Hashed before the lock, which every launching thread shares.
     let hash = kernel().stable_hash();
+    let mut collections = OPEN.lock();
     for launched in collections.open.values_mut() {
         launched.insert(hash);
     }

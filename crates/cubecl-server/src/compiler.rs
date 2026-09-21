@@ -81,7 +81,8 @@ pub fn store_compiled<K: StoreKey, V: StoreValue>(
 /// records it: compiled fresh, or loaded from the compilation store.
 ///
 /// A hit in a server's in-memory cache is not a trip and is not recorded:
-/// nothing here runs per launch.
+/// nothing here runs per launch. Neither is a trip that fails: the launch
+/// error carries that account, and the environment holds nothing of it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CompilationRecord {
     /// The kernel's type.
@@ -91,36 +92,30 @@ pub struct CompilationRecord {
     pub key: KernelCacheKey,
     /// The kernel as cubecl defined it, before the backend's compiler — the
     /// IR's textual form, for a reader to render — at [`RecordLevel::Full`].
-    /// Only a fresh compile defines the kernel, so a store load carries none.
+    /// Only a trip that misses the store defines the kernel, so a
+    /// [`Loaded`](CompilationOutcome::Loaded) one carries none.
     pub ir: Option<alloc::string::String>,
-    /// How the artifact was obtained, and what it cost.
+    /// How the artifact was obtained.
     pub outcome: CompilationOutcome,
+    /// What obtaining it took, from where the trip started to the artifact
+    /// loaded on the device.
+    pub duration: core::time::Duration,
     /// The source the backend compiled, at [`RecordLevel::Full`].
     pub source: Option<alloc::string::String>,
 }
 
 /// How a backend obtained a kernel's artifact.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CompilationOutcome {
-    /// Compiled from its definition: expanded, compiled, loaded on the device.
-    Compiled {
-        /// From the store miss to the artifact loaded.
-        duration: core::time::Duration,
-    },
+    /// Compiled from its definition: expanded, compiled by the backend's
+    /// compiler, loaded on the device.
+    Compiled,
     /// Read from the compilation store and loaded on the device.
-    Loaded {
-        /// From the lookup to the artifact loaded.
-        duration: core::time::Duration,
-    },
-}
-
-impl CompilationOutcome {
-    /// What obtaining the artifact took, however it was obtained.
-    pub fn duration(&self) -> core::time::Duration {
-        match self {
-            Self::Compiled { duration } | Self::Loaded { duration } => *duration,
-        }
-    }
+    Loaded,
+    /// Expanded to a source the store already held an artifact for, under
+    /// another key: the artifact was moved under this one and loaded, and the
+    /// backend's compiler never ran.
+    Rekeyed,
 }
 
 impl Record for CompilationRecord {
@@ -128,88 +123,90 @@ impl Record for CompilationRecord {
 }
 
 /// A compilation being recorded: a backend opens one where its compilation
-/// path starts — past its in-memory cache — and closes it with how the
-/// artifact was obtained. `None` when the environment records nothing.
+/// path starts — past its in-memory cache — tells it what the trip goes
+/// through, and closes it with how the artifact was obtained. Every call is a
+/// no-op when the environment records nothing, and one dropped unclosed, by a
+/// trip that failed, records nothing.
 #[derive(Debug)]
 pub struct CompilationRecording {
+    open: Option<OpenRecording>,
+}
+
+/// What a [`CompilationRecording`] holds while the environment records.
+#[derive(Debug)]
+struct OpenRecording {
     span: Span,
     kernel: &'static str,
     key: KernelCacheKey,
     ir: Option<alloc::string::String>,
+    source: Option<alloc::string::String>,
 }
 
 impl CompilationRecording {
-    /// Start recording `kernel_id`'s trip, when the environment records.
-    pub fn new(kernel_id: &KernelId) -> Option<Self> {
-        Some(Self {
-            span: Span::new()?,
+    /// Start recording `kernel_id`'s trip.
+    pub fn new(kernel_id: &KernelId) -> Self {
+        let open = Span::new().map(|span| OpenRecording {
+            span,
             kernel: kernel_id.type_name(),
             key: KernelCacheKey::new(kernel_id, build_id_hash()),
             ir: None,
-        })
+            source: None,
+        });
+        Self { open }
     }
 
-    /// Keep the kernel's IR, from the definition the backend is about to
-    /// compile, when the record [keeps code](Self::keeps_code): the textual
-    /// IR runs to hundreds of KB per kernel, where the compiled artifact is
-    /// tens.
+    /// The kernel was defined: keep its IR, at [`RecordLevel::Full`] only.
+    /// The textual IR runs to hundreds of KB per kernel, where the compiled
+    /// artifact is tens.
     pub fn defined(&mut self, definition: &crate::kernel::KernelDefinition) {
-        if self.keeps_code() {
-            self.ir = Some(alloc::format!("{}", definition.body));
+        if let Some(open) = self.open.as_mut().filter(|_| keeps_code()) {
+            open.ir = Some(alloc::format!("{}", definition.body));
+        }
+    }
+
+    /// The backend's compiler produced `source`: keep it, at
+    /// [`RecordLevel::Full`] only.
+    pub fn source(&mut self, source: &str) {
+        if let Some(open) = self.open.as_mut().filter(|_| keeps_code()) {
+            open.source = Some(source.into());
         }
     }
 
     /// The artifact came from the compilation store: the environment did not
     /// change.
     pub fn loaded(self) {
-        self.close(
-            |duration| CompilationOutcome::Loaded { duration },
-            RecordEffect::Observed,
-            None,
-        );
+        self.close(CompilationOutcome::Loaded, RecordEffect::Observed);
     }
 
-    /// Whether the record keeps the kernel's code, its IR and its source:
-    /// only at [`RecordLevel::Full`], code being the heaviest thing a record
-    /// can carry.
-    pub fn keeps_code(&self) -> bool {
-        cubecl_environment::records::level() == RecordLevel::Full
+    /// The artifact was compiled. `stored` is whether the store took it, as
+    /// [`store_compiled`] answers: a compile the store did not take, or with
+    /// no store to take it, changed nothing.
+    pub fn compiled(self, stored: bool) {
+        self.close(CompilationOutcome::Compiled, effect(stored));
     }
 
-    /// The artifact was compiled, from `source` when the record
-    /// [keeps code](Self::keeps_code). `stored` is whether the store took
-    /// it, as [`store_compiled`] answers: a compile the store did not take,
-    /// or with no store to take it, changed nothing.
-    pub fn compiled(self, source: Option<alloc::string::String>, stored: bool) {
-        let effect = if stored {
-            RecordEffect::Changed
-        } else {
-            RecordEffect::Observed
+    /// The artifact was already stored under another key, and moved under
+    /// this one. `stored` is whether the store took it there.
+    pub fn rekeyed(self, stored: bool) {
+        self.close(CompilationOutcome::Rekeyed, effect(stored));
+    }
+
+    fn close(self, outcome: CompilationOutcome, effect: RecordEffect) {
+        let Some(open) = self.open else {
+            return;
         };
-        self.close(
-            |duration| CompilationOutcome::Compiled { duration },
-            effect,
-            source,
-        );
-    }
-
-    fn close(
-        self,
-        outcome: impl FnOnce(core::time::Duration) -> CompilationOutcome,
-        effect: RecordEffect,
-        source: Option<alloc::string::String>,
-    ) {
-        let Some(duration) = self.span.elapsed() else {
+        let Some(duration) = open.span.elapsed() else {
             return;
         };
         let record = CompilationRecord {
-            kernel: self.kernel.into(),
-            key: self.key,
-            ir: self.ir,
-            outcome: outcome(duration),
-            source,
+            kernel: open.kernel.into(),
+            key: open.key,
+            ir: open.ir,
+            outcome,
+            duration,
+            source: open.source,
         };
-        self.span.close(effect, &record);
+        open.span.close(effect, &record);
     }
 }
 
@@ -318,5 +315,20 @@ impl<K: Eq + Hash, V> CompilationCache<K, V> {
         log::debug!("Environment switched, dropping the in-memory compilation cache");
         self.generation = Some(current);
         self.entries.clear();
+    }
+}
+
+/// Whether a record keeps the kernel's code, its IR and its source: code is
+/// the heaviest thing a record can carry.
+fn keeps_code() -> bool {
+    cubecl_environment::records::level() == RecordLevel::Full
+}
+
+/// An artifact the store took is the environment changing.
+fn effect(stored: bool) -> RecordEffect {
+    if stored {
+        RecordEffect::Changed
+    } else {
+        RecordEffect::Observed
     }
 }

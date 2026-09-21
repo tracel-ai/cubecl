@@ -149,7 +149,7 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
     #[cfg(autotune_persistence)]
-    recording: Option<crate::tune::record::TuneRecording>,
+    recording: crate::tune::record::TuneRecording<K>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
@@ -189,7 +189,7 @@ struct TuneRequest<K: AutotuneKey> {
     #[cfg(autotune_persistence)]
     bounds: Option<crate::tune::Bounds>,
     #[cfg(autotune_persistence)]
-    recording: Option<crate::tune::record::TuneRecording>,
+    recording: crate::tune::record::TuneRecording<K>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -305,7 +305,13 @@ impl<K: AutotuneKey> Tuner<K> {
         // After the fast path: a key with one candidate is answered, not
         // tuned, and leaves nothing to record.
         #[cfg(autotune_persistence)]
-        let recording = crate::tune::record::TuneRecording::new(&mut log_context);
+        let recording = crate::tune::record::TuneRecording::new(&self.cache.lock(), key, &checksum);
+        // A recorded tune tracks its steps whether or not anything logs them:
+        // the log context is what collects the record's trials.
+        #[cfg(autotune_persistence)]
+        if recording.is_open() {
+            log_context.get_or_insert_with(Default::default);
+        }
 
         let test_inputs = tunables.generate_inputs(key, inputs);
         let plan = tunables.plan(key);
@@ -673,8 +679,8 @@ async fn process_request<K: AutotuneKey>(
         #[cfg(autotune_persistence)]
         let stored = !unmeasured
             && cache.lock().persistent_cache_insert(
-                key.clone(),
-                checksum.clone(),
+                key,
+                checksum,
                 crate::tune::PersistentCacheValue {
                     fastest_index,
                     results,
@@ -684,19 +690,13 @@ async fn process_request<K: AutotuneKey>(
             );
 
         #[cfg(autotune_persistence)]
-        if let Some(recording) = recording {
-            let table = cache.lock().table().to_string();
-            recording.finish(
-                crate::tune::record::Answer {
-                    table: &table,
-                    key: &key,
-                    checksum: &checksum,
-                    winner: fastest_index,
-                    stored,
-                },
-                log_context.as_ref(),
-            );
-        }
+        recording.finish(
+            crate::tune::record::Answer {
+                winner: fastest_index,
+                stored,
+            },
+            log_context.as_ref(),
+        );
     }
 
     TuneCacheResult::Hit { fastest_index }
@@ -784,8 +784,8 @@ fn execute_checks<O: AutotuneOutput>(
 
 #[cfg(feature = "autotune-checks")]
 fn check_equivalence<O: AutotuneOutput>(reference: &O, other: O, decisions_enabled: bool) -> bool {
-    // When the results are being recorded, we catch the panic so we can collect and report every
-    // check failure. With nothing recording, we let it panic immediately rather than pass silently.
+    // When decisions are written somewhere, we catch the panic so we can collect and report every
+    // check failure. Without a sink, we let it panic immediately rather than pass silently.
     if decisions_enabled {
         #[cfg(std_io)]
         {

@@ -179,9 +179,7 @@ impl CudaContext {
         let mut recording = CompilationRecording::new(kernel_id);
         let key = match self.try_load_cached(kernel_id)? {
             Ok(()) => {
-                if let Some(recording) = recording {
-                    recording.loaded();
-                }
+                recording.loaded();
                 return Ok(());
             }
             Err(key) => key,
@@ -193,9 +191,7 @@ impl CudaContext {
         validate_units(&self.properties, kernel_id)?;
 
         let definition = kernel.define();
-        if let Some(recording) = recording.as_mut() {
-            recording.defined(&definition);
-        }
+        recording.defined(&definition);
         let jitc_kernel = CompiledKernel::compile(
             &*kernel,
             definition,
@@ -204,41 +200,36 @@ impl CudaContext {
         )?;
 
         self.validate_shared(&jitc_kernel.repr)?;
+        recording.source(&jitc_kernel.source);
 
-        // Read before the load consumes the kernel.
-        let source = recording
-            .as_ref()
-            .filter(|recording| recording.keeps_code())
-            .map(|_| jitc_kernel.source.clone());
-        let stored = self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)?;
-        if let Some(recording) = recording {
-            recording.compiled(source, stored);
-        }
-        Ok(())
+        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger, recording)
     }
 
-    /// Loads what the compiler produced, by the route that backend's output takes, and says
-    /// whether the store took the artifact.
+    /// Loads what the compiler produced, by the route that backend's output takes, and closes
+    /// `recording` with how the artifact was obtained.
     fn load_jit_kernel(
         &mut self,
         kernel_id: &KernelId,
         key: Option<KernelCacheKey>,
         jitc_kernel: CompiledKernel<CudaCompiler>,
         logger: Arc<ServerLogger>,
-    ) -> Result<bool, LaunchError> {
+        recording: CompilationRecording,
+    ) -> Result<(), LaunchError> {
         match &jitc_kernel.repr {
             Some(CudaRepresentation::Cpp(_)) => {
-                self.load_transpiled(kernel_id, key, jitc_kernel, logger)
+                self.load_transpiled(kernel_id, key, jitc_kernel, logger, recording)
             }
             Some(CudaRepresentation::Llvm(_)) => {
-                self.load_emitted_ptx(kernel_id, key, jitc_kernel, logger)
+                self.load_emitted_ptx(kernel_id, key, jitc_kernel, logger, recording)
             }
             // A precompiled kernel: its text passed the language check in
             // `CompiledKernel::compile`, so it is whatever the default backend reads. CUDA
             // C++ goes through NVRTC like a transpiled kernel; the LLVM backend produces PTX
             // from the dialect and has no route for text.
             None => match CudaBackend::default() {
-                CudaBackend::Cpp => self.load_transpiled(kernel_id, key, jitc_kernel, logger),
+                CudaBackend::Cpp => {
+                    self.load_transpiled(kernel_id, key, jitc_kernel, logger, recording)
+                }
                 CudaBackend::Llvm => Err(CompilationError::Generic {
                     reason: "the LLVM backend cannot load a precompiled kernel: it has no text to \
                          compile from"
@@ -261,7 +252,8 @@ impl CudaContext {
         key: Option<KernelCacheKey>,
         mut jitc_kernel: CompiledKernel<CudaCompiler>,
         logger: Arc<ServerLogger>,
-    ) -> Result<bool, LaunchError> {
+        recording: CompilationRecording,
+    ) -> Result<(), LaunchError> {
         let Some(CudaRepresentation::Llvm(module)) = &jitc_kernel.repr else {
             unreachable!("dispatched on the representation");
         };
@@ -289,19 +281,21 @@ impl CudaContext {
         // `try_load_cached` hands back a key exactly when there is a cache to put it in. No
         // second-line entry: that cache is keyed on generated C++ source, which this backend
         // never produces.
-        let Some((cache, key)) = self.ptx_cache.as_mut().zip(key) else {
-            return Ok(false);
+        let stored = match self.ptx_cache.as_mut().zip(key) {
+            Some((cache, key)) => store_compiled(
+                cache,
+                key,
+                PtxCacheEntry {
+                    entrypoint_name,
+                    shared_mem_bytes,
+                    ptx,
+                    io,
+                },
+            ),
+            None => false,
         };
-        Ok(store_compiled(
-            cache,
-            key,
-            PtxCacheEntry {
-                entrypoint_name,
-                shared_mem_bytes,
-                ptx,
-                io,
-            },
-        ))
+        recording.compiled(stored);
+        Ok(())
     }
 
     /// Turns a kernel the C++ backend just transpiled into a loaded module, by running its
@@ -312,7 +306,8 @@ impl CudaContext {
         key: Option<KernelCacheKey>,
         mut jitc_kernel: CompiledKernel<CudaCompiler>,
         logger: Arc<ServerLogger>,
-    ) -> Result<bool, LaunchError> {
+        recording: CompilationRecording,
+    ) -> Result<(), LaunchError> {
         if logger.compilation_source_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
@@ -334,7 +329,8 @@ impl CudaContext {
                 store_compiled(second_line_cache, cpp_hash, key);
                 self.try_load_cached(kernel_id)?
                     .expect("Should be cached now");
-                return Ok(stored);
+                recording.rekeyed(stored);
+                return Ok(());
             }
 
             Some(cpp_hash)
@@ -384,7 +380,8 @@ impl CudaContext {
             shared_mem_bytes,
             io.map(Arc::from),
         )?;
-        Ok(stored)
+        recording.compiled(stored);
+        Ok(())
     }
 
     /// Compiles `source` to PTX with NVRTC.

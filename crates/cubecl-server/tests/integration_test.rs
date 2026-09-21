@@ -428,6 +428,17 @@ fn rooted_at(root: &std::path::Path) {
     cubecl_environment::environment::set_root(root);
 }
 
+/// Records at `level` from here on, keeping every session.
+#[cfg(all(feature = "std", autotune_persistence))]
+fn recording_at(level: cubecl_environment::records::RecordLevel) {
+    use cubecl_environment::records::{self, RecordsConfig};
+
+    records::configure(RecordsConfig {
+        level,
+        ..Default::default()
+    });
+}
+
 /// A tune leaves a record beside its answer: the candidates in the order they
 /// ran, each with its wall, the whole tune's wall, and the key and table the
 /// answer is stored under, stamped in the environment's session.
@@ -436,12 +447,12 @@ fn rooted_at(root: &std::path::Path) {
 #[serial_test::serial]
 fn a_tune_is_recorded_in_order_with_its_walls() {
     use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{self, RecordLevel, Records};
+    use cubecl_environment::records::{RecordLevel, Records};
     use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
-    records::configure(RecordLevel::Basic, None);
+    recording_at(RecordLevel::Basic);
 
     let client = test_client(&DummyDevice);
     let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
@@ -470,7 +481,8 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     let tunes = Records::new(&database).read::<TuneRecord<String>>();
     assert_eq!(tunes.len(), 1);
     let tune = &tunes[0].record;
-    assert_eq!(tune.key, key);
+    assert_eq!(tune.entry.key, key);
+    assert_eq!(tune.entry.checksum, set.compute_checksum());
     assert_eq!(tune.winner, fastest_index);
     assert!(tune.table.starts_with("autotune/") && tune.table.ends_with("device0/recorded"));
     let names: Vec<&str> = tune
@@ -506,12 +518,12 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
 #[serial_test::serial]
 fn a_short_circuited_tune_records_where_it_stopped() {
     use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{self, RecordLevel, Records};
+    use cubecl_environment::records::{RecordLevel, Records};
     use cubecl_server::tune::{TuneRecord, Tuner};
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
-    records::configure(RecordLevel::Basic, None);
+    recording_at(RecordLevel::Basic);
 
     let client = test_client(&DummyDevice);
     let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
@@ -552,12 +564,12 @@ fn a_short_circuited_tune_records_where_it_stopped() {
 #[serial_test::serial]
 fn nothing_is_recorded_when_records_are_off() {
     use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{self, RecordLevel, Records};
+    use cubecl_environment::records::{RecordLevel, Records};
     use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
-    records::configure(RecordLevel::Off, None);
+    recording_at(RecordLevel::Off);
 
     let client = test_client(&DummyDevice);
     let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
@@ -577,7 +589,7 @@ fn nothing_is_recorded_when_records_are_off() {
         &client,
         None,
     );
-    records::configure(RecordLevel::Basic, None);
+    recording_at(RecordLevel::Basic);
 
     assert!(matches!(answer, TuneCacheResult::Hit { .. }));
     let database = Database::open_active().unwrap();
@@ -1266,14 +1278,14 @@ fn a_set_is_built_once_per_device_not_once_per_process() {
 }
 
 /// A backend's trip through compilation is recorded where it starts, with how
-/// the artifact was obtained: its kernel, its instance, the store key naming
-/// the artifact, and the source only when records are full.
+/// the artifact was obtained: its kernel, the store key naming the artifact,
+/// and what the trip took.
 #[test_log::test]
 #[cfg(all(feature = "std", autotune_persistence))]
 #[serial_test::serial]
 fn a_compilation_is_recorded_with_its_outcome() {
     use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{self, RecordLevel, Records};
+    use cubecl_environment::records::{RecordLevel, Records};
     use cubecl_server::compiler::{CompilationOutcome, CompilationRecord, CompilationRecording};
     use cubecl_server::id::KernelId;
 
@@ -1281,36 +1293,63 @@ fn a_compilation_is_recorded_with_its_outcome() {
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
+    recording_at(RecordLevel::Basic);
 
-    records::configure(RecordLevel::Basic, None);
     let id = KernelId::new::<Recorded>().info(3u32);
-    CompilationRecording::new(&id)
-        .unwrap()
-        .compiled(Some("source".to_string()), true);
-    let recording = CompilationRecording::new(&id).unwrap();
-    assert!(!recording.keeps_code());
-    recording.loaded();
-
-    records::configure(RecordLevel::Full, None);
-    let recording = CompilationRecording::new(&id).unwrap();
-    assert!(recording.keeps_code());
-    recording.compiled(Some("source".to_string()), true);
-    records::configure(RecordLevel::Basic, None);
+    let stored = true;
+    CompilationRecording::new(&id).compiled(stored);
+    CompilationRecording::new(&id).loaded();
+    CompilationRecording::new(&id).rekeyed(stored);
 
     let database = Database::open_active().unwrap();
-    let compiled = Records::new(&database).read::<CompilationRecord>();
-    assert_eq!(compiled.len(), 3);
-    assert!(compiled[0].record.kernel.ends_with("Recorded"));
-    assert!(matches!(
-        compiled[0].record.outcome,
-        CompilationOutcome::Compiled { .. }
-    ));
-    assert!(matches!(
-        compiled[1].record.outcome,
-        CompilationOutcome::Loaded { .. }
-    ));
-    assert_eq!(compiled[0].record.key, compiled[1].record.key);
-    assert_eq!(compiled[2].record.source.as_deref(), Some("source"));
+    let trips = Records::new(&database).read::<CompilationRecord>();
+    let outcomes: Vec<CompilationOutcome> = trips.iter().map(|trip| trip.record.outcome).collect();
+    assert_eq!(
+        outcomes,
+        vec![
+            CompilationOutcome::Compiled,
+            CompilationOutcome::Loaded,
+            CompilationOutcome::Rekeyed
+        ]
+    );
+    assert!(trips[0].record.kernel.ends_with("Recorded"));
+    assert_eq!(trips[0].record.key, trips[1].record.key);
+}
+
+/// A kernel's code — the heaviest thing a record carries — is kept at the
+/// full level only, whatever the backend hands the recording: the level is
+/// the recording's to check, not each backend's.
+#[test_log::test]
+#[cfg(all(feature = "std", autotune_persistence))]
+#[serial_test::serial]
+fn a_compilation_keeps_its_code_only_when_records_are_full() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{RecordLevel, Records};
+    use cubecl_server::compiler::{CompilationRecord, CompilationRecording};
+    use cubecl_server::id::KernelId;
+
+    struct Coded;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    let id = KernelId::new::<Coded>();
+    let stored = true;
+
+    for level in [RecordLevel::Basic, RecordLevel::Full] {
+        recording_at(level);
+        let mut recording = CompilationRecording::new(&id);
+        recording.source("source");
+        recording.compiled(stored);
+    }
+    recording_at(RecordLevel::Basic);
+
+    let database = Database::open_active().unwrap();
+    let sources: Vec<Option<String>> = Records::new(&database)
+        .read::<CompilationRecord>()
+        .into_iter()
+        .map(|trip| trip.record.source)
+        .collect();
+    assert_eq!(sources, vec![None, Some("source".to_string())]);
 }
 
 /// A kernel compiled with no store to take it — WGSL, or the compilation
@@ -1321,7 +1360,7 @@ fn a_compilation_is_recorded_with_its_outcome() {
 #[serial_test::serial]
 fn a_compile_nothing_stored_leaves_no_session() {
     use cubecl_environment::persistence::{Database, Namespace, Store, StoreOptions};
-    use cubecl_environment::records::{self, RecordLevel, Records};
+    use cubecl_environment::records::{RecordLevel, Records};
     use cubecl_server::compiler::{CompilationRecord, CompilationRecording, store_compiled};
     use cubecl_server::id::KernelId;
 
@@ -1329,16 +1368,15 @@ fn a_compile_nothing_stored_leaves_no_session() {
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
-    records::configure(RecordLevel::Basic, None);
+    recording_at(RecordLevel::Basic);
 
     let mut store: Store<u32, u32> =
         Store::new(StoreOptions::new().storage(Namespace::new("test/compiled")));
     assert!(store_compiled(&mut store, 1, 1), "the store took it");
 
     let id = KernelId::new::<Unstored>();
-    CompilationRecording::new(&id)
-        .unwrap()
-        .compiled(None, false);
+    let stored = false;
+    CompilationRecording::new(&id).compiled(stored);
 
     let database = Database::open_active().unwrap();
     let records = Records::new(&database);
@@ -1354,12 +1392,12 @@ fn a_compile_nothing_stored_leaves_no_session() {
 #[serial_test::serial]
 fn a_memory_snapshot_is_recorded_under_its_label() {
     use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{self, RecordLevel, Records};
+    use cubecl_environment::records::{RecordLevel, Records};
     use cubecl_server::memory_management::MemoryRecord;
 
     let root = tempfile::tempdir().unwrap();
     rooted_at(root.path());
-    records::configure(RecordLevel::Basic, None);
+    recording_at(RecordLevel::Basic);
 
     let client = test_client(&DummyDevice);
     let _held = client.create_from_slice(&[1, 2, 3]);
@@ -1372,9 +1410,8 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     // A kernel compiled into the store: the change a build makes.
     struct Stored;
     let id = cubecl_server::id::KernelId::new::<Stored>();
-    cubecl_server::compiler::CompilationRecording::new(&id)
-        .unwrap()
-        .compiled(None, true);
+    let stored = true;
+    cubecl_server::compiler::CompilationRecording::new(&id).compiled(stored);
 
     let snapshots = Records::new(&database).read::<MemoryRecord>();
     assert_eq!(snapshots.len(), 1);

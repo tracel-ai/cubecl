@@ -242,9 +242,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         if let Some(Ok(pipeline)) = cached {
             self.pipelines.insert(kernel_id, pipeline.clone());
-            if let Some(recording) = recording {
-                recording.loaded();
-            }
+            recording.loaded();
             return Ok(pipeline);
         }
 
@@ -252,9 +250,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         validate_units(&self.utilities.properties, &kernel_id)?;
 
         let definition = kernel.define();
-        if let Some(recording) = recording.as_mut() {
-            recording.defined(&definition);
-        }
+        recording.defined(&definition);
 
         let mut compiler = C::init(self.backend, &self.compilation_options);
         let mut compiled = compiler.compile_kernel(self, kernel, definition)?;
@@ -311,11 +307,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             kernel_id.clone(),
             (pipeline.clone(), compiler_info, io.clone()),
         );
-        // Read before the store takes the entrypoint.
-        let source = recording
-            .as_ref()
-            .filter(|recording| recording.keeps_code())
-            .map(|_| compiled.source.clone());
+
+        recording.source(&compiled.source);
 
         // Only a SPIR-V kernel is stored: any other build changes nothing.
         let stored = false;
@@ -331,9 +324,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             }
             _ => stored,
         };
-        if let Some(recording) = recording {
-            recording.compiled(source, stored);
-        }
+        recording.compiled(stored);
 
         Ok((pipeline, compiler_info, io))
     }

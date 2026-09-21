@@ -123,7 +123,8 @@ impl Logger {
     pub fn log_autotune_decision<S: Display>(&mut self, msg: &S) {
         self.sinks.log(
             &self.autotune_decisions_index,
-            "cubecl::autotune::decision",
+            // The target keeps the spelling log filters already name.
+            "cubecl::autotune::record",
             msg,
         );
     }
