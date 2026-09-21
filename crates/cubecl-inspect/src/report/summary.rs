@@ -123,3 +123,20 @@ pub struct Unreadable {
     pub path: PathBuf,
     pub reason: String,
 }
+
+/// What [compacting](crate::Inspector::compact) an environment for a workload
+/// kept and dropped.
+#[derive(Clone, Debug, Serialize)]
+pub struct Compaction {
+    /// The compact copy.
+    pub summary: Summary,
+    /// Compiled kernels the replay launched, kept with their store entries.
+    pub kept_kernels: u64,
+    pub kept_bytes: u64,
+    /// Compiled kernels it never launched, dropped.
+    pub dropped_kernels: u64,
+    pub dropped_bytes: u64,
+    /// Kernels the replay launched that the file stores no artifact for: a
+    /// backend that keeps none, or a build that did not cover the workload.
+    pub unstored: u64,
+}

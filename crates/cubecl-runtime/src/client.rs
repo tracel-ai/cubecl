@@ -1065,6 +1065,8 @@ impl Client {
             });
         }
 
+        crate::launched::note(|| kernel.id());
+
         // Decided here, on the issuing thread, because that is the only place
         // that still knows whether this launch is an autotune measurement — by
         // the time it reaches the server thread, that context is gone.

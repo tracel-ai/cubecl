@@ -1338,3 +1338,35 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     assert_eq!(snapshots[0].record.label, "model loaded");
     assert_eq!(snapshots[0].record.report, client.memory_report());
 }
+
+/// A launch is collected while a collection is open — the kernel a replay has
+/// to keep — and only then.
+#[test_log::test]
+#[serial_test::serial]
+fn a_launch_is_collected_while_a_collection_is_open() {
+    use cubecl_server::launched::LaunchedKernels;
+
+    let client = test_client(&DummyDevice);
+    let launch = || {
+        let lhs = client.create_from_slice(&[0, 1, 2]);
+        let rhs = client.create_from_slice(&[4, 4, 4]);
+        let out = client.empty(3);
+        let kernel = KernelTask::new(DummyElementwiseAddition);
+        let id = cubecl_server::kernel::KernelMetadata::id(&kernel);
+        client.launch(
+            Box::new(kernel),
+            CubeCount::Static(1, 1, 1),
+            KernelArguments::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.binding()]),
+        );
+        id
+    };
+
+    let collection = LaunchedKernels::collect();
+    let id = launch();
+    let launched = collection.finish();
+    assert!(launched.contains(&id.stable_hash()));
+
+    let collection = LaunchedKernels::collect();
+    let launched = collection.finish();
+    assert!(launched.is_empty(), "a new collection starts empty");
+}

@@ -756,3 +756,84 @@ fn pruning_keeps_the_newest_sessions_records() {
     assert!(inspector.kernels().kernels.is_empty());
     assert_eq!(summary.autotune_keys(), 4, "the caches are untouched");
 }
+
+/// A compact copy keeps the kernels the replay launched, their second-line
+/// entries with them, the autotune answers and the application's entries —
+/// and nothing else.
+#[test]
+fn compacting_keeps_what_the_replay_launched() {
+    use cubecl_environment::collections::HashSet;
+
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let path = fixture(dir.path());
+    {
+        let database = Database::open(&path, false).expect("opens");
+        let unused = KernelCacheKey {
+            id: 0x9999,
+            build_id: 1,
+        };
+        database.insert(
+            "hip/0.11.0/gfx1151",
+            &cbor(&unused),
+            &[0; 32],
+            Origin::Local,
+        );
+        // A second-line entry of each: a source hash naming the artifact.
+        database.insert(
+            "hip-second-line/0.11.0/gfx1151",
+            &cbor(&1u128),
+            &cbor(&KernelCacheKey {
+                id: MATMUL,
+                build_id: 1,
+            }),
+            Origin::Local,
+        );
+        database.insert(
+            "hip-second-line/0.11.0/gfx1151",
+            &cbor(&2u128),
+            &cbor(&unused),
+            Origin::Local,
+        );
+    }
+    let inspector = Inspector::open(&path).expect("opens");
+    let out = dir.path().join("compact.cubecl");
+
+    let launched: HashSet<u128> = [MATMUL, 0x7777].into_iter().collect();
+    let compaction = inspector.compact(&out, &launched).expect("compacts");
+
+    assert_eq!(
+        (compaction.kept_kernels, compaction.dropped_kernels),
+        (1, 1)
+    );
+    assert_eq!(
+        compaction.unstored, 1,
+        "0x7777 was launched but never stored"
+    );
+    let summary = &compaction.summary;
+    assert!(summary.sessions.is_empty());
+    assert!(summary.namespaces.iter().all(|row| row.root() != "records"));
+    assert_eq!(summary.autotune_keys(), 4);
+    let count = |root: &str| {
+        summary
+            .namespaces
+            .iter()
+            .filter(|row| row.root() == root)
+            .map(|row| row.entries)
+            .sum::<u64>()
+    };
+    // The matmul artifact stays and the unused one goes, each with its
+    // second-line entry.
+    assert_eq!(count("hip"), 1);
+    assert_eq!(count("hip-second-line"), 1);
+}
+
+#[test]
+fn compacting_without_a_replay_is_refused() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let inspector = Inspector::open(fixture(dir.path())).expect("opens");
+    let launched = Default::default();
+    assert!(matches!(
+        inspector.compact(&dir.path().join("compact.cubecl"), &launched),
+        Err(InspectError::Export { .. })
+    ));
+}

@@ -1,10 +1,12 @@
 use crate::InspectError;
 use crate::report::{
-    AutotuneReport, AutotuneTable, CandidateResult, EnvironmentDiff, KernelReport, KernelRow,
-    KeyId, Listing, MemorySnapshots, NamespaceRow, SessionRow, SessionTimeline, StoreEntry,
-    StoredArtifacts, Summary, Timeline, TuneTrace, TunedKey, Unreadable,
+    AutotuneReport, AutotuneTable, CandidateResult, Compaction, EnvironmentDiff, KernelReport,
+    KernelRow, KeyId, Listing, MemorySnapshots, NamespaceRow, SessionRow, SessionTimeline,
+    StoreEntry, StoredArtifacts, Summary, Timeline, TuneTrace, TunedKey, Unreadable,
 };
+use cubecl_common::hash::StableHash;
 use cubecl_environment::bundle::{BundleManifest, ExportOptions, export};
+use cubecl_environment::collections::HashSet;
 use cubecl_environment::persistence::Database;
 use cubecl_environment::persistence::sqlite::SCHEMA_VERSION;
 use cubecl_environment::records;
@@ -396,6 +398,79 @@ impl Inspector {
             reason: err.to_string(),
         })?;
         Ok(Self::open(out)?.summary())
+    }
+
+    /// Write the copy of the file a workload ships with: its caches without
+    /// the records, keeping of the compiled kernels only those `launched` —
+    /// the [collection](cubecl_server::launched::LaunchedKernels) taken while
+    /// the workload replayed — and summarize it.
+    ///
+    /// Everything else in the compilation store is what a build compiled and
+    /// the workload never runs: mostly the candidates autotune raced and did
+    /// not pick. Autotune answers and anything an application stored are kept
+    /// whole. The copy is compacted and left readable from a read-only
+    /// directory.
+    pub fn compact(
+        &self,
+        out: &Path,
+        launched: &HashSet<StableHash>,
+    ) -> Result<Compaction, InspectError> {
+        let refused = |reason: String| InspectError::Export {
+            path: out.to_path_buf(),
+            reason,
+        };
+        if launched.is_empty() {
+            return Err(refused(
+                "the replay launched nothing: there is no workload to keep kernels for".into(),
+            ));
+        }
+        self.strip(out)?;
+
+        let copy = Database::open(out, false).map_err(|err| refused(err.to_string()))?;
+        let mut kept = StoredArtifacts::new();
+        let mut dropped = StoredArtifacts::new();
+        for namespace in copy.namespaces() {
+            let root = namespace.split('/').next().unwrap_or_default();
+            if MEASUREMENTS.contains(&root) {
+                continue;
+            }
+            let mut doomed = Vec::new();
+            copy.scan(&namespace, &mut |key, value| {
+                // An artifact is keyed by its kernel; a second-line cache maps
+                // a source hash to that key, and goes with the artifact.
+                let artifact = ciborium::from_reader::<KernelCacheKey, _>(key)
+                    .or_else(|_| ciborium::from_reader::<KernelCacheKey, _>(value));
+                let Ok(artifact) = artifact else {
+                    return;
+                };
+                let entry = StoreEntry::from(&artifact);
+                let bytes = (key.len() + value.len()) as u64;
+                if launched.contains(&artifact.id) {
+                    *kept.entry(entry).or_default() += bytes;
+                } else {
+                    *dropped.entry(entry).or_default() += bytes;
+                    doomed.push(key.to_vec());
+                }
+            });
+            for key in doomed {
+                copy.purge_key(&namespace, &key);
+            }
+        }
+        copy.with_connection(|conn| conn.execute_batch("VACUUM"))
+            .map_err(|err| refused(err.to_string()))?;
+        copy.finalize_for_shipping()
+            .map_err(|err| refused(err.to_string()))?;
+        drop(copy);
+
+        let stored: HashSet<StableHash> = kept.keys().map(|entry| entry.id).collect();
+        Ok(Compaction {
+            summary: Self::open(out)?.summary(),
+            kept_kernels: kept.len() as u64,
+            kept_bytes: kept.values().sum(),
+            dropped_kernels: dropped.len() as u64,
+            dropped_bytes: dropped.values().sum(),
+            unstored: launched.iter().filter(|id| !stored.contains(*id)).count() as u64,
+        })
     }
 
     /// The one key `id` names.

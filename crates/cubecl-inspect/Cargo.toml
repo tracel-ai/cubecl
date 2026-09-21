@@ -23,6 +23,8 @@ tui = ["dep:ratatui"]
 # names, so any tuner's key renders without its type.
 ciborium = { workspace = true, features = ["std"] }
 clap = { workspace = true, features = ["derive"] }
+# The stable hash a kernel's artifact is keyed by.
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.4" }
 # The database, its summary, the bundle manifest and the records.
 cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", features = ["cache"] }
 # The persisted autotune values and the build records, decoded as the

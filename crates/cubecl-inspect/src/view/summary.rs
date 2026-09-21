@@ -1,6 +1,6 @@
 use super::table::{Align, Table};
 use super::{Bytes, Maybe, Text, Wall};
-use crate::report::{Listing, Summary};
+use crate::report::{Compaction, Listing, Summary};
 use cubecl_environment::bundle::BundleManifest;
 use std::fmt;
 use std::path::Path;
@@ -142,6 +142,29 @@ impl fmt::Display for Text<'_, Listing> {
             )?;
         }
         Ok(())
+    }
+}
+
+impl fmt::Display for Text<'_, Compaction> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let compaction = self.0;
+        writeln!(
+            f,
+            "kept {} kernels the replay launched ({}), dropped {} it never did ({}) and every record",
+            compaction.kept_kernels,
+            Bytes(compaction.kept_bytes),
+            compaction.dropped_kernels,
+            Bytes(compaction.dropped_bytes),
+        )?;
+        if compaction.unstored > 0 {
+            writeln!(
+                f,
+                "{} launched kernels have no stored artifact: they compile on first use",
+                compaction.unstored
+            )?;
+        }
+        writeln!(f)?;
+        write!(f, "{}", Text(&compaction.summary))
     }
 }
 
