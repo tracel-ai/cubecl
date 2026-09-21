@@ -1742,13 +1742,8 @@ impl Client {
         &self,
         size: usize,
     ) -> impl Iterator<Item = VectorSize> + Clone {
-        let io_width = self.properties().io_width as usize;
-        let size_bits = size * 8;
-        let max = io_width / size_bits;
-        let max = usize::min(self.properties().hardware.max_vector_size, max);
-
-        // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
-        let num_candidates = max.trailing_zeros() + 1;
+        // If the widest is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
+        let num_candidates = self.properties().io_lanes(size).trailing_zeros() + 1;
 
         (0..num_candidates).map(|i| 2usize.pow(i)).rev()
     }

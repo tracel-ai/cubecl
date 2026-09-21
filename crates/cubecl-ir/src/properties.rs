@@ -101,6 +101,23 @@ impl VectorRegisters {
         })
     }
 
+    /// Vector sizes, widest first, at which `live` vectors of `elem_size`-byte elements all stay
+    /// in registers, or the device's IO widths where it budgets no registers.
+    pub fn vector_sizes(
+        properties: &DeviceProperties,
+        elem_size: usize,
+        live: usize,
+    ) -> impl Iterator<Item = VectorSize> + Clone + use<> {
+        let widest = match Self::of(&properties.hardware, elem_size) {
+            Some(registers) => registers.widest_lanes(live),
+            None => properties.io_lanes(elem_size),
+        };
+
+        (0..widest.trailing_zeros() + 1)
+            .map(|power| 1 << power)
+            .rev()
+    }
+
     /// How many registers the device has.
     pub fn count(&self) -> usize {
         self.count
@@ -431,6 +448,15 @@ impl DeviceProperties {
             timing_method,
             identity,
         }
+    }
+
+    /// The widest vector, in lanes of `elem_size`-byte elements, that reads and writes are sized
+    /// to, which is a power of two and at least one.
+    pub fn io_lanes(&self, elem_size: usize) -> usize {
+        let lanes = self.io_width as usize / (elem_size * 8);
+        let lanes = usize::min(self.hardware.max_vector_size, lanes);
+
+        1 << lanes.trailing_zeros().min(usize::BITS - 1)
     }
 
     /// States the width IO is sized to, for a backend that measured one wider than a load.

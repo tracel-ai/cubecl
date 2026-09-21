@@ -25,17 +25,12 @@ impl Arithmetic {
     /// The probe issues no loads, so where the device counts its registers it is swept up to
     /// the widest lanes its live accumulators all fit at, past one register if they fit.
     pub(super) fn widths(client: &Client, dtype: ElemType) -> alloc::vec::Vec<usize> {
-        let widths: alloc::vec::Vec<usize> =
-            match VectorRegisters::of(&client.properties().hardware, dtype.size()) {
-                Some(registers) => {
-                    let widest = registers.widest_lanes(compute_direct::LIVE_VECTORS);
-                    (0..=widest.trailing_zeros())
-                        .rev()
-                        .map(|i| 1 << i)
-                        .collect()
-                }
-                None => client.io_optimized_vector_sizes(dtype.size()).collect(),
-            };
+        let widths: alloc::vec::Vec<usize> = VectorRegisters::vector_sizes(
+            client.properties(),
+            dtype.size(),
+            compute_direct::LIVE_VECTORS,
+        )
+        .collect();
 
         if widths.is_empty() {
             alloc::vec![1]
