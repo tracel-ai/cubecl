@@ -26,7 +26,7 @@ static LAUNCHED: LazyLock<Mutex<HashSet<StableHash>>> =
     LazyLock::new(|| Mutex::new(HashSet::default()));
 
 /// Collects every kernel launched, on every thread and device, from
-/// [`collect`](Self::collect) to [`finish`](Self::finish).
+/// [`new`](Self::new) to [`finish`](Self::finish).
 #[must_use = "the kernels are collected until `finish`"]
 #[derive(Debug)]
 pub struct LaunchedKernels {
@@ -35,7 +35,11 @@ pub struct LaunchedKernels {
 
 impl LaunchedKernels {
     /// Start collecting.
-    pub fn collect() -> Self {
+    #[allow(
+        clippy::new_without_default,
+        reason = "starting a collection is not a value"
+    )]
+    pub fn new() -> Self {
         if COLLECTING.fetch_add(1, Ordering::AcqRel) == 0 {
             LAUNCHED.lock().clear();
         }
@@ -43,7 +47,7 @@ impl LaunchedKernels {
     }
 
     /// Stop collecting, and hand back the stable hash of every kernel
-    /// launched since [`collect`](Self::collect).
+    /// launched since [`new`](Self::new).
     pub fn finish(mut self) -> HashSet<StableHash> {
         self.finished = true;
         let launched = LAUNCHED.lock().clone();
@@ -80,7 +84,7 @@ mod tests {
         let during = KernelId::new::<Launched>().info(1u32);
         note(|| before.clone());
 
-        let collection = LaunchedKernels::collect();
+        let collection = LaunchedKernels::new();
         note(|| during.clone());
         note(|| during.clone());
         let launched = collection.finish();

@@ -3,8 +3,8 @@
 
 use cubecl_environment::bundle::{BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA};
 use cubecl_environment::persistence::{Database, Origin};
-use cubecl_environment::records::{self, MarkRecord, Session, Stamp, Stamped};
-use cubecl_inspect::report::{CandidateOutcome, CandidateReport, KeyId, KeyOrder};
+use cubecl_environment::records::{self, MarkRecord, Record, Session, SessionId, Stamp, Stamped};
+use cubecl_inspect::report::{CandidateOutcome, CandidateReport, KernelSelector, KeyId, KeyOrder};
 use cubecl_inspect::{InspectError, Inspector};
 use cubecl_server::benchmark::BenchmarkComputations;
 use cubecl_server::compiler::{CompilationOutcome, CompilationRecord, KernelCacheKey};
@@ -64,23 +64,22 @@ fn measured(name: &str, index: usize, micros: u64) -> AutotuneResult {
 
 /// Writes `record` as cubecl does: under its kind, keyed by its stamp, in
 /// the fixture's session 7.
-fn insert_record<V: serde::Serialize>(
+fn insert_record<R: Record + serde::Serialize>(
     database: &Database,
-    kind: &str,
     seq: u64,
     offset_ms: u64,
-    record: V,
+    record: R,
 ) {
     let stamped = Stamped {
         stamp: Stamp {
-            session: 7,
+            session: SessionId(7),
             seq,
             offset: Duration::from_millis(offset_ms),
         },
         record,
     };
     database.insert(
-        &records::namespace(kind),
+        &R::namespace(),
         &cbor(&(7u64, seq)),
         &cbor(&stamped),
         Origin::Local,
@@ -160,7 +159,7 @@ fn fixture(dir: &Path) -> PathBuf {
     // The build that tuned the m=64 key recorded it: the winner first, then
     // the candidate that lost by 4x, then the one that failed.
     let session = Session {
-        id: 7,
+        id: SessionId(7),
         started_unix_ms: 1_789_488_000_000,
         cubecl_version: "0.11.0".to_string(),
         label: Some("models build fixture".to_string()),
@@ -180,7 +179,7 @@ fn fixture(dir: &Path) -> PathBuf {
     };
     let traced = Stamped {
         stamp: Stamp {
-            session: 7,
+            session: SessionId(7),
             seq: 3,
             offset: Duration::from_secs(2),
         },
@@ -200,10 +199,11 @@ fn fixture(dir: &Path) -> PathBuf {
             short_circuit: None,
             wall: Duration::from_millis(500),
             dry_run: true,
+            stored: true,
         },
     };
     database.insert(
-        &records::namespace(TuneRecord::<()>::KIND),
+        &TuneRecord::<()>::namespace(),
         &cbor(&(7u64, 3u64)),
         &cbor(&traced),
         Origin::Local,
@@ -214,7 +214,7 @@ fn fixture(dir: &Path) -> PathBuf {
     let compilation = |seq: u64, offset_ms, kernel: &str, id, outcome| {
         let stamped = Stamped {
             stamp: Stamp {
-                session: 7,
+                session: SessionId(7),
                 seq,
                 offset: Duration::from_millis(offset_ms),
             },
@@ -227,7 +227,7 @@ fn fixture(dir: &Path) -> PathBuf {
             },
         };
         database.insert(
-            &records::namespace(CompilationRecord::KIND),
+            &CompilationRecord::namespace(),
             &cbor(&(7u64, seq)),
             &cbor(&stamped),
             Origin::Local,
@@ -276,8 +276,8 @@ fn fixture(dir: &Path) -> PathBuf {
         label: label.to_string(),
         wall: Duration::from_millis(wall_ms),
     };
-    insert_record(&database, MarkRecord::KIND, 1, 1_000, mark("walk", 3_000));
-    insert_record(&database, MarkRecord::KIND, 2, 1_900, mark("turn 0", 700));
+    insert_record(&database, 1, 1_000, mark("walk", 3_000));
+    insert_record(&database, 2, 1_900, mark("turn 0", 700));
     let pool = MemoryPoolReport {
         kind: MemoryPoolKind::Persistent,
         usage: MemoryUsage {
@@ -293,7 +293,6 @@ fn fixture(dir: &Path) -> PathBuf {
     };
     insert_record(
         &database,
-        MemoryRecord::KIND,
         7,
         3_050,
         MemoryRecord {
@@ -597,15 +596,102 @@ fn kernels_fold_their_trips_and_carry_their_stored_size() {
     assert_eq!(report.unrecorded, 0);
     assert_eq!(report.families[0].short_name(), "Matmul");
 
-    assert_eq!(inspector.kernel("abcdef").expect("by prefix").id, matmul.id);
+    assert_eq!(
+        inspector.kernel(id("abcdef")).expect("by prefix").id,
+        matmul.id
+    );
     assert!(matches!(
-        inspector.kernel("ffff"),
+        inspector.kernel(id("ffff")),
         Err(InspectError::UnknownKernel(_))
     ));
     assert!(matches!(
-        inspector.kernel(""),
+        inspector.kernel(id("")),
         Err(InspectError::AmbiguousKernel { count: 2, .. })
     ));
+}
+
+/// Selects a kernel by a prefix of its id alone.
+fn id(prefix: &str) -> KernelSelector<'_> {
+    KernelSelector {
+        id: prefix,
+        build: None,
+    }
+}
+
+/// A rebuild records the same kernel under a second build: its full id then
+/// names both, and the build is what picks one.
+#[test]
+fn a_kernel_two_builds_recorded_is_picked_by_its_build() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let path = fixture(dir.path());
+    {
+        let database = Database::open(&path, false).expect("opens");
+        insert_record(
+            &database,
+            8,
+            4_000,
+            CompilationRecord {
+                kernel: "kernels::Matmul<f16>".to_string(),
+                ir: None,
+                key: KernelCacheKey {
+                    id: MATMUL,
+                    build_id: 2,
+                },
+                outcome: CompilationOutcome::Compiled {
+                    duration: Duration::from_millis(90),
+                },
+                source: None,
+            },
+        );
+    }
+    let inspector = Inspector::open(&path).expect("opens");
+    let full = format!("{MATMUL:032x}");
+
+    assert!(matches!(
+        inspector.kernel(id(&full)),
+        Err(InspectError::AmbiguousBuild { builds, .. }) if builds.len() == 2
+    ));
+    let rebuilt = inspector
+        .kernel(KernelSelector {
+            id: &full,
+            build: Some(&format!("{:032x}", 2u128)),
+        })
+        .expect("the build names one");
+    assert_eq!(rebuilt.compiling, Duration::from_millis(90));
+}
+
+/// A tune the table did not take — unmeasured, or with the cache disabled —
+/// says nothing of the answer the table holds for its key.
+#[test]
+fn a_tune_the_table_did_not_take_is_not_the_keys_trace() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let path = fixture(dir.path());
+    {
+        let database = Database::open(&path, false).expect("opens");
+        insert_record(
+            &database,
+            9,
+            5_000,
+            TuneRecord {
+                table: GEMM.to_string(),
+                key: GemmKey {
+                    m: 128,
+                    elem: Elem::Float("F16"),
+                },
+                checksum: "list-a".to_string(),
+                winner: 0,
+                trials: Vec::new(),
+                short_circuit: None,
+                wall: Duration::from_millis(1),
+                dry_run: false,
+                stored: false,
+            },
+        );
+    }
+    let report = Inspector::open(&path).expect("opens").autotune();
+
+    let traced = report.keys.iter().filter(|key| key.trace.is_some()).count();
+    assert_eq!(traced, 1, "only the m=64 tune was stored");
 }
 
 #[test]
@@ -726,7 +812,7 @@ fn pruning_keeps_the_newest_sessions_records() {
     {
         let database = Database::open(&path, false).expect("opens");
         let later = Session {
-            id: 9,
+            id: SessionId(9),
             started_unix_ms: 1_789_489_000_000,
             cubecl_version: "0.11.0".to_string(),
             label: None,
@@ -744,8 +830,8 @@ fn pruning_keeps_the_newest_sessions_records() {
     let inspector = Inspector::open(&path).expect("opens");
     let summary = inspector.prune(1).expect("prunes");
 
-    let sessions: Vec<u64> = summary.sessions.iter().map(|row| row.session.id).collect();
-    assert_eq!(sessions, vec![9]);
+    let sessions: Vec<SessionId> = summary.sessions.iter().map(|row| row.session.id).collect();
+    assert_eq!(sessions, vec![SessionId(9)]);
     assert!(
         inspector
             .autotune()

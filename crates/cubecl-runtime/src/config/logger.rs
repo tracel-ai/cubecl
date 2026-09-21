@@ -60,7 +60,7 @@ impl Logger {
         let autotune_recorder_index = register_enabled(
             &mut sinks,
             &config.autotune.recorder,
-            config.autotune.recording_enabled(),
+            config.autotune.recorder_enabled(),
         );
         let streaming_index = register_enabled(
             &mut sinks,
@@ -119,8 +119,8 @@ impl Logger {
         self.config.streaming.logger.level
     }
 
-    /// Writes one autotune record, directing it to all configured recorder sinks.
-    pub fn log_autotune_record<S: Display>(&mut self, msg: &S) {
+    /// Writes one autotune log entry, directing it to all configured recorder sinks.
+    pub fn log_autotune_entry<S: Display>(&mut self, msg: &S) {
         self.sinks.log(
             &self.autotune_recorder_index,
             "cubecl::autotune::record",
@@ -133,9 +133,10 @@ impl Logger {
         self.config.autotune.logger.level
     }
 
-    /// Whether tuning decisions are being recorded. See [`AutotuneConfig::recording_enabled`].
-    pub fn autotune_recording_enabled(&self) -> bool {
-        self.config.autotune.recording_enabled()
+    /// Whether the autotune recorder has a sink. See
+    /// [`AutotuneConfig::recorder_enabled`](crate::config::autotune::AutotuneConfig::recorder_enabled).
+    pub fn autotune_recorder_enabled(&self) -> bool {
+        self.config.autotune.recorder_enabled()
     }
 
     /// Returns the current compilation log level from the global configuration.

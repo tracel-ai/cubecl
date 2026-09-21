@@ -28,6 +28,9 @@ pub enum InspectError {
     /// Several kernel instances' ids start with this.
     #[error("`{prefix}` names {count} kernels; give more of the id")]
     AmbiguousKernel { prefix: String, count: usize },
+    /// Several builds recorded the one kernel this names.
+    #[error("{kernel} was recorded by builds {}; name one with --build", builds.join(", "))]
+    AmbiguousBuild { kernel: String, builds: Vec<String> },
     /// A report could not be written out.
     #[error(transparent)]
     Write(#[from] std::io::Error),

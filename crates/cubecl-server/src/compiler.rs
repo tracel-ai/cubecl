@@ -11,7 +11,7 @@ use cubecl_environment::collections::HashMap;
 #[cfg(std_io)]
 use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
 use cubecl_environment::persistence::{Store, StoreKey, StoreValue};
-use cubecl_environment::records::RecordEffect;
+use cubecl_environment::records::{Record, RecordEffect, RecordLevel};
 
 /// Platform-specific build identifier, changes on rebuild
 pub type BuildId = Option<&'static [u8]>;
@@ -56,15 +56,25 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
     }
 }
 
-/// Records a freshly compiled artifact, logging rather than failing.
+/// Stores a freshly compiled artifact, logging rather than failing, and says
+/// what that did to the environment: [`Changed`](RecordEffect::Changed) when
+/// the store took it.
 ///
 /// A refused write is routine, not exceptional: another process sharing the
 /// environment may have written the key first, or the backing store may have
 /// declined it. The artifact was just compiled either way, so the whole cost
 /// is compiling it again next run.
-pub fn store_compiled<K: StoreKey, V: StoreValue>(store: &mut Store<K, V>, key: K, value: V) {
-    if let Err(err) = store.insert(key, value) {
-        log::warn!("Unable to cache the compiled kernel: {}", err.reason());
+pub fn store_compiled<K: StoreKey, V: StoreValue>(
+    store: &mut Store<K, V>,
+    key: K,
+    value: V,
+) -> RecordEffect {
+    match store.insert(key, value) {
+        Ok(()) => RecordEffect::Changed,
+        Err(err) => {
+            log::warn!("Unable to cache the compiled kernel: {}", err.reason());
+            RecordEffect::Observed
+        }
     }
 }
 
@@ -81,14 +91,12 @@ pub struct CompilationRecord {
     /// kernel type apart.
     pub key: KernelCacheKey,
     /// The kernel as cubecl defined it, before the backend's compiler — the
-    /// IR's textual form, for a reader to render — at
-    /// [`RecordLevel::Full`](cubecl_environment::records::RecordLevel::Full).
+    /// IR's textual form, for a reader to render — at [`RecordLevel::Full`].
     /// Only a fresh compile defines the kernel, so a store load carries none.
     pub ir: Option<alloc::string::String>,
     /// How the artifact was obtained, and what it cost.
     pub outcome: CompilationOutcome,
-    /// The source the backend compiled, at
-    /// [`RecordLevel::Full`](cubecl_environment::records::RecordLevel::Full).
+    /// The source the backend compiled, at [`RecordLevel::Full`].
     pub source: Option<alloc::string::String>,
 }
 
@@ -116,9 +124,8 @@ impl CompilationOutcome {
     }
 }
 
-impl CompilationRecord {
-    /// The records namespace kind compilations are written under.
-    pub const KIND: &str = "compilation";
+impl Record for CompilationRecord {
+    const KIND: &'static str = "compilation";
 }
 
 /// A compilation being recorded: a backend opens one where its compilation
@@ -135,7 +142,7 @@ pub struct CompilationRecording {
 
 impl CompilationRecording {
     /// Start recording `kernel_id`'s trip, when the environment records.
-    pub fn start(kernel_id: &KernelId) -> Option<Self> {
+    pub fn new(kernel_id: &KernelId) -> Option<Self> {
         let stamp = cubecl_environment::records::stamp()?;
         Some(Self {
             stamp,
@@ -147,11 +154,11 @@ impl CompilationRecording {
     }
 
     /// Keep the kernel's IR, from the definition the backend is about to
-    /// compile — at [`RecordLevel::Full`](cubecl_environment::records::RecordLevel::Full)
-    /// only, beside the source: the textual IR runs to hundreds of KB per
-    /// kernel, where the compiled artifact is tens.
+    /// compile, when the record [keeps code](Self::keeps_code): the textual
+    /// IR runs to hundreds of KB per kernel, where the compiled artifact is
+    /// tens.
     pub fn defined(&mut self, definition: &crate::kernel::KernelDefinition) {
-        if self.wants_source() {
+        if self.keeps_code() {
             self.ir = Some(alloc::format!("{}", definition.body));
         }
     }
@@ -165,20 +172,22 @@ impl CompilationRecording {
         self.write(outcome, RecordEffect::Observed, None);
     }
 
-    /// Whether the record keeps the kernel's source: only at
-    /// [`RecordLevel::Full`](cubecl_environment::records::RecordLevel::Full),
-    /// the source being the heaviest thing a record can carry.
-    pub fn wants_source(&self) -> bool {
-        cubecl_environment::records::level() == cubecl_environment::records::RecordLevel::Full
+    /// Whether the record keeps the kernel's code, its IR and its source:
+    /// only at [`RecordLevel::Full`], code being the heaviest thing a record
+    /// can carry.
+    pub fn keeps_code(&self) -> bool {
+        cubecl_environment::records::level() == RecordLevel::Full
     }
 
     /// The artifact was compiled, from `source` when the record
-    /// [wants it](Self::wants_source).
-    pub fn compiled(self, source: Option<alloc::string::String>) {
+    /// [keeps code](Self::keeps_code). `effect` is what storing it did, as
+    /// [`store_compiled`] answers: a compile the store did not take, or with
+    /// no store to take it, changed nothing.
+    pub fn compiled(self, source: Option<alloc::string::String>, effect: RecordEffect) {
         let outcome = CompilationOutcome::Compiled {
             duration: self.started.elapsed(),
         };
-        self.write(outcome, RecordEffect::Changed, source);
+        self.write(outcome, effect, source);
     }
 
     fn write(
@@ -194,12 +203,7 @@ impl CompilationRecording {
             outcome,
             source,
         };
-        cubecl_environment::records::write_stamped(
-            CompilationRecord::KIND,
-            self.stamp,
-            effect,
-            &record,
-        );
+        cubecl_environment::records::write_stamped(self.stamp, effect, &record);
     }
 }
 

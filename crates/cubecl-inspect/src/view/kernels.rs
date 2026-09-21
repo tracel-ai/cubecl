@@ -30,6 +30,7 @@ impl fmt::Display for Text<'_, KernelReport> {
 
         let mut kernels = Table::new(&[
             ("id", Align::Left),
+            ("build", Align::Left),
             ("kernel", Align::Left),
             ("compiled", Align::Right),
             ("loaded", Align::Right),
@@ -39,6 +40,7 @@ impl fmt::Display for Text<'_, KernelReport> {
         for row in &report.kernels {
             kernels.row(vec![
                 row.id.to_string(),
+                row.build.to_string(),
                 row.short_name().to_string(),
                 row.compiled.to_string(),
                 row.loaded.to_string(),
@@ -69,6 +71,7 @@ impl fmt::Display for Text<'_, KernelRow> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let row = self.0;
         writeln!(f, "id         {}", row.id)?;
+        writeln!(f, "build      {}", row.build)?;
         writeln!(f, "kernel     {}", row.kernel)?;
         if let Some(bytes) = row.bytes {
             writeln!(f, "stored     {}", Bytes(bytes))?;

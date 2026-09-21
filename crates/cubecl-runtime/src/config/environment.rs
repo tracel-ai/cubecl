@@ -49,7 +49,10 @@ pub struct RecordsConfig {
     pub level: cubecl_environment::records::RecordLevel,
 
     /// How many sessions an environment keeps; the oldest beyond it are
-    /// pruned when a session starts. Every session is kept when unset.
+    /// pruned when a session is kept, at its first change to the
+    /// environment. A session that changes nothing prunes nothing, and the
+    /// session being kept always survives, so `0` keeps it alone, as `1`
+    /// does. Every session is kept when unset.
     #[serde(default)]
     pub keep_sessions: Option<u32>,
 }

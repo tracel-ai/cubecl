@@ -436,7 +436,7 @@ fn rooted_at(root: &std::path::Path) {
 #[serial_test::serial]
 fn a_tune_is_recorded_in_order_with_its_walls() {
     use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{self, RecordLevel};
+    use cubecl_environment::records::{self, RecordLevel, Records};
     use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
 
     let root = tempfile::tempdir().unwrap();
@@ -467,7 +467,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     };
 
     let database = Database::open_active().unwrap();
-    let tunes = records::read::<TuneRecord<String>>(&database, TuneRecord::<String>::KIND);
+    let tunes = Records::new(&database).read::<TuneRecord<String>>();
     assert_eq!(tunes.len(), 1);
     let tune = &tunes[0].record;
     assert_eq!(tune.key, key);
@@ -493,8 +493,9 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     );
     assert_eq!(tune.short_circuit, None);
     assert!(!tune.dry_run);
+    assert!(tune.stored, "the table took the answer");
 
-    let sessions = records::sessions(&database);
+    let sessions = Records::new(&database).sessions();
     assert_eq!(sessions.len(), 1);
     assert_eq!(tunes[0].stamp.session, sessions[0].id);
 }
@@ -505,7 +506,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
 #[serial_test::serial]
 fn a_short_circuited_tune_records_where_it_stopped() {
     use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{self, RecordLevel};
+    use cubecl_environment::records::{self, RecordLevel, Records};
     use cubecl_server::tune::{TuneRecord, Tuner};
 
     let root = tempfile::tempdir().unwrap();
@@ -533,7 +534,7 @@ fn a_short_circuited_tune_records_where_it_stopped() {
     );
 
     let database = Database::open_active().unwrap();
-    let tunes = records::read::<TuneRecord<String>>(&database, TuneRecord::<String>::KIND);
+    let tunes = Records::new(&database).read::<TuneRecord<String>>();
     let tune = &tunes.last().unwrap().record;
     assert_eq!(tune.short_circuit.as_deref(), Some("add_slow_wrong"));
     // How many ran before the limit was met is the scheduler's business: the
@@ -551,7 +552,7 @@ fn a_short_circuited_tune_records_where_it_stopped() {
 #[serial_test::serial]
 fn nothing_is_recorded_when_records_are_off() {
     use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{self, RecordLevel};
+    use cubecl_environment::records::{self, RecordLevel, Records};
     use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
 
     let root = tempfile::tempdir().unwrap();
@@ -580,7 +581,11 @@ fn nothing_is_recorded_when_records_are_off() {
 
     assert!(matches!(answer, TuneCacheResult::Hit { .. }));
     let database = Database::open_active().unwrap();
-    assert!(records::read::<TuneRecord<String>>(&database, TuneRecord::<String>::KIND).is_empty());
+    assert!(
+        Records::new(&database)
+            .read::<TuneRecord<String>>()
+            .is_empty()
+    );
 }
 
 /// A throughput bound with a generous `time_limit` makes the tuner short-circuit: it
@@ -1268,7 +1273,7 @@ fn a_set_is_built_once_per_device_not_once_per_process() {
 #[serial_test::serial]
 fn a_compilation_is_recorded_with_its_outcome() {
     use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{self, RecordLevel};
+    use cubecl_environment::records::{self, RecordEffect, RecordLevel, Records};
     use cubecl_server::compiler::{CompilationOutcome, CompilationRecord, CompilationRecording};
     use cubecl_server::id::KernelId;
 
@@ -1279,21 +1284,21 @@ fn a_compilation_is_recorded_with_its_outcome() {
 
     records::configure(RecordLevel::Basic, None);
     let id = KernelId::new::<Recorded>().info(3u32);
-    CompilationRecording::start(&id)
+    CompilationRecording::new(&id)
         .unwrap()
-        .compiled(Some("source".to_string()));
-    let recording = CompilationRecording::start(&id).unwrap();
-    assert!(!recording.wants_source());
+        .compiled(Some("source".to_string()), RecordEffect::Changed);
+    let recording = CompilationRecording::new(&id).unwrap();
+    assert!(!recording.keeps_code());
     recording.loaded();
 
     records::configure(RecordLevel::Full, None);
-    let recording = CompilationRecording::start(&id).unwrap();
-    assert!(recording.wants_source());
-    recording.compiled(Some("source".to_string()));
+    let recording = CompilationRecording::new(&id).unwrap();
+    assert!(recording.keeps_code());
+    recording.compiled(Some("source".to_string()), RecordEffect::Changed);
     records::configure(RecordLevel::Basic, None);
 
     let database = Database::open_active().unwrap();
-    let compiled = records::read::<CompilationRecord>(&database, CompilationRecord::KIND);
+    let compiled = Records::new(&database).read::<CompilationRecord>();
     assert_eq!(compiled.len(), 3);
     assert!(compiled[0].record.kernel.ends_with("Recorded"));
     assert!(matches!(
@@ -1308,6 +1313,39 @@ fn a_compilation_is_recorded_with_its_outcome() {
     assert_eq!(compiled[2].record.source.as_deref(), Some("source"));
 }
 
+/// A kernel compiled with no store to take it — WGSL, or the compilation
+/// cache off — changes nothing, and a session that only does that leaves
+/// nothing behind. Storing an artifact is what changes the environment.
+#[test_log::test]
+#[cfg(all(feature = "std", autotune_persistence))]
+#[serial_test::serial]
+fn a_compile_nothing_stored_leaves_no_session() {
+    use cubecl_environment::persistence::{Database, Namespace, Store, StoreOptions};
+    use cubecl_environment::records::{self, RecordEffect, RecordLevel, Records};
+    use cubecl_server::compiler::{CompilationRecord, CompilationRecording, store_compiled};
+    use cubecl_server::id::KernelId;
+
+    struct Unstored;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+    records::configure(RecordLevel::Basic, None);
+
+    let mut store: Store<u32, u32> =
+        Store::new(StoreOptions::new().storage(Namespace::new("test/compiled")));
+    assert_eq!(store_compiled(&mut store, 1, 1), RecordEffect::Changed);
+
+    let id = KernelId::new::<Unstored>();
+    CompilationRecording::new(&id)
+        .unwrap()
+        .compiled(None, RecordEffect::Observed);
+
+    let database = Database::open_active().unwrap();
+    let records = Records::new(&database);
+    assert!(records.sessions().is_empty());
+    assert!(records.read::<CompilationRecord>().is_empty());
+}
+
 /// A memory snapshot is recorded under the caller's label, carrying the same
 /// report the client answers — kept once the session changes something, as a
 /// build's does.
@@ -1316,7 +1354,7 @@ fn a_compilation_is_recorded_with_its_outcome() {
 #[serial_test::serial]
 fn a_memory_snapshot_is_recorded_under_its_label() {
     use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{self, RecordLevel};
+    use cubecl_environment::records::{self, RecordLevel, Records};
     use cubecl_server::memory_management::MemoryRecord;
 
     let root = tempfile::tempdir().unwrap();
@@ -1328,12 +1366,17 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     client.record_memory("model loaded");
     let database = Database::open_active().unwrap();
     assert!(
-        records::read::<MemoryRecord>(&database, MemoryRecord::KIND).is_empty(),
+        Records::new(&database).read::<MemoryRecord>().is_empty(),
         "held until the session changes something"
     );
-    records::write("test", records::RecordEffect::Changed, &1u32);
+    // A kernel compiled into the store: the change a build makes.
+    struct Stored;
+    let id = cubecl_server::id::KernelId::new::<Stored>();
+    cubecl_server::compiler::CompilationRecording::new(&id)
+        .unwrap()
+        .compiled(None, records::RecordEffect::Changed);
 
-    let snapshots = records::read::<MemoryRecord>(&database, MemoryRecord::KIND);
+    let snapshots = Records::new(&database).read::<MemoryRecord>();
     assert_eq!(snapshots.len(), 1);
     assert_eq!(snapshots[0].record.label, "model loaded");
     assert_eq!(snapshots[0].record.report, client.memory_report());
@@ -1361,12 +1404,12 @@ fn a_launch_is_collected_while_a_collection_is_open() {
         id
     };
 
-    let collection = LaunchedKernels::collect();
+    let collection = LaunchedKernels::new();
     let id = launch();
     let launched = collection.finish();
     assert!(launched.contains(&id.stable_hash()));
 
-    let collection = LaunchedKernels::collect();
+    let collection = LaunchedKernels::new();
     let launched = collection.finish();
     assert!(launched.is_empty(), "a new collection starts empty");
 }

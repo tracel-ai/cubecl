@@ -19,6 +19,7 @@ use cubecl_core::{
     server::ResourceLimitError,
 };
 use cubecl_environment::persistence::Store;
+use cubecl_environment::records::RecordEffect;
 use cubecl_server::{
     compiler::KernelCacheKey,
     kernel::{CompiledKernel, CubeKernel},
@@ -176,7 +177,7 @@ impl CudaContext {
         kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let mut recording = CompilationRecording::start(kernel_id);
+        let mut recording = CompilationRecording::new(kernel_id);
         let key = match self.try_load_cached(kernel_id)? {
             Ok(()) => {
                 if let Some(recording) = recording {
@@ -208,23 +209,24 @@ impl CudaContext {
         // Read before the load consumes the kernel.
         let source = recording
             .as_ref()
-            .filter(|recording| recording.wants_source())
+            .filter(|recording| recording.keeps_code())
             .map(|_| jitc_kernel.source.clone());
-        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)?;
+        let effect = self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)?;
         if let Some(recording) = recording {
-            recording.compiled(source);
+            recording.compiled(source, effect);
         }
         Ok(())
     }
 
-    /// Loads what the compiler produced, by the route that backend's output takes.
+    /// Loads what the compiler produced, by the route that backend's output takes, and says
+    /// whether storing the artifact changed the environment.
     fn load_jit_kernel(
         &mut self,
         kernel_id: &KernelId,
         key: Option<KernelCacheKey>,
         jitc_kernel: CompiledKernel<CudaCompiler>,
         logger: Arc<ServerLogger>,
-    ) -> Result<(), LaunchError> {
+    ) -> Result<RecordEffect, LaunchError> {
         match &jitc_kernel.repr {
             Some(CudaRepresentation::Cpp(_)) => {
                 self.load_transpiled(kernel_id, key, jitc_kernel, logger)
@@ -260,7 +262,7 @@ impl CudaContext {
         key: Option<KernelCacheKey>,
         mut jitc_kernel: CompiledKernel<CudaCompiler>,
         logger: Arc<ServerLogger>,
-    ) -> Result<(), LaunchError> {
+    ) -> Result<RecordEffect, LaunchError> {
         let Some(CudaRepresentation::Llvm(module)) = &jitc_kernel.repr else {
             unreachable!("dispatched on the representation");
         };
@@ -288,19 +290,19 @@ impl CudaContext {
         // `try_load_cached` hands back a key exactly when there is a cache to put it in. No
         // second-line entry: that cache is keyed on generated C++ source, which this backend
         // never produces.
-        if let Some((cache, key)) = self.ptx_cache.as_mut().zip(key) {
-            store_compiled(
-                cache,
-                key,
-                PtxCacheEntry {
-                    entrypoint_name,
-                    shared_mem_bytes,
-                    ptx,
-                    io,
-                },
-            );
-        }
-        Ok(())
+        let Some((cache, key)) = self.ptx_cache.as_mut().zip(key) else {
+            return Ok(RecordEffect::Observed);
+        };
+        Ok(store_compiled(
+            cache,
+            key,
+            PtxCacheEntry {
+                entrypoint_name,
+                shared_mem_bytes,
+                ptx,
+                io,
+            },
+        ))
     }
 
     /// Turns a kernel the C++ backend just transpiled into a loaded module, by running its
@@ -311,7 +313,7 @@ impl CudaContext {
         key: Option<KernelCacheKey>,
         mut jitc_kernel: CompiledKernel<CudaCompiler>,
         logger: Arc<ServerLogger>,
-    ) -> Result<(), LaunchError> {
+    ) -> Result<RecordEffect, LaunchError> {
         if logger.compilation_source_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
@@ -329,11 +331,11 @@ impl CudaContext {
                 && let Some(entry) = cache.purge_key(&old_key)
             {
                 log::trace!("Using second-line PTX cache");
-                store_compiled(cache, key, entry);
+                let effect = store_compiled(cache, key, entry);
                 store_compiled(second_line_cache, cpp_hash, key);
                 self.try_load_cached(kernel_id)?
                     .expect("Should be cached now");
-                return Ok(());
+                return Ok(effect);
             }
 
             Some(cpp_hash)
@@ -355,21 +357,25 @@ impl CudaContext {
             .map(|repr| repr.shared_memory_size())
             .unwrap_or(0);
 
-        if let Some(cache) = &mut self.ptx_cache {
-            let second_line_cache = self.second_line_ptx_cache.as_mut().unwrap();
-            let key = key.unwrap();
-            store_compiled(
-                cache,
-                key,
-                PtxCacheEntry {
-                    entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                    shared_mem_bytes,
-                    ptx: ptx.clone(),
-                    io: io.clone(),
-                },
-            );
-            store_compiled(second_line_cache, cpp_hash.unwrap(), key);
-        }
+        let effect = match &mut self.ptx_cache {
+            Some(cache) => {
+                let second_line_cache = self.second_line_ptx_cache.as_mut().unwrap();
+                let key = key.unwrap();
+                let effect = store_compiled(
+                    cache,
+                    key,
+                    PtxCacheEntry {
+                        entrypoint_name: jitc_kernel.entrypoint_name.clone(),
+                        shared_mem_bytes,
+                        ptx: ptx.clone(),
+                        io: io.clone(),
+                    },
+                );
+                store_compiled(second_line_cache, cpp_hash.unwrap(), key);
+                effect
+            }
+            None => RecordEffect::Observed,
+        };
 
         self.load_ptx(
             ptx,
@@ -379,7 +385,7 @@ impl CudaContext {
             shared_mem_bytes,
             io.map(Arc::from),
         )?;
-        Ok(())
+        Ok(effect)
     }
 
     /// Compiles `source` to PTX with NVRTC.

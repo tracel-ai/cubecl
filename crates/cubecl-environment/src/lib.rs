@@ -65,6 +65,4 @@ pub mod persistence;
 /// Named environment bundles: ship pre-warmed autotune and compilation caches.
 pub mod bundle;
 
-/// What an environment remembers of how it was built: sessions, and the
-/// records stamped in them.
 pub mod records;

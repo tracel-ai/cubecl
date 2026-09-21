@@ -41,10 +41,24 @@ impl From<&KernelCacheKey> for StoreEntry {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct KernelHash(pub u128);
 
-/// One kernel instance, its trips folded.
+/// The hash of the build that compiled or loaded a kernel instance: with the
+/// [`KernelHash`], what names its artifact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct BuildHash(pub u128);
+
+/// What a command line names one kernel instance by: a prefix of its id and,
+/// when several builds recorded it, a prefix of the build's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KernelSelector<'a> {
+    pub id: &'a str,
+    pub build: Option<&'a str>,
+}
+
+/// One kernel instance as one build recorded it, its trips folded.
 #[derive(Clone, Debug, Serialize)]
 pub struct KernelRow {
     pub id: KernelHash,
+    pub build: BuildHash,
     /// The kernel's type, in full.
     pub kernel: String,
     /// The kernel as cubecl defined it, in the IR's textual form, when a
@@ -92,13 +106,27 @@ impl KernelHash {
     /// Whether the hash's hex rendering starts with `prefix`, the way a
     /// command line names an instance.
     pub fn matches(&self, prefix: &str) -> bool {
-        format!("{:032x}", self.0).starts_with(&prefix.to_ascii_lowercase())
+        hex_matches(self.0, prefix)
+    }
+}
+
+impl BuildHash {
+    /// See [`KernelHash::matches`].
+    pub fn matches(&self, prefix: &str) -> bool {
+        hex_matches(self.0, prefix)
     }
 }
 
 /// Twelve hex digits: enough to tell a file's kernels apart, short enough to
 /// type.
 impl fmt::Display for KernelHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", &format!("{:032x}", self.0)[..12])
+    }
+}
+
+/// See the [`KernelHash`] rendering.
+impl fmt::Display for BuildHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", &format!("{:032x}", self.0)[..12])
     }
@@ -111,11 +139,49 @@ impl Serialize for KernelHash {
     }
 }
 
+/// See the [`KernelHash`] serialization.
+impl Serialize for BuildHash {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(&format_args!("{:032x}", self.0))
+    }
+}
+
+impl KernelSelector<'_> {
+    /// Whether `row` is an instance this names.
+    pub fn selects(&self, row: &KernelRow) -> bool {
+        row.id.matches(self.id) && self.build.is_none_or(|build| row.build.matches(build))
+    }
+}
+
+/// The id, then `--build` and the build when one is named: what the command
+/// line was given.
+impl fmt::Display for KernelSelector<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.id)?;
+        if let Some(build) = &self.build {
+            write!(f, " --build {build}")?;
+        }
+        Ok(())
+    }
+}
+
+fn hex_matches(hash: u128, prefix: &str) -> bool {
+    format!("{hash:032x}").starts_with(&prefix.to_ascii_lowercase())
+}
+
 impl KernelRow {
     /// The type's last path segment, without its generics: a name a table can
     /// print.
     pub fn short_name(&self) -> &str {
         short_name(&self.kernel)
+    }
+
+    /// What names the instance's artifact in the store.
+    pub fn entry(&self) -> StoreEntry {
+        StoreEntry {
+            id: self.id.0,
+            build: self.build.0,
+        }
     }
 }
 
@@ -140,6 +206,7 @@ impl KernelReport {
             let entry = StoreEntry::from(&trip.key);
             let row = rows.entry(entry).or_insert_with(|| KernelRow {
                 id: KernelHash(trip.key.id),
+                build: BuildHash(trip.key.build_id),
                 kernel: trip.kernel.clone(),
                 ir: None,
                 bytes: stored.get(&entry).copied(),
@@ -204,15 +271,17 @@ impl KernelReport {
     /// Put the kernels in `order`.
     pub fn sort(&mut self, order: KernelOrder) {
         match order {
-            KernelOrder::Compile => self
-                .kernels
-                .sort_by(|a, b| b.compiling.cmp(&a.compiling).then(a.id.cmp(&b.id))),
+            KernelOrder::Compile => self.kernels.sort_by(|a, b| {
+                b.compiling
+                    .cmp(&a.compiling)
+                    .then(a.entry().cmp(&b.entry()))
+            }),
             KernelOrder::Size => self
                 .kernels
-                .sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.id.cmp(&b.id))),
+                .sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.entry().cmp(&b.entry()))),
             KernelOrder::Name => self
                 .kernels
-                .sort_by(|a, b| a.kernel.cmp(&b.kernel).then(a.id.cmp(&b.id))),
+                .sort_by(|a, b| a.kernel.cmp(&b.kernel).then(a.entry().cmp(&b.entry()))),
         }
     }
 

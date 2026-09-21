@@ -1,8 +1,9 @@
 use crate::InspectError;
 use crate::report::{
     AutotuneReport, AutotuneTable, CandidateResult, Compaction, EnvironmentDiff, KernelReport,
-    KernelRow, KeyId, Listing, MemorySnapshots, NamespaceRow, SessionRow, SessionTimeline,
-    StoreEntry, StoredArtifacts, Summary, Timeline, TuneTrace, TunedKey, Unreadable,
+    KernelRow, KernelSelector, KeyId, Listing, MemorySnapshots, NamespaceRow, SessionRow,
+    SessionTimeline, StoreEntry, StoredArtifacts, Summary, Timeline, TuneTrace, TunedKey,
+    Unreadable,
 };
 use cubecl_common::hash::StableHash;
 use cubecl_environment::bundle::{BundleManifest, ExportOptions, export};
@@ -10,10 +11,10 @@ use cubecl_environment::collections::HashSet;
 use cubecl_environment::persistence::Database;
 use cubecl_environment::persistence::sqlite::SCHEMA_VERSION;
 use cubecl_environment::records;
-use cubecl_environment::records::{MarkRecord, Stamped};
+use cubecl_environment::records::{MarkRecord, Records, SessionId, Stamped};
 use cubecl_server::compiler::{CompilationRecord, KernelCacheKey, build_id_hash};
 use cubecl_server::memory_management::MemoryRecord;
-use cubecl_server::tune::{PersistentCacheValue, TuneRecord};
+use cubecl_server::tune::PersistentCacheValue;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -32,29 +33,33 @@ pub struct Inspector {
 const MEASUREMENTS: [&str; 3] = [AutotuneTable::ROOT, "throughput", "records"];
 
 /// The build records of one file, read once per report.
-struct Records {
+struct BuildRecords {
     /// Oldest first, like every list here.
     tunes: Vec<TuneTrace>,
     compilations: Vec<Stamped<CompilationRecord>>,
     marks: Vec<Stamped<MarkRecord>>,
 }
 
-impl Records {
-    fn read(database: &Database) -> Self {
+impl BuildRecords {
+    fn new(database: &Database) -> Self {
+        let records = Records::new(database);
         Self {
-            tunes: records::read(database, TuneRecord::<()>::KIND),
-            compilations: records::read(database, CompilationRecord::KIND),
-            marks: records::read(database, MarkRecord::KIND),
+            tunes: records.read(),
+            compilations: records.read(),
+            marks: records.read(),
         }
     }
 
-    fn tunes_of(&self, session: u64) -> impl Iterator<Item = &TuneTrace> {
+    fn tunes_of(&self, session: SessionId) -> impl Iterator<Item = &TuneTrace> {
         self.tunes
             .iter()
             .filter(move |trace| trace.stamp.session == session)
     }
 
-    fn compilations_of(&self, session: u64) -> impl Iterator<Item = &Stamped<CompilationRecord>> {
+    fn compilations_of(
+        &self,
+        session: SessionId,
+    ) -> impl Iterator<Item = &Stamped<CompilationRecord>> {
         self.compilations
             .iter()
             .filter(move |trip| trip.stamp.session == session)
@@ -181,8 +186,9 @@ impl Inspector {
 
     /// Every session, with what it recorded folded in.
     fn sessions(&self) -> Vec<SessionRow> {
-        let records = Records::read(&self.database);
-        records::sessions(&self.database)
+        let records = BuildRecords::new(&self.database);
+        Records::new(&self.database)
+            .sessions()
             .into_iter()
             .map(|session| {
                 let mut row = SessionRow {
@@ -214,9 +220,10 @@ impl Inspector {
 
     /// Each session's marks, with what was tuned and compiled inside them.
     pub fn timeline(&self) -> Timeline {
-        let records = Records::read(&self.database);
+        let records = BuildRecords::new(&self.database);
         Timeline {
-            sessions: records::sessions(&self.database)
+            sessions: Records::new(&self.database)
+                .sessions()
                 .into_iter()
                 .map(|session| {
                     SessionTimeline::new(
@@ -233,13 +240,13 @@ impl Inspector {
     /// Every memory snapshot the file's sessions recorded.
     pub fn memory(&self) -> MemorySnapshots {
         MemorySnapshots {
-            snapshots: records::read(&self.database, MemoryRecord::KIND),
+            snapshots: Records::new(&self.database).read::<MemoryRecord>(),
         }
     }
 
     /// Every kernel the file's builds compiled or loaded.
     pub fn kernels(&self) -> KernelReport {
-        let trips: Vec<CompilationRecord> = Records::read(&self.database)
+        let trips: Vec<CompilationRecord> = BuildRecords::new(&self.database)
             .compilations
             .into_iter()
             .map(|trip| trip.record)
@@ -247,19 +254,28 @@ impl Inspector {
         KernelReport::new(&trips, &self.stored_artifacts())
     }
 
-    /// The one kernel instance whose id starts with `prefix`.
-    pub fn kernel(&self, prefix: &str) -> Result<KernelRow, InspectError> {
+    /// The one kernel instance `selector` names.
+    ///
+    /// A kernel is recorded once per build that compiled or loaded it, so
+    /// after a rebuild its id alone names several: the selector's build
+    /// names one of them.
+    pub fn kernel(&self, selector: KernelSelector<'_>) -> Result<KernelRow, InspectError> {
         let mut matches: Vec<KernelRow> = self
             .kernels()
             .kernels
             .into_iter()
-            .filter(|row| row.id.matches(prefix))
+            .filter(|row| selector.selects(row))
             .collect();
+        let one_kernel = matches.windows(2).all(|pair| pair[0].id == pair[1].id);
         match matches.len() {
             1 => Ok(matches.remove(0)),
-            0 => Err(InspectError::UnknownKernel(prefix.to_string())),
+            0 => Err(InspectError::UnknownKernel(selector.to_string())),
+            _ if one_kernel => Err(InspectError::AmbiguousBuild {
+                kernel: selector.to_string(),
+                builds: matches.iter().map(|row| row.build.to_string()).collect(),
+            }),
             count => Err(InspectError::AmbiguousKernel {
-                prefix: prefix.to_string(),
+                prefix: selector.to_string(),
                 count,
             }),
         }
@@ -290,7 +306,7 @@ impl Inspector {
             keys: Vec::new(),
             undecoded: 0,
         };
-        let records = Records::read(&self.database);
+        let records = BuildRecords::new(&self.database);
         for namespace in self.database.namespaces() {
             let Some(table) = AutotuneTable::parse(&namespace) else {
                 continue;
@@ -305,14 +321,17 @@ impl Inspector {
                 );
         }
         for key in &mut report.keys {
-            // Oldest first, so the last match is the key's latest tune.
+            // Oldest first, so the last match is the key's latest tune. A tune
+            // the table did not take answered its process alone, and says
+            // nothing of the answer stored.
             key.trace = records
                 .tunes
                 .iter()
                 .rev()
                 .find(|trace| {
                     let record = &trace.record;
-                    record.table == key.table.namespace()
+                    record.stored
+                        && record.table == key.table.namespace()
                         && record.checksum == key.checksum
                         && record.key == key.key
                 })
@@ -360,7 +379,7 @@ impl Inspector {
             )));
         }
         let writable = Database::open(&self.path, false).map_err(|err| refused(err.to_string()))?;
-        records::prune(&writable, keep);
+        Records::new(&writable).prune(keep);
         Ok(self.summary())
     }
 

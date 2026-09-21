@@ -10,6 +10,8 @@
 //! environment — and carries a [`Stamp`]: the session, a sequence number, and
 //! an offset from the session's start. That is what restores order across
 //! subsystems that write independently, and lays them on one time axis.
+//! A type is written as a record by implementing [`Record`], and read back
+//! through [`Records`].
 //!
 //! A session is kept only if it changed the environment — tuned a key,
 //! compiled a kernel. Until its first such record, what it records is held in
@@ -46,7 +48,7 @@ pub enum RecordLevel {
     /// artifacts it produced.
     #[default]
     Basic = 1,
-    /// Every record in full: kernel sources, allocation histograms.
+    /// Every record in full: a compiled kernel's IR and source.
     Full = 2,
 }
 
@@ -62,11 +64,35 @@ pub enum RecordEffect {
     Observed,
 }
 
+/// A type written to the environment as a record: its kind names the
+/// namespace, `records/v1/<KIND>`, it is written to and read back from.
+pub trait Record {
+    /// The kind records of this type are written under.
+    const KIND: &'static str;
+
+    /// The namespace records of this type are written to.
+    fn namespace() -> String {
+        alloc::format!("{ROOT}/{}", Self::KIND.trim_matches('/'))
+    }
+}
+
+/// Names a [`Session`]: unique among the sessions of an environment. Taken
+/// from the session's start in nanoseconds, so ids sort sessions by start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SessionId(pub u64);
+
+impl core::fmt::Display for SessionId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// One process's use of one environment: what every record of it shares.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     /// Unique among the sessions of an environment.
-    pub id: u64,
+    pub id: SessionId,
     /// Wall-clock start, in milliseconds since the Unix epoch.
     pub started_unix_ms: u64,
     /// The cubecl that wrote it.
@@ -85,7 +111,7 @@ pub struct Session {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stamp {
     /// The [`Session::id`] of the session the record belongs to.
-    pub session: u64,
+    pub session: SessionId,
     /// The record's position among its session's, across every namespace.
     pub seq: u64,
     /// Time since the session started, on a monotonic clock.
@@ -104,8 +130,9 @@ pub struct Stamped<V> {
 
 /// Sets how much is recorded, and how many sessions an environment keeps:
 /// when a session is kept, the oldest beyond `keep_sessions` are pruned with
-/// their records; `None` keeps them all. Called by the runtime once its
-/// configuration is loaded.
+/// their records; `None` keeps them all. The session being kept is never
+/// pruned, so `Some(0)` keeps it alone, as `Some(1)` does. Called by the
+/// runtime once its configuration is loaded.
 pub fn configure(level: RecordLevel, keep_sessions: Option<u32>) {
     imp::configure(level, keep_sessions);
 }
@@ -126,36 +153,30 @@ pub fn label<S: Into<String>>(label: S) {
     imp::label(label.into());
 }
 
-/// Records `record` under `records/v1/<kind>` in the active environment,
-/// stamped now: written if the session is kept, which an
+/// Records `record` under its [namespace](Record::namespace) in the active
+/// environment, stamped now: written if the session is kept, which an
 /// [`Observed`](RecordEffect::Observed) record alone does not decide. `None`
 /// when recording is off or there is no database to write to.
-pub fn write<V: Serialize>(kind: &str, effect: RecordEffect, record: &V) -> Option<Stamp> {
+pub fn write<R: Record + Serialize>(effect: RecordEffect, record: &R) -> Option<Stamp> {
     let stamp = stamp()?;
-    write_stamped(kind, stamp, effect, record).then_some(stamp)
+    write_stamped(stamp, effect, record).then_some(stamp)
 }
 
 /// Records `record` with a stamp taken earlier, for a record that describes a
 /// span: stamped when it began, recorded when it ended. `false` when the
 /// session it was stamped in is gone, or the write failed.
-pub fn write_stamped<V: Serialize>(
-    kind: &str,
+pub fn write_stamped<R: Record + Serialize>(
     stamp: Stamp,
     effect: RecordEffect,
-    record: &V,
+    record: &R,
 ) -> bool {
-    imp::write(kind, effect, &Stamped { stamp, record })
+    imp::write(&R::namespace(), effect, &Stamped { stamp, record })
 }
 
 /// A stamp for this moment in the active environment's session, starting the
 /// session if there is none. `None` when recording is off.
 pub fn stamp() -> Option<Stamp> {
     imp::stamp()
-}
-
-/// The namespace records of `kind` are written to.
-pub fn namespace(kind: &str) -> String {
-    alloc::format!("{ROOT}/{}", kind.trim_matches('/'))
 }
 
 /// Opens a named span of the session in progress — a phase of the caller's
@@ -186,9 +207,8 @@ pub struct MarkRecord {
     pub wall: Duration,
 }
 
-impl MarkRecord {
-    /// The records namespace kind marks are written under.
-    pub const KIND: &str = "marks";
+impl Record for MarkRecord {
+    const KIND: &'static str = "marks";
 }
 
 impl Drop for Mark {
@@ -206,45 +226,85 @@ impl Drop for Mark {
             label: core::mem::take(&mut self.label),
             wall: end.offset.saturating_sub(start.offset),
         };
-        write_stamped(MarkRecord::KIND, start, RecordEffect::Observed, &record);
+        write_stamped(start, RecordEffect::Observed, &record);
     }
 }
 
-/// Deletes every session of `database` but the newest `keep`, with their
-/// records. Returns how many sessions went.
+/// The records and sessions one database holds.
 #[cfg(native_cache)]
-pub fn prune(database: &crate::persistence::Database, keep: usize) -> usize {
-    imp::prune(database, keep)
+#[derive(Debug, Clone, Copy)]
+pub struct Records<'a> {
+    database: &'a crate::persistence::Database,
 }
 
-/// Every session `database` holds, oldest first.
 #[cfg(native_cache)]
-pub fn sessions(database: &crate::persistence::Database) -> alloc::vec::Vec<Session> {
-    let mut sessions = alloc::vec::Vec::new();
-    database.scan(SESSIONS, &mut |_, value| {
-        if let Ok(session) = ciborium::from_reader::<Session, _>(value) {
-            sessions.push(session);
-        }
-    });
-    sessions.sort_by_key(|session| session.id);
-    sessions
-}
+impl<'a> Records<'a> {
+    /// The records `database` holds.
+    pub fn new(database: &'a crate::persistence::Database) -> Self {
+        Self { database }
+    }
 
-/// Every record of `kind` in `database` that decodes as `V`, in the order
-/// they were stamped.
-#[cfg(native_cache)]
-pub fn read<V: serde::de::DeserializeOwned>(
-    database: &crate::persistence::Database,
-    kind: &str,
-) -> alloc::vec::Vec<Stamped<V>> {
-    let mut records = alloc::vec::Vec::new();
-    database.scan(&namespace(kind), &mut |_, value| {
-        if let Ok(record) = ciborium::from_reader::<Stamped<V>, _>(value) {
-            records.push(record);
+    /// Every session, oldest first.
+    pub fn sessions(&self) -> alloc::vec::Vec<Session> {
+        let mut sessions = alloc::vec::Vec::new();
+        self.database.scan(SESSIONS, &mut |_, value| {
+            if let Ok(session) = ciborium::from_reader::<Session, _>(value) {
+                sessions.push(session);
+            }
+        });
+        sessions.sort_by_key(|session| session.id);
+        sessions
+    }
+
+    /// Every record of `R` that decodes, in the order they were stamped.
+    pub fn read<R: Record + serde::de::DeserializeOwned>(&self) -> alloc::vec::Vec<Stamped<R>> {
+        let mut records = alloc::vec::Vec::new();
+        self.database.scan(&R::namespace(), &mut |_, value| {
+            if let Ok(record) = ciborium::from_reader::<Stamped<R>, _>(value) {
+                records.push(record);
+            }
+        });
+        records.sort_by_key(|record: &Stamped<R>| (record.stamp.session, record.stamp.seq));
+        records
+    }
+
+    /// Deletes every session but the newest `keep`, with their records.
+    /// Returns how many sessions went.
+    ///
+    /// Every record stamped at or before the newest session pruned goes too,
+    /// whether or not its session is still listed: a process whose session
+    /// another one pruned while it ran keeps writing under it, and those
+    /// records go at the next prune rather than never.
+    pub fn prune(&self, keep: usize) -> usize {
+        let mut sessions = self.sessions();
+        if sessions.len() <= keep {
+            return 0;
         }
-    });
-    records.sort_by_key(|record: &Stamped<V>| (record.stamp.session, record.stamp.seq));
-    records
+        sessions.sort_by_key(|session| core::cmp::Reverse(session.id));
+        let pruned = &sessions[keep..];
+        let newest_pruned = pruned[0].id;
+
+        for namespace in self.database.namespaces() {
+            if namespace == SESSIONS || !namespace.starts_with(ROOT) {
+                continue;
+            }
+            let mut doomed = alloc::vec::Vec::new();
+            self.database.scan(&namespace, &mut |key, _| {
+                if let Ok((session, _)) = ciborium::from_reader::<(SessionId, u64), _>(key)
+                    && session <= newest_pruned
+                {
+                    doomed.push(key.to_vec());
+                }
+            });
+            for key in doomed {
+                self.database.purge_key(&namespace, &key);
+            }
+        }
+        for session in pruned {
+            self.database.purge_key(SESSIONS, &imp::encode(&session.id));
+        }
+        pruned.len()
+    }
 }
 
 #[cfg(native_cache)]
@@ -256,7 +316,7 @@ impl Session {
         Self {
             // Nanoseconds are unique enough between the processes sharing one
             // environment, and sort sessions by start without a lookup.
-            id: started.as_nanos() as u64,
+            id: SessionId(started.as_nanos() as u64),
             started_unix_ms: started.as_millis() as u64,
             cubecl_version: env!("CARGO_PKG_VERSION").to_string(),
             label,
@@ -270,7 +330,7 @@ impl Session {
 /// Recording where there is a database to record into.
 #[cfg(native_cache)]
 mod imp {
-    use super::{RecordEffect, RecordLevel, SESSIONS, Session, Stamp};
+    use super::{RecordEffect, RecordLevel, Records, SESSIONS, Session, Stamp};
     use crate::persistence::{Database, Origin};
     use crate::sync::{AtomicU8, LazyLock, Mutex, Ordering};
     use alloc::string::String;
@@ -355,12 +415,12 @@ mod imp {
     }
 
     pub(super) fn write<V: Serialize>(
-        kind: &str,
+        namespace: &str,
         effect: RecordEffect,
         stamped: &super::Stamped<V>,
     ) -> bool {
         let row = Row {
-            namespace: super::namespace(kind),
+            namespace: namespace.into(),
             key: encode(&(stamped.stamp.session, stamped.stamp.seq)),
             value: encode(stamped),
         };
@@ -391,7 +451,7 @@ mod imp {
     /// before, and make room for it among the sessions kept.
     fn keep(current: &mut Current, keep_sessions: Option<u32>) {
         if let Some(keep) = keep_sessions {
-            prune(&current.database, keep.saturating_sub(1) as usize);
+            Records::new(&current.database).prune(keep.saturating_sub(1) as usize);
         }
         current.kept = true;
         write_session(current);
@@ -442,37 +502,7 @@ mod imp {
             .replace(SESSIONS, &key, &encode(&current.session), Origin::Local);
     }
 
-    pub(super) fn prune(database: &Database, keep: usize) -> usize {
-        let mut sessions = super::sessions(database);
-        if sessions.len() <= keep {
-            return 0;
-        }
-        sessions.sort_by_key(|session| core::cmp::Reverse(session.id));
-        let pruned: Vec<u64> = sessions[keep..].iter().map(|session| session.id).collect();
-
-        for namespace in database.namespaces() {
-            if namespace == SESSIONS || !namespace.starts_with(super::ROOT) {
-                continue;
-            }
-            let mut doomed = Vec::new();
-            database.scan(&namespace, &mut |key, _| {
-                if let Ok((session, _)) = ciborium::from_reader::<(u64, u64), _>(key)
-                    && pruned.contains(&session)
-                {
-                    doomed.push(key.to_vec());
-                }
-            });
-            for key in doomed {
-                database.purge_key(&namespace, &key);
-            }
-        }
-        for id in &pruned {
-            database.purge_key(SESSIONS, &encode(id));
-        }
-        pruned.len()
-    }
-
-    fn encode<V: Serialize + ?Sized>(value: &V) -> Vec<u8> {
+    pub(super) fn encode<V: Serialize + ?Sized>(value: &V) -> Vec<u8> {
         let mut bytes = Vec::new();
         ciborium::into_writer(value, &mut bytes).expect("a record serializes");
         bytes
@@ -498,7 +528,7 @@ mod imp {
     }
 
     pub(super) fn write<V: serde::Serialize>(
-        _kind: &str,
+        _namespace: &str,
         _effect: super::RecordEffect,
         _stamped: &super::Stamped<V>,
     ) -> bool {
@@ -525,22 +555,42 @@ mod tests {
         (dir, database)
     }
 
-    fn records(database: &Database, kind: &str) -> Vec<Stamped<u32>> {
-        read(database, kind)
+    /// A record of the kind the tests write.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    struct Test(u32);
+
+    impl Record for Test {
+        const KIND: &'static str = "test";
+    }
+
+    /// Another kind, sharing the session's sequence with [`Test`].
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    struct Other(u32);
+
+    impl Record for Other {
+        const KIND: &'static str = "other";
+    }
+
+    fn tests(database: &Database) -> Vec<Stamped<Test>> {
+        Records::new(database).read()
+    }
+
+    fn sessions(database: &Database) -> Vec<Session> {
+        Records::new(database).sessions()
     }
 
     #[test]
     #[serial]
     fn records_are_stamped_in_order_within_one_session() {
         let (_dir, database) = fresh(RecordLevel::Basic, None);
-        let first = write("test", RecordEffect::Changed, &1u32).expect("recorded");
-        let second = write("other", RecordEffect::Changed, &2u32).expect("recorded");
+        let first = write(RecordEffect::Changed, &Test(1)).expect("recorded");
+        let second = write(RecordEffect::Changed, &Other(2)).expect("recorded");
 
         assert_eq!(first.session, second.session);
         assert_eq!(second.seq, first.seq + 1);
         assert!(second.offset >= first.offset);
-        assert_eq!(records(&database, "test")[0].record, 1);
-        assert_eq!(records(&database, "other")[0].stamp, second);
+        assert_eq!(tests(&database)[0].record, Test(1));
+        assert_eq!(Records::new(&database).read::<Other>()[0].stamp, second);
     }
 
     #[test]
@@ -548,7 +598,7 @@ mod tests {
     fn a_session_is_written_once_and_carries_its_label() {
         let (_dir, database) = fresh(RecordLevel::Basic, None);
         label("models build test");
-        write("test", RecordEffect::Changed, &1u32).expect("recorded");
+        write(RecordEffect::Changed, &Test(1)).expect("recorded");
 
         let sessions = sessions(&database);
         assert_eq!(sessions.len(), 1);
@@ -561,10 +611,10 @@ mod tests {
         let (_dir, database) = fresh(RecordLevel::Basic, None);
         let inner = {
             let _phase = mark("load weights");
-            write("test", RecordEffect::Changed, &1u32).expect("recorded")
+            write(RecordEffect::Changed, &Test(1)).expect("recorded")
         };
 
-        let marks = read::<MarkRecord>(&database, MarkRecord::KIND);
+        let marks = Records::new(&database).read::<MarkRecord>();
         assert_eq!(marks.len(), 1);
         let span = &marks[0];
         assert_eq!(span.record.label, "load weights");
@@ -580,12 +630,12 @@ mod tests {
         let (_dir, database) = fresh(RecordLevel::Basic, None);
         {
             let _phase = mark("walk");
-            write("test", RecordEffect::Observed, &1u32).expect("stamped");
+            write(RecordEffect::Observed, &Test(1)).expect("stamped");
         }
 
         assert!(sessions(&database).is_empty());
-        assert!(records(&database, "test").is_empty());
-        assert!(read::<MarkRecord>(&database, MarkRecord::KIND).is_empty());
+        assert!(tests(&database).is_empty());
+        assert!(Records::new(&database).read::<MarkRecord>().is_empty());
     }
 
     /// The first change keeps the session, and what it observed before is
@@ -595,12 +645,12 @@ mod tests {
     fn a_change_keeps_what_the_session_observed_before_it() {
         let (_dir, database) = fresh(RecordLevel::Basic, None);
         label("models build test");
-        let observed = write("test", RecordEffect::Observed, &1u32).expect("stamped");
-        let changed = write("test", RecordEffect::Changed, &2u32).expect("stamped");
-        write("test", RecordEffect::Observed, &3u32).expect("stamped");
+        let observed = write(RecordEffect::Observed, &Test(1)).expect("stamped");
+        let changed = write(RecordEffect::Changed, &Test(2)).expect("stamped");
+        write(RecordEffect::Observed, &Test(3)).expect("stamped");
 
-        let kept = records(&database, "test");
-        let values: Vec<u32> = kept.iter().map(|record| record.record).collect();
+        let kept = tests(&database);
+        let values: Vec<u32> = kept.iter().map(|record| record.record.0).collect();
         assert_eq!(values, vec![1, 2, 3]);
         assert_eq!(kept[0].stamp, observed);
         assert_eq!(kept[1].stamp, changed);
@@ -613,7 +663,7 @@ mod tests {
     #[serial]
     fn nothing_is_recorded_when_off() {
         let (_dir, database) = fresh(RecordLevel::Off, None);
-        assert_eq!(write("test", RecordEffect::Changed, &1u32), None);
+        assert_eq!(write(RecordEffect::Changed, &Test(1)), None);
         assert!(database.namespaces().is_empty());
     }
 
@@ -621,16 +671,38 @@ mod tests {
     #[serial]
     fn a_switch_starts_a_new_session_and_pruning_keeps_the_newest() {
         let (_dir, database) = fresh(RecordLevel::Basic, None);
-        let first = write("test", RecordEffect::Changed, &1u32).expect("recorded");
+        let first = write(RecordEffect::Changed, &Test(1)).expect("recorded");
         // Re-activating is a switch: the same database, a new session.
         crate::environment::activate(crate::environment::active());
-        let second = write("test", RecordEffect::Changed, &2u32).expect("recorded");
+        let second = write(RecordEffect::Changed, &Test(2)).expect("recorded");
         assert_ne!(first.session, second.session);
-        assert_eq!(records(&database, "test").len(), 2);
+        assert_eq!(tests(&database).len(), 2);
 
-        assert_eq!(prune(&database, 1), 1);
-        let kept = records(&database, "test");
+        assert_eq!(Records::new(&database).prune(1), 1);
+        let kept = tests(&database);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].stamp.session, second.session);
+    }
+
+    /// A process whose session another one pruned while it ran keeps writing
+    /// under it: the next prune takes those records too.
+    #[test]
+    #[serial]
+    fn a_prune_takes_the_records_of_a_session_pruned_while_it_ran() {
+        let (_dir, database) = fresh(RecordLevel::Basic, None);
+        let orphaned = write(RecordEffect::Changed, &Test(1)).expect("recorded");
+        // Another process prunes this session's row while it runs on.
+        database.purge_key(SESSIONS, &imp::encode(&orphaned.session));
+        write(RecordEffect::Changed, &Test(2)).expect("recorded");
+
+        crate::environment::activate(crate::environment::active());
+        write(RecordEffect::Changed, &Test(3)).expect("recorded");
+        crate::environment::activate(crate::environment::active());
+        let newest = write(RecordEffect::Changed, &Test(4)).expect("recorded");
+
+        assert_eq!(Records::new(&database).prune(1), 1);
+        let kept = tests(&database);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].stamp, newest);
     }
 }

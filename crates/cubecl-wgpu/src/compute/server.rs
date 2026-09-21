@@ -30,6 +30,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 #[cfg(feature = "spirv")]
 use cubecl_environment::persistence::Store;
+use cubecl_environment::records::RecordEffect;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::compiler::CompilationRecording;
@@ -237,7 +238,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             return Ok(pipeline.clone());
         }
 
-        let mut recording = CompilationRecording::start(&kernel_id);
+        let mut recording = CompilationRecording::new(&kernel_id);
         let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
 
         if let Some(Ok(pipeline)) = cached {
@@ -307,25 +308,32 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             mode,
         )?;
         let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings);
-        if let Some(recording) = recording {
-            let source = recording.wants_source().then(|| compiled.source.clone());
-            recording.compiled(source);
-        }
         self.pipelines.insert(
             kernel_id.clone(),
             (pipeline.clone(), compiler_info, io.clone()),
         );
+        // Read before the store takes the entrypoint.
+        let source = recording
+            .as_ref()
+            .filter(|recording| recording.keeps_code())
+            .map(|_| compiled.source.clone());
 
+        // Only a SPIR-V kernel is stored: any other build changes nothing.
+        let effect = RecordEffect::Observed;
         #[cfg(feature = "spirv")]
-        if let Some(Err(key)) = cached
-            && let Some(crate::AutoRepresentation::SpirV(kernel)) = auto_repr
-        {
-            let cache = self.spirv_cache.as_mut().unwrap();
-            store_compiled(
-                cache,
-                key,
-                cubecl_spirv::SpirvCacheEntry::new(compiled.entrypoint_name, kernel),
-            );
+        let effect = match (cached, auto_repr) {
+            (Some(Err(key)), Some(crate::AutoRepresentation::SpirV(kernel))) => {
+                let cache = self.spirv_cache.as_mut().unwrap();
+                store_compiled(
+                    cache,
+                    key,
+                    cubecl_spirv::SpirvCacheEntry::new(compiled.entrypoint_name, kernel),
+                )
+            }
+            _ => effect,
+        };
+        if let Some(recording) = recording {
+            recording.compiled(source, effect);
         }
 
         Ok((pipeline, compiler_info, io))

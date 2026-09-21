@@ -38,7 +38,7 @@ impl AutotuneLogContext {
     /// logger is disabled.
     pub fn new(logger: &mut Logger) -> Option<Self> {
         let logging = !matches!(logger.log_level_autotune(), AutotuneLogLevel::Disabled);
-        if logging || logger.autotune_recording_enabled() {
+        if logging || logger.autotune_recorder_enabled() {
             Some(Self {
                 bounds: None,
                 limit: None,
@@ -137,12 +137,12 @@ macro_rules! impl_autotune_logger_ext {
 impl_autotune_logger_ext!(Option<AutotuneLogContext>, as_mut, as_ref);
 impl_autotune_logger_ext!(Option<&'_ mut AutotuneLogContext>, as_deref_mut, as_deref);
 
-/// The complete record of one tuning decision, written as JSON when the autotune recorder has a
-/// sink configured. One record per line, per decision, in a fixed schema for tools to read back.
+/// The complete account of one tuning decision, written as JSON when the autotune recorder has a
+/// sink configured. One entry per line, per decision, in a fixed schema for tools to read back.
 #[cfg(std_io)]
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(bound(deserialize = "K: Clone + serde::Deserialize<'de>"))]
-pub struct AutotuneRecord<'a, K: Clone> {
+pub struct AutotuneLogEntry<'a, K: Clone> {
     /// The key for the autotuning job.
     pub key: Cow<'a, K>,
     /// The index of the fastest candidate.
@@ -167,7 +167,7 @@ pub struct CheckResult {
 }
 
 /// Emit the autotune result: a line for humans at the logger's level and, independently, the
-/// [`AutotuneRecord`] for tools if the recorder has a sink. Either, both, or neither.
+/// [`AutotuneLogEntry`] for tools if the recorder has a sink. Either, both, or neither.
 fn log_result<K: AutotuneKey>(
     logger: &mut Logger,
     key: &K,
@@ -175,8 +175,8 @@ fn log_result<K: AutotuneKey>(
     log_context: Option<&AutotuneLogContext>,
 ) {
     let level = logger.log_level_autotune();
-    let recording = logger.autotune_recording_enabled();
-    if matches!(level, AutotuneLogLevel::Disabled) && !recording {
+    let recorder = logger.autotune_recorder_enabled();
+    if matches!(level, AutotuneLogLevel::Disabled) && !recorder {
         return;
     }
 
@@ -193,15 +193,15 @@ fn log_result<K: AutotuneKey>(
         return;
     };
 
-    if recording {
-        write_record(logger, key, results, log_context, fastest);
+    if recorder {
+        write_entry(logger, key, results, log_context, fastest);
     }
     write_log(logger, level, key, results, log_context, fastest);
 }
 
-/// The record, for tools: one JSON object on the recorder's sink.
+/// The entry, for tools: one JSON object on the recorder's sink.
 #[cfg_attr(not(std_io), allow(unused_variables))]
-fn write_record<K: AutotuneKey>(
+fn write_entry<K: AutotuneKey>(
     logger: &mut Logger,
     key: &K,
     results: &[AutotuneResult],
@@ -210,7 +210,7 @@ fn write_record<K: AutotuneKey>(
 ) {
     #[cfg(std_io)]
     {
-        let record = AutotuneRecord {
+        let entry = AutotuneLogEntry {
             key: Cow::Borrowed(key),
             fastest_index: fastest.index,
             fastest_time: fastest.computation.median,
@@ -221,14 +221,14 @@ fn write_record<K: AutotuneKey>(
                 .map(Cow::Borrowed),
         };
 
-        let msg = serde_json::to_string(&record).unwrap_or_else(|err| {
-            format!("{{\"error\": \"Failed to serialize the autotune record: {err}\"}}")
+        let msg = serde_json::to_string(&entry).unwrap_or_else(|err| {
+            format!("{{\"error\": \"Failed to serialize the autotune log entry: {err}\"}}")
         });
-        logger.log_autotune_record(&msg);
+        logger.log_autotune_entry(&msg);
     }
     #[cfg(not(std_io))]
     {
-        logger.log_autotune_record(
+        logger.log_autotune_entry(
             &"{\"error\": \"Recording autotune is not available without std_io\"}",
         );
     }

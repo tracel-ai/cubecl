@@ -7,12 +7,12 @@ pub struct AutotuneConfig {
     #[serde(default)]
     pub logger: LoggerConfig<AutotuneLogLevel>,
 
-    /// Recorder configuration: where to write one [`AutotuneRecord`](crate::tune::AutotuneRecord)
+    /// Recorder configuration: where to write one [`AutotuneLogEntry`](crate::tune::AutotuneLogEntry)
     /// per tuning decision, as JSON, for a tool to read back.
     ///
     /// Independent of [`logger`](Self::logger), because the two answer different questions and both
     /// can be wanted at once: the logger's level says how much to tell a human, the recorder says
-    /// where to put the machine-readable record.
+    /// where to put the machine-readable entry.
     #[serde(default)]
     pub recorder: LoggerConfig<RecorderLevel>,
 
@@ -132,9 +132,9 @@ impl LogLevel for AutotuneLogLevel {}
 
 /// The recorder's (absent) verbosity.
 ///
-/// A record is one fixed schema, which is the whole point: a tool reads it back and depends on its
+/// An entry is one fixed schema, which is the whole point: a tool reads it back and depends on its
 /// shape, so there is no "how much" to choose. The recorder is simply on when it has a sink
-/// (see [`AutotuneConfig::recording_enabled`]); this type exists only so it can reuse
+/// (see [`AutotuneConfig::recorder_enabled`]); this type exists only so it can reuse
 /// [`LoggerConfig`]'s sinks.
 #[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RecorderLevel;
@@ -142,8 +142,8 @@ pub struct RecorderLevel;
 impl LogLevel for RecorderLevel {}
 
 impl AutotuneConfig {
-    /// Whether tuning decisions are being recorded, i.e. the recorder has somewhere to write.
-    pub fn recording_enabled(&self) -> bool {
+    /// Whether the recorder has somewhere to write tuning decisions.
+    pub fn recorder_enabled(&self) -> bool {
         #[cfg(std_io)]
         let has_file = self.recorder.file.is_some();
         #[cfg(not(std_io))]

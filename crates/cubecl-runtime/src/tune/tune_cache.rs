@@ -340,36 +340,40 @@ impl<K: AutotuneKey> TuneCache<K> {
         &self.table
     }
 
+    /// Store an answer in the table, and say whether it took it: never when
+    /// the cache is disabled.
     pub(crate) fn persistent_cache_insert(
         &mut self,
         key: K,
         checksum: String,
         value: PersistentCacheValue,
-    ) {
+    ) -> bool {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
-            return;
+            return false;
         };
 
-        if let Err(err) = persistent_cache.insert(PersistentCacheKey { key, checksum }, value) {
-            match err {
-                StoreError::DuplicatedKey {
-                    key,
-                    value_previous,
-                    value_updated,
-                } => log::warn!(
-                    "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
-                ),
-                // Another process sharing the cache root tuned this key first.
-                // Routine with N training processes on a cold cache, and both
-                // results are valid, so it stays quiet: warning here would
-                // print a full result payload per key on every cold start.
-                StoreError::KeyOutOfSync { key, .. } => {
-                    log::debug!("Autotune result for key {key:?} was already stored concurrently")
-                }
-                StoreError::Backend { key, error } => log::warn!(
-                    "Autotune result for key {key:?} could not be stored, it will be retuned: {error}"
-                ),
+        let Err(err) = persistent_cache.insert(PersistentCacheKey { key, checksum }, value) else {
+            return true;
+        };
+        match err {
+            StoreError::DuplicatedKey {
+                key,
+                value_previous,
+                value_updated,
+            } => log::warn!(
+                "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
+            ),
+            // Another process sharing the cache root tuned this key first.
+            // Routine with N training processes on a cold cache, and both
+            // results are valid, so it stays quiet: warning here would
+            // print a full result payload per key on every cold start.
+            StoreError::KeyOutOfSync { key, .. } => {
+                log::debug!("Autotune result for key {key:?} was already stored concurrently")
             }
+            StoreError::Backend { key, error } => log::warn!(
+                "Autotune result for key {key:?} could not be stored, it will be retuned: {error}"
+            ),
         }
+        false
     }
 }

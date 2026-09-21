@@ -10,7 +10,7 @@ use crate::tune::{AutotuneLogContext, AutotuneLogEvent};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
-use cubecl_environment::records::{self, Stamp};
+use cubecl_environment::records::{self, Record, RecordEffect, Stamp};
 use serde::{Deserialize, Serialize};
 
 /// How one autotune key was decided.
@@ -35,6 +35,10 @@ pub struct TuneRecord<K> {
     /// Whether the tune ran inside a dry run, where launches compile but do
     /// not execute.
     pub dry_run: bool,
+    /// Whether the table took the answer. One that measured nothing, or that
+    /// was tuned with the cache disabled, answers this process alone: the
+    /// table holds another answer to the key, or none.
+    pub stored: bool,
 }
 
 /// One candidate's run within a tune.
@@ -47,32 +51,33 @@ pub struct Trial {
     pub wall: Duration,
 }
 
-impl<K> TuneRecord<K> {
-    /// The records namespace kind tunes are written under.
-    pub const KIND: &str = "autotune";
+impl<K> Record for TuneRecord<K> {
+    const KIND: &'static str = "autotune";
 }
 
 /// A tune being recorded: stamped when it began, written when it ends.
 #[derive(Debug)]
-pub(crate) struct Recording {
+pub(crate) struct TuneRecording {
     stamp: Stamp,
     started: cubecl_common::profile::Instant,
     dry_run: bool,
 }
 
-/// What [`Recording::finish`] needs to know of the answer.
+/// What [`TuneRecording::finish`] needs to know of the answer.
 pub(crate) struct Answer<'a, K> {
     pub table: &'a str,
     pub key: &'a K,
     pub checksum: &'a str,
     pub winner: usize,
+    /// Whether the table took it: see [`TuneRecord::stored`].
+    pub stored: bool,
 }
 
-impl Recording {
+impl TuneRecording {
     /// Begin recording a tune, when the environment records. The steps are
     /// collected by the log context, which is created for the purpose when
     /// neither the logger nor the recorder asked for one.
-    pub(crate) fn start(log_context: &mut Option<AutotuneLogContext>) -> Option<Self> {
+    pub(crate) fn new(log_context: &mut Option<AutotuneLogContext>) -> Option<Self> {
         let stamp = records::stamp()?;
         log_context.get_or_insert_with(AutotuneLogContext::default);
         Some(Self {
@@ -108,13 +113,15 @@ impl Recording {
             short_circuit,
             wall: self.started.elapsed(),
             dry_run: self.dry_run,
+            stored: answer.stored,
         };
-        // A tune stores a winner, which is the environment changing.
-        records::write_stamped(
-            TuneRecord::<K>::KIND,
-            self.stamp,
-            records::RecordEffect::Changed,
-            &record,
-        );
+        // A stored winner is the environment changing; an answer kept in
+        // memory is not.
+        let effect = if record.stored {
+            RecordEffect::Changed
+        } else {
+            RecordEffect::Observed
+        };
+        records::write_stamped(self.stamp, effect, &record);
     }
 }

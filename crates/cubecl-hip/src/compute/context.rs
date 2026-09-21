@@ -15,6 +15,7 @@ use cubecl_core::{hash::StableHash, ir::DeviceProperties, prelude::*, server::Re
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::Store;
+use cubecl_environment::records::RecordEffect;
 use cubecl_hip_sys::get_hip_include_path;
 use cubecl_server::compiler::{
     CompilationCache, CompilationRecording, build_id_hash, compilation_store, store_compiled,
@@ -173,7 +174,7 @@ impl HipContext {
         cube_kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let mut recording = CompilationRecording::start(kernel_id);
+        let mut recording = CompilationRecording::new(kernel_id);
         let key = match self.try_load_cached(kernel_id)? {
             Ok(()) => {
                 if let Some(recording) = recording {
@@ -205,23 +206,24 @@ impl HipContext {
         // Read before the load consumes the kernel.
         let source = recording
             .as_ref()
-            .filter(|recording| recording.wants_source())
+            .filter(|recording| recording.keeps_code())
             .map(|_| jitc_kernel.source.clone());
-        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)?;
+        let effect = self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)?;
         if let Some(recording) = recording {
-            recording.compiled(source);
+            recording.compiled(source, effect);
         }
         Ok(())
     }
 
-    /// Loads what the compiler produced, by the route that backend's output takes.
+    /// Loads what the compiler produced, by the route that backend's output takes, and says
+    /// whether storing the artifact changed the environment.
     fn load_jit_kernel(
         &mut self,
         kernel_id: &KernelId,
         key: Option<KernelCacheKey>,
         jitc_kernel: CompiledKernel<HipCompiler>,
         logger: Arc<ServerLogger>,
-    ) -> Result<(), LaunchError> {
+    ) -> Result<RecordEffect, LaunchError> {
         match &jitc_kernel.repr {
             Some(HipRepresentation::Cpp(_)) => {
                 self.load_transpiled(kernel_id, key, jitc_kernel, logger)
@@ -257,7 +259,7 @@ impl HipContext {
         key: Option<KernelCacheKey>,
         mut jitc_kernel: CompiledKernel<HipCompiler>,
         logger: Arc<ServerLogger>,
-    ) -> Result<(), LaunchError> {
+    ) -> Result<RecordEffect, LaunchError> {
         let Some(HipRepresentation::Llvm(module)) = &jitc_kernel.repr else {
             unreachable!("dispatched on the representation");
         };
@@ -284,19 +286,19 @@ impl HipContext {
         // Cached after the load, so a code object the driver rejects is not handed back on
         // the next run, and the bytes move rather than being copied a third time.
         // `try_load_cached` hands back a key exactly when there is a cache to put it in.
-        if let Some((cache, key)) = self.compilation_cache.as_mut().zip(key) {
-            store_compiled(
-                cache,
-                key,
-                CompilationCacheEntry {
-                    entrypoint_name,
-                    shared_mem_bytes,
-                    binary: code,
-                    io,
-                },
-            );
-        }
-        Ok(())
+        let Some((cache, key)) = self.compilation_cache.as_mut().zip(key) else {
+            return Ok(RecordEffect::Observed);
+        };
+        Ok(store_compiled(
+            cache,
+            key,
+            CompilationCacheEntry {
+                entrypoint_name,
+                shared_mem_bytes,
+                binary: code,
+                io,
+            },
+        ))
     }
 
     /// Turns a kernel the C++ backend just transpiled into a loaded module, by
@@ -307,7 +309,7 @@ impl HipContext {
         key: Option<KernelCacheKey>,
         mut jitc_kernel: CompiledKernel<HipCompiler>,
         logger: Arc<ServerLogger>,
-    ) -> Result<(), LaunchError> {
+    ) -> Result<RecordEffect, LaunchError> {
         if logger.compilation_source_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
@@ -329,11 +331,11 @@ impl HipContext {
                 && let Some(entry) = cache.purge_key(&old_key)
             {
                 log::trace!("Using second-line compilation cache");
-                store_compiled(cache, key, entry);
+                let effect = store_compiled(cache, key, entry);
                 store_compiled(second_line_cache, cpp_hash, key);
                 self.try_load_cached(kernel_id)?
                     .expect("Should be cached now");
-                return Ok(());
+                return Ok(effect);
             }
             Some(cpp_hash)
         } else {
@@ -363,21 +365,22 @@ impl HipContext {
 
         // Cached after the load, so a binary the driver rejects is not handed back on the
         // next run, and the bytes move rather than being copied.
-        if let Some((cache, key)) = self.compilation_cache.as_mut().zip(key) {
-            let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
-            store_compiled(
-                cache,
-                key,
-                CompilationCacheEntry {
-                    entrypoint_name,
-                    shared_mem_bytes,
-                    binary: code,
-                    io,
-                },
-            );
-            store_compiled(second_line_cache, cpp_hash.unwrap(), key);
-        }
-        Ok(())
+        let Some((cache, key)) = self.compilation_cache.as_mut().zip(key) else {
+            return Ok(RecordEffect::Observed);
+        };
+        let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
+        let effect = store_compiled(
+            cache,
+            key,
+            CompilationCacheEntry {
+                entrypoint_name,
+                shared_mem_bytes,
+                binary: code,
+                io,
+            },
+        );
+        store_compiled(second_line_cache, cpp_hash.unwrap(), key);
+        Ok(effect)
     }
 
     fn load_compiled_binary(

@@ -3,7 +3,9 @@
 //! environments live resolves the file its own way and hands the same
 //! [`Inspection`] an [`Inspector`].
 
-use crate::report::{AutotuneReport, CandidateReport, KernelOrder, KeyId, KeyOrder};
+use crate::report::{
+    AutotuneReport, CandidateReport, KernelOrder, KernelSelector, KeyId, KeyOrder,
+};
 use crate::view::Text;
 use crate::{InspectError, Inspector};
 use clap::{Args, Subcommand};
@@ -82,6 +84,10 @@ pub enum KernelView {
     Show {
         /// The instance's id as `kernels` lists it, or a prefix of it.
         id: String,
+        /// The build that recorded it, as `kernels` lists it, or a prefix of
+        /// it: needed only when several builds recorded the kernel.
+        #[arg(long)]
+        build: Option<String>,
     },
 }
 
@@ -147,7 +153,12 @@ impl Inspection {
 impl KernelArgs {
     fn run(&self, inspector: &Inspector, output: Output) -> Result<(), InspectError> {
         match &self.view {
-            Some(KernelView::Show { id }) => output.print(&inspector.kernel(id)?),
+            Some(KernelView::Show { id, build }) => {
+                output.print(&inspector.kernel(KernelSelector {
+                    id,
+                    build: build.as_deref(),
+                })?)
+            }
             None => {
                 let mut report = inspector.kernels();
                 report.sort(self.sort);

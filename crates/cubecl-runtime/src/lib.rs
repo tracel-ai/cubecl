@@ -69,7 +69,6 @@ pub mod compiler;
 /// Running a workload for the compilation and tuning it provokes, without
 /// running the workload itself.
 pub mod dry_run;
-/// The kernels a workload launches, collected while it replays.
 pub mod launched;
 /// Runtime trait and related types
 pub mod runtime;

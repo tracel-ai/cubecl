@@ -176,7 +176,7 @@ pub struct MemoryReport {
 
 /// A [`MemoryReport`] as the environment records it: a snapshot of one
 /// stream's pools at a moment the caller named, written by
-/// [`ComputeClient::record_memory`](crate::client::ComputeClient::record_memory).
+/// [`Client::record_memory`](crate::client::Client::record_memory).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MemoryRecord {
     /// What the caller was doing: `model loaded`, `after the dry run`.
@@ -185,9 +185,8 @@ pub struct MemoryRecord {
     pub report: MemoryReport,
 }
 
-impl MemoryRecord {
-    /// The records namespace kind memory snapshots are written under.
-    pub const KIND: &str = "memory";
+impl cubecl_environment::records::Record for MemoryRecord {
+    const KIND: &'static str = "memory";
 }
 
 /// The managed tensor buffer handle that points to some memory segment.
