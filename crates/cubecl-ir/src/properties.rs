@@ -107,7 +107,7 @@ impl VectorRegisters {
         properties: &DeviceProperties,
         elem_size: usize,
         live: usize,
-    ) -> impl Iterator<Item = VectorSize> + Clone + use<> {
+    ) -> impl Iterator<Item = VectorSize> + Clone {
         let widest = match Self::of(&properties.hardware, elem_size) {
             Some(registers) => registers.widest_lanes(live),
             None => properties.io_lanes(elem_size),
