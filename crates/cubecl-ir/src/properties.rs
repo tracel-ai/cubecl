@@ -33,9 +33,6 @@ pub struct HardwareProperties {
     /// How many `load_width`-bit vector registers the device has, or `None` where it has no
     /// fixed set. A kernel keeping more vectors live than this spills them to memory.
     pub vector_register_count: Option<u32>,
-    /// The widest vector, in bits, that reads and writes are sized to, which can exceed
-    /// `load_width` where a vector spanning several loads still moves data faster.
-    pub io_width: u32,
     /// The minimum size of a plane on this device
     pub plane_size_min: u32,
     /// The maximum size of a plane on this device
@@ -397,6 +394,8 @@ pub struct DeviceProperties {
     pub timing_method: TimingMethod,
     /// Who the device is, and what its kernels are keyed to.
     pub identity: DeviceIdentity,
+    /// Private because [`io_width`](Self::io_width) is where `None` becomes the load width.
+    io_width: Option<u32>,
 }
 
 impl TypeHash for DeviceProperties {
@@ -425,7 +424,20 @@ impl DeviceProperties {
             hardware,
             timing_method,
             identity,
+            io_width: None,
         }
+    }
+
+    /// The widest vector, in bits, that reads and writes are sized to: what the backend asked
+    /// for, else the widest single load.
+    pub fn io_width(&self) -> u32 {
+        self.io_width.unwrap_or(self.hardware.load_width)
+    }
+
+    /// States the width IO is sized to, for a backend that measured one wider than a load.
+    pub fn with_io_width(mut self, io_width: u32) -> Self {
+        self.io_width = Some(io_width);
+        self
     }
 
     /// Get the usages for a type
@@ -548,7 +560,6 @@ mod tests {
         HardwareProperties {
             load_width,
             vector_register_count,
-            io_width: 512,
             plane_size_min: 1,
             plane_size_max: 1,
             max_bindings: u32::MAX,

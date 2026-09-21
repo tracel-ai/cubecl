@@ -351,7 +351,6 @@ impl<M: Marker> DummyServer<M> {
         let hardware = HardwareProperties {
             load_width: 128,
             vector_register_count: None,
-            io_width: 128,
             plane_size_min: 32,
             plane_size_max: 32,
             max_bindings: 32,
