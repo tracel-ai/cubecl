@@ -69,11 +69,57 @@ pub struct HardwareProperties {
 
 /// Properties of the device related to allocation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct MemoryDeviceProperties {
     /// The maximum nr. of bytes that can be allocated in one go.
     pub max_page_size: u64,
     /// The required memory offset alignment in bytes.
     pub alignment: u64,
+    /// Private because [`set_max_memory`](Self::set_max_memory) is its only
+    /// writer, and that is where a zero becomes `None`.
+    max_memory: Option<u64>,
+}
+
+impl MemoryDeviceProperties {
+    /// Properties that state no capacity. A runtime that can read one adds it
+    /// with [`with_max_memory`](Self::with_max_memory).
+    pub const fn new(max_page_size: u64, alignment: u64) -> Self {
+        Self {
+            max_page_size,
+            alignment,
+            max_memory: None,
+        }
+    }
+
+    /// How many bytes this memory may be asked to hold at once, or `None`,
+    /// never `Some(0)`, where the runtime has no figure.
+    ///
+    /// This sizes a whole workload, while
+    /// [`max_page_size`](Self::max_page_size) bounds a single allocation and
+    /// is often derived from it. It is a budget, not a hardware census: each
+    /// runtime reports the largest figure its own API stands behind, and
+    /// staying under it is what keeps the device off its paging path.
+    ///
+    /// A runtime with no figure leaves it `None` rather than guess, because a
+    /// guess reads as a measurement to every caller downstream.
+    pub const fn max_memory(&self) -> Option<u64> {
+        self.max_memory
+    }
+
+    /// States the capacity, as [`set_max_memory`](Self::set_max_memory) does.
+    pub const fn with_max_memory(mut self, max_memory: u64) -> Self {
+        self.set_max_memory(max_memory);
+        self
+    }
+
+    /// States the capacity, dropping a zero: an API with nothing to report
+    /// reports `0`, and [`max_memory`](Self::max_memory) says that as `None`.
+    pub const fn set_max_memory(&mut self, max_memory: u64) {
+        self.max_memory = match max_memory {
+            0 => None,
+            size => Some(size),
+        };
+    }
 }
 
 /// Who a device is, and what its compiled code is keyed to.
@@ -430,6 +476,28 @@ impl FastMath {
 mod tests {
     use super::*;
     use alloc::string::ToString;
+
+    /// A capacity is stated only by the runtime that read one.
+    ///
+    /// Properties built without one must answer `None`, or a caller would
+    /// size a workload against a figure nobody measured.
+    #[test]
+    fn a_memory_states_no_capacity_until_one_is_read() {
+        let props = MemoryDeviceProperties::new(1024, 32);
+        assert_eq!(props.max_memory(), None);
+        assert_eq!(props.clone().with_max_memory(4096).max_memory(), Some(4096));
+    }
+
+    /// A zero from the runtime's API reads as no capacity.
+    ///
+    /// An API with nothing to report reports `0`, which must not reach a
+    /// caller as a device that holds nothing.
+    #[test]
+    fn a_capacity_of_zero_is_no_capacity() {
+        let mut props = MemoryDeviceProperties::new(1024, 32).with_max_memory(4096);
+        props.set_max_memory(0);
+        assert_eq!(props.max_memory(), None);
+    }
 
     #[test]
     fn a_vendor_keeps_its_id_whether_named_or_not() {

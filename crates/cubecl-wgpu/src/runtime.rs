@@ -445,10 +445,13 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         adapter_info.subgroup_max_size = 128;
     }
 
-    let mem_props = MemoryDeviceProperties {
-        max_page_size: limits.max_storage_buffer_binding_size,
-        alignment: limits.min_uniform_buffer_offset_alignment as u64,
-    };
+    // WebGPU states no capacity. `register_features` fills it in where the
+    // backend's own API states one and this build enabled that backend:
+    // `spirv` for Vulkan, `msl` for Metal.
+    let mem_props = MemoryDeviceProperties::new(
+        limits.max_storage_buffer_binding_size,
+        limits.min_uniform_buffer_offset_alignment as u64,
+    );
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
         load_width: 128,
