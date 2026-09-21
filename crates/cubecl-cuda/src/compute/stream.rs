@@ -167,8 +167,7 @@ impl EventStreamBackend for CudaStreamBackend {
         );
         // We use the same page size and memory pools configuration for CPU pinned memory, since we
         // expect the CPU to have at least the same amount of RAM as GPU memory.
-        // That expectation sizes pages; it is no measurement of the host, so
-        // this pool states no capacity rather than repeat the device's.
+        // The host was never measured, so this pool states no capacity.
         let memory_management_cpu = MemoryManagement::from_configuration(
             PinnedMemoryStorage::new(),
             &MemoryDeviceProperties::new(

@@ -75,15 +75,14 @@ pub struct MemoryDeviceProperties {
     pub max_page_size: u64,
     /// The required memory offset alignment in bytes.
     pub alignment: u64,
-    /// Private so that [`max_memory`](Self::max_memory) can promise a caller
-    /// what it promises: only [`set_max_memory`](Self::set_max_memory) writes
-    /// it, and that is where a zero turns into `None`.
+    /// Private because [`set_max_memory`](Self::set_max_memory) is its only
+    /// writer, and that is where a zero becomes `None`.
     max_memory: Option<u64>,
 }
 
 impl MemoryDeviceProperties {
-    /// A memory stating no capacity. Whoever can read one adds it with
-    /// [`with_max_memory`](Self::with_max_memory).
+    /// Properties that state no capacity. A runtime that can read one adds it
+    /// with [`with_max_memory`](Self::with_max_memory).
     pub const fn new(max_page_size: u64, alignment: u64) -> Self {
         Self {
             max_page_size,
@@ -92,27 +91,17 @@ impl MemoryDeviceProperties {
         }
     }
 
-    /// How much this memory may be asked to hold at once, in bytes, and
-    /// `None`, never `Some(0)`, where no figure is to be had.
+    /// How many bytes this memory may be asked to hold at once, or `None`,
+    /// never `Some(0)`, where the runtime has no figure.
     ///
-    /// The capacity a whole workload is sized against, which is a different
-    /// question from [`max_page_size`](Self::max_page_size): that one bounds a
-    /// single allocation, and a runtime is free to derive it from this one —
-    /// HIP takes a quarter of it. A caller deciding whether a model fits before
-    /// it starts loading it has nothing else to ask.
+    /// This sizes a whole workload, while
+    /// [`max_page_size`](Self::max_page_size) bounds a single allocation and
+    /// is often derived from it. It is a budget, not a hardware census: each
+    /// runtime reports the largest figure its own API stands behind, and
+    /// staying under it is what keeps the device off its paging path.
     ///
-    /// It is a budget rather than a hardware census, because each runtime
-    /// reports the largest figure its own API stands behind. That is the
-    /// hardware total on CUDA, HIP and the CPU, while Metal states the working
-    /// set it recommends staying under, around two thirds of unified memory.
-    /// An allocation past the figure may well succeed; staying under it is what
-    /// keeps the device off its paging path.
-    ///
-    /// `None` is the answer wherever the total is unknown: WebGPU, which states
-    /// none, a wgpu build compiled without the backend feature that reads one,
-    /// and a memory whose space nobody measured, such as a host pinned pool.
-    /// Nothing may substitute a guess for it — a fabricated capacity reads as a
-    /// measurement to every caller downstream.
+    /// A runtime with no figure leaves it `None` rather than guess, because a
+    /// guess reads as a measurement to every caller downstream.
     pub const fn max_memory(&self) -> Option<u64> {
         self.max_memory
     }
@@ -488,6 +477,10 @@ mod tests {
     use super::*;
     use alloc::string::ToString;
 
+    /// A capacity is stated only by the runtime that read one.
+    ///
+    /// Properties built without one must answer `None`, or a caller would
+    /// size a workload against a figure nobody measured.
     #[test]
     fn a_memory_states_no_capacity_until_one_is_read() {
         let props = MemoryDeviceProperties::new(1024, 32);
@@ -495,10 +488,12 @@ mod tests {
         assert_eq!(props.clone().with_max_memory(4096).max_memory(), Some(4096));
     }
 
+    /// A zero from the runtime's API reads as no capacity.
+    ///
+    /// An API with nothing to report reports `0`, which must not reach a
+    /// caller as a device that holds nothing.
     #[test]
     fn a_capacity_of_zero_is_no_capacity() {
-        // An API with nothing to report reports `0`, which must not reach a
-        // caller as a device that holds nothing.
         let mut props = MemoryDeviceProperties::new(1024, 32).with_max_memory(4096);
         props.set_max_memory(0);
         assert_eq!(props.max_memory(), None);

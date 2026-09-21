@@ -107,12 +107,10 @@ pub fn register_metal_features(
         };
         let raw = adapter.raw_device();
 
-        // The working set Metal recommends this device stay under, which is
-        // the capacity figure Apple offers and no hardware total. Read here
-        // rather than in `register_features` below, because capacity is not a
-        // feature: it holds whatever this device's family or compiler version
-        // turns out to be, and both of those can decline the backend before
-        // that runs, leaving the device on WGSL with its capacity still true.
+        // Metal's capacity is the working set it recommends staying under.
+        // Read before the family and compiler checks below, because either can
+        // decline the backend and leave the device on WGSL, where the capacity
+        // still holds.
         props
             .memory
             .set_max_memory(raw.recommendedMaxWorkingSetSize());

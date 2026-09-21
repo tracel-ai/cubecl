@@ -453,9 +453,9 @@ fn register_features(
         comp_options.vulkan.supports_arbitrary_bitwise = true;
     }
 
-    // Pages are sized against the first device-local heap rather than the
-    // largest, because that is the one storage buffers come out of. A page has
-    // to be allocatable; the capacity above only has to be honest.
+    // Pages are still sized against the first device-local heap, which may be
+    // the small BAR window described above. Moving them to the largest heap
+    // needs a check that wgpu allocates storage buffers from it.
     if let Some(index_64) = &extended_feat.index_64
         && index_64.shader64_bit_indexing == TRUE
         && let Some(heap) = heaps.first()
@@ -483,9 +483,8 @@ fn register_features(
     true
 }
 
-/// Every heap the device allocates out of, in the order the driver reports
-/// them. A driver states at least one on any adapter worth running on, and no
-/// more than [`MAX_MEMORY_HEAPS`](vk::MAX_MEMORY_HEAPS).
+/// The device-local heaps, in the order the driver reports them. Empty when
+/// the driver reports none.
 fn device_local_heaps(instance: &InstanceShared, device: PhysicalDevice) -> Vec<MemoryHeap> {
     let memory_props = unsafe {
         instance

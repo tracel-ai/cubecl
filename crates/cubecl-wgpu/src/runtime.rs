@@ -445,10 +445,9 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         adapter_info.subgroup_max_size = 128;
     }
 
-    // WebGPU states no capacity, so the portable answer is that there is none.
-    // `register_features` fills it on the backends whose own API does state one
-    // and whose feature this build enabled — `spirv` for Vulkan, `msl` for
-    // Metal — through the HAL each already reaches for.
+    // WebGPU states no capacity. `register_features` fills it in where the
+    // backend's own API states one and this build enabled that backend:
+    // `spirv` for Vulkan, `msl` for Metal.
     let mem_props = MemoryDeviceProperties::new(
         limits.max_storage_buffer_binding_size,
         limits.min_uniform_buffer_offset_alignment as u64,
