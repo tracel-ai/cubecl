@@ -694,7 +694,7 @@ fn decode_entry<K: StoreKey, V: StoreValue>(key: &[u8], value: &[u8]) -> Option<
     Some((decode::<K>(key)?, decode::<V>(value)?))
 }
 
-#[cfg(all(test, feature = "persistence"))]
+#[cfg(all(test, native_cache))]
 mod tests {
     use std::string::ToString;
     use std::vec;

@@ -8,6 +8,9 @@ fn main() {
         std_io: { all(feature = "std", any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android")) },
         // Durable persistence: a file on std_io targets, OPFS in the browser.
         persistence: { all(feature = "persistence", any(std_io, target_family = "wasm")) },
+        // The compiled kernels persist natively only: the browser compiles its
+        // shaders itself, so it has no artifact to store.
+        compilation_cache: { all(persistence, not(target_family = "wasm")) },
         // Tests only. The library reads `EXCLUSIVE_MEMORY_ONLY` from
         // `cubecl-runtime`, which alone decides it; a test run turns the
         // feature on through this crate's, which forwards there.

@@ -63,6 +63,7 @@ serde_bytes = { workspace = true, features = ["alloc"] }
 
 # Persistence
 bytes = { workspace = true, optional = true }
+turso = { workspace = true, optional = true }
 ciborium = { workspace = true }
 # The bundle manifest is JSON on every target: the flat format exists for the
 # ones the `cache` feature can't reach.
@@ -117,7 +118,6 @@ spin = { workspace = true, features = [
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 # Only ever used to resolve a cache root, which needs a file system.
 etcetera = { workspace = true, optional = true }
-turso = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, default-features = false, features = [
     "rt",
 ] }
@@ -126,7 +126,6 @@ tokio = { workspace = true, optional = true, default-features = false, features 
 js-sys = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true }
-turso = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true, features = [
     "FileSystemDirectoryHandle",
     "FileSystemFileHandle",

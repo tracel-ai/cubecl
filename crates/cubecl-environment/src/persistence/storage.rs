@@ -346,40 +346,6 @@ pub fn namespaces() -> Vec<String> {
     }
 }
 
-/// Summarizes the namespaces stored in the active environment: the durable
-/// ones when the database is open, otherwise whatever this process warmed in
-/// memory.
-pub fn summary() -> Vec<NamespaceSummary> {
-    cfg_if::cfg_if! {
-        if #[cfg(any(native_cache, browser_cache))] {
-            match super::turso::database() {
-                Ok(_) => super::turso::summary(),
-                Err(_) => MemoryStorage::namespaces(),
-            }
-        } else {
-            MemoryStorage::namespaces()
-        }
-    }
-}
-
-/// Opens the active environment's database ahead of the storages on it.
-///
-/// Opening is the one step of persistence that has to be awaited: the
-/// browser reaches its files through promises. Natively a storage opens the
-/// database itself on first use, blocking briefly; in the browser nothing can
-/// block, so a page awaits this before its device comes up, and a storage
-/// that finds the database closed serves memory for the life of the process
-/// and says so.
-pub async fn open_ahead() {
-    cfg_if::cfg_if! {
-        if #[cfg(any(native_cache, browser_cache))] {
-            if let Err(error) = super::turso::open_ahead().await {
-                log::warn!("Unable to open the Turso cache ahead of its use: {error}");
-            }
-        }
-    }
-}
-
 /// The storage serving `namespace` in the active environment, degrading to
 /// process-wide memory when the database can't be opened.
 ///
@@ -391,6 +357,9 @@ pub fn open(namespace: &str) -> Box<dyn Storage> {
         if #[cfg(any(native_cache, browser_cache))] {
             match super::turso::open(namespace) {
                 Ok(storage) => storage,
+                // Isolate the memory fallback per environment, so a switch after
+                // the database failed to open doesn't serve the previous
+                // environment's entries.
                 Err(error) => {
                     log::warn!("Unable to open Turso cache for '{namespace}', using memory: {error}");
                     Box::new(MemoryStorage::in_environment(namespace))

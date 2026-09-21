@@ -1,4 +1,4 @@
-#![cfg(feature = "persistence")]
+#![cfg(all(feature = "persistence", not(target_family = "wasm")))]
 
 use cubecl_environment::bundle::{
     Bundle, BundleError, BundleFormat, BundleManifest, EmbeddedBundle, ExportOptions, SqliteBundle,

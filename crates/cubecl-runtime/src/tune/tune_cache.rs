@@ -74,13 +74,11 @@ pub struct AutotuneResult {
 }
 
 impl AutotuneResult {
-    /// Creates a failed result.
     pub(crate) fn error(error: AutotuneError) -> Self {
         Self {
             outcome: Err(error),
         }
     }
-    /// Creates a successful result.
     pub(crate) fn success(outcome: AutotuneOutcome) -> Self {
         Self {
             outcome: Ok(outcome),
@@ -104,6 +102,10 @@ impl PartialEq for AutotuneResult {
 /// Use to find and reuse the best kernel for some input
 #[derive(Debug)]
 pub(crate) struct TuneCache<K> {
+    /// The single in-memory home of tuning state, keyed for the per-launch
+    /// lookup: tuned picks, in-flight tunes and checksum verdicts. Hydrated
+    /// from the store, which retains nothing itself, and rebuilt when the
+    /// environment switches.
     in_memory_cache: HashMap<K, CacheEntry>,
     /// Write-through persistence, or `None` when the persistent cache is
     /// disabled, so no cache file is ever touched. Lazy: entries live in
@@ -116,6 +118,8 @@ pub(crate) struct TuneCache<K> {
     /// after an environment switch.
     #[cfg(persistence)]
     hydrated: bool,
+    /// The environment generation [`Self::in_memory_cache`] was built under;
+    /// see [`cubecl_environment::environment::generation`].
     #[cfg(persistence)]
     generation: u32,
 }
@@ -273,6 +277,8 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// still records a hardware-valid result, so the whole cost of the race
     /// is one duplicate tune per switch.
     pub(crate) fn reset_if_environment_switched(&mut self) {
+        // Persistence disabled means the tuning state is process-local and
+        // unbound, like a store without a storage: it survives switches.
         if self.persistent_cache.is_none() {
             return;
         }
@@ -321,7 +327,6 @@ impl<K: AutotuneKey> TuneCache<K> {
         delivered
     }
 
-    /// Records a tuning result durably.
     pub(crate) fn persistent_cache_insert(
         &mut self,
         key: K,

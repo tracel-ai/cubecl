@@ -8,7 +8,7 @@ use crate::id::KernelId;
 use core::hash::Hash;
 use cubecl_common::hash::{StableHash, StableHasher};
 use cubecl_environment::collections::HashMap;
-#[cfg(all(persistence, not(target_family = "wasm")))]
+#[cfg(compilation_cache)]
 use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
 use cubecl_environment::persistence::{Store, StoreKey, StoreValue};
 
@@ -32,26 +32,26 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
     backend: &'static str,
     fingerprint: impl AsRef<str>,
 ) -> Option<Store<K, V>> {
-    cfg_if::cfg_if! {
-        // The browser compiles its shaders itself, so it has no artifact to
-        // persist even with persistence on.
-        if #[cfg(all(persistence, not(target_family = "wasm")))] {
-            use crate::config::RuntimeConfig;
+    #[cfg(compilation_cache)]
+    {
+        use crate::config::RuntimeConfig;
 
-            if !crate::config::CubeClRuntimeConfig::get().compilation.cache {
-                return None;
-            }
-
-            Some(Store::new(
-                StoreOptions::new()
-                    .storage(Namespace::scoped(backend, fingerprint))
-                    .cache(CacheOption::Lazy),
-            ))
-        } else {
-            // Nothing to persist to; the caller keeps its in-memory map.
-            let _ = (backend, fingerprint);
-            None
+        if !crate::config::CubeClRuntimeConfig::get().compilation.cache {
+            return None;
         }
+
+        Some(Store::new(
+            StoreOptions::new()
+                .storage(Namespace::scoped(backend, fingerprint))
+                .cache(CacheOption::Lazy),
+        ))
+    }
+
+    // No file system to persist to; the caller keeps its in-memory map.
+    #[cfg(not(compilation_cache))]
+    {
+        let _ = (backend, fingerprint);
+        None
     }
 }
 

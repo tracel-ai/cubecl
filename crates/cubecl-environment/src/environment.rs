@@ -24,7 +24,6 @@
 
 use crate::sync::{AtomicU32, Ordering};
 use alloc::string::{String, ToString};
-#[cfg(any(std_io, browser_cache))]
 use alloc::vec::Vec;
 
 use crate::persistence::{StoreKey, StoreValue};
@@ -284,9 +283,12 @@ pub fn list() -> Vec<String> {
 /// browser reaches its files through promises. A browser page awaits this
 /// before its device comes up; a store opened before it serves memory alone.
 /// Natively it is optional: a store opens the database itself on first use.
-/// See [`persistence::open_ahead`](crate::persistence::open_ahead).
+/// Without a durable backend there is nothing to open.
 pub async fn open() {
-    crate::persistence::open_ahead().await
+    #[cfg(any(native_cache, browser_cache))]
+    if let Err(error) = crate::persistence::turso::open_ahead().await {
+        log::warn!("Unable to open the Turso cache ahead of its use: {error}");
+    }
 }
 
 /// A [`Store`] created from the options, bound to the active environment
@@ -352,9 +354,15 @@ impl Bundle {
 ///
 /// This is what you consult before bundling, to see which namespaces are warm
 /// and worth shipping.
-#[cfg(any(std_io, browser_cache))]
 pub fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
-    crate::persistence::summary()
+    #[cfg(any(native_cache, browser_cache))]
+    if crate::persistence::turso::database().is_ok() {
+        return crate::persistence::turso::summary();
+    }
+
+    // No database means nothing was ever written durably; whatever this
+    // process warmed is in memory.
+    crate::persistence::MemoryStorage::namespaces()
 }
 
 #[cfg(test)]
