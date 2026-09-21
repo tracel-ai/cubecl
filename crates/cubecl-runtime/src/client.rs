@@ -1742,7 +1742,7 @@ impl Client {
         &self,
         size: usize,
     ) -> impl Iterator<Item = VectorSize> + Clone {
-        let io_width = self.properties().io_width() as usize;
+        let io_width = self.properties().io_width as usize;
         let size_bits = size * 8;
         let max = io_width / size_bits;
         let max = usize::min(self.properties().hardware.max_vector_size, max);

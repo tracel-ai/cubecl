@@ -1,4 +1,4 @@
-use cubecl_core::ir::{ElemType, FloatKind};
+use cubecl_core::ir::{ElemType, FloatKind, VectorRegisters};
 use cubecl_runtime::{client::Client, throughput::ComputeCmmaConfig};
 
 use crate::throughput::compute_direct;
@@ -26,7 +26,7 @@ impl Arithmetic {
     /// the widest lanes its live accumulators all fit at, past one register if they fit.
     pub(super) fn widths(client: &Client, dtype: ElemType) -> alloc::vec::Vec<usize> {
         let widths: alloc::vec::Vec<usize> =
-            match client.properties().hardware.vector_registers(dtype.size()) {
+            match VectorRegisters::of(&client.properties().hardware, dtype.size()) {
                 Some(registers) => {
                     let widest = registers.widest_lanes(compute_direct::LIVE_VECTORS);
                     (0..=widest.trailing_zeros())

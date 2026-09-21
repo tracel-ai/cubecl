@@ -74,22 +74,6 @@ pub struct HardwareProperties {
     pub cube_mma_reserved_shared_memory: usize,
 }
 
-impl HardwareProperties {
-    /// The vector registers as vectors of `elem_size`-byte elements see them, or `None` where the
-    /// device has no fixed set to budget.
-    pub fn vector_registers(&self, elem_size: usize) -> Option<VectorRegisters> {
-        let count = self.vector_register_count? as usize;
-        let max_lanes = prev_power_of_two(self.max_vector_size.max(1));
-        let lanes_per_register = (self.load_width as usize / (elem_size * 8)).clamp(1, max_lanes);
-
-        Some(VectorRegisters {
-            count,
-            lanes_per_register,
-            max_lanes,
-        })
-    }
-}
-
 /// A device's vector registers, counted in lanes of one element type.
 ///
 /// A vector wider than one register is spread over several, and pays nothing for it until the
@@ -102,6 +86,21 @@ pub struct VectorRegisters {
 }
 
 impl VectorRegisters {
+    /// The registers of `hardware` as vectors of `elem_size`-byte elements see them, or `None`
+    /// where the device has no fixed set to budget.
+    pub fn of(hardware: &HardwareProperties, elem_size: usize) -> Option<Self> {
+        let count = hardware.vector_register_count? as usize;
+        let max_lanes = prev_power_of_two(hardware.max_vector_size.max(1));
+        let lanes_per_register =
+            (hardware.load_width as usize / (elem_size * 8)).clamp(1, max_lanes);
+
+        Some(VectorRegisters {
+            count,
+            lanes_per_register,
+            max_lanes,
+        })
+    }
+
     /// How many registers the device has.
     pub fn count(&self) -> usize {
         self.count
@@ -398,8 +397,10 @@ pub struct DeviceProperties {
     pub timing_method: TimingMethod,
     /// Who the device is, and what its kernels are keyed to.
     pub identity: DeviceIdentity,
-    /// Private because [`io_width`](Self::io_width) is where `None` becomes the load width.
-    io_width: Option<u32>,
+    /// The widest vector, in bits, that reads and writes are sized to. It defaults to the load
+    /// width, and a backend states a wider one where it measured that several loads move data
+    /// faster than one.
+    pub io_width: u32,
 }
 
 impl TypeHash for DeviceProperties {
@@ -425,22 +426,16 @@ impl DeviceProperties {
         DeviceProperties {
             features,
             memory: memory_props,
+            io_width: hardware.load_width,
             hardware,
             timing_method,
             identity,
-            io_width: None,
         }
-    }
-
-    /// The widest vector, in bits, that reads and writes are sized to: what the backend asked
-    /// for, else the widest single load.
-    pub fn io_width(&self) -> u32 {
-        self.io_width.unwrap_or(self.hardware.load_width)
     }
 
     /// States the width IO is sized to, for a backend that measured one wider than a load.
     pub fn with_io_width(mut self, io_width: u32) -> Self {
-        self.io_width = Some(io_width);
+        self.io_width = io_width;
         self
     }
 
@@ -586,12 +581,12 @@ mod tests {
     const NEON: (u32, Option<u32>) = (128, Some(32));
 
     fn registers((width, count): (u32, Option<u32>), elem_size: usize) -> VectorRegisters {
-        hardware(width, count).vector_registers(elem_size).unwrap()
+        VectorRegisters::of(&hardware(width, count), elem_size).unwrap()
     }
 
     #[test]
     fn a_device_without_a_fixed_register_set_has_no_budget() {
-        assert_eq!(hardware(128, None).vector_registers(4), None);
+        assert_eq!(VectorRegisters::of(&hardware(128, None), 4), None);
     }
 
     #[test]
@@ -635,7 +630,7 @@ mod tests {
     fn a_capped_vector_size_caps_the_lanes() {
         let mut capped = hardware(256, Some(16));
         capped.max_vector_size = 4;
-        let f32 = capped.vector_registers(4).unwrap();
+        let f32 = VectorRegisters::of(&capped, 4).unwrap();
         assert_eq!(f32.lanes_per_register(), 4);
         assert_eq!(f32.widest_lanes(1), 4);
     }
