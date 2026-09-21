@@ -97,9 +97,17 @@ pub fn measure_peak_throughput(
     // issued, which for these is this thread.
     let _measurement = cubecl_runtime::dry_run::RealRun::new();
 
-    let value = client.measure_throughput(key, || probe(client, key));
+    let mut probed = false;
+    let value = client.measure_throughput(key, || {
+        probed = true;
+        probe(client, key)
+    });
 
-    PooledProbes::cleanup_unless_held(client);
+    // A cached answer left no pools behind, and every roofline bound asks for
+    // three of these on every thread that autotunes.
+    if probed {
+        PooledProbes::cleanup_unless_held(client);
+    }
 
     value
 }

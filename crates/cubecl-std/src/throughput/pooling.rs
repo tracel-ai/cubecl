@@ -30,13 +30,23 @@ impl PooledProbes {
     }
 
     /// Releases what `client` holds, unless a sweep is still measuring against
-    /// it. Decided under the lock: a sweep entering between the read and the
-    /// release would lose the pool it is about to measure.
+    /// it.
     pub(super) fn cleanup_unless_held(client: &Client) {
-        let pooled = POOLED_PROBES.lock();
+        Self::cleanup_unless_held_by(client.service_id(), || client.memory_cleanup());
+    }
 
-        if !Self::held_by(&pooled, client.service_id()) {
-            client.memory_cleanup();
+    /// `release` runs with the lock dropped: it blocks on the device thread,
+    /// which takes this lock itself when it autotunes. A sweep entering in
+    /// between pays a fault for pools it had not measured against yet, which
+    /// is the cheaper of the two.
+    fn cleanup_unless_held_by(service: ServiceId, release: impl FnOnce()) {
+        let held = {
+            let pooled = POOLED_PROBES.lock();
+            Self::held_by(&pooled, service)
+        };
+
+        if !held {
+            release();
         }
     }
 
@@ -133,5 +143,37 @@ mod tests {
 
         assert!(pooled(service(3)));
         assert!(!pooled(service(4)));
+    }
+
+    #[test]
+    fn a_running_sweep_is_not_released() {
+        let device = service(5);
+        let _pooled = PooledProbes::enter_service(device);
+        let mut released = false;
+
+        PooledProbes::cleanup_unless_held_by(device, || released = true);
+
+        assert!(!released);
+    }
+
+    /// The device thread takes this lock when it autotunes, and a release is a
+    /// submit that blocks until that thread drains it: one issued under the
+    /// lock waits on the thread it is blocking.
+    #[test]
+    fn a_release_is_issued_with_the_lock_dropped() {
+        use std::{sync::mpsc, time::Duration};
+
+        let (took_lock, lock_taken) = mpsc::channel();
+
+        PooledProbes::cleanup_unless_held_by(service(6), || {
+            std::thread::spawn(move || {
+                let _pooled = POOLED_PROBES.lock();
+                let _ = took_lock.send(());
+            });
+
+            lock_taken
+                .recv_timeout(Duration::from_secs(5))
+                .expect("another thread takes the lock while a release runs");
+        });
     }
 }
