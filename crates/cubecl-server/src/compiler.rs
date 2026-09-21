@@ -67,6 +67,108 @@ pub fn store_compiled<K: StoreKey, V: StoreValue>(store: &mut Store<K, V>, key: 
     }
 }
 
+/// One kernel's trip through a backend's compilation path, as the environment
+/// records it: compiled fresh, or loaded from the compilation store.
+///
+/// A hit in a server's in-memory cache is not a trip and is not recorded:
+/// nothing here runs per launch.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CompilationRecord {
+    /// The kernel's type.
+    pub kernel: alloc::string::String,
+    /// Its id rendered: the comptime arguments and launch settings that make
+    /// it this instance of the type.
+    pub id: alloc::string::String,
+    /// The store entry naming the artifact.
+    pub key: KernelCacheKey,
+    /// How the artifact was obtained, and what it cost.
+    pub outcome: CompilationOutcome,
+    /// The source the backend compiled, at
+    /// [`RecordLevel::Full`](cubecl_environment::records::RecordLevel::Full).
+    pub source: Option<alloc::string::String>,
+}
+
+/// How a backend obtained a kernel's artifact.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum CompilationOutcome {
+    /// Compiled from its definition: expanded, compiled, loaded on the device.
+    Compiled {
+        /// From the store miss to the artifact loaded.
+        duration: core::time::Duration,
+    },
+    /// Read from the compilation store and loaded on the device.
+    Loaded {
+        /// From the lookup to the artifact loaded.
+        duration: core::time::Duration,
+    },
+}
+
+impl CompilationRecord {
+    /// The records namespace kind compilations are written under.
+    pub const KIND: &str = "compilation";
+}
+
+/// A compilation being recorded: a backend opens one where its compilation
+/// path starts — past its in-memory cache — and closes it with how the
+/// artifact was obtained. `None` when the environment records nothing.
+#[derive(Debug)]
+pub struct CompilationRecording {
+    stamp: cubecl_environment::records::Stamp,
+    started: cubecl_common::profile::Instant,
+    kernel: &'static str,
+    id: alloc::string::String,
+    key: KernelCacheKey,
+}
+
+impl CompilationRecording {
+    /// Start recording `kernel_id`'s trip, when the environment records.
+    pub fn start(kernel_id: &KernelId) -> Option<Self> {
+        let stamp = cubecl_environment::records::stamp()?;
+        Some(Self {
+            stamp,
+            started: cubecl_common::profile::Instant::now(),
+            kernel: kernel_id.type_name(),
+            id: alloc::format!("{kernel_id}"),
+            key: KernelCacheKey::new(kernel_id, build_id_hash()),
+        })
+    }
+
+    /// The artifact came from the compilation store.
+    pub fn loaded(self) {
+        let outcome = CompilationOutcome::Loaded {
+            duration: self.started.elapsed(),
+        };
+        self.write(outcome, None);
+    }
+
+    /// Whether the record keeps the kernel's source: only at
+    /// [`RecordLevel::Full`](cubecl_environment::records::RecordLevel::Full),
+    /// the source being the heaviest thing a record can carry.
+    pub fn wants_source(&self) -> bool {
+        cubecl_environment::records::level() == cubecl_environment::records::RecordLevel::Full
+    }
+
+    /// The artifact was compiled, from `source` when the record
+    /// [wants it](Self::wants_source).
+    pub fn compiled(self, source: Option<alloc::string::String>) {
+        let outcome = CompilationOutcome::Compiled {
+            duration: self.started.elapsed(),
+        };
+        self.write(outcome, source);
+    }
+
+    fn write(self, outcome: CompilationOutcome, source: Option<alloc::string::String>) {
+        let record = CompilationRecord {
+            kernel: self.kernel.into(),
+            id: self.id,
+            key: self.key,
+            outcome,
+            source,
+        };
+        cubecl_environment::records::write_stamped(CompilationRecord::KIND, self.stamp, &record);
+    }
+}
+
 /// Key for an entry in the persistent compilation cache.
 ///
 /// The [id](KernelId) alone doesn't describe what a kernel does: it covers the kernel type, its

@@ -33,7 +33,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-use cubecl_server::compiler::{CompilationCache, compilation_store, store_compiled};
+use cubecl_server::compiler::{
+    CompilationCache, CompilationRecording, compilation_store, store_compiled,
+};
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
@@ -174,8 +176,14 @@ impl CudaContext {
         kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
+        let recording = CompilationRecording::start(kernel_id);
         let key = match self.try_load_cached(kernel_id)? {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                if let Some(recording) = recording {
+                    recording.loaded();
+                }
+                return Ok(());
+            }
             Err(key) => key,
         };
 
@@ -194,7 +202,16 @@ impl CudaContext {
 
         self.validate_shared(&jitc_kernel.repr)?;
 
-        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)
+        // Read before the load consumes the kernel.
+        let source = recording
+            .as_ref()
+            .filter(|recording| recording.wants_source())
+            .map(|_| jitc_kernel.source.clone());
+        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)?;
+        if let Some(recording) = recording {
+            recording.compiled(source);
+        }
+        Ok(())
     }
 
     /// Loads what the compiler produced, by the route that backend's output takes.

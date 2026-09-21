@@ -415,6 +415,19 @@ fn autotune_resets_when_the_environment_switches() {
     assert!(matches!(rehydrated, TuneCacheResult::Hit { .. }));
 }
 
+/// Roots the environment at `root` for the rest of the test.
+///
+/// The runtime configuration is loaded first: it loads on first use and roots
+/// the environment where it says, so a test running beside this one could
+/// otherwise load it halfway through and move this test's records elsewhere.
+#[cfg(all(feature = "std", autotune_persistence))]
+fn rooted_at(root: &std::path::Path) {
+    use cubecl_server::config::RuntimeConfig;
+
+    let _ = cubecl_server::config::CubeClRuntimeConfig::get();
+    cubecl_environment::environment::set_root(root);
+}
+
 /// A tune leaves a record beside its answer: the candidates in the order they
 /// ran, each with its wall, the whole tune's wall, and the key and table the
 /// answer is stored under, stamped in the environment's session.
@@ -427,7 +440,7 @@ fn a_tune_is_recorded_in_order_with_its_walls() {
     use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
 
     let root = tempfile::tempdir().unwrap();
-    cubecl_environment::environment::set_root(root.path());
+    rooted_at(root.path());
     records::configure(RecordLevel::Basic, None);
 
     let client = test_client(&DummyDevice);
@@ -496,7 +509,7 @@ fn a_short_circuited_tune_records_where_it_stopped() {
     use cubecl_server::tune::{TuneRecord, Tuner};
 
     let root = tempfile::tempdir().unwrap();
-    cubecl_environment::environment::set_root(root.path());
+    rooted_at(root.path());
     records::configure(RecordLevel::Basic, None);
 
     let client = test_client(&DummyDevice);
@@ -542,7 +555,7 @@ fn nothing_is_recorded_when_records_are_off() {
     use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
 
     let root = tempfile::tempdir().unwrap();
-    cubecl_environment::environment::set_root(root.path());
+    rooted_at(root.path());
     records::configure(RecordLevel::Off, None);
 
     let client = test_client(&DummyDevice);
@@ -1245,4 +1258,52 @@ fn a_set_is_built_once_per_device_not_once_per_process() {
     );
     assert_eq!(client.read_one(out).unwrap().to_vec(), Vec::from([4, 5, 6]));
     assert_eq!(BUILDS.load(Ordering::Relaxed), 2);
+}
+
+/// A backend's trip through compilation is recorded where it starts, with how
+/// the artifact was obtained: its kernel, its instance, the store key naming
+/// the artifact, and the source only when records are full.
+#[test_log::test]
+#[cfg(all(feature = "std", autotune_persistence))]
+#[serial_test::serial]
+fn a_compilation_is_recorded_with_its_outcome() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{self, RecordLevel};
+    use cubecl_server::compiler::{CompilationOutcome, CompilationRecord, CompilationRecording};
+    use cubecl_server::id::KernelId;
+
+    struct Recorded;
+
+    let root = tempfile::tempdir().unwrap();
+    rooted_at(root.path());
+
+    records::configure(RecordLevel::Basic, None);
+    let id = KernelId::new::<Recorded>().info(3u32);
+    CompilationRecording::start(&id)
+        .unwrap()
+        .compiled(Some("source".to_string()));
+    let recording = CompilationRecording::start(&id).unwrap();
+    assert!(!recording.wants_source());
+    recording.loaded();
+
+    records::configure(RecordLevel::Full, None);
+    let recording = CompilationRecording::start(&id).unwrap();
+    assert!(recording.wants_source());
+    recording.compiled(Some("source".to_string()));
+    records::configure(RecordLevel::Basic, None);
+
+    let database = Database::open_active().unwrap();
+    let compiled = records::read::<CompilationRecord>(&database, CompilationRecord::KIND);
+    assert_eq!(compiled.len(), 3);
+    assert!(compiled[0].record.kernel.ends_with("Recorded"));
+    assert!(matches!(
+        compiled[0].record.outcome,
+        CompilationOutcome::Compiled { .. }
+    ));
+    assert!(matches!(
+        compiled[1].record.outcome,
+        CompilationOutcome::Loaded { .. }
+    ));
+    assert_eq!(compiled[0].record.key, compiled[1].record.key);
+    assert_eq!(compiled[2].record.source.as_deref(), Some("source"));
 }

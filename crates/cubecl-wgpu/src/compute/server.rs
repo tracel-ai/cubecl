@@ -32,6 +32,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::persistence::Store;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
+use cubecl_server::compiler::CompilationRecording;
 #[cfg(feature = "spirv")]
 use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_server::memory_management::{
@@ -236,10 +237,14 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             return Ok(pipeline.clone());
         }
 
+        let recording = CompilationRecording::start(&kernel_id);
         let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
 
         if let Some(Ok(pipeline)) = cached {
             self.pipelines.insert(kernel_id, pipeline.clone());
+            if let Some(recording) = recording {
+                recording.loaded();
+            }
             return Ok(pipeline);
         }
 
@@ -299,6 +304,10 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             mode,
         )?;
         let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings);
+        if let Some(recording) = recording {
+            let source = recording.wants_source().then(|| compiled.source.clone());
+            recording.compiled(source);
+        }
         self.pipelines.insert(
             kernel_id.clone(),
             (pipeline.clone(), compiler_info, io.clone()),

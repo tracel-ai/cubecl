@@ -16,7 +16,9 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::Store;
 use cubecl_hip_sys::get_hip_include_path;
-use cubecl_server::compiler::{CompilationCache, build_id_hash, compilation_store, store_compiled};
+use cubecl_server::compiler::{
+    CompilationCache, CompilationRecording, build_id_hash, compilation_store, store_compiled,
+};
 use cubecl_server::driver::checked;
 use cubecl_server::kernel::BufferIOAttr;
 use cubecl_server::kernel::DebugInformation;
@@ -171,8 +173,14 @@ impl HipContext {
         cube_kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
+        let recording = CompilationRecording::start(kernel_id);
         let key = match self.try_load_cached(kernel_id)? {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                if let Some(recording) = recording {
+                    recording.loaded();
+                }
+                return Ok(());
+            }
             Err(key) => key,
         };
 
@@ -191,7 +199,16 @@ impl HipContext {
 
         self.validate_shared(&jitc_kernel.repr)?;
 
-        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)
+        // Read before the load consumes the kernel.
+        let source = recording
+            .as_ref()
+            .filter(|recording| recording.wants_source())
+            .map(|_| jitc_kernel.source.clone());
+        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)?;
+        if let Some(recording) = recording {
+            recording.compiled(source);
+        }
+        Ok(())
     }
 
     /// Loads what the compiler produced, by the route that backend's output takes.
