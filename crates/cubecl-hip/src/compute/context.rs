@@ -173,7 +173,7 @@ impl HipContext {
         cube_kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let recording = CompilationRecording::start(kernel_id);
+        let mut recording = CompilationRecording::start(kernel_id);
         let key = match self.try_load_cached(kernel_id)? {
             Ok(()) => {
                 if let Some(recording) = recording {
@@ -190,6 +190,9 @@ impl HipContext {
         // CubeCL compilation
         // jitc = just-in-time compiled
         let definition = cube_kernel.define();
+        if let Some(recording) = recording.as_mut() {
+            recording.defined(&definition);
+        }
         let jitc_kernel = CompiledKernel::compile(
             &*cube_kernel,
             definition,

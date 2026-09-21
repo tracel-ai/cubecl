@@ -220,7 +220,7 @@ fn fixture(dir: &Path) -> PathBuf {
             },
             record: CompilationRecord {
                 kernel: kernel.to_string(),
-                id: format!("{kernel} instance"),
+                ir: Some(format!("{kernel} ir")),
                 key: KernelCacheKey { id, build_id: 1 },
                 outcome,
                 source: None,
@@ -592,6 +592,7 @@ fn kernels_fold_their_trips_and_carry_their_stored_size() {
     assert_eq!((matmul.compiled, matmul.loaded), (1, 1));
     assert_eq!(matmul.compiling, Duration::from_millis(80));
     assert_eq!(matmul.bytes, Some(64));
+    assert_eq!(matmul.ir.as_deref(), Some("kernels::Matmul<f16> ir"));
     assert_eq!(report.kernels[1].bytes, None, "never stored");
     assert_eq!(report.unrecorded, 0);
     assert_eq!(report.families[0].short_name(), "Matmul");

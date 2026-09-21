@@ -70,7 +70,6 @@ impl fmt::Display for Text<'_, KernelRow> {
         let row = self.0;
         writeln!(f, "id         {}", row.id)?;
         writeln!(f, "kernel     {}", row.kernel)?;
-        writeln!(f, "instance   {}", row.instance.trim())?;
         if let Some(bytes) = row.bytes {
             writeln!(f, "stored     {}", Bytes(bytes))?;
         }
@@ -82,6 +81,13 @@ impl fmt::Display for Text<'_, KernelRow> {
             row.loaded,
             Wall(row.loading)
         )?;
+        match &row.ir {
+            Some(ir) => writeln!(f, "\nir\n{}", ir.trim_end())?,
+            None => writeln!(
+                f,
+                "ir         not recorded (only a fresh compile defines the kernel)"
+            )?,
+        }
         match &row.source {
             Some(source) => writeln!(f, "\n{source}"),
             None => writeln!(

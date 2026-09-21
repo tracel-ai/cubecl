@@ -176,7 +176,7 @@ impl CudaContext {
         kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let recording = CompilationRecording::start(kernel_id);
+        let mut recording = CompilationRecording::start(kernel_id);
         let key = match self.try_load_cached(kernel_id)? {
             Ok(()) => {
                 if let Some(recording) = recording {
@@ -193,6 +193,9 @@ impl CudaContext {
         validate_units(&self.properties, kernel_id)?;
 
         let definition = kernel.define();
+        if let Some(recording) = recording.as_mut() {
+            recording.defined(&definition);
+        }
         let jitc_kernel = CompiledKernel::compile(
             &*kernel,
             definition,

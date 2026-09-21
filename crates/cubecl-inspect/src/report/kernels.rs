@@ -47,8 +47,9 @@ pub struct KernelRow {
     pub id: KernelHash,
     /// The kernel's type, in full.
     pub kernel: String,
-    /// The instance: its id rendered.
-    pub instance: String,
+    /// The kernel as cubecl defined it, in the IR's textual form, when a
+    /// fresh compile recorded it.
+    pub ir: Option<String>,
     /// The size of its artifact in the store, when the file holds one.
     pub bytes: Option<u64>,
     /// Times it was compiled fresh.
@@ -140,7 +141,7 @@ impl KernelReport {
             let row = rows.entry(entry).or_insert_with(|| KernelRow {
                 id: KernelHash(trip.key.id),
                 kernel: trip.kernel.clone(),
-                instance: trip.id.clone(),
+                ir: None,
                 bytes: stored.get(&entry).copied(),
                 compiled: 0,
                 loaded: 0,
@@ -157,6 +158,9 @@ impl KernelReport {
                     row.loaded += 1;
                     row.loading += duration;
                 }
+            }
+            if trip.ir.is_some() {
+                row.ir.clone_from(&trip.ir);
             }
             if trip.source.is_some() {
                 row.source.clone_from(&trip.source);

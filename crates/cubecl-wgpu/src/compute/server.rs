@@ -237,7 +237,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             return Ok(pipeline.clone());
         }
 
-        let recording = CompilationRecording::start(&kernel_id);
+        let mut recording = CompilationRecording::start(&kernel_id);
         let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
 
         if let Some(Ok(pipeline)) = cached {
@@ -252,6 +252,9 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         validate_units(&self.utilities.properties, &kernel_id)?;
 
         let definition = kernel.define();
+        if let Some(recording) = recording.as_mut() {
+            recording.defined(&definition);
+        }
 
         let mut compiler = C::init(self.backend, &self.compilation_options);
         let mut compiled = compiler.compile_kernel(self, kernel, definition)?;

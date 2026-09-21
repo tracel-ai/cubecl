@@ -77,11 +77,13 @@ pub fn store_compiled<K: StoreKey, V: StoreValue>(store: &mut Store<K, V>, key: 
 pub struct CompilationRecord {
     /// The kernel's type.
     pub kernel: alloc::string::String,
-    /// Its id rendered: the comptime arguments and launch settings that make
-    /// it this instance of the type.
-    pub id: alloc::string::String,
-    /// The store entry naming the artifact.
+    /// The store entry naming the artifact: what tells two instances of one
+    /// kernel type apart.
     pub key: KernelCacheKey,
+    /// The kernel as cubecl defined it, before the backend's compiler — the
+    /// IR's textual form, for a reader to render. Only a fresh compile
+    /// defines the kernel, so a store load carries none.
+    pub ir: Option<alloc::string::String>,
     /// How the artifact was obtained, and what it cost.
     pub outcome: CompilationOutcome,
     /// The source the backend compiled, at
@@ -126,8 +128,8 @@ pub struct CompilationRecording {
     stamp: cubecl_environment::records::Stamp,
     started: cubecl_common::profile::Instant,
     kernel: &'static str,
-    id: alloc::string::String,
     key: KernelCacheKey,
+    ir: Option<alloc::string::String>,
 }
 
 impl CompilationRecording {
@@ -138,9 +140,15 @@ impl CompilationRecording {
             stamp,
             started: cubecl_common::profile::Instant::now(),
             kernel: kernel_id.type_name(),
-            id: alloc::format!("{kernel_id}"),
             key: KernelCacheKey::new(kernel_id, build_id_hash()),
+            ir: None,
         })
+    }
+
+    /// Keep the kernel's IR, from the definition the backend is about to
+    /// compile.
+    pub fn defined(&mut self, definition: &crate::kernel::KernelDefinition) {
+        self.ir = Some(alloc::format!("{}", definition.body));
     }
 
     /// The artifact came from the compilation store: the environment did not
@@ -176,8 +184,8 @@ impl CompilationRecording {
     ) {
         let record = CompilationRecord {
             kernel: self.kernel.into(),
-            id: self.id,
             key: self.key,
+            ir: self.ir,
             outcome,
             source,
         };
