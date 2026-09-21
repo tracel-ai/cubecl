@@ -60,6 +60,11 @@ pub struct HipRuntime;
 
 impl DeviceService for HipServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
+        assert!(
+            cubecl_hip_sys::is_available(),
+            "HIP runtime is unavailable; install ROCm or set ROCM_PATH/HIP_PATH"
+        );
+
         let device = AmdDevice::from_id(device_id);
         let probe = DeviceProbe::of(device.index as i32);
 
