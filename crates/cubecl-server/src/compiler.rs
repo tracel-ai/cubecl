@@ -103,6 +103,15 @@ pub enum CompilationOutcome {
     },
 }
 
+impl CompilationOutcome {
+    /// What obtaining the artifact took, however it was obtained.
+    pub fn duration(&self) -> core::time::Duration {
+        match self {
+            Self::Compiled { duration } | Self::Loaded { duration } => *duration,
+        }
+    }
+}
+
 impl CompilationRecord {
     /// The records namespace kind compilations are written under.
     pub const KIND: &str = "compilation";
