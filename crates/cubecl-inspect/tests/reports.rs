@@ -798,12 +798,33 @@ fn compacting_keeps_what_the_replay_launched() {
     let inspector = Inspector::open(&path).expect("opens");
     let out = dir.path().join("compact.cubecl");
 
+    // This build's copy of the matmul artifact beside the fixture's, which an
+    // older build compiled: only this build's is kept.
+    {
+        let database = Database::open(&path, false).expect("opens");
+        let current = KernelCacheKey {
+            id: MATMUL,
+            build_id: cubecl_server::compiler::build_id_hash(),
+        };
+        database.insert(
+            "hip/0.11.0/gfx1151",
+            &cbor(&current),
+            &[0; 48],
+            Origin::Local,
+        );
+        database.insert(
+            "hip-second-line/0.11.0/gfx1151",
+            &cbor(&3u128),
+            &cbor(&current),
+            Origin::Local,
+        );
+    }
     let launched: HashSet<u128> = [MATMUL, 0x7777].into_iter().collect();
     let compaction = inspector.compact(&out, &launched).expect("compacts");
 
     assert_eq!(
         (compaction.kept_kernels, compaction.dropped_kernels),
-        (1, 1)
+        (1, 2)
     );
     assert_eq!(
         compaction.unstored, 1,
@@ -821,8 +842,8 @@ fn compacting_keeps_what_the_replay_launched() {
             .map(|row| row.entries)
             .sum::<u64>()
     };
-    // The matmul artifact stays and the unused one goes, each with its
-    // second-line entry.
+    // This build's matmul artifact stays; the older build's and the unused
+    // one go, each with its second-line entry.
     assert_eq!(count("hip"), 1);
     assert_eq!(count("hip-second-line"), 1);
 }

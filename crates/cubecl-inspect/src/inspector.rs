@@ -11,7 +11,7 @@ use cubecl_environment::persistence::Database;
 use cubecl_environment::persistence::sqlite::SCHEMA_VERSION;
 use cubecl_environment::records;
 use cubecl_environment::records::{MarkRecord, Stamped};
-use cubecl_server::compiler::{CompilationRecord, KernelCacheKey};
+use cubecl_server::compiler::{CompilationRecord, KernelCacheKey, build_id_hash};
 use cubecl_server::memory_management::MemoryRecord;
 use cubecl_server::tune::{PersistentCacheValue, TuneRecord};
 use std::path::{Path, PathBuf};
@@ -405,6 +405,11 @@ impl Inspector {
     /// the [collection](cubecl_server::launched::LaunchedKernels) taken while
     /// the workload replayed — and summarize it.
     ///
+    /// Called by the process that replayed, whose binary is the one shipped: a
+    /// stored artifact is keyed by the build that compiled it as well, so of
+    /// a launched kernel only this build's artifact is kept. Another build's
+    /// is never loaded by this one.
+    ///
     /// Everything else in the compilation store is what a build compiled and
     /// the workload never runs: mostly the candidates autotune raced and did
     /// not pick. Autotune answers and anything an application stored are kept
@@ -425,6 +430,7 @@ impl Inspector {
             ));
         }
         self.strip(out)?;
+        let build = build_id_hash();
 
         let copy = Database::open(out, false).map_err(|err| refused(err.to_string()))?;
         let mut kept = StoredArtifacts::new();
@@ -445,7 +451,7 @@ impl Inspector {
                 };
                 let entry = StoreEntry::from(&artifact);
                 let bytes = (key.len() + value.len()) as u64;
-                if launched.contains(&artifact.id) {
+                if launched.contains(&artifact.id) && artifact.build_id == build {
                     *kept.entry(entry).or_default() += bytes;
                 } else {
                     *dropped.entry(entry).or_default() += bytes;
