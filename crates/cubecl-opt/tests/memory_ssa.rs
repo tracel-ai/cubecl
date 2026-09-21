@@ -1445,3 +1445,215 @@ fn memory_ssa_optimized_use_clobbered_by_opaque_boundary() -> Result<()> {
     .assert_eq(&printed);
     Ok(())
 }
+
+/// Loops in sequence chain their region phis: resolving the use below walks every one of them.
+/// A kernel with many rolled loops chains phis like this, so the walk runs on a stack far smaller
+/// than one frame per phi would need.
+#[test]
+fn memory_ssa_optimized_use_walks_a_long_phi_chain_without_recursing() {
+    const LOOPS: usize = 2000;
+    let loops: String = (0..LOOPS)
+        .map(|i| {
+            format!(
+                "y{i} = scf.for start to end step step iter_args(c) {{
+                  ^body{i}(i{i}: builtin.integer i32, c{i}: builtin.integer i64):
+                    memory_ssa.memory_def_in_space Local;
+                    branch.yield (c{i})
+                }};\n"
+            )
+        })
+        .collect();
+    let input = format!(
+        r#"
+    builtin.func @f: builtin.function <(builtin.integer i32) -> ()> [] {{
+      ^entry(end: builtin.integer i32):
+        start = builtin.constant <builtin.integer <0: i32>> : builtin.integer i32;
+        step = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32;
+        c = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
+        memory_ssa.memory_def_in_space Shared;
+        {loops}
+        memory_ssa.memory_use_in_space Shared;
+        branch.return
+    }}
+  "#
+    );
+
+    let printed = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || {
+            let ctx = &mut Context::default();
+            run_optimized_memory_ssa_on_text(ctx, &input).map_err(|err| err.to_string())
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        printed.contains("MemoryUse(M1, ReadAllInSpace(Shared))"),
+        "the use should skip every loop's Local def and reach the Shared def at entry"
+    );
+}
+
+/// Nested loops, where the walk meets the inner loop's phi, forks through the outer one, and comes
+/// back to phis already on its path. The cycles it drops there are cached per walk, so these pin
+/// that no clobber reached along one path is lost when the same phi is reached along another.
+fn nested_loops(inner_body: &str, outer_body: &str) -> String {
+    format!(
+        r#"
+    builtin.func @f: builtin.function <(builtin.integer i32) -> ()> [] {{
+      ^entry(end: builtin.integer i32):
+        start = builtin.constant <builtin.integer <0: i32>> : builtin.integer i32;
+        step = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32;
+        c = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
+        memory_ssa.memory_def_in_space Shared;
+        y = scf.for start to end step step iter_args(c) {{
+          ^outer(i: builtin.integer i32, c2: builtin.integer i64):
+            z = scf.for start to end step step iter_args(c2) {{
+              ^inner(j: builtin.integer i32, c3: builtin.integer i64):
+                {inner_body}
+                branch.yield (c3)
+            }};
+            {outer_body}
+            branch.yield (c2)
+        }};
+        memory_ssa.memory_use_in_space Shared;
+        branch.return
+    }}
+  "#
+    )
+}
+
+/// Only non-aliasing writes in either loop: every read reaches the Shared write at entry.
+#[test]
+fn memory_ssa_optimized_use_through_nested_loops_without_clobbers() -> Result<()> {
+    let input = nested_loops(
+        "memory_ssa.memory_use_in_space Shared;\n memory_ssa.memory_def_in_space Local;",
+        "memory_ssa.memory_def_in_space Local;",
+    );
+    let ctx = &mut Context::default();
+    let printed = run_optimized_memory_ssa_on_text(ctx, &input)?;
+    expect![[r#"
+        MemorySSA {
+          entry_block1v1:
+            start_v1 = builtin.constant <builtin.integer <0: i32>> : builtin.integer i32;
+            step_v2 = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32;
+            c_v3 = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
+            ; M1 = MemoryDef(LiveOnEntry, WriteAllInSpace(Shared))
+            memory_ssa.memory_def_in_space Shared;
+            ; M7 = MemoryRegionPhi({Parent -> M1}, {outer_block2v1 -> M6})
+            y_v4 = scf.for start_v1 to end_v0 step step_v2 iter_args(c_v3) {..};
+              ; M2 = MemoryRegionPhi({Parent -> M1}, {outer_block2v1 -> M6})
+              outer_block2v1:
+                ; M5 = MemoryRegionPhi({Parent -> M2}, {inner_block3v1 -> M4})
+                z_v7 = scf.for start_v1 to end_v0 step step_v2 iter_args(c2_v6) {..};
+                  ; M3 = MemoryRegionPhi({Parent -> M2}, {inner_block3v1 -> M4})
+                  inner_block3v1:
+                    ; MemoryUse(M1, ReadAllInSpace(Shared))
+                    memory_ssa.memory_use_in_space Shared;
+                    ; M4 = MemoryDef(M3, WriteAllInSpace(Local))
+                    memory_ssa.memory_def_in_space Local;
+                    branch.yield (c3_v9);
+
+                ; M6 = MemoryDef(M5, WriteAllInSpace(Local))
+                memory_ssa.memory_def_in_space Local;
+                branch.yield (c2_v6);
+
+            ; MemoryUse(M1, ReadAllInSpace(Shared))
+            memory_ssa.memory_use_in_space Shared;
+            branch.return;
+
+        }"#]]
+    .assert_eq(&printed);
+    Ok(())
+}
+
+/// A Shared write on the outer loop's back edge, after the inner loop: a read inside the inner
+/// loop sees it through the outer phi, so its clobber is that phi, not the entry write.
+#[test]
+fn memory_ssa_optimized_use_sees_a_clobber_on_the_outer_back_edge() -> Result<()> {
+    let input = nested_loops(
+        "memory_ssa.memory_use_in_space Shared;\n memory_ssa.memory_def_in_space Local;",
+        "memory_ssa.memory_def_in_space Shared;",
+    );
+    let ctx = &mut Context::default();
+    let printed = run_optimized_memory_ssa_on_text(ctx, &input)?;
+    expect![[r#"
+        MemorySSA {
+          entry_block1v1:
+            start_v1 = builtin.constant <builtin.integer <0: i32>> : builtin.integer i32;
+            step_v2 = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32;
+            c_v3 = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
+            ; M1 = MemoryDef(LiveOnEntry, WriteAllInSpace(Shared))
+            memory_ssa.memory_def_in_space Shared;
+            ; M7 = MemoryRegionPhi({Parent -> M1}, {outer_block2v1 -> M6})
+            y_v4 = scf.for start_v1 to end_v0 step step_v2 iter_args(c_v3) {..};
+              ; M2 = MemoryRegionPhi({Parent -> M1}, {outer_block2v1 -> M6})
+              outer_block2v1:
+                ; M5 = MemoryRegionPhi({Parent -> M2}, {inner_block3v1 -> M4})
+                z_v7 = scf.for start_v1 to end_v0 step step_v2 iter_args(c2_v6) {..};
+                  ; M3 = MemoryRegionPhi({Parent -> M2}, {inner_block3v1 -> M4})
+                  inner_block3v1:
+                    ; MemoryUse(M2, ReadAllInSpace(Shared))
+                    memory_ssa.memory_use_in_space Shared;
+                    ; M4 = MemoryDef(M3, WriteAllInSpace(Local))
+                    memory_ssa.memory_def_in_space Local;
+                    branch.yield (c3_v9);
+
+                ; M6 = MemoryDef(M5, WriteAllInSpace(Shared))
+                memory_ssa.memory_def_in_space Shared;
+                branch.yield (c2_v6);
+
+            ; MemoryUse(M7, ReadAllInSpace(Shared))
+            memory_ssa.memory_use_in_space Shared;
+            branch.return;
+
+        }"#]]
+    .assert_eq(&printed);
+    Ok(())
+}
+
+/// A Shared write inside the inner loop, after the read: it reaches the read along the inner back
+/// edge and, through the inner loop's exit, along the outer one too.
+#[test]
+fn memory_ssa_optimized_use_sees_a_clobber_later_in_the_inner_loop() -> Result<()> {
+    let input = nested_loops(
+        "memory_ssa.memory_use_in_space Shared;\n memory_ssa.memory_def_in_space Shared;",
+        "memory_ssa.memory_def_in_space Local;",
+    );
+    let ctx = &mut Context::default();
+    let printed = run_optimized_memory_ssa_on_text(ctx, &input)?;
+    expect![[r#"
+        MemorySSA {
+          entry_block1v1:
+            start_v1 = builtin.constant <builtin.integer <0: i32>> : builtin.integer i32;
+            step_v2 = builtin.constant <builtin.integer <1: i32>> : builtin.integer i32;
+            c_v3 = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
+            ; M1 = MemoryDef(LiveOnEntry, WriteAllInSpace(Shared))
+            memory_ssa.memory_def_in_space Shared;
+            ; M7 = MemoryRegionPhi({Parent -> M1}, {outer_block2v1 -> M6})
+            y_v4 = scf.for start_v1 to end_v0 step step_v2 iter_args(c_v3) {..};
+              ; M2 = MemoryRegionPhi({Parent -> M1}, {outer_block2v1 -> M6})
+              outer_block2v1:
+                ; M5 = MemoryRegionPhi({Parent -> M2}, {inner_block3v1 -> M4})
+                z_v7 = scf.for start_v1 to end_v0 step step_v2 iter_args(c2_v6) {..};
+                  ; M3 = MemoryRegionPhi({Parent -> M2}, {inner_block3v1 -> M4})
+                  inner_block3v1:
+                    ; MemoryUse(M3, ReadAllInSpace(Shared))
+                    memory_ssa.memory_use_in_space Shared;
+                    ; M4 = MemoryDef(M3, WriteAllInSpace(Shared))
+                    memory_ssa.memory_def_in_space Shared;
+                    branch.yield (c3_v9);
+
+                ; M6 = MemoryDef(M5, WriteAllInSpace(Local))
+                memory_ssa.memory_def_in_space Local;
+                branch.yield (c2_v6);
+
+            ; MemoryUse(M7, ReadAllInSpace(Shared))
+            memory_ssa.memory_use_in_space Shared;
+            branch.return;
+
+        }"#]]
+    .assert_eq(&printed);
+    Ok(())
+}
