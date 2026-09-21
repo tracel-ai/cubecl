@@ -415,6 +415,161 @@ fn autotune_resets_when_the_environment_switches() {
     assert!(matches!(rehydrated, TuneCacheResult::Hit { .. }));
 }
 
+/// A tune leaves a record beside its answer: the candidates in the order they
+/// ran, each with its wall, the whole tune's wall, and the key and table the
+/// answer is stored under, stamped in the environment's session.
+#[test_log::test]
+#[cfg(all(feature = "std", autotune_persistence))]
+#[serial_test::serial]
+fn a_tune_is_recorded_in_order_with_its_walls() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{self, RecordLevel};
+    use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
+
+    let root = tempfile::tempdir().unwrap();
+    cubecl_environment::environment::set_root(root.path());
+    records::configure(RecordLevel::Basic, None);
+
+    let client = test_client(&DummyDevice);
+    let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let set = dummy::addition_set(test_client(&DummyDevice), shapes);
+    let handles = vec![
+        client.create_from_slice(&[0, 1, 2]),
+        client.create_from_slice(&[4, 4, 4]),
+        client.empty(3),
+    ];
+    let key = set.generate_key(&handles);
+
+    let tuner: Tuner<String> = Tuner::new("recorded", "device0");
+    let answer = tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+    let TuneCacheResult::Hit { fastest_index } = answer else {
+        panic!("the tune answers inline: {answer:?}");
+    };
+
+    let database = Database::open_active().unwrap();
+    let tunes = records::read::<TuneRecord<String>>(&database, TuneRecord::<String>::KIND);
+    assert_eq!(tunes.len(), 1);
+    let tune = &tunes[0].record;
+    assert_eq!(tune.key, key);
+    assert_eq!(tune.winner, fastest_index);
+    assert!(tune.table.starts_with("autotune/") && tune.table.ends_with("device0/recorded"));
+    let names: Vec<&str> = tune
+        .trials
+        .iter()
+        .map(|trial| trial.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["add", "add_slow_wrong"],
+        "in registration order"
+    );
+    assert!(tune.trials.iter().all(|trial| !trial.wall.is_zero()));
+    assert!(
+        tune.trials
+            .iter()
+            .map(|trial| trial.wall)
+            .sum::<core::time::Duration>()
+            <= tune.wall
+    );
+    assert_eq!(tune.short_circuit, None);
+    assert!(!tune.dry_run);
+
+    let sessions = records::sessions(&database);
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(tunes[0].stamp.session, sessions[0].id);
+}
+
+/// A tune stopped by the short circuit records which candidate stopped it.
+#[test_log::test]
+#[cfg(all(feature = "std", autotune_persistence, not(target_family = "wasm")))]
+#[serial_test::serial]
+fn a_short_circuited_tune_records_where_it_stopped() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{self, RecordLevel};
+    use cubecl_server::tune::{TuneRecord, Tuner};
+
+    let root = tempfile::tempdir().unwrap();
+    cubecl_environment::environment::set_root(root.path());
+    records::configure(RecordLevel::Basic, None);
+
+    let client = test_client(&DummyDevice);
+    let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let set = dummy::bounded_addition_set_slow_first(test_client(&DummyDevice), shapes, 1.0, 1.0);
+    let handles = vec![
+        client.create_from_slice(&[0, 1, 2]),
+        client.create_from_slice(&[4, 4, 4]),
+        client.empty(3),
+    ];
+    let key = set.generate_key(&handles);
+
+    let tuner: Tuner<String> = Tuner::new("short-circuited", "device0");
+    tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+
+    let database = Database::open_active().unwrap();
+    let tunes = records::read::<TuneRecord<String>>(&database, TuneRecord::<String>::KIND);
+    let tune = &tunes.last().unwrap().record;
+    assert_eq!(tune.short_circuit.as_deref(), Some("add_slow_wrong"));
+    // How many ran before the limit was met is the scheduler's business: the
+    // adaptive one warms the whole round up first.
+    assert!(
+        tune.trials
+            .iter()
+            .any(|trial| trial.name == "add_slow_wrong")
+    );
+}
+
+/// Recording off writes nothing, and the tune answers as before.
+#[test_log::test]
+#[cfg(all(feature = "std", autotune_persistence))]
+#[serial_test::serial]
+fn nothing_is_recorded_when_records_are_off() {
+    use cubecl_environment::persistence::Database;
+    use cubecl_environment::records::{self, RecordLevel};
+    use cubecl_server::tune::{TuneCacheResult, TuneRecord, Tuner};
+
+    let root = tempfile::tempdir().unwrap();
+    cubecl_environment::environment::set_root(root.path());
+    records::configure(RecordLevel::Off, None);
+
+    let client = test_client(&DummyDevice);
+    let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let set = dummy::addition_set(test_client(&DummyDevice), shapes);
+    let handles = vec![
+        client.create_from_slice(&[0, 1, 2]),
+        client.create_from_slice(&[4, 4, 4]),
+        client.empty(3),
+    ];
+    let key = set.generate_key(&handles);
+    let tuner: Tuner<String> = Tuner::new("unrecorded", "device0");
+    let answer = tuner.check_tune(
+        &key,
+        &handles,
+        &set,
+        || set.compute_checksum(),
+        &client,
+        None,
+    );
+    records::configure(RecordLevel::Basic, None);
+
+    assert!(matches!(answer, TuneCacheResult::Hit { .. }));
+    let database = Database::open_active().unwrap();
+    assert!(records::read::<TuneRecord<String>>(&database, TuneRecord::<String>::KIND).is_empty());
+}
+
 /// A throughput bound with a generous `time_limit` makes the tuner short-circuit: it
 /// accepts the first candidate whose median is under the limit and never benchmarks the
 /// rest. The set registers the slow+wrong kernel first, so a hit proves the faster `add`

@@ -112,6 +112,10 @@ pub(crate) struct TuneCache<K> {
     /// [`Self::in_memory_cache`] once hydrated, not here.
     #[cfg(autotune_persistence)]
     persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
+    /// The namespace the table is stored under, whether or not it is
+    /// persisted: what a [record](super::TuneRecord) names it by.
+    #[cfg(autotune_persistence)]
+    table: String,
     /// Whether everything the store holds has been ingested into
     /// [`Self::in_memory_cache`]. What makes an ordinary miss cost a bool
     /// check rather than a walk; `false` while an asynchronous storage
@@ -153,11 +157,14 @@ impl<K: AutotuneKey> TuneCache<K> {
             use alloc::format;
 
             let config = crate::config::CubeClRuntimeConfig::get();
+            let namespace = Namespace::scoped("autotune", format!("{device_id}/{name}"));
+            let table = namespace.as_str().into();
 
             if config.autotune.disable_cache {
                 return TuneCache {
                     in_memory_cache: HashMap::new(),
                     persistent_cache: None,
+                    table,
                     hydrated: true,
                     generation: cubecl_environment::environment::generation(),
                 };
@@ -167,7 +174,6 @@ impl<K: AutotuneKey> TuneCache<K> {
             // reads as "rebuild", never as "this state belongs to the new
             // environment".
             let generation = cubecl_environment::environment::generation();
-            let namespace = Namespace::scoped("autotune", format!("{device_id}/{name}"));
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
                 persistent_cache: Some(Store::new(
@@ -175,6 +181,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                         .storage(namespace)
                         .cache(CacheOption::Lazy),
                 )),
+                table,
                 hydrated: false,
                 generation,
             };
@@ -326,6 +333,11 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.hydrated = complete;
 
         delivered
+    }
+
+    /// The namespace the table is stored under.
+    pub(crate) fn table(&self) -> &str {
+        &self.table
     }
 
     pub(crate) fn persistent_cache_insert(

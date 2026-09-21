@@ -148,6 +148,8 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     #[cfg(autotune_persistence)]
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
+    #[cfg(autotune_persistence)]
+    recording: Option<crate::tune::record::Recording>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
@@ -164,6 +166,8 @@ impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
             limit: self.limit,
             #[cfg(autotune_persistence)]
             bounds: self.bounds,
+            #[cfg(autotune_persistence)]
+            recording: self.recording,
         }
     }
 }
@@ -184,6 +188,8 @@ struct TuneRequest<K: AutotuneKey> {
     limit: Option<Duration>,
     #[cfg(autotune_persistence)]
     bounds: Option<crate::tune::Bounds>,
+    #[cfg(autotune_persistence)]
+    recording: Option<crate::tune::record::Recording>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -296,6 +302,11 @@ impl<K: AutotuneKey> Tuner<K> {
             return TuneCacheResult::Hit { fastest_index: 0 };
         }
 
+        // After the fast path: a key with one candidate is answered, not
+        // tuned, and leaves nothing to record.
+        #[cfg(autotune_persistence)]
+        let recording = crate::tune::record::Recording::start(&mut log_context);
+
         let test_inputs = tunables.generate_inputs(key, inputs);
         let plan = tunables.plan(key);
         let bounds = tunables.bounds(key, inputs);
@@ -329,6 +340,8 @@ impl<K: AutotuneKey> Tuner<K> {
             #[cfg(autotune_persistence)]
             checksum,
             log_context,
+            #[cfg(autotune_persistence)]
+            recording,
         };
 
         #[cfg(not(target_family = "wasm"))]
@@ -578,6 +591,8 @@ async fn process_request<K: AutotuneKey>(
         limit,
         #[cfg(autotune_persistence)]
         bounds,
+        #[cfg(autotune_persistence)]
+        recording,
     } = request;
 
     // Resolved concurrently, and each benchmark timed individually rather than timing the loop:
@@ -648,6 +663,20 @@ async fn process_request<K: AutotuneKey>(
         // In-memory regardless: without it this key re-tunes on every call, and
         // a tune that measured nothing would keep failing the same way.
         cache.lock().cache_insert(key.clone(), fastest_index);
+
+        #[cfg(autotune_persistence)]
+        if let Some(recording) = recording {
+            let table = cache.lock().table().to_string();
+            recording.finish(
+                crate::tune::record::Answer {
+                    table: &table,
+                    key: &key,
+                    checksum: &checksum,
+                    winner: fastest_index,
+                },
+                log_context.as_ref(),
+            );
+        }
 
         // Not on disk, though. An unmeasured decision is a guess made to keep
         // the device thread alive, and the failures that produce one — a

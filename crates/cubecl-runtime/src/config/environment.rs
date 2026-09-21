@@ -14,6 +14,10 @@ use super::cache::CacheConfig;
 /// [environment]
 /// name = "h100"
 /// path = "target"
+///
+/// [environment.records]
+/// level = "basic"
+/// keep_sessions = 8
 /// ```
 ///
 /// `CUBECL_ENVIRONMENT` overrides the name.
@@ -30,6 +34,24 @@ pub struct EnvironmentConfig {
     #[cfg(std_io)]
     #[serde(default)]
     pub path: CacheConfig,
+
+    /// What the environment remembers of how it was built.
+    #[serde(default)]
+    pub records: RecordsConfig,
+}
+
+/// How much an environment records of its own build; see
+/// [`cubecl_environment::records`].
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct RecordsConfig {
+    /// `basic` by default: every record, without the heavy parts.
+    #[serde(default)]
+    pub level: cubecl_environment::records::RecordLevel,
+
+    /// How many sessions an environment keeps; the oldest beyond it are
+    /// pruned when a session starts. Every session is kept when unset.
+    #[serde(default)]
+    pub keep_sessions: Option<u32>,
 }
 
 fn default_name() -> String {
@@ -42,6 +64,7 @@ impl Default for EnvironmentConfig {
             name: default_name(),
             #[cfg(std_io)]
             path: CacheConfig::default(),
+            records: RecordsConfig::default(),
         }
     }
 }

@@ -55,6 +55,10 @@ impl RuntimeConfig for CubeClRuntimeConfig {
         cubecl_environment::stream::set_policy_from_config(self.streaming.policy);
         // Before any device is initialized, so every cache opened afterwards
         // lands in the chosen environment.
+        cubecl_environment::records::configure(
+            self.environment.records.level,
+            self.environment.records.keep_sessions,
+        );
         cubecl_environment::environment::activate(&self.environment.name);
         #[cfg(std_io)]
         cubecl_environment::environment::set_root(self.environment.path.root());
