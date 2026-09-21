@@ -48,9 +48,10 @@ pub struct HardwareProperties {
     pub max_units_per_cube: u32,
     /// Maximum `CubeDim` in x, y, and z dimensions
     pub max_cube_dim: (u32, u32, u32),
-    /// Number of streaming multiprocessors (SM), if available
+    /// Number of streaming multiprocessors (SM). `None` says the device has none, as a CPU does,
+    /// or that the runtime reads none, so it never stands for a device holding one.
     pub num_streaming_multiprocessors: Option<u32>,
-    /// Number of available parallel cpu units, if the runtime is CPU.
+    /// Number of available parallel cpu units, and `None` on a device that is not a CPU.
     pub num_cpu_cores: Option<u32>,
     /// Bytes of the device's last level cache, and `None`, never `Some(0)`,
     /// where the runtime cannot read one.
@@ -58,9 +59,11 @@ pub struct HardwareProperties {
     /// The size a working set has to outgrow before what it reaches is set by
     /// memory rather than by the chip.
     pub last_level_cache_size: Option<usize>,
-    /// Number of tensor cores per SM, if any
+    /// Number of tensor cores per SM. `None` says the device has none or that the runtime does
+    /// not count them, so a device reporting none can still take a matrix instruction.
     pub num_tensor_cores: Option<u32>,
-    /// The minimum tiling dimension for a single axis in tensor cores.
+    /// The minimum tiling dimension for a single axis in tensor cores, and `None` on a device
+    /// that takes no matrix instruction.
     ///
     /// For a backend that only supports 16x16x16, the value would be 16.
     /// For a backend that also supports 32x8x16, the value would be 8.
