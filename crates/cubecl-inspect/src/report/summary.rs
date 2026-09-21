@@ -16,8 +16,8 @@ pub struct Summary {
     /// one, which carries no manifest.
     pub manifest: Option<BundleManifest>,
     pub namespaces: Vec<NamespaceRow>,
-    /// The processes that recorded into the file, oldest first: for a saved
-    /// environment, the build.
+    /// The processes that changed the file, oldest first — its builds, a
+    /// warm-up that found everything done leaving none.
     pub sessions: Vec<SessionRow>,
     /// What the application that wrote the file says it is for. The reader
     /// knows no application's vocabulary and leaves it empty; one that does

@@ -109,6 +109,12 @@ impl Recording {
             wall: self.started.elapsed(),
             dry_run: self.dry_run,
         };
-        records::write_stamped(TuneRecord::<K>::KIND, self.stamp, &record);
+        // A tune stores a winner, which is the environment changing.
+        records::write_stamped(
+            TuneRecord::<K>::KIND,
+            self.stamp,
+            records::RecordEffect::Changed,
+            &record,
+        );
     }
 }

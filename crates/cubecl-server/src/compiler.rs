@@ -11,6 +11,7 @@ use cubecl_environment::collections::HashMap;
 #[cfg(std_io)]
 use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
 use cubecl_environment::persistence::{Store, StoreKey, StoreValue};
+use cubecl_environment::records::RecordEffect;
 
 /// Platform-specific build identifier, changes on rebuild
 pub type BuildId = Option<&'static [u8]>;
@@ -142,12 +143,13 @@ impl CompilationRecording {
         })
     }
 
-    /// The artifact came from the compilation store.
+    /// The artifact came from the compilation store: the environment did not
+    /// change.
     pub fn loaded(self) {
         let outcome = CompilationOutcome::Loaded {
             duration: self.started.elapsed(),
         };
-        self.write(outcome, None);
+        self.write(outcome, RecordEffect::Observed, None);
     }
 
     /// Whether the record keeps the kernel's source: only at
@@ -163,10 +165,15 @@ impl CompilationRecording {
         let outcome = CompilationOutcome::Compiled {
             duration: self.started.elapsed(),
         };
-        self.write(outcome, source);
+        self.write(outcome, RecordEffect::Changed, source);
     }
 
-    fn write(self, outcome: CompilationOutcome, source: Option<alloc::string::String>) {
+    fn write(
+        self,
+        outcome: CompilationOutcome,
+        effect: RecordEffect,
+        source: Option<alloc::string::String>,
+    ) {
         let record = CompilationRecord {
             kernel: self.kernel.into(),
             id: self.id,
@@ -174,7 +181,12 @@ impl CompilationRecording {
             outcome,
             source,
         };
-        cubecl_environment::records::write_stamped(CompilationRecord::KIND, self.stamp, &record);
+        cubecl_environment::records::write_stamped(
+            CompilationRecord::KIND,
+            self.stamp,
+            effect,
+            &record,
+        );
     }
 }
 

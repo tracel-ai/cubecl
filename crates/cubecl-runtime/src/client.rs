@@ -1457,7 +1457,11 @@ impl Client {
             label: label.into(),
             report: self.memory_report(),
         };
-        cubecl_environment::records::write(crate::memory_management::MemoryRecord::KIND, &record);
+        cubecl_environment::records::write(
+            crate::memory_management::MemoryRecord::KIND,
+            cubecl_environment::records::RecordEffect::Observed,
+            &record,
+        );
     }
 
     /// Change the memory allocation mode.

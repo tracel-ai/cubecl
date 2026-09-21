@@ -1309,7 +1309,8 @@ fn a_compilation_is_recorded_with_its_outcome() {
 }
 
 /// A memory snapshot is recorded under the caller's label, carrying the same
-/// report the client answers.
+/// report the client answers — kept once the session changes something, as a
+/// build's does.
 #[test_log::test]
 #[cfg(all(feature = "std", autotune_persistence))]
 #[serial_test::serial]
@@ -1325,8 +1326,13 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     let client = test_client(&DummyDevice);
     let _held = client.create_from_slice(&[1, 2, 3]);
     client.record_memory("model loaded");
-
     let database = Database::open_active().unwrap();
+    assert!(
+        records::read::<MemoryRecord>(&database, MemoryRecord::KIND).is_empty(),
+        "held until the session changes something"
+    );
+    records::write("test", records::RecordEffect::Changed, &1u32);
+
     let snapshots = records::read::<MemoryRecord>(&database, MemoryRecord::KIND);
     assert_eq!(snapshots.len(), 1);
     assert_eq!(snapshots[0].record.label, "model loaded");
