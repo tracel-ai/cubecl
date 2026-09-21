@@ -17,41 +17,71 @@ use cubecl_core as cubecl;
 
 /// The sign bit of an `e2m1` code.
 const SIGN: u32 = 0x8;
-/// The two exponent bits, once shifted down.
-const EXPONENT: u32 = 0x3;
 /// The single mantissa bit.
 const MANTISSA: u32 = 0x1;
 /// The low nibble of a byte, one `e2m1` code.
 const NIBBLE: u32 = 0xF;
+/// A code's magnitude: its exponent and its mantissa, the sign left behind.
+const MAGNITUDE: u32 = 0x7;
+
+/// Where a code's magnitude bits land in an `f32`.
+///
+/// Both formats lay a number out the same way — sign, exponent, mantissa, most significant
+/// first — so a code's three magnitude bits are already an `f32`'s three most significant value
+/// bits, in order. An `f32`'s exponent field starts at bit 23 and a code's exponent is two bits
+/// wide, so the whole magnitude moves up by this one shift and the mantissa bit lands at 22.
+const MAGNITUDE_SHIFT: u32 = 22;
+
+/// The `f32` an `e2m1` exponent of zero would name, which is both the bias the normal arm adds
+/// and the one non-zero subnormal magnitude.
+///
+/// As a bias it is `126 << 23`: a code's exponent `e` means `2^(e-1)`, and an `f32`'s field of
+/// `126 + e` means the same. As a value it is `0.5` — a field of 126 with an empty mantissa —
+/// which is the only magnitude the subnormal arm has besides zero. One constant serves both
+/// because they are the same number for the same reason.
+const EXPONENT_BIAS: u32 = 126 << 23;
+
+/// The shift from a code's sign bit to an `f32`'s.
+const SIGN_SHIFT: u32 = 28;
 
 /// Decode one `e2m1` code per lane, held in the low nibble of each lane of `code`.
 ///
 /// The upper bits of a lane are ignored, so a caller may hand over an unmasked field.
+///
+/// The decode is an assembly of the `f32`'s bits, not arithmetic over its value. `e2m1` and
+/// `f32` are the same shape of number, so a code's magnitude bits are already an `f32`'s top
+/// value bits and only have to be moved into place and biased — where computing `(1 + m/2) *
+/// 2^(e-1)` term by term costs two integer-to-float conversions and three multiplies to reach
+/// one of sixteen possible numbers. The subnormal arm is the one place the two layouts
+/// genuinely disagree and the one place a select is owed.
 #[cube]
 pub fn e2m1_bits_to_float<F: Numeric, N: Size>(code: Vector<u32, N>) -> Vector<F, N> {
-    let exponent = (code >> Vector::new(1u32)) & Vector::new(EXPONENT);
+    let magnitude = code & Vector::new(MAGNITUDE);
+
+    // `exp >= 1` is `(1 + m/2) * 2^(exp-1)`, which is what an `f32` with exponent field
+    // `126 + exp` and mantissa bit `m` already means. The add cannot carry out of the exponent
+    // field: `exp` is at most three, and `126 + 3` still fits it.
+    let normal = (magnitude << Vector::new(MAGNITUDE_SHIFT)) + Vector::new(EXPONENT_BIAS);
+
+    // `exp == 0` is the subnormal arm, `m * 0.5`, so its two codes are `0.0` and `0.5` where
+    // the assembly above reads `0.5` and `0.75`. Both of those are the bias constant, kept or
+    // cleared by the mantissa bit.
     let mantissa = code & Vector::new(MANTISSA);
+    let subnormal = select_many(
+        mantissa.equal(&Vector::new(MANTISSA)),
+        Vector::new(EXPONENT_BIAS),
+        Vector::new(0u32),
+    );
 
-    // The mantissa bit is worth half a step in both arms, which is what lets one term serve both.
-    let half = Vector::<f32, N>::cast_from(mantissa) * Vector::new(0.5f32);
+    // A magnitude above one is a non-zero exponent, the mantissa bit being all that lies below.
+    let bits = select_many(magnitude.greater_than(&Vector::new(MANTISSA)), normal, subnormal);
 
-    // `exp == 0` is the subnormal arm: the mantissa bit alone, stepping by 0.5.
-    let subnormal = half;
+    // The sign rides as the bit it is rather than negating a magnitude. That is a shift and an
+    // or against a compare, a negate and a select — and it is also the only form that reaches
+    // `-0.0`, which code `0x8` names and the host codec produces.
+    let sign = (code & Vector::new(SIGN)) << Vector::new(SIGN_SHIFT);
 
-    // `exp >= 1` is `(1 + m/2) * 2^(exp-1)`. The power is taken as `(1 << exp) / 2` rather than
-    // `1 << (exp - 1)`: every lane evaluates both arms, and a subnormal lane shifting by `-1`
-    // would be a wrapped shift on most ISAs rather than an unused value.
-    let power = Vector::<f32, N>::cast_from(Vector::new(1u32) << exponent) * Vector::new(0.5f32);
-    let normal = (Vector::new(1.0f32) + half) * power;
-
-    let magnitude = select_many(exponent.equal(&Vector::new(0u32)), subnormal, normal);
-
-    // Negating the magnitude rather than stamping the sign onto a bit pattern keeps `-0.0`
-    // decoding as `-0.0`, which is what the host codec produces for code `0x8`.
-    let negative = (code & Vector::new(SIGN)).equal(&Vector::new(SIGN));
-    let signed = select_many(negative, -magnitude, magnitude);
-
-    Vector::<F, N>::cast_from(signed)
+    Vector::<F, N>::cast_from(Vector::<f32, N>::reinterpret(bits | sign))
 }
 
 /// Decode the `N` `e2m1` codes packed into the low `4 * N` bits of `word`, lowest nibble first.
