@@ -81,8 +81,9 @@ pub struct CompilationRecord {
     /// kernel type apart.
     pub key: KernelCacheKey,
     /// The kernel as cubecl defined it, before the backend's compiler — the
-    /// IR's textual form, for a reader to render. Only a fresh compile
-    /// defines the kernel, so a store load carries none.
+    /// IR's textual form, for a reader to render — at
+    /// [`RecordLevel::Full`](cubecl_environment::records::RecordLevel::Full).
+    /// Only a fresh compile defines the kernel, so a store load carries none.
     pub ir: Option<alloc::string::String>,
     /// How the artifact was obtained, and what it cost.
     pub outcome: CompilationOutcome,
@@ -146,9 +147,13 @@ impl CompilationRecording {
     }
 
     /// Keep the kernel's IR, from the definition the backend is about to
-    /// compile.
+    /// compile — at [`RecordLevel::Full`](cubecl_environment::records::RecordLevel::Full)
+    /// only, beside the source: the textual IR runs to hundreds of KB per
+    /// kernel, where the compiled artifact is tens.
     pub fn defined(&mut self, definition: &crate::kernel::KernelDefinition) {
-        self.ir = Some(alloc::format!("{}", definition.body));
+        if self.wants_source() {
+            self.ir = Some(alloc::format!("{}", definition.body));
+        }
     }
 
     /// The artifact came from the compilation store: the environment did not
