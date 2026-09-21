@@ -44,7 +44,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::bytes::Bytes;
 use cubecl_opt::passes::{
     annotate_buffer_visibility::AnnotateGlobalVisibilityPass, inst_combine::InstCombinePass,
-    sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
+    quotient_range::QuotientRangePass, sccp::SCCPPass, simple_cse::SimpleCSEPass, sroa::SROAPass,
 };
 use cubecl_runtime::{
     compiler::CompilationError, config::compilation::F16Evaluation, kernel::BufferIOAttr,
@@ -415,6 +415,7 @@ fn lower(
     func_passes.add_pass(SimpleCSEPass::with_memory());
     func_passes.add_pass(SimplifyOpsPass::default());
     func_passes.add_pass(PromoteBitwisePass);
+    func_passes.add_pass(QuotientRangePass::default());
     func_passes.add_pass(InstCombinePass::default());
     func_passes.add_pass(LowerMinifloatCastPass::default());
     func_passes.add_pass(LowerMinifloatComparePass::default());
