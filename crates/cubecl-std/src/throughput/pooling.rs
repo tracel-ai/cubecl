@@ -152,8 +152,6 @@ mod tests {
         assert!(!released);
     }
 
-    /// A release is a submit that blocks until the device thread drains it,
-    /// and that thread takes this lock when it autotunes.
     #[test]
     fn a_release_is_issued_with_the_lock_dropped() {
         use std::{sync::mpsc, time::Duration};

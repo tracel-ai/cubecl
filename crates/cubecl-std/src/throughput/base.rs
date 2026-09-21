@@ -103,7 +103,6 @@ pub fn measure_peak_throughput(
         probe(client, key)
     });
 
-    // A cached answer left no pools behind to release.
     if probed {
         PooledProbes::cleanup_unless_held(client);
     }
