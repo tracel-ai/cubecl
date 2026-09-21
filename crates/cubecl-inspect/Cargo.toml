@@ -1,0 +1,37 @@
+[package]
+authors = ["Nathaniel Simard (@nathanielsimard)"]
+categories = ["development-tools", "command-line-utilities"]
+description = "Reads a CubeCL environment back: what it holds, how each autotune key was decided, where a build's time went, and which candidates earn their place"
+edition.workspace = true
+keywords = ["gpu", "autotune", "inspect"]
+license.workspace = true
+name = "cubecl-inspect"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-inspect"
+version.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# `tui`: the reports in a terminal browser, re-read as the file changes.
+tui = ["dep:ratatui"]
+
+[dependencies]
+# Decodes the stored autotune keys generically: serde's CBOR carries field
+# names, so any tuner's key renders without its type.
+ciborium = { workspace = true, features = ["std"] }
+clap = { workspace = true, features = ["derive"] }
+# The database, its summary, the bundle manifest and the records.
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.4", features = ["cache"] }
+# The persisted autotune values and the build records, decoded as the
+# runtime wrote them.
+cubecl-server = { path = "../cubecl-server", version = "=0.11.0-pre.4", features = ["std"] }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm", "layout-cache"], optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["std"] }
+thiserror = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
