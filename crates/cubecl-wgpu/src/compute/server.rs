@@ -30,7 +30,6 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 #[cfg(feature = "spirv")]
 use cubecl_environment::persistence::Store;
-use cubecl_environment::records::RecordEffect;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::compiler::CompilationRecording;
@@ -319,9 +318,9 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             .map(|_| compiled.source.clone());
 
         // Only a SPIR-V kernel is stored: any other build changes nothing.
-        let effect = RecordEffect::Observed;
+        let stored = false;
         #[cfg(feature = "spirv")]
-        let effect = match (cached, auto_repr) {
+        let stored = match (cached, auto_repr) {
             (Some(Err(key)), Some(crate::AutoRepresentation::SpirV(kernel))) => {
                 let cache = self.spirv_cache.as_mut().unwrap();
                 store_compiled(
@@ -330,10 +329,10 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                     cubecl_spirv::SpirvCacheEntry::new(compiled.entrypoint_name, kernel),
                 )
             }
-            _ => effect,
+            _ => stored,
         };
         if let Some(recording) = recording {
-            recording.compiled(source, effect);
+            recording.compiled(source, stored);
         }
 
         Ok((pipeline, compiler_info, io))

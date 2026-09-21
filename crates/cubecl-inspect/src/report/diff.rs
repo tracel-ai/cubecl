@@ -9,7 +9,8 @@ use std::time::Duration;
 ///
 /// A key is matched by its tuner, its device and its value — not by the
 /// cubecl version in its namespace, so two builds a version apart still
-/// compare. Winners that differ between two builds of the same settings are
+/// compare. A file that answers one key under several versions answers it
+/// with its newest. Winners that differ between two builds of the same settings are
 /// the run-to-run variance that makes a loaded file compile kernels its build
 /// never did.
 #[derive(Clone, Debug, Serialize)]
@@ -120,12 +121,12 @@ impl EnvironmentDiff {
             before: None,
             after: None,
         };
-        for key in &before.1.keys {
+        for key in newest(before.1).into_values() {
             keys.entry(Identity::from(key))
                 .or_insert_with(|| blank(key))
                 .before = Some(Answer::from(key));
         }
-        for key in &after.1.keys {
+        for key in newest(after.1).into_values() {
             keys.entry(Identity::from(key))
                 .or_insert_with(|| blank(key))
                 .after = Some(Answer::from(key));
@@ -140,5 +141,44 @@ impl EnvironmentDiff {
     /// The keys whose change is `change`.
     pub fn with(&self, change: KeyChange) -> impl Iterator<Item = &KeyDiff> {
         self.keys.iter().filter(move |key| key.change() == change)
+    }
+}
+
+/// Each key of `report` once: when several cubecl versions answer it, the
+/// newest's answer, versions compared by number rather than as text, where
+/// `0.9` would pass `0.10`.
+fn newest(report: &AutotuneReport) -> BTreeMap<Identity, &TunedKey> {
+    let mut newest = BTreeMap::<Identity, &TunedKey>::new();
+    for key in &report.keys {
+        newest
+            .entry(Identity::from(key))
+            .and_modify(|kept| {
+                if version(&key.table.version) > version(&kept.table.version) {
+                    *kept = key;
+                }
+            })
+            .or_insert(key);
+    }
+    newest
+}
+
+/// A version's numbers, `0.10.0` as `[0, 10, 0]`, for ordering; a part that
+/// is not a number, a pre-release tag, orders as zero.
+fn version(version: &str) -> Vec<u64> {
+    version
+        .split(['.', '-', '+'])
+        .map(|part| part.parse().unwrap_or(0))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versions_order_by_number() {
+        assert!(version("0.10.0") > version("0.9.0"));
+        assert!(version("0.9.1") > version("0.9.0"));
+        assert_eq!(version("0.11.0"), version("0.11.0"));
     }
 }

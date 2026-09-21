@@ -719,12 +719,12 @@ pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
     #[cfg(std_io)]
     let reference_name = reference.0;
 
-    let recorder_enabled = is_recorder_enabled();
+    let decisions_enabled = is_decisions_enabled();
 
     #[cfg(std_io)]
     {
         let reference_passed = reference_result.is_ok();
-        let mut check_results = execute_checks(checks_outputs, reference_result, recorder_enabled);
+        let mut check_results = execute_checks(checks_outputs, reference_result, decisions_enabled);
         check_results.push(crate::tune::log::CheckResult {
             name: reference_name,
             passed: reference_passed,
@@ -735,25 +735,25 @@ pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
 
     #[cfg(not(std_io))]
     {
-        execute_checks(checks_outputs, reference_result, recorder_enabled)
+        execute_checks(checks_outputs, reference_result, decisions_enabled)
     }
 }
 
-/// Whether a mismatch should be collected rather than fatal: it can only be reported if something
-/// is recording the results, so with no recorder a failed check panics on the spot instead of
-/// passing silently.
+/// Whether a mismatch should be collected rather than fatal: it can only be reported if decisions
+/// are written somewhere, so without a sink a failed check panics on the spot instead of passing
+/// silently.
 #[cfg(feature = "autotune-checks")]
-fn is_recorder_enabled() -> bool {
+fn is_decisions_enabled() -> bool {
     crate::config::CubeClRuntimeConfig::get()
         .autotune
-        .recorder_enabled()
+        .decisions_enabled()
 }
 
 #[cfg(feature = "autotune-checks")]
 fn execute_checks<O: AutotuneOutput>(
     checks_outputs: Vec<(String, Result<O, AutotuneError>)>,
     reference_result: Result<O, AutotuneError>,
-    recorder_enabled: bool,
+    decisions_enabled: bool,
 ) -> Vec<crate::tune::log::CheckResult> {
     let mut check_results = Vec::new();
 
@@ -769,7 +769,7 @@ fn execute_checks<O: AutotuneOutput>(
 
     for (name, other_result) in checks_outputs.into_iter() {
         if let Ok(other) = other_result {
-            let passed = check_equivalence(&reference, other, recorder_enabled);
+            let passed = check_equivalence(&reference, other, decisions_enabled);
             check_results.push(crate::tune::log::CheckResult { name, passed });
         } else {
             check_results.push(crate::tune::log::CheckResult {
@@ -783,10 +783,10 @@ fn execute_checks<O: AutotuneOutput>(
 }
 
 #[cfg(feature = "autotune-checks")]
-fn check_equivalence<O: AutotuneOutput>(reference: &O, other: O, recorder_enabled: bool) -> bool {
+fn check_equivalence<O: AutotuneOutput>(reference: &O, other: O, decisions_enabled: bool) -> bool {
     // When the results are being recorded, we catch the panic so we can collect and report every
     // check failure. With nothing recording, we let it panic immediately rather than pass silently.
-    if recorder_enabled {
+    if decisions_enabled {
         #[cfg(std_io)]
         {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

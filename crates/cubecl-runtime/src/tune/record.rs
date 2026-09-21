@@ -10,7 +10,7 @@ use crate::tune::{AutotuneLogContext, AutotuneLogEvent};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
-use cubecl_environment::records::{self, Record, RecordEffect, Stamp};
+use cubecl_environment::records::{Record, RecordEffect, Span};
 use serde::{Deserialize, Serialize};
 
 /// How one autotune key was decided.
@@ -58,8 +58,7 @@ impl<K> Record for TuneRecord<K> {
 /// A tune being recorded: stamped when it began, written when it ends.
 #[derive(Debug)]
 pub(crate) struct TuneRecording {
-    stamp: Stamp,
-    started: cubecl_common::profile::Instant,
+    span: Span,
     dry_run: bool,
 }
 
@@ -76,13 +75,12 @@ pub(crate) struct Answer<'a, K> {
 impl TuneRecording {
     /// Begin recording a tune, when the environment records. The steps are
     /// collected by the log context, which is created for the purpose when
-    /// neither the logger nor the recorder asked for one.
+    /// neither the logger nor the decisions asked for one.
     pub(crate) fn new(log_context: &mut Option<AutotuneLogContext>) -> Option<Self> {
-        let stamp = records::stamp()?;
+        let span = Span::new()?;
         log_context.get_or_insert_with(AutotuneLogContext::default);
         Some(Self {
-            stamp,
-            started: cubecl_common::profile::Instant::now(),
+            span,
             dry_run: crate::dry_run::dry_run(),
         })
     }
@@ -93,6 +91,10 @@ impl TuneRecording {
         answer: Answer<'_, K>,
         log_context: Option<&AutotuneLogContext>,
     ) {
+        // A tune the environment switched away from went with its session.
+        let Some(wall) = self.span.elapsed() else {
+            return;
+        };
         let mut trials = Vec::new();
         let mut short_circuit = None;
         for event in log_context.iter().flat_map(|context| &context.events) {
@@ -111,7 +113,7 @@ impl TuneRecording {
             winner: answer.winner,
             trials,
             short_circuit,
-            wall: self.started.elapsed(),
+            wall,
             dry_run: self.dry_run,
             stored: answer.stored,
         };
@@ -122,6 +124,6 @@ impl TuneRecording {
         } else {
             RecordEffect::Observed
         };
-        records::write_stamped(self.stamp, effect, &record);
+        self.span.close(effect, &record);
     }
 }

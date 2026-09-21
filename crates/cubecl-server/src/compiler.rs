@@ -11,7 +11,7 @@ use cubecl_environment::collections::HashMap;
 #[cfg(std_io)]
 use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
 use cubecl_environment::persistence::{Store, StoreKey, StoreValue};
-use cubecl_environment::records::{Record, RecordEffect, RecordLevel};
+use cubecl_environment::records::{Record, RecordEffect, RecordLevel, Span};
 
 /// Platform-specific build identifier, changes on rebuild
 pub type BuildId = Option<&'static [u8]>;
@@ -57,8 +57,7 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
 }
 
 /// Stores a freshly compiled artifact, logging rather than failing, and says
-/// what that did to the environment: [`Changed`](RecordEffect::Changed) when
-/// the store took it.
+/// whether the store took it.
 ///
 /// A refused write is routine, not exceptional: another process sharing the
 /// environment may have written the key first, or the backing store may have
@@ -68,12 +67,12 @@ pub fn store_compiled<K: StoreKey, V: StoreValue>(
     store: &mut Store<K, V>,
     key: K,
     value: V,
-) -> RecordEffect {
+) -> bool {
     match store.insert(key, value) {
-        Ok(()) => RecordEffect::Changed,
+        Ok(()) => true,
         Err(err) => {
             log::warn!("Unable to cache the compiled kernel: {}", err.reason());
-            RecordEffect::Observed
+            false
         }
     }
 }
@@ -133,8 +132,7 @@ impl Record for CompilationRecord {
 /// artifact was obtained. `None` when the environment records nothing.
 #[derive(Debug)]
 pub struct CompilationRecording {
-    stamp: cubecl_environment::records::Stamp,
-    started: cubecl_common::profile::Instant,
+    span: Span,
     kernel: &'static str,
     key: KernelCacheKey,
     ir: Option<alloc::string::String>,
@@ -143,10 +141,8 @@ pub struct CompilationRecording {
 impl CompilationRecording {
     /// Start recording `kernel_id`'s trip, when the environment records.
     pub fn new(kernel_id: &KernelId) -> Option<Self> {
-        let stamp = cubecl_environment::records::stamp()?;
         Some(Self {
-            stamp,
-            started: cubecl_common::profile::Instant::now(),
+            span: Span::new()?,
             kernel: kernel_id.type_name(),
             key: KernelCacheKey::new(kernel_id, build_id_hash()),
             ir: None,
@@ -166,10 +162,11 @@ impl CompilationRecording {
     /// The artifact came from the compilation store: the environment did not
     /// change.
     pub fn loaded(self) {
-        let outcome = CompilationOutcome::Loaded {
-            duration: self.started.elapsed(),
-        };
-        self.write(outcome, RecordEffect::Observed, None);
+        self.close(
+            |duration| CompilationOutcome::Loaded { duration },
+            RecordEffect::Observed,
+            None,
+        );
     }
 
     /// Whether the record keeps the kernel's code, its IR and its source:
@@ -180,30 +177,39 @@ impl CompilationRecording {
     }
 
     /// The artifact was compiled, from `source` when the record
-    /// [keeps code](Self::keeps_code). `effect` is what storing it did, as
-    /// [`store_compiled`] answers: a compile the store did not take, or with
-    /// no store to take it, changed nothing.
-    pub fn compiled(self, source: Option<alloc::string::String>, effect: RecordEffect) {
-        let outcome = CompilationOutcome::Compiled {
-            duration: self.started.elapsed(),
+    /// [keeps code](Self::keeps_code). `stored` is whether the store took
+    /// it, as [`store_compiled`] answers: a compile the store did not take,
+    /// or with no store to take it, changed nothing.
+    pub fn compiled(self, source: Option<alloc::string::String>, stored: bool) {
+        let effect = if stored {
+            RecordEffect::Changed
+        } else {
+            RecordEffect::Observed
         };
-        self.write(outcome, effect, source);
+        self.close(
+            |duration| CompilationOutcome::Compiled { duration },
+            effect,
+            source,
+        );
     }
 
-    fn write(
+    fn close(
         self,
-        outcome: CompilationOutcome,
+        outcome: impl FnOnce(core::time::Duration) -> CompilationOutcome,
         effect: RecordEffect,
         source: Option<alloc::string::String>,
     ) {
+        let Some(duration) = self.span.elapsed() else {
+            return;
+        };
         let record = CompilationRecord {
             kernel: self.kernel.into(),
             key: self.key,
             ir: self.ir,
-            outcome,
+            outcome: outcome(duration),
             source,
         };
-        cubecl_environment::records::write_stamped(self.stamp, effect, &record);
+        self.span.close(effect, &record);
     }
 }
 
@@ -212,7 +218,9 @@ impl CompilationRecording {
 /// The [id](KernelId) alone doesn't describe what a kernel does: it covers the kernel type, its
 /// comptime arguments and its launch settings, but nothing of the body. Pairing it with a hash of
 /// the expanded IR is what lets a cached artifact be invalidated when the code behind it changes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct KernelCacheKey {
     /// Hash of the [kernel id](KernelId).
     pub id: StableHash,

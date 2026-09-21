@@ -16,25 +16,9 @@ pub struct KernelReport {
     pub unrecorded: u64,
 }
 
-/// The artifacts a file's compilation store holds, by entry, with their size.
-pub type StoredArtifacts = BTreeMap<StoreEntry, u64>;
-
-/// What names an artifact in the compilation store: the kernel id's hash and
-/// the build's — a `KernelCacheKey`, ordered.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct StoreEntry {
-    pub id: u128,
-    pub build: u128,
-}
-
-impl From<&KernelCacheKey> for StoreEntry {
-    fn from(key: &KernelCacheKey) -> Self {
-        Self {
-            id: key.id,
-            build: key.build_id,
-        }
-    }
-}
+/// The artifacts a file's compilation store holds, by the key naming each,
+/// with their size.
+pub type StoredArtifacts = BTreeMap<KernelCacheKey, u64>;
 
 /// A stable handle on one kernel instance: the hash of its id that names its
 /// artifact in the compilation store.
@@ -177,10 +161,10 @@ impl KernelRow {
     }
 
     /// What names the instance's artifact in the store.
-    pub fn entry(&self) -> StoreEntry {
-        StoreEntry {
+    pub fn key(&self) -> KernelCacheKey {
+        KernelCacheKey {
             id: self.id.0,
-            build: self.build.0,
+            build_id: self.build.0,
         }
     }
 }
@@ -201,15 +185,14 @@ impl KernelReport {
     /// Fold the recorded trips by instance, sized from the artifacts the
     /// file `stored`.
     pub fn new(trips: &[CompilationRecord], stored: &StoredArtifacts) -> Self {
-        let mut rows = BTreeMap::<StoreEntry, KernelRow>::new();
+        let mut rows = BTreeMap::<KernelCacheKey, KernelRow>::new();
         for trip in trips {
-            let entry = StoreEntry::from(&trip.key);
-            let row = rows.entry(entry).or_insert_with(|| KernelRow {
+            let row = rows.entry(trip.key).or_insert_with(|| KernelRow {
                 id: KernelHash(trip.key.id),
                 build: BuildHash(trip.key.build_id),
                 kernel: trip.kernel.clone(),
                 ir: None,
-                bytes: stored.get(&entry).copied(),
+                bytes: stored.get(&trip.key).copied(),
                 compiled: 0,
                 loaded: 0,
                 compiling: Duration::ZERO,
@@ -271,17 +254,15 @@ impl KernelReport {
     /// Put the kernels in `order`.
     pub fn sort(&mut self, order: KernelOrder) {
         match order {
-            KernelOrder::Compile => self.kernels.sort_by(|a, b| {
-                b.compiling
-                    .cmp(&a.compiling)
-                    .then(a.entry().cmp(&b.entry()))
-            }),
+            KernelOrder::Compile => self
+                .kernels
+                .sort_by(|a, b| b.compiling.cmp(&a.compiling).then(a.key().cmp(&b.key()))),
             KernelOrder::Size => self
                 .kernels
-                .sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.entry().cmp(&b.entry()))),
+                .sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.key().cmp(&b.key()))),
             KernelOrder::Name => self
                 .kernels
-                .sort_by(|a, b| a.kernel.cmp(&b.kernel).then(a.entry().cmp(&b.entry()))),
+                .sort_by(|a, b| a.kernel.cmp(&b.kernel).then(a.key().cmp(&b.key()))),
         }
     }
 

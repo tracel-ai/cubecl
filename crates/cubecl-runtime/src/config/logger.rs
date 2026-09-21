@@ -16,7 +16,7 @@ pub struct Logger {
     compilation_index: Vec<usize>,
     profiling_index: Vec<usize>,
     autotune_index: Vec<usize>,
-    autotune_recorder_index: Vec<usize>,
+    autotune_decisions_index: Vec<usize>,
     streaming_index: Vec<usize>,
     memory_index: Vec<usize>,
     /// Global configuration for logging settings.
@@ -55,12 +55,12 @@ impl Logger {
             &config.autotune.logger,
             !matches!(config.autotune.logger.level, AutotuneLogLevel::Disabled),
         );
-        // The recorder is its own sink, so records land wherever it points regardless of what the
+        // Decisions have their own sink, so they land wherever it points regardless of what the
         // logger above is set to, including with the logger disabled.
-        let autotune_recorder_index = register_enabled(
+        let autotune_decisions_index = register_enabled(
             &mut sinks,
-            &config.autotune.recorder,
-            config.autotune.recorder_enabled(),
+            &config.autotune.decisions,
+            config.autotune.decisions_enabled(),
         );
         let streaming_index = register_enabled(
             &mut sinks,
@@ -78,7 +78,7 @@ impl Logger {
             compilation_index,
             profiling_index,
             autotune_index,
-            autotune_recorder_index,
+            autotune_decisions_index,
             streaming_index,
             memory_index,
             config,
@@ -119,11 +119,11 @@ impl Logger {
         self.config.streaming.logger.level
     }
 
-    /// Writes one autotune log entry, directing it to all configured recorder sinks.
-    pub fn log_autotune_entry<S: Display>(&mut self, msg: &S) {
+    /// Writes one autotune decision, directing it to all configured decision sinks.
+    pub fn log_autotune_decision<S: Display>(&mut self, msg: &S) {
         self.sinks.log(
-            &self.autotune_recorder_index,
-            "cubecl::autotune::record",
+            &self.autotune_decisions_index,
+            "cubecl::autotune::decision",
             msg,
         );
     }
@@ -133,10 +133,10 @@ impl Logger {
         self.config.autotune.logger.level
     }
 
-    /// Whether the autotune recorder has a sink. See
-    /// [`AutotuneConfig::recorder_enabled`](crate::config::autotune::AutotuneConfig::recorder_enabled).
-    pub fn autotune_recorder_enabled(&self) -> bool {
-        self.config.autotune.recorder_enabled()
+    /// Whether autotune decisions have a sink. See
+    /// [`AutotuneConfig::decisions_enabled`](crate::config::autotune::AutotuneConfig::decisions_enabled).
+    pub fn autotune_decisions_enabled(&self) -> bool {
+        self.config.autotune.decisions_enabled()
     }
 
     /// Returns the current compilation log level from the global configuration.

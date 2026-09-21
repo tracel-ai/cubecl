@@ -658,6 +658,11 @@ fn a_kernel_two_builds_recorded_is_picked_by_its_build() {
         })
         .expect("the build names one");
     assert_eq!(rebuilt.compiling, Duration::from_millis(90));
+    // Three rows, two kernels: the count is of kernels.
+    assert!(matches!(
+        inspector.kernel(id("")),
+        Err(InspectError::AmbiguousKernel { count: 2, .. })
+    ));
 }
 
 /// A tune the table did not take — unmeasured, or with the cache disabled —
@@ -805,6 +810,45 @@ fn a_diff_names_what_was_added_removed_and_answered_differently() {
     );
 }
 
+/// A file one cubecl version apart from itself answers a key twice; the
+/// diff reads the newest version's answer, where "0.9.0" sorts after
+/// "0.11.0" as text.
+#[test]
+fn a_diff_reads_a_keys_newest_version() {
+    use cubecl_inspect::report::KeyChange;
+
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let before = Inspector::open(fixture(dir.path())).expect("opens");
+    let upgraded = dir.path().join("upgraded");
+    std::fs::create_dir(&upgraded).expect("a dir");
+    let path = fixture(&upgraded);
+    {
+        let database = Database::open(&path, false).expect("opens");
+        database.insert(
+            "autotune/0.9.0/hip-0/matmul-tune-gemm",
+            &cbor(&StoredKey {
+                key: GemmKey {
+                    m: 64,
+                    elem: Elem::Float("F16"),
+                },
+                checksum: "list-a",
+            }),
+            &cbor(&PersistentCacheValue {
+                fastest_index: 0,
+                results: vec![measured("naive", 0, 10), measured("tiled", 1, 40)],
+                bounds: None,
+                limit: None,
+            }),
+            Origin::Local,
+        );
+    }
+    let after = Inspector::open(&path).expect("opens");
+
+    let diff = before.diff(&after);
+    assert_eq!(diff.with(KeyChange::WinnerChanged).count(), 0);
+    assert_eq!(diff.with(KeyChange::Kept).count(), 3);
+}
+
 #[test]
 fn pruning_keeps_the_newest_sessions_records() {
     let dir = tempfile::tempdir().expect("a temp dir");
@@ -841,6 +885,29 @@ fn pruning_keeps_the_newest_sessions_records() {
     );
     assert!(inspector.kernels().kernels.is_empty());
     assert_eq!(summary.autotune_keys(), 4, "the caches are untouched");
+}
+
+/// Pruning a shipped file in place leaves it shipped: out of WAL, so it
+/// still opens from a read-only directory.
+#[test]
+fn pruning_a_shipped_file_keeps_it_out_of_wal() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let path = fixture(dir.path());
+    Database::open(&path, false)
+        .expect("opens")
+        .finalize_for_shipping()
+        .expect("ships");
+
+    Inspector::open(&path)
+        .expect("opens")
+        .prune(0)
+        .expect("prunes");
+
+    let mode: String = Database::open(&path, true)
+        .expect("opens")
+        .with_connection(|conn| conn.query_row("PRAGMA journal_mode", [], |row| row.get(0)))
+        .expect("reads");
+    assert_eq!(mode, "delete");
 }
 
 /// A compact copy keeps the kernels the replay launched, their second-line

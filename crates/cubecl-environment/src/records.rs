@@ -15,9 +15,15 @@
 //!
 //! A session is kept only if it changed the environment — tuned a key,
 //! compiled a kernel. Until its first such record, what it records is held in
-//! memory; a session that never changes anything — a warm-up that finds every
-//! kernel stored and every key tuned — leaves nothing behind. Each record says
-//! which it is with its [`RecordEffect`].
+//! memory, up to a budget past which the oldest goes first; a session that
+//! never changes anything — a warm-up that finds every kernel stored and every
+//! key tuned, a server that runs for days on a warm environment — leaves
+//! nothing behind and holds a bounded amount. Each record says which it is
+//! with its [`RecordEffect`].
+//!
+//! A record that describes a stretch of time — a tune, a compile, a phase of
+//! the caller's work — is written through a [`Span`]: stamped when it opens,
+//! timed on the session's clock, written when it closes.
 //!
 //! Recording is a write on a path that already writes to the environment (a
 //! tune, a compile) or once per session: nothing here runs per launch. The
@@ -158,25 +164,44 @@ pub fn label<S: Into<String>>(label: S) {
 /// [`Observed`](RecordEffect::Observed) record alone does not decide. `None`
 /// when recording is off or there is no database to write to.
 pub fn write<R: Record + Serialize>(effect: RecordEffect, record: &R) -> Option<Stamp> {
-    let stamp = stamp()?;
+    let stamp = imp::stamp()?;
     write_stamped(stamp, effect, record).then_some(stamp)
 }
 
-/// Records `record` with a stamp taken earlier, for a record that describes a
-/// span: stamped when it began, recorded when it ended. `false` when the
-/// session it was stamped in is gone, or the write failed.
-pub fn write_stamped<R: Record + Serialize>(
-    stamp: Stamp,
-    effect: RecordEffect,
-    record: &R,
-) -> bool {
+/// Records `record` with a stamp taken earlier. `false` when the session it
+/// was stamped in is gone, or the write failed.
+fn write_stamped<R: Record + Serialize>(stamp: Stamp, effect: RecordEffect, record: &R) -> bool {
     imp::write(&R::namespace(), effect, &Stamped { stamp, record })
 }
 
-/// A stamp for this moment in the active environment's session, starting the
-/// session if there is none. `None` when recording is off.
-pub fn stamp() -> Option<Stamp> {
-    imp::stamp()
+/// A stretch of the session in progress that a record describes: stamped when
+/// it opens, timed on the session's clock, and recorded when it closes, so
+/// everything stamped meanwhile lies inside it.
+#[must_use = "a span records nothing until it is closed"]
+#[derive(Debug)]
+pub struct Span {
+    start: Stamp,
+}
+
+impl Span {
+    /// Opens a span now, starting the session if there is none. `None` when
+    /// recording is off.
+    pub fn new() -> Option<Self> {
+        imp::stamp().map(|start| Self { start })
+    }
+
+    /// The time since the span opened, on the session's clock. `None` when
+    /// the environment switched sessions since: the span went with its own.
+    pub fn elapsed(&self) -> Option<Duration> {
+        imp::offset(self.start.session).map(|now| now.saturating_sub(self.start.offset))
+    }
+
+    /// Records `record`, stamped when the span opened: written if the session
+    /// is kept, as [`write()`] is. `false` when the session the span opened in
+    /// is gone, or the write failed.
+    pub fn close<R: Record + Serialize>(self, effect: RecordEffect, record: &R) -> bool {
+        write_stamped(self.start, effect, record)
+    }
 }
 
 /// Opens a named span of the session in progress — a phase of the caller's
@@ -186,16 +211,16 @@ pub fn stamp() -> Option<Stamp> {
 pub fn mark<S: Into<String>>(label: S) -> Mark {
     Mark {
         label: label.into(),
-        start: stamp(),
+        span: Span::new(),
     }
 }
 
-/// A span opened by [`mark`], recorded when it drops.
+/// A phase opened by [`mark`], recorded when it drops.
 #[must_use = "a mark records the span until it is dropped"]
 #[derive(Debug)]
 pub struct Mark {
     label: String,
-    start: Option<Stamp>,
+    span: Option<Span>,
 }
 
 /// A named span of a session, as [`mark`] records it.
@@ -213,20 +238,17 @@ impl Record for MarkRecord {
 
 impl Drop for Mark {
     fn drop(&mut self) {
-        let Some(start) = self.start else {
+        let Some(span) = self.span.take() else {
             return;
         };
-        // The end is read off the session's own clock. A span the
-        // environment switched away from in the meantime is dropped with its
-        // session.
-        let Some(end) = stamp().filter(|end| end.session == start.session) else {
+        let Some(wall) = span.elapsed() else {
             return;
         };
         let record = MarkRecord {
             label: core::mem::take(&mut self.label),
-            wall: end.offset.saturating_sub(start.offset),
+            wall,
         };
-        write_stamped(start, RecordEffect::Observed, &record);
+        span.close(RecordEffect::Observed, &record);
     }
 }
 
@@ -330,9 +352,10 @@ impl Session {
 /// Recording where there is a database to record into.
 #[cfg(native_cache)]
 mod imp {
-    use super::{RecordEffect, RecordLevel, Records, SESSIONS, Session, Stamp};
+    use super::{RecordEffect, RecordLevel, Records, SESSIONS, Session, SessionId, Stamp};
     use crate::persistence::{Database, Origin};
     use crate::sync::{AtomicU8, LazyLock, Mutex, Ordering};
+    use alloc::collections::VecDeque;
     use alloc::string::String;
     use alloc::vec::Vec;
     use serde::Serialize;
@@ -341,6 +364,11 @@ mod imp {
     /// The level, apart from the rest of the state: [`super::enabled`] is
     /// asked on paths that must not take a lock.
     static LEVEL: AtomicU8 = AtomicU8::new(RecordLevel::Basic as u8);
+
+    /// How many encoded bytes a session holds before it changes anything.
+    /// Past it the oldest record goes first: what led up to a change is kept,
+    /// and a session that never changes anything cannot grow without bound.
+    const PENDING_BUDGET: usize = 1 << 20;
 
     struct State {
         keep_sessions: Option<u32>,
@@ -357,8 +385,10 @@ mod imp {
         next_seq: u64,
         /// What the session recorded before it changed anything, in order:
         /// written if it does, dropped with it if it never does. Empty once
-        /// the session is kept.
-        pending: Vec<Row>,
+        /// the session is kept, and never past [`PENDING_BUDGET`].
+        pending: VecDeque<Row>,
+        /// The encoded size of [`Self::pending`].
+        pending_bytes: usize,
         /// Whether the session changed the environment, and so is written.
         kept: bool,
     }
@@ -368,6 +398,27 @@ mod imp {
         namespace: String,
         key: Vec<u8>,
         value: Vec<u8>,
+    }
+
+    impl Row {
+        fn bytes(&self) -> usize {
+            self.namespace.len() + self.key.len() + self.value.len()
+        }
+    }
+
+    impl Current {
+        /// Hold `row` until the session changes something, dropping the
+        /// oldest rows held past the budget.
+        fn hold(&mut self, row: Row) {
+            self.pending_bytes += row.bytes();
+            self.pending.push_back(row);
+            while self.pending_bytes > PENDING_BUDGET {
+                let Some(oldest) = self.pending.pop_front() else {
+                    break;
+                };
+                self.pending_bytes -= oldest.bytes();
+            }
+        }
     }
 
     static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| {
@@ -414,6 +465,16 @@ mod imp {
         Some(stamp)
     }
 
+    /// The session clock's reading, when `session` is still the one in
+    /// progress.
+    pub(super) fn offset(session: SessionId) -> Option<core::time::Duration> {
+        let state = STATE.lock();
+        let current = state.current.as_ref()?;
+        let live =
+            current.session.id == session && current.generation == crate::environment::generation();
+        live.then(|| current.started.elapsed())
+    }
+
     pub(super) fn write<V: Serialize>(
         namespace: &str,
         effect: RecordEffect,
@@ -437,7 +498,7 @@ mod imp {
         match (current.kept, effect) {
             (true, _) => insert(&current.database, &row),
             (false, RecordEffect::Observed) => {
-                current.pending.push(row);
+                current.hold(row);
                 true
             }
             (false, RecordEffect::Changed) => {
@@ -455,6 +516,7 @@ mod imp {
         }
         current.kept = true;
         write_session(current);
+        current.pending_bytes = 0;
         for row in core::mem::take(&mut current.pending) {
             insert(&current.database, &row);
         }
@@ -488,7 +550,8 @@ mod imp {
                 generation,
                 started: Instant::now(),
                 next_seq: 0,
-                pending: Vec::new(),
+                pending: VecDeque::new(),
+                pending_bytes: 0,
                 kept: false,
             });
         }
@@ -524,6 +587,10 @@ mod imp {
     pub(super) fn label(_label: String) {}
 
     pub(super) fn stamp() -> Option<Stamp> {
+        None
+    }
+
+    pub(super) fn offset(_session: super::SessionId) -> Option<core::time::Duration> {
         None
     }
 
@@ -704,5 +771,42 @@ mod tests {
         let kept = tests(&database);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].stamp, newest);
+    }
+
+    /// A record heavy enough to reach the budget in a few writes.
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    struct Heavy {
+        index: u32,
+        payload: Vec<u8>,
+    }
+
+    impl Record for Heavy {
+        const KIND: &'static str = "heavy";
+    }
+
+    /// A session that changes nothing for a long while holds a bounded amount:
+    /// the oldest of what it observed goes first, and a change keeps the rest.
+    #[test]
+    #[serial]
+    fn a_session_holds_a_bounded_amount_before_it_changes_anything() {
+        let (_dir, database) = fresh(RecordLevel::Basic, None);
+        let observed = 64;
+        for index in 0..observed {
+            let heavy = Heavy {
+                index,
+                payload: vec![0; 64 << 10],
+            };
+            write(RecordEffect::Observed, &heavy).expect("stamped");
+        }
+        write(RecordEffect::Changed, &Test(0)).expect("stamped");
+
+        let kept = Records::new(&database).read::<Heavy>();
+        assert!(!kept.is_empty() && kept.len() < observed as usize);
+        assert_eq!(kept.last().expect("kept").record.index, observed - 1);
+        let indices: Vec<u32> = kept.iter().map(|heavy| heavy.record.index).collect();
+        assert!(
+            indices.windows(2).all(|pair| pair[1] == pair[0] + 1),
+            "the newest, in order: {indices:?}"
+        );
     }
 }

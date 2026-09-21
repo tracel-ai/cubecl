@@ -1,8 +1,8 @@
 use crate::InspectError;
 use crate::report::{
-    AutotuneReport, AutotuneTable, CandidateResult, Compaction, EnvironmentDiff, KernelReport,
-    KernelRow, KernelSelector, KeyId, Listing, MemorySnapshots, NamespaceRow, SessionRow,
-    SessionTimeline, StoreEntry, StoredArtifacts, Summary, Timeline, TuneTrace, TunedKey,
+    AutotuneReport, AutotuneTable, CandidateResult, Compaction, EnvironmentDiff, KernelHash,
+    KernelReport, KernelRow, KernelSelector, KeyId, Listing, MemorySnapshots, NamespaceRow,
+    SessionRow, SessionTimeline, StoredArtifacts, Summary, Timeline, TuneTrace, TunedKey,
     Unreadable,
 };
 use cubecl_common::hash::StableHash;
@@ -266,15 +266,15 @@ impl Inspector {
             .into_iter()
             .filter(|row| selector.selects(row))
             .collect();
-        let one_kernel = matches.windows(2).all(|pair| pair[0].id == pair[1].id);
-        match matches.len() {
-            1 => Ok(matches.remove(0)),
-            0 => Err(InspectError::UnknownKernel(selector.to_string())),
-            _ if one_kernel => Err(InspectError::AmbiguousBuild {
+        let kernels: HashSet<KernelHash> = matches.iter().map(|row| row.id).collect();
+        match (matches.len(), kernels.len()) {
+            (0, _) => Err(InspectError::UnknownKernel(selector.to_string())),
+            (1, _) => Ok(matches.remove(0)),
+            (_, 1) => Err(InspectError::AmbiguousBuild {
                 kernel: selector.to_string(),
                 builds: matches.iter().map(|row| row.build.to_string()).collect(),
             }),
-            count => Err(InspectError::AmbiguousKernel {
+            (_, count) => Err(InspectError::AmbiguousKernel {
                 prefix: selector.to_string(),
                 count,
             }),
@@ -292,7 +292,7 @@ impl Inspector {
             }
             self.database.scan(&namespace, &mut |key, value| {
                 if let Ok(key) = ciborium::from_reader::<KernelCacheKey, _>(key) {
-                    stored.insert(StoreEntry::from(&key), value.len() as u64);
+                    stored.insert(key, value.len() as u64);
                 }
             });
         }
@@ -378,8 +378,23 @@ impl Inspector {
                 schema.as_deref().unwrap_or("unknown")
             )));
         }
+        // A read-write open switches the file to WAL for good. A file that was
+        // not in WAL — shipped, meant for a read-only directory — is shipped
+        // again, as `compact` leaves one.
+        let shipped = self
+            .database
+            .with_connection(|conn| {
+                conn.query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))
+            })
+            .map_err(|err| refused(err.to_string()))?
+            != "wal";
         let writable = Database::open(&self.path, false).map_err(|err| refused(err.to_string()))?;
         Records::new(&writable).prune(keep);
+        if shipped {
+            writable
+                .finalize_for_shipping()
+                .map_err(|err| refused(err.to_string()))?;
+        }
         Ok(self.summary())
     }
 
@@ -468,12 +483,11 @@ impl Inspector {
                 let Ok(artifact) = artifact else {
                     return;
                 };
-                let entry = StoreEntry::from(&artifact);
                 let bytes = (key.len() + value.len()) as u64;
                 if launched.contains(&artifact.id) && artifact.build_id == build {
-                    *kept.entry(entry).or_default() += bytes;
+                    *kept.entry(artifact).or_default() += bytes;
                 } else {
-                    *dropped.entry(entry).or_default() += bytes;
+                    *dropped.entry(artifact).or_default() += bytes;
                     doomed.push(key.to_vec());
                 }
             });

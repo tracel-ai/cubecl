@@ -1273,7 +1273,7 @@ fn a_set_is_built_once_per_device_not_once_per_process() {
 #[serial_test::serial]
 fn a_compilation_is_recorded_with_its_outcome() {
     use cubecl_environment::persistence::Database;
-    use cubecl_environment::records::{self, RecordEffect, RecordLevel, Records};
+    use cubecl_environment::records::{self, RecordLevel, Records};
     use cubecl_server::compiler::{CompilationOutcome, CompilationRecord, CompilationRecording};
     use cubecl_server::id::KernelId;
 
@@ -1286,7 +1286,7 @@ fn a_compilation_is_recorded_with_its_outcome() {
     let id = KernelId::new::<Recorded>().info(3u32);
     CompilationRecording::new(&id)
         .unwrap()
-        .compiled(Some("source".to_string()), RecordEffect::Changed);
+        .compiled(Some("source".to_string()), true);
     let recording = CompilationRecording::new(&id).unwrap();
     assert!(!recording.keeps_code());
     recording.loaded();
@@ -1294,7 +1294,7 @@ fn a_compilation_is_recorded_with_its_outcome() {
     records::configure(RecordLevel::Full, None);
     let recording = CompilationRecording::new(&id).unwrap();
     assert!(recording.keeps_code());
-    recording.compiled(Some("source".to_string()), RecordEffect::Changed);
+    recording.compiled(Some("source".to_string()), true);
     records::configure(RecordLevel::Basic, None);
 
     let database = Database::open_active().unwrap();
@@ -1321,7 +1321,7 @@ fn a_compilation_is_recorded_with_its_outcome() {
 #[serial_test::serial]
 fn a_compile_nothing_stored_leaves_no_session() {
     use cubecl_environment::persistence::{Database, Namespace, Store, StoreOptions};
-    use cubecl_environment::records::{self, RecordEffect, RecordLevel, Records};
+    use cubecl_environment::records::{self, RecordLevel, Records};
     use cubecl_server::compiler::{CompilationRecord, CompilationRecording, store_compiled};
     use cubecl_server::id::KernelId;
 
@@ -1333,12 +1333,12 @@ fn a_compile_nothing_stored_leaves_no_session() {
 
     let mut store: Store<u32, u32> =
         Store::new(StoreOptions::new().storage(Namespace::new("test/compiled")));
-    assert_eq!(store_compiled(&mut store, 1, 1), RecordEffect::Changed);
+    assert!(store_compiled(&mut store, 1, 1), "the store took it");
 
     let id = KernelId::new::<Unstored>();
     CompilationRecording::new(&id)
         .unwrap()
-        .compiled(None, RecordEffect::Observed);
+        .compiled(None, false);
 
     let database = Database::open_active().unwrap();
     let records = Records::new(&database);
@@ -1374,7 +1374,7 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     let id = cubecl_server::id::KernelId::new::<Stored>();
     cubecl_server::compiler::CompilationRecording::new(&id)
         .unwrap()
-        .compiled(None, records::RecordEffect::Changed);
+        .compiled(None, true);
 
     let snapshots = Records::new(&database).read::<MemoryRecord>();
     assert_eq!(snapshots.len(), 1);
