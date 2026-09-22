@@ -2,9 +2,7 @@ use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
         MemoryPoolKind, MemoryPoolReport, MemoryUsage,
-        memory_pool::{
-            MemoryPage, MemoryPool, PageMapping, Relocation, Slice, StorageCopy, calculate_padding,
-        },
+        memory_pool::{MemoryPage, MemoryPool, PageMapping, Relocation, Slice, StorageCopy},
     },
     server::IoError,
     storage::{ComputeStorage, StorageId},
@@ -25,8 +23,7 @@ const PAGE_GRANULE: u64 = 1024 * 1024;
 /// How big a page is is the pool's [`PageSizing`]: fixed for the pool's life,
 /// or following the largest allocation the pool has served. A page is
 /// *current* when its size is the pool's page size and *outdated* otherwise —
-/// which only a page size that grows (or is adopted from another environment)
-/// ever produces. Only current pages serve reservations; an outdated page is
+/// which only a page size that grows ever produces. Only current pages serve reservations; an outdated page is
 /// returned to the driver once nothing on it is live, or emptied early by
 /// [`plan_relocation`](Self::plan_relocation).
 pub struct SlicedPool {
@@ -39,9 +36,7 @@ pub struct SlicedPool {
     location_base: MemoryLocation,
     /// The most pages ever held at once.
     pages_peak: u64,
-    /// The largest allocation served, in requested (pre-padding) bytes — or,
-    /// when the page size follows it, recorded by the active environment,
-    /// which the pool starts from.
+    /// The largest allocation served, in requested (pre-padding) bytes.
     largest_alloc: u64,
 }
 
@@ -59,12 +54,11 @@ enum PageSizing {
     /// ([`PoolType::AdaptivePages`](crate::memory_management::PoolType::AdaptivePages)).
     ///
     /// The statistic is the pool's own: only what is routed here moves it, so
-    /// neither persistent allocations nor the other pools' traffic change the
-    /// page size.
-    FollowsLargest {
-        min_page_size: u64,
-        record: LargestAllocRecord,
-    },
+    /// neither persistent allocations, the other pools' traffic nor another
+    /// stream's pool change the page size. Nothing is kept across runs: a
+    /// dry-run warmup brings it up to date without materializing an
+    /// allocation.
+    FollowsLargest { min_page_size: u64 },
 }
 
 /// Which pages a release returns to the driver.
@@ -124,21 +118,15 @@ impl SlicedPool {
     }
 
     /// A pool whose page size follows the largest allocation it has served,
-    /// starting from what the active environment recorded for it. `name` is
-    /// the memory manager's, which with `pool_pos` keys that record.
-    pub fn adaptive(min_page_size: u64, alignment: u64, pool_pos: u8, name: &str) -> Self {
+    /// starting from `min_page_size`.
+    pub fn adaptive(min_page_size: u64, alignment: u64, pool_pos: u8) -> Self {
         let min_page_size = min_page_size.max(alignment).next_multiple_of(alignment);
-        let mut pool = Self::with_sizing(
+        Self::with_sizing(
             min_page_size,
-            PageSizing::FollowsLargest {
-                min_page_size,
-                record: LargestAllocRecord::new(name, pool_pos),
-            },
+            PageSizing::FollowsLargest { min_page_size },
             alignment,
             pool_pos,
-        );
-        pool.adopt_record();
-        pool
+        )
     }
 
     fn with_sizing(page_size: u64, sizing: PageSizing, alignment: u64, pool_pos: u8) -> Self {
@@ -184,45 +172,17 @@ impl SlicedPool {
         }
     }
 
-    /// Take the active environment's statistic as the pool's own: its page
-    /// size, or the floor when the environment recorded none. A smaller page
-    /// size than the pool runs is honored too — the pages held become outdated
-    /// and drain like any others — since a different environment is a
-    /// different workload. A no-op for a fixed page size.
-    fn adopt_record(&mut self) {
-        let PageSizing::FollowsLargest {
-            min_page_size,
-            record,
-        } = &mut self.sizing
-        else {
-            return;
-        };
-        self.largest_alloc = record.load().unwrap_or(0);
-        self.page_size = page_size_for(self.largest_alloc, *min_page_size, self.alignment);
-    }
-
     /// Count `size` toward a page size that follows the largest allocation,
     /// growing it when `size` no longer fits — which outdates every page held.
     fn observe(&mut self, size: u64) {
-        let PageSizing::FollowsLargest { record, .. } = &mut self.sizing else {
+        let PageSizing::FollowsLargest { min_page_size } = self.sizing else {
             return;
-        };
-        if record.switched() {
-            self.adopt_record();
-        }
-        let PageSizing::FollowsLargest {
-            min_page_size,
-            record,
-        } = &mut self.sizing
-        else {
-            unreachable!("adopting a record keeps the sizing");
         };
         if size <= self.largest_alloc {
             return;
         }
         self.largest_alloc = size;
-        self.page_size = page_size_for(size, *min_page_size, self.alignment);
-        record.save(size);
+        self.page_size = page_size_for(size, min_page_size, self.alignment);
     }
 
     fn is_current(&self, page: &MemoryPage) -> bool {
@@ -233,11 +193,6 @@ impl SlicedPool {
         self.pages
             .iter()
             .filter(|(page, _)| page.size() != self.page_size)
-    }
-
-    /// Whether an allocation of `size` bytes fits a page of the current size.
-    fn fits(&self, size: u64) -> bool {
-        size + calculate_padding(size, self.alignment) <= self.page_size
     }
 
     /// Reserve `size` bytes on a current page, coalescing as it goes.
@@ -357,9 +312,7 @@ impl SlicedPool {
     ///
     /// Nothing moves yet: the caller copies each [`Relocation`]'s bytes, then
     /// hands them over with [`commit_relocation`](Self::commit_relocation).
-    /// Allocations a captured graph recorded stay where they are, and so does
-    /// an allocation too big for the current page size (adopted from an
-    /// environment that ran a smaller workload). Stops early when no target
+    /// Allocations a captured graph recorded stay where they are. Stops early when no target
     /// can be allocated; what was planned so far is still valid.
     pub(crate) fn plan_relocation<Storage: ComputeStorage>(
         &mut self,
@@ -370,7 +323,6 @@ impl SlicedPool {
         let moves: Vec<ManagedMemoryHandle> = self
             .outdated()
             .flat_map(|(page, _)| page.movable().map(|index| page.slice(index)))
-            .filter(|slice| self.fits(slice.storage.size()))
             .map(|slice| slice.handle.clone())
             .collect();
 
@@ -658,101 +610,10 @@ impl Display for SlicedPool {
     }
 }
 
-/// The largest allocation of a pool whose page size follows it, as the active
-/// environment records it — so a pool created under an environment that
-/// already ran the workload allocates its final pages from the start: no
-/// resize, no outdated page, no relocation.
-///
-/// Keyed by the memory manager's name and the pool's position rather than by
-/// device: the largest allocation is decided by the workload's shapes, not by
-/// the hardware, and an environment is a record of one workload. Runtimes
-/// with a memory manager per stream share the key, so the record only ever
-/// grows: a stream that saw smaller allocations never lowers what another
-/// recorded. Only recorded where there is a file system to keep it;
-/// elsewhere every pool measures from nothing.
-struct LargestAllocRecord {
-    #[cfg(std_io)]
-    store: cubecl_environment::persistence::Store<alloc::string::String, u64>,
-    #[cfg(std_io)]
-    key: alloc::string::String,
-    /// The environment generation the pool's statistic describes.
-    generation: u32,
-}
-
-impl LargestAllocRecord {
-    fn new(#[cfg_attr(not(std_io), allow(unused_variables))] name: &str, pool_pos: u8) -> Self {
-        #[cfg(not(std_io))]
-        let _ = pool_pos;
-        Self {
-            // Kept like the throughput records, the other measurement an
-            // environment carries: always, wherever there is a file system.
-            #[cfg(std_io)]
-            store: {
-                use cubecl_environment::persistence::{
-                    CacheOption, Namespace, Store, StoreOptions,
-                };
-
-                Store::new(
-                    StoreOptions::new()
-                        .storage(Namespace::scoped("memory", "adaptive-pool"))
-                        .cache(CacheOption::Eager),
-                )
-            },
-            #[cfg(std_io)]
-            key: alloc::format!("{name}/{pool_pos}"),
-            generation: cubecl_environment::environment::generation(),
-        }
-    }
-
-    /// What the active environment recorded, if anything. Through `&mut`: a
-    /// store the environment switched under reopens against the new one here,
-    /// where a shared read would answer a miss.
-    fn load(&mut self) -> Option<u64> {
-        #[cfg(std_io)]
-        {
-            self.store.get_mut(&self.key).copied()
-        }
-        #[cfg(not(std_io))]
-        {
-            None
-        }
-    }
-
-    /// Record a new largest allocation, unless the environment already holds
-    /// a larger one. Best-effort: a refused write costs the next pool a
-    /// resize, never a wrong allocation.
-    fn save(&mut self, #[cfg_attr(not(std_io), allow(unused_variables))] largest_alloc: u64) {
-        #[cfg(std_io)]
-        {
-            if self
-                .load()
-                .is_some_and(|recorded| recorded >= largest_alloc)
-            {
-                return;
-            }
-            // The store refuses an insert that would change a key's value.
-            self.store.purge_key(&self.key);
-            if let Err(err) = self.store.insert(self.key.clone(), largest_alloc) {
-                log::debug!("the adaptive pool's statistic was not recorded: {err:?}");
-            }
-        }
-    }
-
-    /// Whether the environment switched since the statistic was last read —
-    /// one relaxed load, cheap enough for every reservation.
-    fn switched(&mut self) -> bool {
-        let generation = cubecl_environment::environment::generation();
-        let switched = generation != self.generation;
-        self.generation = generation;
-        switched
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
         logging::ServerLogger,
-        memory_management::memory_pool::{MemoryPool, PageMapping},
         memory_management::{
             ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
             MemoryManagement, MemoryManagementOptions, MemoryPoolKind, MemoryPoolOptions, PoolType,
@@ -766,26 +627,8 @@ mod tests {
     const MIB: u64 = 1024 * 1024;
     const PROPERTIES: MemoryDeviceProperties = MemoryDeviceProperties::new(1024 * MIB, 32);
 
-    /// Environments kept under a temporary root for the whole test binary, so
-    /// the pools' records never reach a real one — and a run never starts from
-    /// what the previous run recorded.
-    fn isolated() {
-        static ROOT: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
-        ROOT.get_or_init(|| {
-            let root = tempfile::tempdir().unwrap();
-            // Loading the runtime config activates the configured environment,
-            // so it is loaded first — or it would undo the redirect on first use.
-            <crate::config::CubeClRuntimeConfig as crate::config::RuntimeConfig>::get();
-            cubecl_environment::environment::set_root(root.path());
-            root
-        });
-    }
-
-    /// A memory manager whose only pool is adaptive. `name` keys the pool's
-    /// record, so each test names its own: tests run concurrently in one
-    /// environment.
-    fn adaptive(name: &str, min_page_size: u64) -> MemoryManagement<BytesStorage> {
-        isolated();
+    /// A memory manager whose only pool is adaptive.
+    fn adaptive(min_page_size: u64) -> MemoryManagement<BytesStorage> {
         MemoryManagement::from_configuration(
             BytesStorage::default(),
             &PROPERTIES,
@@ -796,7 +639,7 @@ mod tests {
                 }],
             },
             Arc::new(ServerLogger::default()),
-            MemoryManagementOptions::new(name),
+            MemoryManagementOptions::new("adaptive"),
         )
     }
 
@@ -874,7 +717,7 @@ mod tests {
     /// megabyte of slack, rounded to the megabyte, never below the floor.
     #[test]
     fn the_page_size_follows_the_largest_allocation() {
-        let mut memory = adaptive("the_page_size_follows_the_largest_allocation", 4 * MIB);
+        let mut memory = adaptive(4 * MIB);
 
         let _small = reserve(&mut memory, MIB);
         assert_eq!(
@@ -898,10 +741,7 @@ mod tests {
     /// reservation, even with room to spare.
     #[test]
     fn a_grown_page_size_serves_nothing_from_outdated_pages() {
-        let mut memory = adaptive(
-            "a_grown_page_size_serves_nothing_from_outdated_pages",
-            4 * MIB,
-        );
+        let mut memory = adaptive(4 * MIB);
 
         let first = reserve(&mut memory, MIB);
         let _large = reserve(&mut memory, 10 * MIB);
@@ -926,7 +766,7 @@ mod tests {
     /// slice is freed.
     #[test]
     fn an_outdated_page_is_released_once_empty() {
-        let mut memory = adaptive("an_outdated_page_is_released_once_empty", 4 * MIB);
+        let mut memory = adaptive(4 * MIB);
 
         let first = reserve(&mut memory, MIB);
         let _large = reserve(&mut memory, 10 * MIB);
@@ -955,10 +795,7 @@ mod tests {
     /// their owners resolve to the new place, and the outdated pages go back.
     #[test]
     fn relocation_moves_live_allocations_to_current_pages() {
-        let mut memory = adaptive(
-            "relocation_moves_live_allocations_to_current_pages",
-            4 * MIB,
-        );
+        let mut memory = adaptive(4 * MIB);
 
         let kept = reserve(&mut memory, MIB);
         fill(&mut memory, &kept, 7);
@@ -995,7 +832,7 @@ mod tests {
     /// A plan dropped before its commit leaves every allocation where it was.
     #[test]
     fn an_abandoned_relocation_loses_nothing() {
-        let mut memory = adaptive("an_abandoned_relocation_loses_nothing", 4 * MIB);
+        let mut memory = adaptive(4 * MIB);
 
         let kept = reserve(&mut memory, MIB);
         fill(&mut memory, &kept, 3);
@@ -1014,7 +851,7 @@ mod tests {
     /// kernels replay against it.
     #[test]
     fn relocation_leaves_captured_allocations_in_place() {
-        let mut memory = adaptive("relocation_leaves_captured_allocations_in_place", 4 * MIB);
+        let mut memory = adaptive(4 * MIB);
 
         let recorded = reserve(&mut memory, MIB);
         let location = place(&recorded);
@@ -1029,7 +866,7 @@ mod tests {
     /// however large, leave its page size alone.
     #[test]
     fn other_pools_do_not_move_the_statistic() {
-        let mut memory = adaptive("other_pools_do_not_move_the_statistic", 4 * MIB);
+        let mut memory = adaptive(4 * MIB);
         let _dynamic = reserve(&mut memory, MIB);
 
         memory.mode(MemoryAllocationMode::Persistent);
@@ -1054,7 +891,7 @@ mod tests {
     /// tick after it is freed, whatever mode encloses it.
     #[test]
     fn dedicated_allocations_are_released_once_freed() {
-        let mut memory = adaptive("dedicated_allocations_are_released_once_freed", 4 * MIB);
+        let mut memory = adaptive(4 * MIB);
 
         memory.mode(MemoryAllocationMode::Persistent);
         memory.mode(MemoryAllocationMode::Dedicated);
@@ -1080,66 +917,11 @@ mod tests {
         drop(weight);
     }
 
-    /// A pool starts from what the active environment recorded, and adopts
-    /// another environment's figure — or the floor — when it switches.
-    #[test]
-    fn the_environment_records_the_page_size() {
-        const NAME: &str = "the_environment_records_the_page_size";
-        let mut memory = adaptive(NAME, 4 * MIB);
-        let _large = reserve(&mut memory, 10 * MIB);
-        drop(memory);
-
-        let mut memory = adaptive(NAME, 4 * MIB);
-        assert_eq!(
-            pool(&memory).page_size,
-            11 * MIB,
-            "a new pool starts at the recorded size"
-        );
-        let small = reserve(&mut memory, MIB);
-        assert_eq!(
-            pool(&memory),
-            Pool {
-                page_size: 11 * MIB,
-                pages: 1,
-                outdated: 0
-            },
-            "no resize, no outdated page"
-        );
-        drop(small);
-    }
-
-    /// A page size adopted from an environment that ran a smaller workload
-    /// can leave a live allocation too big for any current page: relocation
-    /// leaves it in place rather than failing to find it a target.
-    #[test]
-    fn relocation_leaves_what_no_current_page_fits() {
-        isolated();
-        let failures = &mut ErrorGraph::default();
-        let mut storage = BytesStorage::default();
-        let mut pool = super::SlicedPool::adaptive(
-            4 * MIB,
-            32,
-            0,
-            "relocation_leaves_what_no_current_page_fits",
-        );
-        let large = pool
-            .alloc(&mut storage, 10 * MIB, PageMapping::Eager, failures)
-            .unwrap();
-
-        // What adopting an environment that recorded nothing leaves behind.
-        pool.largest_alloc = 0;
-        pool.page_size = 4 * MIB;
-
-        let relocations = pool.plan_relocation(&mut storage, PageMapping::Eager, failures);
-        assert!(relocations.is_empty());
-        assert_eq!(place(&large), (0, 0));
-    }
-
     /// A graph's claim on an address ends with the allocation: the next
     /// allocation carved in the same slot can move.
     #[test]
     fn a_reused_slot_owes_nothing_to_an_old_capture() {
-        let mut memory = adaptive("a_reused_slot_owes_nothing_to_an_old_capture", 4 * MIB);
+        let mut memory = adaptive(4 * MIB);
 
         let recorded = reserve(&mut memory, MIB);
         memory.mark_captured(&recorded.clone().binding());

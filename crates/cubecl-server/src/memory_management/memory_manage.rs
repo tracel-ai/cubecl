@@ -1081,7 +1081,7 @@ fn build_pools(
                     DynamicPool::Direct(DirectPool::new(properties.alignment, pool_pos, reclaim_at))
                 }
                 PoolType::AdaptivePages { min_page_size } => DynamicPool::Sliced(
-                    SlicedPool::adaptive(min_page_size, properties.alignment, pool_pos, name),
+                    SlicedPool::adaptive(min_page_size, properties.alignment, pool_pos),
                 ),
             }
         })

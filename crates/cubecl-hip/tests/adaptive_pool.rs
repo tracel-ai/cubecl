@@ -11,13 +11,6 @@ const MIB: usize = 1024 * 1024;
 
 #[test]
 fn relocation_moves_live_bytes_off_outdated_pages() {
-    // The pool records its page size in the active environment: keep this run
-    // off a real one, and from starting at what a previous run recorded.
-    let root = tempfile::tempdir().unwrap();
-    // Loading the runtime config activates the configured environment, so it
-    // is loaded first — or it would undo the redirect on first use.
-    <cubecl_server::config::CubeClRuntimeConfig as cubecl_server::config::RuntimeConfig>::get();
-    cubecl_environment::environment::set_root(root.path());
     let client = HipRuntime::client(&Default::default());
     client.memory_cleanup();
     client

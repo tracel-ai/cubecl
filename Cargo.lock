@@ -896,7 +896,6 @@ dependencies = [
  "log",
  "paste",
  "serde",
- "tempfile",
  "test-log",
  "tracing",
 ]
