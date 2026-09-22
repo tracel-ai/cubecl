@@ -98,17 +98,25 @@ device and asserts on the assembly.
 ## NVPTX against CUDA C++
 
 Measured on `cuda:3` (sm_60) with the cubek benches, both backends built from this branch.
-Where LLVM stands after phases 1–4, as the geometric mean of LLVM's time over NVRTC's:
+The geometric mean of LLVM's time over NVRTC's, on `main` and on this branch:
 
-| Bench | Rows | LLVM / C++ |
-| ----- | ---- | ---------- |
-| reduce, Cube strategies | 96 | 0.93 |
-| reduce, Plane strategies | 96 | 1.07 |
-| reduce, Unit strategies | 96 | 1.55 |
-| gemm, Unit strategies, f32 | 30 | ≈ 1.0, from 0.65 to 1.23 |
-| gemm, Unit strategies, f16 | 30 | ≈ 1.2, from 0.65 to 5.2 |
-| unary (`cos`) | 3 | 1.11 |
+| Bench | Rows | `main` | branch |
+| ----- | ---- | ------ | ------ |
+| reduce, all | 288 | 1.185 | 1.042 |
+| reduce, Cube strategies | 96 | 0.98 | 0.87 |
+| reduce, Plane strategies | 96 | 1.08 | 0.94 |
+| reduce, Unit strategies | 96 | 1.55 | 1.38 |
+| gemm, Unit strategies | 60 | 1.104 | 1.039 |
+| unary (`cos`) | 3 | 1.11 | 1.11 |
 
+- [x] **Constant loops over local arrays.** TopK(64) was 3–5× NVRTC's time and the f16
+      Double Unit max-tile matmul 1.6×: NVVM unrolls a constant-trip loop that indexes a local
+      array so the array becomes registers, and LLVM's NVPTX cost model does not. Such loops
+      are marked `llvm.loop.unroll.full` (`nvptx/loops.rs`); TopK(64) is now 0.80–1.03× and
+      that matmul 1.03×. A global `unroll-threshold=2000` got the Plane rows only to 2.2×.
+      Rows it makes slower than `main`, to look at: VecMat col/col Double Unit (f32 1.25×,
+      f16 1.8× `main`'s time, which was ahead of NVRTC and is now 1.2–1.3× behind it), and
+      Plane TopK(16) f32 (1.32×).
 - [ ] **Unit reduce, 2.4× on Sum and Max.** The timed kernel is the width-1 one (a 32×8 cube,
       each unit streaming its own row). NVVM unrolls the row loop 4× and marks it
       `.pragma "nounroll"`, so ptxas leaves it at 4 loads per iteration. LLVM's runtime
@@ -124,10 +132,6 @@ Where LLVM stands after phases 1–4, as the geometric mean of LLVM's time over 
       So the loop shape is part of it and not all of it. The next step needs hardware
       counters (L1/texture hit rate, DRAM bytes, stall reasons); `nvprof` refuses them here
       because the driver restricts profiling to administrators (`RmProfilingAdminOnly: 1`).
-- [ ] **Large-k TopK** (all three strategy families) is 2–5× slower. Not yet diagnosed.
-- [ ] **f16 unit matmul.** f32 gemm is at parity or ahead, but the f16 Double Unit max-tile rows
-      and the col/col f16 rows are 2–5× slower. A scalar f16 multiply-add lowers to
-      `fma.rn.f16`, so the difference is in the matmul kernel, not in the f16 lowering itself.
 - [ ] **Scalar `cos`** is 1.11× slower: both inline libdevice's `cosf`; the difference is in
       what each optimizer makes of it (282 against 234 SASS instructions).
 - [ ] **Index arithmetic without `nuw`.** Each unrolled load recomputes its address with a
