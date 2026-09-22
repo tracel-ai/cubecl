@@ -1,7 +1,7 @@
 use cubecl::{
     Device,
     ir::{ElemType, FloatKind},
-    prelude::Client,
+    prelude::*,
     std::throughput::{measure_memory_curve, measure_peak_throughput},
     throughput::{
         CmmaDims, ComputeCmmaConfig, MemoryAccess, MemoryCurve, ThroughputError, ThroughputKey,
@@ -259,4 +259,265 @@ fn bytes_label(bytes: u64) -> String {
     }
 
     format!("{value:.0} {}", UNITS[unit])
+}
+
+/// The memory peak measured with the device to itself, then again while other
+/// threads probe it.
+///
+/// A probe that shares the device reports that device's share, so the two
+/// numbers agree only if a probe holds the device while it measures. The wall
+/// clock is the price of holding it.
+pub fn contended(device: &Device) {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    const LOAD_THREADS: usize = 4;
+    const SAMPLES: usize = 5;
+
+    let client = device.client();
+    let key = ThroughputKey {
+        mode: ThroughputMode::memory(MemoryAccess::Copy),
+    };
+
+    println!(
+        "Contended probe — {} / {}",
+        client.name(),
+        client.properties().identity.name
+    );
+
+    let quiet = peaks(&client, key, SAMPLES);
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let load: Vec<_> = (0..LOAD_THREADS)
+        .map(|_| {
+            let (client, stop) = (client.clone(), stop.clone());
+
+            std::thread::spawn(move || {
+                let key = ThroughputKey {
+                    mode: ThroughputMode::memory(MemoryAccess::Read),
+                };
+                let mut ran = 0;
+
+                while !stop.load(Ordering::Relaxed) {
+                    if measure_peak_throughput(&client, key).is_ok() {
+                        ran += 1;
+                    }
+                }
+
+                ran
+            })
+        })
+        .collect();
+
+    let loaded = peaks(&client, key, SAMPLES);
+
+    stop.store(true, Ordering::Relaxed);
+    let offered: usize = load
+        .into_iter()
+        .map(|thread| thread.join().expect("a load thread finishes"))
+        .sum();
+
+    println!(
+        "  {:<20}{:>12}{:>12}{:>12}{:>10}",
+        "", "best", "worst", "wall", "samples"
+    );
+    report_peaks("quiet", &quiet);
+    report_peaks(&format!("under {LOAD_THREADS} threads"), &loaded);
+    println!("\n  {offered} probes completed on the load threads meanwhile.");
+}
+
+/// `samples` measurements of `key`, in bytes per second, timed end to end.
+///
+/// Every one of them probes: the run needs `CUBECL_THROUGHPUT_CACHE=0`, or the
+/// first answer is served to the rest and nothing is measured under load.
+fn peaks(client: &Client, key: ThroughputKey, samples: usize) -> (Vec<f64>, std::time::Duration) {
+    let start = std::time::Instant::now();
+
+    let rates = (0..samples)
+        .filter_map(|_| {
+            measure_peak_throughput(client, key)
+                .ok()
+                .map(|value| value.bytes_per_s(&key))
+        })
+        .collect();
+
+    (rates, start.elapsed())
+}
+
+fn report_peaks(label: &str, (rates, elapsed): &(Vec<f64>, std::time::Duration)) {
+    let best = rates.iter().copied().fold(f64::MIN, f64::max);
+    let worst = rates.iter().copied().fold(f64::MAX, f64::min);
+
+    println!(
+        "  {label:<20}{:>12}{:>12}{:>12}{:>10}",
+        format!("{:.1} GB/s", best / 1e9),
+        format!("{:.1} GB/s", worst / 1e9),
+        format!("{:.1} s", elapsed.as_secs_f64()),
+        rates.len(),
+    );
+}
+
+#[cube(launch_unchecked)]
+fn copy_array<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [Vector<F, N>]) {
+    if ABSOLUTE_POS < input.len() {
+        output[ABSOLUTE_POS] = input[ABSOLUTE_POS];
+    }
+}
+
+/// What a probe costs the work already running beside it.
+///
+/// [`contended`] measures probes against probes, which both hold the device
+/// once a probe takes it. Ordinary kernels take nothing, so they are what a
+/// held device actually delays: the same launches are timed alone, then again
+/// while the probes run.
+pub fn pressure(device: &Device) {
+    const LOAD_THREADS: usize = 4;
+    const LAUNCHES: usize = 4000;
+    const PROBES: usize = 5;
+
+    let client = device.client();
+    let key = ThroughputKey {
+        mode: ThroughputMode::memory(MemoryAccess::Copy),
+    };
+
+    println!(
+        "Probe pressure — {} / {}",
+        client.name(),
+        client.properties().identity.name
+    );
+
+    let alone = load(&client, LOAD_THREADS, LAUNCHES, || ());
+    let (beside, probes) = {
+        let probing = std::cell::Cell::new((Vec::new(), std::time::Duration::ZERO));
+
+        let beside = load(&client, LOAD_THREADS, LAUNCHES, || {
+            probing.set(peaks(&client, key, PROBES));
+        });
+
+        (beside, probing.take())
+    };
+
+    println!(
+        "  {:<20}{:>12}{:>12}{:>10}",
+        "", "launches/s", "wall", "samples"
+    );
+    report_load("alone", LOAD_THREADS * LAUNCHES, alone);
+    report_load("beside the probes", LOAD_THREADS * LAUNCHES, beside);
+
+    println!();
+    report_peaks("the probes", &probes);
+}
+
+/// Runs `launches` copies per thread on `threads` threads, with `meanwhile` on
+/// this one, and reports how long they all took.
+fn load(
+    client: &Client,
+    threads: usize,
+    launches: usize,
+    meanwhile: impl FnOnce(),
+) -> std::time::Duration {
+    const BYTES: usize = 64 << 20;
+
+    let start = std::time::Instant::now();
+
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| scope.spawn(|| copies(client, BYTES, launches)))
+            .collect();
+
+        meanwhile();
+
+        for worker in workers {
+            worker.join().expect("a load thread finishes");
+        }
+    });
+
+    start.elapsed()
+}
+
+/// `launches` copies of a `bytes` buffer, resynchronised every round so the
+/// loop queues work rather than outrunning the device's task channel.
+fn copies(client: &Client, bytes: usize, launches: usize) {
+    const LINE: usize = 4;
+    const UNITS: u32 = 256;
+
+    let lines = bytes / (size_of::<f32>() * LINE);
+    let input = client.empty(bytes);
+    let output = client.empty(bytes);
+
+    for _ in 0..launches {
+        unsafe {
+            copy_array::launch_unchecked::<f32>(
+                client,
+                CubeCount::Static(lines as u32 / UNITS, 1, 1),
+                CubeDim::new_1d(UNITS),
+                LINE,
+                BufferArg::from_raw_parts(input.clone(), lines),
+                BufferArg::from_raw_parts(output.clone(), lines),
+            )
+        };
+    }
+
+    cubecl::future::block_on(client.sync()).expect("the copies run");
+}
+
+fn report_load(label: &str, launches: usize, elapsed: std::time::Duration) {
+    println!(
+        "  {label:<20}{:>12}{:>12}{:>10}",
+        format!("{:.0}", launches as f64 / elapsed.as_secs_f64()),
+        format!("{:.1} s", elapsed.as_secs_f64()),
+        launches,
+    );
+}
+
+/// Two threads asking for the same peak at once, from a cold cache.
+///
+/// The cache is read when a probe starts and written when it ends, with no
+/// mark in between, so the second thread misses and measures a value the store
+/// then declines. Both wall clocks are a whole probe's, against the third
+/// call's, which is the cache answering.
+pub fn duplicate(device: &Device) {
+    let client = device.client();
+    let key = ThroughputKey {
+        mode: ThroughputMode::ComputeDirect {
+            dtype: ElemType::Float(FloatKind::F32),
+        },
+    };
+
+    println!(
+        "Duplicate probe — {} / {}",
+        client.name(),
+        client.properties().identity.name
+    );
+
+    let (first, second) = std::thread::scope(|scope| {
+        let first = scope.spawn(|| timed(&client, key));
+        let second = scope.spawn(|| timed(&client, key));
+
+        (
+            first.join().expect("the first finishes"),
+            second.join().expect("the second finishes"),
+        )
+    });
+
+    println!("  {:<20}{:>12}", "", "wall");
+    for (label, elapsed) in [
+        ("first", first),
+        ("second", second),
+        ("after both", timed(&client, key)),
+    ] {
+        println!(
+            "  {label:<20}{:>12}",
+            format!("{:.2} s", elapsed.as_secs_f64())
+        );
+    }
+}
+
+fn timed(client: &Client, key: ThroughputKey) -> std::time::Duration {
+    let start = std::time::Instant::now();
+    let _ = measure_peak_throughput(client, key);
+
+    start.elapsed()
 }
