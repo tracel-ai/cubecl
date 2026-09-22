@@ -15,8 +15,8 @@ const UNROLL_FULL: &str = "llvm.loop.unroll.full";
 /// then is every index a constant, and a local array indexed by constants alone becomes
 /// registers instead of local memory. LLVM's cost model stops short of that for a loop of
 /// more than a handful of steps (a top-k accumulator's 64, say), and the array it leaves in
-/// local memory costs several times the loop. AMDGPU needs no hint: its `PromoteAlloca` pass
-/// keeps such an array in vector registers however it is indexed.
+/// local memory costs several times the loop. AMDGPU needs no hint: its cost model already
+/// raises the unroll threshold for a loop that touches a private array.
 pub fn mark(ctx: &Context, latch: Ptr<Operation>, shape: LoopShape) {
     match shape {
         LoopShape::ConstantOverLocalArray => add_loop_property(ctx, latch, UNROLL_FULL),
