@@ -138,38 +138,20 @@ impl<'a, D: Driver> Command<'a, D> {
             return;
         }
         let (stream, failures) = self.streams.current_and_failures();
-        let relocation = stream.device_memory().relocation(failures);
+        let relocation = stream.device_memory().plan_relocation(failures);
         if relocation.is_empty() {
             return;
         }
 
-        let landed = self
-            .wait_every_stream()
-            .and_then(|()| relocation.copy(&mut StreamCopies::<D>::new(self.streams.current())));
+        let landed = relocation.copy(&mut StreamCopies::<D>::new(&mut self.streams, self.ctx));
         let (stream, failures) = self.streams.current_and_failures();
         match landed {
             Ok(landed) => stream.device_memory().commit_relocation(landed, failures),
+            // Dropping the plan gave every target it reserved back.
             Err(err) => {
-                log::warn!("relocating allocations off outdated memory pages abandoned: {err}");
-                // The pages reserved as targets are empty again.
-                stream.device_memory().cleanup(true, failures);
+                log::warn!("relocating allocations off outdated memory pages abandoned: {err}")
             }
         }
-    }
-
-    /// Wait until the device is done with everything already enqueued — on
-    /// every stream, and whatever the driver runs outside them: another
-    /// stream may still read or write an allocation about to move.
-    fn wait_every_stream(&mut self) -> Result<(), ServerError> {
-        let fences: Vec<_> = self
-            .streams
-            .all()
-            .map(|stream| D::Stream::fence(stream.signal()))
-            .collect();
-        for fence in fences {
-            fence.wait()?;
-        }
-        D::wait_outside_streams(self.ctx)
     }
 
     /// Flush the current stream's drop queue, freeing what the device is

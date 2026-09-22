@@ -80,13 +80,11 @@ impl MemoryPage {
         self.slices.iter().all(Slice::is_free)
     }
 
-    #[cfg(multi_threading)]
     /// The slices holding a live allocation.
     pub fn live(&self) -> impl Iterator<Item = &Slice> {
         self.slices.iter().filter(|slice| !slice.is_free())
     }
 
-    #[cfg(multi_threading)]
     /// The slice at `index`, mutably.
     pub fn slice_mut(&mut self, index: usize) -> &mut Slice {
         &mut self.slices[index]

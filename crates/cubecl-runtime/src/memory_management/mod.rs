@@ -30,10 +30,14 @@ pub enum PoolType {
     /// A page is sized once, when it is allocated. When a larger allocation
     /// raises the target, every page of the old size becomes *outdated*: it
     /// serves no new reservation and is returned to the driver as soon as its
-    /// last slice is freed. An explicit cleanup — which is also the retry after
-    /// a failed device allocation — moves what is still live on outdated pages
-    /// onto pages of the current size, so they can be returned at once instead
-    /// of waiting on their longest-lived slice.
+    /// last slice is freed.
+    ///
+    /// On a runtime that can copy between allocations, an explicit cleanup —
+    /// which is also the retry after a failed device allocation — also moves
+    /// what is still live on outdated pages into the room the current ones
+    /// already have, so a page held by one long-lived allocation goes back
+    /// then rather than when that allocation ends. Elsewhere an outdated page
+    /// waits for its longest-lived slice.
     ///
     /// Accepts every size: a page is always large enough for what it serves.
     /// A [`SlicedPages`](PoolType::SlicedPages) pool listed before it then

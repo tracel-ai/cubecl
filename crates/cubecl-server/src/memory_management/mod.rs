@@ -25,7 +25,5 @@ pub(crate) use dynamic::*;
 mod memory_manage;
 pub use memory_manage::*;
 
-/// Moving live allocations off outdated pages: only a command, which can copy
-/// on the device, runs one.
-#[cfg(multi_threading)]
+/// Moving live allocations off outdated pages.
 pub mod relocation;

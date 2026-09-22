@@ -92,13 +92,11 @@ impl SlicedPool {
     }
 
     /// The pages it holds.
-    #[cfg(multi_threading)]
     pub(crate) fn pages(&self) -> impl Iterator<Item = &MemoryPage> {
         self.pages.iter().map(|(page, _)| page)
     }
 
     /// The slice `location` names, which the pool is holding.
-    #[cfg(multi_threading)]
     pub(crate) fn slice_at(&mut self, location: MemoryLocation) -> &mut Slice {
         self.pages[location.page as usize]
             .0
@@ -106,14 +104,12 @@ impl SlicedPool {
     }
 
     /// Whether the page `location` names has real device backing.
-    #[cfg(multi_threading)]
     pub(crate) fn is_mapped_at(&self, location: MemoryLocation) -> bool {
         self.pages[location.page as usize].0.is_mapped()
     }
 
     /// Give the page `location` names real device backing, if it was carved
     /// lazily.
-    #[cfg(multi_threading)]
     pub(crate) fn map_page_at<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,

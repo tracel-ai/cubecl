@@ -1,37 +1,56 @@
-//! A stream as the queue a relocation copies on.
+//! The streams a relocation copies on.
 
 use super::{DeviceStream, Driver};
+use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{CopyQueue, StorageCopy};
-use crate::server::IoError;
+use crate::server::{IoError, ServerError};
 use crate::storage::ComputeStorage;
+use crate::stream::ResolvedStreams;
+use alloc::vec::Vec;
 
-/// The stream a relocation's copies are enqueued on. Its own device memory
-/// resolves the storages: a relocation only moves allocations within one
-/// stream's pools.
-pub(crate) struct StreamCopies<'a, D: Driver> {
-    stream: &'a mut D::Stream,
+/// A command's streams, as the queue a relocation copies on: the current one
+/// carries the copies, and the wait covers every stream the command resolved
+/// plus whatever the driver runs outside them.
+pub(crate) struct StreamCopies<'a, 'b, D: Driver> {
+    streams: &'a mut ResolvedStreams<'b, D::Backend>,
+    ctx: &'a mut D::Context,
 }
 
-impl<'a, D: Driver> StreamCopies<'a, D> {
-    pub(crate) fn new(stream: &'a mut D::Stream) -> Self {
-        Self { stream }
+impl<'a, 'b, D: Driver> StreamCopies<'a, 'b, D> {
+    pub(crate) fn new(
+        streams: &'a mut ResolvedStreams<'b, D::Backend>,
+        ctx: &'a mut D::Context,
+    ) -> Self {
+        Self { streams, ctx }
     }
 }
 
-impl<D: Driver> CopyQueue for StreamCopies<'_, D> {
-    type Fence = <D::Stream as DeviceStream>::Fence;
+impl<D: Driver> CopyQueue for StreamCopies<'_, '_, D> {
+    fn wait_device(&mut self) -> Result<(), ServerError> {
+        let fences: Vec<_> = self
+            .streams
+            .all()
+            .map(|stream| D::Stream::fence(stream.signal()))
+            .collect();
+        for fence in fences {
+            fence.wait()?;
+        }
+        D::wait_outside_streams(self.ctx)
+    }
 
     fn copy(&mut self, copy: &StorageCopy) -> Result<(), IoError> {
-        let storage = self.stream.device_memory().storage();
+        let stream = self.streams.current();
+        let storage = stream.device_memory().storage();
         let source = storage.get(&copy.source)?;
         let target = storage.get(&copy.target)?;
         // SAFETY: a relocation's copy is between two live slices of the same
         // size on distinct pages, and nothing reads the target or writes the
-        // source until the relocation waits on this stream's fence.
-        unsafe { D::copy_on_device(&source, &target, self.stream) }
+        // source until `wait_copies` returns.
+        unsafe { D::copy_on_device(&source, &target, stream) }
     }
 
-    fn fence(&mut self) -> Self::Fence {
-        D::Stream::fence(self.stream.signal())
+    fn wait_copies(&mut self) -> Result<(), ServerError> {
+        let stream = self.streams.current();
+        D::Stream::fence(stream.signal()).wait()
     }
 }

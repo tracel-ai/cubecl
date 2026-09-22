@@ -89,7 +89,6 @@ impl Pools {
     }
 
     /// The sliced pools `first` and `second` name, which are distinct.
-    #[cfg(multi_threading)]
     pub fn sliced_pair(
         &mut self,
         first: u8,

@@ -1,7 +1,6 @@
 //! How a stream's dynamic pools are managed.
 
 use super::{AdaptiveMemory, DynamicPool, Pools};
-#[cfg(multi_threading)]
 use crate::memory_management::relocation::Move;
 use crate::{
     logging::ServerLogger,
@@ -126,7 +125,6 @@ impl DynamicMemory {
     /// Reserve a target for every allocation left on an outdated pool's pages
     /// (see [`AdaptiveMemory::plan_relocation`]). Nothing to move where pages
     /// are never outdated.
-    #[cfg(multi_threading)]
     pub fn plan_relocation<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
@@ -139,7 +137,6 @@ impl DynamicMemory {
     }
 
     /// Hand a planned allocation over to its target, once its bytes are there.
-    #[cfg(multi_threading)]
     pub fn commit_relocation(&mut self, relocated: Move, failures: &mut ErrorGraph) {
         match self {
             DynamicMemory::Exclusive(_) => {}

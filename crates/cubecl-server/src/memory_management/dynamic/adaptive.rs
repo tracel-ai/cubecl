@@ -1,7 +1,6 @@
 //! Dynamic memory whose pages follow the workload's largest allocation.
 
 use super::{DynamicPool, Pools};
-#[cfg(multi_threading)]
 use crate::memory_management::{
     memory_pool::MemoryPool,
     relocation::{Move, OutdatedPages, StorageCopy},
@@ -268,7 +267,6 @@ impl Growth {
     }
 }
 
-#[cfg(multi_threading)]
 impl AdaptiveMemory {
     /// Reserve a slice on the pool now carving allocations for every live
     /// allocation on the outdated pools' pages that
@@ -372,7 +370,6 @@ mod tests {
         memory_management::{
             ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
             MemoryManagement, MemoryManagementOptions, MemoryPoolKind,
-            drop_queue::Fence,
             relocation::{CopyQueue, StorageCopy},
         },
         server::{IoError, ServerError},
@@ -466,7 +463,7 @@ mod tests {
     /// for the device one. Answers how many allocations moved.
     fn relocate(memory: &mut MemoryManagement<BytesStorage>) -> usize {
         let failures = &mut ErrorGraph::default();
-        let relocation = memory.relocation(failures);
+        let relocation = memory.plan_relocation(failures);
         let moved = relocation.len();
         let landed = relocation.copy(&mut HostCopies(memory.storage())).unwrap();
         memory.commit_relocation(landed, failures);
@@ -478,7 +475,9 @@ mod tests {
     struct HostCopies<'a>(&'a mut BytesStorage);
 
     impl CopyQueue for HostCopies<'_> {
-        type Fence = HostFence;
+        fn wait_device(&mut self) -> Result<(), ServerError> {
+            Ok(())
+        }
 
         fn copy(&mut self, copy: &StorageCopy) -> Result<(), IoError> {
             let source = self.0.get(&copy.source)?;
@@ -487,16 +486,8 @@ mod tests {
             Ok(())
         }
 
-        fn fence(&mut self) -> HostFence {
-            HostFence
-        }
-    }
-
-    /// A host copy has landed by the time it returns.
-    struct HostFence;
-
-    impl Fence for HostFence {
-        fn wait(self) -> Result<(), ServerError> {
+        /// A host copy has landed by the time it returns.
+        fn wait_copies(&mut self) -> Result<(), ServerError> {
             Ok(())
         }
     }
@@ -678,7 +669,7 @@ mod tests {
         let location = place(&kept);
         let _large = reserve(&mut memory, 10 * MIB);
 
-        let relocation = memory.relocation(&mut ErrorGraph::default());
+        let relocation = memory.plan_relocation(&mut ErrorGraph::default());
         assert_eq!(relocation.len(), 1);
         drop(relocation);
 

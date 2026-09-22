@@ -221,7 +221,6 @@ impl Slice {
     /// target's so every owner resolves there from now on, and this slice is
     /// left free. Whatever the target's last allocation left tainted is
     /// released first, as [`bind`](Self::bind) would.
-    #[cfg(multi_threading)]
     pub(crate) fn hand_over(&mut self, target: &mut Slice, failures: &mut ErrorGraph) {
         target.tainted.clear(failures);
         let location = target.handle.descriptor().location();

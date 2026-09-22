@@ -14,8 +14,7 @@ use crate::{
     storage::{ComputeStorage, StorageHandle},
 };
 
-#[cfg(multi_threading)]
-use crate::memory_management::relocation::{Landed, Relocation};
+use crate::memory_management::relocation::{Landed, PlannerId, Relocation};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -60,9 +59,9 @@ pub struct MemoryManagement<Storage> {
     /// device allocation, returned to the driver on the tick after it is freed.
     dedicated: DirectPool,
     pools: DynamicMemory,
-    /// Dynamic pools that have already reported hitting their cap, so the
-    /// warning stays one per pool per layout rather than one per allocation.
-    /// Cleared by [`install_pools`](Self::install_pools).
+    /// What a relocation this one planned is stamped with, so no other
+    /// commits it.
+    planner: PlannerId,
     storage: Storage,
     alloc_reserve_count: u64,
     mode: MemoryAllocationMode,
@@ -169,6 +168,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         Self {
             name: options.name,
+            planner: PlannerId::new(),
             persistent: PersistentPool::new(
                 properties.max_page_size,
                 properties.alignment,
@@ -254,8 +254,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// parameter machinery underneath opens one per parameter — and without
     /// the stack, the first inner window's exit would flip the rest of the
     /// outer window back to `Auto`: weights landing in the dynamic pools,
-    /// which then refuse every later rebuild
-    /// ([`install_pools`](Self::install_pools)) for the model's whole life.
+    /// where every page they sit on is held for the model's whole life.
     ///
     /// The persistent-memory config decides what a `Persistent` window puts in
     /// force (`Disabled` and `Enforced` keep the configured mode); a
@@ -433,25 +432,28 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Plan moving what is still live on the sliced pools' outdated pages onto
-    /// pages of the current size, reserving a target slice for each. Nothing moves until the returned relocation's copies
-    /// have landed and it is [committed](Self::commit_relocation); dropping it
-    /// abandons it with nothing lost.
+    /// pages of the current size, reserving a target slice for each.
+    ///
+    /// Nothing moves until the returned relocation's copies have landed and it
+    /// is [committed](Self::commit_relocation); dropping it abandons it with
+    /// nothing lost.
     ///
     /// Empty during a capture, where nothing may move or be freed.
-    #[cfg(multi_threading)]
-    pub fn relocation(&mut self, failures: &mut ErrorGraph) -> Relocation {
+    pub fn plan_relocation(&mut self, failures: &mut ErrorGraph) -> Relocation {
         if self.capture.is_some() {
-            return Relocation::new(Vec::new());
+            return Relocation::new(self.planner, Vec::new());
         }
-        Relocation::new(self.pools.plan_relocation(&mut self.storage, failures))
+        Relocation::new(
+            self.planner,
+            self.pools.plan_relocation(&mut self.storage, failures),
+        )
     }
 
     /// Hand every allocation of a landed relocation over to the slice that
     /// now holds its bytes, then return the pages that left empty to the
     /// driver.
-    #[cfg(multi_threading)]
     pub fn commit_relocation(&mut self, relocation: Landed, failures: &mut ErrorGraph) {
-        for relocated in relocation.into_moves() {
+        for relocated in relocation.into_moves(self.planner) {
             self.pools.commit_relocation(relocated, failures);
         }
         self.cleanup(true, failures);
