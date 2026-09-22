@@ -680,13 +680,13 @@ impl Server for MetalServer {
         cubecl_server::memory_management::StreamMemoryReport {
             stream: stream_id,
             pools: resolved.current().memory_management.memory_report(),
+            auxiliary: Vec::new(),
         }
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        Relocating(&mut resolved).reclaim();
-        Ok(())
+        Relocating(&mut resolved).reclaim()
     }
 
     fn allocation_mode(
@@ -706,6 +706,10 @@ impl RelocatingStreams for Relocating<'_, '_> {
     /// Never: Metal records no graphs.
     fn recording(&mut self) -> bool {
         false
+    }
+
+    fn has_outdated(&mut self) -> bool {
+        self.0.current().memory_management.has_outdated()
     }
 
     fn relocation_need(&mut self) -> RelocationNeed {

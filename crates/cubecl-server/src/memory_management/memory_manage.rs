@@ -322,6 +322,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.pools.relocation_need()
     }
 
+    /// Whether a growth left pages behind for a relocation to empty.
+    pub fn has_outdated(&self) -> bool {
+        self.pools.has_outdated()
+    }
+
     /// Empty what the outdated pools hold into the current pages, so the
     /// pages they held go back to the driver. `reason` decides whether a
     /// target may take a new page.

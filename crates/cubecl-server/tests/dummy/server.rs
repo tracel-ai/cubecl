@@ -309,6 +309,7 @@ impl<M: Marker> Server for DummyServer<M> {
         cubecl_server::memory_management::StreamMemoryReport {
             stream: stream_id,
             pools: self.memory_management.memory_report(),
+            auxiliary: Vec::new(),
         }
     }
 

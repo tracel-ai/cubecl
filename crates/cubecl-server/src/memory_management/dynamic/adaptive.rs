@@ -176,12 +176,17 @@ impl AdaptiveMemory {
         self.arena.try_reserve(size, failures)
     }
 
+    /// Whether a growth left pages behind for a relocation to empty.
+    pub fn has_outdated(&self) -> bool {
+        self.arena.has_outdated()
+    }
+
     /// Whether a relocation is wanted, before the bytes the device holds are
     /// known (see [`RelocationTrigger::need`]).
     pub fn relocation_need(&self) -> RelocationNeed {
         // Asked before every allocation: when nothing is outdated, which is
         // almost always, answer without counting any page.
-        if !self.arena.has_outdated() {
+        if !self.has_outdated() {
             return RelocationNeed::Nothing;
         }
         self.trigger.need(&self.arena.state())

@@ -74,6 +74,7 @@ struct MemoryPage {
 pub(crate) struct ExclusiveLayout {
     /// The largest allocation the pool accepts, a multiple of the alignment.
     pub max_alloc_size: u64,
+    /// The alignment every page is allocated at.
     pub alignment: u64,
     /// The allocations an unused page waits through before it is released;
     /// `u64::MAX` keeps it for good.

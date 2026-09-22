@@ -1,4 +1,6 @@
-use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
+use crate::memory_management::relocation::{
+    RelocatableStream, RelocatingStreams, RelocationNeed, RelocationReason,
+};
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
@@ -142,26 +144,6 @@ pub struct SchedulerMultiStreamOptions {
     pub strategy: SchedulerStrategy,
 }
 
-/// A scheduled stream, as relocating its memory needs it.
-pub trait RelocatableStream {
-    /// Whether the stream is recording a graph.
-    fn recording(&self) -> bool;
-
-    /// Whether the stream's memory wants a relocation — see
-    /// [`MemoryManagement::relocation_need`](crate::memory_management::MemoryManagement::relocation_need).
-    fn relocation_need(&self) -> RelocationNeed;
-
-    /// The bytes the stream's memory holds from the device.
-    fn bytes_allocated(&self) -> u64;
-
-    /// Move what the stream's memory holds on outdated pages, once every
-    /// stream's work is done.
-    fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph);
-
-    /// Give back every page the stream's memory holds and nothing needs.
-    fn cleanup_memory(&mut self, failures: &mut ErrorGraph);
-}
-
 /// A scheduler's streams, relocating one stream's memory: every stream's
 /// queued tasks run and are flushed first, since a queued task holds the
 /// addresses its buffers resolved to.
@@ -177,6 +159,10 @@ where
 {
     fn recording(&mut self) -> bool {
         self.scheduler.streams().any(RelocatableStream::recording)
+    }
+
+    fn has_outdated(&mut self) -> bool {
+        self.scheduler.stream(&self.stream_id).has_outdated()
     }
 
     fn relocation_need(&mut self) -> RelocationNeed {

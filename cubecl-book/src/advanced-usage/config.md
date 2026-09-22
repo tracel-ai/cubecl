@@ -161,7 +161,7 @@ logger = { level = "basic", stdout = true }
 persistent_memory = "enabled"
 ```
 
-There is no setting for the memory pools.
+The memory pools have no entry in the config file.
 The memory management lays them out from the allocations it serves, see
 [Memory pools](#memory-pools) below.
 A leftover `pools` entry in `[memory]` is a load error.
@@ -222,7 +222,7 @@ Two sharp edges:
 ## Memory pools
 
 The pools of a runtime's main GPU memory lay themselves out.
-Nothing is measured or configured per workload.
+Nothing is measured or tuned per workload.
 
 - Small allocations share a sliced pool of their own.
 - Everything else is carved from pages sized to the largest allocation served so far.
@@ -232,8 +232,10 @@ Nothing is measured or configured per workload.
   onto the new ones so they can be returned sooner.
 - `memory_cleanup` relocates first, then returns every page nothing uses.
 
-A device that cannot sub-slice a page, and every wasm target, gets one page per allocation in
-size buckets instead.
+A runtime can instead give every allocation its own page, in size buckets.
+Choose it by setting `memory_config` to `MemoryConfiguration::ExclusivePages` in the runtime's
+`RuntimeOptions`.
+A build with the `exclusive-memory-only` feature, and every wasm target, always does this.
 
 To see what the pools hold, ask the client for a report:
 

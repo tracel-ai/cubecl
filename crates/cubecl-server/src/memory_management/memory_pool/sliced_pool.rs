@@ -36,11 +36,12 @@ pub struct SlicedPool {
 
 /// What a [`SlicedPool`] carves, and the pool index its slices carry.
 #[derive(Debug, Clone, Copy)]
-pub struct SlicedLayout {
+pub(crate) struct SlicedLayout {
     /// The size every page is allocated at.
     pub page_size: u64,
     /// The largest allocation the pool accepts, capped at the page size.
     pub max_slice_size: u64,
+    /// The alignment every slice starts at.
     pub alignment: u64,
     /// The pool index a slice's location carries.
     pub pool: u8,
@@ -48,7 +49,7 @@ pub struct SlicedLayout {
 
 impl SlicedPool {
     /// A pool carving pages as `layout` says.
-    pub fn new(layout: SlicedLayout) -> Self {
+    pub(crate) fn new(layout: SlicedLayout) -> Self {
         Self {
             pages: Vec::new(),
             pages_tmp: Vec::new(),

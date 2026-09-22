@@ -220,6 +220,15 @@ impl ManagedMemoryHandle {
         Arc::strong_count(&self.handle_count) <= 2
     }
 
+    /// Whether a [binding](Self::binding) is out: something holds the
+    /// allocation's address, not only its handle.
+    ///
+    /// Handles and bindings share the descriptor, and only handles count in
+    /// `handle_count`, so the difference is the bindings.
+    pub fn is_bound(&self) -> bool {
+        Arc::strong_count(&self.descriptor) > Arc::strong_count(&self.handle_count)
+    }
+
     /// Return whether the current handle is free.
     pub fn is_free(&self) -> bool {
         Arc::strong_count(&self.descriptor) <= 1

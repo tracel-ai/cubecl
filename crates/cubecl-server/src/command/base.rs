@@ -124,6 +124,7 @@ impl<'a, D: Driver> Command<'a, D> {
         StreamMemoryReport {
             stream: self.streams.current,
             pools: self.streams.current().device_memory().memory_report(),
+            auxiliary: Vec::new(),
         }
     }
 
@@ -135,12 +136,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// Refused while any stream records a graph: releasing memory waits on
     /// the device, and a wait on a stream that records aborts its capture.
     pub fn memory_cleanup(&mut self) -> Result<(), ServerError> {
-        if self.recording() {
-            return Err(ServerError::graph_state(
-                "memory_cleanup: a stream is recording a graph, and releasing memory waits on the \
-                 device",
-            ));
-        }
+        self.refuse_while_recording()?;
         let stream = self.streams.current();
         // Deferred frees sit in the drop queue until a fenced flush, so an
         // explicit cleanup must drain it first or the pools still see those
@@ -152,7 +148,7 @@ impl<'a, D: Driver> Command<'a, D> {
         // not pinned by a live graph goes too.
         stream.info_cache().clear_unpinned();
 
-        RelocatingStreams::reclaim(self);
+        RelocatingStreams::reclaim(self)?;
         let (stream, failures) = self.streams.current_and_failures();
         stream.host_memory().cleanup(Cleanup::Explicit, failures);
         Ok(())
@@ -582,6 +578,10 @@ impl<D: Driver> RelocatingStreams for Command<'_, D> {
         self.streams
             .all()
             .any(|stream| stream.capturing().is_recording())
+    }
+
+    fn has_outdated(&mut self) -> bool {
+        self.streams.current().device_memory().has_outdated()
     }
 
     fn relocation_need(&mut self) -> RelocationNeed {

@@ -214,7 +214,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                         .capturing
                         .touch(b.stream, b.memory.descriptor().location());
                     let stream = self.scheduler.stream(&b.stream);
-                    let resource = stream.mem_manage.get_resource(b)?;
+                    let resource = stream.resource(b)?;
                     resources.push(resource);
                 }
                 KernelResource::TensorMap(_) => panic!("Tensor map not supported in wgpu"),
@@ -351,11 +351,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         let any_recording = relocating.recording();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         let update = stream.capturing.page_update(any_recording);
-        let reserved = match stream
-            .mem_manage
-            .memory_pool
-            .reserve(size, update, failures)
-        {
+        let reserved = match stream.memory.reserve(size, update, failures) {
             Ok(reserved) => reserved,
             // The recording now misses whatever this memory was for, and
             // `end_capture` reports that: the handle stays unbound, and
@@ -366,7 +362,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             }
             Err(err) => panic!("failed to reserve {size} bytes of device memory: {err}"),
         };
-        stream.mem_manage.bind(reserved, memory, failures);
+        stream.memory.bind(reserved, memory, 0, failures).unwrap();
     }
 
     fn read(
@@ -409,7 +405,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 streams.push(desc.handle.stream);
             }
             let stream = self.scheduler.stream(&desc.handle.stream);
-            let resource = match stream.mem_manage.get_resource(desc.handle) {
+            let resource = match stream.resource(desc.handle) {
                 Ok(val) => val,
                 Err(err) => return Box::pin(async move { Err(err.into()) }),
             };
@@ -482,10 +478,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 let owner = desc.handle.stream;
                 let handle = desc.handle.clone();
                 let stream = server.scheduler.stream(&owner);
-                let resource = stream
-                    .mem_manage
-                    .get_resource(desc.handle)
-                    .map_err(ServerError::Io)?;
+                let resource = stream.resource(desc.handle).map_err(ServerError::Io)?;
                 let task = ScheduleTask::Write {
                     data,
                     buffer: resource,
@@ -677,9 +670,11 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
     fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport {
         self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
         StreamMemoryReport {
             stream: stream_id,
-            pools: self.scheduler.stream(&stream_id).mem_manage.memory_report(),
+            pools: stream.memory.memory_report(),
+            auxiliary: stream.auxiliary.report(),
         }
     }
 
@@ -689,26 +684,22 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
-        if self.scheduler.relocating(stream_id).recording() {
-            return Err(ServerError::graph_state(
-                "memory_cleanup: a stream is recording a graph, whose pages keep their numbers \
-                 until it seals",
-            ));
-        }
+        self.scheduler
+            .relocating(stream_id)
+            .refuse_while_recording()?;
         let stream = self.scheduler.stream(&stream_id);
         // The info cache's buffers are live slices in the uniforms pool; an
         // explicit cleanup exists to leave the pools empty, so every entry not
         // pinned by a live graph goes too (entries are recreated on their next
         // miss).
         stream.info_cache.clear_unpinned();
-        self.scheduler.relocating(stream_id).reclaim();
-        Ok(())
+        self.scheduler.relocating(stream_id).reclaim()
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
-        stream.mem_manage.mode(mode);
+        stream.memory.mode(mode);
     }
 
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -822,8 +813,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             .filter_map(|page| {
                 self.scheduler
                     .stream(&page.stream)
-                    .mem_manage
-                    .memory_pool
+                    .memory
                     .guard(page.location)
             })
             .collect();
@@ -931,7 +921,7 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        Ok(stream.mem_manage.memory_pool.managed_resource(
+        Ok(stream.memory.managed_resource(
             binding.memory,
             binding.offset_start,
             binding.offset_end,

@@ -109,7 +109,9 @@ impl CpuServer {
                 // No page guard: a relocation runs every queued and running
                 // kernel to completion before anything moves, and a guard
                 // would keep the pages from serving new reservations for as
-                // long as the task is queued.
+                // long as the task is queued. A read-back outlives its task,
+                // and its binding is what keeps the allocation in place: a
+                // relocation leaves a page with a bound allocation as it is.
                 Some(ManagedResource::new(memory, resource, None))
             })
             .collect::<Vec<_>>();
@@ -355,6 +357,7 @@ impl Server for CpuServer {
                 .stream(&stream_id)
                 .memory_management
                 .memory_report(),
+            auxiliary: Vec::new(),
         }
     }
 
@@ -363,8 +366,7 @@ impl Server for CpuServer {
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        self.scheduler.relocating(stream_id).reclaim();
-        Ok(())
+        self.scheduler.relocating(stream_id).reclaim()
     }
 
     unsafe fn launch(

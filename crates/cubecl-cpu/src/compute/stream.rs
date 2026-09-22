@@ -9,9 +9,10 @@ use cubecl_core::{
     server::{BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
 };
 use cubecl_environment::stream::StreamId;
-use cubecl_server::memory_management::relocation::{HostCopies, RelocationNeed, RelocationReason};
+use cubecl_server::memory_management::relocation::{
+    HostCopies, RelocatableStream, RelocationNeed, RelocationReason,
+};
 use cubecl_server::memory_management::{Cleanup, PageUpdate};
-use cubecl_server::stream::scheduler::RelocatableStream;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
@@ -60,6 +61,10 @@ impl RelocatableStream for CpuStream {
     /// Never: the CPU records no graphs.
     fn recording(&self) -> bool {
         false
+    }
+
+    fn has_outdated(&self) -> bool {
+        self.memory_management.has_outdated()
     }
 
     fn relocation_need(&self) -> RelocationNeed {

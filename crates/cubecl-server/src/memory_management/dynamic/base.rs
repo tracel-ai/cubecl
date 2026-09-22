@@ -119,6 +119,15 @@ impl DynamicMemory {
         }
     }
 
+    /// Whether a growth left pages behind for a relocation to empty. Never
+    /// where pages are never outdated.
+    pub fn has_outdated(&self) -> bool {
+        match self {
+            DynamicMemory::Exclusive(_) => false,
+            DynamicMemory::Adaptive(memory) => memory.has_outdated(),
+        }
+    }
+
     /// Whether a relocation is wanted, before the bytes the device holds are
     /// known. Never where pages are never outdated.
     pub fn relocation_need(&self) -> RelocationNeed {

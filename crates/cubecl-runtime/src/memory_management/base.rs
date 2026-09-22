@@ -139,12 +139,8 @@ pub struct MemoryPoolReport {
     pub usage: MemoryUsage,
     /// Device allocations (pages) currently held.
     pub pages: u64,
-    /// The most device allocations ever held at once.
-    ///
-    /// For a sliced pool this is the number a capped layout needs:
-    /// pages are carved by a deterministic first-fit policy, so replaying the
-    /// same allocation stream against `pages_peak * page_size` fits by
-    /// construction.
+    /// The most device allocations ever held at once: for a sliced pool, the
+    /// pages the workload needed at its peak.
     pub pages_peak: u64,
     /// How many of the current pages have no device backing yet — carved
     /// under a dry run and never resolved into anything that executes. They
@@ -184,6 +180,19 @@ pub struct MemoryReport {
 pub struct StreamMemoryReport {
     /// The stream the memory belongs to.
     pub stream: StreamId,
+    /// The pools every allocation a user makes lives in.
+    pub pools: MemoryPoolsReport,
+    /// The memories a runtime keeps beside those pools for its own use, such
+    /// as staging buffers for reads or uniform buffers for launches. Empty
+    /// where the runtime keeps none.
+    pub auxiliary: Vec<AuxiliaryMemoryReport>,
+}
+
+/// A memory a runtime keeps for its own use, and what it holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuxiliaryMemoryReport {
+    /// What the memory is for.
+    pub name: String,
     /// Its pools.
     pub pools: MemoryPoolsReport,
 }
@@ -212,9 +221,14 @@ impl MemoryReport {
 }
 
 impl StreamMemoryReport {
-    /// The usage of this stream's pools together.
+    /// The usage of this stream's pools together, the auxiliary memories'
+    /// included.
     pub fn usage(&self) -> MemoryUsage {
-        self.pools.usage()
+        self.auxiliary
+            .iter()
+            .fold(self.pools.usage(), |usage, memory| {
+                usage.combine(memory.pools.usage())
+            })
     }
 }
 
@@ -268,6 +282,7 @@ mod tests {
                 persistent: pool(bytes),
                 dedicated: pool(bytes),
             },
+            auxiliary: Vec::new(),
         }
     }
 
@@ -280,5 +295,16 @@ mod tests {
         assert_eq!(report.streams[0].usage().bytes_in_use, 3);
         assert_eq!(report.usage().bytes_in_use, 33);
         assert_eq!(report.usage().number_allocs, 6);
+    }
+
+    /// The memories a runtime keeps for itself count toward the stream.
+    #[test]
+    fn usage_counts_auxiliary_memories() {
+        let mut report = stream(0, 1);
+        report.auxiliary.push(AuxiliaryMemoryReport {
+            name: "staging".to_string(),
+            pools: stream(0, 10).pools,
+        });
+        assert_eq!(report.usage().bytes_in_use, 33);
     }
 }

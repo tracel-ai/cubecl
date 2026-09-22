@@ -5,10 +5,14 @@ use crate::memory_management::memory_pool::MemoryPage;
 use alloc::vec::Vec;
 
 /// The outdated pages a relocation can empty: every page with a live
-/// allocation on it and no [guard](crate::memory_management::PageGuard)
-/// keeping it as it is.
+/// allocation on it, no [guard](crate::memory_management::PageGuard) keeping
+/// it as it is, and no allocation bound.
 ///
-/// An empty page needs no move, and a guarded one keeps what it holds.
+/// An empty page needs no move, and a guarded one keeps what it holds. So does
+/// a page with an allocation someone holds a binding of once every stream's
+/// work is done: that binding is an address kept past the work, like a
+/// read-back that points into the page on a runtime that reads in place.
+/// Moving the allocation would leave it pointing at freed bytes.
 #[derive(Debug)]
 pub struct OutdatedPages {
     pages: Vec<MovablePage>,
@@ -54,6 +58,9 @@ impl OutdatedPages {
 impl MovablePage {
     /// What `page` holds, `None` when nothing live is on it.
     fn new(page: &MemoryPage) -> Option<Self> {
+        if page.live().any(|slice| slice.handle.is_bound()) {
+            return None;
+        }
         let live: Vec<_> = page
             .live()
             .map(|slice| LiveAllocation {

@@ -359,7 +359,8 @@ impl PoolArena {
             allocation, target, ..
         } in landed.into_moves()
         {
-            // The handles carry the locations: a move keeps none of its own.
+            // Read from the handles, which the pools keep current: a move
+            // stores no location of its own, so it can never hold a stale one.
             let source = allocation.descriptor().location();
             let destination = target.descriptor().location();
             // Only the slices hold the handles once these go.
