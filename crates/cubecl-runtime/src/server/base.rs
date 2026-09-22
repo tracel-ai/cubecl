@@ -42,7 +42,7 @@ use itertools::Itertools;
 use thiserror::Error;
 
 #[derive(Error, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 /// An error during profiling.
 pub enum ProfileError {
     /// An unknown error happened during profiling
@@ -53,7 +53,7 @@ pub enum ProfileError {
         /// The caused of the error
         reason: String,
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -61,7 +61,7 @@ pub enum ProfileError {
     #[error("No profiling registered\nBacktrace:\n{backtrace}")]
     NotRegistered {
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -76,7 +76,7 @@ pub enum ProfileError {
     #[error("The profiled window resolved no device timing\nBacktrace:\n{backtrace}")]
     NotMeasured {
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -215,7 +215,7 @@ impl ServerUtilities {
 
 /// Kernel Launch Errors.
 #[derive(Error, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum LaunchError {
     /// The given kernel can't be compiled.
     #[error("A compilation error happened during launch\nCaused by:\n  {0}")]
@@ -229,7 +229,7 @@ pub enum LaunchError {
         /// The caused of the memory error.
         reason: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -245,14 +245,14 @@ pub enum LaunchError {
         /// The caused of the unknown error.
         reason: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 }
 
 /// Resource limit errors.
 #[derive(Error, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum ResourceLimitError {
     /// Shared memory exceeds maximum
     #[error(
@@ -264,7 +264,7 @@ pub enum ResourceLimitError {
         /// Maximum value
         max: usize,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
     /// Total units exceeds maximum
@@ -277,7 +277,7 @@ pub enum ResourceLimitError {
         /// Maximum value
         max: u32,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
     /// `CubeDim` exceeds maximum
@@ -290,7 +290,7 @@ pub enum ResourceLimitError {
         /// Maximum value
         max: (u32, u32, u32),
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 }
@@ -309,7 +309,7 @@ impl core::fmt::Debug for ResourceLimitError {
 
 /// A collective operation between the devices of one runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum Collective {
     /// Setting up the communication between a group of devices.
     CommInit,
@@ -337,7 +337,7 @@ impl Display for Collective {
 
 /// Error that can happen asynchronously while executing registered kernels.
 #[derive(Error, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum ServerError {
     /// A runtime validation error
     #[error(
@@ -347,7 +347,7 @@ pub enum ServerError {
         /// The details of the validation error.
         message: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -357,7 +357,7 @@ pub enum ServerError {
         /// The details of the generic error.
         reason: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -371,7 +371,7 @@ pub enum ServerError {
         /// The collective that was asked for.
         operation: Collective,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -384,7 +384,7 @@ pub enum ServerError {
         /// The service the client reaches.
         client: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -398,7 +398,7 @@ pub enum ServerError {
         /// The server type the caller asked for.
         requested: String,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -446,7 +446,7 @@ pub enum ServerError {
         root: Box<ServerError>,
         /// Where the question was asked, so the lazy report and the read that
         /// tripped over it can be tied together.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -472,7 +472,7 @@ pub enum ServerError {
         /// The failures, in the order they were found.
         errors: Vec<Self>,
         /// The backtrace for this error.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 }
@@ -1064,7 +1064,7 @@ pub struct Reason {
     inner: ReasonInner,
 }
 
-#[cfg(std_io)]
+#[cfg(serializable)]
 mod _reason_serde {
     use super::*;
 
@@ -1141,7 +1141,7 @@ impl From<String> for Reason {
 /// Error returned from `create`/`read`/`write` functions. Due to async execution not all errors
 /// are able to be caught, so some IO errors will still panic.
 #[derive(Error, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 pub enum IoError {
     /// Buffer size exceeds the max available
     #[error("can't allocate buffer of size: {size}\n{backtrace}")]
@@ -1149,7 +1149,7 @@ pub enum IoError {
         /// The size of the buffer in bytes.
         size: u64,
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1167,7 +1167,7 @@ pub enum IoError {
         /// The size of the failed allocation in bytes.
         size: u64,
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1189,7 +1189,7 @@ pub enum IoError {
         /// Bytes currently in use in the pool.
         in_use: u64,
         /// The captured backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1197,7 +1197,7 @@ pub enum IoError {
     #[error("the provided strides are not supported for this operation\n{backtrace}")]
     UnsupportedStrides {
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1205,7 +1205,7 @@ pub enum IoError {
     #[error("couldn't find resource for that handle: {reason}\n{backtrace}")]
     NotFound {
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
         /// The reason the handle is invalid.
         reason: Reason,
@@ -1222,7 +1222,7 @@ pub enum IoError {
         /// Which id was looked up, and in which storage.
         reason: Reason,
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1244,7 +1244,7 @@ pub enum IoError {
         /// Why the device allocation failed.
         source: Box<IoError>,
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1254,7 +1254,7 @@ pub enum IoError {
         /// Details of the error
         description: String,
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 
@@ -1262,7 +1262,7 @@ pub enum IoError {
     #[error("The current IO operation is not supported\n{backtrace}")]
     UnsupportedIoOperation {
         /// The backtrace.
-        #[cfg_attr(std_io, serde(skip))]
+        #[cfg_attr(serializable, serde(skip))]
         backtrace: BackTrace,
     },
 }
@@ -1614,7 +1614,7 @@ impl Clone for CubeCount {
 }
 
 #[derive(Debug, From, PartialEq, Eq, Clone, Copy, Hash, Deref, DerefMut)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(serializable, derive(serde::Serialize, serde::Deserialize))]
 #[allow(missing_docs)]
 /// The number of units across all 3 axis totalling to the number of working units in a cube.
 pub struct CubeDim(pub Dim3);

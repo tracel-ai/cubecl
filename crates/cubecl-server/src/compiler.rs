@@ -8,7 +8,7 @@ use crate::id::KernelId;
 use core::hash::Hash;
 use cubecl_common::hash::{StableHash, StableHasher};
 use cubecl_environment::collections::HashMap;
-#[cfg(std_io)]
+#[cfg(compilation_cache)]
 use cubecl_environment::persistence::{CacheOption, Namespace, StoreOptions};
 use cubecl_environment::persistence::{Store, StoreKey, StoreValue};
 use cubecl_environment::records::{Record, RecordEffect, RecordLevel, Span};
@@ -33,7 +33,7 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
     backend: &'static str,
     fingerprint: impl AsRef<str>,
 ) -> Option<Store<K, V>> {
-    #[cfg(std_io)]
+    #[cfg(compilation_cache)]
     {
         use crate::config::RuntimeConfig;
 
@@ -49,7 +49,7 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
     }
 
     // No file system to persist to; the caller keeps its in-memory map.
-    #[cfg(not(std_io))]
+    #[cfg(not(compilation_cache))]
     {
         let _ = (backend, fingerprint);
         None
