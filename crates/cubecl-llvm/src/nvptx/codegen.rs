@@ -7,7 +7,10 @@ use crate::{
         ptx_version::PtxVersion,
     },
     prelude::{BufferIOAttr, Context, ModuleOp},
-    shared::{NvptxModule, llvm_options::set_llvm_option, math_library::redirect_intrinsics},
+    shared::{
+        NvptxModule, buffer_params::annotate_buffer_params, llvm_options::set_llvm_option,
+        math_library::redirect_intrinsics,
+    },
 };
 use cubecl_core::ir::nvidia::SmArch;
 use pliron_llvm::{llvm_sys::core::LLVMContext, to_llvm_ir};
@@ -156,7 +159,7 @@ fn finalize_ir(
             LLVMAddAttributeAtIndex(func, llvm_sys::LLVMAttributeFunctionIndex, attribute);
         }
 
-        annotate_buffer_params(ctx, func, &entry.io, entry.metadata);
+        annotate_buffer_params(ctx, func, &entry.io, entry.metadata.count());
         if let MetadataParams::GridConstant { bytes, .. } = entry.metadata {
             mark_info_param_byval(ctx, func, bytes);
         }
@@ -204,84 +207,6 @@ unsafe fn mark_info_param_byval(
             index,
             LLVMCreateEnumAttribute(ctx, align, INFO_PARAM_ALIGN as u64),
         );
-    }
-}
-
-/// # Safety
-/// `func` must be a live function in `ctx` whose parameters are the buffers in binding order
-/// followed by the metadata pointer.
-unsafe fn annotate_buffer_params(
-    ctx: llvm_sys::prelude::LLVMContextRef,
-    func: llvm_sys::prelude::LLVMValueRef,
-    io: &[BufferIOAttr],
-    metadata: MetadataParams,
-) {
-    use llvm_sys::LLVMTypeKind;
-    use llvm_sys::core::{
-        LLVMAddAttributeAtIndex, LLVMCountParams, LLVMCreateEnumAttribute,
-        LLVMGetEnumAttributeKindForName, LLVMGetParam, LLVMGetTypeKind, LLVMTypeOf,
-    };
-
-    unsafe {
-        let enum_attr = |index: u32, name: &str| {
-            let kind = LLVMGetEnumAttributeKindForName(name.as_ptr() as *const _, name.len());
-            if kind == 0 {
-                return;
-            }
-            let attribute = LLVMCreateEnumAttribute(ctx, kind, 0);
-            LLVMAddAttributeAtIndex(func, index, attribute);
-        };
-
-        // Atomic loads must retain coherent memory access.
-        let may_say_readonly = !reads_atomically(func);
-
-        let params = LLVMCountParams(func);
-        let first_metadata = params.saturating_sub(metadata.count());
-        for param in 0..params {
-            if LLVMGetTypeKind(LLVMTypeOf(LLVMGetParam(func, param)))
-                != LLVMTypeKind::LLVMPointerTypeKind
-            {
-                continue;
-            }
-
-            let index = param + 1;
-            enum_attr(index, "noalias");
-
-            let read_only = param >= first_metadata
-                || io
-                    .get(param as usize)
-                    .is_some_and(|attr| *attr == BufferIOAttr::ReadOnly);
-            if read_only && may_say_readonly {
-                enum_attr(index, "readonly");
-            }
-        }
-    }
-}
-
-/// # Safety
-/// `func` must be a live LLVM function.
-unsafe fn reads_atomically(func: llvm_sys::prelude::LLVMValueRef) -> bool {
-    use llvm_sys::LLVMAtomicOrdering;
-    use llvm_sys::core::{
-        LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetNextBasicBlock,
-        LLVMGetNextInstruction, LLVMGetOrdering, LLVMIsALoadInst,
-    };
-
-    unsafe {
-        let mut block = LLVMGetFirstBasicBlock(func);
-        while !block.is_null() {
-            let mut inst = LLVMGetFirstInstruction(block);
-            while !inst.is_null() {
-                if !LLVMIsALoadInst(inst).is_null()
-                    && LLVMGetOrdering(inst) != LLVMAtomicOrdering::LLVMAtomicOrderingNotAtomic
-                {
-                    return true;
-                }
-                inst = LLVMGetNextInstruction(inst);
-            }
-            block = LLVMGetNextBasicBlock(block);
-        }
-        false
     }
 }
 

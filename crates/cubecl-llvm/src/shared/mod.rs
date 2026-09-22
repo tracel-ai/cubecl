@@ -3,6 +3,8 @@ mod base;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) mod bitcode;
 pub mod branch;
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+pub(crate) mod buffer_params;
 pub mod intrinsic;
 #[cfg(feature = "nvptx")]
 pub(crate) mod llvm_options;
