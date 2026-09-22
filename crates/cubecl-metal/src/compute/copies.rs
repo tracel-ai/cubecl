@@ -8,24 +8,50 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLBlitCommandEncoder, MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue};
 
-/// Metal's device-to-device copy: a blit of its own, committed and waited on
-/// outside the stream's dispatch batch.
+/// Metal's device-to-device copy: blits encoded on a command buffer of their
+/// own, committed together and waited on outside the stream's dispatch batch.
 ///
 /// The stream ends its batch before a relocation starts, so the blits here
 /// follow every dispatch that could still read what moves.
 pub(crate) struct MetalCopies {
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
-    /// The last blit committed, which [`wait_copies`](CopyQueue::wait_copies)
-    /// waits for.
-    committed: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+    /// The blits encoded since the last commit, and the command buffer they
+    /// are encoded on.
+    pending: Option<Blits>,
+}
+
+struct Blits {
+    command_buffer: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+    encoder: Retained<ProtocolObject<dyn MTLBlitCommandEncoder>>,
 }
 
 impl MetalCopies {
     pub(crate) fn new(queue: Retained<ProtocolObject<dyn MTLCommandQueue>>) -> Self {
         Self {
             queue,
-            committed: None,
+            pending: None,
         }
+    }
+
+    /// The blits being encoded, opened on first use.
+    fn blits(&mut self) -> Result<&mut Blits, IoError> {
+        if self.pending.is_none() {
+            let command_buffer = self.queue.commandBuffer().ok_or_else(|| IoError::Unknown {
+                description: "Metal refused a command buffer for a relocation".into(),
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+            })?;
+            let encoder = command_buffer
+                .blitCommandEncoder()
+                .ok_or_else(|| IoError::Unknown {
+                    description: "Metal refused a blit encoder for a relocation".into(),
+                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+                })?;
+            self.pending = Some(Blits {
+                command_buffer,
+                encoder,
+            });
+        }
+        Ok(self.pending.as_mut().expect("opened above"))
     }
 }
 
@@ -39,39 +65,30 @@ impl CopyQueue<MetalStorage> for MetalCopies {
     fn copy(&mut self, storage: &mut MetalStorage, copy: &StorageCopy) -> Result<(), IoError> {
         let source = storage.get(&copy.source)?;
         let target = storage.get(&copy.target)?;
-
-        let command_buffer = self.queue.commandBuffer().ok_or_else(|| IoError::Unknown {
-            description: "Metal refused a command buffer for a relocation".into(),
-            backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-        })?;
-        let blit = command_buffer
-            .blitCommandEncoder()
-            .ok_or_else(|| IoError::Unknown {
-                description: "Metal refused a blit encoder for a relocation".into(),
-                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
-            })?;
+        let blits = self.blits()?;
 
         // SAFETY: both storages are live buffers of this device, and the
         // ranges are the slices the relocation reserved: same size, and on
         // buffers nothing else reads or writes until the blit has completed.
         unsafe {
-            blit.copyFromBuffer_sourceOffset_toBuffer_destinationOffset_size(
-                source.inner(),
-                copy.source.offset() as usize,
-                target.inner(),
-                copy.target.offset() as usize,
-                copy.source.size() as usize,
-            );
+            blits
+                .encoder
+                .copyFromBuffer_sourceOffset_toBuffer_destinationOffset_size(
+                    source.inner(),
+                    copy.source.offset() as usize,
+                    target.inner(),
+                    copy.target.offset() as usize,
+                    copy.source.size() as usize,
+                );
         }
-        blit.endEncoding();
-        command_buffer.commit();
-        self.committed = Some(command_buffer);
         Ok(())
     }
 
     fn wait_copies(&mut self) -> Result<(), ServerError> {
-        if let Some(command_buffer) = self.committed.take() {
-            command_buffer.waitUntilCompleted();
+        if let Some(blits) = self.pending.take() {
+            blits.encoder.endEncoding();
+            blits.command_buffer.commit();
+            blits.command_buffer.waitUntilCompleted();
         }
         Ok(())
     }

@@ -21,14 +21,18 @@ pub trait CopyQueue<Storage: ComputeStorage> {
     /// The fault a wait revealed.
     fn wait_device(&mut self) -> Result<(), ServerError>;
 
-    /// Enqueue copying `copy.source`'s bytes into `copy.target`.
+    /// Add copying `copy.source`'s bytes into `copy.target` to the batch
+    /// [`wait_copies`](Self::wait_copies) lands. A queue may hold it until
+    /// then, so one relocation is one submission however many copies it
+    /// makes.
     ///
     /// # Errors
     ///
     /// The device's refusal to copy.
     fn copy(&mut self, storage: &mut Storage, copy: &StorageCopy) -> Result<(), IoError>;
 
-    /// Wait until the copies enqueued so far have landed.
+    /// Submit the copies added so far, if the queue held them, and wait until
+    /// they have landed.
     ///
     /// # Errors
     ///

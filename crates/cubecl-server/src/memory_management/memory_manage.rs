@@ -246,7 +246,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             PoolPosition::Dedicated => self.dedicated.find(binding)?,
             PoolPosition::Dynamic(index) => self
                 .pools
-                .get(index)
+                .pool(index)
                 .ok_or_else(|| PoolPosition::missing(index))?
                 .find(binding)?,
         };
@@ -281,7 +281,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             PoolPosition::Dedicated => self.dedicated.find_mut(binding)?,
             PoolPosition::Dynamic(index) => self
                 .pools
-                .get_mut(index)
+                .pool_mut(index)
                 .ok_or_else(|| PoolPosition::missing(index))?
                 .find_mut(binding)?,
         };
@@ -328,7 +328,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         match PoolPosition::new(location.pool) {
             PoolPosition::Persistent => self.persistent.guard(location),
             PoolPosition::Dedicated => self.dedicated.guard(location),
-            PoolPosition::Dynamic(index) => self.pools.get_mut(index)?.guard(location),
+            PoolPosition::Dynamic(index) => self.pools.pool_mut(index)?.guard(location),
         }
     }
 
@@ -343,10 +343,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         match PoolPosition::new(location.pool) {
             PoolPosition::Persistent => self.persistent.materialize(&mut self.storage, binding),
             PoolPosition::Dedicated => self.dedicated.materialize(&mut self.storage, binding),
-            PoolPosition::Dynamic(index) => match self.pools.get_mut(index) {
-                Some(pool) => pool.materialize(&mut self.storage, binding),
-                None => Ok(()),
-            },
+            PoolPosition::Dynamic(_) => self.pools.materialize(&mut self.storage, binding),
         }
     }
 
@@ -569,7 +566,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             PoolPosition::Dedicated => self.dedicated.bind(reserved, assigned, cursor, failures),
             PoolPosition::Dynamic(index) => self
                 .pools
-                .get_mut(index)
+                .pool_mut(index)
                 .ok_or_else(|| PoolPosition::missing(index))?
                 .bind(reserved, assigned, cursor, failures),
         }

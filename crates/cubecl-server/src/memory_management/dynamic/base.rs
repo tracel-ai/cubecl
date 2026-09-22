@@ -1,17 +1,19 @@
 //! How a stream's dynamic pools are managed.
 
-use super::{AdaptiveMemory, DynamicPool, Pools};
+use super::{AdaptiveMemory, ExclusivePools};
 use crate::memory_management::relocation::CopyQueue;
 use crate::{
+    config::memory::MemoryLogLevel,
     logging::ServerLogger,
     memory_management::{
-        ErrorGraph, ManagedMemoryHandle, MemoryConfiguration, MemoryPoolReport, MemoryUsage,
-        PoolType, memory_pool::PageMapping,
+        ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryConfiguration,
+        MemoryPoolReport, MemoryUsage,
+        memory_pool::{MemoryPool, PageMapping},
     },
     server::IoError,
     storage::ComputeStorage,
 };
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
 
@@ -21,49 +23,65 @@ use cubecl_ir::MemoryDeviceProperties;
 /// persistent memory its weights sit in and the dedicated buffers that own
 /// their allocation.
 pub enum DynamicMemory {
-    /// One page per allocation, in exponentially spaced size buckets: what a
-    /// device that cannot sub-slice gets, and what a staging or uniform pool
-    /// wants whatever the device. Nothing is ever outdated here.
-    Exclusive(Pools),
+    /// One page per allocation, in size buckets. Nothing is ever outdated.
+    Exclusive(ExclusivePools),
     /// Pages sized to the largest allocation served, with a pool per size:
     /// the pool a growth leaves behind drains and is dropped.
     Adaptive(AdaptiveMemory),
 }
 
 impl DynamicMemory {
-    /// The pools `config` asks for, on a device with `properties`.
+    /// The pools `config` lays out on a device with `properties`.
     pub fn new(
         properties: &MemoryDeviceProperties,
         config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
         name: String,
     ) -> Self {
-        let options = config.pool_options(properties);
-        let adaptive = options
-            .iter()
-            .any(|pool| matches!(pool.pool_type, PoolType::AdaptivePages { .. }));
-
-        match adaptive {
-            true => DynamicMemory::Adaptive(AdaptiveMemory::new(properties, options, logger, name)),
-            false => {
-                DynamicMemory::Exclusive(Pools::new(properties, &options, false, logger, name))
+        match config {
+            MemoryConfiguration::ExclusivePages => {
+                let pools = ExclusivePools::new(properties);
+                logger.log_memory(
+                    |level| !matches!(level, MemoryLogLevel::Disabled),
+                    || format!("[{name}] Using memory pools:\n{pools}"),
+                );
+                DynamicMemory::Exclusive(pools)
             }
+            // `Adaptive`, which only exists where `cubecl-runtime` allows
+            // sub-slicing. That crate alone decides, so this one cannot name
+            // the variant without disagreeing with it once the feature is
+            // turned on there directly.
+            #[allow(unreachable_patterns)]
+            _ => DynamicMemory::Adaptive(AdaptiveMemory::new(properties, logger, name)),
         }
     }
 
     /// The pool `index` names, while one is there.
-    pub fn get(&self, index: usize) -> Option<&DynamicPool> {
+    pub fn pool(&self, index: usize) -> Option<&dyn MemoryPool> {
         match self {
-            DynamicMemory::Exclusive(pools) => pools.get(index),
-            DynamicMemory::Adaptive(memory) => memory.get(index),
+            DynamicMemory::Exclusive(pools) => Some(pools.pool(index)?),
+            DynamicMemory::Adaptive(memory) => memory.pool(index),
         }
     }
 
     /// The pool `index` names, mutably.
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut DynamicPool> {
+    pub fn pool_mut(&mut self, index: usize) -> Option<&mut dyn MemoryPool> {
         match self {
-            DynamicMemory::Exclusive(pools) => pools.get_mut(index),
-            DynamicMemory::Adaptive(memory) => memory.get_mut(index),
+            DynamicMemory::Exclusive(pools) => Some(pools.pool_mut(index)?),
+            DynamicMemory::Adaptive(memory) => memory.pool_mut(index),
+        }
+    }
+
+    /// Install real backing behind `binding` when its allocation was carved
+    /// lazily. Only the adaptive pages are ever lazy.
+    pub fn materialize<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        binding: &ManagedMemoryBinding,
+    ) -> Result<(), IoError> {
+        match self {
+            DynamicMemory::Exclusive(_) => Ok(()),
+            DynamicMemory::Adaptive(memory) => memory.materialize(storage, binding),
         }
     }
 
@@ -81,13 +99,7 @@ impl DynamicMemory {
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
-            DynamicMemory::Exclusive(pools) => {
-                let routing = 0..pools.len() as u8;
-                if let Some(handle) = pools.try_reserve(routing.clone(), size, failures) {
-                    return Ok(handle);
-                }
-                pools.alloc(routing, storage, size, mapping, failures)
-            }
+            DynamicMemory::Exclusive(pools) => pools.reserve(storage, size, mapping, failures),
             DynamicMemory::Adaptive(memory) => memory.reserve(storage, size, mapping, failures),
         }
     }
@@ -100,9 +112,7 @@ impl DynamicMemory {
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
         match self {
-            DynamicMemory::Exclusive(pools) => {
-                pools.try_reserve(0..pools.len() as u8, size, failures)
-            }
+            DynamicMemory::Exclusive(pools) => pools.try_reserve(size, failures),
             DynamicMemory::Adaptive(memory) => memory.try_reserve(size, failures),
         }
     }
@@ -160,7 +170,7 @@ impl DynamicMemory {
     /// them.
     pub fn report(&self) -> Vec<MemoryPoolReport> {
         match self {
-            DynamicMemory::Exclusive(pools) => pools.report(0..pools.len() as u8),
+            DynamicMemory::Exclusive(pools) => pools.report(),
             DynamicMemory::Adaptive(memory) => memory.report(),
         }
     }

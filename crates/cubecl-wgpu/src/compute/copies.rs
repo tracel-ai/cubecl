@@ -5,15 +5,17 @@ use cubecl_server::memory_management::relocation::{CopyQueue, StorageCopy};
 use cubecl_server::server::{IoError, ServerError};
 use cubecl_server::storage::ComputeStorage;
 
-/// wgpu's device-to-device copy: a buffer-to-buffer copy of its own, submitted
-/// and waited on outside the stream's encoder.
+/// wgpu's device-to-device copy: buffer-to-buffer copies recorded on an
+/// encoder of their own, submitted together and waited on outside the stream's
+/// encoder.
 ///
 /// The stream submits what it has queued before a relocation starts, so the
 /// copies here follow every launch that could still read what moves.
 pub(crate) struct WgpuCopies {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    submission: Option<wgpu::SubmissionIndex>,
+    /// The copies recorded since the last submission.
+    encoder: Option<wgpu::CommandEncoder>,
 }
 
 impl WgpuCopies {
@@ -21,7 +23,7 @@ impl WgpuCopies {
         Self {
             device,
             queue,
-            submission: None,
+            encoder: None,
         }
     }
 }
@@ -38,11 +40,12 @@ impl CopyQueue<WgpuStorage> for WgpuCopies {
         let source = storage.get(&copy.source)?;
         let target = storage.get(&copy.target)?;
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let device = &self.device;
+        let encoder = self.encoder.get_or_insert_with(|| {
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("CubeCL Relocation Encoder"),
-            });
+            })
+        });
         encoder.copy_buffer_to_buffer(
             &source.buffer,
             source.offset,
@@ -50,13 +53,14 @@ impl CopyQueue<WgpuStorage> for WgpuCopies {
             target.offset,
             source.size,
         );
-        self.submission = Some(self.queue.submit([encoder.finish()]));
         Ok(())
     }
 
     fn wait_copies(&mut self) -> Result<(), ServerError> {
-        let submission = self.submission.take();
-        self.wait(submission);
+        if let Some(encoder) = self.encoder.take() {
+            let submission = self.queue.submit([encoder.finish()]);
+            self.wait(Some(submission));
+        }
         Ok(())
     }
 }

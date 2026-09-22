@@ -1,11 +1,10 @@
 //! Moving live allocations off outdated pages, so those pages go back to the
 //! driver now rather than when their longest-lived allocation ends.
 //!
-//! A [`Relocation`] is planned by `MemoryManagement::plan_relocation`, copied
-//! on the device through a [`CopyQueue`], and committed by
-//! `MemoryManagement::commit_relocation`, which only takes the [`Landed`]
-//! relocation the copy step hands back: an allocation cannot move before its
-//! bytes are where it moves to.
+//! A [`Relocation`] is planned by the pools it empties, copied on the device
+//! through a [`CopyQueue`], and committed by those pools again from the
+//! [`Landed`] relocation the copy step hands back: an allocation cannot move
+//! before its bytes are where it moves to.
 
 use super::CopyQueue;
 use crate::memory_management::ManagedMemoryHandle;
@@ -21,36 +20,24 @@ use alloc::vec::Vec;
 /// lost, the reserved slices freed with it.
 #[derive(Debug)]
 pub struct Relocation {
-    planner: PlannerId,
     moves: Vec<Move>,
 }
 
-/// Which memory management planned a relocation: committing one to another's
-/// pools would hand its allocations to slices they never reserved.
+/// Where a relocation may reserve the slices it moves allocations into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PlannerId(usize);
-
-impl PlannerId {
-    /// An id no other memory management has.
-    pub fn new() -> Self {
-        use cubecl_environment::sync::{AtomicUsize, Ordering};
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        Self(NEXT.fetch_add(1, Ordering::Relaxed))
-    }
+pub enum TargetRoom {
+    /// Only the room the current pages already have. Memory is what is short,
+    /// and a relocation that allocated a page would spend more than it frees.
+    Held,
+    /// New pages of the current size too, when the room held runs out. Memory
+    /// is not what is short, so emptying every outdated page is worth a page.
+    MayAllocate,
 }
 
-impl Default for PlannerId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// A [`Relocation`] whose copies have landed: what
-/// `MemoryManagement::commit_relocation` takes, and only [`Relocation::copy`]
-/// makes.
+/// A [`Relocation`] whose copies have landed: what the pools commit, and only
+/// [`Relocation::copy`] makes.
 #[derive(Debug)]
 pub struct Landed {
-    planner: PlannerId,
     moves: Vec<Move>,
 }
 
@@ -78,10 +65,9 @@ pub(crate) struct Move {
 }
 
 impl Relocation {
-    /// A relocation of `moves`, each with its target already reserved by the
-    /// memory management `planner` names.
-    pub(crate) fn new(planner: PlannerId, moves: Vec<Move>) -> Self {
-        Self { planner, moves }
+    /// A relocation of `moves`, each with its target already reserved.
+    pub(crate) fn new(moves: Vec<Move>) -> Self {
+        Self { moves }
     }
 
     /// How many allocations move.
@@ -119,21 +105,13 @@ impl Relocation {
         let landed = queue.wait_copies();
         enqueued?;
         landed?;
-        Ok(Landed {
-            planner: self.planner,
-            moves: self.moves,
-        })
+        Ok(Landed { moves: self.moves })
     }
 }
 
 impl Landed {
-    /// The moves, for the pools of the memory management that planned them —
-    /// `planner`, which no other may commit.
-    pub(crate) fn into_moves(self, planner: PlannerId) -> Vec<Move> {
-        assert_eq!(
-            self.planner, planner,
-            "a relocation is committed to the memory management that planned it"
-        );
+    /// The moves, for the pools that planned them to commit.
+    pub(crate) fn into_moves(self) -> Vec<Move> {
         self.moves
     }
 }

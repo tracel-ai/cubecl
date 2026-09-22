@@ -2,68 +2,19 @@ mod base;
 mod config;
 mod guard;
 mod handle;
-mod layout;
 
 pub use base::*;
 pub use config::*;
 pub use guard::*;
 pub use handle::*;
-pub use layout::*;
 
-/// The type of memory pool to use.
-#[derive(Debug, Clone)]
-pub enum PoolType {
-    /// Use a memory where every allocation is a separate page.
-    ExclusivePages {
-        /// The minimum number of bytes to allocate in this pool.
-        max_alloc_size: u64,
-    },
-    /// Use a memory where each allocation is a slice of a bigger allocation.
-    SlicedPages {
-        /// The page size to allocate.
-        page_size: u64,
-        /// The maximum size of a slice to allocate in the pool.
-        max_slice_size: u64,
-    },
-    /// Slices carved from pages whose size follows the largest allocation the
-    /// pool has served: `largest + 1 MiB`, MiB-rounded, never below
-    /// `min_page_size`.
-    ///
-    /// A page is sized once, when it is allocated. When a larger allocation
-    /// raises the target, every page of the old size becomes *outdated*: it
-    /// serves no new reservation and is returned to the driver as soon as its
-    /// last slice is freed.
-    ///
-    /// On a runtime that can copy between allocations, an explicit cleanup —
-    /// which is also the retry after a failed device allocation — also moves
-    /// what is still live on outdated pages into the room the current ones
-    /// already have, so a page held by one long-lived allocation goes back
-    /// then rather than when that allocation ends. Elsewhere an outdated page
-    /// waits for its longest-lived slice.
-    ///
-    /// Accepts every size: a page is always large enough for what it serves.
-    /// A [`SlicedPages`](PoolType::SlicedPages) pool listed before it then
-    /// accepts only up to its `max_slice_size`, not also allocations close to
-    /// its page size: those land here, on pages sized to them.
-    AdaptivePages {
-        /// The smallest page the pool allocates, so a pool whose largest
-        /// allocation is small still carves pages worth carving.
-        min_page_size: u64,
-    },
-}
-
-/// Options to create a memory pool.
-#[derive(Debug, Clone)]
-pub struct MemoryPoolOptions {
-    /// What kind of pool to use.
-    pub pool_type: PoolType,
-    /// Period after which allocations are deemed unused and deallocated.
-    ///
-    /// This period is measured in the number of allocations in the parent allocator. If a page
-    /// in the pool was unused for the entire period, it will be deallocated. This period is
-    /// approximmate, as checks are only done occasionally.
-    pub dealloc_period: Option<u64>,
-}
+/// Whether this build refuses pools that share a page between allocations —
+/// the `exclusive-memory-only` feature, or a wasm target.
+///
+/// Decided by this crate alone, since [`MemoryConfiguration::Adaptive`] only
+/// exists under it; a crate that needs to know reads it here instead of
+/// deciding again.
+pub const EXCLUSIVE_MEMORY_ONLY: bool = cfg!(exclusive_memory_only);
 
 /// High level configuration of memory management.
 #[derive(Clone, Debug)]
@@ -72,10 +23,12 @@ pub enum MemoryConfiguration {
     /// device that cannot sub-slice gets, and what a staging or uniform pool
     /// wants whatever the device.
     ExclusivePages,
-    /// Small allocations in a sliced pool of their own, everything else in one
-    /// [`AdaptivePages`](PoolType::AdaptivePages) pool that sizes its pages
-    /// from the allocations it serves — nothing to measure or configure per
-    /// workload. The default where sub-slicing is available.
+    /// Small allocations in a sliced pool of their own, everything else carved
+    /// from pages sized to the largest allocation served so far — nothing to
+    /// measure or configure per workload. When an allocation outgrows the
+    /// pages, pages of the new size take over and the old ones are returned
+    /// as they empty, or sooner when what lives on them is relocated. The
+    /// default where sub-slicing is available.
     #[cfg(not(exclusive_memory_only))]
     Adaptive,
 }

@@ -1153,6 +1153,23 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
+    /// An allocation needs pages of a new size, and the memory already holds
+    /// as many page sizes as it keeps track of.
+    ///
+    /// Every size a workload grew through keeps a pool until what lives on it
+    /// is freed or relocated. A cleanup relocates what it can, so reclaiming
+    /// and retrying is a reasonable response.
+    #[error(
+        "Can't allocate {size} bytes: every page size the memory tracks still holds live allocations\n{backtrace}"
+    )]
+    PageSizesExhausted {
+        /// The size of the allocation in bytes.
+        size: u64,
+        /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// Strides aren't supported for this copy operation on this runtime
     #[error("the provided strides are not supported for this operation\n{backtrace}")]
     UnsupportedStrides {

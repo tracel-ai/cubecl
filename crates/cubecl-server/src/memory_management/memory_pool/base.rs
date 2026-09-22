@@ -68,6 +68,10 @@ impl PageMapping {
 }
 
 /// Declares how memory is allocated in a reusable pool.
+///
+/// The methods that take a storage are for callers holding the pool's own
+/// type; the rest can be reached through `dyn MemoryPool`, which is how a
+/// location is resolved to whichever pool it names.
 pub trait MemoryPool {
     /// Whether the memory pool accepts the given size.
     fn accept(&self, size: u64) -> bool;
@@ -136,7 +140,9 @@ pub trait MemoryPool {
         size: u64,
         mapping: PageMapping,
         failures: &mut ErrorGraph,
-    ) -> Result<ManagedMemoryHandle, IoError>;
+    ) -> Result<ManagedMemoryHandle, IoError>
+    where
+        Self: Sized;
 
     /// Ensure the allocation behind `binding` has real device backing,
     /// installing it now if the allocation was made [`PageMapping::Lazy`].
@@ -148,7 +154,10 @@ pub trait MemoryPool {
         &mut self,
         _storage: &mut Storage,
         _binding: &ManagedMemoryBinding,
-    ) -> Result<(), IoError> {
+    ) -> Result<(), IoError>
+    where
+        Self: Sized,
+    {
         Ok(())
     }
 
@@ -166,7 +175,8 @@ pub trait MemoryPool {
         alloc_nr: u64,
         explicit: bool,
         failures: &mut ErrorGraph,
-    );
+    ) where
+        Self: Sized;
 }
 
 #[derive(Debug)]

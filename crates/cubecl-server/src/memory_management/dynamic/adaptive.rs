@@ -1,108 +1,133 @@
 //! Dynamic memory whose pages follow the workload's largest allocation.
 
-use super::{DynamicPool, Pools};
-use crate::memory_management::{
-    memory_pool::MemoryPool,
-    relocation::{CopyQueue, Move, OutdatedPages, PlannerId, Relocation, StorageCopy},
-};
+use super::{PageSizing, PoolArena};
 use crate::{
+    config::memory::MemoryLogLevel,
     logging::ServerLogger,
     memory_management::{
-        ErrorGraph, ManagedMemoryHandle, MemoryPoolKind, MemoryPoolOptions, MemoryPoolReport,
-        MemoryUsage, PoolType,
-        memory_pool::{PageMapping, SlicedPool, calculate_padding},
+        ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryPoolReport, MemoryUsage,
+        memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping, SlicedPool},
+        relocation::{CopyQueue, TargetRoom},
     },
     server::IoError,
     storage::ComputeStorage,
 };
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
 
-/// Slack a page keeps past the largest allocation it was sized for, so that
-/// allocation still fits once aligned.
-const PAGE_SLACK: u64 = 1024 * 1024;
+/// The pool index zero-sized allocations carry.
+const TINY_POOL: u8 = 0;
+/// The pool index small allocations carry.
+const SMALL_POOL: u8 = 1;
+/// The pool index of the arena's first slot.
+const ARENA_POOLS: u8 = 2;
 
-/// The unit a page size is rounded up to.
-const PAGE_GRANULE: u64 = 1024 * 1024;
+/// The small-allocation pool's page size.
+const SMALL_PAGE: u64 = 8 * 1024 * 1024;
+/// The largest allocation the small-allocation pool serves.
+const SMALL_SLICE: u64 = 64 * 1024;
+/// The smallest page the arena carves, capped by the device's
+/// `max_page_size`: what the smallest allocation it serves (just past
+/// [`SMALL_SLICE`]) needs anyway once rounded, so a stream that only makes
+/// small allocations holds a page its size rather than a floor's.
+const MIN_PAGE: u64 = 2 * 1024 * 1024;
 
 /// Pages sized to the largest allocation served, with a pool per size.
 ///
-/// What a workload allocates decides which pool serves it: allocations too
-/// small to slice and the metadata churn have a pool each, and everything else
-/// is carved from pages sized to the largest allocation served so far. When an
-/// allocation outgrows those pages, the pool holding them is *outdated* — it
-/// serves no new reservation, gives each page back as it empties, and is
-/// dropped once it holds none — and a pool of the new size takes over.
+/// What a workload allocates decides which pool serves it: zero-sized
+/// allocations and the metadata churn have a pool each, and everything else
+/// is carved from the [arena](PoolArena), whose pages follow the largest
+/// allocation served so far.
 pub struct AdaptiveMemory {
-    pools: Pools,
+    /// Zero-sized allocations, which cannot take an offset into a page (on
+    /// wgpu at least).
+    tiny: ExclusiveMemoryPool,
+    /// Kernel metadata — shapes, strides, scalars — churns thousands of tiny
+    /// slices. Kept off the arena's pages so they neither fragment them nor
+    /// count toward their size.
+    small: SlicedPool,
+    /// Everything else.
+    arena: PoolArena,
     /// What the device holds in total, where it says.
     max_memory: Option<u64>,
-    /// What a relocation this one planned is stamped with.
-    planner: PlannerId,
-    /// The pools every workload uses whatever it allocates, first in routing
-    /// order: slots `0..fixed`.
-    fixed: u8,
-    /// How the pages carving the workload's allocations grow.
-    growth: Growth,
-}
-
-/// How the pool carving a workload's allocations grows with it.
-struct Growth {
-    /// The smallest page it allocates.
-    min_page_size: u64,
-    /// The largest page the device allocates, alignment-rounded down: an
-    /// allocation no page of that size fits is not the memory's to serve.
-    max_page_size: u64,
-    alignment: u64,
-    /// The pool new allocations land on.
-    current: u8,
-    /// The pools a growth left behind, draining.
-    outdated: Vec<u8>,
+    logger: Arc<ServerLogger>,
+    name: String,
 }
 
 impl AdaptiveMemory {
-    /// The pools `options` asks for, the last of which carves allocations from
-    /// pages that grow.
+    /// The pools for a device with `properties`.
     pub fn new(
         properties: &MemoryDeviceProperties,
-        options: Vec<MemoryPoolOptions>,
         logger: Arc<ServerLogger>,
         name: String,
     ) -> Self {
-        let current = options
-            .iter()
-            .position(|pool| matches!(pool.pool_type, PoolType::AdaptivePages { .. }))
-            .expect("an adaptive layout has a pool whose pages grow") as u8;
-        let PoolType::AdaptivePages { min_page_size } = options[current as usize].pool_type else {
-            unreachable!("the position of an adaptive pool names one");
-        };
-
-        Self {
-            pools: Pools::new(properties, &options, true, logger, name),
+        let alignment = properties.alignment;
+        let sizing = PageSizing::new(MIN_PAGE.min(properties.max_page_size), properties);
+        let memory = Self {
+            tiny: ExclusiveMemoryPool::new(0, alignment, u64::MAX, TINY_POOL),
+            small: SlicedPool::new(
+                SMALL_PAGE.next_multiple_of(alignment),
+                SMALL_SLICE.next_multiple_of(alignment),
+                alignment,
+                SMALL_POOL,
+            )
+            // Allocations near its page size belong to the arena, whose
+            // pages are sized to what they serve.
+            .up_to_max_slice(),
+            arena: PoolArena::new(sizing, ARENA_POOLS),
             max_memory: properties.max_memory(),
-            planner: PlannerId::new(),
-            fixed: current,
-            growth: Growth::new(min_page_size, properties, current),
-        }
+            logger,
+            name,
+        };
+        memory.log_layout();
+        memory
     }
 
     /// The pool `index` names, while one is there.
-    pub fn get(&self, index: usize) -> Option<&DynamicPool> {
-        self.pools.get(index)
+    pub fn pool(&self, index: usize) -> Option<&dyn MemoryPool> {
+        match index as u8 {
+            TINY_POOL => Some(&self.tiny),
+            SMALL_POOL => Some(&self.small),
+            _ => Some(self.arena.pool(index)?),
+        }
     }
 
     /// The pool `index` names, mutably.
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut DynamicPool> {
-        self.pools.get_mut(index)
+    pub fn pool_mut(&mut self, index: usize) -> Option<&mut dyn MemoryPool> {
+        match index as u8 {
+            TINY_POOL => Some(&mut self.tiny),
+            SMALL_POOL => Some(&mut self.small),
+            _ => Some(self.arena.pool_mut(index)?),
+        }
     }
 
-    /// Reserve `size` bytes on the pool that serves them, growing the pages
-    /// that carve allocations when `size` outgrows them.
+    /// Install real backing behind `binding` when its allocation was carved
+    /// lazily.
+    pub fn materialize<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        binding: &ManagedMemoryBinding,
+    ) -> Result<(), IoError> {
+        let index = binding.descriptor().location().pool;
+        match index {
+            TINY_POOL => self.tiny.materialize(storage, binding),
+            SMALL_POOL => self.small.materialize(storage, binding),
+            _ => match self.arena.pool_mut(index as usize) {
+                Some(pool) => pool.materialize(storage, binding),
+                None => Ok(()),
+            },
+        }
+    }
+
+    /// Reserve `size` bytes on the pool that serves them, growing the arena's
+    /// pages when `size` outgrows them.
     ///
     /// # Errors
     ///
-    /// As [`Pools::alloc`].
+    /// [`IoError::BufferTooBig`] when no page the device allocates fits it,
+    /// [`IoError::PageSizesExhausted`] when the arena has no slot left for a
+    /// new page size, and whatever the device refused.
     pub fn reserve<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
@@ -110,13 +135,18 @@ impl AdaptiveMemory {
         mapping: PageMapping,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        self.grow_for(storage, size, failures);
-
-        if let Some(handle) = self.pools.try_reserve(self.routing(), size, failures) {
-            return Ok(handle);
+        if self.tiny.accept(size) {
+            return Self::reserve_on(&mut self.tiny, storage, size, mapping, failures);
         }
-        let routing = self.routing();
-        self.pools.alloc(routing, storage, size, mapping, failures)
+        if self.small.accept(size) {
+            return Self::reserve_on(&mut self.small, storage, size, mapping, failures);
+        }
+        let page_size = self.arena.current().page_size();
+        let reserved = self.arena.reserve(storage, size, mapping, failures);
+        if self.arena.current().page_size() != page_size {
+            self.log_layout();
+        }
+        reserved
     }
 
     /// Reserve `size` bytes in the room the pools already hold, without
@@ -126,7 +156,13 @@ impl AdaptiveMemory {
         size: u64,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
-        self.pools.try_reserve(self.routing(), size, failures)
+        if self.tiny.accept(size) {
+            return self.tiny.try_reserve(size, failures);
+        }
+        if self.small.accept(size) {
+            return self.small.try_reserve(size, failures);
+        }
+        self.arena.try_reserve(size, failures)
     }
 
     /// Whether another page of the size allocations are carved at would leave
@@ -142,8 +178,8 @@ impl AdaptiveMemory {
         let Some(max_memory) = self.max_memory else {
             return false;
         };
-        let page_size = self.current_page_size();
-        self.pools.bytes_reserved() + page_size > max_memory.saturating_sub(page_size)
+        let page_size = self.arena.current().page_size();
+        self.memory_usage().bytes_reserved + page_size > max_memory.saturating_sub(page_size)
     }
 
     /// Empty every outdated pool the current pages have room for, and return
@@ -157,17 +193,12 @@ impl AdaptiveMemory {
         copier: &mut dyn CopyQueue<Storage>,
         failures: &mut ErrorGraph,
     ) {
-        let relocation = Relocation::new(self.planner, self.plan_relocation(storage, failures));
+        let relocation = self.arena.plan(TargetRoom::Held, storage, failures);
         if relocation.is_empty() {
             return;
         }
         match relocation.copy(storage, copier) {
-            Ok(landed) => {
-                for relocated in landed.into_moves(self.planner) {
-                    self.commit_relocation(relocated, failures);
-                }
-                self.drain_outdated(storage, failures);
-            }
+            Ok(landed) => self.arena.commit(landed, storage, failures),
             // Dropping the plan gave every target it reserved back.
             Err(err) => {
                 log::warn!("relocating allocations off outdated memory pages abandoned: {err}")
@@ -184,253 +215,54 @@ impl AdaptiveMemory {
         explicit: bool,
         failures: &mut ErrorGraph,
     ) {
-        self.pools.cleanup(storage, alloc_nr, explicit, failures);
-        self.drain_outdated(storage, failures);
+        self.tiny.cleanup(storage, alloc_nr, explicit, failures);
+        self.small.cleanup(storage, alloc_nr, explicit, failures);
+        self.arena.cleanup(storage, alloc_nr, explicit, failures);
     }
 
     /// The usage of every pool held.
     pub fn memory_usage(&self) -> MemoryUsage {
-        self.pools.memory_usage()
+        self.tiny
+            .get_memory_usage()
+            .combine(self.small.get_memory_usage())
+            .combine(self.arena.memory_usage())
     }
 
-    /// A report per pool held, in routing order, the outdated ones last. The
-    /// pool carving allocations reports how many pages the outdated ones hold.
+    /// A report per pool held, in the order allocations are routed through
+    /// them, the outdated ones last. The arena's current pool reports how many
+    /// pages the outdated ones hold.
     pub fn report(&self) -> Vec<MemoryPoolReport> {
-        let outdated_pages = self.outdated().map(|pool| pool.pages_held()).sum::<u64>();
-        let mut reports = self
-            .pools
-            .report(self.routing().chain(self.growth.outdated.iter().copied()));
-        if let Some(current) = reports.get_mut(self.fixed as usize)
-            && let MemoryPoolKind::Sliced { page_size, .. } = current.kind
-        {
-            current.kind = MemoryPoolKind::Adaptive {
-                page_size,
-                outdated_pages,
-            };
-        }
-        reports
+        [self.tiny.report(), self.small.report(self.small.kind())]
+            .into_iter()
+            .chain(self.arena.report())
+            .collect()
     }
 
-    /// The pools that serve reservations, in the order they are tried.
-    fn routing(&self) -> impl Iterator<Item = u8> + use<> {
-        (0..self.fixed).chain(core::iter::once(self.growth.current))
-    }
-
-    /// The pools a growth left behind.
-    fn outdated(&self) -> impl Iterator<Item = &SlicedPool> {
-        self.growth
-            .outdated
-            .iter()
-            .filter_map(|index| match self.pools.get(*index as usize) {
-                Some(DynamicPool::Sliced(pool)) => Some(pool),
-                _ => None,
-            })
-    }
-
-    /// The size allocations are carved at.
-    fn current_page_size(&self) -> u64 {
-        match self.pools.get(self.growth.current as usize) {
-            Some(DynamicPool::Sliced(pool)) => pool.page_size(),
-            _ => 0,
-        }
-    }
-
-    /// Put a pool whose pages fit `size` in front of the reservations when the
-    /// one carving them no longer does: the pages it holds are outdated from
-    /// here on, and drain.
-    fn grow_for<Storage: ComputeStorage>(
-        &mut self,
+    /// Reserve `size` bytes on `pool`, allocating a page when it has no room.
+    fn reserve_on<Storage: ComputeStorage>(
+        pool: &mut impl MemoryPool,
         storage: &mut Storage,
         size: u64,
+        mapping: PageMapping,
         failures: &mut ErrorGraph,
-    ) {
-        let outdated = self.growth.current;
-        let page_size = match self.pools.sliced_mut(outdated) {
-            Some(pool) => match self.growth.page_size_for(size, pool.page_size()) {
-                Some(page_size) => {
-                    // Whatever the outdated pool no longer holds goes back
-                    // before the new one allocates, so the footprint tracks the
-                    // working set through a growth.
-                    pool.release_empty(storage, failures);
-                    page_size
-                }
-                None => return,
-            },
-            None => return,
-        };
-
-        let growth = &self.growth;
-        let slot = self
-            .pools
-            .insert(|slot| DynamicPool::Sliced(growth.pool(page_size, slot)));
-        self.growth.current = slot;
-        self.growth.outdated.push(outdated);
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        match pool.try_reserve(size, failures) {
+            Some(handle) => Ok(handle),
+            None => pool.alloc(storage, size, mapping, failures),
+        }
     }
 
-    /// Drop every outdated pool that holds no page any more.
-    fn drain_outdated<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        failures: &mut ErrorGraph,
-    ) {
-        let mut drained = Vec::new();
-        for index in self.growth.outdated.clone() {
-            let Some(pool) = self.pools.sliced_mut(index) else {
-                continue;
-            };
-            // An outdated pool gives a page back the moment it empties, rather
-            // than waiting for the explicit cleanup a pool still serving
-            // reservations waits for.
-            pool.release_empty(storage, failures);
-            if pool.is_empty() {
-                drained.push(index);
-            }
-        }
-        self.growth
-            .outdated
-            .retain(|index| !drained.contains(index));
-        for index in drained {
-            self.pools.remove(index);
-        }
+    fn log_layout(&self) {
+        self.logger.log_memory(
+            |level| !matches!(level, MemoryLogLevel::Disabled),
+            || format!("[{}] Using memory pools:\n{self}", self.name),
+        );
     }
 }
 
 impl core::fmt::Display for AdaptiveMemory {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.pools)
-    }
-}
-
-impl Growth {
-    fn new(min_page_size: u64, properties: &MemoryDeviceProperties, current: u8) -> Self {
-        let alignment = properties.alignment;
-        let max_page_size = (properties.max_page_size / alignment * alignment).max(alignment);
-        Self {
-            min_page_size: min_page_size
-                .max(alignment)
-                .next_multiple_of(alignment)
-                .min(max_page_size),
-            max_page_size,
-            alignment,
-            current,
-            outdated: Vec::new(),
-        }
-    }
-
-    /// A pool carving pages of `page_size`, at `slot`.
-    fn pool(&self, page_size: u64, slot: u8) -> SlicedPool {
-        // Every size it is routed, so nothing lands here only to be refused for
-        // being larger than a slice of the page it fits.
-        SlicedPool::new(page_size, page_size, self.alignment, slot)
-    }
-
-    /// The page size `size` asks for, when pages of `page_size` no longer fit
-    /// it. `None` while they do, and when no page the device allocates fits it.
-    fn page_size_for(&self, size: u64, page_size: u64) -> Option<u64> {
-        let needed = size + calculate_padding(size, self.alignment);
-        if needed <= page_size || needed > self.max_page_size {
-            return None;
-        }
-        Some(
-            size.saturating_add(PAGE_SLACK)
-                .next_multiple_of(PAGE_GRANULE)
-                .next_multiple_of(self.alignment)
-                .clamp(self.min_page_size, self.max_page_size),
-        )
-    }
-}
-
-impl AdaptiveMemory {
-    /// Reserve a slice on the pool now carving allocations for every live
-    /// allocation on the outdated pools' pages that
-    /// [the analysis](OutdatedPages::plan) plans to empty, so those pools
-    /// drain instead of waiting on their longest-lived slice.
-    ///
-    /// Only room the pages already held have: a relocation that allocated a
-    /// page would spend more than the pages it frees, and it runs where memory
-    /// is short. Nothing moves yet — the caller copies each [`Move`]'s bytes,
-    /// then hands them over with
-    /// [`commit_relocation`](Self::commit_relocation).
-    pub fn plan_relocation<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        failures: &mut ErrorGraph,
-    ) -> Vec<Move> {
-        let current = self.growth.current;
-        let plan = OutdatedPages::new(self.outdated().flat_map(|pool| pool.pages())).plan();
-
-        let mut moves = Vec::new();
-        for page in plan {
-            // A page whose allocations do not all find a target keeps none of
-            // them: moving part of what is on it frees nothing. A page later in
-            // the plan may still fit what this one did not.
-            let planned: Option<Vec<Move>> = page
-                .live
-                .into_iter()
-                .map(|allocation| self.plan_move(storage, current, allocation.handle, failures))
-                .collect();
-            moves.extend(planned.unwrap_or_default());
-        }
-        moves
-    }
-
-    /// Reserve a target for `allocation` on the pool carving allocations, and
-    /// say what has to be copied into it. `None` when that pool has no room.
-    fn plan_move<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        current: u8,
-        allocation: ManagedMemoryHandle,
-        failures: &mut ErrorGraph,
-    ) -> Option<Move> {
-        let source = allocation.descriptor().location();
-        let pool = self.pools.sliced_mut(source.pool)?;
-        let slice = pool.slice_at(source);
-        let source_storage = slice.storage.clone();
-        let size = slice.storage.size();
-        let source_mapped = pool.is_mapped_at(source);
-
-        let pool = self.pools.sliced_mut(current)?;
-        let target = pool.try_reserve(size, failures)?;
-        let destination = target.descriptor().location();
-        // The bytes have to land somewhere real.
-        if source_mapped {
-            pool.map_page_at(storage, destination).ok()?;
-        }
-        let copy = source_mapped.then(|| StorageCopy {
-            source: source_storage,
-            target: pool.slice_at(destination).storage.clone(),
-        });
-
-        Some(Move {
-            allocation,
-            target,
-            copy,
-        })
-    }
-
-    /// Hand a planned allocation over to its target, once its bytes are there.
-    /// The source slice is left free on its outdated pool, which drains it.
-    pub fn commit_relocation(&mut self, relocated: Move, failures: &mut ErrorGraph) {
-        let Move {
-            allocation, target, ..
-        } = relocated;
-        // Locations are read now, not at planning: a pool that released pages
-        // since may have renumbered them.
-        let source = allocation.descriptor().location();
-        let destination = target.descriptor().location();
-        // Only the slices hold the handles once these go.
-        drop(target);
-        drop(allocation);
-
-        let Some((source_pool, target_pool)) =
-            self.pools.sliced_pair(source.pool, destination.pool)
-        else {
-            return;
-        };
-        source_pool
-            .slice_at(source)
-            .hand_over(target_pool.slice_at(destination), failures);
+        write!(f, "{}{}{}", self.tiny, self.small, self.arena)
     }
 }
 
@@ -458,10 +290,8 @@ mod tests {
     /// allocation grows them.
     const FLOOR: u64 = 2 * MIB;
 
-    /// A memory manager laid out by the `Adaptive` preset. Every size these
-    /// tests reserve is past the metadata pool's largest slice, so the pool
-    /// that grows is the one serving them.
-    /// A memory management on a device that holds `max_memory` bytes.
+    /// A memory management laid out by the `Adaptive` preset, on a device
+    /// that holds `max_memory` bytes.
     fn adaptive_on_device(max_memory: u64) -> MemoryManagement<BytesStorage> {
         MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -472,6 +302,9 @@ mod tests {
         )
     }
 
+    /// A memory management laid out by the `Adaptive` preset. Every size these
+    /// tests reserve is past the metadata pool's largest slice, so the arena
+    /// is what serves them.
     fn adaptive() -> MemoryManagement<BytesStorage> {
         MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -613,7 +446,7 @@ mod tests {
         assert!(!memory.crowded(), "one 2 MiB page of 24 MiB");
 
         // 13 MiB held over two pools, and the next page is 11 MiB.
-        let _large = reserve(&mut memory, 10 * MIB);
+        let large = reserve(&mut memory, 10 * MIB);
         assert!(memory.crowded());
 
         let mut copies = HostCopies;
@@ -627,7 +460,7 @@ mod tests {
             },
             "the outdated pool was emptied into the room the current page has"
         );
-        assert_eq!(page_of(&kept), page_of(&_large));
+        assert_eq!(page_of(&kept), page_of(&large));
     }
 
     /// The page size follows the largest allocation the pool served: a
@@ -681,17 +514,19 @@ mod tests {
         );
     }
 
-    /// An allocation the device refuses leaves the page size where it was:
-    /// grown to the refused size, every page held would be outdated and every
-    /// later allocation would need a page of that size too.
+    /// An allocation no page fits is refused before anything changes: the
+    /// pages held keep serving. (A refusal by the device itself is the
+    /// arena's to test, with a storage that refuses.)
     #[test]
-    fn a_refused_allocation_does_not_grow_the_page_size() {
+    fn an_allocation_no_page_fits_leaves_the_pages_alone() {
         let mut memory = adaptive();
         let _small = reserve(&mut memory, MIB);
 
-        // Past the host's address space: the storage refuses it.
         let refused = memory.reserve(1 << 50, &mut ErrorGraph::default());
-        assert!(refused.is_err());
+        assert!(
+            matches!(refused, Err(IoError::BufferTooBig { .. })),
+            "{refused:?}"
+        );
         assert_eq!(
             pool(&memory),
             Pool {
