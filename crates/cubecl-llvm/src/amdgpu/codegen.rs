@@ -11,13 +11,16 @@ use crate::{
     shared::{
         AmdGpuModule,
         buffer_params::annotate_buffer_params,
-        llvm_module::{LlvmModule, TargetMachine},
+        llvm_module::{EntryFunction, LlvmModule, TargetMachine},
         math_library::redirect_intrinsics,
     },
 };
 use cubecl_core::ir::{amd::GfxArch, settings::Dim3};
 use cubecl_environment::bytes::Bytes;
-use llvm_sys::target_machine::{LLVMCodeGenFileType, LLVMRelocMode};
+use llvm_sys::{
+    LLVMAtomicRMWBinOp,
+    target_machine::{LLVMCodeGenFileType, LLVMRelocMode},
+};
 use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext, to_llvm_ir};
 use std::{
     ffi::{CStr, CString},
@@ -110,12 +113,6 @@ fn finalize(
     cube_dim: Dim3,
     io: &[BufferIOAttr],
 ) -> Result<(), String> {
-    use llvm_sys::LLVMModuleFlagBehavior::LLVMModuleFlagBehaviorError;
-    use llvm_sys::core::{
-        LLVMAddModuleFlag, LLVMConstInt, LLVMInt32TypeInContext, LLVMSetFunctionCallConv,
-        LLVMValueAsMetadata,
-    };
-
     let flat_work_group_size = format!("1,{}", cube_dim.num_elems());
     let mut attributes = vec![
         ("target-cpu", arch.name()),
@@ -129,27 +126,13 @@ fn finalize(
     }
 
     module.set_triple(TRIPLE);
-    let func = module.entry_point(entrypoint)?;
-    let ctx = module.context();
-    // SAFETY: `func` is a function of `module`, whose parameters the entry ABI lowering laid
-    // out as the buffers in binding order followed by the metadata pointer.
-    unsafe {
-        LLVMSetFunctionCallConv(func, AMDGPU_KERNEL_CC);
-        module.add_function_attributes(func, &attributes);
-        require_work_group_size(ctx, func, cube_dim);
-        annotate_buffer_params(ctx, func, io, METADATA_PARAMS);
-        mark_atomics_device_local(ctx, func);
-
-        let version = LLVMConstInt(LLVMInt32TypeInContext(ctx), CODE_OBJECT_VERSION as u64, 0);
-        let key = "amdhsa_code_object_version";
-        LLVMAddModuleFlag(
-            module.raw(),
-            LLVMModuleFlagBehaviorError,
-            key.as_ptr() as *const _,
-            key.len(),
-            LLVMValueAsMetadata(version),
-        );
-    }
+    let entry = module.entry_point(entrypoint)?;
+    entry.set_calling_convention(AMDGPU_KERNEL_CC);
+    entry.add_attributes(&attributes);
+    require_work_group_size(&entry, cube_dim);
+    annotate_buffer_params(&entry, io, METADATA_PARAMS);
+    mark_atomics_device_local(&entry);
+    module.add_module_flag("amdhsa_code_object_version", CODE_OBJECT_VERSION);
     Ok(())
 }
 
@@ -157,27 +140,11 @@ fn finalize(
 /// them exactly: an axis of one unit is always zero, and the backend then neither unpacks its
 /// id nor adds it into a position.
 ///
-/// # Safety
-/// `func` must be a live function in `ctx`.
-unsafe fn require_work_group_size(
-    ctx: llvm_sys::prelude::LLVMContextRef,
-    func: llvm_sys::prelude::LLVMValueRef,
-    cube_dim: Dim3,
-) {
-    use llvm_sys::core::{
-        LLVMConstInt, LLVMGetMDKindIDInContext, LLVMGlobalSetMetadata, LLVMInt32TypeInContext,
-        LLVMMDNodeInContext2, LLVMValueAsMetadata,
-    };
-
-    unsafe {
-        let i32_ty = LLVMInt32TypeInContext(ctx);
-        let mut dims = [cube_dim.x, cube_dim.y, cube_dim.z]
-            .map(|dim| LLVMValueAsMetadata(LLVMConstInt(i32_ty, dim as u64, 0)));
-        let node = LLVMMDNodeInContext2(ctx, dims.as_mut_ptr(), dims.len());
-        let name = "reqd_work_group_size";
-        let kind = LLVMGetMDKindIDInContext(ctx, name.as_ptr() as *const _, name.len() as u32);
-        LLVMGlobalSetMetadata(func, kind, node);
-    }
+fn require_work_group_size(entry: &EntryFunction<'_>, cube_dim: Dim3) {
+    entry.set_metadata(
+        "reqd_work_group_size",
+        &[cube_dim.x, cube_dim.y, cube_dim.z],
+    );
 }
 
 /// What every atomic here may assume about the memory it touches, as the metadata the AMDGPU
@@ -192,42 +159,16 @@ unsafe fn require_work_group_size(
 const DEVICE_LOCAL_ATOMIC: [&str; 2] = ["amdgpu.no.fine.grained.memory", "amdgpu.no.remote.memory"];
 const DENORMAL_AGNOSTIC_ATOMIC: &str = "amdgpu.ignore.denormal.mode";
 
-/// # Safety
-/// `func` must be a live function in `ctx`.
-unsafe fn mark_atomics_device_local(
-    ctx: llvm_sys::prelude::LLVMContextRef,
-    func: llvm_sys::prelude::LLVMValueRef,
-) {
-    use llvm_sys::LLVMAtomicRMWBinOp;
-    use llvm_sys::core::{
-        LLVMGetAtomicRMWBinOp, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
-        LLVMGetMDKindIDInContext, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
-        LLVMIsAAtomicRMWInst, LLVMMDNodeInContext2, LLVMMetadataAsValue, LLVMSetMetadata,
-    };
-
-    unsafe {
-        let mark = |inst, name: &str| {
-            let kind = LLVMGetMDKindIDInContext(ctx, name.as_ptr() as *const _, name.len() as u32);
-            let empty =
-                LLVMMetadataAsValue(ctx, LLVMMDNodeInContext2(ctx, std::ptr::null_mut(), 0));
-            LLVMSetMetadata(inst, kind, empty);
+fn mark_atomics_device_local(entry: &EntryFunction<'_>) {
+    for inst in entry.instructions() {
+        let Some(op) = inst.atomic_rmw_op() else {
+            continue;
         };
-
-        let mut block = LLVMGetFirstBasicBlock(func);
-        while !block.is_null() {
-            let mut inst = LLVMGetFirstInstruction(block);
-            while !inst.is_null() {
-                if !LLVMIsAAtomicRMWInst(inst).is_null() {
-                    for name in DEVICE_LOCAL_ATOMIC {
-                        mark(inst, name);
-                    }
-                    if LLVMGetAtomicRMWBinOp(inst) == LLVMAtomicRMWBinOp::LLVMAtomicRMWBinOpFAdd {
-                        mark(inst, DENORMAL_AGNOSTIC_ATOMIC);
-                    }
-                }
-                inst = LLVMGetNextInstruction(inst);
-            }
-            block = LLVMGetNextBasicBlock(block);
+        for kind in DEVICE_LOCAL_ATOMIC {
+            inst.set_flag_metadata(kind);
+        }
+        if op == LLVMAtomicRMWBinOp::LLVMAtomicRMWBinOpFAdd {
+            inst.set_flag_metadata(DENORMAL_AGNOSTIC_ATOMIC);
         }
     }
 }

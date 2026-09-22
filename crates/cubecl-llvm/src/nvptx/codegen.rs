@@ -10,7 +10,7 @@ use crate::{
     shared::{
         NvptxModule,
         buffer_params::annotate_buffer_params,
-        llvm_module::{LlvmModule, TargetMachine},
+        llvm_module::{EntryFunction, LlvmModule, TargetMachine},
         llvm_options::set_llvm_option,
         math_library::redirect_intrinsics,
     },
@@ -119,8 +119,6 @@ fn finalize(
     arch: &SmArch,
     entry: &NvptxEntry,
 ) -> Result<(), String> {
-    use llvm_sys::core::LLVMSetFunctionCallConv;
-
     let target_cpu = arch.target_cpu();
     // The cube dimensions are fixed when a kernel compiles, so the launch bounds are exact:
     // they limit register use to what the cube needs, and they bound each `tid` register, so an
@@ -133,16 +131,12 @@ fn finalize(
     ];
 
     module.set_triple(TRIPLE);
-    let func = module.entry_point(entrypoint)?;
-    // SAFETY: `func` is a function of `module`, whose parameters the entry ABI lowering laid
-    // out as the buffers in binding order followed by the metadata.
-    unsafe {
-        LLVMSetFunctionCallConv(func, PTX_KERNEL_CC);
-        module.add_function_attributes(func, &attributes);
-        annotate_buffer_params(module.context(), func, &entry.io, entry.metadata.count());
-        if let MetadataParams::GridConstant { bytes, .. } = entry.metadata {
-            mark_info_param_byval(module.context(), func, bytes);
-        }
+    let entry_fn = module.entry_point(entrypoint)?;
+    entry_fn.set_calling_convention(PTX_KERNEL_CC);
+    entry_fn.add_attributes(&attributes);
+    annotate_buffer_params(&entry_fn, &entry.io, entry.metadata.count());
+    if let MetadataParams::GridConstant { bytes, .. } = entry.metadata {
+        mark_info_param_byval(&entry_fn, bytes);
     }
     Ok(())
 }
@@ -150,38 +144,16 @@ fn finalize(
 /// Alignment required by the host metadata layout.
 const INFO_PARAM_ALIGN: u32 = 8;
 
-/// # Safety
-/// `func` must be a live function in `ctx` whose last parameter is the info pointer the entry
-/// ABI lowering appended.
-unsafe fn mark_info_param_byval(
-    ctx: llvm_sys::prelude::LLVMContextRef,
-    func: llvm_sys::prelude::LLVMValueRef,
-    bytes: usize,
-) {
-    use llvm_sys::core::{
-        LLVMAddAttributeAtIndex, LLVMArrayType2, LLVMCountParams, LLVMCreateEnumAttribute,
-        LLVMCreateTypeAttribute, LLVMGetEnumAttributeKindForName, LLVMInt8TypeInContext,
-    };
-
-    unsafe {
-        let enum_kind =
-            |name: &str| LLVMGetEnumAttributeKindForName(name.as_ptr() as *const _, name.len());
-        let (byval, align) = (enum_kind("byval"), enum_kind("align"));
-        assert!(
-            byval != 0 && align != 0,
-            "this LLVM has no `byval` or `align` attribute, so the grid-constant parameter \
-             cannot be declared"
-        );
-
-        let index = LLVMCountParams(func);
-        let block = LLVMArrayType2(LLVMInt8TypeInContext(ctx), bytes as u64);
-        LLVMAddAttributeAtIndex(func, index, LLVMCreateTypeAttribute(ctx, byval, block));
-        LLVMAddAttributeAtIndex(
-            func,
-            index,
-            LLVMCreateEnumAttribute(ctx, align, INFO_PARAM_ALIGN as u64),
-        );
-    }
+/// Passes the metadata by value: the last parameter, which the entry ABI lowering appended.
+fn mark_info_param_byval(entry: &EntryFunction<'_>, bytes: usize) {
+    let info = entry.param_count() - 1;
+    let declared = entry.add_param_byval(info, bytes as u64)
+        && entry.add_param_attribute(info, "align", INFO_PARAM_ALIGN as u64);
+    assert!(
+        declared,
+        "this LLVM has no `byval` or `align` attribute, so the grid-constant parameter cannot \
+         be declared"
+    );
 }
 
 /// `ptx_version` is `None` for LLVM's default, the oldest the architecture accepts.
