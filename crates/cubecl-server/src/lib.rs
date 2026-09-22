@@ -29,7 +29,7 @@ extern crate derive_new;
 // `cubecl_server::server::Handle` both name the one type.
 pub use cubecl_runtime::benchmark;
 pub use cubecl_runtime::{
-    client, config, device, dry_run, id, logging, runtime, throughput, tma, tune,
+    client, config, device, dry_run, id, launched, logging, runtime, throughput, tma, tune,
 };
 pub use cubecl_runtime::{local_tuner, storage_id_type};
 

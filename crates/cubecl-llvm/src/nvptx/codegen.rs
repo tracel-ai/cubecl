@@ -4,6 +4,7 @@ use crate::{
     nvptx::{
         libdevice::{Libdevice, link_libdevice},
         printf::lower_printf_to_vprintf,
+        ptx_version::PtxVersion,
     },
     prelude::{BufferIOAttr, Context, ModuleOp},
     shared::{NvptxModule, math_library::redirect_intrinsics},
@@ -19,9 +20,6 @@ const TRIPLE: &CStr = c"nvptx64-nvidia-cuda";
 
 /// LLVM calling convention for PTX kernel entry points.
 const PTX_KERNEL_CC: u32 = 71;
-
-/// LLVM selects the PTX version required by the target architecture.
-const NO_FEATURES: &CStr = c"";
 
 const PASS_PIPELINE: &CStr = c"default<O3>";
 
@@ -72,6 +70,7 @@ pub fn emit_ptx(
     module: ModuleOp,
     entrypoint: &str,
     arch: &SmArch,
+    ptx_version: Option<PtxVersion>,
     entry: NvptxEntry,
 ) -> Result<NvptxModule, String> {
     let llvm_ctx = LLVMContext::default();
@@ -80,7 +79,7 @@ pub fn emit_ptx(
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
     let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, &entry)?;
-    let ptx = compile_to_ptx(&ir, arch)?;
+    let ptx = compile_to_ptx(&ir, arch, ptx_version)?;
 
     #[cfg(feature = "pliron-dump")]
     if let Some(dir) = crate::cpu::jit::engine::ir_dump_path(entrypoint) {
@@ -275,7 +274,12 @@ unsafe fn reads_atomically(func: llvm_sys::prelude::LLVMValueRef) -> bool {
     }
 }
 
-fn compile_to_ptx(ir: &str, arch: &SmArch) -> Result<String, String> {
+/// `ptx_version` is `None` for LLVM's default, the oldest the architecture accepts.
+fn compile_to_ptx(
+    ir: &str,
+    arch: &SmArch,
+    ptx_version: Option<PtxVersion>,
+) -> Result<String, String> {
     use llvm_sys::core::{LLVMContextDispose, LLVMDisposeMessage, LLVMDisposeModule};
     use llvm_sys::target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout};
     use llvm_sys::target_machine::{
@@ -288,7 +292,9 @@ fn compile_to_ptx(ir: &str, arch: &SmArch) -> Result<String, String> {
     let target_cpu = arch.target_cpu();
     let cpu = CString::new(target_cpu.clone())
         .map_err(|_| format!("arch '{target_cpu}' contains a NUL"))?;
-    let features = NO_FEATURES;
+    let features = ptx_version
+        .map(PtxVersion::target_feature)
+        .unwrap_or_default();
 
     unsafe {
         let mut target = std::ptr::null_mut();
@@ -451,4 +457,56 @@ fn as_c_chars(ptx: &str) -> Vec<std::ffi::c_char> {
         ptx.bytes().map(|byte| byte as std::ffi::c_char).collect();
     bytes.push(0);
     bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn turing_reaches_its_tensor_core_instructions() {
+        let ir = r#"
+declare i32 @llvm.nvvm.ldmatrix.sync.aligned.m8n8.x1.b16(ptr addrspace(3))
+declare { float, float, float, float } @llvm.nvvm.mma.m16n8k8.row.col.f32.f32(<2 x half>, <2 x half>, <2 x half>, float, float, float, float)
+define void @k(ptr addrspace(1) %out, ptr addrspace(3) %tile, <2 x half> %a) {
+entry:
+  %b = call i32 @llvm.nvvm.ldmatrix.sync.aligned.m8n8.x1.b16(ptr addrspace(3) %tile)
+  %bh = bitcast i32 %b to <2 x half>
+  %d = call { float, float, float, float } @llvm.nvvm.mma.m16n8k8.row.col.f32.f32(<2 x half> %a, <2 x half> %a, <2 x half> %bh, float 0.0, float 0.0, float 0.0, float 0.0)
+  %d0 = extractvalue { float, float, float, float } %d, 0
+  store float %d0, ptr addrspace(1) %out
+  ret void
+}
+"#;
+        // The oldest driver with these instructions, and a current one. LLVM's own default
+        // (6.3) aborts in instruction selection here rather than returning an error.
+        for driver in [10020, 12080] {
+            let ptx_version = PtxVersion::for_driver(driver);
+            let ptx = compile_to_ptx(ir, &SmArch::new(75, true), ptx_version).unwrap();
+            assert!(
+                ptx.contains("ldmatrix.sync.aligned"),
+                "CUDA {driver}:\n{ptx}"
+            );
+            assert!(
+                ptx.contains("mma.sync.aligned.m16n8k8"),
+                "CUDA {driver}:\n{ptx}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_newest_driver_version_is_one_this_llvm_emits() {
+        let ir = r#"
+define void @k() {
+entry:
+  ret void
+}
+"#;
+        let ptx_version = PtxVersion::for_driver(i32::MAX);
+        let ptx = compile_to_ptx(ir, &SmArch::new(75, true), ptx_version).unwrap();
+        assert!(
+            ptx.contains(".version 9.3"),
+            "an unknown version is ignored, not refused:\n{ptx}"
+        );
+    }
 }

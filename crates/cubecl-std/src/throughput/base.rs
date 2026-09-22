@@ -85,7 +85,10 @@ fn working_set_cap(client: &Client, access: MemoryAccess) -> u64 {
 
 /// Computes the peak throughput for a given runtime and key.
 ///
-/// Native only, panics on WASM
+/// Native only: a probe blocks on the device, which the browser can't do.
+/// There this reports [`Unsupported`](ThroughputError::Unsupported), so a
+/// roofline bound built from it has no peak and no time limit, and the tune
+/// runs without one rather than not at all.
 ///
 /// # Errors
 ///
@@ -109,24 +112,34 @@ pub fn measure_peak_throughput(
 }
 
 /// The value for `key`, and whether a probe ran for it rather than the cache
-/// answering. Only a probe leaves pools with the allocator.
+/// answering or the platform declining. Only a probe leaves pools with the
+/// allocator.
 fn measure(
     client: &Client,
     key: ThroughputKey,
 ) -> (Result<ThroughputValue, ThroughputError>, bool) {
-    // A throughput probe is a measurement: inside a dry run its launches must
-    // still execute, or they would be timed anyway and cache a garbage peak in
-    // the device-level throughput store. The guard is read where the launch is
-    // issued, which for these is this thread.
-    let _measurement = cubecl_runtime::dry_run::RealRun::new();
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = (client, key);
+        (Err(ThroughputError::Unsupported), false)
+    }
 
-    let mut probed = false;
-    let value = client.measure_throughput(key, || {
-        probed = true;
-        probe(client, key)
-    });
+    #[cfg(not(target_family = "wasm"))]
+    {
+        // A throughput probe is a measurement: inside a dry run its launches
+        // must still execute, or they would be timed anyway and cache a
+        // garbage peak in the device-level throughput store. The guard is
+        // read where the launch is issued, which for these is this thread.
+        let _measurement = cubecl_runtime::dry_run::RealRun::new();
 
-    (value, probed)
+        let mut probed = false;
+        let value = client.measure_throughput(key, || {
+            probed = true;
+            probe(client, key)
+        });
+
+        (value, probed)
+    }
 }
 
 /// Measures `key`, in the fastest shape its probe can be launched in.

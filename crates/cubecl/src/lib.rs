@@ -59,6 +59,10 @@ pub use cubecl_environment::bundle;
 /// Which named environment caches are warmed into, and where it lives.
 pub use cubecl_environment::environment;
 
+/// What an environment remembers of how it was built: sessions, marks, and
+/// the records its tunes and compilations leave.
+pub use cubecl_environment::records;
+
 /// Running a workload for the compilation and tuning it provokes, without
 /// running the workload itself.
 ///
@@ -73,6 +77,10 @@ pub use cubecl_environment::environment;
 /// warm_up();
 /// ```
 pub use cubecl_runtime::dry_run;
+
+/// The kernels a workload launches, collected while it replays: what an
+/// environment shipped for it has to keep.
+pub use cubecl_runtime::launched;
 
 /// Watching what the runtime runs: the launch observer, and the profiling
 /// logger's levels.

@@ -1,4 +1,4 @@
-#[cfg(std_io)]
+#[cfg(persistence)]
 use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
 
 use crate::throughput::{ThroughputKey, ThroughputValue};
@@ -10,7 +10,7 @@ use cubecl_environment::sync::Mutex;
 use cubecl_ir::{DeviceIdentity, DeviceProperties};
 
 /// The namespace segment naming which generation of probes wrote a value.
-#[cfg(std_io)]
+#[cfg(persistence)]
 const GENERATION: &str = "probe-v";
 
 static GLOBAL_CACHE: Mutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>> = Mutex::new(None);
@@ -20,9 +20,9 @@ static GLOBAL_CACHE: Mutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>>
 /// This cache is used to avoid recomputing throughput values for the same key.
 /// Stores on disk when std is available, otherwise stores in memory.
 pub struct ThroughputCache {
-    #[cfg(not(std_io))]
+    #[cfg(not(persistence))]
     cache: HashMap<ThroughputKey, ThroughputValue>,
-    #[cfg(std_io)]
+    #[cfg(persistence)]
     cache: Store<ThroughputKey, ThroughputValue>,
 }
 
@@ -42,7 +42,7 @@ impl ThroughputCache {
         let mut cache_map = GLOBAL_CACHE.lock();
         let cache_map = cache_map.get_or_insert_with(HashMap::new);
 
-        #[cfg(std_io)]
+        #[cfg(persistence)]
         drop_earlier_generations();
 
         cache_map
@@ -52,15 +52,15 @@ impl ThroughputCache {
     }
 
     /// Creates a new `ThroughputCache` with the given name.
-    pub fn new(#[cfg_attr(not(std_io), allow(unused_variables))] name: &str) -> Self {
-        #[cfg(not(std_io))]
+    pub fn new(#[cfg_attr(not(persistence), allow(unused_variables))] name: &str) -> Self {
+        #[cfg(not(persistence))]
         {
             ThroughputCache {
                 cache: HashMap::new(),
             }
         }
 
-        #[cfg(std_io)]
+        #[cfg(persistence)]
         {
             Self {
                 cache: Store::new(StoreOptions::new().storage(namespace(name))),
@@ -74,12 +74,12 @@ impl ThroughputCache {
     /// earlier run) may have recorded a different value for the same key; the cache
     /// keeps the existing value in that case rather than failing.
     pub fn insert(&mut self, key: ThroughputKey, value: ThroughputValue) {
-        #[cfg(std_io)]
+        #[cfg(persistence)]
         if let Err(err) = self.cache.insert(key, value) {
             log::warn!("Concurrent throughput measurement, keeping the existing value: {err}");
         }
 
-        #[cfg(not(std_io))]
+        #[cfg(not(persistence))]
         self.cache.insert(key, value);
     }
 
@@ -114,7 +114,7 @@ fn device_key(runtime: &str, identity: &DeviceIdentity, capacity: u64, paralleli
 /// Only this crate version's, and only earlier: another version may belong to a
 /// cubecl still in use, and a later generation to a build running right now. A
 /// namespace with no generation at all predates them.
-#[cfg(std_io)]
+#[cfg(persistence)]
 fn is_earlier_generation(candidate: &str, scope: &str, current: u32) -> bool {
     let Some(device) = candidate.strip_prefix(scope) else {
         return false;
@@ -129,7 +129,7 @@ fn is_earlier_generation(candidate: &str, scope: &str, current: u32) -> bool {
     generation < current
 }
 
-#[cfg(std_io)]
+#[cfg(persistence)]
 fn drop_earlier_generations() {
     use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -149,7 +149,7 @@ fn drop_earlier_generations() {
     }
 }
 
-#[cfg(std_io)]
+#[cfg(persistence)]
 fn namespace(device_key: &str) -> Namespace {
     Namespace::scoped(
         "throughput",
@@ -231,7 +231,7 @@ mod tests {
     /// A build drops what its own earlier probes wrote and nothing else:
     /// another crate version may be in use, and a later probe version is
     /// running right now.
-    #[cfg(std_io)]
+    #[cfg(persistence)]
     #[test]
     fn only_this_crate_version_s_earlier_probes_are_dropped() {
         let stale = |ns: &str| is_earlier_generation(ns, "throughput/0.11.0/", 2);
@@ -247,7 +247,7 @@ mod tests {
 
     /// The crate version in the namespace does not move when a probe changes
     /// what it measures inside a release, so the probes carry their own.
-    #[cfg(std_io)]
+    #[cfg(persistence)]
     #[test]
     fn the_namespace_carries_the_probe_version() {
         let generation = namespace("").as_str().to_string();

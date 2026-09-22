@@ -20,6 +20,7 @@ default = [
     "cubecl-core/default",
 ]
 exclusive-memory-only = ["cubecl-server/exclusive-memory-only"]
+persistence = ["cubecl-server/persistence"]
 std = [
     "cubecl-server/std",
     "cubecl-common/std",
