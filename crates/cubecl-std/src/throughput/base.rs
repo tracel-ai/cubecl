@@ -126,14 +126,11 @@ fn measure(
 
     #[cfg(not(target_family = "wasm"))]
     {
-        // A throughput probe is a measurement: inside a dry run its launches
-        // must still execute, or they would be timed anyway and cache a
-        // garbage peak in the device-level throughput store. The guard is
-        // read where the launch is issued, which for these is this thread.
-        let _measurement = cubecl_runtime::dry_run::RealRun::new();
-
         let mut probed = false;
         let value = client.measure_throughput(key, || {
+            // Read where the launch is issued, which here is the runner.
+            let _measurement = cubecl_runtime::dry_run::RealRun::new();
+
             probed = true;
             probe(client, key)
         });

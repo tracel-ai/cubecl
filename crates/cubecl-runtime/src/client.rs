@@ -1774,17 +1774,29 @@ impl Client {
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
     ///
+    /// `probe` runs on the device runner thread with the device to itself,
+    /// since one sharing it measures its share rather than the peak. A cached
+    /// answer takes neither.
+    ///
     /// # Errors
     ///
-    /// Whatever `probe` reports.
+    /// Whatever `probe` reports, or [`Launch`](ThroughputError::Launch) where
+    /// the device could not be taken.
     pub fn measure_throughput(
         &self,
         key: ThroughputKey,
-        probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError>,
+        probe: impl FnOnce() -> Result<ThroughputValue, ThroughputError> + Send,
     ) -> Result<ThroughputValue, ThroughputError> {
         let cache = ThroughputCache::get_for_device(self.name(), self.properties());
         let mut throughputs = ThroughputBenchmarker::new(cache);
-        throughputs.measure(key, probe)
+
+        if let Some(value) = throughputs.cached(key) {
+            return Ok(value);
+        }
+
+        // Asked again inside: another thread may have answered while this one queued.
+        self.exclusive(move || throughputs.measure(key, probe))
+            .unwrap_or(Err(ThroughputError::Launch))
     }
 }
 
