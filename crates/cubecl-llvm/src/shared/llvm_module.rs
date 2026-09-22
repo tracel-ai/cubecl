@@ -337,39 +337,44 @@ fn enum_attribute_kind(name: &str) -> Option<u32> {
     (kind != 0).then_some(kind)
 }
 
+/// The machine a target compiles for.
 #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+pub(crate) struct TargetSpec<'a> {
+    pub triple: &'a CStr,
+    /// The architecture, as the target names it: `sm_60`, `gfx1201`.
+    pub cpu: &'a str,
+    pub features: &'a CStr,
+    pub reloc: LLVMRelocMode,
+}
+
 /// An LLVM target machine at the aggressive optimization level.
 pub(crate) struct TargetMachine(LLVMTargetMachineRef);
 
 #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
 impl TargetMachine {
-    /// The target must have been initialized.
-    pub(crate) fn new(
-        triple: &CStr,
-        cpu: &str,
-        features: &CStr,
-        reloc: LLVMRelocMode,
-    ) -> Result<Self, String> {
-        let c_cpu = CString::new(cpu).map_err(|_| format!("arch '{cpu}' contains a NUL"))?;
+    /// The target `spec` names must have been initialized.
+    pub(crate) fn new(spec: &TargetSpec<'_>) -> Result<Self, String> {
+        let cpu =
+            CString::new(spec.cpu).map_err(|_| format!("arch '{}' contains a NUL", spec.cpu))?;
         // SAFETY: every string outlives the calls, and a failed lookup hands back a message
         // we own.
         unsafe {
             let mut target = std::ptr::null_mut();
             let mut error = std::ptr::null_mut();
-            if LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut error) != 0 {
+            if LLVMGetTargetFromTriple(spec.triple.as_ptr(), &mut target, &mut error) != 0 {
                 return Err(take_message(error));
             }
             let tm = LLVMCreateTargetMachine(
                 target,
-                triple.as_ptr(),
-                c_cpu.as_ptr(),
-                features.as_ptr(),
+                spec.triple.as_ptr(),
+                cpu.as_ptr(),
+                spec.features.as_ptr(),
                 LLVMCodeGenOptLevel::LLVMCodeGenLevelAggressive,
-                reloc,
+                spec.reloc,
                 LLVMCodeModel::LLVMCodeModelDefault,
             );
             if tm.is_null() {
-                return Err(format!("no target machine for '{cpu}'"));
+                return Err(format!("no target machine for '{}'", spec.cpu));
             }
             Ok(Self(tm))
         }

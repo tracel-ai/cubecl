@@ -1,5 +1,6 @@
 use std::ffi::{CStr, c_char};
 
+#[must_use]
 /// Sets the registered LLVM option `name` to `value`, as `-name=value` would. Returns `false`
 /// when this LLVM has no such option or the option refuses the value, rather than exiting the
 /// process the way `LLVMParseCommandLineOptions` does.

@@ -10,7 +10,7 @@ use crate::{
     shared::{
         NvptxModule,
         buffer_params::annotate_buffer_params,
-        llvm_module::{EntryFunction, LlvmModule, TargetMachine},
+        llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
         llvm_options::set_llvm_option,
         math_library::redirect_intrinsics,
     },
@@ -45,7 +45,7 @@ fn init_nvptx() {
 
         // An LLVM without the option still compiles correct kernels, with CAS-loop atomics;
         // `a_float_atomic_add_is_the_native_instruction` is what notices.
-        set_llvm_option(ALLOW_FTZ_ATOMICS, c"true");
+        let _ = set_llvm_option(ALLOW_FTZ_ATOMICS, c"true");
     });
 }
 
@@ -167,12 +167,12 @@ fn compile(
     let features = ptx_version
         .map(PtxVersion::target_feature)
         .unwrap_or_default();
-    let machine = TargetMachine::new(
-        TRIPLE,
-        &arch.target_cpu(),
-        &features,
-        LLVMRelocMode::LLVMRelocDefault,
-    )?;
+    let machine = TargetMachine::new(&TargetSpec {
+        triple: TRIPLE,
+        cpu: &arch.target_cpu(),
+        features: &features,
+        reloc: LLVMRelocMode::LLVMRelocDefault,
+    })?;
     machine.set_data_layout(&module);
 
     // SAFETY: the module is live for the call.
@@ -205,14 +205,6 @@ fn as_c_chars(ptx: &str) -> Vec<std::ffi::c_char> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn compile_to_ptx(
-        ir: &str,
-        arch: &SmArch,
-        ptx_version: Option<PtxVersion>,
-    ) -> Result<String, String> {
-        compile(LlvmModule::parse(ir)?, arch, ptx_version)
-    }
 
     #[test]
     fn turing_reaches_its_tensor_core_instructions() {
@@ -275,5 +267,13 @@ entry:
             ptx.contains(".version 9.3"),
             "an unknown version is ignored, not refused:\n{ptx}"
         );
+    }
+
+    fn compile_to_ptx(
+        ir: &str,
+        arch: &SmArch,
+        ptx_version: Option<PtxVersion>,
+    ) -> Result<String, String> {
+        compile(LlvmModule::parse(ir)?, arch, ptx_version)
     }
 }

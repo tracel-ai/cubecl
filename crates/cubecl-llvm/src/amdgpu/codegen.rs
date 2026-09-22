@@ -11,7 +11,7 @@ use crate::{
     shared::{
         AmdGpuModule,
         buffer_params::annotate_buffer_params,
-        llvm_module::{EntryFunction, LlvmModule, TargetMachine},
+        llvm_module::{EntryFunction, LlvmModule, TargetMachine, TargetSpec},
         math_library::redirect_intrinsics,
     },
 };
@@ -183,7 +183,12 @@ fn compile(
 
     let features = CString::new(features_for(arch)).expect("static feature string");
     // AMD code objects require position-independent code.
-    let machine = TargetMachine::new(TRIPLE, arch.name(), &features, LLVMRelocMode::LLVMRelocPIC)?;
+    let machine = TargetMachine::new(&TargetSpec {
+        triple: TRIPLE,
+        cpu: arch.name(),
+        features: &features,
+        reloc: LLVMRelocMode::LLVMRelocPIC,
+    })?;
     machine.set_data_layout(&module);
 
     // SAFETY: the module is live, stamped with the AMDGPU triple and layout.
@@ -202,9 +207,11 @@ fn compile(
     Ok((object, asm))
 }
 
-/// The object and assembly the finalized IR `ir` compiles to, for tests that start from IR.
+/// The object and assembly the finalized IR `ir` compiles to, for the tests that start from IR
+/// rather than from a kernel: `AmdGpuModule::asm` is only filled in when `CUBECL_DEBUG_PLIRON`
+/// is set.
 #[cfg(test)]
-pub(super) fn compile_to_object(
+pub(crate) fn compile_to_object(
     ir: &str,
     arch: &GfxArch,
     want_asm: bool,
@@ -234,18 +241,6 @@ unsafe fn lower_to_device_libs(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn finalize_ir(
-        ir: &str,
-        entrypoint: &str,
-        arch: &GfxArch,
-        cube_dim: Dim3,
-        io: &[BufferIOAttr],
-    ) -> Result<String, String> {
-        let module = LlvmModule::parse(ir)?;
-        finalize(&module, entrypoint, arch, cube_dim, io)?;
-        Ok(module.print())
-    }
 
     #[test]
     fn only_the_rdna_parts_ask_for_wave32() {
@@ -467,5 +462,17 @@ entry:
             3,
             "lld must give ET_DYN"
         );
+    }
+
+    fn finalize_ir(
+        ir: &str,
+        entrypoint: &str,
+        arch: &GfxArch,
+        cube_dim: Dim3,
+        io: &[BufferIOAttr],
+    ) -> Result<String, String> {
+        let module = LlvmModule::parse(ir)?;
+        finalize(&module, entrypoint, arch, cube_dim, io)?;
+        Ok(module.print())
     }
 }
