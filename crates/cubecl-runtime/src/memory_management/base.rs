@@ -105,8 +105,6 @@ pub enum MemoryPoolKind {
         page_size: u64,
         /// The largest allocation the pool accepts.
         max_slice_size: u64,
-        /// The pool's byte cap (`None` grows unbounded).
-        max_pool_size: Option<u64>,
     },
     /// Slices carved from pages sized after the largest allocation served.
     Adaptive {
@@ -169,14 +167,11 @@ pub struct MemoryPoolReport {
 ///
 /// A tuning pass inside the measured run allocates too, and its scratch counts
 /// toward these marks like anything else. Warming the tune caches in an
-/// earlier pass and rebuilding the pools
-/// (`MemoryManagement::install_pools`, which resets the
-/// marks)
-/// before the measured one leaves the peaks to the workload alone.
+/// earlier pass leaves the peaks of the measured one to the workload alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryReport {
-    /// One entry per dynamic pool, in allocation-routing order — the same
-    /// order the layout was configured with.
+    /// One entry per dynamic pool, in allocation-routing order, the pools a
+    /// growth left behind last.
     pub dynamic: Vec<MemoryPoolReport>,
     /// The persistent pool (weights, caches; explicit persistent windows).
     pub persistent: MemoryPoolReport,

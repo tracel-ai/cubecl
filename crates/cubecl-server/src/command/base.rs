@@ -15,8 +15,7 @@ use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::{
-    InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
-    MemoryHandle, MemoryReport, MemoryUsage,
+    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport, MemoryUsage,
 };
 use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
 use crate::stream::ResolvedStreams;
@@ -27,7 +26,6 @@ use cubecl_common::{bytes::Bytes, device::ServiceId};
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
-use cubecl_ir::MemoryDeviceProperties;
 
 /// One unit of work against the device: the context that holds its compiled
 /// kernels, and the streams it was resolved against.
@@ -194,23 +192,6 @@ impl<'a, D: Driver> Command<'a, D> {
     /// Set the [`MemoryAllocationMode`] for the current stream.
     pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {
         self.streams.current().device_memory().mode(mode)
-    }
-
-    /// Rebuild the current stream's device pools with a new layout, keeping
-    /// the old one when something is still live in them.
-    ///
-    /// # Errors
-    ///
-    /// [`InstallMemoryPoolsError::PoolsInUse`] when the rebuild was refused.
-    pub fn install_memory_pools(
-        &mut self,
-        config: MemoryConfiguration,
-        props: &MemoryDeviceProperties,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        let (stream, failures) = self.streams.current_and_failures();
-        stream
-            .device_memory()
-            .install_pools(config, props, failures)
     }
 
     /// Allocate `size` bytes of device memory on the current stream.

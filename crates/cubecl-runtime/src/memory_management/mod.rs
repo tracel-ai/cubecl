@@ -8,8 +8,6 @@ pub use config::*;
 pub use handle::*;
 pub use layout::*;
 
-use alloc::vec::Vec;
-
 /// The type of memory pool to use.
 #[derive(Debug, Clone)]
 pub enum PoolType {
@@ -18,38 +16,12 @@ pub enum PoolType {
         /// The minimum number of bytes to allocate in this pool.
         max_alloc_size: u64,
     },
-    /// Give every allocation its own device allocation, sized to the request
-    /// and reused by exact size.
-    ///
-    /// No carving at all, so it wastes only alignment padding. Worth it where
-    /// padding matters more than allocation count — under a
-    /// [`DryRun`](crate::dry_run::DryRun), where unresolved reservations never
-    /// reach the driver at all, or on a device the workload barely fits.
-    Direct {
-        /// Reserved bytes above which free slices are returned to the driver.
-        /// A watermark rather than a budget; `None` reclaims only on an
-        /// explicit cleanup.
-        reclaim_at: Option<u64>,
-    },
     /// Use a memory where each allocation is a slice of a bigger allocation.
     SlicedPages {
         /// The page size to allocate.
         page_size: u64,
         /// The maximum size of a slice to allocate in the pool.
         max_slice_size: u64,
-        /// Hard cap on the total bytes of pages this pool may hold.
-        ///
-        /// The effective cap is `floor(max_pool_size / page_size)` whole pages.
-        /// If `max_pool_size < page_size`, the page size is shrunk to the
-        /// (alignment-rounded) cap so the budget is honored with a single page.
-        /// When the cap is reached and no free slice fits after coalescing,
-        /// reserving returns [`IoError`](crate::server::IoError)
-        /// `PoolCapacityExceeded` instead of silently growing. `None` (the
-        /// previous behavior) keeps unbounded growth.
-        ///
-        /// Note: runtimes that create one memory management per stream (CUDA,
-        /// HIP) apply the cap per stream.
-        max_pool_size: Option<u64>,
     },
     /// Slices carved from pages whose size follows the largest allocation the
     /// pool has served: `largest + 1 MiB`, MiB-rounded, never below
@@ -90,24 +62,16 @@ pub struct MemoryPoolOptions {
 /// High level configuration of memory management.
 #[derive(Clone, Debug)]
 pub enum MemoryConfiguration {
-    /// A ladder of size-bucketed pools that sub-slice large pages.
-    #[cfg(not(exclusive_memory_only))]
-    SubSlices,
-    /// Default preset for using exclusive pages.
-    /// This can be necessary for backends don't support sub-slices.
+    /// One page per allocation, in exponentially spaced size buckets: what a
+    /// device that cannot sub-slice gets, and what a staging or uniform pool
+    /// wants whatever the device.
     ExclusivePages,
     /// Small allocations in a sliced pool of their own, everything else in one
     /// [`AdaptivePages`](PoolType::AdaptivePages) pool that sizes its pages
-    /// from the allocations it serves — no layout to measure or install per
+    /// from the allocations it serves — nothing to measure or configure per
     /// workload. The default where sub-slicing is available.
     #[cfg(not(exclusive_memory_only))]
     Adaptive,
-    /// Custom settings.
-    Custom {
-        /// Options for each pool to construct. When allocating, the first
-        /// possible pool will be picked for an allocation.
-        pool_options: Vec<MemoryPoolOptions>,
-    },
 }
 
 #[allow(clippy::derivable_impls)]
@@ -139,42 +103,3 @@ pub enum MemoryAllocationMode {
     /// reserved nor shape the pools' sizing.
     Dedicated,
 }
-
-/// Why installing a dynamic pool layout did not take effect.
-///
-/// The layout itself was already valid — that is
-/// [`PoolConfigError`](PoolConfigError), reported when the configuration is
-/// resolved. This is about the pools' *state* at the moment of the swap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InstallMemoryPoolsError {
-    /// The dynamic pools still hold live allocations, so the old layout was
-    /// kept. A live slice carries its pool position, and swapping the pool
-    /// list under it would leave that position pointing at a different pool.
-    ///
-    /// Transient: retry once whatever holds them drains. A cleanup that does
-    /// not clear it usually means a cache is holding slices (the metadata
-    /// info cache) or a captured graph is pinning them.
-    PoolsInUse {
-        /// Bytes still live in the dynamic pools.
-        bytes_in_use: u64,
-    },
-    /// This server has no configurable dynamic pools. Permanent — unlike
-    /// [`PoolsInUse`](Self::PoolsInUse), retrying will never succeed.
-    Unsupported,
-}
-
-impl core::fmt::Display for InstallMemoryPoolsError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            InstallMemoryPoolsError::PoolsInUse { bytes_in_use } => write!(
-                f,
-                "the dynamic pools kept their layout: {bytes_in_use} bytes are still live in them"
-            ),
-            InstallMemoryPoolsError::Unsupported => {
-                write!(f, "this server has no configurable dynamic memory pools")
-            }
-        }
-    }
-}
-
-impl core::error::Error for InstallMemoryPoolsError {}

@@ -241,11 +241,8 @@ impl<V> MetadataInfoCache<V> {
     /// captured graphs that will replay against them.
     ///
     /// The explicit-cleanup hook. Cached info buffers are live slices in the
-    /// dynamic memory pools, and a pool rebuild
-    /// ([`MemoryManagement::install_pools`](crate::memory_management::MemoryManagement::install_pools))
-    /// refuses while anything is alive in them — without this, the first
-    /// launches on a stream would make its pools permanently
-    /// un-reconfigurable.
+    /// dynamic memory pools, so a cleanup that left them there would hold a
+    /// page of every pool the workload ever grew out of.
     pub fn clear_unpinned(&mut self) {
         self.entries.retain(|_, entry| entry.locks > 0);
     }

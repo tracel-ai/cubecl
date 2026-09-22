@@ -424,10 +424,10 @@ fn run(config: MemoryConfiguration, seed: u64) {
 }
 
 #[test]
-fn a_read_returns_bytes_iff_their_last_writer_succeeded_subslices() {
+fn a_read_returns_bytes_iff_their_last_writer_succeeded_adaptive() {
     #[cfg(not(exclusive_memory_only))]
     for seed in 0..SEEDS {
-        run(MemoryConfiguration::SubSlices, seed);
+        run(MemoryConfiguration::Adaptive, seed);
     }
 }
 

@@ -22,7 +22,7 @@ use cubecl_server::{
     dry_run::LaunchMode,
     kernel::CubeKernel,
     logging::ServerLogger,
-    memory_management::{InstallMemoryPoolsError, ManagedMemoryHandle},
+    memory_management::ManagedMemoryHandle,
     server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{
@@ -695,25 +695,6 @@ impl Server for MetalServer {
     ) {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         resolved.current().memory_management.mode(mode);
-    }
-
-    fn install_memory_pools(
-        &mut self,
-        config: MemoryConfiguration,
-        stream_id: StreamId,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        // Streams created from now on build their GPU pools with the new
-        // layout; memory is per stream, so already-created streams keep theirs.
-        self.streams.backend_mut().set_gpu_pools(config.clone());
-        let (_, props) = self.streams.backend_mut().gpu_pools();
-
-        // The calling stream's pools are rebuilt in place, keeping the old
-        // layout when something is still live in them.
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        let (stream, failures) = resolved.current_and_failures();
-        stream
-            .memory_management
-            .install_pools(config, &props, failures)
     }
 }
 

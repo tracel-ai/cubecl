@@ -4,7 +4,6 @@
 //! pool carving allocations already has.
 
 use cubecl_hip::HipRuntime;
-use cubecl_server::config::memory::{MemoryPoolsConfig, MemoryPoolsPreset};
 use cubecl_server::memory_management::MemoryPoolKind;
 use cubecl_server::runtime::Runtime;
 
@@ -12,11 +11,9 @@ const MIB: usize = 1024 * 1024;
 
 #[test]
 fn relocation_moves_live_bytes_off_outdated_pages() {
+    // The adaptive memory is what every device that slices gets.
     let client = HipRuntime::client(&Default::default());
     client.memory_cleanup();
-    client
-        .install_memory_pools(&MemoryPoolsConfig::Preset(MemoryPoolsPreset::Adaptive))
-        .unwrap();
 
     let pattern: Vec<u8> = (0..4 * MIB).map(|i| (i % 251) as u8).collect();
     let kept = client.create_from_slice(&pattern);

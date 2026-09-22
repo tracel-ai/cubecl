@@ -4,9 +4,7 @@ use crate::{
     memory_management::{
         ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryPoolOptions, MemoryPoolReport,
         MemoryUsage, PoolType,
-        memory_pool::{
-            DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, Slice, SlicedPool,
-        },
+        memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping, Slice, SlicedPool},
     },
     server::IoError,
     storage::ComputeStorage,
@@ -19,7 +17,6 @@ use cubecl_ir::MemoryDeviceProperties;
 pub enum DynamicPool {
     Sliced(SlicedPool),
     Exclusive(ExclusiveMemoryPool),
-    Direct(DirectPool),
 }
 
 impl MemoryPool for DynamicPool {
@@ -27,7 +24,6 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(pool) => pool.accept(size),
             DynamicPool::Exclusive(pool) => pool.accept(size),
-            DynamicPool::Direct(pool) => pool.accept(size),
         }
     }
 
@@ -35,7 +31,6 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.find(binding),
             DynamicPool::Exclusive(m) => m.find(binding),
-            DynamicPool::Direct(m) => m.find(binding),
         }
     }
 
@@ -43,7 +38,6 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.find_mut(binding),
             DynamicPool::Exclusive(m) => m.find_mut(binding),
-            DynamicPool::Direct(m) => m.find_mut(binding),
         }
     }
 
@@ -52,7 +46,6 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.try_reserve(size, failures),
             DynamicPool::Exclusive(m) => m.try_reserve(size, failures),
-            DynamicPool::Direct(m) => m.try_reserve(size, failures),
         }
     }
 
@@ -67,7 +60,6 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size, mapping, failures),
             DynamicPool::Exclusive(m) => m.alloc(storage, size, mapping, failures),
-            DynamicPool::Direct(m) => m.alloc(storage, size, mapping, failures),
         }
     }
 
@@ -79,7 +71,6 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.materialize(storage, binding),
             DynamicPool::Exclusive(m) => m.materialize(storage, binding),
-            DynamicPool::Direct(m) => m.materialize(storage, binding),
         }
     }
 
@@ -87,7 +78,6 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.get_memory_usage(),
             DynamicPool::Exclusive(m) => m.get_memory_usage(),
-            DynamicPool::Direct(m) => m.get_memory_usage(),
         }
     }
 
@@ -101,7 +91,6 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit, failures),
             DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit, failures),
-            DynamicPool::Direct(m) => m.cleanup(storage, alloc_nr, explicit, failures),
         };
         storage.flush();
     }
@@ -116,7 +105,6 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.bind(reserved, assigned, cursor, failures),
             DynamicPool::Exclusive(m) => m.bind(reserved, assigned, cursor, failures),
-            DynamicPool::Direct(m) => m.bind(reserved, assigned, cursor, failures),
         }
     }
 }
@@ -126,7 +114,6 @@ impl core::fmt::Display for DynamicPool {
         match self {
             DynamicPool::Sliced(pool) => write!(f, "{pool}"),
             DynamicPool::Exclusive(pool) => write!(f, "{pool}"),
-            DynamicPool::Direct(pool) => write!(f, "{pool}"),
         }
     }
 }
@@ -136,7 +123,6 @@ impl DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.report(m.kind()),
             DynamicPool::Exclusive(m) => m.report(),
-            DynamicPool::Direct(m) => m.report(),
         }
     }
 }
@@ -157,15 +143,9 @@ impl DynamicPool {
             PoolType::SlicedPages {
                 page_size,
                 max_slice_size,
-                max_pool_size,
             } => {
-                let pool = SlicedPool::new(
-                    page_size,
-                    max_slice_size,
-                    properties.alignment,
-                    pool_pos,
-                    max_pool_size,
-                );
+                let pool =
+                    SlicedPool::new(page_size, max_slice_size, properties.alignment, pool_pos);
                 DynamicPool::Sliced(match up_to_max_slice {
                     true => pool.up_to_max_slice(),
                     false => pool,
@@ -176,7 +156,6 @@ impl DynamicPool {
                 min_page_size,
                 properties.alignment,
                 pool_pos,
-                None,
             )),
             PoolType::ExclusivePages { max_alloc_size } => {
                 DynamicPool::Exclusive(ExclusiveMemoryPool::new(
@@ -185,9 +164,6 @@ impl DynamicPool {
                     options.dealloc_period.unwrap_or(u64::MAX),
                     pool_pos,
                 ))
-            }
-            PoolType::Direct { reclaim_at } => {
-                DynamicPool::Direct(DirectPool::new(properties.alignment, pool_pos, reclaim_at))
             }
         }
     }

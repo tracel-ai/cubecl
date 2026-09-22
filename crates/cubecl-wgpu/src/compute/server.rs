@@ -35,7 +35,7 @@ use cubecl_ir::MemoryDeviceProperties;
 #[cfg(feature = "spirv")]
 use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_server::memory_management::{
-    InstallMemoryPoolsError, ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
+    ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
 };
 use cubecl_server::{
     compiler::CompilationCache,
@@ -47,10 +47,7 @@ use cubecl_server::{
     memory_management::MemoryAllocationMode,
     server::Server,
     storage::ManagedResource,
-    stream::scheduler::{
-        SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
-        SchedulerStreamBackend,
-    },
+    stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
     stream::{ExecuteScope, FailureStore, StreamCapture, WriteScoped, failed_writing},
     validation::{validate_cube_dim, validate_units},
 };
@@ -685,28 +682,6 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.mode(mode);
-    }
-
-    fn install_memory_pools(
-        &mut self,
-        config: MemoryConfiguration,
-        stream_id: StreamId,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        // Streams created from now on build their main pool with the new
-        // layout; memory is per stream, so already-created streams keep theirs.
-        self.scheduler
-            .backend_mut()
-            .factory()
-            .set_gpu_pools(config.clone());
-        let (_, props) = self.scheduler.backend_mut().factory().gpu_pools();
-
-        // The calling stream's pools are rebuilt in place, keeping the old
-        // layout when something is still live in them.
-        self.scheduler.execute_streams(vec![stream_id]);
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream
-            .mem_manage
-            .install_memory_pools(config, &props, failures)
     }
 
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

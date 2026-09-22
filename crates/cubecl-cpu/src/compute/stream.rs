@@ -67,9 +67,7 @@ impl CpuStream {
     ) -> Self {
         // `memory_config` shapes the main pool only; the shared pool below is
         // left alone, as it has a deliberate configuration that must not be
-        // overridden. Pool layout overrides reach GPU runtimes through
-        // `install_memory_pools`; the CPU runtime has no such override and
-        // keeps the config it's handed.
+        // overridden.
         let memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &memory_properties,

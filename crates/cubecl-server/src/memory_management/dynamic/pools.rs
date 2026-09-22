@@ -14,7 +14,7 @@ use crate::{
     storage::ComputeStorage,
 };
 use alloc::{format, string::String, vec::Vec};
-use cubecl_environment::{backtrace::BackTrace, collections::HashSet, sync::Arc};
+use cubecl_environment::{backtrace::BackTrace, sync::Arc};
 use cubecl_ir::MemoryDeviceProperties;
 
 /// The pools a strategy holds.
@@ -23,8 +23,6 @@ use cubecl_ir::MemoryDeviceProperties;
 /// dropped by leaving its slot empty rather than by moving the others.
 pub struct Pools {
     pools: Vec<Option<DynamicPool>>,
-    /// The pools whose first spill was reported, so a capped pool warns once.
-    warned: HashSet<u8>,
     logger: Arc<ServerLogger>,
     name: String,
 }
@@ -60,7 +58,6 @@ impl Pools {
 
         let pools = Self {
             pools,
-            warned: HashSet::default(),
             logger,
             name,
         };
@@ -171,21 +168,13 @@ impl Pools {
         );
     }
 
-    /// Reserve `size` bytes on the first pool of `routing` that accepts it and has
-    /// the capacity, which is what routing an allocation means.
-    ///
-    /// A hard-capped pool that is full falls through to the next accepting pool
-    /// instead of failing outright, so a growable tail pool can act as an escape
-    /// hatch behind a measured arena. Deliberate: a cap is a plan, and a plan that
-    /// turns out to be short should cost memory, not kill the workload. Where the
-    /// cap is a hard budget rather than a plan, configure no pool behind it — then
-    /// a full pool still errors, which is what keeps the budget-vs-device-OOM
-    /// distinction schedulers rely on.
+    /// Reserve `size` bytes on the first pool of `routing` that accepts it,
+    /// which is what routing an allocation means.
     ///
     /// # Errors
     ///
-    /// [`IoError::BufferTooBig`] when no pool accepts the size, and whatever the
-    /// device refused when one does.
+    /// [`IoError::BufferTooBig`] when no pool accepts the size, and whatever
+    /// the device refused when one does.
     pub fn reserve<Storage: ComputeStorage>(
         &mut self,
         routing: impl Iterator<Item = u8>,
@@ -194,16 +183,8 @@ impl Pools {
         mapping: PageMapping,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        let Self {
-            pools,
-            warned,
-            name,
-            ..
-        } = self;
-        let mut capacity_exceeded = None;
-
         for index in routing {
-            let Some(pool) = pools[index as usize]
+            let Some(pool) = self.pools[index as usize]
                 .as_mut()
                 .filter(|pool| pool.accept(size))
             else {
@@ -212,34 +193,13 @@ impl Pools {
             if let Some(slice) = pool.try_reserve(size, failures) {
                 return Ok(slice);
             }
-            match pool.alloc(storage, size, mapping, failures) {
-                Ok(handle) => return Ok(handle),
-                Err(err @ IoError::PoolCapacityExceeded { .. }) => {
-                    // Loud on purpose: a spill means the cap was under-planned (e.g.
-                    // a workload the dry run never measured), and the escape hatch
-                    // serving it must not hide that. Once per pool, though — a
-                    // workload that runs above its cap spills on *every* reservation,
-                    // and a warning per allocation buries the one that mattered.
-                    if warned.insert(index) {
-                        log::warn!(
-                            "[{name}] memory pool {index} is at capacity (first hit at an \
-                             allocation of {size} B); spilling to the next accepting pool. \
-                             The measured plan is short for this workload."
-                        );
-                    }
-                    capacity_exceeded = Some(err);
-                }
-                // A spill already in hand is the more useful diagnosis: it says the
-                // plan was short, where this one only says the pool behind it also
-                // failed.
-                Err(err) => return Err(capacity_exceeded.unwrap_or(err)),
-            }
+            return pool.alloc(storage, size, mapping, failures);
         }
 
-        Err(capacity_exceeded.unwrap_or_else(|| IoError::BufferTooBig {
+        Err(IoError::BufferTooBig {
             size,
             backtrace: BackTrace::capture(),
-        }))
+        })
     }
 }
 

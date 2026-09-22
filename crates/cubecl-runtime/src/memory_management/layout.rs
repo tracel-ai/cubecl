@@ -24,81 +24,12 @@ impl MemoryConfiguration {
     pub fn pool_options(self, properties: &MemoryDeviceProperties) -> Vec<MemoryPoolOptions> {
         match self {
             #[cfg(not(exclusive_memory_only))]
-            MemoryConfiguration::SubSlices => {
-                // Round chunk size to be aligned.
-                let memory_alignment = properties.alignment;
-                let max_page = properties.max_page_size;
-                let mut pools = Vec::new();
-
-                const MB: u64 = 1024 * 1024;
-
-                // Add in a pool for allocations that are smaller than the min alignment,
-                // as they can't use offsets at all (on wgpu at least).
-                pools.push(MemoryPoolOptions {
-                    pool_type: PoolType::ExclusivePages { max_alloc_size: 0 },
-                    dealloc_period: None,
-                });
-
-                let mut current = max_page;
-                let mut max_sizes = vec![];
-                let mut page_sizes = vec![];
-                let mut base = pools.len() as u32;
-
-                while current >= 32 * MB {
-                    current /= 4;
-
-                    // Make sure every pool has an aligned size.
-                    current = current.next_multiple_of(memory_alignment);
-
-                    max_sizes.push(current / 2u64.pow(base));
-                    page_sizes.push(current);
-                    base += 1;
-                }
-
-                max_sizes.reverse();
-                page_sizes.reverse();
-
-                for i in 0..max_sizes.len() {
-                    let max = max_sizes[i];
-                    let page_size = page_sizes[i];
-
-                    pools.push(MemoryPoolOptions {
-                        // Creating max slices lower than the chunk size reduces fragmentation.
-                        pool_type: PoolType::SlicedPages {
-                            page_size,
-                            max_slice_size: max,
-                            max_pool_size: None,
-                        },
-                        dealloc_period: None,
-                    });
-                }
-
-                // Allocations bigger than the sliced ladder get exact-size
-                // exclusive pages. A sliced tail pool here would materialize a
-                // whole `max_page` page (a quarter of device memory) for the
-                // first allocation that lands in it — on unified-memory devices
-                // that alone can consume a large share of host RAM. Exclusive
-                // pages allocate exactly what is requested and are released once
-                // they sit unused for a full dealloc period.
-                let max_alloc = max_page / memory_alignment * memory_alignment;
-                let dealloc_period = (BASE_DEALLOC_PERIOD as f64
-                    * (1.0 + max_alloc as f64 / (DEALLOC_SCALE_MB as f64)).round())
-                    as u64;
-                pools.push(MemoryPoolOptions {
-                    pool_type: PoolType::ExclusivePages {
-                        max_alloc_size: max_alloc,
-                    },
-                    dealloc_period: Some(dealloc_period),
-                });
-                pools
-            }
-            #[cfg(not(exclusive_memory_only))]
             MemoryConfiguration::Adaptive => {
                 let alignment = properties.alignment;
 
                 vec![
                     // Allocations smaller than the alignment can't use offsets
-                    // at all (on wgpu at least), as in `SubSlices`.
+                    // at all (on wgpu at least).
                     MemoryPoolOptions {
                         pool_type: PoolType::ExclusivePages { max_alloc_size: 0 },
                         dealloc_period: None,
@@ -110,7 +41,6 @@ impl MemoryConfiguration {
                         pool_type: PoolType::SlicedPages {
                             page_size: ADAPTIVE_SMALL_PAGE.next_multiple_of(alignment),
                             max_slice_size: ADAPTIVE_SMALL_SLICE.next_multiple_of(alignment),
-                            max_pool_size: None,
                         },
                         dealloc_period: None,
                     },
@@ -154,17 +84,6 @@ impl MemoryConfiguration {
                     })
                     .collect()
             }
-            MemoryConfiguration::Custom { pool_options } => pool_options,
-        }
-    }
-
-    /// Whether this is the [`SubSlices`](Self::SubSlices) preset — never, in
-    /// a build that has none.
-    pub fn is_sub_slices(&self) -> bool {
-        match self {
-            #[cfg(not(exclusive_memory_only))]
-            Self::SubSlices => true,
-            _ => false,
         }
     }
 }

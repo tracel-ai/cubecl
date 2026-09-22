@@ -967,6 +967,9 @@ fn a_dry_run_still_autotunes() {
 /// first time the buffer is actually dereferenced.
 #[test_log::test]
 #[cfg(feature = "std")]
+// Lazy backing is a sliced pool's; the exclusive pages a build without
+// sub-slicing falls back to are always mapped at reservation.
+#[cfg(not(exclusive_memory_only))]
 #[serial_test::serial]
 fn a_dry_run_reserves_without_mapping() {
     use cubecl_server::dry_run::DryRun;

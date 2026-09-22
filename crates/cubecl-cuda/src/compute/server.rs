@@ -27,10 +27,7 @@ use cubecl_server::{
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
-    memory_management::{
-        InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryReport,
-        MemoryUsage,
-    },
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryReport, MemoryUsage},
     server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
@@ -397,22 +394,6 @@ impl Server for CudaServer {
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
         let mut command = self.command_no_inputs(stream_id);
         command.allocation_mode(mode)
-    }
-
-    fn install_memory_pools(
-        &mut self,
-        config: MemoryConfiguration,
-        stream_id: StreamId,
-    ) -> Result<(), InstallMemoryPoolsError> {
-        // Streams created from now on build their GPU pools with the new
-        // layout; memory is per stream, so already-created streams keep theirs.
-        self.streams.backend_mut().set_gpu_pools(config.clone());
-        let (_, props) = self.streams.backend_mut().gpu_pools();
-
-        // The calling stream's pools are rebuilt in place, keeping the old
-        // layout when something is still live in them.
-        self.command_no_inputs(stream_id)
-            .install_memory_pools(config, &props)
     }
 }
 

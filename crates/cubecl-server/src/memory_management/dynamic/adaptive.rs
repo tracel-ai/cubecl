@@ -249,7 +249,7 @@ impl Growth {
     fn pool(&self, page_size: u64, slot: u8) -> SlicedPool {
         // Every size it is routed, so nothing lands here only to be refused for
         // being larger than a slice of the page it fits.
-        SlicedPool::new(page_size, page_size, self.alignment, slot, None)
+        SlicedPool::new(page_size, page_size, self.alignment, slot)
     }
 
     /// The page size `size` asks for, when pages of `page_size` no longer fit
@@ -363,37 +363,39 @@ impl AdaptiveMemory {
     }
 }
 
-#[cfg(test)]
+// The layout these tests drive is the `Adaptive` preset, which a build
+// refusing sub-slicing does not have.
+#[cfg(all(test, not(exclusive_memory_only)))]
 mod tests {
     use crate::{
         logging::ServerLogger,
         memory_management::{
             ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
-            MemoryManagement, MemoryManagementOptions, MemoryPoolKind, MemoryPoolOptions, PoolType,
+            MemoryManagement, MemoryManagementOptions, MemoryPoolKind,
             drop_queue::Fence,
             relocation::{CopyQueue, StorageCopy},
         },
         server::{IoError, ServerError},
         storage::{BytesStorage, ComputeStorage},
     };
-    use alloc::vec;
     use cubecl_environment::sync::Arc;
     use cubecl_ir::MemoryDeviceProperties;
 
     const MIB: u64 = 1024 * 1024;
     const PROPERTIES: MemoryDeviceProperties = MemoryDeviceProperties::new(1024 * MIB, 32);
 
-    /// A memory manager whose only pool is adaptive.
-    fn adaptive(min_page_size: u64) -> MemoryManagement<BytesStorage> {
+    /// The floor the `Adaptive` preset carves its pages at, until a larger
+    /// allocation grows them.
+    const FLOOR: u64 = 2 * MIB;
+
+    /// A memory manager laid out by the `Adaptive` preset. Every size these
+    /// tests reserve is past the metadata pool's largest slice, so the pool
+    /// that grows is the one serving them.
+    fn adaptive() -> MemoryManagement<BytesStorage> {
         MemoryManagement::from_configuration(
             BytesStorage::default(),
             &PROPERTIES,
-            MemoryConfiguration::Custom {
-                pool_options: vec![MemoryPoolOptions {
-                    pool_type: PoolType::AdaptivePages { min_page_size },
-                    dealloc_period: None,
-                }],
-            },
+            MemoryConfiguration::Adaptive,
             Arc::new(ServerLogger::default()),
             MemoryManagementOptions::new("adaptive"),
         )
@@ -503,12 +505,12 @@ mod tests {
     /// megabyte of slack, rounded to the megabyte, never below the floor.
     #[test]
     fn the_page_size_follows_the_largest_allocation() {
-        let mut memory = adaptive(4 * MIB);
+        let mut memory = adaptive();
 
         let _small = reserve(&mut memory, MIB);
         assert_eq!(
             pool(&memory).page_size,
-            4 * MIB,
+            FLOOR,
             "the floor holds small workloads"
         );
 
@@ -531,14 +533,7 @@ mod tests {
         let mut memory = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &MemoryDeviceProperties::new(MAX_PAGE, 32),
-            MemoryConfiguration::Custom {
-                pool_options: vec![MemoryPoolOptions {
-                    pool_type: PoolType::AdaptivePages {
-                        min_page_size: 4 * MIB,
-                    },
-                    dealloc_period: None,
-                }],
-            },
+            MemoryConfiguration::Adaptive,
             Arc::new(ServerLogger::default()),
             MemoryManagementOptions::new("adaptive"),
         );
@@ -562,7 +557,7 @@ mod tests {
     /// later allocation would need a page of that size too.
     #[test]
     fn a_refused_allocation_does_not_grow_the_page_size() {
-        let mut memory = adaptive(4 * MIB);
+        let mut memory = adaptive();
         let _small = reserve(&mut memory, MIB);
 
         // Past the host's address space: the storage refuses it.
@@ -571,7 +566,7 @@ mod tests {
         assert_eq!(
             pool(&memory),
             Pool {
-                page_size: 4 * MIB,
+                page_size: FLOOR,
                 pages: 1,
                 outdated: 0
             }
@@ -585,7 +580,7 @@ mod tests {
     /// reservation, even with room to spare.
     #[test]
     fn a_grown_page_size_serves_nothing_from_outdated_pages() {
-        let mut memory = adaptive(4 * MIB);
+        let mut memory = adaptive();
 
         let first = reserve(&mut memory, MIB);
         let _large = reserve(&mut memory, 10 * MIB);
@@ -602,7 +597,7 @@ mod tests {
         assert_ne!(
             page_of(&small),
             page_of(&first),
-            "the outdated page has 3 MiB free, but it is outdated"
+            "the outdated page has room to spare, but it is outdated"
         );
     }
 
@@ -610,7 +605,7 @@ mod tests {
     /// slice is freed.
     #[test]
     fn an_outdated_page_is_released_once_empty() {
-        let mut memory = adaptive(4 * MIB);
+        let mut memory = adaptive();
 
         let first = reserve(&mut memory, MIB);
         let _large = reserve(&mut memory, 10 * MIB);
@@ -639,7 +634,7 @@ mod tests {
     /// their owners resolve to the new place, and the outdated pages go back.
     #[test]
     fn relocation_moves_live_allocations_to_current_pages() {
-        let mut memory = adaptive(4 * MIB);
+        let mut memory = adaptive();
 
         let kept = reserve(&mut memory, MIB);
         fill(&mut memory, &kept, 7);
@@ -676,7 +671,7 @@ mod tests {
     /// A plan dropped before its commit leaves every allocation where it was.
     #[test]
     fn an_abandoned_relocation_loses_nothing() {
-        let mut memory = adaptive(4 * MIB);
+        let mut memory = adaptive();
 
         let kept = reserve(&mut memory, MIB);
         fill(&mut memory, &kept, 3);
@@ -695,7 +690,7 @@ mod tests {
     /// kernels replay against it.
     #[test]
     fn relocation_leaves_captured_allocations_in_place() {
-        let mut memory = adaptive(4 * MIB);
+        let mut memory = adaptive();
 
         let recorded = reserve(&mut memory, MIB);
         let location = place(&recorded);
@@ -710,7 +705,7 @@ mod tests {
     /// would copy bytes and free nothing: none of it moves.
     #[test]
     fn a_captured_allocation_holds_its_whole_page() {
-        let mut memory = adaptive(4 * MIB);
+        let mut memory = adaptive();
 
         let recorded = reserve(&mut memory, MIB);
         memory.mark_captured(&recorded.clone().binding());
@@ -726,7 +721,7 @@ mod tests {
     /// however large, leave its page size alone.
     #[test]
     fn other_pools_do_not_move_the_statistic() {
-        let mut memory = adaptive(4 * MIB);
+        let mut memory = adaptive();
         let _dynamic = reserve(&mut memory, MIB);
 
         memory.mode(MemoryAllocationMode::Persistent);
@@ -740,7 +735,7 @@ mod tests {
         assert_eq!(
             pool(&memory),
             Pool {
-                page_size: 4 * MIB,
+                page_size: FLOOR,
                 pages: 1,
                 outdated: 0
             }
@@ -751,7 +746,7 @@ mod tests {
     /// tick after it is freed, whatever mode encloses it.
     #[test]
     fn dedicated_allocations_are_released_once_freed() {
-        let mut memory = adaptive(4 * MIB);
+        let mut memory = adaptive();
 
         memory.mode(MemoryAllocationMode::Persistent);
         memory.mode(MemoryAllocationMode::Dedicated);
@@ -771,7 +766,7 @@ mod tests {
         let _tick = reserve(&mut memory, MIB);
         assert_eq!(
             memory.memory_usage().bytes_reserved,
-            MIB + 4 * MIB,
+            MIB + FLOOR,
             "the probe buffer is gone; the weight and one adaptive page remain"
         );
         drop(weight);
@@ -781,7 +776,7 @@ mod tests {
     /// allocation carved in the same slot can move.
     #[test]
     fn a_reused_slot_owes_nothing_to_an_old_capture() {
-        let mut memory = adaptive(4 * MIB);
+        let mut memory = adaptive();
 
         let recorded = reserve(&mut memory, MIB);
         memory.mark_captured(&recorded.clone().binding());

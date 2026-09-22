@@ -536,12 +536,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         .plane
         .insert(cubecl_ir::features::Plane::NonUniformControlFlow);
 
-    backend::register_features(
-        &setup.adapter,
-        &mut device_props,
-        &mut compilation_options,
-        &options.memory_config,
-    );
+    backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
 

@@ -1,12 +1,10 @@
 use super::logger::{LogLevel, LoggerConfig};
-use super::size::MemorySize;
-use alloc::vec::Vec;
 
 /// Configuration for memory settings in `CubeCL`.
 ///
-/// Unknown fields are rejected so a leftover `pools` entry (now a programmatic
-/// setting, see [`MemoryPoolsConfig`]) or a misspelled option is a load error
-/// rather than a silently dropped setting.
+/// Unknown fields are rejected so a leftover `pools` entry — the pools are the
+/// memory management's to lay out, not a setting — or a misspelled option is a
+/// load error rather than a silently dropped setting.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct MemoryConfig {
@@ -16,89 +14,6 @@ pub struct MemoryConfig {
     /// Configuration for persistent memory pools.
     #[serde(default)]
     pub persistent_memory: PersistentMemory,
-}
-
-/// A pool layout override for a runtime's **main GPU** memory: a preset or an
-/// explicit list of pool entries, tried in order at allocation time (the first
-/// pool that accepts an allocation's size serves it).
-///
-/// This is a **programmatic** setting, deliberately not a config-file one —
-/// pool layouts are dynamic (e.g. resized per model just before a load) and
-/// must not freeze at startup. Apply it with
-/// [`install_memory_pools`](crate::client::Client::install_memory_pools):
-/// it rebuilds the calling stream's pools in place and becomes the layout for
-/// streams created afterwards. Auxiliary pools (pinned CPU, staging, uniforms)
-/// are never affected.
-#[derive(Clone, Debug, PartialEq)]
-pub enum MemoryPoolsConfig {
-    /// A named preset matching the runtime-level presets.
-    Preset(MemoryPoolsPreset),
-    /// An explicit pool list, mirroring
-    /// [`MemoryPoolOptions`](crate::memory_management::MemoryPoolOptions).
-    Explicit(Vec<MemoryPoolConfig>),
-}
-
-/// The presets of [`MemoryConfiguration`](crate::memory_management::MemoryConfiguration).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MemoryPoolsPreset {
-    /// The runtime's `SubSlices` preset: a ladder of size-bucketed pools that
-    /// sub-slice large pages.
-    SubSlices,
-    /// The runtime's `ExclusivePages` preset: one page per allocation, in
-    /// exponentially spaced size buckets.
-    ExclusivePages,
-    /// The runtime's `Adaptive` preset: small allocations in a sliced pool of
-    /// their own, everything else in one pool whose page size follows the
-    /// largest allocation it has served.
-    Adaptive,
-}
-
-/// One pool entry; mirrors [`MemoryPoolOptions`](crate::memory_management::MemoryPoolOptions)
-/// and [`PoolType`](crate::memory_management::PoolType).
-///
-/// Sizes are aligned up to the device alignment.
-#[derive(Clone, Debug, PartialEq)]
-pub enum MemoryPoolConfig {
-    /// Every allocation gets its own page
-    /// ([`PoolType::ExclusivePages`](crate::memory_management::PoolType::ExclusivePages)).
-    Exclusive {
-        /// Largest allocation this pool accepts. `0` is valid: it makes a pool
-        /// dedicated to zero-sized (sub-alignment) allocations.
-        max_alloc_size: MemorySize,
-        /// Period (in parent allocation count) after which unused pages are
-        /// deallocated. `None` never deallocates.
-        dealloc_period: Option<u64>,
-    },
-    /// Every allocation is its own device allocation, reused by exact size
-    /// ([`PoolType::Direct`](crate::memory_management::PoolType::Direct)).
-    ///
-    /// Wastes only alignment padding, at the cost of a device allocation per
-    /// distinct size rather than per page.
-    Direct {
-        /// Reserved bytes above which the pool returns free slices to the
-        /// driver, releasing just enough for the allocation that crossed it.
-        ///
-        /// A watermark, not a budget: an allocation that still does not fit
-        /// once everything free is gone is served anyway. `None` never
-        /// reclaims on its own, leaving it to an explicit cleanup.
-        reclaim_at: Option<MemorySize>,
-    },
-    /// Allocations are slices of larger pages
-    /// ([`PoolType::SlicedPages`](crate::memory_management::PoolType::SlicedPages)).
-    Sliced {
-        /// Size of each page.
-        page_size: MemorySize,
-        /// Largest slice this pool accepts. Defaults to `page_size`.
-        max_slice_size: Option<MemorySize>,
-        /// Hard cap on the pool's total reserved bytes: exceeding it is an
-        /// error instead of silent growth. `None` grows unbounded. Note:
-        /// runtimes that create one memory management per stream (CUDA, HIP)
-        /// apply the cap per stream.
-        max_pool_size: Option<MemorySize>,
-        /// Period (in parent allocation count) after which unused pages are
-        /// deallocated. `None` never deallocates.
-        dealloc_period: Option<u64>,
-    },
 }
 
 /// Configuration options for persistent memory pools in `CubeCL` runtimes.

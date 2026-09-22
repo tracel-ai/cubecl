@@ -22,9 +22,6 @@ pub struct SlicedPool {
     page_size: u64,
     /// The largest allocation the pool accepts.
     max_slice_size: u64,
-    /// Max number of pages (`floor(max_pool_size / page_size)`); `None` keeps
-    /// unbounded growth.
-    max_pages: Option<u16>,
     /// Whether an allocation past `max_slice_size` but close to the page size
     /// is accepted too, as one that leaves little of its page unused.
     near_page_size: bool,
@@ -37,43 +34,14 @@ pub struct SlicedPool {
 }
 
 impl SlicedPool {
-    /// A pool of `page_size` pages, capped at `max_pool_size` bytes of them.
-    pub fn new(
-        page_size: u64,
-        max_slice_size: u64,
-        alignment: u64,
-        pool_pos: u8,
-        max_pool_size: Option<u64>,
-    ) -> Self {
-        // A budget smaller than one page shrinks the page to the
-        // (alignment-rounded-down) budget, so the cap is honored rather than
-        // exceeded by a single page. A budget below the alignment can't fit
-        // even the smallest page the device allows, so it yields zero pages:
-        // allocations error instead of overshooting the cap.
-        let (page_size, max_pages) = match max_pool_size {
-            Some(cap) => {
-                let page_size = if cap < page_size {
-                    (cap / alignment * alignment).max(alignment)
-                } else {
-                    page_size
-                };
-                let max_pages = (cap / page_size).min(u16::MAX as u64) as u16;
-                (page_size, Some(max_pages))
-            }
-            None => (page_size, None),
-        };
-
+    /// A pool of `page_size` pages.
+    pub fn new(page_size: u64, max_slice_size: u64, alignment: u64, pool_pos: u8) -> Self {
         Self {
             pages: Vec::new(),
             pages_tmp: Vec::new(),
             page_size,
             max_slice_size: max_slice_size.min(page_size),
-            max_pages,
-            // Not for a capped pool: it is a budget for the allocations
-            // `max_slice_size` routes to it, and near-page-size strays would
-            // exhaust it (e.g. a small metadata pool whose page size matches an
-            // upload staging chunk).
-            near_page_size: max_pages.is_none(),
+            near_page_size: true,
             alignment,
             location_base: MemoryLocation::new(pool_pos, 0, 0),
             pages_peak: 0,
@@ -115,7 +83,6 @@ impl SlicedPool {
         MemoryPoolKind::Sliced {
             page_size: self.page_size,
             max_slice_size: self.max_slice_size,
-            max_pool_size: self.max_pages.map(|pages| pages as u64 * self.page_size),
         }
     }
 
@@ -311,20 +278,6 @@ impl MemoryPool for SlicedPool {
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         let _ = failures;
-        // `alloc` is only called after `try_reserve` coalesced every page and
-        // found no fit, so hitting the cap here means the working set truly
-        // exceeds the budget.
-        if let Some(max_pages) = self.max_pages
-            && self.pages.len() >= max_pages as usize
-        {
-            return Err(IoError::PoolCapacityExceeded {
-                size,
-                capacity: max_pages as u64 * self.page_size,
-                in_use: self.get_memory_usage().bytes_in_use,
-                backtrace: BackTrace::capture(),
-            });
-        }
-
         self.alloc_page(storage, size, mapping)
     }
 
@@ -397,12 +350,6 @@ impl Display for SlicedPool {
             BytesFormat::new(self.page_size),
             BytesFormat::new(self.max_slice_size)
         ))?;
-        if let Some(max_pages) = self.max_pages {
-            f.write_fmt(format_args!(
-                " max_pool_size={}",
-                BytesFormat::new(max_pages as u64 * self.page_size)
-            ))?;
-        }
         f.write_str("\n")?;
 
         for (page, id) in self.pages.iter() {

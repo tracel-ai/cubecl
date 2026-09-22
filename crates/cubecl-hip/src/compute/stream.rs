@@ -72,28 +72,14 @@ pub struct HipStreamBackend {
     mem_alignment: usize,
     is_integrated: bool,
     logger: Arc<ServerLogger>,
-    /// Programmatic main-GPU pool layout (see
-    /// [`Server::install_memory_pools`](cubecl_server::server::Server::install_memory_pools)):
-    /// streams created after it is set build their GPU pools from it instead
-    /// of the runtime default. Auxiliary pools are unaffected.
-    #[new(default)]
-    gpu_pools_override: Option<MemoryConfiguration>,
 }
 
 impl HipStreamBackend {
-    /// The layout streams build their main-GPU pools with, and the properties
-    /// to resolve it against.
+    /// The configuration streams build their main-GPU pools with, and the
+    /// properties to lay it out against.
     pub(crate) fn gpu_pools(&self) -> (MemoryConfiguration, MemoryDeviceProperties) {
-        let config = self
-            .gpu_pools_override
-            .clone()
-            .unwrap_or_else(|| self.mem_config.clone());
+        let config = self.mem_config.clone();
         (config, self.mem_props.clone())
-    }
-
-    /// Set the main-GPU pool layout for streams created from now on.
-    pub(crate) fn set_gpu_pools(&mut self, config: MemoryConfiguration) {
-        self.gpu_pools_override = Some(config);
     }
 }
 
@@ -119,7 +105,7 @@ impl EventStreamBackend for HipStreamBackend {
         let storage = GpuStorage::new(self.mem_alignment);
 
         // The main GPU pool honors the programmatic pool override when one was
-        // installed (`install_memory_pools`). The pinned pool below is left
+        // configured for the device. The pinned pool below is left
         // alone: the override targets GPU activations, and the other pools
         // have deliberate configurations that must not be overridden.
         let (gpu_config, gpu_props) = self.gpu_pools();

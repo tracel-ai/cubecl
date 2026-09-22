@@ -49,10 +49,7 @@ fn init_server<M: Marker>(service: cubecl_common::device::ServiceId) -> DummySer
     let memory_management = MemoryManagement::from_configuration(
         storage,
         &mem_properties,
-        // The tests route allocations by the sub-slice ladder (a size past the
-        // page size is refused, a large buffer lands in a pool report), which
-        // the adaptive default serves differently.
-        MemoryConfiguration::SubSlices,
+        MemoryConfiguration::default(),
         Arc::new(ServerLogger::default()),
         MemoryManagementOptions::new("Main CPU Memory"),
     );

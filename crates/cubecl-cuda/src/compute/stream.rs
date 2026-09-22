@@ -65,29 +65,6 @@ pub struct CudaStreamBackend {
     mem_alignment: usize,
     logger: Arc<ServerLogger>,
     priority: StreamPriority,
-    /// Programmatic main-GPU pool layout (see
-    /// [`Server::install_memory_pools`](cubecl_server::server::Server::install_memory_pools)):
-    /// streams created after it is set build their GPU pools from it instead
-    /// of the runtime default. Auxiliary pools are unaffected.
-    #[new(default)]
-    gpu_pools_override: Option<MemoryConfiguration>,
-}
-
-impl CudaStreamBackend {
-    /// The layout streams build their main-GPU pools with, and the properties
-    /// to resolve it against.
-    pub(crate) fn gpu_pools(&self) -> (MemoryConfiguration, MemoryDeviceProperties) {
-        let config = self
-            .gpu_pools_override
-            .clone()
-            .unwrap_or_else(|| self.mem_config.clone());
-        (config, self.mem_props.clone())
-    }
-
-    /// Set the main-GPU pool layout for streams created from now on.
-    pub(crate) fn set_gpu_pools(&mut self, config: MemoryConfiguration) {
-        self.gpu_pools_override = Some(config);
-    }
 }
 
 /// Create a non-blocking CUDA stream, applying the requested priority hint.
@@ -154,10 +131,10 @@ impl EventStreamBackend for CudaStreamBackend {
         let storage = GpuStorage::new(self.mem_alignment, stream);
 
         // The main GPU pool honors the programmatic pool override when one was
-        // installed (`install_memory_pools`). The pinned pool below is left
+        // configured for the device. The pinned pool below is left
         // alone: the override targets GPU activations, and the other pools
         // have deliberate configurations that must not be overridden.
-        let (gpu_config, gpu_props) = self.gpu_pools();
+        let (gpu_config, gpu_props) = (self.mem_config.clone(), self.mem_props.clone());
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
             &gpu_props,
