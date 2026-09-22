@@ -82,15 +82,21 @@ pub fn test_products<R: Runtime, F: Float + CubeElement>(client: Client) {
     assert_eq!(product_on_a_branch::<F>(&client, operands), F::new(6.0));
 }
 
+/// Steps of `+ 1` whose every partial sum is exact in bf16, the narrowest mantissa tested: past
+/// 256 a bf16 sum stops moving, and the test would measure rounding instead of the carry.
+const ACCUMULATION_STEPS: usize = 256;
+
 pub fn test_accumulations<R: Runtime, F: Float + CubeElement>(client: Client) {
-    assert_eq!(accumulated::<F>(&client, 0.0, 1.0, 1000), F::new(1000.0));
+    let steps = ACCUMULATION_STEPS;
+    let total = F::new(steps as f32);
+    assert_eq!(accumulated::<F>(&client, 0.0, 1.0, steps), total);
     assert_eq!(
-        accumulated_through_a_copy::<F>(&client, 0.0, 1.0, 1000),
-        F::new(1000.0)
+        accumulated_through_a_copy::<F>(&client, 0.0, 1.0, steps),
+        total
     );
     assert_eq!(
-        accumulated_vector::<F>(&client, 0.0, 1.0, 1000),
-        [F::new(1000.0); LANES]
+        accumulated_vector::<F>(&client, 0.0, 1.0, steps),
+        [total; LANES]
     );
 }
 
