@@ -306,7 +306,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             ModuleSource::resolve(repr, compiler.lang_tag(), &compiled.source)?,
             mode,
         )?;
-        let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings);
+        let pipeline = self.create_pipeline(&compiled.entrypoint_name, repr, module, bindings)?;
         self.pipelines.insert(
             kernel_id.clone(),
             (pipeline.clone(), compiler_info, io.clone()),
