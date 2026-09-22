@@ -14,7 +14,7 @@ use cubecl_server::id::KernelId;
 use cubecl_server::memory_management::drop_queue::PendingDropQueue;
 use cubecl_server::memory_management::{ManagedMemoryBinding, MemoryManagement};
 use cubecl_server::metadata_cache::MetadataInfoCache;
-use cubecl_server::server::{Handle, IoError, LaunchError};
+use cubecl_server::server::{Handle, IoError, LaunchError, ServerError};
 use cubecl_server::storage::{ComputeStorage, PinnedMemoryAllocController};
 use cubecl_server::stream::StreamCapture;
 use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, cuMemcpy2DAsync_v2};
@@ -205,6 +205,16 @@ impl Driver for Cuda {
         args: &mut [*mut c_void],
     ) -> Result<(), LaunchError> {
         ctx.execute_task(stream, kernel, count, args)
+    }
+
+    fn wait_outside_streams(ctx: &mut CudaContext) -> Result<(), ServerError> {
+        // Collectives run on their own stream, which compute streams only wait
+        // on at a collective sync: one still reading or writing an allocation
+        // has to finish before the allocation moves.
+        match ctx.comm_stream {
+            Some(comm_stream) => Fence::new(comm_stream).wait_sync(),
+            None => Ok(()),
+        }
     }
 }
 

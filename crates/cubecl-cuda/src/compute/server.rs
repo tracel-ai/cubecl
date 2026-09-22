@@ -36,7 +36,7 @@ use cubecl_server::{
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
 };
 use cudarc::driver::sys::{
-    CUstream_st, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
+    CUstream, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
 use std::{ffi::c_void, sync::Arc};
@@ -82,7 +82,6 @@ pub struct CudaServer {
     device_id: DeviceId,
     streams: MultiStream<CudaStreamBackend>,
     utilities: Arc<ServerUtilities>,
-    comm_stream: *mut CUstream_st,
     /// The groups this device has joined — see [`Collectives`].
     collectives: Collectives<Cuda>,
     /// Captured graphs owned by this server, keyed by the [`GraphId`] handed to
@@ -471,7 +470,7 @@ impl ServerCommunication for CudaServer {
 
         // The collectives ran on their own stream; this is where the compute
         // stream waits for them.
-        Fence::new(self.comm_stream).wait_async(stream);
+        Fence::new(self.comm_stream()).wait_async(stream);
         Ok(())
     }
 
@@ -500,14 +499,14 @@ impl ServerCommunication for CudaServer {
         drop(command);
 
         // Wait for the data to be ready on the compute stream.
-        Fence::new(stream).wait_async(self.comm_stream);
+        Fence::new(stream).wait_async(self.comm_stream());
 
         let (peers, comm_id) = pair(self.device_id, device_id_dst);
         let comm = self.collectives.get(&comm_id)?;
         let peer = self.collectives.peer_rank(&peers)?;
         let (nccl_dtype, count) = Cuda::data_type(dtype, resource.size)?;
 
-        Cuda::send(comm, &resource, nccl_dtype, count, peer, self.comm_stream)
+        Cuda::send(comm, &resource, nccl_dtype, count, peer, self.comm_stream())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
@@ -574,7 +573,8 @@ impl CudaServer {
 
         ctx.unsafe_set_current().unwrap();
 
-        let comm_stream = crate::compute::stream::create_cuda_stream(stream_priority);
+        let mut ctx = ctx;
+        ctx.comm_stream = Some(crate::compute::stream::create_cuda_stream(stream_priority));
 
         Self {
             ctx,
@@ -591,10 +591,16 @@ impl CudaServer {
                 max_streams,
             ),
             utilities: Arc::new(utilities),
-            comm_stream,
             collectives: Collectives::new(device_id),
             graphs: Captures::default(),
         }
+    }
+
+    /// The stream collectives run on.
+    fn comm_stream(&self) -> CUstream {
+        self.ctx
+            .comm_stream
+            .expect("the server sets its context's comm stream on creation")
     }
 
     fn command_no_inputs(&mut self, stream_id: StreamId) -> Command<'_> {
@@ -695,7 +701,7 @@ impl CudaServer {
         drop(command);
 
         // Wait for the data to be ready on the compute stream.
-        Fence::new(stream).wait_async(self.comm_stream);
+        Fence::new(stream).wait_async(self.comm_stream());
 
         let comm = self.collectives.get(&CommunicationId::from(device_ids))?;
         let (nccl_dtype, count) = Cuda::data_type(dtype, resource_src.size)?;
@@ -707,7 +713,7 @@ impl CudaServer {
             nccl_dtype,
             count,
             op,
-            self.comm_stream,
+            self.comm_stream(),
         )
     }
 
@@ -745,7 +751,7 @@ impl CudaServer {
             nccl_dtype,
             count,
             peer,
-            self.comm_stream,
+            self.comm_stream(),
         )
     }
 

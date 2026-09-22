@@ -175,6 +175,7 @@ impl<'a, D: Driver> Command<'a, D> {
         for fence in fences {
             fence.wait()?;
         }
+        D::wait_outside_streams(self.ctx)?;
 
         let stream = self.streams.current();
         let enqueued = relocations

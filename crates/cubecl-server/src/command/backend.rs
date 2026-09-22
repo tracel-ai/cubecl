@@ -10,7 +10,7 @@ use crate::id::KernelId;
 use crate::memory_management::drop_queue::{Fence, PendingDropQueue};
 use crate::memory_management::{ManagedMemoryBinding, MemoryManagement};
 use crate::metadata_cache::MetadataInfoCache;
-use crate::server::{Handle, IoError, LaunchError};
+use crate::server::{Handle, IoError, LaunchError, ServerError};
 use crate::storage::ComputeStorage;
 use crate::stream::{EventStreamBackend, StreamCapture};
 use cubecl_common::bytes::Bytes;
@@ -199,6 +199,21 @@ pub trait Driver: Sized {
         target: &DeviceResource<Self>,
         stream: &Self::Stream,
     ) -> Result<(), IoError>;
+
+    /// Wait for device work enqueued outside the command's streams — CUDA's
+    /// collectives, on a stream of their own that the compute streams only
+    /// wait on at a collective sync — before a relocation moves the
+    /// allocations that work may still read or write.
+    ///
+    /// Nothing by default: a backend whose every device operation runs on its
+    /// command streams has nothing else to wait on.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to synchronize.
+    fn wait_outside_streams(_ctx: &mut Self::Context) -> Result<(), ServerError> {
+        Ok(())
+    }
 
     /// Enqueue an already-compiled kernel on `stream`.
     ///

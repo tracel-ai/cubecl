@@ -26,7 +26,7 @@ use cubecl_server::{
 };
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
-use cudarc::driver::sys::{CUctx_st, CUfunction_attribute};
+use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUstream};
 use std::ffi::CString;
 use std::ffi::c_char;
 use std::str::FromStr;
@@ -38,6 +38,10 @@ use cubecl_server::compiler::{CompilationCache, compilation_store, store_compile
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
+    /// The stream collectives run on, set by the server that owns it. Kept
+    /// here so a relocation — which reaches the context, not the server — can
+    /// wait on it.
+    pub comm_stream: Option<CUstream>,
     /// The modules loaded on the device, in front of [`Self::ptx_cache`].
     ///
     /// An environment switch drops these, and nothing unloads the modules they
@@ -108,6 +112,7 @@ impl CudaContext {
 
         Self {
             context,
+            comm_stream: None,
             modules: CompilationCache::mirroring(&ptx_cache),
             ptx_cache,
             second_line_ptx_cache,
