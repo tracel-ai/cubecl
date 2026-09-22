@@ -1,42 +1,53 @@
 //! What a device advertises, narrowed to what the LLVM backend lowers for it.
 
-use cubecl_core::ir::{
-    ComplexKind, DeviceProperties, ElemType, FloatKind, IntKind, OpaqueType, UIntKind,
-    features::Plane,
-};
+#[cfg(feature = "amdgpu")]
+use cubecl_core::ir::amd::AmdWmma;
+use cubecl_core::ir::{ComplexKind, DeviceProperties, ElemType, FloatKind, OpaqueType};
+#[cfg(feature = "nvptx")]
+use cubecl_core::ir::{IntKind, UIntKind, features::Plane};
 
 /// A GPU target, with what its lowering depends on about the device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LlvmGpuTarget {
     #[cfg(feature = "nvptx")]
     Nvptx,
+    /// `wmma` is the device's matrix generation, `None` for a part without WMMA.
+    #[cfg(feature = "amdgpu")]
+    AmdGpu { wmma: Option<AmdWmma> },
 }
 
 impl LlvmGpuTarget {
     /// Takes away every feature `props` advertises that this target does not lower.
     ///
     /// A runtime's properties come from its C++ backend, which gained each generation's
-    /// hardware features as they shipped. A consumer picks its algorithm off these properties
-    /// — cubek's matmul selectors ask for `mma` before anything else — so an advertisement the
-    /// LLVM backend cannot honour is a launch that fails rather than one that falls back.
+    /// hardware features as they shipped. The LLVM backend is at the point of running ordinary
+    /// kernels: arithmetic, memory, shared memory, the plane operations, the two barriers and
+    /// the matrix instructions it has register shapes for. Everything else is taken away here
+    /// rather than left to fail at compile time, because a consumer picks its algorithm off
+    /// these properties — cubek's matmul selectors ask for `mma` before they ask anything else
+    /// — and an advertisement that cannot be honoured is a launch that fails rather than one
+    /// that falls back.
     pub fn restrict(self, props: &mut DeviceProperties) {
         match self {
             #[cfg(feature = "nvptx")]
             LlvmGpuTarget::Nvptx => restrict_nvptx(props),
+            #[cfg(feature = "amdgpu")]
+            LlvmGpuTarget::AmdGpu { wmma } => restrict_amdgpu(props, wmma),
         }
+        restrict_common(props);
     }
 }
 
-/// Narrows what the device advertises to what the LLVM backend actually lowers.
-///
-/// A CUDA device's properties are the C++ backend's, which has had every generation of NVIDIA's
-/// hardware features added to it as they shipped. The LLVM backend is at the point of running
-/// ordinary kernels: arithmetic, memory, shared memory, the plane operations and the two
-/// barriers. Everything it does not lower is taken away here rather than left to fail at
-/// compile time, because a consumer picks its algorithm off these properties — cubek's matmul
-/// selectors ask for `mma` before they ask anything else — and an advertisement that cannot be
-/// honoured is a launch that fails rather than one that falls back.
-///
+const HALF: ElemType = ElemType::Float(FloatKind::F16);
+
+/// An accumulator the half-precision matrix instructions of both targets write.
+fn is_half_or_single(ty: ElemType) -> bool {
+    matches!(
+        ty,
+        ElemType::Float(FloatKind::F16) | ElemType::Float(FloatKind::F32)
+    )
+}
+
 /// Each of these comes back as its lowering lands; see the matrix and TMA work in the `nvptx`
 /// module.
 #[cfg(feature = "nvptx")]
@@ -45,9 +56,8 @@ fn restrict_nvptx(props: &mut DeviceProperties) {
     // through `mma.sync`. Each is narrowed to the element types its lowering has register
     // shapes for -- `f16` operands throughout, plus the narrow integers on the manual side,
     // which pass their registers as opaque words. `bf16` and `tf32` are in neither for the
-    // same reason `bf16` is dropped below: the dialect this backend lowers through has no type
-    // for them, so there is nothing to put in a register.
-    let half = ElemType::Float(FloatKind::F16);
+    // same reason `bf16` is dropped in `restrict_common`: the dialect this backend lowers
+    // through has no type for them, so there is nothing to put in a register.
     let byte = |ty: ElemType| {
         matches!(
             ty,
@@ -57,16 +67,11 @@ fn restrict_nvptx(props: &mut DeviceProperties) {
 
     let matmul = &mut props.features.matmul;
     matmul.cmma.retain(|config| {
-        config.a_type == half
-            && config.b_type == half
-            && matches!(
-                config.cd_type,
-                ElemType::Float(FloatKind::F16) | ElemType::Float(FloatKind::F32)
-            )
+        config.a_type == HALF && config.b_type == HALF && is_half_or_single(config.cd_type)
     });
     matmul.mma.retain(|config| {
-        let floats = config.a_type == half
-            && config.b_type == half
+        let floats = config.a_type == HALF
+            && config.b_type == HALF
             && config.cd_type == ElemType::Float(FloatKind::F32);
         // The four signed/unsigned pairings are four instructions over the same registers, so
         // the operands are taken independently.
@@ -85,8 +90,34 @@ fn restrict_nvptx(props: &mut DeviceProperties) {
     // code at its word and does not survive one that does not. The barrier belongs in the
     // kernel and is now there.
 
-    // Still on the manual side and still unimplemented: the cube-level API, and the scaled
-    // instructions with their `block_scale` operands.
+    // The shuffles go through `shfl.sync` with a full member mask, which requires the plane to
+    // be converged. The C++ backend advertises this because its own plane lowering handles a
+    // partial mask; until this one does, a diverged plane operation would be undefined rather
+    // than merely slow.
+    props.features.plane.remove(Plane::NonUniformControlFlow);
+}
+
+/// The matrix lowering is RDNA's WMMA with `f16` operands: CDNA's MFMA, the integer and fp8
+/// WMMA forms and `bf16` (see `restrict_common`) have none. The plane operations work under
+/// divergence, since they read the active lanes from `exec`, so they are left as advertised.
+#[cfg(feature = "amdgpu")]
+fn restrict_amdgpu(props: &mut DeviceProperties, wmma: Option<AmdWmma>) {
+    let lowered = |a: ElemType, b: ElemType, cd: ElemType| {
+        wmma.is_some() && a == HALF && b == HALF && is_half_or_single(cd)
+    };
+    let matmul = &mut props.features.matmul;
+    matmul
+        .cmma
+        .retain(|config| lowered(config.a_type, config.b_type, config.cd_type));
+    matmul
+        .mma
+        .retain(|config| lowered(config.a_type, config.b_type, config.cd_type));
+}
+
+/// What neither target lowers.
+fn restrict_common(props: &mut DeviceProperties) {
+    // The cube-level matrix API, and the scaled instructions with their `block_scale` operands.
+    let matmul = &mut props.features.matmul;
     matmul.cube_mma = Default::default();
     matmul.scaled_mma = Default::default();
     matmul.cmma_tensor_addressing = false;
@@ -101,12 +132,6 @@ fn restrict_nvptx(props: &mut DeviceProperties) {
     props.features.copy_async = false;
     props.features.types.opaque.remove(&OpaqueType::TensorMap);
     props.features.types.opaque.remove(&OpaqueType::Barrier);
-
-    // The shuffles go through `shfl.sync` with a full member mask, which requires the plane to
-    // be converged. The C++ backend advertises this because its own plane lowering handles a
-    // partial mask; until this one does, a diverged plane operation would be undefined rather
-    // than merely slow.
-    props.features.plane.remove(Plane::NonUniformControlFlow);
 
     // `bf16` has no type in the LLVM dialect this backend lowers through -- pliron has
     // `builtin.fp16`, `fp32` and `fp64` and nothing between -- so a `bf16` kernel compiles to
@@ -127,10 +152,64 @@ fn restrict_nvptx(props: &mut DeviceProperties) {
     }
 
     // Vectorized float atomics: the shared atomic lowering handles the scalar widths, and a
-    // vector `atomicrmw` is not one instruction on this target.
+    // vector `atomicrmw` is not one instruction on either target.
     props
         .features
         .types
         .atomic
         .retain(|ty, _| ty.vector_size() == 1);
+}
+
+#[cfg(all(test, feature = "amdgpu"))]
+mod tests {
+    use super::*;
+    use crate::shared::offline_kernels::device_properties;
+    use cubecl_core::ir::{IntKind, features::MmaConfig};
+
+    fn config(a: ElemType, cd: ElemType) -> MmaConfig {
+        MmaConfig {
+            a_type: a,
+            b_type: a,
+            cd_type: cd,
+            m: 16,
+            n: 16,
+            k: 16,
+        }
+    }
+
+    fn advertising_every_matrix_form() -> DeviceProperties {
+        let mut props = (*device_properties(32)).clone();
+        let f32 = ElemType::Float(FloatKind::F32);
+        let forms = [
+            config(HALF, f32),
+            config(HALF, HALF),
+            config(ElemType::Float(FloatKind::BF16), f32),
+            config(ElemType::Int(IntKind::I8), ElemType::Int(IntKind::I32)),
+        ];
+        props.features.matmul.cmma.extend(forms);
+        props.features.matmul.mma.extend(forms);
+        props
+    }
+
+    #[test]
+    fn a_part_without_wmma_advertises_no_matrix_form() {
+        let mut props = advertising_every_matrix_form();
+        LlvmGpuTarget::AmdGpu { wmma: None }.restrict(&mut props);
+        assert!(props.features.matmul.cmma.is_empty());
+        assert!(props.features.matmul.mma.is_empty());
+        assert_eq!(props.hardware.num_tensor_cores, None);
+    }
+
+    #[test]
+    fn rdna_keeps_the_half_precision_forms_only() {
+        let mut props = advertising_every_matrix_form();
+        LlvmGpuTarget::AmdGpu {
+            wmma: Some(AmdWmma::Rdna4),
+        }
+        .restrict(&mut props);
+        for kept in [&props.features.matmul.cmma, &props.features.matmul.mma] {
+            assert_eq!(kept.len(), 2, "{kept:?}");
+            assert!(kept.iter().all(|config| config.a_type == HALF), "{kept:?}");
+        }
+    }
 }

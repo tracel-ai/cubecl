@@ -9,7 +9,7 @@ use cubecl_core::prelude::*;
 use cubecl_runtime::kernel::CubeKernel;
 use std::sync::Arc;
 
-fn device_properties(plane_dim: u32) -> Arc<DeviceProperties> {
+pub(crate) fn device_properties(plane_dim: u32) -> Arc<DeviceProperties> {
     let hardware = HardwareProperties {
         load_width: 128,
         plane_size_min: plane_dim,
