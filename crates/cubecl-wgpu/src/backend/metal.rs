@@ -199,15 +199,25 @@ fn register_types(props: &mut DeviceProperties) {
         ElemType::Bool,
     ];
 
+    // MSL's 64-bit atomics exist only on Apple9 and later and only as min and max, so u64
+    // is left out: registering it made add, load and store return wrong values.
     let atomic_types = [
         ElemType::Int(IntKind::I32),
         ElemType::UInt(UIntKind::U32),
-        ElemType::UInt(UIntKind::U64),
         ElemType::Float(FloatKind::F32),
     ];
 
     for ty in types {
         props.register_type_usage(ty, TypeUsage::all());
+    }
+
+    // MSL has no fp8 type: the emitter stores these as `uint8_t` and converts in software,
+    // which is enough to hold them in buffers and cast them, not to compute in them.
+    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
+        props.register_type_usage(
+            ElemType::Float(ty),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
     }
 
     for ty in atomic_types {
