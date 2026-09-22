@@ -3,7 +3,7 @@
 use crate::{
     amdgpu::intrinsic::lane_id_ops,
     prelude::*,
-    shared::builtins::{LaunchIds, LaunchRegisters},
+    shared::builtins::{LaunchValues, ReadsLaunchValues},
 };
 use cubecl_core::prelude::*;
 use pliron_llvm::ops::{GepIndex, GetElementPtrOp, LoadOp};
@@ -29,10 +29,10 @@ const GRID_SIZE_OFFSETS: [u32; 3] = [12, 16, 20];
 /// The work-item and workgroup id intrinsics, the lane from `mbcnt`, and the cube count from
 /// the dispatch packet, which gives the grid in work-items rather than workgroups.
 #[derive(Debug)]
-pub struct AmdGpuRegisters;
+pub struct AmdGpuDispatch;
 
-impl LaunchRegisters for AmdGpuRegisters {
-    fn read(&self, scope: &Scope, cube_dim: Dim3) -> LaunchIds {
+impl ReadsLaunchValues for AmdGpuDispatch {
+    fn read(&self, scope: &Scope, cube_dim: Dim3) -> LaunchValues {
         let unit_pos = WORKITEM_ID.map(|intrinsic| call_i32_intrinsic(scope, intrinsic));
         let cube_pos = WORKGROUP_ID.map(|intrinsic| call_i32_intrinsic(scope, intrinsic));
         let unit_pos_plane = unit_pos_plane(scope);
@@ -44,7 +44,7 @@ impl LaunchRegisters for AmdGpuRegisters {
                 cube_count_component::expand(scope, grid_size.into(), dim).value(scope)
             });
 
-        LaunchIds {
+        LaunchValues {
             unit_pos,
             cube_pos,
             cube_count,

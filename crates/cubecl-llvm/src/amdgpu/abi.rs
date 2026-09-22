@@ -1,7 +1,7 @@
 //! AMDGPU kernel arguments.
 
 use crate::{
-    amdgpu::builtins::AmdGpuRegisters,
+    amdgpu::builtins::AmdGpuDispatch,
     prelude::*,
     shared::{builtins::InsertGpuBuiltinsPass, metadata::rebuild_func_type},
 };
@@ -61,7 +61,7 @@ impl TargetLowering for AmdGpuLowering {
 
     fn epilogue(&self, passes: &mut OpPass<FuncOp, Passes>) {
         passes.add_pass(InsertGpuBuiltinsPass::new(
-            Box::new(AmdGpuRegisters),
+            Box::new(AmdGpuDispatch),
             self.plane_dim,
         ));
     }

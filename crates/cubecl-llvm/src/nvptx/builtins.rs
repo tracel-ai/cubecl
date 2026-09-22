@@ -2,7 +2,7 @@
 
 use crate::{
     prelude::*,
-    shared::builtins::{LaunchIds, LaunchRegisters},
+    shared::builtins::{LaunchValues, ReadsLaunchValues},
 };
 
 const TID: [&str; 3] = [
@@ -27,11 +27,11 @@ const LANEID: &str = "llvm.nvvm.read.ptx.sreg.laneid";
 
 /// The PTX special registers `%tid`, `%ctaid`, `%nctaid` and `%laneid`.
 #[derive(Debug)]
-pub struct NvptxRegisters;
+pub struct NvptxSpecialRegisters;
 
-impl LaunchRegisters for NvptxRegisters {
-    fn read(&self, scope: &Scope, _cube_dim: Dim3) -> LaunchIds {
-        LaunchIds {
+impl ReadsLaunchValues for NvptxSpecialRegisters {
+    fn read(&self, scope: &Scope, _cube_dim: Dim3) -> LaunchValues {
+        LaunchValues {
             unit_pos: TID.map(|register| read_sreg(scope, register)),
             cube_pos: CTAID.map(|register| read_sreg(scope, register)),
             cube_count: NCTAID.map(|register| read_sreg(scope, register)),

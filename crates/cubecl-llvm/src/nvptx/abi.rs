@@ -1,7 +1,7 @@
 //! PTX kernel arguments.
 
 use crate::{
-    nvptx::builtins::NvptxRegisters,
+    nvptx::builtins::NvptxSpecialRegisters,
     prelude::*,
     shared::{
         builtins::InsertGpuBuiltinsPass,
@@ -71,7 +71,7 @@ impl TargetLowering for NvptxLowering {
 
     fn epilogue(&self, passes: &mut OpPass<FuncOp, Passes>) {
         passes.add_pass(InsertGpuBuiltinsPass::new(
-            Box::new(NvptxRegisters),
+            Box::new(NvptxSpecialRegisters),
             self.plane_dim,
         ));
     }

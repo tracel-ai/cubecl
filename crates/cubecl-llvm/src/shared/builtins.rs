@@ -10,34 +10,31 @@ use crate::{
 };
 use cubecl_core::{ir::dialect::general::ReadBuiltinOp, prelude::*};
 
-/// The ids a target's hardware hands each unit, one value per axis.
-pub struct LaunchIds {
+/// What a target reads to place a unit in its launch, one value per axis.
+pub struct LaunchValues {
     pub unit_pos: [Value; 3],
     pub cube_pos: [Value; 3],
     pub cube_count: [Value; 3],
     pub unit_pos_plane: Value,
 }
 
-/// Where a target reads the [`LaunchIds`] from.
-pub trait LaunchRegisters: core::fmt::Debug {
+/// Where a target reads its [`LaunchValues`] from.
+pub trait ReadsLaunchValues: core::fmt::Debug {
     /// Reads them at `scope`, which is the start of the entry block, for a cube of `cube_dim`.
-    fn read(&self, scope: &Scope, cube_dim: Dim3) -> LaunchIds;
+    fn read(&self, scope: &Scope, cube_dim: Dim3) -> LaunchValues;
 }
 
 /// Replaces every builtin read with the target's registers and what derives from them.
 #[derive(Debug)]
 pub struct InsertGpuBuiltinsPass {
-    registers: Box<dyn LaunchRegisters>,
+    values: Box<dyn ReadsLaunchValues>,
     plane_dim: u32,
 }
 
 impl InsertGpuBuiltinsPass {
     /// `plane_dim` is the device's plane width.
-    pub fn new(registers: Box<dyn LaunchRegisters>, plane_dim: u32) -> Self {
-        Self {
-            registers,
-            plane_dim,
-        }
+    pub fn new(values: Box<dyn ReadsLaunchValues>, plane_dim: u32) -> Self {
+        Self { values, plane_dim }
     }
 }
 
@@ -68,13 +65,13 @@ impl Pass for InsertGpuBuiltinsPass {
             let mut inserter = OpInserter::new_at_block_start(entry_block);
             let scope = Scope::from_context_and_inserter(ctx, &mut inserter);
 
-            let ids = self.registers.read(&scope, cube_dim);
+            let values = self.values.read(&scope, cube_dim);
             set_dim_and_cluster_constants(&scope, &mut builtins, cube_dim, cluster_dim);
             builtins.set(
                 Builtin::PlaneDim,
                 constant::expand(&scope, self.plane_dim).value(&scope),
             );
-            derive(&scope, &mut builtins, &ids, cube_dim);
+            values.set_builtins(&scope, &mut builtins, cube_dim);
         }
 
         let mut replacer = Replacer {
@@ -97,60 +94,62 @@ impl Pass for InsertGpuBuiltinsPass {
     }
 }
 
-/// Sets the per-axis ids and every builtin that combines them.
-fn derive(scope: &Scope, builtins: &mut BuiltinValues, ids: &LaunchIds, cube_dim: Dim3) {
-    let [unit_x, unit_y, unit_z] = ids.unit_pos;
-    let [cube_x, cube_y, cube_z] = ids.cube_pos;
-    let [count_x, count_y, count_z] = ids.cube_count;
+impl LaunchValues {
+    /// Sets the per-axis values and every builtin that combines them.
+    fn set_builtins(&self, scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3) {
+        let [unit_x, unit_y, unit_z] = self.unit_pos;
+        let [cube_x, cube_y, cube_z] = self.cube_pos;
+        let [count_x, count_y, count_z] = self.cube_count;
 
-    let axes = [
-        (Builtin::UnitPosX, unit_x),
-        (Builtin::UnitPosY, unit_y),
-        (Builtin::UnitPosZ, unit_z),
-        (Builtin::CubePosX, cube_x),
-        (Builtin::CubePosY, cube_y),
-        (Builtin::CubePosZ, cube_z),
-        (Builtin::CubeCountX, count_x),
-        (Builtin::CubeCountY, count_y),
-        (Builtin::CubeCountZ, count_z),
-        (Builtin::UnitPosPlane, ids.unit_pos_plane),
-    ];
-    for (builtin, value) in axes {
-        builtins.set(builtin, value);
+        let axes = [
+            (Builtin::UnitPosX, unit_x),
+            (Builtin::UnitPosY, unit_y),
+            (Builtin::UnitPosZ, unit_z),
+            (Builtin::CubePosX, cube_x),
+            (Builtin::CubePosY, cube_y),
+            (Builtin::CubePosZ, cube_z),
+            (Builtin::CubeCountX, count_x),
+            (Builtin::CubeCountY, count_y),
+            (Builtin::CubeCountZ, count_z),
+            (Builtin::UnitPosPlane, self.unit_pos_plane),
+        ];
+        for (builtin, value) in axes {
+            builtins.set(builtin, value);
+        }
+
+        let count = cube_count::expand(scope, count_x.into(), count_y.into(), count_z.into());
+        builtins.set(Builtin::CubeCount, count.value(scope));
+
+        let unit = unit_pos::expand(
+            scope,
+            unit_x.into(),
+            unit_y.into(),
+            unit_z.into(),
+            cube_dim.x,
+            cube_dim.y,
+        )
+        .value(scope);
+        builtins.set(Builtin::UnitPos, unit);
+
+        let abs_x = absolute_pos_x::expand(scope, cube_x.into(), unit_x.into(), cube_dim.x);
+        let abs_y = absolute_pos_y::expand(scope, cube_y.into(), unit_y.into(), cube_dim.y);
+        let abs_z = absolute_pos_z::expand(scope, cube_z.into(), unit_z.into(), cube_dim.z);
+        builtins.set(Builtin::AbsolutePosX, abs_x.value(scope));
+        builtins.set(Builtin::AbsolutePosY, abs_y.value(scope));
+        builtins.set(Builtin::AbsolutePosZ, abs_z.value(scope));
+
+        let cube = cube_pos::expand(
+            scope,
+            cube_x.into(),
+            cube_y.into(),
+            cube_z.into(),
+            count_x.into(),
+            count_y.into(),
+        )
+        .value(scope);
+        builtins.set(Builtin::CubePos, cube);
+
+        let absolute = absolute_pos::expand(scope, cube.into(), unit.into(), cube_dim.num_elems());
+        builtins.set(Builtin::AbsolutePos, absolute.value(scope));
     }
-
-    let count = cube_count::expand(scope, count_x.into(), count_y.into(), count_z.into());
-    builtins.set(Builtin::CubeCount, count.value(scope));
-
-    let unit = unit_pos::expand(
-        scope,
-        unit_x.into(),
-        unit_y.into(),
-        unit_z.into(),
-        cube_dim.x,
-        cube_dim.y,
-    )
-    .value(scope);
-    builtins.set(Builtin::UnitPos, unit);
-
-    let abs_x = absolute_pos_x::expand(scope, cube_x.into(), unit_x.into(), cube_dim.x);
-    let abs_y = absolute_pos_y::expand(scope, cube_y.into(), unit_y.into(), cube_dim.y);
-    let abs_z = absolute_pos_z::expand(scope, cube_z.into(), unit_z.into(), cube_dim.z);
-    builtins.set(Builtin::AbsolutePosX, abs_x.value(scope));
-    builtins.set(Builtin::AbsolutePosY, abs_y.value(scope));
-    builtins.set(Builtin::AbsolutePosZ, abs_z.value(scope));
-
-    let cube = cube_pos::expand(
-        scope,
-        cube_x.into(),
-        cube_y.into(),
-        cube_z.into(),
-        count_x.into(),
-        count_y.into(),
-    )
-    .value(scope);
-    builtins.set(Builtin::CubePos, cube);
-
-    let absolute = absolute_pos::expand(scope, cube.into(), unit.into(), cube_dim.num_elems());
-    builtins.set(Builtin::AbsolutePos, absolute.value(scope));
 }
