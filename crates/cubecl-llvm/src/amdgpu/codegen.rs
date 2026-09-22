@@ -168,7 +168,7 @@ fn finalize_ir(
 /// What every atomic here may assume about the memory it touches, as the metadata the AMDGPU
 /// backend reads.
 ///
-/// CubeCL buffers are device allocations: coarse-grained, and never another device's memory,
+/// Kernel buffers are device allocations: coarse-grained, and never another device's memory,
 /// so no atomic has to stay correct against a concurrent host or peer access. Without saying
 /// so, the backend expands float atomics to CAS loops on the parts whose native instruction
 /// is not coherent for fine-grained memory (RDNA3, CDNA2). An f32 add also ignores the

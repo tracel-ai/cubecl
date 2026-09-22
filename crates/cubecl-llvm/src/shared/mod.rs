@@ -4,6 +4,8 @@ mod base;
 pub(crate) mod bitcode;
 pub mod branch;
 pub mod intrinsic;
+#[cfg(feature = "nvptx")]
+pub(crate) mod llvm_options;
 pub mod lowering;
 pub mod math_library;
 pub mod matrix;

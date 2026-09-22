@@ -7,7 +7,7 @@ use crate::{
         ptx_version::PtxVersion,
     },
     prelude::{BufferIOAttr, Context, ModuleOp},
-    shared::{NvptxModule, math_library::redirect_intrinsics},
+    shared::{NvptxModule, llvm_options::set_llvm_option, math_library::redirect_intrinsics},
 };
 use cubecl_core::ir::nvidia::SmArch;
 use pliron_llvm::{llvm_sys::core::LLVMContext, to_llvm_ir};
@@ -25,14 +25,12 @@ const PASS_PIPELINE: &CStr = c"default<O3>";
 
 static INIT_NVPTX: Once = Once::new();
 
-/// LLVM options the NVPTX backend reads, set once per process.
-///
 /// `atom.add.f32` on global memory flushes denormals, so LLVM keeps it only for a function
 /// that flushes them too and expands every other float `atomicrmw fadd` to a CAS loop. The
 /// kernels here keep denormals in ordinary arithmetic, as NVRTC does by default, while NVRTC's
 /// `atomicAdd(float*)` is the native instruction all the same. This option makes the same
 /// trade: a denormal lost in an atomic sum, for an atomic that is not a retry loop.
-const NVPTX_OPTIONS: [&CStr; 2] = [c"cubecl", c"-nvptx-allow-ftz-atomics"];
+const ALLOW_FTZ_ATOMICS: &CStr = c"nvptx-allow-ftz-atomics";
 
 fn init_nvptx() {
     INIT_NVPTX.call_once(|| unsafe {
@@ -41,12 +39,9 @@ fn init_nvptx() {
         llvm_sys::target::LLVMInitializeNVPTXTargetMC();
         llvm_sys::target::LLVMInitializeNVPTXAsmPrinter();
 
-        let argv = NVPTX_OPTIONS.map(CStr::as_ptr);
-        llvm_sys::support::LLVMParseCommandLineOptions(
-            argv.len() as i32,
-            argv.as_ptr(),
-            c"".as_ptr(),
-        );
+        // An LLVM without the option still compiles correct kernels, with CAS-loop atomics;
+        // `a_float_atomic_add_is_the_native_instruction` is what notices.
+        set_llvm_option(ALLOW_FTZ_ATOMICS, c"true");
     });
 }
 

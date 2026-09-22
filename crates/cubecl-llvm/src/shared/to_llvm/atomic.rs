@@ -3,7 +3,7 @@ use cubecl_core::ir::dialect::atomic::*;
 
 /// The scope every atomic synchronizes at: all units of the device, like CUDA's `atomicAdd`
 /// and HIP's agent-scoped atomics. The system scope would also order against the host and
-/// peer devices, which CubeCL buffers are never shared with while a kernel runs, and on the
+/// peer devices, which kernel buffers are never shared with while a kernel runs, and on the
 /// GPU targets it can select slower, system-coherent instructions.
 fn device_scope(ctx: &Context) -> SyncScopeAttr {
     match ctx.target() {
