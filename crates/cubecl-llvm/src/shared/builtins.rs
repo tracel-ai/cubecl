@@ -36,70 +36,18 @@ impl InsertGpuBuiltinsPass {
     pub fn new(values: Box<dyn ReadsLaunchValues>, plane_dim: u32) -> Self {
         Self { values, plane_dim }
     }
-}
 
-#[pass_name]
-impl Pass for InsertGpuBuiltinsPass {
-    fn run(
-        &mut self,
-        op: Ptr<Operation>,
-        ctx: &mut Context,
-        _analyses: &mut AnalysisManager,
-    ) -> Result<PassResult> {
-        let mut res = PassResult::default();
-
-        let Some(func) = op.as_op::<FuncOp>(ctx) else {
-            return Ok(res);
-        };
-        let Some(abi) = func.get_entrypoint_abi(ctx) else {
-            return Ok(res);
-        };
-        let cube_dim = abi.cube_dim;
-        let cluster_dim = abi.cluster_dim.unwrap_or(Dim3::new_single());
-
-        let entry_block = func.get_entry_block(ctx);
-
-        // Builtin values must dominate their uses.
-        let mut builtins = BuiltinValues::default();
-        {
-            let mut inserter = OpInserter::new_at_block_start(entry_block);
-            let scope = Scope::from_context_and_inserter(ctx, &mut inserter);
-
-            let values = self.values.read(&scope, cube_dim);
-            set_dim_and_cluster_constants(&scope, &mut builtins, cube_dim, cluster_dim);
-            builtins.set(
-                Builtin::PlaneDim,
-                constant::expand(&scope, self.plane_dim).value(&scope),
-            );
-            values.set_builtins(&scope, &mut builtins, cube_dim);
-        }
-
-        let mut replacer = Replacer {
-            builtins: &builtins,
-            replacements: Vec::new(),
-        };
-        visit_all_ops_of_type::<ReadBuiltinOp, _>(ctx, &mut replacer, op, |ctx, replacer, op| {
-            let builtin = op.builtin(ctx).0;
-            let value = replacer.builtins.get(builtin).unwrap_or_else(|| {
-                unimplemented!("the builtin {builtin:?} is not supported on the GPU targets yet")
-            });
-            replacer.replacements.push((op.get_result(ctx), value));
-        });
-        for (old_value, new_value) in replacer.replacements {
-            old_value.replace_all_uses_with(ctx, &new_value);
-        }
-
-        res.ir_changed = IRStatus::Changed;
-        Ok(res)
-    }
-}
-
-impl LaunchValues {
     /// Sets the per-axis values and every builtin that combines them.
-    fn set_builtins(&self, scope: &Scope, builtins: &mut BuiltinValues, cube_dim: Dim3) {
-        let [unit_x, unit_y, unit_z] = self.unit_pos;
-        let [cube_x, cube_y, cube_z] = self.cube_pos;
-        let [count_x, count_y, count_z] = self.cube_count;
+    fn derive(
+        &self,
+        values: &LaunchValues,
+        scope: &Scope,
+        builtins: &mut BuiltinValues,
+        cube_dim: Dim3,
+    ) {
+        let [unit_x, unit_y, unit_z] = values.unit_pos;
+        let [cube_x, cube_y, cube_z] = values.cube_pos;
+        let [count_x, count_y, count_z] = values.cube_count;
 
         let axes = [
             (Builtin::UnitPosX, unit_x),
@@ -111,7 +59,7 @@ impl LaunchValues {
             (Builtin::CubeCountX, count_x),
             (Builtin::CubeCountY, count_y),
             (Builtin::CubeCountZ, count_z),
-            (Builtin::UnitPosPlane, self.unit_pos_plane),
+            (Builtin::UnitPosPlane, values.unit_pos_plane),
         ];
         for (builtin, value) in axes {
             builtins.set(builtin, value);
@@ -151,5 +99,61 @@ impl LaunchValues {
 
         let absolute = absolute_pos::expand(scope, cube.into(), unit.into(), cube_dim.num_elems());
         builtins.set(Builtin::AbsolutePos, absolute.value(scope));
+    }
+}
+
+#[pass_name]
+impl Pass for InsertGpuBuiltinsPass {
+    fn run(
+        &mut self,
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        _analyses: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        let mut res = PassResult::default();
+
+        let Some(func) = op.as_op::<FuncOp>(ctx) else {
+            return Ok(res);
+        };
+        let Some(abi) = func.get_entrypoint_abi(ctx) else {
+            return Ok(res);
+        };
+        let cube_dim = abi.cube_dim;
+        let cluster_dim = abi.cluster_dim.unwrap_or(Dim3::new_single());
+
+        let entry_block = func.get_entry_block(ctx);
+
+        // Builtin values must dominate their uses.
+        let mut builtins = BuiltinValues::default();
+        {
+            let mut inserter = OpInserter::new_at_block_start(entry_block);
+            let scope = Scope::from_context_and_inserter(ctx, &mut inserter);
+
+            let values = self.values.read(&scope, cube_dim);
+            set_dim_and_cluster_constants(&scope, &mut builtins, cube_dim, cluster_dim);
+            builtins.set(
+                Builtin::PlaneDim,
+                constant::expand(&scope, self.plane_dim).value(&scope),
+            );
+            self.derive(&values, &scope, &mut builtins, cube_dim);
+        }
+
+        let mut replacer = Replacer {
+            builtins: &builtins,
+            replacements: Vec::new(),
+        };
+        visit_all_ops_of_type::<ReadBuiltinOp, _>(ctx, &mut replacer, op, |ctx, replacer, op| {
+            let builtin = op.builtin(ctx).0;
+            let value = replacer.builtins.get(builtin).unwrap_or_else(|| {
+                unimplemented!("the builtin {builtin:?} is not supported on the GPU targets yet")
+            });
+            replacer.replacements.push((op.get_result(ctx), value));
+        });
+        for (old_value, new_value) in replacer.replacements {
+            old_value.replace_all_uses_with(ctx, &new_value);
+        }
+
+        res.ir_changed = IRStatus::Changed;
+        Ok(res)
     }
 }
