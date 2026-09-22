@@ -1,4 +1,5 @@
 use crate::prelude::*;
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 use cubecl_core::ir::AddressType;
 use cubecl_core::ir::types::{
     ArrayType, AtomicType,
@@ -13,9 +14,18 @@ use cubecl_core::ir::types::{
 /// scalar ALU instruction where 64 bits takes two or more, and on NVPTX half the registers. The
 /// CPU uses 64 bits.
 pub fn index_width(ctx: &Context) -> u32 {
-    if !ctx.target().is_gpu() {
-        return 64;
+    match ctx.target() {
+        LlvmTarget::Cpu => 64,
+        #[cfg(feature = "nvptx")]
+        LlvmTarget::Nvptx => address_width(ctx),
+        #[cfg(feature = "amdgpu")]
+        LlvmTarget::AmdGpu => address_width(ctx),
     }
+}
+
+/// The width a kernel's addresses are computed in.
+#[cfg(any(feature = "amdgpu", feature = "nvptx"))]
+fn address_width(ctx: &Context) -> u32 {
     match ctx.address_type() {
         AddressType::U32 => 32,
         AddressType::U64 => 64,

@@ -26,7 +26,10 @@ use llvm_sys::{
         LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
     },
 };
-use std::ffi::{CStr, CString};
+use std::{
+    ffi::{CStr, CString},
+    marker::PhantomData,
+};
 
 /// An LLVM module parsed from textual IR into a context of its own.
 pub(crate) struct LlvmModule {
@@ -35,7 +38,11 @@ pub(crate) struct LlvmModule {
 }
 
 impl LlvmModule {
-    pub(crate) fn parse(ir: &str) -> Result<Self, String> {
+    /// Parses the textual IR `ir` into a context of its own.
+    ///
+    /// # Errors
+    /// The message LLVM's parser gives, when `ir` is not valid LLVM IR.
+    pub(crate) fn new(ir: &str) -> Result<Self, String> {
         // SAFETY: the context is fresh, and `LLVMParseIRInContext2` takes ownership of the
         // buffer, including on failure.
         unsafe {
@@ -68,6 +75,9 @@ impl LlvmModule {
 
     #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
     /// The function `name` defines, which a kernel's entry point must be.
+    ///
+    /// # Errors
+    /// When the module defines no such function, or `name` contains a NUL.
     pub(crate) fn entry_point(&self, name: &str) -> Result<EntryFunction<'_>, String> {
         let c_name =
             CString::new(name).map_err(|_| format!("kernel name '{name}' contains a NUL"))?;
@@ -111,6 +121,9 @@ impl LlvmModule {
     }
 
     /// Runs the pass pipeline `pipeline`, with `machine`'s cost model when there is one.
+    ///
+    /// # Errors
+    /// The message LLVM gives, when it cannot parse or run the pipeline.
     pub(crate) fn run_passes(
         &self,
         pipeline: &CStr,
@@ -261,9 +274,22 @@ impl<'m> EntryFunction<'m> {
         }
     }
 
+    /// Attaches the metadata `kind` to `inst`, one of this function's instructions, as an empty
+    /// node: a flag that holds by being present.
+    #[cfg(feature = "amdgpu")]
+    pub(crate) fn set_flag_metadata(&self, inst: &Instruction<'_>, kind: &str) {
+        use llvm_sys::core::{LLVMMDNodeInContext2, LLVMMetadataAsValue, LLVMSetMetadata};
+
+        let kind = self.module.metadata_kind(kind);
+        // SAFETY: the node lives in the module's context, and the instruction is live.
+        unsafe {
+            let empty = LLVMMDNodeInContext2(self.module.ctx, std::ptr::null_mut(), 0);
+            LLVMSetMetadata(inst.inst, kind, LLVMMetadataAsValue(self.module.ctx, empty));
+        }
+    }
+
     /// The function's instructions, block by block.
     pub(crate) fn instructions(&self) -> impl Iterator<Item = Instruction<'m>> + use<'m> {
-        let module = self.module;
         // SAFETY: the function, its blocks and their instructions are live for the module's
         // lifetime, and the walk only reads the links between them.
         let mut block = unsafe { LLVMGetFirstBasicBlock(self.func) };
@@ -286,8 +312,8 @@ impl<'m> EntryFunction<'m> {
             let current = inst;
             inst = LLVMGetNextInstruction(inst);
             Some(Instruction {
-                module,
                 inst: current,
+                module: PhantomData,
             })
         })
     }
@@ -296,10 +322,8 @@ impl<'m> EntryFunction<'m> {
 /// An instruction of an [`EntryFunction`].
 #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
 pub(crate) struct Instruction<'m> {
-    // Read by the metadata AMDGPU attaches.
-    #[cfg_attr(not(feature = "amdgpu"), allow(dead_code))]
-    module: &'m LlvmModule,
     inst: LLVMValueRef,
+    module: PhantomData<&'m LlvmModule>,
 }
 
 #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
@@ -320,19 +344,6 @@ impl Instruction<'_> {
         // SAFETY: the instruction is live, and only an `atomicrmw` is asked for its operation.
         unsafe {
             (!LLVMIsAAtomicRMWInst(self.inst).is_null()).then(|| LLVMGetAtomicRMWBinOp(self.inst))
-        }
-    }
-
-    #[cfg(feature = "amdgpu")]
-    /// Attaches the metadata `kind` as an empty node: a flag that holds by being present.
-    pub(crate) fn set_flag_metadata(&self, kind: &str) {
-        use llvm_sys::core::{LLVMMDNodeInContext2, LLVMMetadataAsValue, LLVMSetMetadata};
-
-        let kind = self.module.metadata_kind(kind);
-        // SAFETY: the node lives in the module's context, and the instruction is live.
-        unsafe {
-            let empty = LLVMMDNodeInContext2(self.module.ctx, std::ptr::null_mut(), 0);
-            LLVMSetMetadata(self.inst, kind, LLVMMetadataAsValue(self.module.ctx, empty));
         }
     }
 }
@@ -368,7 +379,7 @@ fn enum_attribute_kind(name: &str) -> Option<u32> {
     (kind != 0).then_some(kind)
 }
 
-/// The machine a target compiles for.
+/// What a target machine is built from.
 #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
 pub(crate) struct TargetSpec<'a> {
     pub triple: &'a CStr,
@@ -384,6 +395,10 @@ pub(crate) struct TargetMachine(LLVMTargetMachineRef);
 #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
 impl TargetMachine {
     /// The target `spec` names must have been initialized.
+    ///
+    /// # Errors
+    /// When LLVM has no such target, cannot build a machine for it, or the architecture
+    /// contains a NUL.
     pub(crate) fn new(spec: &TargetSpec<'_>) -> Result<Self, String> {
         let cpu =
             CString::new(spec.cpu).map_err(|_| format!("arch '{}' contains a NUL", spec.cpu))?;
@@ -421,6 +436,9 @@ impl TargetMachine {
     }
 
     /// Emission changes the module, so a module emits once.
+    ///
+    /// # Errors
+    /// The message LLVM gives, when it cannot emit this module for this machine.
     pub(crate) fn emit(
         &self,
         module: LlvmModule,

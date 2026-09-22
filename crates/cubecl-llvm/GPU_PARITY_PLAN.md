@@ -112,7 +112,7 @@ The geometric mean of LLVM's time over NVRTC's, on `main` and on this branch:
 - [x] **Constant loops over local arrays.** TopK(64) was 3–5× NVRTC's time and the f16
       Double Unit max-tile matmul 1.6×: NVVM unrolls a constant-trip loop that indexes a local
       array so the array becomes registers, and LLVM's NVPTX cost model does not. Such loops
-      are marked `llvm.loop.unroll.full` (`nvptx/loops.rs`); TopK(64) is now 0.80–1.03× and
+      are marked `llvm.loop.unroll.full` (`LoopShape::hint`); TopK(64) is now 0.80–1.03× and
       that matmul 1.03×. A global `unroll-threshold=2000` got the Plane rows only to 2.2×.
       Rows it makes slower than `main`, to look at: VecMat col/col Double Unit (f32 1.25×,
       f16 1.8× `main`'s time, which was ahead of NVRTC and is now 1.2–1.3× behind it), and

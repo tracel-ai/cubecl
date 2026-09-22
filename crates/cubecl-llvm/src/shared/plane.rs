@@ -286,6 +286,11 @@ pub fn route_words(
         return narrow_from_i32(ctx, rw, routed, bits, llvm_ty);
     }
 
+    debug_assert_eq!(
+        bits % 32,
+        0,
+        "a value wider than one word is routed as whole words"
+    );
     let words_ty = LlvmVectorType::get(ctx, i32_ty, words, VectorTypeKind::Fixed).into();
     let as_words = bitcast(ctx, rw, value, words_ty);
 

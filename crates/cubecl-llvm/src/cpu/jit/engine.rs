@@ -155,7 +155,7 @@ fn optimize(
 }
 
 fn run_pipeline(ir: &str) -> Result<String, String> {
-    let module = LlvmModule::parse(ir)?;
+    let module = LlvmModule::new(ir)?;
     module.run_passes(PASS_PIPELINE, None)?;
     Ok(module.print())
 }

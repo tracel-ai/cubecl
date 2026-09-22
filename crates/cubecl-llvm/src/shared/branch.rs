@@ -1,6 +1,8 @@
 //! Structured control flow lowering.
 
-use crate::{prelude::*, shared::loop_hints::LoopHint};
+use crate::prelude::*;
+#[cfg(feature = "nvptx")]
+use crate::shared::loop_hints::LoopHint;
 use cubecl_core::ir::dialect::{
     BlockPtrExt,
     branch::{self, ConditionOp, IsExitTerminator},
@@ -179,7 +181,7 @@ impl LowerCpuCF for RangeLoopOp {
             back_args.extend(body_term.operands(ctx));
             let back_edge = llvm::BrOp::new(ctx, header, back_args);
             rewriter.append_op(ctx, &back_edge);
-            mark_loop(ctx, back_edge.get_operation(), shape);
+            shape.mark(ctx, back_edge.get_operation());
             rewriter.erase_operation(ctx, body_term);
         }
 
@@ -320,7 +322,7 @@ fn split_join_block(
 /// What a loop's structure says about how it should be unrolled, which LLVM's cost model
 /// cannot see once the loop is lowered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LoopShape {
+pub(crate) enum LoopShape {
     /// A trip count known at compile time, and a body indexing a local array.
     ConstantOverLocalArray,
     Other,
@@ -335,12 +337,27 @@ impl LoopShape {
     /// short of that for a loop of more than a handful of steps (a top-k accumulator's 64, say),
     /// and the array it leaves in local memory costs several times the loop. AMDGPU's cost model
     /// already raises its threshold for a loop that touches a private array, so it needs no hint.
+    #[cfg(feature = "nvptx")]
     fn hint(self, target: LlvmTarget) -> Option<LoopHint> {
-        match (target, self) {
-            #[cfg(feature = "nvptx")]
-            (LlvmTarget::Nvptx, LoopShape::ConstantOverLocalArray) => Some(LoopHint::UnrollFull),
-            _ => None,
+        match self {
+            LoopShape::ConstantOverLocalArray => match target {
+                #[cfg(feature = "nvptx")]
+                LlvmTarget::Nvptx => Some(LoopHint::UnrollFull),
+                _ => None,
+            },
+            LoopShape::Other => None,
         }
+    }
+
+    /// Gives the loop `latch` closes the hint its target wants.
+    fn mark(self, ctx: &Context, latch: Ptr<Operation>) {
+        #[cfg(feature = "nvptx")]
+        if let Some(hint) = self.hint(ctx.target()) {
+            hint.attach(ctx, latch);
+        }
+        // NVPTX is the only target that asks for a loop hint today.
+        #[cfg(not(feature = "nvptx"))]
+        let _ = (ctx, latch);
     }
 
     fn new(ctx: &Context, op: Ptr<Operation>, start: Value, end: Value, step: Value) -> Self {
@@ -367,13 +384,6 @@ fn indexes_local_array(ctx: &Context, op: Ptr<Operation>) -> bool {
             .is_some_and(|declare| declare.addr_space(ctx).0 == AddressSpace::Local);
     });
     found
-}
-
-/// Gives the loop `latch` closes the hint its target wants for its `shape`.
-fn mark_loop(ctx: &Context, latch: Ptr<Operation>, shape: LoopShape) {
-    if let Some(hint) = shape.hint(ctx.target()) {
-        hint.attach(ctx, latch);
-    }
 }
 
 fn branch_to_yielded(
@@ -433,7 +443,7 @@ impl DialectConversion for CfToLlvmConversion {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "nvptx"))]
 mod tests {
     use super::*;
 
@@ -448,11 +458,6 @@ mod tests {
         assert_eq!(asked(LlvmTarget::Cpu), None);
     }
 
-    // Without a GPU target the list below is the CPU alone.
-    #[cfg_attr(
-        not(any(feature = "amdgpu", feature = "nvptx")),
-        allow(clippy::single_element_loop)
-    )]
     #[test]
     fn any_other_loop_is_left_to_the_cost_model() {
         for target in [

@@ -92,7 +92,7 @@ pub fn emit_ptx(
     let converted =
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
-    let module = LlvmModule::parse(&converted.to_string())?;
+    let module = LlvmModule::new(&converted.to_string())?;
     finalize(&module, entrypoint, arch, &entry)?;
     let ir = module.print();
     let ptx = compile(module, arch, ptx_version)?;
@@ -276,6 +276,6 @@ entry:
         arch: &SmArch,
         ptx_version: Option<PtxVersion>,
     ) -> Result<String, String> {
-        compile(LlvmModule::parse(ir)?, arch, ptx_version)
+        compile(LlvmModule::new(ir)?, arch, ptx_version)
     }
 }

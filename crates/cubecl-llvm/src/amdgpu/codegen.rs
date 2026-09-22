@@ -83,7 +83,7 @@ pub fn emit_code_object(
     let converted =
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
-    let module = LlvmModule::parse(&converted.to_string())?;
+    let module = LlvmModule::new(&converted.to_string())?;
     finalize(&module, entrypoint, arch, entry.cube_dim, &entry.io)?;
     let ir = module.print();
     let (object, asm) = compile(module, arch, Assembly::wanted())?;
@@ -189,10 +189,10 @@ fn mark_atomics_device_local(entry: &EntryFunction<'_>) {
             continue;
         };
         for kind in DEVICE_LOCAL_ATOMIC {
-            inst.set_flag_metadata(kind);
+            entry.set_flag_metadata(&inst, kind);
         }
         if op == LLVMAtomicRMWBinOp::LLVMAtomicRMWBinOpFAdd {
-            inst.set_flag_metadata(DENORMAL_AGNOSTIC_ATOMIC);
+            entry.set_flag_metadata(&inst, DENORMAL_AGNOSTIC_ATOMIC);
         }
     }
 }
@@ -221,7 +221,7 @@ fn compile(
 
     // Emission consumes a module, so the assembly comes from a copy.
     let asm = if assembly == Assembly::Keep {
-        let copy = LlvmModule::parse(&module.print())?;
+        let copy = LlvmModule::new(&module.print())?;
         let bytes = machine.emit(copy, LLVMCodeGenFileType::LLVMAssemblyFile)?;
         Some(String::from_utf8_lossy(&bytes).into_owned())
     } else {
@@ -232,15 +232,14 @@ fn compile(
 }
 
 /// The object and assembly the finalized IR `ir` compiles to, for the tests that start from IR
-/// rather than from a kernel: `AmdGpuModule::asm` is only filled in when `CUBECL_DEBUG_PLIRON`
-/// is set.
+/// rather than from a kernel, in this module and in `amdgpu::offline_tests`.
 #[cfg(test)]
 pub(crate) fn compile_to_object(
     ir: &str,
     arch: &GfxArch,
     assembly: Assembly,
 ) -> Result<(Vec<u8>, Option<String>), String> {
-    compile(LlvmModule::parse(ir)?, arch, assembly)
+    compile(LlvmModule::new(ir)?, arch, assembly)
 }
 
 /// # Safety
@@ -495,7 +494,7 @@ entry:
         cube_dim: Dim3,
         io: &[BufferIOAttr],
     ) -> Result<String, String> {
-        let module = LlvmModule::parse(ir)?;
+        let module = LlvmModule::new(ir)?;
         finalize(&module, entrypoint, arch, cube_dim, io)?;
         Ok(module.print())
     }

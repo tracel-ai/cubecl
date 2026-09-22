@@ -135,6 +135,26 @@ mod tests {
     use crate::shared::offline_kernels::device_properties;
     use cubecl_core::ir::{IntKind, amd::GfxArch, features::MmaConfig};
 
+    /// A part with no WMMA has no matrix lowering at all, so it must offer none.
+    #[test]
+    fn a_part_without_wmma_advertises_no_matrix_form() {
+        let props = restricted_for("gfx90a");
+        assert!(props.features.matmul.cmma.is_empty());
+        assert!(props.features.matmul.mma.is_empty());
+        assert_eq!(props.hardware.num_tensor_cores, None);
+    }
+
+    /// The lowering has register shapes for `f16` operands alone: the integer, fp8 and `bf16`
+    /// forms rocWMMA advertises would fail to compile.
+    #[test]
+    fn rdna_keeps_the_half_precision_forms_only() {
+        let props = restricted_for("gfx1201");
+        for kept in [&props.features.matmul.cmma, &props.features.matmul.mma] {
+            assert_eq!(kept.len(), 2, "{kept:?}");
+            assert!(kept.iter().all(|config| config.a_type == HALF), "{kept:?}");
+        }
+    }
+
     fn restricted_for(arch: &str) -> DeviceProperties {
         let mut props = advertising_every_matrix_form();
         restrict_amdgpu_features(&mut props, GfxArch::parse(arch).wmma());
@@ -164,22 +184,5 @@ mod tests {
         props.features.matmul.cmma.extend(forms);
         props.features.matmul.mma.extend(forms);
         props
-    }
-
-    #[test]
-    fn a_part_without_wmma_advertises_no_matrix_form() {
-        let props = restricted_for("gfx90a");
-        assert!(props.features.matmul.cmma.is_empty());
-        assert!(props.features.matmul.mma.is_empty());
-        assert_eq!(props.hardware.num_tensor_cores, None);
-    }
-
-    #[test]
-    fn rdna_keeps_the_half_precision_forms_only() {
-        let props = restricted_for("gfx1201");
-        for kept in [&props.features.matmul.cmma, &props.features.matmul.mma] {
-            assert_eq!(kept.len(), 2, "{kept:?}");
-            assert!(kept.iter().all(|config| config.a_type == HALF), "{kept:?}");
-        }
     }
 }
