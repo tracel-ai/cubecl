@@ -117,7 +117,8 @@ impl DeviceService for CpuServer {
         let mut system = System::new();
         system.refresh_memory();
         system.refresh_cpu_list(CpuRefreshKind::nothing());
-        // Bounds the allocator's page size, not a kernel's shared memory.
+        // The cgroup limit where one applies, else the host's RAM: the page size
+        // and the capacity both, and not a kernel's shared memory.
         let total_memory = system
             .cgroup_limits()
             .map(|g| g.total_memory)
@@ -165,10 +166,8 @@ impl DeviceService for CpuServer {
 
         const ALIGNMENT: u64 = cubecl_server::storage::BytesStorage::ALIGNMENT as u64;
 
-        let mem_properties = MemoryDeviceProperties {
-            max_page_size: total_memory as u64,
-            alignment: ALIGNMENT,
-        };
+        let mem_properties = MemoryDeviceProperties::new(total_memory as u64, ALIGNMENT)
+            .with_max_memory(total_memory as u64);
 
         let mut device_props = DeviceProperties::new(
             Features {

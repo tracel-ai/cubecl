@@ -16,7 +16,9 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::persistence::Store;
 use cubecl_hip_sys::get_hip_include_path;
-use cubecl_server::compiler::{CompilationCache, build_id_hash, compilation_store, store_compiled};
+use cubecl_server::compiler::{
+    CompilationCache, CompilationRecording, build_id_hash, compilation_store, store_compiled,
+};
 use cubecl_server::driver::checked;
 use cubecl_server::kernel::BufferIOAttr;
 use cubecl_server::kernel::DebugInformation;
@@ -171,8 +173,12 @@ impl HipContext {
         cube_kernel: Box<dyn CubeKernel>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
+        let mut recording = CompilationRecording::new(kernel_id);
         let key = match self.try_load_cached(kernel_id)? {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                recording.loaded();
+                return Ok(());
+            }
             Err(key) => key,
         };
 
@@ -182,6 +188,7 @@ impl HipContext {
         // CubeCL compilation
         // jitc = just-in-time compiled
         let definition = cube_kernel.define();
+        recording.defined(&definition);
         let jitc_kernel = CompiledKernel::compile(
             &*cube_kernel,
             definition,
@@ -190,24 +197,27 @@ impl HipContext {
         )?;
 
         self.validate_shared(&jitc_kernel.repr)?;
+        recording.source(&jitc_kernel.source);
 
-        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger)
+        self.load_jit_kernel(kernel_id, key, jitc_kernel, logger, recording)
     }
 
-    /// Loads what the compiler produced, by the route that backend's output takes.
+    /// Loads what the compiler produced, by the route that backend's output takes, and closes
+    /// `recording` with how the artifact was obtained.
     fn load_jit_kernel(
         &mut self,
         kernel_id: &KernelId,
         key: Option<KernelCacheKey>,
         jitc_kernel: CompiledKernel<HipCompiler>,
         logger: Arc<ServerLogger>,
+        recording: CompilationRecording,
     ) -> Result<(), LaunchError> {
         match &jitc_kernel.repr {
             Some(HipRepresentation::Cpp(_)) => {
-                self.load_transpiled(kernel_id, key, jitc_kernel, logger)
+                self.load_transpiled(kernel_id, key, jitc_kernel, logger, recording)
             }
             Some(HipRepresentation::Llvm(_)) => {
-                self.load_code_object(kernel_id, key, jitc_kernel, logger)
+                self.load_code_object(kernel_id, key, jitc_kernel, logger, recording)
             }
             // A precompiled kernel: its text passed the language check in
             // `CompiledKernel::compile`, so it is whatever the default backend
@@ -215,7 +225,7 @@ impl HipContext {
             // the LLVM backend produces linked code objects and has no route
             // for text.
             None => match HipBackend::default() {
-                HipBackend::Cpp => self.load_transpiled(kernel_id, key, jitc_kernel, logger),
+                HipBackend::Cpp => self.load_transpiled(kernel_id, key, jitc_kernel, logger, recording),
                 HipBackend::Llvm => Err(CompilationError::Generic {
                     reason: "the LLVM backend cannot load a precompiled kernel: it has no text to compile from"
                         .to_string(),
@@ -237,6 +247,7 @@ impl HipContext {
         key: Option<KernelCacheKey>,
         mut jitc_kernel: CompiledKernel<HipCompiler>,
         logger: Arc<ServerLogger>,
+        recording: CompilationRecording,
     ) -> Result<(), LaunchError> {
         let Some(HipRepresentation::Llvm(module)) = &jitc_kernel.repr else {
             unreachable!("dispatched on the representation");
@@ -264,8 +275,8 @@ impl HipContext {
         // Cached after the load, so a code object the driver rejects is not handed back on
         // the next run, and the bytes move rather than being copied a third time.
         // `try_load_cached` hands back a key exactly when there is a cache to put it in.
-        if let Some((cache, key)) = self.compilation_cache.as_mut().zip(key) {
-            store_compiled(
+        let stored = match self.compilation_cache.as_mut().zip(key) {
+            Some((cache, key)) => store_compiled(
                 cache,
                 key,
                 CompilationCacheEntry {
@@ -274,8 +285,10 @@ impl HipContext {
                     binary: code,
                     io,
                 },
-            );
-        }
+            ),
+            None => false,
+        };
+        recording.compiled(stored);
         Ok(())
     }
 
@@ -287,6 +300,7 @@ impl HipContext {
         key: Option<KernelCacheKey>,
         mut jitc_kernel: CompiledKernel<HipCompiler>,
         logger: Arc<ServerLogger>,
+        recording: CompilationRecording,
     ) -> Result<(), LaunchError> {
         if logger.compilation_source_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -309,10 +323,11 @@ impl HipContext {
                 && let Some(entry) = cache.purge_key(&old_key)
             {
                 log::trace!("Using second-line compilation cache");
-                store_compiled(cache, key, entry);
+                let stored = store_compiled(cache, key, entry);
                 store_compiled(second_line_cache, cpp_hash, key);
                 self.try_load_cached(kernel_id)?
                     .expect("Should be cached now");
+                recording.rekeyed(stored);
                 return Ok(());
             }
             Some(cpp_hash)
@@ -343,20 +358,25 @@ impl HipContext {
 
         // Cached after the load, so a binary the driver rejects is not handed back on the
         // next run, and the bytes move rather than being copied.
-        if let Some((cache, key)) = self.compilation_cache.as_mut().zip(key) {
-            let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
-            store_compiled(
-                cache,
-                key,
-                CompilationCacheEntry {
-                    entrypoint_name,
-                    shared_mem_bytes,
-                    binary: code,
-                    io,
-                },
-            );
-            store_compiled(second_line_cache, cpp_hash.unwrap(), key);
-        }
+        let stored = match self.compilation_cache.as_mut().zip(key) {
+            Some((cache, key)) => {
+                let second_line_cache = self.second_line_compilation_cache.as_mut().unwrap();
+                let stored = store_compiled(
+                    cache,
+                    key,
+                    CompilationCacheEntry {
+                        entrypoint_name,
+                        shared_mem_bytes,
+                        binary: code,
+                        io,
+                    },
+                );
+                store_compiled(second_line_cache, cpp_hash.unwrap(), key);
+                stored
+            }
+            None => false,
+        };
+        recording.compiled(stored);
         Ok(())
     }
 

@@ -1,3 +1,5 @@
+#![cfg(any(target_os = "linux", target_os = "windows"))]
+
 //! Validates dynamic memory-pool configuration on the actual device: a
 //! programmatic layout applies to the calling stream in place, its hard cap
 //! is enforced, and a later reconfigure (at a quiescent point) replaces it.

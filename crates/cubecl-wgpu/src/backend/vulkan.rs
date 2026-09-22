@@ -1,4 +1,4 @@
-use alloc::collections::BTreeSet;
+use alloc::{collections::BTreeSet, vec::Vec};
 use core::{num::NonZeroU64, ptr::NonNull};
 
 use ash::vk::{
@@ -353,6 +353,20 @@ fn register_features(
     memory_config: &MemoryConfiguration,
 ) -> bool {
     let ash = adapter.shared_instance();
+    let heaps = device_local_heaps(ash, adapter.raw_physical_device());
+
+    // The largest device-local heap, not the first: a driver is free to
+    // enumerate a small one ahead of the real thing, and some report the
+    // host-visible BAR window first, which would take a 16 GB card for 256 MB.
+    // On an integrated adapter the heap is system RAM, so this is the share the
+    // driver hands the GPU rather than a card's own memory.
+    //
+    // Read before the checks below, because capacity is not a feature: it asks
+    // only for the memory properties every Vulkan device reports, and a device
+    // those checks decline runs on WGSL with its capacity still true.
+    if let Some(largest) = heaps.iter().map(|heap| heap.size).max() {
+        props.memory.set_max_memory(largest);
+    }
 
     // Can't even query for required features without `PhysicalDeviceFeatures2`
     if ash.instance_api_version() < API_VERSION_1_1
@@ -439,17 +453,17 @@ fn register_features(
         comp_options.vulkan.supports_arbitrary_bitwise = true;
     }
 
+    // Pages are still sized against the first device-local heap, which may be
+    // the small BAR window described above. Moving them to the largest heap
+    // needs a check that wgpu allocates storage buffers from it.
     if let Some(index_64) = &extended_feat.index_64
         && index_64.shader64_bit_indexing == TRUE
-        && let Some(heap) =
-            device_local_heap(adapter.shared_instance(), adapter.raw_physical_device())
+        && let Some(heap) = heaps.first()
     {
-        let heap_size = heap.size;
-        let max_page_size = match memory_config.is_sub_slices() {
-            true => heap_size / 4,
-            false => heap_size,
+        props.memory.max_page_size = match memory_config.is_sub_slices() {
+            true => heap.size / 4,
+            false => heap.size,
         };
-        props.memory.max_page_size = max_page_size;
     }
 
     if extended_feat.cooperative_matrix.is_some() {
@@ -469,17 +483,20 @@ fn register_features(
     true
 }
 
-fn device_local_heap(instance: &InstanceShared, device: PhysicalDevice) -> Option<MemoryHeap> {
+/// The device-local heaps, in the order the driver reports them. Empty when
+/// the driver reports none.
+fn device_local_heaps(instance: &InstanceShared, device: PhysicalDevice) -> Vec<MemoryHeap> {
     let memory_props = unsafe {
         instance
             .raw_instance()
             .get_physical_device_memory_properties(device)
     };
     let num_heaps = memory_props.memory_heap_count as usize;
-    let mut heaps = memory_props.memory_heaps.iter().take(num_heaps);
-    heaps
-        .find(|it| it.flags.contains(MemoryHeapFlags::DEVICE_LOCAL))
+    memory_props.memory_heaps[..num_heaps]
+        .iter()
+        .filter(|it| it.flags.contains(MemoryHeapFlags::DEVICE_LOCAL))
         .copied()
+        .collect()
 }
 
 fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>) {

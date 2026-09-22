@@ -1,3 +1,5 @@
+#![cfg(any(target_os = "linux", target_os = "windows"))]
+
 //! Validates HIP graph capture/replay on the actual device.
 
 use cubecl_common::bytes::Bytes;

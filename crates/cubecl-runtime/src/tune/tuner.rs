@@ -148,6 +148,8 @@ struct TuneJob<'t, 'i, K: AutotuneKey, F: TuneInputs, Out> {
     #[cfg(autotune_persistence)]
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
+    #[cfg(autotune_persistence)]
+    recording: crate::tune::record::TuneRecording<K>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
@@ -164,6 +166,8 @@ impl<K: AutotuneKey, F: TuneInputs, Out> TuneJob<'_, '_, K, F, Out> {
             limit: self.limit,
             #[cfg(autotune_persistence)]
             bounds: self.bounds,
+            #[cfg(autotune_persistence)]
+            recording: self.recording,
         }
     }
 }
@@ -184,6 +188,8 @@ struct TuneRequest<K: AutotuneKey> {
     limit: Option<Duration>,
     #[cfg(autotune_persistence)]
     bounds: Option<crate::tune::Bounds>,
+    #[cfg(autotune_persistence)]
+    recording: crate::tune::record::TuneRecording<K>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -296,6 +302,17 @@ impl<K: AutotuneKey> Tuner<K> {
             return TuneCacheResult::Hit { fastest_index: 0 };
         }
 
+        // After the fast path: a key with one candidate is answered, not
+        // tuned, and leaves nothing to record.
+        #[cfg(autotune_persistence)]
+        let recording = crate::tune::record::TuneRecording::new(&self.cache.lock(), key, &checksum);
+        // A recorded tune tracks its steps whether or not anything logs them:
+        // the log context is what collects the record's trials.
+        #[cfg(autotune_persistence)]
+        if recording.is_open() {
+            log_context.get_or_insert_with(Default::default);
+        }
+
         let test_inputs = tunables.generate_inputs(key, inputs);
         let plan = tunables.plan(key);
         let bounds = tunables.bounds(key, inputs);
@@ -329,6 +346,8 @@ impl<K: AutotuneKey> Tuner<K> {
             #[cfg(autotune_persistence)]
             checksum,
             log_context,
+            #[cfg(autotune_persistence)]
+            recording,
         };
 
         #[cfg(not(target_family = "wasm"))]
@@ -578,6 +597,8 @@ async fn process_request<K: AutotuneKey>(
         limit,
         #[cfg(autotune_persistence)]
         bounds,
+        #[cfg(autotune_persistence)]
+        recording,
     } = request;
 
     // Resolved concurrently, and each benchmark timed individually rather than timing the loop:
@@ -656,8 +677,8 @@ async fn process_request<K: AutotuneKey>(
         // process and never measure the key again; letting it expire with this
         // one costs a re-tune and buys a real measurement.
         #[cfg(autotune_persistence)]
-        if !unmeasured {
-            cache.lock().persistent_cache_insert(
+        let stored = !unmeasured
+            && cache.lock().persistent_cache_insert(
                 key,
                 checksum,
                 crate::tune::PersistentCacheValue {
@@ -667,7 +688,15 @@ async fn process_request<K: AutotuneKey>(
                     limit,
                 },
             );
-        }
+
+        #[cfg(autotune_persistence)]
+        recording.finish(
+            crate::tune::record::Answer {
+                winner: fastest_index,
+                stored,
+            },
+            log_context.as_ref(),
+        );
     }
 
     TuneCacheResult::Hit { fastest_index }
@@ -690,12 +719,12 @@ pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
     #[cfg(std_io)]
     let reference_name = reference.0;
 
-    let is_recording = is_recording_enabled();
+    let decisions_enabled = is_decisions_enabled();
 
     #[cfg(std_io)]
     {
         let reference_passed = reference_result.is_ok();
-        let mut check_results = execute_checks(checks_outputs, reference_result, is_recording);
+        let mut check_results = execute_checks(checks_outputs, reference_result, decisions_enabled);
         check_results.push(crate::tune::log::CheckResult {
             name: reference_name,
             passed: reference_passed,
@@ -706,25 +735,25 @@ pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
 
     #[cfg(not(std_io))]
     {
-        execute_checks(checks_outputs, reference_result, is_recording)
+        execute_checks(checks_outputs, reference_result, decisions_enabled)
     }
 }
 
-/// Whether a mismatch should be collected rather than fatal: it can only be reported if something
-/// is recording the results, so with no recorder a failed check panics on the spot instead of
-/// passing silently.
+/// Whether a mismatch should be collected rather than fatal: it can only be reported if decisions
+/// are written somewhere, so without a sink a failed check panics on the spot instead of passing
+/// silently.
 #[cfg(feature = "autotune-checks")]
-fn is_recording_enabled() -> bool {
+fn is_decisions_enabled() -> bool {
     crate::config::CubeClRuntimeConfig::get()
         .autotune
-        .recording_enabled()
+        .decisions_enabled()
 }
 
 #[cfg(feature = "autotune-checks")]
 fn execute_checks<O: AutotuneOutput>(
     checks_outputs: Vec<(String, Result<O, AutotuneError>)>,
     reference_result: Result<O, AutotuneError>,
-    is_recording: bool,
+    decisions_enabled: bool,
 ) -> Vec<crate::tune::log::CheckResult> {
     let mut check_results = Vec::new();
 
@@ -740,7 +769,7 @@ fn execute_checks<O: AutotuneOutput>(
 
     for (name, other_result) in checks_outputs.into_iter() {
         if let Ok(other) = other_result {
-            let passed = check_equivalence(&reference, other, is_recording);
+            let passed = check_equivalence(&reference, other, decisions_enabled);
             check_results.push(crate::tune::log::CheckResult { name, passed });
         } else {
             check_results.push(crate::tune::log::CheckResult {
@@ -754,10 +783,10 @@ fn execute_checks<O: AutotuneOutput>(
 }
 
 #[cfg(feature = "autotune-checks")]
-fn check_equivalence<O: AutotuneOutput>(reference: &O, other: O, is_recording: bool) -> bool {
-    // When the results are being recorded, we catch the panic so we can collect and report every
-    // check failure. With nothing recording, we let it panic immediately rather than pass silently.
-    if is_recording {
+fn check_equivalence<O: AutotuneOutput>(reference: &O, other: O, decisions_enabled: bool) -> bool {
+    // When decisions are written somewhere, we catch the panic so we can collect and report every
+    // check failure. Without a sink, we let it panic immediately rather than pass silently.
+    if decisions_enabled {
         #[cfg(std_io)]
         {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

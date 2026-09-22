@@ -11,7 +11,10 @@ pub use compiler::{HipCompilationOptions, HipCompiler, HipRepresentation};
 pub use device::*;
 pub use runtime::HipRuntime;
 
-#[cfg(test)]
+// HIP has no runtime on Apple platforms. Keep the compiler-only unit tests above
+// available there, but don't generate hundreds of tests that unconditionally
+// open device 0.
+#[cfg(all(test, any(target_os = "linux", target_os = "windows")))]
 mod tests {
     use half::f16;
     pub type TestRuntime = crate::HipRuntime;

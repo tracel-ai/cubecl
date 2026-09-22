@@ -14,6 +14,7 @@
 //! - [`persistence`]: key-value caches kept up to date in memory and synced to the
 //!   file system (std), browser storage (wasm) or nothing (no-std).
 //! - [`bundle`]: named environment bundles that ship pre-warmed caches.
+//! - [`records`]: what an environment remembers of how it was built.
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -63,3 +64,5 @@ pub mod persistence;
 
 /// Named environment bundles: ship pre-warmed autotune and compilation caches.
 pub mod bundle;
+
+pub mod records;

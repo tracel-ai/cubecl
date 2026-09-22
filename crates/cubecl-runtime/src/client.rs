@@ -1065,6 +1065,8 @@ impl Client {
             });
         }
 
+        crate::launched::note(|| kernel.id());
+
         // Decided here, on the issuing thread, because that is the only place
         // that still knows whether this launch is an autotune measurement — by
         // the time it reaches the server thread, that context is gone.
@@ -1444,6 +1446,23 @@ impl Client {
         self.device
             .submit_blocking(move |server| server.memory_report(stream_id))
             .unwrap_or_resume()
+    }
+
+    /// Write a snapshot of the calling stream's [memory
+    /// report](Self::memory_report) to the environment's records, under
+    /// `label`. Nothing is read when the environment records nothing.
+    pub fn record_memory(&self, label: &str) {
+        if !cubecl_environment::records::enabled() {
+            return;
+        }
+        let record = crate::memory_management::MemoryRecord {
+            label: label.into(),
+            report: self.memory_report(),
+        };
+        cubecl_environment::records::write(
+            cubecl_environment::records::RecordEffect::Observed,
+            &record,
+        );
     }
 
     /// Change the memory allocation mode.

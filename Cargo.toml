@@ -183,9 +183,8 @@ llvm-sys = { version = "231", features = [
     "no-llvm-linking",
     "disable-alltargets-init",
 ] }
-# NVPTX is not in the released bundle; developing against the local checkout that adds it.
-# Back to the git rev once tracel-llvm cuts 23.1.0-2.
-tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "4769fd52f2205435134d6a3c606f94aad6876155" }
+tracel-llvm-bundler = "23.1.0-3"
+# tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "4769fd52f2205435134d6a3c606f94aad6876155" }
 # tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
 
 cudarc = { version = "0.19.6", features = [
@@ -199,12 +198,12 @@ cudarc = { version = "0.19.6", features = [
 ], default-features = false } # CubeCL-CUDA
 
 # CubeCL-SPIR-V
-# pliron-spirv = "0.14.1"
-# rspirv = { version = "0.14.1", package = "tracel-rspirv" }
+pliron-spirv = "0.15.0"
+rspirv = { version = "0.15.0", package = "tracel-rspirv" }
 # pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
 # rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
-pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "e687120f2076ac34c4d3799fc5c9236ccd6d4915" }
-rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "e687120f2076ac34c4d3799fc5c9236ccd6d4915", package = "tracel-rspirv" }
+# pliron-spirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "e687120f2076ac34c4d3799fc5c9236ccd6d4915" }
+# rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "e687120f2076ac34c4d3799fc5c9236ccd6d4915", package = "tracel-rspirv" }
 rustc_apfloat = "0.2"
 
 # CubeCL-WGPU

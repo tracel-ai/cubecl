@@ -32,6 +32,7 @@ use cubecl_environment::future::DynFut;
 use cubecl_environment::persistence::Store;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
+use cubecl_server::compiler::CompilationRecording;
 #[cfg(feature = "spirv")]
 use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_server::memory_management::{
@@ -236,10 +237,12 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             return Ok(pipeline.clone());
         }
 
+        let mut recording = CompilationRecording::new(&kernel_id);
         let cached = self.load_cached_pipeline(&kernel_id, bindings, mode)?;
 
         if let Some(Ok(pipeline)) = cached {
             self.pipelines.insert(kernel_id, pipeline.clone());
+            recording.loaded();
             return Ok(pipeline);
         }
 
@@ -247,6 +250,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         validate_units(&self.utilities.properties, &kernel_id)?;
 
         let definition = kernel.define();
+        recording.defined(&definition);
 
         let mut compiler = C::init(self.backend, &self.compilation_options);
         let mut compiled = compiler.compile_kernel(self, kernel, definition)?;
@@ -304,17 +308,23 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             (pipeline.clone(), compiler_info, io.clone()),
         );
 
+        recording.source(&compiled.source);
+
+        // Only a SPIR-V kernel is stored: any other build changes nothing.
+        let stored = false;
         #[cfg(feature = "spirv")]
-        if let Some(Err(key)) = cached
-            && let Some(crate::AutoRepresentation::SpirV(kernel)) = auto_repr
-        {
-            let cache = self.spirv_cache.as_mut().unwrap();
-            store_compiled(
-                cache,
-                key,
-                cubecl_spirv::SpirvCacheEntry::new(compiled.entrypoint_name, kernel),
-            );
-        }
+        let stored = match (cached, auto_repr) {
+            (Some(Err(key)), Some(crate::AutoRepresentation::SpirV(kernel))) => {
+                let cache = self.spirv_cache.as_mut().unwrap();
+                store_compiled(
+                    cache,
+                    key,
+                    cubecl_spirv::SpirvCacheEntry::new(compiled.entrypoint_name, kernel),
+                )
+            }
+            _ => stored,
+        };
+        recording.compiled(stored);
 
         Ok((pipeline, compiler_info, io))
     }
