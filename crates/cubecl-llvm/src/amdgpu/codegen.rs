@@ -144,6 +144,8 @@ fn finalize_ir(
             LLVMAddAttributeAtIndex(func, llvm_sys::LLVMAttributeFunctionIndex, attribute);
         }
 
+        mark_atomics_device_local(ctx, func);
+
         let version = LLVMConstInt(LLVMInt32TypeInContext(ctx), CODE_OBJECT_VERSION as u64, 0);
         let key = "amdhsa_code_object_version";
         LLVMAddModuleFlag(
@@ -160,6 +162,58 @@ fn finalize_ir(
         LLVMDisposeModule(module);
         LLVMContextDispose(ctx);
         Ok(finalized)
+    }
+}
+
+/// What every atomic here may assume about the memory it touches, as the metadata the AMDGPU
+/// backend reads.
+///
+/// CubeCL buffers are device allocations: coarse-grained, and never another device's memory,
+/// so no atomic has to stay correct against a concurrent host or peer access. Without saying
+/// so, the backend expands float atomics to CAS loops on the parts whose native instruction
+/// is not coherent for fine-grained memory (RDNA3, CDNA2). An f32 add also ignores the
+/// denormal mode, where the native instruction flushes, which is the trade NVRTC's
+/// `atomicAdd(float*)` makes and the NVPTX target makes too.
+const DEVICE_LOCAL_ATOMIC: [&str; 2] = ["amdgpu.no.fine.grained.memory", "amdgpu.no.remote.memory"];
+const DENORMAL_AGNOSTIC_ATOMIC: &str = "amdgpu.ignore.denormal.mode";
+
+/// # Safety
+/// `func` must be a live function in `ctx`.
+unsafe fn mark_atomics_device_local(
+    ctx: llvm_sys::prelude::LLVMContextRef,
+    func: llvm_sys::prelude::LLVMValueRef,
+) {
+    use llvm_sys::LLVMAtomicRMWBinOp;
+    use llvm_sys::core::{
+        LLVMGetAtomicRMWBinOp, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
+        LLVMGetMDKindIDInContext, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
+        LLVMIsAAtomicRMWInst, LLVMMDNodeInContext2, LLVMMetadataAsValue, LLVMSetMetadata,
+    };
+
+    unsafe {
+        let mark = |inst, name: &str| {
+            let kind = LLVMGetMDKindIDInContext(ctx, name.as_ptr() as *const _, name.len() as u32);
+            let empty =
+                LLVMMetadataAsValue(ctx, LLVMMDNodeInContext2(ctx, std::ptr::null_mut(), 0));
+            LLVMSetMetadata(inst, kind, empty);
+        };
+
+        let mut block = LLVMGetFirstBasicBlock(func);
+        while !block.is_null() {
+            let mut inst = LLVMGetFirstInstruction(block);
+            while !inst.is_null() {
+                if !LLVMIsAAtomicRMWInst(inst).is_null() {
+                    for name in DEVICE_LOCAL_ATOMIC {
+                        mark(inst, name);
+                    }
+                    if LLVMGetAtomicRMWBinOp(inst) == LLVMAtomicRMWBinOp::LLVMAtomicRMWBinOpFAdd {
+                        mark(inst, DENORMAL_AGNOSTIC_ATOMIC);
+                    }
+                }
+                inst = LLVMGetNextInstruction(inst);
+            }
+            block = LLVMGetNextBasicBlock(block);
+        }
     }
 }
 
@@ -477,6 +531,27 @@ entry:
             );
 
             crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();
+        }
+    }
+
+    #[test]
+    fn a_float_atomic_add_is_the_native_instruction() {
+        let ir = r#"
+define void @k(ptr addrspace(1) %p, float %v, ptr addrspace(1) %o) {
+entry:
+  %r = atomicrmw fadd ptr addrspace(1) %p, float %v syncscope("agent") monotonic, align 4
+  store float %r, ptr addrspace(1) %o
+  ret void
+}
+"#;
+        // RDNA3 and CDNA2 are the parts that fall back to a CAS loop without the metadata.
+        for name in ["gfx1100", "gfx90a", "gfx1201", "gfx942"] {
+            let arch = GfxArch::parse(name);
+            let finalized = finalize_ir(ir, "k", &arch, 64).unwrap();
+            let (_, asm) = compile_to_object(&finalized, &arch, true).unwrap();
+            let asm = asm.unwrap();
+            assert!(asm.contains("global_atomic_add_f32"), "{name}:\n{asm}");
+            assert!(!asm.contains("cmpswap"), "{name} has no CAS loop:\n{asm}");
         }
     }
 

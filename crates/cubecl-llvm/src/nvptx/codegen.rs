@@ -25,12 +25,28 @@ const PASS_PIPELINE: &CStr = c"default<O3>";
 
 static INIT_NVPTX: Once = Once::new();
 
+/// LLVM options the NVPTX backend reads, set once per process.
+///
+/// `atom.add.f32` on global memory flushes denormals, so LLVM keeps it only for a function
+/// that flushes them too and expands every other float `atomicrmw fadd` to a CAS loop. The
+/// kernels here keep denormals in ordinary arithmetic, as NVRTC does by default, while NVRTC's
+/// `atomicAdd(float*)` is the native instruction all the same. This option makes the same
+/// trade: a denormal lost in an atomic sum, for an atomic that is not a retry loop.
+const NVPTX_OPTIONS: [&CStr; 2] = [c"cubecl", c"-nvptx-allow-ftz-atomics"];
+
 fn init_nvptx() {
     INIT_NVPTX.call_once(|| unsafe {
         llvm_sys::target::LLVMInitializeNVPTXTargetInfo();
         llvm_sys::target::LLVMInitializeNVPTXTarget();
         llvm_sys::target::LLVMInitializeNVPTXTargetMC();
         llvm_sys::target::LLVMInitializeNVPTXAsmPrinter();
+
+        let argv = NVPTX_OPTIONS.map(CStr::as_ptr);
+        llvm_sys::support::LLVMParseCommandLineOptions(
+            argv.len() as i32,
+            argv.as_ptr(),
+            c"".as_ptr(),
+        );
     });
 }
 
@@ -492,6 +508,22 @@ entry:
                 "CUDA {driver}:\n{ptx}"
             );
         }
+    }
+
+    #[test]
+    fn a_float_atomic_add_is_the_native_instruction() {
+        let ir = r#"
+define void @k(ptr addrspace(1) %p, float %v, ptr addrspace(1) %o) {
+entry:
+  %r = atomicrmw fadd ptr addrspace(1) %p, float %v syncscope("device") monotonic, align 4
+  store float %r, ptr addrspace(1) %o
+  ret void
+}
+"#;
+        let ptx =
+            compile_to_ptx(ir, &SmArch::new(60, false), PtxVersion::for_driver(12080)).unwrap();
+        assert!(ptx.contains("atom.gpu.global.add.f32"), "{ptx}");
+        assert!(!ptx.contains(".cas."), "no CAS loop:\n{ptx}");
     }
 
     #[test]
