@@ -199,14 +199,6 @@ fn register_types(props: &mut DeviceProperties) {
         ElemType::Bool,
     ];
 
-    // MSL's 64-bit atomics exist only on Apple9 and later and only as min and max, so u64
-    // is left out: registering it made add, load and store return wrong values.
-    let atomic_types = [
-        ElemType::Int(IntKind::I32),
-        ElemType::UInt(UIntKind::U32),
-        ElemType::Float(FloatKind::F32),
-    ];
-
     for ty in types {
         props.register_type_usage(ty, TypeUsage::all());
     }
@@ -220,10 +212,15 @@ fn register_types(props: &mut DeviceProperties) {
         );
     }
 
-    for ty in atomic_types {
-        props
-            .register_atomic_type_usage(Type::atomic(ty), AtomicUsage::Add | AtomicUsage::LoadStore)
+    // MSL's 64-bit atomics exist only on Apple9 and later and only as min and max, so u64
+    // is left out: registering it made add, load and store return wrong values.
+    for ty in [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)] {
+        props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
     }
+    props.register_atomic_type_usage(
+        Type::atomic(ElemType::Float(FloatKind::F32)),
+        AtomicUsage::Add | AtomicUsage::LoadStore,
+    );
 }
 
 fn register_cmma(props: &mut DeviceProperties) {
