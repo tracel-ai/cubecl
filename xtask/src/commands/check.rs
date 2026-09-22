@@ -59,6 +59,14 @@ pub(crate) fn handle_command(
         None,
         "std with SPIR-V compiler",
     )?;
+    #[cfg(target_os = "macos")]
+    build_helpers::custom_crates_check(
+        vec!["cubecl-wgpu"],
+        vec!["--features", "msl"],
+        None,
+        None,
+        "std with MSL compiler",
+    )?;
     build_helpers::custom_crates_check(
         vec!["cubecl-wgpu"],
         vec!["--features", "exclusive-memory-only"],
