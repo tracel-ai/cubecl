@@ -206,7 +206,7 @@ fn register_types(props: &mut DeviceProperties) {
 
     // MSL has no fp8 type: the emitter stores these as `uint8_t` and converts in software,
     // which is enough to hold them in buffers and cast them, not to compute in them.
-    for ty in [FloatKind::E4M3, FloatKind::E5M2] {
+    for ty in [FloatKind::E4M3, FloatKind::E5M2, FloatKind::UE8M0] {
         props.register_type_usage(
             ElemType::Float(ty),
             TypeUsage::Conversion | TypeUsage::Buffer,
