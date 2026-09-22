@@ -7,7 +7,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{
         DEDICATED_POOL_POS, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
-        MemoryPoolReport, MemoryUsage,
+        MemoryPoolReport,
         memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping, SlicedPool},
         relocation::{CopyQueue, RelocationNeed, RelocationReason, RelocationTrigger},
     },
@@ -225,19 +225,11 @@ impl AdaptiveMemory {
         self.arena.cleanup(storage, alloc_nr, cleanup, failures);
     }
 
-    /// The usage of every pool held.
-    pub fn memory_usage(&self) -> MemoryUsage {
-        self.tiny
-            .get_memory_usage()
-            .combine(self.small.get_memory_usage())
-            .combine(self.arena.memory_usage())
-    }
-
     /// A report per pool held, in the order allocations are routed through
     /// them, the outdated ones last. The arena's current pool reports how many
     /// pages the outdated ones hold.
     pub fn report(&self) -> Vec<MemoryPoolReport> {
-        [self.tiny.report(), self.small.report(self.small.kind())]
+        [self.tiny.report(), self.small.report()]
             .into_iter()
             .chain(self.arena.report())
             .collect()
@@ -706,7 +698,7 @@ mod tests {
             page_of(&large),
             "it shares the current page"
         );
-        assert_eq!(memory.memory_usage().bytes_in_use, 11 * MIB);
+        assert_eq!(memory.memory_report().usage().bytes_in_use, 11 * MIB);
     }
 
     /// A plan dropped before its commit leaves every allocation where it was.
@@ -822,12 +814,18 @@ mod tests {
             MIB,
             "closing the dedicated window restores the persistent one"
         );
-        assert_eq!(memory.memory_usage().bytes_reserved, 200 * MIB + MIB);
+        let report = memory.memory_report();
+        assert_eq!(report.usage().bytes_reserved, 200 * MIB + MIB);
+        assert_eq!(
+            (report.dedicated.kind, report.dedicated.pages),
+            (MemoryPoolKind::Direct, 1),
+            "the dedicated allocation is reported as its own pool"
+        );
 
         drop(probe);
         let _tick = reserve(&mut memory, MIB);
         assert_eq!(
-            memory.memory_usage().bytes_reserved,
+            memory.memory_report().usage().bytes_reserved,
             MIB + FLOOR,
             "the probe buffer is gone; the weight and one adaptive page remain"
         );

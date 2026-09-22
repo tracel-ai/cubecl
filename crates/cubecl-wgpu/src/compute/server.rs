@@ -36,7 +36,7 @@ use cubecl_ir::MemoryDeviceProperties;
 #[cfg(feature = "spirv")]
 use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_server::memory_management::{
-    ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
+    ManagedMemoryHandle, MemoryReport, SharedMemoryBindings,
     relocation::{RelocatingStreams, RelocationNeed, RelocationReason},
 };
 use cubecl_server::{
@@ -683,11 +683,6 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // which has to flush what it is about to measure. An abandon measures
         // nothing, so it leaves the stream's queued work where it found it.
         self.scheduler.stream(&stream_id).abandon_profile(token);
-    }
-
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
-        self.scheduler.execute_streams(vec![stream_id]);
-        self.scheduler.stream(&stream_id).mem_manage.memory_usage()
     }
 
     fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport {

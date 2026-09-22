@@ -1,6 +1,8 @@
 use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding};
 use crate::memory_management::Cleanup;
-use crate::memory_management::{BytesFormat, ErrorGraph, MemoryLocation, PageGuard};
+use crate::memory_management::{
+    BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
+};
 use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec::Vec;
@@ -63,6 +65,18 @@ impl DirectPool {
             reclaim_at,
             pages_peak: 0,
             largest_alloc: 0,
+        }
+    }
+
+    /// A structured snapshot of the pool: shape, usage, high-water marks.
+    pub(crate) fn report(&self) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Direct,
+            usage: self.get_memory_usage(),
+            pages: self.live().count() as u64,
+            pages_peak: self.pages_peak,
+            pages_unmapped: self.live().filter(|slice| !slice.mapped).count() as u64,
+            largest_alloc: self.largest_alloc,
         }
     }
 

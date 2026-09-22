@@ -1438,9 +1438,9 @@ impl Client {
 
     /// Total memory usage across all streams on this client's device.
     ///
-    /// The closure iterates the server's `stream_ids()` and folds each
-    /// per-stream `memory_usage(id)` with `MemoryUsage::combine`, so the
-    /// result is correct regardless of which thread queries it.
+    /// The closure iterates the server's `stream_ids()` and sums each
+    /// stream's [`MemoryReport::usage`], so the result is correct regardless
+    /// of which thread queries it.
     pub fn memory_usage(&self) -> MemoryUsage {
         self.device
             .submit_blocking(move |server| {
@@ -1448,7 +1448,7 @@ impl Client {
                     .stream_ids()
                     .into_iter()
                     .fold(MemoryUsage::default(), |acc, id| {
-                        acc.combine(server.memory_usage(id))
+                        acc.combine(server.memory_report(id).usage())
                     })
             })
             .unwrap_or_resume()

@@ -3,7 +3,7 @@
 use crate::memory_management::Cleanup;
 use crate::{
     memory_management::{
-        ErrorGraph, ManagedMemoryHandle, MemoryPoolReport, MemoryUsage,
+        ErrorGraph, ManagedMemoryHandle, MemoryPoolReport,
         memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping},
     },
     server::IoError,
@@ -110,15 +110,6 @@ impl ExclusivePools {
         for pool in self.buckets.iter_mut() {
             pool.cleanup(storage, alloc_nr, cleanup, failures);
         }
-    }
-
-    /// The usage of every bucket.
-    pub fn memory_usage(&self) -> MemoryUsage {
-        self.buckets
-            .iter()
-            .fold(MemoryUsage::default(), |usage, pool| {
-                usage.combine(pool.get_memory_usage())
-            })
     }
 
     /// A report per bucket, smallest first.

@@ -7,7 +7,6 @@ use crate::{
     logging::ServerLogger,
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryHandle, MemoryPoolKind, MemoryPoolReport,
-        MemoryUsage,
         memory_pool::{MemoryPool, PageMapping, SlicedPool, calculate_padding},
         relocation::{
             ArenaShape, ArenaState, Landed, LiveAllocation, Move, OutdatedPages, Relocation,
@@ -298,26 +297,18 @@ impl PoolArena {
         });
     }
 
-    /// The usage of every pool held.
-    pub fn memory_usage(&self) -> MemoryUsage {
-        self.slots
-            .iter()
-            .flatten()
-            .fold(MemoryUsage::default(), |usage, pool| {
-                usage.combine(pool.get_memory_usage())
-            })
-    }
-
     /// A report for the current pool, stating how many pages the outdated
     /// ones hold, then one per outdated pool.
     pub fn report(&self) -> impl Iterator<Item = MemoryPoolReport> + '_ {
         let current = self.current();
-        let kind = MemoryPoolKind::Adaptive {
-            page_size: current.page_size(),
-            outdated_pages: self.outdated().map(SlicedPool::pages_held).sum(),
+        let report = MemoryPoolReport {
+            kind: MemoryPoolKind::Adaptive {
+                page_size: current.page_size(),
+                outdated_pages: self.outdated().map(SlicedPool::pages_held).sum(),
+            },
+            ..current.report()
         };
-        core::iter::once(current.report(kind))
-            .chain(self.outdated().map(|pool| pool.report(pool.kind())))
+        core::iter::once(report).chain(self.outdated().map(SlicedPool::report))
     }
 
     /// Reserve a slice on the current pool for every live allocation on the
@@ -393,9 +384,7 @@ impl PoolArena {
         failures: &mut ErrorGraph,
     ) -> Option<Move> {
         let source = allocation.handle.descriptor().location();
-        let pool = self.pool_mut(source.pool)?;
-        let source_storage = pool.slice_at(source).storage.clone();
-        let source_mapped = pool.is_mapped_at(source);
+        let source_storage = self.pool_mut(source.pool)?.storage_at(source);
 
         let pool = self.current_mut();
         let target = match (pool.try_reserve(allocation.size, failures), room) {
@@ -405,15 +394,17 @@ impl PoolArena {
                 .alloc(storage, allocation.size, PageMapping::Eager, failures)
                 .ok()?,
         };
-        let destination = target.descriptor().location();
-        // The bytes have to land somewhere real.
-        if source_mapped {
-            pool.map_page_at(storage, destination).ok()?;
-        }
-        let copy = source_mapped.then(|| StorageCopy {
-            source: source_storage,
-            target: pool.slice_at(destination).storage.clone(),
-        });
+        // Bytes that exist have to land somewhere real; a source never
+        // resolved has none to copy.
+        let copy = match source_storage {
+            Some(source) => Some(StorageCopy {
+                source,
+                target: pool
+                    .mapped_storage_at(storage, target.descriptor().location())
+                    .ok()?,
+            }),
+            None => None,
+        };
 
         Some(Move {
             allocation: allocation.handle,

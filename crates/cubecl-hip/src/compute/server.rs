@@ -31,7 +31,7 @@ use cubecl_server::{
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryReport, MemoryUsage},
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryReport},
     server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
@@ -323,10 +323,6 @@ impl Server for HipServer {
         // Nothing to record on the device: dropping the window returns its
         // start event to the pool.
         self.ctx.profiler.abandon(token);
-    }
-
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
-        self.command_no_inputs(stream_id).memory_usage()
     }
 
     fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport {

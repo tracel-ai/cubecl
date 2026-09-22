@@ -672,14 +672,6 @@ impl Server for MetalServer {
         self.timestamps.abandon(token);
     }
 
-    fn memory_usage(
-        &mut self,
-        stream_id: StreamId,
-    ) -> cubecl_server::memory_management::MemoryUsage {
-        let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        resolved.current().memory_management.memory_usage()
-    }
-
     fn memory_report(
         &mut self,
         stream_id: StreamId,

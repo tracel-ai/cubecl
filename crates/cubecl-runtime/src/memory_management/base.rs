@@ -156,18 +156,13 @@ pub struct MemoryPoolReport {
     pub largest_alloc: u64,
 }
 
-/// A per-pool report of one `MemoryManagement` (in `cubecl-server`)
-/// instance — the read side of a measured memory plan.
+/// Everything one `MemoryManagement` (in `cubecl-server`) holds, pool by pool:
+/// the single place its memory is read from. A caller that wants the totals
+/// asks the report for its [`usage`](Self::usage).
 ///
-/// The intended cycle: install a growable layout, run the workload once under
-/// a [`DryRun`](crate::dry_run::DryRun) (same allocation stream, no compute),
-/// read this report, and re-install the same layout capped at the observed
-/// `pages_peak`. Padding then comes only from alignment and the first-fit
-/// remainders the dry run already measured.
-///
-/// A tuning pass inside the measured run allocates too, and its scratch counts
-/// toward these marks like anything else. Warming the tune caches in an
-/// earlier pass leaves the peaks of the measured one to the workload alone.
+/// A tuning pass allocates like anything else, so its scratch counts toward
+/// these marks; warming the tune caches in an earlier pass leaves the peaks of
+/// a measured one to the workload alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryReport {
     /// One entry per dynamic pool, in allocation-routing order, the pools a
@@ -175,6 +170,20 @@ pub struct MemoryReport {
     pub dynamic: Vec<MemoryPoolReport>,
     /// The persistent pool (weights, caches; explicit persistent windows).
     pub persistent: MemoryPoolReport,
+    /// The dedicated allocations, each its own device allocation.
+    pub dedicated: MemoryPoolReport,
+}
+
+impl MemoryReport {
+    /// The usage of every pool together.
+    pub fn usage(&self) -> MemoryUsage {
+        self.dynamic
+            .iter()
+            .chain([&self.persistent, &self.dedicated])
+            .fold(MemoryUsage::default(), |usage, pool| {
+                usage.combine(pool.usage.clone())
+            })
+    }
 }
 
 /// The managed tensor buffer handle that points to some memory segment.

@@ -14,7 +14,7 @@ use crate::{
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::server::ServerStorage;
 use cubecl_core::{
-    CompilationError, CubeCount, MemoryConfiguration, MemoryUsage,
+    CompilationError, CubeCount, MemoryConfiguration,
     ir::MemoryDeviceProperties,
     server::{
         BufferBinding, CopyDescriptor, IoError, KernelArguments, KernelResource, LaunchError,
@@ -355,13 +355,6 @@ impl Server for CpuServer {
                 Ok(())
             });
         }
-    }
-
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
-        self.scheduler
-            .stream(&stream_id)
-            .memory_management
-            .memory_usage()
     }
 
     fn memory_report(

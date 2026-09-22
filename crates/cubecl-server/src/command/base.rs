@@ -17,8 +17,7 @@ use crate::memory_management::Cleanup;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
 use crate::memory_management::{
-    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport, MemoryUsage, PageGuard,
-    PageUpdate,
+    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport, PageGuard, PageUpdate,
 };
 use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
 use crate::storage::ManagedResource;
@@ -117,11 +116,6 @@ impl<'a, D: Driver> Command<'a, D> {
                     .guard(page.location)
             })
             .collect()
-    }
-
-    /// The current stream's device memory usage.
-    pub fn memory_usage(&mut self) -> MemoryUsage {
-        self.streams.current().device_memory().memory_usage()
     }
 
     /// Structured per-pool report of the current stream's device memory.

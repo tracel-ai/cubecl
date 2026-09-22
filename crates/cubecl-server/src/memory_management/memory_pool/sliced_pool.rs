@@ -6,7 +6,7 @@ use crate::{
         memory_pool::{MemoryPage, MemoryPool, PageMapping, Slice},
     },
     server::IoError,
-    storage::{ComputeStorage, StorageId},
+    storage::{ComputeStorage, StorageHandle, StorageId},
 };
 use alloc::vec::Vec;
 use core::fmt::Display;
@@ -64,9 +64,12 @@ impl SlicedPool {
     }
 
     /// A structured snapshot of the pool: shape, usage, high-water marks.
-    pub(crate) fn report(&self, kind: MemoryPoolKind) -> MemoryPoolReport {
+    pub(crate) fn report(&self) -> MemoryPoolReport {
         MemoryPoolReport {
-            kind,
+            kind: MemoryPoolKind::Sliced {
+                page_size: self.page_size,
+                max_slice_size: self.max_slice_size,
+            },
             usage: self.get_memory_usage(),
             pages: self.pages.len() as u64,
             pages_peak: self.pages_peak,
@@ -76,14 +79,6 @@ impl SlicedPool {
                 .filter(|(page, _)| !page.is_mapped())
                 .count() as u64,
             largest_alloc: self.largest_alloc,
-        }
-    }
-
-    /// Its shape, as a report states it.
-    pub(crate) fn kind(&self) -> MemoryPoolKind {
-        MemoryPoolKind::Sliced {
-            page_size: self.page_size,
-            max_slice_size: self.max_slice_size,
         }
     }
 
@@ -104,19 +99,25 @@ impl SlicedPool {
             .slice_mut(location.slice as usize)
     }
 
-    /// Whether the page `location` names has real device backing.
-    pub(crate) fn is_mapped_at(&self, location: MemoryLocation) -> bool {
-        self.pages[location.page as usize].0.is_mapped()
+    /// The storage behind the slice `location` names, while its page has
+    /// real device backing: `None` for one carved lazily and never resolved,
+    /// which has nothing behind it to read.
+    pub(crate) fn storage_at(&mut self, location: MemoryLocation) -> Option<StorageHandle> {
+        if !self.pages[location.page as usize].0.is_mapped() {
+            return None;
+        }
+        Some(self.slice_at(location).storage.clone())
     }
 
-    /// Give the page `location` names real device backing, if it was carved
-    /// lazily.
-    pub(crate) fn map_page_at<Storage: ComputeStorage>(
+    /// The storage behind the slice `location` names, giving its page real
+    /// device backing first if it was carved lazily.
+    pub(crate) fn mapped_storage_at<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         location: MemoryLocation,
-    ) -> Result<(), IoError> {
-        self.map_page(storage, location.page as usize)
+    ) -> Result<StorageHandle, IoError> {
+        self.map_page(storage, location.page as usize)?;
+        Ok(self.slice_at(location).storage.clone())
     }
 
     /// Reserve `size` bytes on a page already held, coalescing as it goes.

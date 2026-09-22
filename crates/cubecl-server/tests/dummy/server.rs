@@ -18,7 +18,7 @@ use cubecl_server::{
     kernel::{CubeKernel, KernelMetadata},
     logging::ServerLogger,
     memory_management::{
-        Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage,
+        Claim, ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement,
     },
     server::{
         BufferBinding, CopyDescriptor, CubeCount, Handle, KernelArguments, KernelResource,
@@ -300,10 +300,6 @@ impl<M: Marker> Server for DummyServer<M> {
         _stream_id: StreamId,
     ) -> Result<(), ServerError> {
         self.ensure_written(handles.iter())
-    }
-
-    fn memory_usage(&mut self, _stream_id: StreamId) -> MemoryUsage {
-        self.memory_management.memory_usage()
     }
 
     fn memory_report(

@@ -8,9 +8,7 @@ use crate::{
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
-    memory_management::{
-        ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, MemoryReport, MemoryUsage,
-    },
+    memory_management::{ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, MemoryReport},
     server::{BufferBinding, KernelResource},
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
@@ -709,9 +707,6 @@ pub trait Server:
     fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {
         let _ = (graph, stream_id);
     }
-
-    /// Memory usage of the given stream.
-    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage;
 
     /// Structured per-pool report of the given stream's **main GPU** memory:
     /// each pool's shape, usage, and high-water marks, in allocation-routing

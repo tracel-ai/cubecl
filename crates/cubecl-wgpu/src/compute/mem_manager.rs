@@ -235,10 +235,6 @@ impl WgpuMemManager {
         (retained, resource)
     }
 
-    pub(crate) fn memory_usage(&self) -> cubecl_server::memory_management::MemoryUsage {
-        self.memory_pool.memory_usage()
-    }
-
     pub(crate) fn memory_report(&self) -> cubecl_server::memory_management::MemoryReport {
         self.memory_pool.memory_report()
     }

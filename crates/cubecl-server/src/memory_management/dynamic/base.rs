@@ -8,7 +8,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryConfiguration,
-        MemoryPoolReport, MemoryUsage,
+        MemoryPoolReport,
         memory_pool::{MemoryPool, PageMapping},
     },
     server::IoError,
@@ -155,14 +155,6 @@ impl DynamicMemory {
         match self {
             DynamicMemory::Exclusive(pools) => pools.cleanup(storage, alloc_nr, cleanup, failures),
             DynamicMemory::Adaptive(memory) => memory.cleanup(storage, alloc_nr, cleanup, failures),
-        }
-    }
-
-    /// The usage of every pool held.
-    pub fn memory_usage(&self) -> MemoryUsage {
-        match self {
-            DynamicMemory::Exclusive(pools) => pools.memory_usage(),
-            DynamicMemory::Adaptive(memory) => memory.memory_usage(),
         }
     }
 
