@@ -16,8 +16,7 @@ const VOTE_BALLOT: &str = "llvm.nvvm.vote.ballot.sync";
 const VOTE_ALL: &str = "llvm.nvvm.vote.all.sync";
 const VOTE_ANY: &str = "llvm.nvvm.vote.any.sync";
 
-/// Plane operations require participation from every lane.
-const FULL_MASK: i32 = -1;
+const ACTIVEMASK: &str = "llvm.nvvm.activemask";
 
 /// Shuffle bounds: bits 4:0 limit the source lane; bits 12:8 select the segment.
 const CLAMP_TO_TOP: i32 = 0x1f;
@@ -49,7 +48,7 @@ impl PlaneLowering for NvptxPlane {
         predicate: Value,
     ) -> Value {
         let ty = i32_ty(ctx);
-        let mask = insert_i32_const(ctx, rw, FULL_MASK);
+        let mask = member_mask(ctx, rw);
         call_intrinsic(ctx, rw, VOTE_BALLOT, ty, vec![mask, predicate])
     }
 
@@ -95,6 +94,14 @@ impl PlaneLowering for NvptxPlane {
     }
 }
 
+/// The lanes a plane operation synchronizes: the ones executing it, as the C++ backend's
+/// `__activemask()` does, so an operation inside a branch only a part of the plane takes waits
+/// for that part rather than for lanes that never reach it.
+fn member_mask(ctx: &mut Context, rw: &mut DialectConversionRewriter) -> Value {
+    let ty = i32_ty(ctx);
+    call_intrinsic(ctx, rw, ACTIVEMASK, ty, vec![])
+}
+
 fn vote(
     ctx: &mut Context,
     rw: &mut DialectConversionRewriter,
@@ -102,7 +109,7 @@ fn vote(
     predicate: Value,
 ) -> Value {
     let bool_ty = IntegerType::get(ctx, 1, Signedness::Signless).into();
-    let mask = insert_i32_const(ctx, rw, FULL_MASK);
+    let mask = member_mask(ctx, rw);
     call_intrinsic(ctx, rw, name, bool_ty, vec![mask, predicate])
 }
 
@@ -116,7 +123,7 @@ fn shfl(
     value_ty: TypeHandle,
 ) -> Value {
     let i32_ty = i32_ty(ctx);
-    let mask = insert_i32_const(ctx, rw, FULL_MASK);
+    let mask = member_mask(ctx, rw);
     let clamp = insert_i32_const(ctx, rw, clamp);
 
     route_words(ctx, rw, value, value_ty, |ctx, rw, word| {

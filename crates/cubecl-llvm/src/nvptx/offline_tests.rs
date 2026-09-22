@@ -47,4 +47,7 @@ fn plane_moves_are_native_shuffles() {
     let ptx = ptx_of(plane_moves_kernel(), 60);
     assert!(ptx.contains("shfl.sync.idx"), "the broadcast:\n{ptx}");
     assert!(ptx.contains("shfl.sync.bfly"), "the XOR:\n{ptx}");
+    // Volta and later schedule a plane's lanes independently, so a full member mask is
+    // undefined inside a branch only some of them take.
+    assert!(ptx.contains("activemask.b32"), "the executing lanes as the mask:\n{ptx}");
 }

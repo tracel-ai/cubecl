@@ -4,7 +4,7 @@
 use cubecl_core::ir::amd::AmdWmma;
 use cubecl_core::ir::{ComplexKind, DeviceProperties, ElemType, FloatKind, OpaqueType};
 #[cfg(feature = "nvptx")]
-use cubecl_core::ir::{IntKind, UIntKind, features::Plane};
+use cubecl_core::ir::{IntKind, UIntKind};
 
 /// A GPU target, with what its lowering depends on about the device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,12 +89,6 @@ fn restrict_nvptx(props: &mut DeviceProperties) {
     // back across the plane with no barrier, which works on a backend whose optimizer takes the
     // code at its word and does not survive one that does not. The barrier belongs in the
     // kernel and is now there.
-
-    // The shuffles go through `shfl.sync` with a full member mask, which requires the plane to
-    // be converged. The C++ backend advertises this because its own plane lowering handles a
-    // partial mask; until this one does, a diverged plane operation would be undefined rather
-    // than merely slow.
-    props.features.plane.remove(Plane::NonUniformControlFlow);
 }
 
 /// The matrix lowering is RDNA's WMMA with `f16` operands: CDNA's MFMA, the integer and fp8
