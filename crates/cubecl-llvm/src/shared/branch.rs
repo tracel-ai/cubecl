@@ -7,6 +7,7 @@ use cubecl_core::ir::dialect::{
     cmp::{SLessThanOp, ULessThanOp},
     general::CastOp,
     math::IAddOp,
+    memory::{DeclareVariableOp, IndexOp},
     scf::{IfOp, RangeLoopOp, SwitchOp, WhileOp},
 };
 use pliron::region::Region;
@@ -131,6 +132,8 @@ impl LowerCpuCF for RangeLoopOp {
         let body_region = self.loop_region(ctx);
         let body_term = terminator(ctx, body_block);
 
+        let shape = LoopShape::of_range(ctx, op, start, end, step);
+
         let signed = type_cast::<dyn ScalarType>(&*end.get_type(ctx).deref(ctx))
             .map(|ty| ty.elem_type(ctx).is_signed_int())
             .unwrap_or(false);
@@ -176,6 +179,7 @@ impl LowerCpuCF for RangeLoopOp {
             back_args.extend(body_term.operands(ctx));
             let back_edge = llvm::BrOp::new(ctx, header, back_args);
             rewriter.append_op(ctx, &back_edge);
+            mark_loop(ctx, back_edge.get_operation(), shape);
             rewriter.erase_operation(ctx, body_term);
         }
 
@@ -311,6 +315,53 @@ fn split_join_block(
         BasicBlock::push_argument(join, ctx, ty);
     }
     (pre, join)
+}
+
+/// What a loop's structure says about how it should be unrolled, which LLVM's cost model
+/// cannot see once the loop is lowered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoopShape {
+    /// A trip count known at compile time, and a body indexing a local array.
+    ConstantOverLocalArray,
+    Other,
+}
+
+impl LoopShape {
+    fn of_range(ctx: &Context, op: Ptr<Operation>, start: Value, end: Value, step: Value) -> Self {
+        let constant = |value: Value| {
+            value
+                .defining_op()
+                .is_some_and(|def| Operation::get_op::<ConstantOp>(def, ctx).is_some())
+        };
+        if constant(start) && constant(end) && constant(step) && indexes_local_array(ctx, op) {
+            LoopShape::ConstantOverLocalArray
+        } else {
+            LoopShape::Other
+        }
+    }
+}
+
+fn indexes_local_array(ctx: &Context, op: Ptr<Operation>) -> bool {
+    let mut found = false;
+    visit_all_ops_of_type::<IndexOp, _>(ctx, &mut found, op, |ctx, found, index| {
+        *found |= index
+            .base(ctx)
+            .defining_op()
+            .and_then(|def| Operation::get_op::<DeclareVariableOp>(def, ctx))
+            .is_some_and(|declare| declare.addr_space(ctx).0 == AddressSpace::Local);
+    });
+    found
+}
+
+/// Gives the loop `latch` closes the hints its target wants for its `shape`.
+fn mark_loop(ctx: &Context, latch: Ptr<Operation>, shape: LoopShape) {
+    match ctx.target() {
+        #[cfg(feature = "nvptx")]
+        LlvmTarget::Nvptx => crate::nvptx::loops::mark(ctx, latch, shape),
+        _ => {
+            let _ = (latch, shape);
+        }
+    }
 }
 
 fn branch_to_yielded(

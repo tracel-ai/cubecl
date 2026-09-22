@@ -80,3 +80,45 @@ pub(crate) fn plane_moves_kernel() -> impl CubeKernel {
         BufferCompilationArg { inplace: None },
     )
 }
+
+/// Keeps the `K` largest values seen, in a local array updated by a loop of `K` steps per
+/// input: the shape of a top-k accumulator.
+// Cube code indexes: it has no iterators to lower.
+#[allow(clippy::needless_range_loop)]
+#[cube(launch)]
+fn keep_largest(input: &[f32], output: &mut [f32], #[comptime] k: usize) {
+    let mut largest = Array::<f32>::new(k);
+    #[unroll]
+    for i in 0..k {
+        largest[i] = f32::min_value();
+    }
+    for r in 0..input.len() {
+        let mut candidate = input[r];
+        for j in 0..k {
+            let keep = largest[j] > candidate;
+            let displaced = select(keep, candidate, largest[j]);
+            largest[j] = select(keep, largest[j], candidate);
+            candidate = displaced;
+        }
+    }
+    #[unroll]
+    for i in 0..k {
+        output[i] = largest[i];
+    }
+}
+
+pub(crate) fn keep_largest_kernel(k: usize) -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    keep_largest::KeepLargest::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+        k,
+    )
+}

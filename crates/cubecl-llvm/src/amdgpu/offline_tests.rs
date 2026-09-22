@@ -1,6 +1,6 @@
 //! Real kernels compiled for AMDGPU without a device, checked on the assembly.
 
-use crate::shared::offline_kernels::{plane_moves_kernel, scale_kernel};
+use crate::shared::offline_kernels::{keep_largest_kernel, plane_moves_kernel, scale_kernel};
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, amdgpu::codegen::compile_to_object};
 use cubecl_core::Compiler;
@@ -71,4 +71,15 @@ fn a_1d_cube_ignores_the_y_and_z_work_item_ids() {
     let asm = asm_of(scale_kernel(AddressType::U32), "gfx1201");
     // The three ids arrive packed in `v0`, 10 bits each: y at bit 10, z at bit 20.
     assert!(!asm.contains("v_bfe_u32"), "no id is unpacked:\n{asm}");
+}
+
+/// A loop of a constant trip count that indexes a local array is unrolled, so every index is a
+/// constant and the array becomes VGPRs rather than scratch memory.
+#[test]
+fn a_local_array_under_a_constant_loop_is_registers() {
+    let asm = asm_of(keep_largest_kernel(64), "gfx1201");
+    assert!(
+        !asm.contains("scratch_"),
+        "the array is in scratch memory:\n{asm}"
+    );
 }

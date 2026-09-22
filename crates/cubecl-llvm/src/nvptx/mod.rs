@@ -4,6 +4,7 @@ pub mod abi;
 pub mod builtins;
 pub mod codegen;
 pub mod libdevice;
+pub mod loops;
 pub mod matrix;
 #[cfg(test)]
 mod offline_tests;

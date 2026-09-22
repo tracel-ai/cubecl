@@ -1,6 +1,6 @@
 //! Real kernels compiled to PTX without a device, checked on the assembly.
 
-use crate::shared::offline_kernels::{plane_moves_kernel, scale_kernel};
+use crate::shared::offline_kernels::{keep_largest_kernel, plane_moves_kernel, scale_kernel};
 use crate::target::LlvmTarget;
 use crate::{PlironArtifact, PlironCompiler, PlironOptions, nvptx::ptx_version::PtxVersion};
 use cubecl_core::Compiler;
@@ -49,5 +49,19 @@ fn plane_moves_are_native_shuffles() {
     assert!(ptx.contains("shfl.sync.bfly"), "the XOR:\n{ptx}");
     // Volta and later schedule a plane's lanes independently, so a full member mask is
     // undefined inside a branch only some of them take.
-    assert!(ptx.contains("activemask.b32"), "the executing lanes as the mask:\n{ptx}");
+    assert!(
+        ptx.contains("activemask.b32"),
+        "the executing lanes as the mask:\n{ptx}"
+    );
+}
+
+/// A loop of a constant trip count that indexes a local array is unrolled, so every index is a
+/// constant and the array becomes registers rather than local memory.
+#[test]
+fn a_local_array_under_a_constant_loop_is_registers() {
+    let ptx = ptx_of(keep_largest_kernel(64), 60);
+    assert!(
+        !ptx.contains("ld.local") && !ptx.contains("st.local"),
+        "the array is in local memory:\n{ptx}"
+    );
 }
