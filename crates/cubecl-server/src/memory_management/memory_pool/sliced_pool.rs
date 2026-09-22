@@ -172,17 +172,17 @@ impl SlicedPool {
         }
     }
 
-    /// Count `size` toward a page size that follows the largest allocation,
-    /// growing it when `size` no longer fits — which outdates every page held.
-    fn observe(&mut self, size: u64) {
-        let PageSizing::FollowsLargest { min_page_size } = self.sizing else {
-            return;
-        };
-        if size <= self.largest_alloc {
-            return;
+    /// The page size an allocation of `size` bytes would leave the pool at:
+    /// grown when the page size follows the largest allocation and `size` is a
+    /// new largest. Nothing changes until a page of that size is allocated, so
+    /// an allocation the device refuses leaves the pool as it was.
+    fn page_size_after(&self, size: u64) -> u64 {
+        match self.sizing {
+            PageSizing::FollowsLargest { min_page_size } if size > self.largest_alloc => {
+                page_size_for(size, min_page_size, self.alignment).max(self.page_size)
+            }
+            _ => self.page_size,
         }
-        self.largest_alloc = size;
-        self.page_size = page_size_for(size, min_page_size, self.alignment);
     }
 
     fn is_current(&self, page: &MemoryPage) -> bool {
@@ -216,11 +216,13 @@ impl SlicedPool {
         handle
     }
 
-    /// Allocate a page of the current size and reserve `size` bytes on it.
+    /// Allocate a page of `page_size` bytes, reserve `size` bytes on it, and
+    /// make `page_size` the pool's — which outdates every page of another size.
     fn alloc_page<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         size: u64,
+        page_size: u64,
         mapping: PageMapping,
     ) -> Result<ManagedMemoryHandle, IoError> {
         let mut location_base = self.location_base;
@@ -230,7 +232,8 @@ impl SlicedPool {
         // carves, coalesces and counts toward the high-water exactly like a
         // real one, and is rebound to a real allocation on first resolution
         // (`materialize`).
-        let handle = mapping.storage_handle(storage, self.page_size)?;
+        let handle = mapping.storage_handle(storage, page_size)?;
+        self.page_size = page_size;
         let mut page = MemoryPage::new(handle, self.alignment, location_base, mapping);
         let reserved = page
             .try_reserve(size)
@@ -270,21 +273,23 @@ impl SlicedPool {
         Ok(())
     }
 
-    /// Return the pages `release` selects to the driver and renumber the rest.
+    /// Return the pages `release` selects to the driver and renumber the rest,
+    /// judging which are outdated against `page_size`.
     fn release<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         release: Release,
+        page_size: u64,
         failures: &mut ErrorGraph,
     ) {
         // Only a page size that moves ever outdates a page; with one that does,
         // the common case is still that none is.
         if matches!(release, Release::OutdatedAndEmpty)
-            && (matches!(self.sizing, PageSizing::Fixed { .. }) || self.outdated().next().is_none())
+            && (matches!(self.sizing, PageSizing::Fixed { .. })
+                || !self.pages.iter().any(|(page, _)| page.size() != page_size))
         {
             return;
         }
-        let page_size = self.page_size;
         for (mut page, id) in self.pages.drain(..) {
             page.coalesce(failures);
             if release.selects(&page, page_size) {
@@ -350,7 +355,7 @@ impl SlicedPool {
 
         let target = match self.reserve_current(size, failures) {
             Some(target) => target,
-            None => self.alloc_page(storage, size, mapping)?,
+            None => self.alloc_page(storage, size, self.page_size, mapping)?,
         };
         // The bytes have to land somewhere real.
         if source_mapped {
@@ -459,7 +464,11 @@ impl MemoryPool for SlicedPool {
     }
 
     fn try_reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle> {
-        self.observe(size);
+        // A size that grows the page size has no current page to land on: the
+        // pages of the size it asks for are yet to be allocated.
+        if self.page_size_after(size) != self.page_size {
+            return None;
+        }
         self.reserve_current(size, failures)
     }
 
@@ -474,7 +483,7 @@ impl MemoryPool for SlicedPool {
         mapping: PageMapping,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        self.observe(size);
+        let page_size = self.page_size_after(size);
 
         // `alloc` is only called after `try_reserve` coalesced every page and
         // found no fit, so hitting the cap here means the working set truly
@@ -493,10 +502,12 @@ impl MemoryPool for SlicedPool {
             });
         }
 
-        // Whatever an outdated page no longer holds goes back before the pool
-        // grows, so its footprint tracks the working set through a resize.
-        self.release(storage, Release::OutdatedAndEmpty, failures);
-        self.alloc_page(storage, size, mapping)
+        // Whatever a page the new size outdates no longer holds goes back
+        // before the pool grows, so its footprint tracks the working set
+        // through a resize. Only empty pages go, so a refused allocation
+        // below loses nothing.
+        self.release(storage, Release::OutdatedAndEmpty, page_size, failures);
+        self.alloc_page(storage, size, page_size, mapping)
     }
 
     fn materialize<Storage: ComputeStorage>(
@@ -543,7 +554,7 @@ impl MemoryPool for SlicedPool {
             true => Release::Empty,
             false => Release::OutdatedAndEmpty,
         };
-        self.release(storage, release, failures);
+        self.release(storage, release, self.page_size, failures);
     }
 
     /// Binds a user defined [`ManagedMemoryHandle`] to a slice in this memory pool.
@@ -735,6 +746,30 @@ mod tests {
             11 * MIB,
             "the page size never shrinks"
         );
+    }
+
+    /// An allocation the device refuses leaves the page size where it was:
+    /// grown to the refused size, every page held would be outdated and every
+    /// later allocation would need a page of that size too.
+    #[test]
+    fn a_refused_allocation_does_not_grow_the_page_size() {
+        let mut memory = adaptive(4 * MIB);
+        let _small = reserve(&mut memory, MIB);
+
+        // Past the host's address space: the storage refuses it.
+        let refused = memory.reserve(1 << 50, &mut ErrorGraph::default());
+        assert!(refused.is_err());
+        assert_eq!(
+            pool(&memory),
+            Pool {
+                page_size: 4 * MIB,
+                pages: 1,
+                outdated: 0
+            }
+        );
+
+        let _served = reserve(&mut memory, MIB);
+        assert_eq!(pool(&memory).pages, 1, "served from the page already held");
     }
 
     /// Growing outdates every page held: none of them serves another
