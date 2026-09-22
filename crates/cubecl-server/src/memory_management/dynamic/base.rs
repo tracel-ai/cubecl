@@ -1,7 +1,7 @@
 //! How a stream's dynamic pools are managed.
 
 use super::{AdaptiveMemory, ExclusivePools};
-use crate::memory_management::relocation::CopyQueue;
+use crate::memory_management::relocation::{CopyQueue, Relocate};
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
@@ -13,7 +13,7 @@ use crate::{
     server::IoError,
     storage::ComputeStorage,
 };
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
 
@@ -26,8 +26,9 @@ pub enum DynamicMemory {
     /// One page per allocation, in size buckets. Nothing is ever outdated.
     Exclusive(ExclusivePools),
     /// Pages sized to the largest allocation served, with a pool per size:
-    /// the pool a growth leaves behind drains and is dropped.
-    Adaptive(AdaptiveMemory),
+    /// the pool a growth leaves behind drains and is dropped. Boxed: it holds
+    /// its pools inline, and a memory is built once.
+    Adaptive(Box<AdaptiveMemory>),
 }
 
 impl DynamicMemory {
@@ -52,7 +53,7 @@ impl DynamicMemory {
             // the variant without disagreeing with it once the feature is
             // turned on there directly.
             #[allow(unreachable_patterns)]
-            _ => DynamicMemory::Adaptive(AdaptiveMemory::new(properties, logger, name)),
+            _ => DynamicMemory::Adaptive(Box::new(AdaptiveMemory::new(properties, logger, name))),
         }
     }
 
@@ -117,28 +118,28 @@ impl DynamicMemory {
         }
     }
 
-    /// Whether another page would leave the device with less than one to
-    /// spare (see [`AdaptiveMemory::crowded`]). Never, where pages are never
-    /// outdated: there is nothing a relocation could free.
-    pub fn crowded(&self) -> bool {
+    /// Whether a relocation is worth its copies now, and why, on a device
+    /// whose storages hold `allocated` bytes across every stream (see
+    /// [`AdaptiveMemory::relocation`]). Never where pages are never outdated.
+    pub fn relocation(&self, allocated: u64) -> Option<Relocate> {
         match self {
-            DynamicMemory::Exclusive(_) => false,
-            DynamicMemory::Adaptive(memory) => memory.crowded(),
+            DynamicMemory::Exclusive(_) => None,
+            DynamicMemory::Adaptive(memory) => memory.relocation(allocated),
         }
     }
 
-    /// Empty what the outdated pools hold into the room the current pages
-    /// have, and return the pages that frees. Nothing to move where pages are
-    /// never outdated.
+    /// Empty what the outdated pools hold into the current pages, and return
+    /// the pages that frees. Nothing to move where pages are never outdated.
     pub fn relocate<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         copier: &mut dyn CopyQueue<Storage>,
+        reason: Relocate,
         failures: &mut ErrorGraph,
     ) {
         match self {
             DynamicMemory::Exclusive(_) => {}
-            DynamicMemory::Adaptive(memory) => memory.relocate(storage, copier, failures),
+            DynamicMemory::Adaptive(memory) => memory.relocate(storage, copier, reason, failures),
         }
     }
 

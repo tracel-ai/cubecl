@@ -14,6 +14,7 @@ use super::stream_copies::StreamCopies;
 use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
 use crate::memory_management::drop_queue::Fence;
+use crate::memory_management::relocation::Relocate;
 use crate::memory_management::{
     ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport, MemoryUsage, PageGuard,
 };
@@ -145,7 +146,7 @@ impl<'a, D: Driver> Command<'a, D> {
 
         let (stream, failures) = self.streams.current_and_failures();
         stream.device_memory().cleanup(true, failures);
-        self.relocate();
+        self.relocate(Relocate::Explicit);
         let (stream, failures) = self.streams.current_and_failures();
         stream.host_memory().cleanup(true, failures);
         Ok(())
@@ -158,23 +159,37 @@ impl<'a, D: Driver> Command<'a, D> {
             .any(|stream| stream.capturing().is_recording())
     }
 
-    /// Empty the outdated pools into the room the current pages have, so the
-    /// pages that frees go back to the driver now rather than when their
+    /// Whether the current stream's outdated pools are worth emptying now,
+    /// and why: the pressure is read against what every stream's memory holds,
+    /// since they all share the device.
+    fn relocation(&mut self) -> Option<Relocate> {
+        let allocated = self
+            .streams
+            .all()
+            .map(|stream| stream.device_memory().bytes_allocated())
+            .sum();
+        self.streams.current().device_memory().relocation(allocated)
+    }
+
+    /// Empty the current stream's outdated pools into its current pages, so
+    /// the pages that frees go back to the driver now rather than when their
     /// longest-lived allocation ends.
     ///
-    /// Runs after the plain cleanup, so the room it freed is there to move
-    /// into. Skipped while any stream records a graph: the copies wait on
-    /// every stream, and a host wait on a capturing one invalidates its
-    /// capture.
-    pub(super) fn relocate(&mut self) {
+    /// Skipped while any stream records a graph: the copies wait on every
+    /// stream, and a host wait on a capturing one invalidates its capture.
+    pub(super) fn relocate(&mut self, reason: Relocate) {
         if self.recording() {
             return;
         }
+        // Rare enough to gather the signals as it goes: it waits on the
+        // whole device anyway.
         let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
         let queue = self.streams.current().signal();
         let mut copier = StreamCopies::<D>::new(signals, queue, self.ctx);
         let (stream, failures) = self.streams.current_and_failures();
-        stream.device_memory().relocate(&mut copier, failures);
+        stream
+            .device_memory()
+            .relocate(&mut copier, reason, failures);
     }
 
     /// Flush the current stream's drop queue, freeing what the device is
@@ -222,11 +237,11 @@ impl<'a, D: Driver> Command<'a, D> {
             return Err(err);
         }
 
-        // Emptying an outdated pool needs room for the pages it moves into, so
-        // it happens while the device still has a page to spare — waiting for
-        // it to refuse one would leave the copies nowhere to land.
-        if self.streams.current().device_memory().crowded() {
-            self.relocate();
+        // Emptying an outdated pool happens while the device still has a page
+        // to spare — waiting for it to refuse one would leave the copies
+        // nowhere to land — or before the arena runs out of page sizes.
+        if let Some(reason) = self.relocation() {
+            self.relocate(reason);
         }
 
         let (stream, failures) = self.streams.current_and_failures();

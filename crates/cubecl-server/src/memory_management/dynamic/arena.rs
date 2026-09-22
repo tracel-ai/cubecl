@@ -49,6 +49,14 @@ pub struct PoolArena {
     sizing: PageSizing,
 }
 
+/// What a [`PoolArena`] holds, as far as a relocation plan can tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArenaShape {
+    current_pages: u64,
+    outdated_pools: usize,
+    outdated_pages: u64,
+}
+
 /// How the pages of a [`PoolArena`] are sized.
 #[derive(Debug, Clone, Copy)]
 pub struct PageSizing {
@@ -173,6 +181,17 @@ impl PoolArena {
     /// Whether any pool is outdated.
     pub fn has_outdated(&self) -> bool {
         !self.outdated.is_empty()
+    }
+
+    /// What a relocation plans from: how many pages the current pool has
+    /// room on, and what the outdated pools hold. A plan that found nothing
+    /// to move finds nothing again until this changes.
+    pub fn shape(&self) -> ArenaShape {
+        ArenaShape {
+            current_pages: self.current().pages_held(),
+            outdated_pools: self.outdated.len(),
+            outdated_pages: self.outdated().map(SlicedPool::pages_held).sum(),
+        }
     }
 
     /// Whether every slot holds a pool, so the next growth has nowhere to go.
@@ -497,6 +516,10 @@ mod tests {
         fn dealloc(&mut self, _id: StorageId) {}
 
         fn flush(&mut self) {}
+
+        fn bytes_allocated(&self) -> u64 {
+            0
+        }
     }
 
     /// Copies that land the moment they are made.

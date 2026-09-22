@@ -12,6 +12,8 @@ use std::{collections::HashMap, ffi::c_void};
 /// which is optimized for fast data transfers between host and GPU in CUDA applications.
 pub struct PinnedMemoryStorage {
     memory: HashMap<StorageId, PinnedMemory>,
+    /// The bytes `memory` holds.
+    allocated: u64,
     mem_alignment: usize,
 }
 
@@ -20,6 +22,8 @@ pub struct PinnedMemoryStorage {
 struct PinnedMemory {
     /// Pointer to the pinned memory buffer.
     ptr: *mut c_void,
+    /// The size of the buffer in bytes.
+    size: u64,
     /// Pointer-to-pointer for CUDA allocation, kept alive for async operations.
     #[allow(unused)]
     ptr2ptr: *mut *mut c_void,
@@ -33,6 +37,7 @@ impl PinnedMemoryStorage {
     pub fn new() -> Self {
         Self {
             memory: HashMap::new(),
+            allocated: 0,
             mem_alignment: PINNED_MEMORY_ALIGNMENT,
         }
     }
@@ -94,11 +99,12 @@ impl ComputeStorage for PinnedMemoryStorage {
                 });
             }
 
-            PinnedMemory { ptr, ptr2ptr }
+            PinnedMemory { ptr, size, ptr2ptr }
         };
 
         let id = StorageId::new();
         self.memory.insert(id, resource);
+        self.allocated += size;
         Ok(StorageHandle::new(
             id,
             StorageUtilization { offset: 0, size },
@@ -108,6 +114,7 @@ impl ComputeStorage for PinnedMemoryStorage {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
         if let Some(resource) = self.memory.remove(&id) {
+            self.allocated -= resource.size;
             // SAFETY: `resource.ptr` was allocated by `cuMemAllocHost_v2` and has not been
             // freed yet. After this call, the pointer is invalid and removed from `self.memory`.
             unsafe {
@@ -118,5 +125,9 @@ impl ComputeStorage for PinnedMemoryStorage {
 
     fn flush(&mut self) {
         // We don't wait for dealloc.
+    }
+
+    fn bytes_allocated(&self) -> u64 {
+        self.allocated
     }
 }

@@ -1,13 +1,13 @@
 //! Dynamic memory whose pages follow the workload's largest allocation.
 
-use super::{PageSizing, PoolArena};
+use super::{ArenaShape, PageSizing, PoolArena};
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryPoolReport, MemoryUsage,
         memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping, SlicedPool},
-        relocation::{CopyQueue, TargetRoom},
+        relocation::{CopyQueue, MemoryPressure, Relocate},
     },
     server::IoError,
     storage::ComputeStorage,
@@ -50,7 +50,10 @@ pub struct AdaptiveMemory {
     /// Everything else.
     arena: PoolArena,
     /// What the device holds in total, where it says.
-    max_memory: Option<u64>,
+    capacity: Option<u64>,
+    /// The arena as the last relocation found it with nothing to move, so the
+    /// next is not planned until something changed.
+    stalled: Option<ArenaShape>,
     logger: Arc<ServerLogger>,
     name: String,
 }
@@ -76,7 +79,8 @@ impl AdaptiveMemory {
             // pages are sized to what they serve.
             .up_to_max_slice(),
             arena: PoolArena::new(sizing, ARENA_POOLS),
-            max_memory: properties.max_memory(),
+            capacity: properties.max_memory(),
+            stalled: None,
             logger,
             name,
         };
@@ -165,25 +169,27 @@ impl AdaptiveMemory {
         self.arena.try_reserve(size, failures)
     }
 
-    /// Whether another page of the size allocations are carved at would leave
-    /// the device with less than one to spare.
+    /// Whether a relocation is worth its copies now, and why, on a device
+    /// whose storages hold `allocated` bytes across every stream.
     ///
-    /// What says a relocation is worth its copies *now*: the pages an outdated
-    /// pool holds are the room the next one needs, and once the device has
-    /// refused a page there is nowhere left to copy an allocation to. Read
-    /// against what this memory management holds, so a runtime with a pool per
-    /// stream reads its own other streams as headroom it does not have, which
-    /// makes the answer early rather than wrong.
-    pub fn crowded(&self) -> bool {
-        let Some(max_memory) = self.max_memory else {
-            return false;
-        };
+    /// Only while something is outdated, and not again while the arena looks
+    /// as it did when the last relocation found nothing to move.
+    pub fn relocation(&self, allocated: u64) -> Option<Relocate> {
+        if !self.arena.has_outdated() || self.stalled == Some(self.arena.shape()) {
+            return None;
+        }
+        if self.arena.is_full() {
+            return Some(Relocate::ArenaFull);
+        }
         let page_size = self.arena.current().page_size();
-        self.memory_usage().bytes_reserved + page_size > max_memory.saturating_sub(page_size)
+        match MemoryPressure::new(allocated, self.capacity, page_size) {
+            MemoryPressure::High => Some(Relocate::MemoryPressure),
+            MemoryPressure::Low | MemoryPressure::Unknown => None,
+        }
     }
 
-    /// Empty every outdated pool the current pages have room for, and return
-    /// the pages that frees.
+    /// Empty the outdated pools into the current one, and return the pages
+    /// that frees. `reason` decides whether a target may take a new page.
     ///
     /// A plan whose copies fail is abandoned: every allocation stays where it
     /// was, and the targets it reserved are freed.
@@ -191,12 +197,15 @@ impl AdaptiveMemory {
         &mut self,
         storage: &mut Storage,
         copier: &mut dyn CopyQueue<Storage>,
+        reason: Relocate,
         failures: &mut ErrorGraph,
     ) {
-        let relocation = self.arena.plan(TargetRoom::Held, storage, failures);
+        let relocation = self.arena.plan(reason.room(), storage, failures);
         if relocation.is_empty() {
+            self.stalled = Some(self.arena.shape());
             return;
         }
+        self.stalled = None;
         match relocation.copy(storage, copier) {
             Ok(landed) => self.arena.commit(landed, storage, failures),
             // Dropping the plan gave every target it reserved back.
@@ -275,7 +284,7 @@ mod tests {
         memory_management::{
             ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
             MemoryManagement, MemoryManagementOptions, MemoryPoolKind,
-            relocation::{CopyQueue, StorageCopy},
+            relocation::{CopyQueue, Relocate, StorageCopy},
         },
         server::{IoError, ServerError},
         storage::{BytesStorage, ComputeStorage},
@@ -382,7 +391,7 @@ mod tests {
         let failures = &mut ErrorGraph::default();
         let before = memory.memory_report().dynamic.len();
         let mut copies = HostCopies;
-        memory.relocate(&mut copies, failures);
+        memory.relocate(&mut copies, Relocate::Explicit, failures);
         // A pool a relocation emptied is dropped, so the reports it leaves say
         // how many moved off it.
         before - memory.memory_report().dynamic.len()
@@ -433,24 +442,34 @@ mod tests {
         }
     }
 
+    /// Whether a relocation is wanted, as the server asks before a
+    /// reservation, with this memory the only one on the device.
+    fn relocation(memory: &MemoryManagement<BytesStorage>) -> Option<Relocate> {
+        memory.relocation(memory.bytes_allocated())
+    }
+
     /// A device with room to spare says nothing; one whose next page would
     /// leave it less than another page asks for the outdated pools to be
     /// emptied first, which is the last moment a relocation has somewhere to
     /// copy to.
     #[test]
-    fn a_crowded_device_asks_for_a_relocation_before_its_next_page() {
+    fn memory_pressure_asks_for_a_relocation_before_the_next_page() {
         const MAX_MEMORY: u64 = 24 * MIB;
         let mut memory = adaptive_on_device(MAX_MEMORY);
 
         let kept = reserve(&mut memory, MIB);
-        assert!(!memory.crowded(), "one 2 MiB page of 24 MiB");
+        assert_eq!(relocation(&memory), None, "one 2 MiB page of 24 MiB");
 
         // 13 MiB held over two pools, and the next page is 11 MiB.
         let large = reserve(&mut memory, 10 * MIB);
-        assert!(memory.crowded());
+        assert_eq!(relocation(&memory), Some(Relocate::MemoryPressure));
 
         let mut copies = HostCopies;
-        memory.relocate(&mut copies, &mut ErrorGraph::default());
+        memory.relocate(
+            &mut copies,
+            Relocate::MemoryPressure,
+            &mut ErrorGraph::default(),
+        );
         assert_eq!(
             pool(&memory),
             Pool {
@@ -461,6 +480,43 @@ mod tests {
             "the outdated pool was emptied into the room the current page has"
         );
         assert_eq!(page_of(&kept), page_of(&large));
+        assert_eq!(relocation(&memory), None, "nothing is outdated any more");
+    }
+
+    /// With nothing outdated there is nothing to free, however full the
+    /// device: no relocation, and no device wait to pay for one.
+    #[test]
+    fn a_full_device_with_nothing_outdated_asks_for_nothing() {
+        let mut memory = adaptive_on_device(4 * MIB);
+        let _held = reserve(&mut memory, MIB);
+        assert_eq!(relocation(&memory), None);
+    }
+
+    /// A relocation that found nothing to move is not planned again until
+    /// the arena changes: the next reservations under the same pressure pay
+    /// for no plan.
+    #[test]
+    fn a_relocation_that_moved_nothing_is_not_planned_again() {
+        let mut memory = adaptive_on_device(24 * MIB);
+
+        let recorded = reserve(&mut memory, MIB);
+        let _guard = memory.guard(recorded.descriptor().location());
+        let _large = reserve(&mut memory, 10 * MIB);
+        assert_eq!(relocation(&memory), Some(Relocate::MemoryPressure));
+
+        memory.relocate(
+            &mut HostCopies,
+            Relocate::MemoryPressure,
+            &mut ErrorGraph::default(),
+        );
+        assert_eq!(relocation(&memory), None, "the guarded page could not move");
+
+        let _more = reserve(&mut memory, 10 * MIB);
+        assert_eq!(
+            relocation(&memory),
+            Some(Relocate::MemoryPressure),
+            "a new page is room the last plan did not have"
+        );
     }
 
     /// The page size follows the largest allocation the pool served: a
@@ -643,7 +699,7 @@ mod tests {
         let _large = reserve(&mut memory, 10 * MIB);
 
         let mut refused = RefusedCopies;
-        memory.relocate(&mut refused, &mut ErrorGraph::default());
+        memory.relocate(&mut refused, Relocate::Explicit, &mut ErrorGraph::default());
 
         assert_eq!(place(&kept), location);
         assert_eq!(contents(&mut memory, &kept), 3);

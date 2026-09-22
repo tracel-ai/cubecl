@@ -102,6 +102,11 @@ pub trait ComputeStorage: Send {
 
     /// Flush deallocations when required.
     fn flush(&mut self);
+
+    /// The bytes this storage holds from the device right now: allocated and
+    /// not yet returned. A deallocation still waiting on [`flush`](Self::flush)
+    /// is still held.
+    fn bytes_allocated(&self) -> u64;
 }
 
 /// Access to the underlying resource.

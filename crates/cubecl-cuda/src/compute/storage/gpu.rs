@@ -16,8 +16,10 @@ enum AllocationKind {
 /// This struct manages memory resources for CUDA kernels, allowing them to be used as bindings
 /// for launching kernels.
 pub struct GpuStorage {
-    memory: HashMap<StorageId, (cudarc::driver::sys::CUdeviceptr, AllocationKind)>,
+    memory: HashMap<StorageId, (cudarc::driver::sys::CUdeviceptr, AllocationKind, u64)>,
     deallocations: Vec<StorageId>,
+    /// The bytes `memory` holds.
+    allocated: u64,
     ptr_bindings: PtrBindings,
     stream: cudarc::driver::sys::CUstream,
     mem_alignment: usize,
@@ -51,6 +53,7 @@ impl GpuStorage {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
+            allocated: 0,
             ptr_bindings: PtrBindings::new(),
             stream,
             mem_alignment,
@@ -66,7 +69,8 @@ impl GpuStorage {
             .filter_map(|id| self.memory.remove(&id))
             // SAFETY: Each `ptr` was obtained from a prior `malloc_async` or `malloc_sync`
             // call and has not been freed yet. The deallocation method matches the allocation kind.
-            .for_each(|(ptr, kind)| unsafe {
+            .for_each(|(ptr, kind, size)| unsafe {
+                self.allocated -= size;
                 match kind {
                     AllocationKind::Async => {
                         let _ = cudarc::driver::result::free_async(ptr, self.stream);
@@ -146,7 +150,7 @@ impl ComputeStorage for GpuStorage {
     }
 
     fn get(&mut self, handle: &StorageHandle) -> Result<Self::Resource, IoError> {
-        let (ptr, _) =
+        let (ptr, _, _) =
             self.memory
                 .get(&handle.id)
                 .ok_or_else(|| IoError::StorageHandleNotFound {
@@ -199,7 +203,8 @@ impl ComputeStorage for GpuStorage {
             },
         };
 
-        self.memory.insert(id, (ptr, kind));
+        self.memory.insert(id, (ptr, kind, size));
+        self.allocated += size;
         Ok(StorageHandle::new(
             id,
             StorageUtilization { offset: 0, size },
@@ -214,5 +219,9 @@ impl ComputeStorage for GpuStorage {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn flush(&mut self) {
         self.perform_deallocations();
+    }
+
+    fn bytes_allocated(&self) -> u64 {
+        self.allocated
     }
 }

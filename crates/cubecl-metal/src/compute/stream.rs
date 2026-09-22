@@ -4,6 +4,7 @@ use cubecl_core::{MemoryConfiguration, server::ServerError};
 use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
+use cubecl_server::memory_management::relocation::Relocate;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, MemoryManagement, MemoryManagementOptions},
@@ -171,12 +172,9 @@ impl MetalStream {
         self.active_encoder.as_mut().unwrap()
     }
 
-    /// Empty the outdated pools into the room the current pages have.
-    ///
-    /// The batch this stream has open is committed and waited for first: the
-    /// blits that move the bytes follow every dispatch that could still read
-    /// them.
-    pub fn relocate(&mut self, failures: &mut ErrorGraph) {
+    /// Commit the batch this stream has open and wait until everything it
+    /// submitted has run.
+    pub fn finish(&mut self) {
         use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder};
 
         if let Some(active) = self.active_encoder.take() {
@@ -194,9 +192,16 @@ impl MetalStream {
             (*command_buffer).waitUntilCompleted();
             std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
         }
+    }
 
+    /// Empty the outdated pools into the current pages.
+    ///
+    /// The caller has [finished](Self::finish) every stream first: the blits
+    /// that move the bytes follow every dispatch that could still read them.
+    pub fn relocate(&mut self, reason: Relocate, failures: &mut ErrorGraph) {
         let mut copier = MetalCopies::new(self.queue.clone());
-        self.memory_management.relocate(&mut copier, failures);
+        self.memory_management
+            .relocate(&mut copier, reason, failures);
     }
 
     /// Waits on a previously submitted command buffer if total queued ops

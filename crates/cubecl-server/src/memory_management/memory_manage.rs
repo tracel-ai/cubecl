@@ -14,7 +14,7 @@ use crate::{
     storage::{ComputeStorage, StorageHandle},
 };
 
-use crate::memory_management::relocation::CopyQueue;
+use crate::memory_management::relocation::{CopyQueue, Relocate};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -309,17 +309,30 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         Ok(slice.storage.clone())
     }
 
-    /// Whether the pools are close enough to the device's capacity that the
-    /// next page they allocate should be paid for by emptying an outdated pool
-    /// first (see [`DynamicMemory::crowded`]).
-    pub fn crowded(&self) -> bool {
-        self.pools.crowded()
+    /// The bytes this memory holds from the device right now, whatever pool
+    /// holds them.
+    pub fn bytes_allocated(&self) -> u64 {
+        self.storage.bytes_allocated()
     }
 
-    /// Empty what the outdated pools hold into the room the current pages
-    /// have, and return the pages that frees.
-    pub fn relocate(&mut self, copier: &mut dyn CopyQueue<Storage>, failures: &mut ErrorGraph) {
-        self.pools.relocate(&mut self.storage, copier, failures);
+    /// Whether emptying the outdated pools is worth its copies now, and why,
+    /// on a device whose memories hold `allocated` bytes across every stream
+    /// (see [`DynamicMemory::relocation`]).
+    pub fn relocation(&self, allocated: u64) -> Option<Relocate> {
+        self.pools.relocation(allocated)
+    }
+
+    /// Empty what the outdated pools hold into the current pages, and return
+    /// the pages that frees. `reason` decides whether a target may take a new
+    /// page.
+    pub fn relocate(
+        &mut self,
+        copier: &mut dyn CopyQueue<Storage>,
+        reason: Relocate,
+        failures: &mut ErrorGraph,
+    ) {
+        self.pools
+            .relocate(&mut self.storage, copier, reason, failures);
     }
 
     /// Keep the page `location` names as it is for as long as the guard lives

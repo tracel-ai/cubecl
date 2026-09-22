@@ -35,7 +35,7 @@ use cubecl_ir::MemoryDeviceProperties;
 #[cfg(feature = "spirv")]
 use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_server::memory_management::{
-    ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
+    ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings, relocation::Relocate,
 };
 use cubecl_server::{
     compiler::CompilationCache,
@@ -194,6 +194,48 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         }
     }
 
+    /// Whether any stream is recording a graph.
+    fn recording(&self) -> bool {
+        self.scheduler
+            .streams()
+            .any(|stream| stream.capturing.is_recording())
+    }
+
+    /// Whether `stream_id`'s outdated pools are worth emptying now, and why:
+    /// the pressure is read against what every stream holds, since they all
+    /// share the device.
+    fn relocation(&mut self, stream_id: &StreamId) -> Option<Relocate> {
+        let allocated = self
+            .scheduler
+            .streams()
+            .map(|stream| stream.mem_manage.bytes_allocated())
+            .sum();
+        self.scheduler
+            .stream(stream_id)
+            .mem_manage
+            .relocation(allocated)
+    }
+
+    /// Empty `stream_id`'s outdated pools into its current pages, once the
+    /// work every stream has queued or submitted has run: a queued task holds
+    /// the addresses its buffers resolved to.
+    ///
+    /// Skipped while any stream records a graph, whose pages keep their
+    /// addresses until it seals.
+    fn relocate(&mut self, stream_id: StreamId, reason: Relocate) {
+        if self.recording() {
+            return;
+        }
+        let stream_ids: Vec<_> = self.scheduler.stream_ids().collect();
+        self.scheduler.execute_streams(stream_ids.clone());
+        for id in stream_ids.iter() {
+            let (stream, failures) = self.scheduler.stream_and_failures(id);
+            stream.submit(failures);
+        }
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        stream.relocate(reason, failures);
+    }
+
     fn prepare_bindings(
         &mut self,
         stream_id: StreamId,
@@ -345,6 +387,11 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+        // Emptying an outdated pool happens while the device still has a page
+        // to spare, or before the pools run out of page sizes.
+        if let Some(reason) = self.relocation(&stream_id) {
+            self.relocate(stream_id, reason);
+        }
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         let reserved = stream
             .empty(size, failures)
@@ -674,13 +721,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
-        if self
-            .scheduler
-            .stream_ids()
-            .collect::<Vec<_>>()
-            .iter()
-            .any(|id| self.scheduler.stream(id).capturing.is_recording())
-        {
+        if self.recording() {
             return Err(ServerError::graph_state(
                 "memory_cleanup: a stream is recording a graph, whose pages keep their numbers \
                  until it seals",
@@ -694,7 +735,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         stream.info_cache.clear_unpinned();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         stream.mem_manage.memory_cleanup(true, failures);
-        stream.relocate(failures);
+        self.relocate(stream_id, Relocate::Explicit);
         Ok(())
     }
 
@@ -716,8 +757,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
         // The pages the recording touches are guarded for the graph's life,
         // and a guarded page is never relocated: empty the outdated pools now.
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream.relocate(failures);
+        self.relocate(stream_id, Relocate::Capture);
         Ok(())
     }
 

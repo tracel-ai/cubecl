@@ -28,6 +28,7 @@ use cubecl_environment::stream::StreamId;
 #[cfg(renderdoc)]
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
+use cubecl_server::memory_management::relocation::Relocate;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, ManagedMemoryHandle, SharedMemoryBindings},
@@ -588,25 +589,16 @@ impl WgpuStream {
             self.capturing.fail(err.clone().into());
             return Err(err);
         }
-        // Emptying an outdated pool needs room for the pages it moves into, so
-        // it happens while the device still has a page to spare.
-        if self.mem_manage.crowded() {
-            self.relocate(failures);
-        }
         self.mem_manage.reserve(size, failures)
     }
 
-    /// Empty the outdated pools into the room the current pages have.
+    /// Empty the outdated pools into the current pages.
     ///
-    /// What this stream has queued is submitted first: the copies follow every
-    /// launch that could still read what moves.
-    pub fn relocate(&mut self, failures: &mut ErrorGraph) {
-        if self.capturing.is_recording() {
-            return;
-        }
-        self.submit(failures);
+    /// The caller has submitted every stream's work first: the copies follow
+    /// every launch that could still read what moves.
+    pub(crate) fn relocate(&mut self, reason: Relocate, failures: &mut ErrorGraph) {
         let mut copier = WgpuCopies::new(self.device.clone(), self.queue.clone());
-        self.mem_manage.relocate(&mut copier, failures);
+        self.mem_manage.relocate(&mut copier, reason, failures);
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {

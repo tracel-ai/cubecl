@@ -1,5 +1,6 @@
 use crate::compute::copies::CpuCopies;
 use cubecl_llvm::PlironOptions;
+use cubecl_server::memory_management::relocation::Relocate;
 
 use crate::{
     CpuCompiler,
@@ -91,6 +92,36 @@ impl CpuServer {
             },
             streams_pool: Vec::new(),
         }
+    }
+
+    /// Whether `stream_id`'s outdated pools are worth emptying now, and why:
+    /// the pressure is read against what every stream holds, since they all
+    /// share the host.
+    fn relocation(&mut self, stream_id: &StreamId) -> Option<Relocate> {
+        let allocated = self
+            .scheduler
+            .streams()
+            .map(|stream| stream.memory_management.bytes_allocated())
+            .sum();
+        self.scheduler
+            .stream(stream_id)
+            .memory_management
+            .relocation(allocated)
+    }
+
+    /// Empty `stream_id`'s outdated pools into its current pages, once every
+    /// stream's queued and running kernels are done: they read and write
+    /// the addresses their buffers resolved to.
+    fn relocate(&mut self, stream_id: StreamId, reason: Relocate) {
+        let stream_ids: Vec<_> = self.scheduler.stream_ids().collect();
+        self.scheduler.execute_streams(stream_ids.clone());
+        for id in stream_ids.iter() {
+            self.scheduler.stream(id).submit();
+        }
+        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        stream
+            .memory_management
+            .relocate(&mut CpuCopies, reason, failures);
     }
 
     fn prepare_bindings(&mut self, bindings: KernelArguments) -> BindingsResource {
@@ -240,6 +271,11 @@ impl Server for CpuServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+        // Emptying an outdated pool happens while the memory still has a page
+        // to spare, or before the pools run out of page sizes.
+        if let Some(reason) = self.relocation(&stream_id) {
+            self.relocate(stream_id, reason);
+        }
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         // Fatal rather than reported, as on every other backend:
         // `initialize_memory` has no error channel, and an allocation that
@@ -367,7 +403,7 @@ impl Server for CpuServer {
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         stream.memory_management.cleanup(true, failures);
-        stream.memory_management.relocate(&mut CpuCopies, failures);
+        self.relocate(stream_id, Relocate::Explicit);
         Ok(())
     }
 
