@@ -35,7 +35,8 @@ use cubecl_ir::MemoryDeviceProperties;
 #[cfg(feature = "spirv")]
 use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_server::memory_management::{
-    ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings, relocation::Relocate,
+    ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
+    relocation::{Relocate, RelocatingStreams},
 };
 use cubecl_server::{
     compiler::CompilationCache,
@@ -194,46 +195,12 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         }
     }
 
-    /// Whether any stream is recording a graph.
-    fn recording(&self) -> bool {
-        self.scheduler
-            .streams()
-            .any(|stream| stream.capturing.is_recording())
-    }
-
-    /// Whether `stream_id`'s outdated pools are worth emptying now, and why:
-    /// the pressure is read against what every stream holds, since they all
-    /// share the device.
-    fn relocation(&mut self, stream_id: &StreamId) -> Option<Relocate> {
-        let allocated = self
-            .scheduler
-            .streams()
-            .map(|stream| stream.mem_manage.bytes_allocated())
-            .sum();
-        self.scheduler
-            .stream(stream_id)
-            .mem_manage
-            .relocation(allocated)
-    }
-
-    /// Empty `stream_id`'s outdated pools into its current pages, once the
-    /// work every stream has queued or submitted has run: a queued task holds
-    /// the addresses its buffers resolved to.
-    ///
-    /// Skipped while any stream records a graph, whose pages keep their
-    /// addresses until it seals.
-    fn relocate(&mut self, stream_id: StreamId, reason: Relocate) {
-        if self.recording() {
-            return;
+    /// The server's streams, relocating `stream_id`'s memory.
+    fn relocating(&mut self, stream_id: StreamId) -> Relocating<'_> {
+        Relocating {
+            scheduler: &mut self.scheduler,
+            stream_id,
         }
-        let stream_ids: Vec<_> = self.scheduler.stream_ids().collect();
-        self.scheduler.execute_streams(stream_ids.clone());
-        for id in stream_ids.iter() {
-            let (stream, failures) = self.scheduler.stream_and_failures(id);
-            stream.submit(failures);
-        }
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream.relocate(reason, failures);
     }
 
     fn prepare_bindings(
@@ -387,15 +354,24 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        // Emptying an outdated pool happens while the device still has a page
-        // to spare, or before the pools run out of page sizes.
-        if let Some(reason) = self.relocation(&stream_id) {
-            self.relocate(stream_id, reason);
+        // While any stream records, every page keeps its number and its
+        // address: nothing is cleaned up or relocated, so the pages a recording
+        // touched are still the ones it guards when it seals.
+        let mut relocating = self.relocating(stream_id);
+        if !relocating.recording() {
+            relocating.relocate_when_wanted();
+            let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+            stream.mem_manage.memory_cleanup(false, failures);
         }
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        let reserved = stream
-            .empty(size, failures)
-            .unwrap_or_else(|err| panic!("failed to reserve {size} bytes of device memory: {err}"));
+        let reserved = match stream.empty(size, failures) {
+            Ok(reserved) => reserved,
+            // The recording already failed on it, and `end_capture` reports
+            // that: the handle stays unbound, and whatever uses it belongs to
+            // a recording that will not seal.
+            Err(IoError::AllocationWhileRecording { .. }) => return,
+            Err(err) => panic!("failed to reserve {size} bytes of device memory: {err}"),
+        };
         stream.mem_manage.bind(reserved, memory, failures);
     }
 
@@ -448,8 +424,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
         self.scheduler.execute_streams(streams);
 
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream.read_resources(resources, stream_id, failures)
+        let stream = self.scheduler.stream(&stream_id);
+        stream.read_resources(resources, stream_id)
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
@@ -647,9 +623,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
 
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
 
-        stream.flush(stream_id, failures)
+        stream.flush(stream_id)
     }
 
     /// Returns the total time of GPU work this sync completes.
@@ -671,9 +647,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             return Box::pin(async move { Err(err) });
         }
         self.scheduler.execute_streams(vec![stream_id]);
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
 
-        stream.sync(stream_id, failures)
+        stream.sync(stream_id)
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
@@ -683,8 +659,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
             .stream(&stream_id)
             .reject_while_recording("start_profile")?;
         self.scheduler.execute_streams(vec![stream_id]);
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream.start_profile(stream_id, failures)
+        let stream = self.scheduler.stream(&stream_id);
+        stream.start_profile(stream_id)
     }
 
     fn end_profile(
@@ -693,9 +669,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
         self.scheduler.execute_streams(vec![stream_id]);
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
 
-        stream.end_profile(token, stream_id, failures)
+        stream.end_profile(token, stream_id)
     }
 
     fn abandon_profile(&mut self, stream_id: StreamId, token: ProfilingToken) {
@@ -721,7 +697,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
-        if self.recording() {
+        if self.relocating(stream_id).recording() {
             return Err(ServerError::graph_state(
                 "memory_cleanup: a stream is recording a graph, whose pages keep their numbers \
                  until it seals",
@@ -735,7 +711,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         stream.info_cache.clear_unpinned();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         stream.mem_manage.memory_cleanup(true, failures);
-        self.relocate(stream_id, Relocate::Explicit);
+        self.relocating(stream_id).relocate(Relocate::Explicit);
         Ok(())
     }
 
@@ -757,7 +733,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
         // The pages the recording touches are guarded for the graph's life,
         // and a guarded page is never relocated: empty the outdated pools now.
-        self.relocate(stream_id, Relocate::Capture);
+        self.relocating(stream_id).relocate(Relocate::Capture);
         Ok(())
     }
 
@@ -772,8 +748,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // Submit the warmup work and surface its failure now, so a warmup
         // failure is reported here — where the diagnostic points at the cause
         // — instead of dooming `end_capture` later.
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        if let Err(err) = stream.flush(stream_id, failures) {
+        let stream = self.scheduler.stream(&stream_id);
+        if let Err(err) = stream.flush(stream_id) {
             // The capture never opened: return to `NoCapture`, so a failed
             // `start_capture` leaves the stream fully usable and
             // re-capturable.
@@ -905,8 +881,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                     .graphs
                     .get(&graph)
                     .expect("checked above; nothing in the scope removes graphs");
-                let (stream, failures) = server.scheduler.stream_and_failures(&stream_id);
-                stream.replay_graph(wgpu_graph, failures);
+                let stream = server.scheduler.stream(&stream_id);
+                stream.replay_graph(wgpu_graph);
                 Ok(())
             })
             .into_result()
@@ -918,7 +894,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         let Some(wgpu_graph) = self.graphs.remove(&graph) else {
             return;
         };
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
         // Submit any replay still sitting in the encoder before the pins drop:
         // a `queue.write_buffer` onto a reclaimed slice runs at the *next*
         // submit, ahead of everything already in the encoder, so it would reach
@@ -927,7 +903,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // not — the uniform uploads in `create_uniform`/`info_uniform`. Once the
         // replay is submitted, queue ordering makes releasing the slices safe
         // with no host sync, unlike CUDA.
-        stream.submit(failures);
+        stream.submit();
         // Release the info-cache entries this graph pinned; entries no other
         // live graph still pins are dropped, freeing their buffers.
         stream.info_cache.graph_release(graph);
@@ -972,5 +948,55 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
             Some(guard) => resource.guarded(guard),
             None => resource,
         })
+    }
+}
+
+/// The server's streams, as relocating one stream's memory needs them.
+struct Relocating<'a> {
+    scheduler: &'a mut SchedulerMultiStream<ScheduledWgpuBackend>,
+    stream_id: StreamId,
+}
+
+impl RelocatingStreams for Relocating<'_> {
+    fn recording(&mut self) -> bool {
+        self.scheduler
+            .streams()
+            .any(|stream| stream.capturing.is_recording())
+    }
+
+    fn relocatable(&mut self) -> bool {
+        self.scheduler
+            .stream(&self.stream_id)
+            .mem_manage
+            .relocatable()
+    }
+
+    fn bytes_allocated(&mut self) -> u64 {
+        self.scheduler
+            .streams()
+            .map(|stream| stream.mem_manage.bytes_allocated())
+            .sum()
+    }
+
+    fn relocation(&mut self, allocated: u64) -> Option<Relocate> {
+        self.scheduler
+            .stream(&self.stream_id)
+            .mem_manage
+            .relocation(allocated)
+    }
+
+    /// Run every stream's queued tasks and submit them: a queued task holds
+    /// the addresses its buffers resolved to. The copier waits for the device.
+    fn finish(&mut self) {
+        let stream_ids: Vec<_> = self.scheduler.stream_ids().collect();
+        self.scheduler.execute_streams(stream_ids.clone());
+        for id in stream_ids.iter() {
+            self.scheduler.stream(id).submit();
+        }
+    }
+
+    fn relocate_memory(&mut self, reason: Relocate) {
+        let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
+        stream.relocate(reason, failures);
     }
 }

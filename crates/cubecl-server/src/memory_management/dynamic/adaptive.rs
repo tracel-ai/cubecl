@@ -169,13 +169,20 @@ impl AdaptiveMemory {
         self.arena.try_reserve(size, failures)
     }
 
+    /// Whether anything is outdated that the last relocation did not already
+    /// find immovable: the cheap question, asked before the device's bytes
+    /// are summed for [`relocation`](Self::relocation).
+    pub fn relocatable(&self) -> bool {
+        self.arena.has_outdated() && self.stalled != Some(self.arena.shape())
+    }
+
     /// Whether a relocation is worth its copies now, and why, on a device
     /// whose storages hold `allocated` bytes across every stream.
     ///
     /// Only while something is outdated, and not again while the arena looks
     /// as it did when the last relocation found nothing to move.
     pub fn relocation(&self, allocated: u64) -> Option<Relocate> {
-        if !self.arena.has_outdated() || self.stalled == Some(self.arena.shape()) {
+        if !self.relocatable() {
             return None;
         }
         if self.arena.is_full() {
@@ -188,8 +195,9 @@ impl AdaptiveMemory {
         }
     }
 
-    /// Empty the outdated pools into the current one, and return the pages
-    /// that frees. `reason` decides whether a target may take a new page.
+    /// Empty the outdated pools into the current one, so the pages they held
+    /// go back to the driver. `reason` decides whether a target may take a
+    /// new page.
     ///
     /// A plan whose copies fail is abandoned: every allocation stays where it
     /// was, and the targets it reserved are freed.
@@ -207,7 +215,12 @@ impl AdaptiveMemory {
         }
         self.stalled = None;
         match relocation.copy(storage, copier) {
-            Ok(landed) => self.arena.commit(landed, storage, failures),
+            Ok(landed) => {
+                self.arena.commit(landed, storage, failures);
+                // The pages it emptied go back now, not at the storage's next
+                // flush: a reservation retried after this needs that room.
+                storage.flush();
+            }
             // Dropping the plan gave every target it reserved back.
             Err(err) => {
                 log::warn!("relocating allocations off outdated memory pages abandoned: {err}")
@@ -500,7 +513,7 @@ mod tests {
         let mut memory = adaptive_on_device(24 * MIB);
 
         let recorded = reserve(&mut memory, MIB);
-        let _guard = memory.guard(recorded.descriptor().location());
+        let guard = memory.guard(recorded.descriptor().location());
         let _large = reserve(&mut memory, 10 * MIB);
         assert_eq!(relocation(&memory), Some(Relocate::MemoryPressure));
 
@@ -511,12 +524,51 @@ mod tests {
         );
         assert_eq!(relocation(&memory), None, "the guarded page could not move");
 
-        let _more = reserve(&mut memory, 10 * MIB);
+        drop(guard);
         assert_eq!(
             relocation(&memory),
             Some(Relocate::MemoryPressure),
-            "a new page is room the last plan did not have"
+            "a released guard is a page the last plan could not move"
         );
+    }
+
+    /// A new page is room the last plan did not have, so it plans again.
+    #[test]
+    fn a_new_page_lets_a_stalled_relocation_plan_again() {
+        let mut memory = adaptive_on_device(24 * MIB);
+
+        let recorded = reserve(&mut memory, MIB);
+        let _guard = memory.guard(recorded.descriptor().location());
+        let _large = reserve(&mut memory, 10 * MIB);
+        memory.relocate(
+            &mut HostCopies,
+            Relocate::MemoryPressure,
+            &mut ErrorGraph::default(),
+        );
+        assert_eq!(relocation(&memory), None);
+
+        let _more = reserve(&mut memory, 10 * MIB);
+        assert_eq!(relocation(&memory), Some(Relocate::MemoryPressure));
+    }
+
+    /// A reservation that keeps its pages releases nothing, even an outdated
+    /// page that emptied: while a graph records, the pages it touched must
+    /// keep their numbers and addresses until it seals.
+    #[test]
+    fn a_reservation_keeping_pages_releases_nothing() {
+        let mut memory = adaptive();
+
+        let first = reserve(&mut memory, MIB);
+        let _large = reserve(&mut memory, 10 * MIB);
+        drop(first);
+
+        let _kept = memory
+            .reserve_keeping_pages(MIB, &mut ErrorGraph::default())
+            .unwrap();
+        assert_eq!(pool(&memory).outdated, 1, "the emptied page is still held");
+
+        let _tick = reserve(&mut memory, MIB);
+        assert_eq!(pool(&memory).outdated, 0, "a plain reservation releases it");
     }
 
     /// The page size follows the largest allocation the pool served: a

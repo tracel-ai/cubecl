@@ -112,12 +112,20 @@ impl WgpuMemManager {
         self.memory_pool.bind(old, new, 0, failures).unwrap();
     }
 
-    pub(crate) fn reserve(
+    /// Reserve `size` bytes on the main pool without cleaning it up first —
+    /// see [`MemoryManagement::reserve_keeping_pages`].
+    pub(crate) fn reserve_keeping_pages(
         &mut self,
         size: u64,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        self.memory_pool.reserve(size, failures)
+        self.memory_pool.reserve_keeping_pages(size, failures)
+    }
+
+    /// Whether the main pool has anything outdated a relocation could move
+    /// — see [`MemoryManagement::relocatable`].
+    pub(crate) fn relocatable(&self) -> bool {
+        self.memory_pool.relocatable()
     }
 
     /// The bytes every pool of this stream holds from the device.

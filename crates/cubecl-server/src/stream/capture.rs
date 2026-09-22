@@ -222,9 +222,14 @@ impl StreamCapture {
         }
     }
 
-    /// The pages the recording touched, taken as the window closes.
+    /// The pages the recording touched, each named once, taken as the window
+    /// closes. A launch touches its pages again on every recorded launch, so
+    /// the list is deduplicated here, once, rather than on every touch.
     pub fn take_touched(&mut self) -> Vec<TouchedPage> {
-        core::mem::take(&mut self.touched)
+        let mut touched = core::mem::take(&mut self.touched);
+        touched.sort_unstable_by_key(TouchedPage::key);
+        touched.dedup_by_key(|page| page.key());
+        touched
     }
 
     /// Hold `staging` until the window opens, when the stream is preparing a
@@ -389,6 +394,19 @@ pub struct TouchedPage {
     /// renumbers pages while a stream records, so it still names the page
     /// when the window closes.
     pub location: MemoryLocation,
+}
+
+impl TouchedPage {
+    /// What names the page: the stream, and the whole location, since a pool
+    /// whose slices are their own allocations tells them apart by slice.
+    fn key(&self) -> (u64, u8, u16, u32) {
+        (
+            self.stream.value,
+            self.location.pool,
+            self.location.page,
+            self.location.slice,
+        )
+    }
 }
 
 /// A [`BufferBinding`] a recorded launch writes, without its memory held.
@@ -579,7 +597,12 @@ mod tests {
 
     /// A distinct buffer per call, on the owner's stream.
     fn buffer() -> BufferBinding {
-        Handle::new(service(), OWNER, 8).binding()
+        let binding = Handle::new(service(), OWNER, 8).binding();
+        // The reference the pool's slice keeps on a real allocation, which
+        // no test here has: a recording only answers for allocations
+        // something other than their pool still holds.
+        core::mem::forget(binding.memory.clone());
+        binding
     }
 
     fn ids(bindings: &[BufferBinding]) -> Vec<ManagedMemoryId> {

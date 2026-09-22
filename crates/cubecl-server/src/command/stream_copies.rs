@@ -8,10 +8,10 @@ use crate::storage::ComputeStorage;
 use alloc::vec::Vec;
 
 /// A command's streams, as the queue a relocation copies on: the current one
-/// carries the copies, and the wait covers every stream the command resolved
+/// carries the copies, and the wait covers every stream the pool has created
 /// plus whatever the driver runs outside them.
 pub(crate) struct StreamCopies<'a, D: Driver> {
-    /// Every stream the command resolved, to wait on before a byte moves.
+    /// Every stream the pool has created, to wait on before a byte moves.
     signals: Vec<<D::Stream as DeviceStream>::Signal>,
     /// The stream the copies are enqueued on.
     queue: <D::Stream as DeviceStream>::Signal,

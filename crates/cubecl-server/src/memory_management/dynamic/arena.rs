@@ -55,6 +55,7 @@ pub struct ArenaShape {
     current_pages: u64,
     outdated_pools: usize,
     outdated_pages: u64,
+    outdated_guarded: usize,
 }
 
 /// How the pages of a [`PoolArena`] are sized.
@@ -184,13 +185,22 @@ impl PoolArena {
     }
 
     /// What a relocation plans from: how many pages the current pool has
-    /// room on, and what the outdated pools hold. A plan that found nothing
-    /// to move finds nothing again until this changes.
+    /// room on, and what the outdated pools hold and keep guarded. A plan that
+    /// found nothing to move finds nothing again until this changes.
+    ///
+    /// Room freed inside the current pages does not show here, since slices
+    /// free as their owners drop them: that room is found by the plan after
+    /// the next page, growth or explicit cleanup.
     pub fn shape(&self) -> ArenaShape {
         ArenaShape {
             current_pages: self.current().pages_held(),
             outdated_pools: self.outdated.len(),
             outdated_pages: self.outdated().map(SlicedPool::pages_held).sum(),
+            outdated_guarded: self
+                .outdated()
+                .flat_map(SlicedPool::pages)
+                .filter(|page| page.is_guarded())
+                .count(),
         }
     }
 
@@ -446,11 +456,10 @@ impl PoolArena {
                 backtrace: BackTrace::capture(),
             });
         };
-        // What the current pool no longer holds goes back before the new one
-        // allocates, so the footprint tracks the working set through a growth.
-        // Safe whether or not the growth succeeds: those pages are empty.
-        self.current_mut().release_empty(storage, failures);
-
+        // The pages the current pool leaves empty go back with the next
+        // cleanup, which drains the pool once it is outdated. Not here: a
+        // reservation never releases a page, so a caller that must keep every
+        // page where it is can still reserve.
         let mut pool = self.sizing.pool(page_size, self.first_index + slot as u8);
         let handle = pool.alloc(storage, size, mapping, failures)?;
 

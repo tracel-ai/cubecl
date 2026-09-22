@@ -14,7 +14,7 @@ use super::stream_copies::StreamCopies;
 use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
 use crate::memory_management::drop_queue::Fence;
-use crate::memory_management::relocation::Relocate;
+use crate::memory_management::relocation::{Relocate, RelocatingStreams};
 use crate::memory_management::{
     ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport, MemoryUsage, PageGuard,
 };
@@ -146,50 +146,10 @@ impl<'a, D: Driver> Command<'a, D> {
 
         let (stream, failures) = self.streams.current_and_failures();
         stream.device_memory().cleanup(true, failures);
-        self.relocate(Relocate::Explicit);
+        RelocatingStreams::relocate(self, Relocate::Explicit);
         let (stream, failures) = self.streams.current_and_failures();
         stream.host_memory().cleanup(true, failures);
         Ok(())
-    }
-
-    /// Whether any stream is recording a graph.
-    fn recording(&mut self) -> bool {
-        self.streams
-            .all()
-            .any(|stream| stream.capturing().is_recording())
-    }
-
-    /// Whether the current stream's outdated pools are worth emptying now,
-    /// and why: the pressure is read against what every stream's memory holds,
-    /// since they all share the device.
-    fn relocation(&mut self) -> Option<Relocate> {
-        let allocated = self
-            .streams
-            .all()
-            .map(|stream| stream.device_memory().bytes_allocated())
-            .sum();
-        self.streams.current().device_memory().relocation(allocated)
-    }
-
-    /// Empty the current stream's outdated pools into its current pages, so
-    /// the pages that frees go back to the driver now rather than when their
-    /// longest-lived allocation ends.
-    ///
-    /// Skipped while any stream records a graph: the copies wait on every
-    /// stream, and a host wait on a capturing one invalidates its capture.
-    pub(super) fn relocate(&mut self, reason: Relocate) {
-        if self.recording() {
-            return;
-        }
-        // Rare enough to gather the signals as it goes: it waits on the
-        // whole device anyway.
-        let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
-        let queue = self.streams.current().signal();
-        let mut copier = StreamCopies::<D>::new(signals, queue, self.ctx);
-        let (stream, failures) = self.streams.current_and_failures();
-        stream
-            .device_memory()
-            .relocate(&mut copier, reason, failures);
     }
 
     /// Flush the current stream's drop queue, freeing what the device is
@@ -237,26 +197,45 @@ impl<'a, D: Driver> Command<'a, D> {
             return Err(err);
         }
 
-        // Emptying an outdated pool happens while the device still has a page
-        // to spare — waiting for it to refuse one would leave the copies
-        // nowhere to land — or before the arena runs out of page sizes.
-        if let Some(reason) = self.relocation() {
-            self.relocate(reason);
+        // While any stream records, every page keeps its number and its
+        // address: nothing is cleaned up or relocated, so the pages the
+        // recording touched are still the ones it guards when it seals.
+        if self.recording() {
+            let (stream, failures) = self.streams.current_and_failures();
+            return stream.device_memory().reserve_keeping_pages(size, failures);
         }
+
+        self.relocate_when_wanted();
 
         let (stream, failures) = self.streams.current_and_failures();
         match stream.device_memory().reserve(size, failures) {
             Ok(handle) => Ok(handle),
             Err(err) if !err.may_succeed_after_reclaim() => Err(err),
-            // Reclaim this stream's memory and retry once; only a failure after
-            // that is reported. Without the retry a transient peak becomes a
-            // never-initialized handle whose every downstream use fails.
+            // Reclaim and retry once; only a failure after that is reported.
+            // Without the retry a transient peak becomes a never-initialized
+            // handle whose every downstream use fails.
             Err(err) => {
                 log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
-                // Not recording, checked above, so the cleanup is not refused.
-                let _ = self.memory_cleanup();
+                self.reclaim(&err);
                 let (stream, failures) = self.streams.current_and_failures();
                 stream.device_memory().reserve(size, failures)
+            }
+        }
+    }
+
+    /// Get back what the reservation that failed with `err` needs: a slot for
+    /// a new page size when the arena is full, memory otherwise.
+    fn reclaim(&mut self, err: &IoError) {
+        match err {
+            // Only a relocation that may allocate empties the outdated pools
+            // whatever room the current pages have.
+            IoError::PageSizesExhausted { .. } => {
+                RelocatingStreams::relocate(self, Relocate::ArenaFull)
+            }
+            // No stream records (the caller checked), which is the only
+            // refusal a cleanup has.
+            _ => {
+                let _ = self.memory_cleanup();
             }
         }
     }
@@ -308,15 +287,23 @@ impl<'a, D: Driver> Command<'a, D> {
     /// `size` bytes of pinned host memory, or `None` when the pool cannot
     /// serve it.
     fn reserve_pinned(&mut self, size: usize, origin: Option<StreamId>) -> Option<Bytes> {
+        let recording = self.recording();
         let (stream, failures) = match origin {
             Some(id) => self.streams.get_and_failures(&id),
             None => self.streams.current_and_failures(),
         };
         // A stream recording a graph stages from what the pool holds, and
-        // falls back to the heap rather than allocate.
-        let handle = match stream.capturing().is_recording() {
-            true => stream.host_memory().try_reserve(size as u64, failures)?,
-            false => stream.host_memory().reserve(size as u64, failures).ok()?,
+        // falls back to the heap rather than allocate; while another stream
+        // records, nothing is released.
+        let handle = if stream.capturing().is_recording() {
+            stream.host_memory().try_reserve(size as u64, failures)?
+        } else if recording {
+            stream
+                .host_memory()
+                .reserve_keeping_pages(size as u64, failures)
+                .ok()?
+        } else {
+            stream.host_memory().reserve(size as u64, failures).ok()?
         };
 
         let binding = MemoryHandle::binding(handle);
@@ -578,5 +565,44 @@ impl<'a, D: Driver> Command<'a, D> {
         }
 
         result
+    }
+}
+
+impl<D: Driver> RelocatingStreams for Command<'_, D> {
+    fn recording(&mut self) -> bool {
+        self.streams
+            .all()
+            .any(|stream| stream.capturing().is_recording())
+    }
+
+    fn relocatable(&mut self) -> bool {
+        self.streams.current().device_memory().relocatable()
+    }
+
+    fn bytes_allocated(&mut self) -> u64 {
+        self.streams
+            .all()
+            .map(|stream| stream.device_memory().bytes_allocated())
+            .sum()
+    }
+
+    fn relocation(&mut self, allocated: u64) -> Option<Relocate> {
+        self.streams.current().device_memory().relocation(allocated)
+    }
+
+    /// Nothing here: [`StreamCopies`] waits on every stream before its first
+    /// copy, so a relocation with nothing to move waits on none.
+    fn finish(&mut self) {}
+
+    fn relocate_memory(&mut self, reason: Relocate) {
+        // Rare enough to gather the signals as it goes: it waits on the whole
+        // device anyway.
+        let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
+        let queue = self.streams.current().signal();
+        let mut copier = StreamCopies::<D>::new(signals, queue, self.ctx);
+        let (stream, failures) = self.streams.current_and_failures();
+        stream
+            .device_memory()
+            .relocate(&mut copier, reason, failures);
     }
 }

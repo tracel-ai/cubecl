@@ -22,7 +22,10 @@ use cubecl_server::{
     dry_run::LaunchMode,
     kernel::CubeKernel,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, relocation::Relocate},
+    memory_management::{
+        ManagedMemoryHandle,
+        relocation::{Relocate, RelocatingStreams},
+    },
     server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{
@@ -196,11 +199,7 @@ impl Server for MetalServer {
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         let cursor = resolved.cursor;
-        // Emptying an outdated pool happens while the device still has a page
-        // to spare, or before the pools run out of page sizes.
-        if let Some(reason) = relocation(&mut resolved) {
-            relocate(&mut resolved, reason);
-        }
+        Relocating(&mut resolved).relocate_when_wanted();
         let (stream, failures) = resolved.current_and_failures();
         let reserved = stream
             .memory_management
@@ -691,7 +690,7 @@ impl Server for MetalServer {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         let (stream, failures) = resolved.current_and_failures();
         stream.memory_management.cleanup(true, failures);
-        relocate(&mut resolved, Relocate::Explicit);
+        Relocating(&mut resolved).relocate(Relocate::Explicit);
         Ok(())
     }
 
@@ -705,25 +704,41 @@ impl Server for MetalServer {
     }
 }
 
-/// Whether the current stream's outdated pools are worth emptying now, and
-/// why: the pressure is read against what every stream holds, since they all
-/// share the device.
-fn relocation(resolved: &mut ResolvedStreams<'_, MetalStreamBackend>) -> Option<Relocate> {
-    let allocated = resolved
-        .all()
-        .map(|stream| stream.memory_management.bytes_allocated())
-        .sum();
-    resolved.current().memory_management.relocation(allocated)
-}
+/// A command's streams, as relocating the current stream's memory needs them.
+struct Relocating<'r, 'a>(&'r mut ResolvedStreams<'a, MetalStreamBackend>);
 
-/// Empty the current stream's outdated pools into its current pages, once
-/// every stream has finished what it submitted.
-fn relocate(resolved: &mut ResolvedStreams<'_, MetalStreamBackend>, reason: Relocate) {
-    for stream in resolved.all() {
-        stream.finish();
+impl RelocatingStreams for Relocating<'_, '_> {
+    /// Never: Metal records no graphs.
+    fn recording(&mut self) -> bool {
+        false
     }
-    let (stream, failures) = resolved.current_and_failures();
-    stream.relocate(reason, failures);
+
+    fn relocatable(&mut self) -> bool {
+        self.0.current().memory_management.relocatable()
+    }
+
+    fn bytes_allocated(&mut self) -> u64 {
+        self.0
+            .all()
+            .map(|stream| stream.memory_management.bytes_allocated())
+            .sum()
+    }
+
+    fn relocation(&mut self, allocated: u64) -> Option<Relocate> {
+        self.0.current().memory_management.relocation(allocated)
+    }
+
+    /// Commit every stream's open batch and wait for everything it submitted.
+    fn finish(&mut self) {
+        for stream in self.0.all() {
+            stream.finish();
+        }
+    }
+
+    fn relocate_memory(&mut self, reason: Relocate) {
+        let (stream, failures) = self.0.current_and_failures();
+        stream.relocate(reason, failures);
+    }
 }
 
 #[cfg(test)]

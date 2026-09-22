@@ -315,6 +315,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.storage.bytes_allocated()
     }
 
+    /// Whether anything is outdated that a relocation could move: the cheap
+    /// question to ask before summing what the device holds for
+    /// [`relocation`](Self::relocation).
+    pub fn relocatable(&self) -> bool {
+        self.pools.relocatable()
+    }
+
     /// Whether emptying the outdated pools is worth its copies now, and why,
     /// on a device whose memories hold `allocated` bytes across every stream:
     /// only while something is outdated, when the arena is full or the next
@@ -324,9 +331,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.pools.relocation(allocated)
     }
 
-    /// Empty what the outdated pools hold into the current pages, and return
-    /// the pages that frees. `reason` decides whether a target may take a new
-    /// page.
+    /// Empty what the outdated pools hold into the current pages, so the
+    /// pages they held go back to the driver. `reason` decides whether a
+    /// target may take a new page.
     pub fn relocate(
         &mut self,
         copier: &mut dyn CopyQueue<Storage>,
@@ -389,16 +396,31 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         size: u64,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
-        // hard about overflow here.
-        self.alloc_reserve_count += 1;
-
         // Drive the pools' periodic deallocation. Each pool gates itself on
         // its own `dealloc_period` (pools without one no-op), so this is a few
         // comparisons per reservation — without it, pages freed long ago are
         // never returned to the driver until an explicit cleanup, which on
         // long-running processes lets every stream's pools grow monotonically.
         self.cleanup(false, failures);
+        self.reserve_keeping_pages(size, failures)
+    }
+
+    /// [`reserve`](Self::reserve), without the periodic cleanup that runs
+    /// first: no page is released or renumbered, so every page keeps the
+    /// address and the number it had.
+    ///
+    /// For a caller that needs the pages to stay put — a server while any
+    /// stream records a graph, whose touched pages it guards once it seals.
+    /// That caller runs [`cleanup`](Self::cleanup) itself when they may move.
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
+    pub fn reserve_keeping_pages(
+        &mut self,
+        size: u64,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError> {
+        // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
+        // hard about overflow here.
+        self.alloc_reserve_count += 1;
 
         let mapping = PageMapping::current();
 

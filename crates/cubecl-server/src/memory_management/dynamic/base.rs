@@ -118,6 +118,15 @@ impl DynamicMemory {
         }
     }
 
+    /// Whether anything is outdated that a relocation could move (see
+    /// [`AdaptiveMemory::relocatable`]).
+    pub fn relocatable(&self) -> bool {
+        match self {
+            DynamicMemory::Exclusive(_) => false,
+            DynamicMemory::Adaptive(memory) => memory.relocatable(),
+        }
+    }
+
     /// Whether a relocation is worth its copies now, and why, on a device
     /// whose storages hold `allocated` bytes across every stream (see
     /// [`AdaptiveMemory::relocation`]). Never where pages are never outdated.
@@ -128,8 +137,9 @@ impl DynamicMemory {
         }
     }
 
-    /// Empty what the outdated pools hold into the current pages, and return
-    /// the pages that frees. Nothing to move where pages are never outdated.
+    /// Empty what the outdated pools hold into the current pages, so the
+    /// pages they held go back to the driver. Nothing to move where pages are
+    /// never outdated.
     pub fn relocate<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,

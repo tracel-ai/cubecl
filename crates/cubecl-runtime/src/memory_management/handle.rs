@@ -264,9 +264,14 @@ impl ManagedMemoryBinding {
 }
 
 impl WeakMemoryBinding {
-    /// The binding back, while the memory it names still exists. `None` once
-    /// the slice it named is gone.
+    /// The binding back, while the memory it names is allocated: held by
+    /// something other than the pool that carved it, which keeps a reference
+    /// of its own whether the slice is free or not (see
+    /// [`ManagedMemoryHandle::is_free`]). `None` once every owner let it go.
     pub fn upgrade(&self) -> Option<ManagedMemoryBinding> {
+        if self.descriptor.strong_count() <= 1 {
+            return None;
+        }
         let descriptor = self.descriptor.upgrade()?;
         Some(ManagedMemoryBinding { descriptor })
     }
