@@ -43,8 +43,8 @@ impl LlvmModule {
     /// # Errors
     /// The message LLVM's parser gives, when `ir` is not valid LLVM IR.
     pub(crate) fn new(ir: &str) -> Result<Self, String> {
-        // SAFETY: the context is fresh, and `LLVMParseIRInContext2` takes ownership of the
-        // buffer, including on failure.
+        // SAFETY: the context is fresh, and `LLVMParseIRInContext2` does not consume the
+        // buffer, so it is disposed here once parsing is done, on either path.
         unsafe {
             let ctx = LLVMContextCreate();
             let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
@@ -54,7 +54,9 @@ impl LlvmModule {
             );
             let mut module = std::ptr::null_mut();
             let mut error = std::ptr::null_mut();
-            if LLVMParseIRInContext2(ctx, buffer, &mut module, &mut error) != 0 {
+            let failed = LLVMParseIRInContext2(ctx, buffer, &mut module, &mut error) != 0;
+            LLVMDisposeMemoryBuffer(buffer);
+            if failed {
                 LLVMContextDispose(ctx);
                 return Err(take_message(error));
             }
