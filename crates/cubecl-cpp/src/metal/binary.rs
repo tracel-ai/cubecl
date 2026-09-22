@@ -10,7 +10,7 @@ use cubecl_core::{
 
 use crate::{
     metal::metal_op_with_out,
-    shared::{CppValue, lowering::LowerOp, unroll::unrolling},
+    shared::{CppValue, convert::no_msl_bfloat, lowering::LowerOp, unroll::unrolling},
     target::Metal,
 };
 
@@ -68,6 +68,7 @@ metal_op_with_out!(FMinOp, |op, ctx| {
     let rhs = op.rhs(ctx).name(ctx);
     format!("min({lhs}, {rhs})")
 });
+no_msl_bfloat!(FMinOp);
 
 metal_op_with_out!(SMaxOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
@@ -84,6 +85,7 @@ metal_op_with_out!(FMaxOp, |op, ctx| {
     let rhs = op.rhs(ctx).name(ctx);
     format!("max({lhs}, {rhs})")
 });
+no_msl_bfloat!(FMaxOp);
 
 metal_op_with_out!(PowfOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
