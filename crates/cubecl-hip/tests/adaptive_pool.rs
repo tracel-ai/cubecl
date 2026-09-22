@@ -19,7 +19,7 @@ fn relocation_moves_live_bytes_off_outdated_pages() {
 
     let pattern: Vec<u8> = (0..4 * MIB).map(|i| (i % 251) as u8).collect();
     let kept = client.create_from_slice(&pattern);
-    // Past the 64 MiB floor: the page size grows and `kept`'s page is outdated.
+    // Larger than `kept`'s page: the page size grows and that page is outdated.
     let large = client.empty(100 * MIB);
     assert_eq!(adaptive(&client), (101 * MIB as u64, 1));
 

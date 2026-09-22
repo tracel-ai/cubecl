@@ -201,9 +201,11 @@ const ADAPTIVE_SMALL_PAGE: u64 = 8 * 1024 * 1024;
 #[cfg(not(exclusive_memory_only))]
 const ADAPTIVE_SMALL_SLICE: u64 = 64 * 1024;
 /// The `Adaptive` preset's smallest adaptive page, capped by the device's
-/// `max_page_size`.
+/// `max_page_size`: what the smallest allocation it serves (just past
+/// [`ADAPTIVE_SMALL_SLICE`]) needs anyway once rounded, so a stream that only
+/// makes small allocations holds a page its size rather than a floor's.
 #[cfg(not(exclusive_memory_only))]
-const ADAPTIVE_MIN_PAGE: u64 = 64 * 1024 * 1024;
+const ADAPTIVE_MIN_PAGE: u64 = 2 * 1024 * 1024;
 
 const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
 const BASE_DEALLOC_PERIOD: u64 = 5000;
