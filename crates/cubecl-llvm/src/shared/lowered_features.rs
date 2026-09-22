@@ -48,8 +48,8 @@ fn is_half_or_single(ty: ElemType) -> bool {
     )
 }
 
-/// Each of these comes back as its lowering lands; see the matrix and TMA work in the `nvptx`
-/// module.
+/// Keeps the matrix forms NVPTX has register shapes for; `restrict_common` removes what
+/// neither target lowers.
 #[cfg(feature = "nvptx")]
 fn restrict_nvptx(props: &mut DeviceProperties) {
     // Both matrix families are lowered: the cooperative one through `wmma`, the manual one
@@ -80,15 +80,8 @@ fn restrict_nvptx(props: &mut DeviceProperties) {
             && config.cd_type == ElemType::Int(IntKind::I32);
         floats || integers
     });
-    // The manual `mma.sync` family, `ldmatrix` and `stmatrix` are advertised: the lowering is
-    // correct, which `test_cmma_manual` checks element by element and cubek's
-    // `multi_level::basic::plane_accelerated::*_mma` matmuls now agree with.
-    //
-    // Those matmuls did come out wrong here for a while, and it is worth saying why they were
-    // not this backend's fault: they published an accumulator tile to shared memory and read it
-    // back across the plane with no barrier, which works on a backend whose optimizer takes the
-    // code at its word and does not survive one that does not. The barrier belongs in the
-    // kernel and is now there.
+    // The manual `mma.sync` family, `ldmatrix` and `stmatrix` are advertised as lowered;
+    // `test_cmma_manual` checks them element by element.
 }
 
 /// The matrix lowering is RDNA's WMMA with `f16` operands: CDNA's MFMA, the integer and fp8
