@@ -64,6 +64,7 @@ pub type DynamicUniformityAnalysis = SparseForward<DynamicValueUniformity>;
 pub type StrictUniformityLattice = SparseLattice<StrictUniformity>;
 pub type StrictUniformityAnalysis = SparseForward<StrictValueUniformity>;
 
+#[derive(Default)]
 pub struct DynamicValueUniformity;
 
 impl SparseForwardDataflowAnalysis for DynamicValueUniformity {
@@ -157,12 +158,13 @@ impl SparseForwardDataflowAnalysis for DynamicValueUniformity {
     }
 }
 
+#[derive(Default)]
 pub struct StrictValueUniformity;
 
 impl SparseForwardDataflowAnalysis for StrictValueUniformity {
     type LatticeValue = StrictUniformity;
 
-    fn verify(&self, solver: &DataflowSolver, _ctx: &Context, _root: Ptr<Operation>) -> Result<()> {
+    fn verify(solver: &DataflowSolver, _ctx: &Context, _root: Ptr<Operation>) -> Result<()> {
         solver.require_loaded::<BlockUniformityAnalysis>()?;
         solver.require_loaded::<SparseForward<DynamicValueUniformity>>()?;
         Ok(())

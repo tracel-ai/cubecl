@@ -15,6 +15,7 @@ use pliron::{
     basic_block::BasicBlock,
     graph::HasLabel,
     linked_list::{ContainsLinkedList, LinkedList},
+    operation::OpDbg,
     printable::Printable,
     verify_err_noloc,
 };
@@ -24,6 +25,7 @@ pub use solver::*;
 
 pub mod control_flow_uniformity;
 pub mod dead_code;
+pub mod dense;
 pub mod sccp;
 pub mod sparse;
 pub mod value_uniformity;
@@ -324,7 +326,9 @@ impl Printable for ProgramPoint {
         f: &mut core::fmt::Formatter<'_>,
     ) -> core::fmt::Result {
         match self {
-            ProgramPoint::Operation(op) => write!(f, "ProgramPoint::Operation({})", op.disp(ctx)),
+            ProgramPoint::Operation(op) => {
+                write!(f, "ProgramPoint::Operation({})", OpDbg { op: *op, ctx })
+            }
             ProgramPoint::BeforeOpInBlock(block, _) if self.is_block_start(ctx) => {
                 write!(f, "ProgramPoint::StartOfBlock({})", block.label(ctx))
             }
@@ -333,7 +337,7 @@ impl Printable for ProgramPoint {
                     f,
                     "ProgramPoint::BeforeOpInBlock({}, {})",
                     block.label(ctx),
-                    op.disp(ctx)
+                    OpDbg { op: *op, ctx }
                 )
             }
             ProgramPoint::EndOfBlock(block) => {

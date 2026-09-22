@@ -54,12 +54,13 @@ impl LatticeValue for ConstantValue {
 pub type ConstantLattice = SparseLattice<ConstantValue>;
 pub type SparseConstantPropagationAnalysis = SparseForward<SparseConstantPropagation>;
 
+#[derive(Default)]
 pub struct SparseConstantPropagation;
 
 impl SparseForwardDataflowAnalysis for SparseConstantPropagation {
     type LatticeValue = ConstantValue;
 
-    fn verify(&self, solver: &DataflowSolver, _ctx: &Context, _root: Ptr<Operation>) -> Result<()> {
+    fn verify(solver: &DataflowSolver, _ctx: &Context, _root: Ptr<Operation>) -> Result<()> {
         solver.require_loaded::<DeadCodeAnalysis>()
     }
 

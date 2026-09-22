@@ -129,6 +129,19 @@ impl Executable {
     }
 }
 
+pub fn is_block_live<A: 'static>(
+    solver: &DataflowSolver,
+    ctx: &Context,
+    point: ProgramPoint,
+) -> bool {
+    let Some(block) = point.block() else {
+        return true;
+    };
+    let executable = solver
+        .get_or_create_for::<A, Executable>(point, ProgramPoint::at_block_start(ctx, block).into());
+    executable.deref().is_live()
+}
+
 impl AnalysisState for Executable {
     type Anchor = ControlFlowAnchor;
 

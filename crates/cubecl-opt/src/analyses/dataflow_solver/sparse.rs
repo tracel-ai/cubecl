@@ -1,4 +1,4 @@
-use core::{any::TypeId, cell::RefCell, marker::PhantomData};
+use core::{any::TypeId, cell::RefCell};
 
 use alloc::vec::Vec;
 use cubecl_ir::{
@@ -19,26 +19,30 @@ use pliron::{
 
 use crate::analyses::dataflow_solver::{
     AnalysisState, ChangeResult, DataflowSolver, ReadRef, SmallPtrVec, SolverWorkItem, WriteRef,
-    dead_code::{CFGEdge, Executable, PredecessorState},
+    dead_code::{CFGEdge, DeadCodeAnalysis, Executable, PredecessorState},
 };
 
 use super::{DataflowAnalysis, ProgramPoint};
 
 pub struct SparseForward<T: SparseForwardDataflowAnalysis> {
-    _inner: PhantomData<T>,
+    inner: T,
     symbol_table: RefCell<SymbolTableCollection>,
 }
 
 impl<T: SparseForwardDataflowAnalysis> Default for SparseForward<T> {
     fn default() -> Self {
         Self {
-            _inner: Default::default(),
+            inner: Default::default(),
             symbol_table: Default::default(),
         }
     }
 }
 
 impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
+    pub fn inner(&self) -> &T {
+        &self.inner
+    }
+
     pub fn set_all_to_entry_states(
         &self,
         solver: &DataflowSolver,
@@ -439,6 +443,10 @@ impl<T: SparseForwardDataflowAnalysis> SparseForward<T> {
 }
 
 impl<T: SparseForwardDataflowAnalysis + 'static> DataflowAnalysis for SparseForward<T> {
+    fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
+        T::verify(solver, ctx, root)
+    }
+
     fn initialize(
         &mut self,
         solver: &mut DataflowSolver,
@@ -555,17 +563,17 @@ impl<T: LatticeValue> AnalysisState for SparseLattice<T> {
     }
 }
 
-pub trait SparseForwardDataflowAnalysis: Sized + 'static {
+pub trait SparseForwardDataflowAnalysis: Default + Sized + 'static {
     type LatticeValue: LatticeValue;
 
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are
     /// loaded.
-    fn verify(&self, solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
-        let _ = (solver, ctx, root);
+    fn verify(solver: &DataflowSolver, ctx: &Context, root: Ptr<Operation>) -> Result<()> {
+        let _ = (ctx, root);
+        solver.require_loaded::<DeadCodeAnalysis>()?;
         Ok(())
     }
 
-    #[allow(clippy::result_unit_err)]
     fn visit_operation(
         this: &SparseForward<Self>,
         solver: &DataflowSolver,

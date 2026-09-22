@@ -1298,6 +1298,7 @@ dependencies = [
  "expect-test",
  "foldhash 0.2.0",
  "hashbrown 0.17.1",
+ "hi_sparse_bitset",
  "itertools 0.15.0",
  "log",
  "pliron",

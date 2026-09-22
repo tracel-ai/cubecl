@@ -14,6 +14,7 @@ use cubecl_ir::{
     interfaces::{memory_slot::MemoryValue, side_effects::MemoryEffectsOp},
     prelude::{Rewriter as _, *},
 };
+use derive_more::{Eq, PartialEq};
 use pliron::{
     attribute::AttributeDict,
     graph::ControlFlowGraph,
