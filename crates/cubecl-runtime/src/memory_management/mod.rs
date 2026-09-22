@@ -64,6 +64,9 @@ pub enum PoolType {
     /// of waiting on their longest-lived slice.
     ///
     /// Accepts every size: a page is always large enough for what it serves.
+    /// A [`SlicedPages`](PoolType::SlicedPages) pool listed before it then
+    /// accepts only up to its `max_slice_size`, not also allocations close to
+    /// its page size: those land here, on pages sized to them.
     AdaptivePages {
         /// The smallest page the pool allocates, so a pool whose largest
         /// allocation is small still carves pages worth carving.

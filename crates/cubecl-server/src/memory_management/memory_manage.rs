@@ -1055,6 +1055,12 @@ fn build_pools(
         .iter()
         .enumerate()
         .map(|(pool_pos, pool)| {
+            // An adaptive pool routed after this one serves any size with pages
+            // sized to it, so a near-page-size allocation is better off there
+            // than fragmenting a fixed page it was never sized for.
+            let adaptive_after = pool_options[pool_pos + 1..]
+                .iter()
+                .any(|later| matches!(later.pool_type, PoolType::AdaptivePages { .. }));
             let pool_pos = pool_pos as u8;
 
             match pool.pool_type {
@@ -1062,13 +1068,19 @@ fn build_pools(
                     page_size,
                     max_slice_size,
                     max_pool_size,
-                } => DynamicPool::Sliced(SlicedPool::new(
-                    page_size,
-                    max_slice_size,
-                    properties.alignment,
-                    pool_pos,
-                    max_pool_size,
-                )),
+                } => {
+                    let sliced = SlicedPool::new(
+                        page_size,
+                        max_slice_size,
+                        properties.alignment,
+                        pool_pos,
+                        max_pool_size,
+                    );
+                    DynamicPool::Sliced(match adaptive_after {
+                        true => sliced.up_to_max_slice(),
+                        false => sliced,
+                    })
+                }
                 PoolType::ExclusivePages { max_alloc_size } => {
                     DynamicPool::Exclusive(ExclusiveMemoryPool::new(
                         max_alloc_size,
@@ -1094,7 +1106,7 @@ mod tests {
     use crate::memory_management::MemoryPoolOptions;
     use crate::{
         config::memory::{MemoryPoolConfig, MemoryPoolsConfig, MemoryPoolsPreset},
-        memory_management::{MemoryManagement, PoolConfigError},
+        memory_management::{MemoryManagement, MemoryPoolKind, PoolConfigError},
         storage::BytesStorage,
     };
     use alloc::vec;
@@ -1107,6 +1119,35 @@ mod tests {
             name: "test".into(),
             memory: MemoryAllocationOption::FromConfig,
         }
+    }
+
+    /// The adaptive preset's small pool is for metadata: an allocation close
+    /// to its page size still goes to the adaptive pool, which sizes pages to
+    /// what it serves, rather than onto the metadata pages.
+    #[test_log::test]
+    #[cfg(not(exclusive_memory_only))]
+    fn adaptive_preset_routes_near_page_sizes_to_the_adaptive_pool() {
+        const MIB: u64 = 1024 * 1024;
+        let mut memory = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Adaptive,
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+        let _near = memory.reserve(7 * MIB, &mut ErrorGraph::default()).unwrap();
+
+        let served = memory
+            .memory_report()
+            .dynamic
+            .into_iter()
+            .find(|pool| pool.largest_alloc == 7 * MIB)
+            .expect("some pool served the allocation");
+        assert!(
+            matches!(served.kind, MemoryPoolKind::Adaptive { .. }),
+            "served by {:?}",
+            served.kind
+        );
     }
 
     // Test pools with slices.

@@ -49,6 +49,9 @@ enum PageSizing {
         /// Max number of pages (`floor(max_pool_size / page_size)`); `None`
         /// keeps unbounded growth.
         max_pages: Option<u16>,
+        /// Whether an allocation past `max_slice_size` but close to the page
+        /// size is accepted too, as one that leaves little of its page unused.
+        near_page_size: bool,
     },
     /// `largest + 1 MiB`, MiB-rounded, never below `min_page_size`
     /// ([`PoolType::AdaptivePages`](crate::memory_management::PoolType::AdaptivePages)).
@@ -111,10 +114,25 @@ impl SlicedPool {
             PageSizing::Fixed {
                 max_slice_size: max_slice_size.min(page_size),
                 max_pages,
+                // Not for a capped pool: it is a budget for the allocations
+                // `max_slice_size` routes to it, and near-page-size strays would
+                // exhaust it (e.g. a small metadata pool whose page size matches
+                // an upload staging chunk).
+                near_page_size: max_pages.is_none(),
             },
             alignment,
             pool_pos,
         )
+    }
+
+    /// Accept only up to `max_slice_size`, never an allocation for being close
+    /// to the page size: for a pool routed ahead of one that sizes its pages
+    /// to what it serves, where those allocations fragment nothing.
+    pub fn up_to_max_slice(mut self) -> Self {
+        if let PageSizing::Fixed { near_page_size, .. } = &mut self.sizing {
+            *near_page_size = false;
+        }
+        self
     }
 
     /// A pool whose page size follows the largest allocation it has served,
@@ -148,6 +166,7 @@ impl SlicedPool {
             PageSizing::Fixed {
                 max_slice_size,
                 max_pages,
+                ..
             } => MemoryPoolKind::Sliced {
                 page_size: self.page_size,
                 max_slice_size: *max_slice_size,
@@ -426,15 +445,14 @@ impl MemoryPool for SlicedPool {
         match &self.sizing {
             PageSizing::Fixed {
                 max_slice_size,
-                max_pages,
+                near_page_size,
+                ..
             } => {
                 *max_slice_size >= size
                     ||
                     // If the size is close to the page size so it doesn't create much fragmentation with
-                    // unused space. Only for unbounded pools: a hard-capped pool is a budget for the
-                    // allocations `max_slice_size` routes to it, and near-page-size strays would exhaust
-                    // it (e.g. a small metadata pool whose page size matches an upload staging chunk).
-                    (max_pages.is_none()
+                    // unused space.
+                    (*near_page_size
                         && match self.page_size.checked_sub(size) {
                             Some(diff) => diff * 5 < self.page_size, // 20 % unused space is the max allowed.
                             None => false,
@@ -586,6 +604,7 @@ impl Display for SlicedPool {
             PageSizing::Fixed {
                 max_slice_size,
                 max_pages,
+                ..
             } => {
                 f.write_fmt(format_args!(
                     " - Sliced Pool page_size={} max_alloc_size={}",
