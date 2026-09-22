@@ -4,6 +4,7 @@ use cubecl_core::{MemoryConfiguration, server::ServerError};
 use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
+use cubecl_server::memory_management::Cleanup;
 use cubecl_server::memory_management::relocation::Relocate;
 use cubecl_server::{
     logging::ServerLogger,
@@ -215,7 +216,7 @@ impl MetalStream {
                 std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
             }
             self.submitted_ops = 0;
-            self.memory_management.cleanup(false, failures);
+            self.memory_management.cleanup(Cleanup::Periodic, failures);
         }
     }
 }

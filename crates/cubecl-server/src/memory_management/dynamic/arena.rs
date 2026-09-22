@@ -1,6 +1,7 @@
 //! The pools a workload's allocations are carved from, one per page size it
 //! grew through.
 
+use crate::memory_management::Cleanup;
 use crate::{
     memory_management::{
         ErrorGraph, ManagedMemoryHandle, MemoryPoolKind, MemoryPoolReport, MemoryUsage,
@@ -147,15 +148,15 @@ impl PoolArena {
     }
 
     /// The pool `index` names, while one is there.
-    pub fn pool(&self, index: usize) -> Option<&SlicedPool> {
-        let slot = index.checked_sub(self.first_index as usize)?;
-        self.slots.get(slot)?.as_ref()
+    pub fn pool(&self, index: u8) -> Option<&SlicedPool> {
+        let slot = index.checked_sub(self.first_index)?;
+        self.slots.get(slot as usize)?.as_ref()
     }
 
     /// The pool `index` names, mutably.
-    pub fn pool_mut(&mut self, index: usize) -> Option<&mut SlicedPool> {
-        let slot = index.checked_sub(self.first_index as usize)?;
-        self.slots.get_mut(slot)?.as_mut()
+    pub fn pool_mut(&mut self, index: u8) -> Option<&mut SlicedPool> {
+        let slot = index.checked_sub(self.first_index)?;
+        self.slots.get_mut(slot as usize)?.as_mut()
     }
 
     /// The pool new allocations are carved from.
@@ -212,13 +213,16 @@ impl PoolArena {
     /// The pools `source` and `target` name, which are distinct.
     pub fn pair_mut(
         &mut self,
-        source: usize,
-        target: usize,
+        source: u8,
+        target: u8,
     ) -> Option<(&mut SlicedPool, &mut SlicedPool)> {
-        let first = self.first_index as usize;
+        let first = self.first_index;
         let [source, target] = self
             .slots
-            .get_disjoint_mut([source.checked_sub(first)?, target.checked_sub(first)?])
+            .get_disjoint_mut([
+                source.checked_sub(first)? as usize,
+                target.checked_sub(first)? as usize,
+            ])
             .ok()?;
         Some((source.as_mut()?, target.as_mut()?))
     }
@@ -239,7 +243,7 @@ impl PoolArena {
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self.sizing.fit(size, self.current().page_size()) {
-            Fit::Fits => self.reserve_current(storage, size, mapping, failures),
+            Fit::Fits => self.current_mut().reserve(storage, size, mapping, failures),
             Fit::Grow { page_size } => self.grow(storage, size, page_size, mapping, failures),
             Fit::TooLarge => Err(IoError::BufferTooBig {
                 size,
@@ -267,11 +271,11 @@ impl PoolArena {
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
         self.current_mut()
-            .cleanup(storage, alloc_nr, explicit, failures);
+            .cleanup(storage, alloc_nr, cleanup, failures);
         self.drain(storage, failures);
     }
 
@@ -375,9 +379,7 @@ impl PoolArena {
             drop(target);
             drop(allocation);
 
-            if let Some((source_pool, target_pool)) =
-                self.pair_mut(source.pool as usize, destination.pool as usize)
-            {
+            if let Some((source_pool, target_pool)) = self.pair_mut(source.pool, destination.pool) {
                 source_pool
                     .slice_at(source)
                     .hand_over(target_pool.slice_at(destination), failures);
@@ -396,7 +398,7 @@ impl PoolArena {
         failures: &mut ErrorGraph,
     ) -> Option<Move> {
         let source = allocation.handle.descriptor().location();
-        let pool = self.pool_mut(source.pool as usize)?;
+        let pool = self.pool_mut(source.pool)?;
         let source_storage = pool.slice_at(source).storage.clone();
         let source_mapped = pool.is_mapped_at(source);
 
@@ -423,20 +425,6 @@ impl PoolArena {
             target,
             copy,
         })
-    }
-
-    fn reserve_current<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: u64,
-        mapping: PageMapping,
-        failures: &mut ErrorGraph,
-    ) -> Result<ManagedMemoryHandle, IoError> {
-        let pool = self.current_mut();
-        match pool.try_reserve(size, failures) {
-            Some(handle) => Ok(handle),
-            None => pool.alloc(storage, size, mapping, failures),
-        }
     }
 
     /// Carve `size` bytes from a new pool of `page_size` pages, which takes

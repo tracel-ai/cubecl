@@ -1,4 +1,5 @@
 use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding};
+use crate::memory_management::Cleanup;
 use crate::memory_management::{
     BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, PageGuard,
 };
@@ -200,10 +201,10 @@ impl MemoryPool for PersistentPool {
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
-        if explicit {
+        if cleanup == Cleanup::Explicit {
             // We have to recompute all locations, so it's just safer to rebuild everything.
             let mut slices = Vec::new();
             let mut sizes = HashMap::<u64, Vec<usize>>::new();

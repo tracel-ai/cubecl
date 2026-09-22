@@ -1,4 +1,5 @@
 use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding};
+use crate::memory_management::Cleanup;
 use crate::memory_management::{BytesFormat, ErrorGraph, MemoryLocation, PageGuard};
 use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
@@ -275,10 +276,10 @@ impl MemoryPool for DirectPool {
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
-        if !explicit {
+        if cleanup == Cleanup::Periodic {
             return;
         }
 

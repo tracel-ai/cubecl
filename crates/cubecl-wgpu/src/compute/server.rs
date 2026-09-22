@@ -1,6 +1,7 @@
 use cubecl_core::server::ServerStorage;
 use cubecl_server::kernel::BufferIOAttr;
 use cubecl_server::kernel::DebugInformation;
+use cubecl_server::memory_management::Cleanup;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
@@ -361,7 +362,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         if !relocating.recording() {
             relocating.relocate_when_wanted();
             let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-            stream.mem_manage.memory_cleanup(false, failures);
+            stream
+                .mem_manage
+                .memory_cleanup(Cleanup::Periodic, failures);
         }
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         let reserved = match stream.empty(size, failures) {
@@ -710,7 +713,9 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // miss).
         stream.info_cache.clear_unpinned();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream.mem_manage.memory_cleanup(true, failures);
+        stream
+            .mem_manage
+            .memory_cleanup(Cleanup::Explicit, failures);
         self.relocating(stream_id).relocate(Relocate::Explicit);
         Ok(())
     }
@@ -988,11 +993,7 @@ impl RelocatingStreams for Relocating<'_> {
     /// Run every stream's queued tasks and submit them: a queued task holds
     /// the addresses its buffers resolved to. The copier waits for the device.
     fn finish(&mut self) {
-        let stream_ids: Vec<_> = self.scheduler.stream_ids().collect();
-        self.scheduler.execute_streams(stream_ids.clone());
-        for id in stream_ids.iter() {
-            self.scheduler.stream(id).submit();
-        }
+        self.scheduler.flush_all();
     }
 
     fn relocate_memory(&mut self, reason: Relocate) {

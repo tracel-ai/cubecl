@@ -30,6 +30,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::id::KernelId;
 use cubecl_server::logging::ServerLogger;
+use cubecl_server::memory_management::Cleanup;
 use cubecl_server::memory_management::{
     ErrorGraph, FailureId, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
 };
@@ -369,10 +370,13 @@ impl Harness {
 
     fn cleanup(&mut self) {
         let id = self.stream_id();
-        let explicit = self.rng.chance(50);
+        let cleanup = match self.rng.chance(50) {
+            true => Cleanup::Explicit,
+            false => Cleanup::Periodic,
+        };
         let device = &mut self.device;
         let stream = device.pool.get_mut(&id);
-        stream.memory.cleanup(explicit, device.failures.graph_mut());
+        stream.memory.cleanup(cleanup, device.failures.graph_mut());
     }
 
     fn sweep(&mut self) {
@@ -380,7 +384,9 @@ impl Harness {
         for value in 0..MAX_STREAMS as u64 {
             let id = StreamId { value };
             let stream = device.pool.get_mut(&id);
-            stream.memory.cleanup(true, device.failures.graph_mut());
+            stream
+                .memory
+                .cleanup(Cleanup::Explicit, device.failures.graph_mut());
         }
     }
 }

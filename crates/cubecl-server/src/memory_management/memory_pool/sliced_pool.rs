@@ -1,3 +1,4 @@
+use crate::memory_management::Cleanup;
 use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
@@ -324,10 +325,10 @@ impl MemoryPool for SlicedPool {
         &mut self,
         storage: &mut Storage,
         _alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
-        if explicit {
+        if cleanup == Cleanup::Explicit {
             self.release_empty(storage, failures);
         }
     }

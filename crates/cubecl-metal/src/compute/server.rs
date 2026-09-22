@@ -18,6 +18,7 @@ use cubecl_core::{
 };
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
+use cubecl_server::memory_management::Cleanup;
 use cubecl_server::{
     dry_run::LaunchMode,
     kernel::CubeKernel,
@@ -689,7 +690,9 @@ impl Server for MetalServer {
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         let (stream, failures) = resolved.current_and_failures();
-        stream.memory_management.cleanup(true, failures);
+        stream
+            .memory_management
+            .cleanup(Cleanup::Explicit, failures);
         Relocating(&mut resolved).relocate(Relocate::Explicit);
         Ok(())
     }

@@ -85,7 +85,7 @@ impl PartialEq for ManagedMemoryDescriptor {
 
 impl Eq for ManagedMemoryDescriptor {}
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 /// Defines where the [`ManagedMemoryId`] is located.
 #[doc(hidden)]
 pub struct MemoryLocation {

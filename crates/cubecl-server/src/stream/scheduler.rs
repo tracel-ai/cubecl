@@ -192,6 +192,18 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         self.pool.stream_ids()
     }
 
+    /// Run every stream's queued tasks, then flush each stream with the
+    /// backend: what a caller about to touch memory any stream may use waits
+    /// on first.
+    pub fn flush_all(&mut self) {
+        let stream_ids: Vec<_> = self.stream_ids().collect();
+        self.execute_streams(stream_ids);
+        let graph = self.failures.graph_mut();
+        for stream in self.pool.streams_mut() {
+            B::flush(&mut stream.stream, graph);
+        }
+    }
+
     /// Registers a task for execution on a specific stream, ensuring stream alignment.
     pub fn register(&mut self, stream_id: StreamId, task: B::Task, args_streams: &[StreamId]) {
         // Align streams to ensure dependencies are handled correctly.

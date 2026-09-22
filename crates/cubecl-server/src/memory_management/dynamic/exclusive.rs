@@ -1,5 +1,6 @@
 //! One page per allocation, in size buckets.
 
+use crate::memory_management::Cleanup;
 use crate::{
     memory_management::{
         ErrorGraph, ManagedMemoryHandle, MemoryPoolReport, MemoryUsage,
@@ -50,13 +51,13 @@ impl ExclusivePools {
     }
 
     /// The bucket `index` names.
-    pub fn pool(&self, index: usize) -> Option<&ExclusiveMemoryPool> {
-        self.buckets.get(index)
+    pub fn pool(&self, index: u8) -> Option<&ExclusiveMemoryPool> {
+        self.buckets.get(index as usize)
     }
 
     /// The bucket `index` names, mutably.
-    pub fn pool_mut(&mut self, index: usize) -> Option<&mut ExclusiveMemoryPool> {
-        self.buckets.get_mut(index)
+    pub fn pool_mut(&mut self, index: u8) -> Option<&mut ExclusiveMemoryPool> {
+        self.buckets.get_mut(index as usize)
     }
 
     /// Reserve `size` bytes on a page a bucket already holds, else allocate one
@@ -103,11 +104,11 @@ impl ExclusivePools {
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
         for pool in self.buckets.iter_mut() {
-            pool.cleanup(storage, alloc_nr, explicit, failures);
+            pool.cleanup(storage, alloc_nr, cleanup, failures);
         }
     }
 

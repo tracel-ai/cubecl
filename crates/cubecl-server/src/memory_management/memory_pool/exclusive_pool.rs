@@ -1,3 +1,4 @@
+use crate::memory_management::Cleanup;
 use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, MemoryUsage,
@@ -244,13 +245,13 @@ impl MemoryPool for ExclusiveMemoryPool {
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
         // Check such that an alloc is free after at most dealloc_period.
         let check_period = self.dealloc_period / (ALLOC_AFTER_FREE as u64);
 
-        if explicit || alloc_nr - self.last_dealloc_check >= check_period {
+        if cleanup == Cleanup::Explicit || alloc_nr - self.last_dealloc_check >= check_period {
             self.last_dealloc_check = alloc_nr;
 
             for mut page in self.pages.drain(..) {
@@ -259,7 +260,7 @@ impl MemoryPool for ExclusiveMemoryPool {
 
                     // If free found is sufficiently high (ie. we've seen this alloc as free multiple times,
                     // without it being used in the meantime), deallocate it.
-                    if page.free_count >= ALLOC_AFTER_FREE || explicit {
+                    if page.free_count >= ALLOC_AFTER_FREE || cleanup == Cleanup::Explicit {
                         page.slice.tainted.clear(failures);
                         storage.dealloc(page.slice.storage.id);
                         continue;

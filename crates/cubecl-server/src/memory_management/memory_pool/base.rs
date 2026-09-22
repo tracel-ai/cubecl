@@ -1,6 +1,6 @@
 use super::{ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle};
 use crate::{
-    memory_management::{ErrorGraph, MemoryLocation, MemoryUsage, PageGuard, Taint},
+    memory_management::{Cleanup, ErrorGraph, MemoryLocation, MemoryUsage, PageGuard, Taint},
     server::IoError,
     storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
@@ -144,6 +144,24 @@ pub trait MemoryPool {
     where
         Self: Sized;
 
+    /// Reserve `size` bytes in the room the pool holds, and allocate a page
+    /// for them when it holds none.
+    fn reserve<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+        mapping: PageMapping,
+        failures: &mut ErrorGraph,
+    ) -> Result<ManagedMemoryHandle, IoError>
+    where
+        Self: Sized,
+    {
+        match self.try_reserve(size, failures) {
+            Some(handle) => Ok(handle),
+            None => self.alloc(storage, size, mapping, failures),
+        }
+    }
+
     /// Ensure the allocation behind `binding` has real device backing,
     /// installing it now if the allocation was made [`PageMapping::Lazy`].
     /// Must be called before the binding's storage handle reaches
@@ -173,7 +191,7 @@ pub trait MemoryPool {
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) where
         Self: Sized;

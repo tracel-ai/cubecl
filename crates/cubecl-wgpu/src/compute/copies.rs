@@ -26,6 +26,19 @@ impl WgpuCopies {
             encoder: None,
         }
     }
+
+    /// Wait for the device, up to `submission` when one is named.
+    fn wait(&self, submission: Option<wgpu::SubmissionIndex>) {
+        #[cfg(not(target_family = "wasm"))]
+        if let Err(err) = self.device.poll(wgpu::PollType::Wait {
+            submission_index: submission,
+            timeout: None,
+        }) {
+            log::warn!("wgpu: relocation poll failed ({err})");
+        }
+        #[cfg(target_family = "wasm")]
+        let _ = submission;
+    }
 }
 
 impl CopyQueue<WgpuStorage> for WgpuCopies {
@@ -62,20 +75,5 @@ impl CopyQueue<WgpuStorage> for WgpuCopies {
             self.wait(Some(submission));
         }
         Ok(())
-    }
-}
-
-impl WgpuCopies {
-    /// Wait for the device, up to `submission` when one is named.
-    fn wait(&self, submission: Option<wgpu::SubmissionIndex>) {
-        #[cfg(not(target_family = "wasm"))]
-        if let Err(err) = self.device.poll(wgpu::PollType::Wait {
-            submission_index: submission,
-            timeout: None,
-        }) {
-            log::warn!("wgpu: relocation poll failed ({err})");
-        }
-        #[cfg(target_family = "wasm")]
-        let _ = submission;
     }
 }

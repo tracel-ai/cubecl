@@ -6,6 +6,7 @@ use cubecl_core::{
 };
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
+use cubecl_server::memory_management::Cleanup;
 use cubecl_server::memory_management::relocation::Relocate;
 use cubecl_server::{
     logging::ServerLogger,
@@ -246,14 +247,14 @@ impl WgpuMemManager {
         self.memory_pool.memory_report()
     }
 
-    pub(crate) fn memory_cleanup(&mut self, explicit: bool, failures: &mut ErrorGraph) {
-        self.memory_pool.cleanup(explicit, failures);
+    pub(crate) fn memory_cleanup(&mut self, cleanup: Cleanup, failures: &mut ErrorGraph) {
+        self.memory_pool.cleanup(cleanup, failures);
         // An explicit cleanup also reclaims the uniforms pool: the info cache
         // holds uniform slices across flushes, so this is where the pages of
         // just-released entries (see `MetadataInfoCache::clear_unpinned`) are
         // actually returned to the driver.
-        if explicit {
-            self.memory_uniforms.cleanup(explicit, &mut self.aux);
+        if cleanup == Cleanup::Explicit {
+            self.memory_uniforms.cleanup(cleanup, &mut self.aux);
         }
     }
 

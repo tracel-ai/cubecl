@@ -1,6 +1,7 @@
 //! How a stream's dynamic pools are managed.
 
 use super::{AdaptiveMemory, ExclusivePools};
+use crate::memory_management::Cleanup;
 use crate::memory_management::relocation::{CopyQueue, Relocate};
 use crate::{
     config::memory::MemoryLogLevel,
@@ -58,7 +59,7 @@ impl DynamicMemory {
     }
 
     /// The pool `index` names, while one is there.
-    pub fn pool(&self, index: usize) -> Option<&dyn MemoryPool> {
+    pub fn pool(&self, index: u8) -> Option<&dyn MemoryPool> {
         match self {
             DynamicMemory::Exclusive(pools) => Some(pools.pool(index)?),
             DynamicMemory::Adaptive(memory) => memory.pool(index),
@@ -66,7 +67,7 @@ impl DynamicMemory {
     }
 
     /// The pool `index` names, mutably.
-    pub fn pool_mut(&mut self, index: usize) -> Option<&mut dyn MemoryPool> {
+    pub fn pool_mut(&mut self, index: u8) -> Option<&mut dyn MemoryPool> {
         match self {
             DynamicMemory::Exclusive(pools) => Some(pools.pool_mut(index)?),
             DynamicMemory::Adaptive(memory) => memory.pool_mut(index),
@@ -158,14 +159,12 @@ impl DynamicMemory {
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
         match self {
-            DynamicMemory::Exclusive(pools) => pools.cleanup(storage, alloc_nr, explicit, failures),
-            DynamicMemory::Adaptive(memory) => {
-                memory.cleanup(storage, alloc_nr, explicit, failures)
-            }
+            DynamicMemory::Exclusive(pools) => pools.cleanup(storage, alloc_nr, cleanup, failures),
+            DynamicMemory::Adaptive(memory) => memory.cleanup(storage, alloc_nr, cleanup, failures),
         }
     }
 

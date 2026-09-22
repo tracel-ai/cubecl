@@ -1,13 +1,12 @@
 //! The stream-side graph-capture lifecycle, shared by every backend with
 //! graph support (see [`Server::graph_prepare`](crate::server::Server::graph_prepare)).
 
-use crate::memory_management::{ManagedMemoryBinding, MemoryLocation, WeakMemoryBinding};
+use crate::memory_management::{ManagedMemoryBinding, MemoryLocation};
 use crate::metadata_cache::CacheMode;
-use crate::server::{BufferBinding, ServerError};
+use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::format;
 use alloc::vec::Vec;
 use cubecl_common::bytes::Bytes;
-use cubecl_common::device::ServiceId;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
 
@@ -172,7 +171,7 @@ pub struct StreamCapture {
     /// What the recorded launches write, kept without holding their memory:
     /// a held binding keeps its slice from being reused, and the recording
     /// has to reuse memory exactly as the warmup run did.
-    recorded: Vec<RecordedWrite>,
+    recorded: Vec<WeakBufferBinding>,
     /// The memory the recorded launches were given, as the pages the graph
     /// will [guard](crate::memory_management::PageGuard) once it seals.
     touched: Vec<TouchedPage>,
@@ -205,11 +204,8 @@ impl StreamCapture {
     /// buffers on the spot and there is no graph to answer for them later.
     pub fn record(&mut self, buffers: impl IntoIterator<Item = BufferBinding>) {
         if self.state.is_recording() {
-            self.recorded.extend(
-                buffers
-                    .into_iter()
-                    .map(|binding| RecordedWrite::new(&binding)),
-            );
+            self.recorded
+                .extend(buffers.into_iter().map(|binding| binding.downgrade()));
         }
     }
 
@@ -227,8 +223,8 @@ impl StreamCapture {
     /// the list is deduplicated here, once, rather than on every touch.
     pub fn take_touched(&mut self) -> Vec<TouchedPage> {
         let mut touched = core::mem::take(&mut self.touched);
-        touched.sort_unstable_by_key(TouchedPage::key);
-        touched.dedup_by_key(|page| page.key());
+        touched.sort_unstable();
+        touched.dedup();
         touched
     }
 
@@ -257,7 +253,7 @@ impl StreamCapture {
     pub fn take_recorded(&mut self) -> Vec<BufferBinding> {
         let mut recorded: Vec<BufferBinding> = core::mem::take(&mut self.recorded)
             .iter()
-            .filter_map(RecordedWrite::binding)
+            .filter_map(WeakBufferBinding::upgrade)
             .collect();
         recorded.sort_unstable_by_key(|binding| binding.claim_key());
         recorded.dedup_by_key(|binding| binding.claim_key());
@@ -386,7 +382,10 @@ impl StreamCapture {
 }
 
 /// A page a recorded launch was given memory on.
-#[derive(Debug, Clone, Copy)]
+///
+/// Ordered by stream, then the whole location: a pool whose slices are their
+/// own allocations tells its pages apart by slice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TouchedPage {
     /// The stream whose memory holds the page.
     pub stream: StreamId,
@@ -394,55 +393,6 @@ pub struct TouchedPage {
     /// renumbers pages while a stream records, so it still names the page
     /// when the window closes.
     pub location: MemoryLocation,
-}
-
-impl TouchedPage {
-    /// What names the page: the stream, and the whole location, since a pool
-    /// whose slices are their own allocations tells them apart by slice.
-    fn key(&self) -> (u64, u8, u16, u32) {
-        (
-            self.stream.value,
-            self.location.pool,
-            self.location.page,
-            self.location.slice,
-        )
-    }
-}
-
-/// A [`BufferBinding`] a recorded launch writes, without its memory held.
-#[derive(Debug)]
-struct RecordedWrite {
-    memory: WeakMemoryBinding,
-    service: ServiceId,
-    offset_start: Option<u64>,
-    offset_end: Option<u64>,
-    stream: StreamId,
-    size: u64,
-}
-
-impl RecordedWrite {
-    fn new(binding: &BufferBinding) -> Self {
-        Self {
-            memory: binding.memory.downgrade(),
-            service: binding.service,
-            offset_start: binding.offset_start,
-            offset_end: binding.offset_end,
-            stream: binding.stream,
-            size: binding.size,
-        }
-    }
-
-    /// The binding back, while its memory still exists.
-    fn binding(&self) -> Option<BufferBinding> {
-        Some(BufferBinding {
-            memory: self.memory.upgrade()?,
-            service: self.service,
-            offset_start: self.offset_start,
-            offset_end: self.offset_end,
-            stream: self.stream,
-            size: self.size,
-        })
-    }
 }
 
 impl StreamCaptureState {

@@ -1,11 +1,13 @@
 //! Dynamic memory whose pages follow the workload's largest allocation.
 
-use super::{ArenaShape, PageSizing, PoolArena};
+use super::{ARENA_SLOTS, ArenaShape, PageSizing, PoolArena};
+use crate::memory_management::Cleanup;
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
     memory_management::{
-        ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryPoolReport, MemoryUsage,
+        DEDICATED_POOL_POS, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
+        MemoryPoolReport, MemoryUsage,
         memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping, SlicedPool},
         relocation::{CopyQueue, MemoryPressure, Relocate},
     },
@@ -22,6 +24,13 @@ const TINY_POOL: u8 = 0;
 const SMALL_POOL: u8 = 1;
 /// The pool index of the arena's first slot.
 const ARENA_POOLS: u8 = 2;
+
+// The arena's pools are addressed from `ARENA_POOLS` on, and must stay clear
+// of the fixed indices the dedicated and persistent pools carry.
+const _: () = assert!(
+    ARENA_POOLS as usize + ARENA_SLOTS <= DEDICATED_POOL_POS as usize,
+    "the arena's pool indices would reach the fixed ones"
+);
 
 /// The small-allocation pool's page size.
 const SMALL_PAGE: u64 = 8 * 1024 * 1024;
@@ -89,8 +98,8 @@ impl AdaptiveMemory {
     }
 
     /// The pool `index` names, while one is there.
-    pub fn pool(&self, index: usize) -> Option<&dyn MemoryPool> {
-        match index as u8 {
+    pub fn pool(&self, index: u8) -> Option<&dyn MemoryPool> {
+        match index {
             TINY_POOL => Some(&self.tiny),
             SMALL_POOL => Some(&self.small),
             _ => Some(self.arena.pool(index)?),
@@ -98,8 +107,8 @@ impl AdaptiveMemory {
     }
 
     /// The pool `index` names, mutably.
-    pub fn pool_mut(&mut self, index: usize) -> Option<&mut dyn MemoryPool> {
-        match index as u8 {
+    pub fn pool_mut(&mut self, index: u8) -> Option<&mut dyn MemoryPool> {
+        match index {
             TINY_POOL => Some(&mut self.tiny),
             SMALL_POOL => Some(&mut self.small),
             _ => Some(self.arena.pool_mut(index)?),
@@ -117,7 +126,7 @@ impl AdaptiveMemory {
         match index {
             TINY_POOL => self.tiny.materialize(storage, binding),
             SMALL_POOL => self.small.materialize(storage, binding),
-            _ => match self.arena.pool_mut(index as usize) {
+            _ => match self.arena.pool_mut(index) {
                 Some(pool) => pool.materialize(storage, binding),
                 None => Ok(()),
             },
@@ -140,10 +149,10 @@ impl AdaptiveMemory {
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         if self.tiny.accept(size) {
-            return Self::reserve_on(&mut self.tiny, storage, size, mapping, failures);
+            return self.tiny.reserve(storage, size, mapping, failures);
         }
         if self.small.accept(size) {
-            return Self::reserve_on(&mut self.small, storage, size, mapping, failures);
+            return self.small.reserve(storage, size, mapping, failures);
         }
         let page_size = self.arena.current().page_size();
         let reserved = self.arena.reserve(storage, size, mapping, failures);
@@ -234,12 +243,12 @@ impl AdaptiveMemory {
         &mut self,
         storage: &mut Storage,
         alloc_nr: u64,
-        explicit: bool,
+        cleanup: Cleanup,
         failures: &mut ErrorGraph,
     ) {
-        self.tiny.cleanup(storage, alloc_nr, explicit, failures);
-        self.small.cleanup(storage, alloc_nr, explicit, failures);
-        self.arena.cleanup(storage, alloc_nr, explicit, failures);
+        self.tiny.cleanup(storage, alloc_nr, cleanup, failures);
+        self.small.cleanup(storage, alloc_nr, cleanup, failures);
+        self.arena.cleanup(storage, alloc_nr, cleanup, failures);
     }
 
     /// The usage of every pool held.
@@ -258,20 +267,6 @@ impl AdaptiveMemory {
             .into_iter()
             .chain(self.arena.report())
             .collect()
-    }
-
-    /// Reserve `size` bytes on `pool`, allocating a page when it has no room.
-    fn reserve_on<Storage: ComputeStorage>(
-        pool: &mut impl MemoryPool,
-        storage: &mut Storage,
-        size: u64,
-        mapping: PageMapping,
-        failures: &mut ErrorGraph,
-    ) -> Result<ManagedMemoryHandle, IoError> {
-        match pool.try_reserve(size, failures) {
-            Some(handle) => Ok(handle),
-            None => pool.alloc(storage, size, mapping, failures),
-        }
     }
 
     fn log_layout(&self) {
@@ -297,10 +292,10 @@ mod tests {
         memory_management::{
             ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
             MemoryManagement, MemoryManagementOptions, MemoryPoolKind,
-            relocation::{CopyQueue, Relocate, StorageCopy},
+            relocation::{CopyQueue, HostCopies, Relocate, StorageCopy},
         },
         server::{IoError, ServerError},
-        storage::{BytesStorage, ComputeStorage},
+        storage::BytesStorage,
     };
     use cubecl_environment::sync::Arc;
     use cubecl_ir::MemoryDeviceProperties;
@@ -427,27 +422,6 @@ mod tests {
                 description: "refused".into(),
                 backtrace: Default::default(),
             })
-        }
-
-        fn wait_copies(&mut self) -> Result<(), ServerError> {
-            Ok(())
-        }
-    }
-
-    /// Host copies between the storages of a [`BytesStorage`]: done as soon as
-    /// they are enqueued.
-    struct HostCopies;
-
-    impl CopyQueue<BytesStorage> for HostCopies {
-        fn wait_device(&mut self) -> Result<(), ServerError> {
-            Ok(())
-        }
-
-        fn copy(&mut self, storage: &mut BytesStorage, copy: &StorageCopy) -> Result<(), IoError> {
-            let source = storage.get(&copy.source)?;
-            let mut target = storage.get(&copy.target)?;
-            target.write().copy_from_slice(source.read());
-            Ok(())
         }
 
         fn wait_copies(&mut self) -> Result<(), ServerError> {

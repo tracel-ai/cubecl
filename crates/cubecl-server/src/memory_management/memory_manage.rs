@@ -1,6 +1,7 @@
 use super::{
-    DEDICATED_POOL_POS, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode,
-    MemoryConfiguration, MemoryLocation, MemoryReport, MemoryUsage, PERSISTENT_POOL_POS, PageGuard,
+    DEDICATED_POOL_POS, ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle,
+    MemoryAllocationMode, MemoryConfiguration, MemoryLocation, MemoryReport, MemoryUsage,
+    PERSISTENT_POOL_POS, PageGuard,
     memory_pool::{DirectPool, MemoryPool, PageMapping, PersistentPool},
 };
 use crate::{
@@ -29,7 +30,7 @@ use cubecl_ir::MemoryDeviceProperties;
 enum PoolPosition {
     Persistent,
     Dedicated,
-    Dynamic(usize),
+    Dynamic(u8),
 }
 
 impl PoolPosition {
@@ -37,17 +38,28 @@ impl PoolPosition {
         match pool {
             PERSISTENT_POOL_POS => PoolPosition::Persistent,
             DEDICATED_POOL_POS => PoolPosition::Dedicated,
-            index => PoolPosition::Dynamic(index as usize),
+            index => PoolPosition::Dynamic(index),
         }
     }
 
     /// The error for a location naming a dynamic pool the layout does not have.
-    fn missing(index: usize) -> IoError {
+    fn missing(index: u8) -> IoError {
         IoError::NotFound {
             backtrace: BackTrace::capture(),
             reason: format!("Memory pool {index} doesn't exist").into(),
         }
     }
+}
+
+/// Why a cleanup runs, which decides how much it gives back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cleanup {
+    /// On the way to a reservation: each pool gives back what its own policy
+    /// says is unused, such as a page past its deallocation period or an
+    /// outdated page that emptied.
+    Periodic,
+    /// Asked for: everything nothing holds goes back.
+    Explicit,
 }
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
@@ -191,16 +203,16 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Cleanup allocations in pools that are deemed unnecessary.
-    pub fn cleanup(&mut self, explicit: bool, failures: &mut ErrorGraph) {
+    pub fn cleanup(&mut self, cleanup: Cleanup, failures: &mut ErrorGraph) {
         self.logger.log_memory(
-            |level| !matches!(level, MemoryLogLevel::Disabled) && explicit,
+            |level| !matches!(level, MemoryLogLevel::Disabled) && cleanup == Cleanup::Explicit,
             || "Manual memory cleanup ...".to_string(),
         );
 
         self.persistent.cleanup(
             &mut self.storage,
             self.alloc_reserve_count,
-            explicit,
+            cleanup,
             failures,
         );
 
@@ -212,14 +224,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.pools.cleanup(
             &mut self.storage,
             self.alloc_reserve_count,
-            explicit,
+            cleanup,
             failures,
         );
 
         // The pools only queue their page deallocations in the storage; an
         // explicit cleanup means "release the memory now", so push them to the
         // driver instead of leaving them pending.
-        if explicit {
+        if cleanup == Cleanup::Explicit {
             self.storage.flush();
         }
     }
@@ -230,71 +242,45 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         Ok(slice.cursor)
     }
 
-    /// Returns the storage from the specified binding
+    /// The allocation behind `binding`.
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let id = binding.descriptor();
-
-        if !id.is_allocated() {
-            return Err(IoError::NotFound {
-                backtrace: BackTrace::capture(),
-                reason: "Memory location was never initialized".into(),
-            });
-        }
-
-        let slice = match PoolPosition::new(id.location().pool) {
-            PoolPosition::Persistent => self.persistent.find(binding)?,
-            PoolPosition::Dedicated => self.dedicated.find(binding)?,
-            PoolPosition::Dynamic(index) => self
-                .pools
-                .pool(index)
-                .ok_or_else(|| PoolPosition::missing(index))?
-                .find(binding)?,
-        };
-
-        // A stale location (e.g. a page that was deallocated and whose index a
-        // later cleanup reassigned) must surface as `NotFound`, never as another
-        // allocation's slice.
-        if slice.handle.descriptor() != binding.descriptor() {
-            return Err(IoError::NotFound {
-                backtrace: BackTrace::capture(),
-                reason: "Memory location points to a different allocation".into(),
-            });
-        }
-
+        let slice = self.pool(allocated(binding.descriptor())?)?.find(binding)?;
+        owned_by(slice, binding)?;
         Ok(slice)
     }
 
     /// [`find`](Self::find), mutably — the path [`taint`](Self::taint) and
     /// [`written`](Self::written) take to reach the slice.
     fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
-        let id = binding.descriptor();
+        let slice = self
+            .pool_mut(allocated(binding.descriptor())?)?
+            .find_mut(binding)?;
+        owned_by(slice, binding)?;
+        Ok(slice)
+    }
 
-        if !id.is_allocated() {
-            return Err(IoError::NotFound {
-                backtrace: BackTrace::capture(),
-                reason: "Memory location was never initialized".into(),
-            });
+    /// The pool `location` names.
+    fn pool(&self, location: MemoryLocation) -> Result<&dyn MemoryPool, IoError> {
+        match PoolPosition::new(location.pool) {
+            PoolPosition::Persistent => Ok(&self.persistent),
+            PoolPosition::Dedicated => Ok(&self.dedicated),
+            PoolPosition::Dynamic(index) => self
+                .pools
+                .pool(index)
+                .ok_or_else(|| PoolPosition::missing(index)),
         }
+    }
 
-        let slice = match PoolPosition::new(id.location().pool) {
-            PoolPosition::Persistent => self.persistent.find_mut(binding)?,
-            PoolPosition::Dedicated => self.dedicated.find_mut(binding)?,
+    /// The pool `location` names, mutably.
+    fn pool_mut(&mut self, location: MemoryLocation) -> Result<&mut dyn MemoryPool, IoError> {
+        match PoolPosition::new(location.pool) {
+            PoolPosition::Persistent => Ok(&mut self.persistent),
+            PoolPosition::Dedicated => Ok(&mut self.dedicated),
             PoolPosition::Dynamic(index) => self
                 .pools
                 .pool_mut(index)
-                .ok_or_else(|| PoolPosition::missing(index))?
-                .find_mut(binding)?,
-        };
-
-        // The same stale-location rule as `find`.
-        if slice.handle.descriptor() != binding.descriptor() {
-            return Err(IoError::NotFound {
-                backtrace: BackTrace::capture(),
-                reason: "Memory location points to a different allocation".into(),
-            });
+                .ok_or_else(|| PoolPosition::missing(index)),
         }
-
-        Ok(slice)
     }
 
     /// Returns the storage from the specified binding.
@@ -347,11 +333,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Keep the page `location` names as it is for as long as the guard lives
     /// (see [`PageGuard`]). `None` when no pool holds such a page.
     pub fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
-        match PoolPosition::new(location.pool) {
-            PoolPosition::Persistent => self.persistent.guard(location),
-            PoolPosition::Dedicated => self.dedicated.guard(location),
-            PoolPosition::Dynamic(index) => self.pools.pool_mut(index)?.guard(location),
-        }
+        self.pool_mut(location).ok()?.guard(location)
     }
 
     /// Install real backing behind `binding` when its allocation was carved
@@ -401,7 +383,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // comparisons per reservation — without it, pages freed long ago are
         // never returned to the driver until an explicit cleanup, which on
         // long-running processes lets every stream's pools grow monotonically.
-        self.cleanup(false, failures);
+        self.cleanup(Cleanup::Periodic, failures);
         self.reserve_keeping_pages(size, failures)
     }
 
@@ -482,14 +464,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
         );
 
-        // Serve from the first pool that accepts this size and has capacity. A
-        // hard-capped pool that is full falls through to the next accepting
-        // pool instead of failing outright, so a growable tail pool can act as
-        // an escape hatch behind a measured arena. Deliberate: a cap is a plan,
-        // and a plan that turns out to be short should cost memory, not kill
-        // the workload. Where the cap is a hard budget rather than a plan,
-        // configure no pool behind it — then a full pool still errors, which is
-        // what keeps the budget-vs-device-OOM distinction schedulers rely on.
         let reserved = self
             .pools
             .reserve(&mut self.storage, size, mapping, failures)?;
@@ -589,24 +563,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         cursor: u64,
         failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
-        let descriptor = reserved.descriptor();
-
-        if !descriptor.is_allocated() {
-            return Err(IoError::NotFound {
-                backtrace: BackTrace::capture(),
-                reason: "Reserved memory isn't initialized".into(),
-            });
-        }
-
-        match PoolPosition::new(descriptor.location().pool) {
-            PoolPosition::Persistent => self.persistent.bind(reserved, assigned, cursor, failures),
-            PoolPosition::Dedicated => self.dedicated.bind(reserved, assigned, cursor, failures),
-            PoolPosition::Dynamic(index) => self
-                .pools
-                .pool_mut(index)
-                .ok_or_else(|| PoolPosition::missing(index))?
-                .bind(reserved, assigned, cursor, failures),
-        }
+        let location = allocated(reserved.descriptor())?;
+        self.pool_mut(location)?
+            .bind(reserved, assigned, cursor, failures)
     }
 
     /// The failure claiming any byte of `range` in the allocation behind
@@ -651,6 +610,31 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             slice.tainted.written(range, failures);
         }
     }
+}
+
+/// Where the allocation `descriptor` names sits, once a reservation gave it
+/// a place.
+fn allocated(descriptor: &ManagedMemoryDescriptor) -> Result<MemoryLocation, IoError> {
+    if !descriptor.is_allocated() {
+        return Err(IoError::NotFound {
+            backtrace: BackTrace::capture(),
+            reason: "Memory location was never initialized".into(),
+        });
+    }
+    Ok(descriptor.location())
+}
+
+/// Whether `slice` still holds the allocation behind `binding`. A stale
+/// location (a page deallocated since, whose index a later cleanup reassigned)
+/// must surface as `NotFound`, never as another allocation's slice.
+fn owned_by(slice: &Slice, binding: &ManagedMemoryBinding) -> Result<(), IoError> {
+    if slice.handle.descriptor() != binding.descriptor() {
+        return Err(IoError::NotFound {
+            backtrace: BackTrace::capture(),
+            reason: "Memory location points to a different allocation".into(),
+        });
+    }
+    Ok(())
 }
 
 impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
@@ -856,7 +840,7 @@ mod tests {
         drop(handle_c);
 
         // Deallocates the two free pages and renumbers the surviving one.
-        memory_management.cleanup(true, &mut ErrorGraph::default());
+        memory_management.cleanup(Cleanup::Explicit, &mut ErrorGraph::default());
 
         assert!(memory_management.get_cursor(binding_b.clone()).is_ok());
         assert!(memory_management.get_storage(binding_b).is_ok());
@@ -1281,7 +1265,7 @@ mod tests {
             .unwrap();
         let after = memory_management.memory_usage().bytes_reserved;
         assert!(after > before, "the guarded page was handed out again");
-        memory_management.cleanup(true, &mut ErrorGraph::default());
+        memory_management.cleanup(Cleanup::Explicit, &mut ErrorGraph::default());
         assert_eq!(
             memory_management.memory_usage().bytes_reserved,
             after,
@@ -1290,7 +1274,7 @@ mod tests {
 
         drop(guard);
         drop(other);
-        memory_management.cleanup(true, &mut ErrorGraph::default());
+        memory_management.cleanup(Cleanup::Explicit, &mut ErrorGraph::default());
         assert_eq!(memory_management.memory_usage().bytes_reserved, 0);
     }
 

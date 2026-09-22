@@ -10,6 +10,7 @@ use cubecl_ir::{
     metadata::Info,
     settings::{Dim3, ExecutionMode, KernelSettings},
 };
+use cubecl_server::memory_management::Cleanup;
 use cubecl_server::server::ServerStorage;
 use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
@@ -313,7 +314,8 @@ impl<M: Marker> Server for DummyServer<M> {
     }
 
     fn memory_cleanup(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
-        self.memory_management.cleanup(true, &mut self.failures);
+        self.memory_management
+            .cleanup(Cleanup::Explicit, &mut self.failures);
         Ok(())
     }
 

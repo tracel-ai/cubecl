@@ -130,22 +130,8 @@ impl Server for CudaServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        let mut command = self.command_no_inputs(stream_id);
-
-        // Fatal rather than reported: `initialize_memory` has no error channel,
-        // and an allocation that never got its storage cannot be handed back as
-        // a taint either — nothing has a binding to it yet.
-        let reserved = match command.reserve(size) {
-            Ok(reserved) => reserved,
-            // The recording already failed on it, and `stop_capture` reports
-            // that: the handle stays unbound, and whatever uses it belongs to
-            // a recording that will not seal.
-            Err(cubecl_server::server::IoError::AllocationWhileRecording { .. }) => return,
-            Err(err) => panic!("failed to reserve {size} bytes of device memory: {err}"),
-        };
-        command
-            .bind(reserved, memory)
-            .unwrap_or_else(|err| panic!("failed to bind {size} bytes of device memory: {err}"));
+        self.command_no_inputs(stream_id)
+            .initialize_memory(memory, size);
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
