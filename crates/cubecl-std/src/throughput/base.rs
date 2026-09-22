@@ -128,11 +128,9 @@ fn measure(
     {
         let mut probed = false;
         let value = client.measure_throughput(key, || {
-            // A probe sharing the device reports that device's share, not its peak.
             client
                 .exclusive(|| {
-                    // Nothing marks a key as being probed, so the miss above may
-                    // be another thread's probe that has answered since.
+                    // Another thread may have answered this while we queued.
                     client.measure_throughput(key, || {
                         // Read where the launch is issued, which here is the runner.
                         let _measurement = cubecl_runtime::dry_run::RealRun::new();
