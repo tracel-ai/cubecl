@@ -1,6 +1,6 @@
 //! Dynamic memory whose pages follow the workload's largest allocation.
 
-use super::{ARENA_SLOTS, ArenaShape, PageSizing, PoolArena};
+use super::{ARENA_SLOTS, PageSizing, PoolArena};
 use crate::memory_management::Cleanup;
 use crate::{
     config::memory::MemoryLogLevel,
@@ -9,7 +9,7 @@ use crate::{
         DEDICATED_POOL_POS, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
         MemoryPoolReport, MemoryUsage,
         memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping, SlicedPool},
-        relocation::{CopyQueue, MemoryPressure, Relocate},
+        relocation::{CopyQueue, RelocationNeed, RelocationReason, RelocationTrigger},
     },
     server::IoError,
     storage::ComputeStorage,
@@ -58,11 +58,8 @@ pub struct AdaptiveMemory {
     small: SlicedPool,
     /// Everything else.
     arena: PoolArena,
-    /// What the device holds in total, where it says.
-    capacity: Option<u64>,
-    /// The arena as the last relocation found it with nothing to move, so the
-    /// next is not planned until something changed.
-    stalled: Option<ArenaShape>,
+    /// When emptying the arena's outdated pools is worth its copies.
+    trigger: RelocationTrigger,
     logger: Arc<ServerLogger>,
     name: String,
 }
@@ -87,9 +84,8 @@ impl AdaptiveMemory {
             // Allocations near its page size belong to the arena, whose
             // pages are sized to what they serve.
             .up_to_max_slice(),
-            arena: PoolArena::new(sizing, ARENA_POOLS),
-            capacity: properties.max_memory(),
-            stalled: None,
+            arena: PoolArena::new(sizing, ARENA_POOLS, logger.clone(), name.clone()),
+            trigger: RelocationTrigger::new(properties.max_memory()),
             logger,
             name,
         };
@@ -154,12 +150,7 @@ impl AdaptiveMemory {
         if self.small.accept(size) {
             return self.small.reserve(storage, size, mapping, failures);
         }
-        let page_size = self.arena.current().page_size();
-        let reserved = self.arena.reserve(storage, size, mapping, failures);
-        if self.arena.current().page_size() != page_size {
-            self.log_layout();
-        }
-        reserved
+        self.arena.reserve(storage, size, mapping, failures)
     }
 
     /// Reserve `size` bytes in the room the pools already hold, without
@@ -178,30 +169,10 @@ impl AdaptiveMemory {
         self.arena.try_reserve(size, failures)
     }
 
-    /// Whether anything is outdated that the last relocation did not already
-    /// find immovable: the cheap question, asked before the device's bytes
-    /// are summed for [`relocation`](Self::relocation).
-    pub fn relocatable(&self) -> bool {
-        self.arena.has_outdated() && self.stalled != Some(self.arena.shape())
-    }
-
-    /// Whether a relocation is worth its copies now, and why, on a device
-    /// whose storages hold `allocated` bytes across every stream.
-    ///
-    /// Only while something is outdated, and not again while the arena looks
-    /// as it did when the last relocation found nothing to move.
-    pub fn relocation(&self, allocated: u64) -> Option<Relocate> {
-        if !self.relocatable() {
-            return None;
-        }
-        if self.arena.is_full() {
-            return Some(Relocate::ArenaFull);
-        }
-        let page_size = self.arena.current().page_size();
-        match MemoryPressure::new(allocated, self.capacity, page_size) {
-            MemoryPressure::High => Some(Relocate::MemoryPressure),
-            MemoryPressure::Low | MemoryPressure::Unknown => None,
-        }
+    /// Whether a relocation is wanted, before the bytes the device holds are
+    /// known (see [`RelocationTrigger::need`]).
+    pub fn relocation_need(&self) -> RelocationNeed {
+        self.trigger.need(&self.arena.state())
     }
 
     /// Empty the outdated pools into the current one, so the pages they held
@@ -214,24 +185,27 @@ impl AdaptiveMemory {
         &mut self,
         storage: &mut Storage,
         copier: &mut dyn CopyQueue<Storage>,
-        reason: Relocate,
+        reason: RelocationReason,
         failures: &mut ErrorGraph,
     ) {
         let relocation = self.arena.plan(reason.room(), storage, failures);
         if relocation.is_empty() {
-            self.stalled = Some(self.arena.shape());
+            self.trigger.settled(false, &self.arena.state());
             return;
         }
-        self.stalled = None;
         match relocation.copy(storage, copier) {
             Ok(landed) => {
                 self.arena.commit(landed, storage, failures);
+                self.trigger.settled(true, &self.arena.state());
                 // The pages it emptied go back now, not at the storage's next
                 // flush: a reservation retried after this needs that room.
                 storage.flush();
             }
-            // Dropping the plan gave every target it reserved back.
+            // Dropping the plan gave every target it reserved back. Settled
+            // as moving nothing, so a device that keeps refusing the copies
+            // is not waited on again until the pools change.
             Err(err) => {
+                self.trigger.settled(false, &self.arena.state());
                 log::warn!("relocating allocations off outdated memory pages abandoned: {err}")
             }
         }
@@ -292,7 +266,7 @@ mod tests {
         memory_management::{
             ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
             MemoryManagement, MemoryManagementOptions, MemoryPoolKind, PageUpdate,
-            relocation::{CopyQueue, HostCopies, Relocate, StorageCopy},
+            relocation::{CopyQueue, HostCopies, RelocationReason, StorageCopy},
         },
         server::{IoError, ServerError},
         storage::BytesStorage,
@@ -401,7 +375,7 @@ mod tests {
         let failures = &mut ErrorGraph::default();
         let before = memory.memory_report().dynamic.len();
         let mut copies = HostCopies;
-        memory.relocate(&mut copies, Relocate::Explicit, failures);
+        memory.relocate(&mut copies, RelocationReason::Explicit, failures);
         // A pool a relocation emptied is dropped, so the reports it leaves say
         // how many moved off it.
         before - memory.memory_report().dynamic.len()
@@ -433,8 +407,8 @@ mod tests {
 
     /// Whether a relocation is wanted, as the server asks before a
     /// reservation, with this memory the only one on the device.
-    fn relocation(memory: &MemoryManagement<BytesStorage>) -> Option<Relocate> {
-        memory.relocation(memory.bytes_allocated())
+    fn relocation(memory: &MemoryManagement<BytesStorage>) -> Option<RelocationReason> {
+        memory.relocation_need().reason(|| memory.bytes_allocated())
     }
 
     /// A device with room to spare says nothing; one whose next page would
@@ -451,12 +425,12 @@ mod tests {
 
         // 13 MiB held over two pools, and the next page is 11 MiB.
         let large = reserve(&mut memory, 10 * MIB);
-        assert_eq!(relocation(&memory), Some(Relocate::MemoryPressure));
+        assert_eq!(relocation(&memory), Some(RelocationReason::MemoryPressure));
 
         let mut copies = HostCopies;
         memory.relocate(
             &mut copies,
-            Relocate::MemoryPressure,
+            RelocationReason::MemoryPressure,
             &mut ErrorGraph::default(),
         );
         assert_eq!(
@@ -491,11 +465,11 @@ mod tests {
         let recorded = reserve(&mut memory, MIB);
         let guard = memory.guard(recorded.descriptor().location());
         let _large = reserve(&mut memory, 10 * MIB);
-        assert_eq!(relocation(&memory), Some(Relocate::MemoryPressure));
+        assert_eq!(relocation(&memory), Some(RelocationReason::MemoryPressure));
 
         memory.relocate(
             &mut HostCopies,
-            Relocate::MemoryPressure,
+            RelocationReason::MemoryPressure,
             &mut ErrorGraph::default(),
         );
         assert_eq!(relocation(&memory), None, "the guarded page could not move");
@@ -503,7 +477,7 @@ mod tests {
         drop(guard);
         assert_eq!(
             relocation(&memory),
-            Some(Relocate::MemoryPressure),
+            Some(RelocationReason::MemoryPressure),
             "a released guard is a page the last plan could not move"
         );
     }
@@ -518,13 +492,13 @@ mod tests {
         let _large = reserve(&mut memory, 10 * MIB);
         memory.relocate(
             &mut HostCopies,
-            Relocate::MemoryPressure,
+            RelocationReason::MemoryPressure,
             &mut ErrorGraph::default(),
         );
         assert_eq!(relocation(&memory), None);
 
         let _more = reserve(&mut memory, 10 * MIB);
-        assert_eq!(relocation(&memory), Some(Relocate::MemoryPressure));
+        assert_eq!(relocation(&memory), Some(RelocationReason::MemoryPressure));
     }
 
     /// An add-only reservation releases nothing, even an outdated page that
@@ -746,7 +720,11 @@ mod tests {
         let _large = reserve(&mut memory, 10 * MIB);
 
         let mut refused = RefusedCopies;
-        memory.relocate(&mut refused, Relocate::Explicit, &mut ErrorGraph::default());
+        memory.relocate(
+            &mut refused,
+            RelocationReason::Explicit,
+            &mut ErrorGraph::default(),
+        );
 
         assert_eq!(place(&kept), location);
         assert_eq!(contents(&mut memory, &kept), 3);

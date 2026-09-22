@@ -28,7 +28,7 @@ use cubecl_environment::stream::StreamId;
 #[cfg(renderdoc)]
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_server::memory_management::relocation::Relocate;
+use cubecl_server::memory_management::relocation::RelocationReason;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, ManagedMemoryHandle, SharedMemoryBindings},
@@ -560,7 +560,7 @@ impl WgpuStream {
     ///
     /// The caller has submitted every stream's work first: the copies follow
     /// every launch that could still read what moves.
-    pub(crate) fn relocate(&mut self, reason: Relocate, failures: &mut ErrorGraph) {
+    pub(crate) fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
         let mut copier = WgpuCopies::new(self.device.clone(), self.queue.clone());
         self.mem_manage.relocate(&mut copier, reason, failures);
     }

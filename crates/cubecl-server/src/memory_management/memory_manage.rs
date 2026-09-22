@@ -15,7 +15,7 @@ use crate::{
     storage::{ComputeStorage, ManagedResource, StorageHandle},
 };
 
-use crate::memory_management::relocation::{CopyQueue, Relocate};
+use crate::memory_management::relocation::{CopyQueue, RelocationNeed, RelocationReason};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -314,20 +314,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.storage.bytes_allocated()
     }
 
-    /// Whether anything is outdated that a relocation could move: the cheap
-    /// question to ask before summing what the device holds for
-    /// [`relocation`](Self::relocation).
-    pub fn relocatable(&self) -> bool {
-        self.pools.relocatable()
-    }
-
-    /// Whether emptying the outdated pools is worth its copies now, and why,
-    /// on a device whose memories hold `allocated` bytes across every stream:
-    /// only while something is outdated, when the arena is full or the next
-    /// page leaves the device less than another, and not again while the
+    /// Whether emptying the outdated pools is wanted, before the bytes the
+    /// device holds are known: only while something is outdated, when the
+    /// arena is full or the device is short of room, and not again while the
     /// pools look as they did when the last relocation moved nothing.
-    pub fn relocation(&self, allocated: u64) -> Option<Relocate> {
-        self.pools.relocation(allocated)
+    pub fn relocation_need(&self) -> RelocationNeed {
+        self.pools.relocation_need()
     }
 
     /// Empty what the outdated pools hold into the current pages, so the
@@ -336,7 +328,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     pub fn relocate(
         &mut self,
         copier: &mut dyn CopyQueue<Storage>,
-        reason: Relocate,
+        reason: RelocationReason,
         failures: &mut ErrorGraph,
     ) {
         self.pools

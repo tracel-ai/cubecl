@@ -2,7 +2,7 @@
 
 use super::{AdaptiveMemory, ExclusivePools};
 use crate::memory_management::Cleanup;
-use crate::memory_management::relocation::{CopyQueue, Relocate};
+use crate::memory_management::relocation::{CopyQueue, RelocationNeed, RelocationReason};
 use crate::{
     config::memory::MemoryLogLevel,
     logging::ServerLogger,
@@ -119,22 +119,12 @@ impl DynamicMemory {
         }
     }
 
-    /// Whether anything is outdated that a relocation could move (see
-    /// [`AdaptiveMemory::relocatable`]).
-    pub fn relocatable(&self) -> bool {
+    /// Whether a relocation is wanted, before the bytes the device holds are
+    /// known. Never where pages are never outdated.
+    pub fn relocation_need(&self) -> RelocationNeed {
         match self {
-            DynamicMemory::Exclusive(_) => false,
-            DynamicMemory::Adaptive(memory) => memory.relocatable(),
-        }
-    }
-
-    /// Whether a relocation is worth its copies now, and why, on a device
-    /// whose storages hold `allocated` bytes across every stream (see
-    /// [`AdaptiveMemory::relocation`]). Never where pages are never outdated.
-    pub fn relocation(&self, allocated: u64) -> Option<Relocate> {
-        match self {
-            DynamicMemory::Exclusive(_) => None,
-            DynamicMemory::Adaptive(memory) => memory.relocation(allocated),
+            DynamicMemory::Exclusive(_) => RelocationNeed::Nothing,
+            DynamicMemory::Adaptive(memory) => memory.relocation_need(),
         }
     }
 
@@ -145,7 +135,7 @@ impl DynamicMemory {
         &mut self,
         storage: &mut Storage,
         copier: &mut dyn CopyQueue<Storage>,
-        reason: Relocate,
+        reason: RelocationReason,
         failures: &mut ErrorGraph,
     ) {
         match self {

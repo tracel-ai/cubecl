@@ -15,7 +15,7 @@
 use super::{Command, DeviceStream, Driver};
 use crate::id::GraphId;
 use crate::memory_management::PageGuard;
-use crate::memory_management::relocation::{Relocate, RelocatingStreams};
+use crate::memory_management::relocation::{RelocatingStreams, RelocationReason};
 use crate::server::{BufferBinding, ServerError};
 use alloc::format;
 use alloc::vec::Vec;
@@ -229,7 +229,7 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
     /// The stream's refusal, when it is not in a state a window can open from.
     pub fn prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.stream().capturing().prepare(stream_id)?;
-        RelocatingStreams::relocate(self.command, Relocate::Capture);
+        RelocatingStreams::relocate(self.command, RelocationReason::Capture);
         Ok(())
     }
 

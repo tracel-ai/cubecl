@@ -26,7 +26,7 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
         ManagedMemoryHandle,
-        relocation::{Relocate, RelocatingStreams},
+        relocation::{RelocatingStreams, RelocationNeed, RelocationReason},
     },
     server::Server,
     storage::{ComputeStorage, ManagedResource},
@@ -694,7 +694,7 @@ impl Server for MetalServer {
         stream
             .memory_management
             .cleanup(Cleanup::Explicit, failures);
-        Relocating(&mut resolved).relocate(Relocate::Explicit);
+        Relocating(&mut resolved).relocate(RelocationReason::Explicit);
         Ok(())
     }
 
@@ -717,8 +717,8 @@ impl RelocatingStreams for Relocating<'_, '_> {
         false
     }
 
-    fn relocatable(&mut self) -> bool {
-        self.0.current().memory_management.relocatable()
+    fn relocation_need(&mut self) -> RelocationNeed {
+        self.0.current().memory_management.relocation_need()
     }
 
     fn bytes_allocated(&mut self) -> u64 {
@@ -728,10 +728,6 @@ impl RelocatingStreams for Relocating<'_, '_> {
             .sum()
     }
 
-    fn relocation(&mut self, allocated: u64) -> Option<Relocate> {
-        self.0.current().memory_management.relocation(allocated)
-    }
-
     /// Commit every stream's open batch and wait for everything it submitted.
     fn finish(&mut self) {
         for stream in self.0.all() {
@@ -739,7 +735,7 @@ impl RelocatingStreams for Relocating<'_, '_> {
         }
     }
 
-    fn relocate_memory(&mut self, reason: Relocate) {
+    fn relocate_memory(&mut self, reason: RelocationReason) {
         let (stream, failures) = self.0.current_and_failures();
         stream.relocate(reason, failures);
     }

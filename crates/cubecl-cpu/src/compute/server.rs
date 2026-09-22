@@ -1,6 +1,8 @@
 use cubecl_llvm::PlironOptions;
 use cubecl_server::memory_management::Cleanup;
-use cubecl_server::memory_management::relocation::{HostCopies, Relocate, RelocatingStreams};
+use cubecl_server::memory_management::relocation::{
+    HostCopies, RelocatingStreams, RelocationNeed, RelocationReason,
+};
 
 use crate::{
     CpuCompiler,
@@ -381,7 +383,8 @@ impl Server for CpuServer {
         stream
             .memory_management
             .cleanup(Cleanup::Explicit, failures);
-        self.relocating(stream_id).relocate(Relocate::Explicit);
+        self.relocating(stream_id)
+            .relocate(RelocationReason::Explicit);
         Ok(())
     }
 
@@ -605,11 +608,11 @@ impl RelocatingStreams for Relocating<'_> {
         false
     }
 
-    fn relocatable(&mut self) -> bool {
+    fn relocation_need(&mut self) -> RelocationNeed {
         self.scheduler
             .stream(&self.stream_id)
             .memory_management
-            .relocatable()
+            .relocation_need()
     }
 
     fn bytes_allocated(&mut self) -> u64 {
@@ -619,20 +622,13 @@ impl RelocatingStreams for Relocating<'_> {
             .sum()
     }
 
-    fn relocation(&mut self, allocated: u64) -> Option<Relocate> {
-        self.scheduler
-            .stream(&self.stream_id)
-            .memory_management
-            .relocation(allocated)
-    }
-
     /// Run every stream's queued tasks and wait for its kernels: they read
     /// and write the addresses their buffers resolved to.
     fn finish(&mut self) {
         self.scheduler.flush_all();
     }
 
-    fn relocate_memory(&mut self, reason: Relocate) {
+    fn relocate_memory(&mut self, reason: RelocationReason) {
         let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
         stream
             .memory_management

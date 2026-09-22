@@ -15,7 +15,7 @@ use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
 use crate::memory_management::Cleanup;
 use crate::memory_management::drop_queue::Fence;
-use crate::memory_management::relocation::{Relocate, RelocatingStreams};
+use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
 use crate::memory_management::{
     ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport, MemoryUsage, PageGuard,
     PageUpdate,
@@ -156,7 +156,7 @@ impl<'a, D: Driver> Command<'a, D> {
 
         let (stream, failures) = self.streams.current_and_failures();
         stream.device_memory().cleanup(Cleanup::Explicit, failures);
-        RelocatingStreams::relocate(self, Relocate::Explicit);
+        RelocatingStreams::relocate(self, RelocationReason::Explicit);
         let (stream, failures) = self.streams.current_and_failures();
         stream.host_memory().cleanup(Cleanup::Explicit, failures);
         Ok(())
@@ -231,7 +231,7 @@ impl<'a, D: Driver> Command<'a, D> {
             // Only a relocation that may allocate empties the outdated pools
             // whatever room the current pages have.
             IoError::PageSizesExhausted { .. } => {
-                RelocatingStreams::relocate(self, Relocate::ArenaFull)
+                RelocatingStreams::relocate(self, RelocationReason::ArenaFull)
             }
             // No stream records (the caller checked), which is the only
             // refusal a cleanup has.
@@ -588,8 +588,8 @@ impl<D: Driver> RelocatingStreams for Command<'_, D> {
             .any(|stream| stream.capturing().is_recording())
     }
 
-    fn relocatable(&mut self) -> bool {
-        self.streams.current().device_memory().relocatable()
+    fn relocation_need(&mut self) -> RelocationNeed {
+        self.streams.current().device_memory().relocation_need()
     }
 
     fn bytes_allocated(&mut self) -> u64 {
@@ -599,15 +599,11 @@ impl<D: Driver> RelocatingStreams for Command<'_, D> {
             .sum()
     }
 
-    fn relocation(&mut self, allocated: u64) -> Option<Relocate> {
-        self.streams.current().device_memory().relocation(allocated)
-    }
-
     /// Nothing here: [`StreamCopies`] waits on every stream before its first
     /// copy, so a relocation with nothing to move waits on none.
     fn finish(&mut self) {}
 
-    fn relocate_memory(&mut self, reason: Relocate) {
+    fn relocate_memory(&mut self, reason: RelocationReason) {
         // Rare enough to gather the signals as it goes: it waits on the whole
         // device anyway.
         let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();

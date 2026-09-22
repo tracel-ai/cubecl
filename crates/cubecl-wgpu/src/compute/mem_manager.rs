@@ -6,7 +6,7 @@ use cubecl_core::{
 };
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_server::memory_management::relocation::Relocate;
+use cubecl_server::memory_management::relocation::{RelocationNeed, RelocationReason};
 use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::{
     logging::ServerLogger,
@@ -124,10 +124,10 @@ impl WgpuMemManager {
         self.memory_pool.reserve(size, update, failures)
     }
 
-    /// Whether the main pool has anything outdated a relocation could move
-    /// — see [`MemoryManagement::relocatable`].
-    pub(crate) fn relocatable(&self) -> bool {
-        self.memory_pool.relocatable()
+    /// Whether the main pool wants a relocation — see
+    /// [`MemoryManagement::relocation_need`].
+    pub(crate) fn relocation_need(&self) -> RelocationNeed {
+        self.memory_pool.relocation_need()
     }
 
     /// The bytes every pool of this stream holds from the device.
@@ -137,19 +137,12 @@ impl WgpuMemManager {
             + self.memory_pool_staging.bytes_allocated()
     }
 
-    /// Whether the main pool's outdated pools are worth emptying now, on a
-    /// device whose streams hold `allocated` bytes — see
-    /// [`MemoryManagement::relocation`].
-    pub(crate) fn relocation(&self, allocated: u64) -> Option<Relocate> {
-        self.memory_pool.relocation(allocated)
-    }
-
     /// Empty the main pool's outdated pools into its current pages, with
     /// `copier` carrying the bytes.
     pub(crate) fn relocate(
         &mut self,
         copier: &mut WgpuCopies,
-        reason: Relocate,
+        reason: RelocationReason,
         failures: &mut ErrorGraph,
     ) {
         self.memory_pool.relocate(copier, reason, failures);

@@ -5,7 +5,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::memory_management::Cleanup;
-use cubecl_server::memory_management::relocation::Relocate;
+use cubecl_server::memory_management::relocation::RelocationReason;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, MemoryManagement, MemoryManagementOptions},
@@ -199,7 +199,7 @@ impl MetalStream {
     ///
     /// The caller has [finished](Self::finish) every stream first: the blits
     /// that move the bytes follow every dispatch that could still read them.
-    pub fn relocate(&mut self, reason: Relocate, failures: &mut ErrorGraph) {
+    pub fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
         let mut copier = MetalCopies::new(self.queue.clone());
         self.memory_management
             .relocate(&mut copier, reason, failures);

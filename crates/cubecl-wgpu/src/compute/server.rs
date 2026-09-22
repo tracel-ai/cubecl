@@ -37,7 +37,7 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_server::memory_management::{
     ManagedMemoryHandle, MemoryReport, MemoryUsage, SharedMemoryBindings,
-    relocation::{Relocate, RelocatingStreams},
+    relocation::{RelocatingStreams, RelocationNeed, RelocationReason},
 };
 use cubecl_server::{
     compiler::CompilationCache,
@@ -717,7 +717,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         stream
             .mem_manage
             .memory_cleanup(Cleanup::Explicit, failures);
-        self.relocating(stream_id).relocate(Relocate::Explicit);
+        self.relocating(stream_id)
+            .relocate(RelocationReason::Explicit);
         Ok(())
     }
 
@@ -739,7 +740,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
         // The pages the recording touches are guarded for the graph's life,
         // and a guarded page is never relocated: empty the outdated pools now.
-        self.relocating(stream_id).relocate(Relocate::Capture);
+        self.relocating(stream_id)
+            .relocate(RelocationReason::Capture);
         Ok(())
     }
 
@@ -961,11 +963,11 @@ impl RelocatingStreams for Relocating<'_> {
             .any(|stream| stream.capturing.is_recording())
     }
 
-    fn relocatable(&mut self) -> bool {
+    fn relocation_need(&mut self) -> RelocationNeed {
         self.scheduler
             .stream(&self.stream_id)
             .mem_manage
-            .relocatable()
+            .relocation_need()
     }
 
     fn bytes_allocated(&mut self) -> u64 {
@@ -975,20 +977,13 @@ impl RelocatingStreams for Relocating<'_> {
             .sum()
     }
 
-    fn relocation(&mut self, allocated: u64) -> Option<Relocate> {
-        self.scheduler
-            .stream(&self.stream_id)
-            .mem_manage
-            .relocation(allocated)
-    }
-
     /// Run every stream's queued tasks and submit them: a queued task holds
     /// the addresses its buffers resolved to. The copier waits for the device.
     fn finish(&mut self) {
         self.scheduler.flush_all();
     }
 
-    fn relocate_memory(&mut self, reason: Relocate) {
+    fn relocate_memory(&mut self, reason: RelocationReason) {
         let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
         stream.relocate(reason, failures);
     }
