@@ -214,18 +214,11 @@ fn export_sqlite(
 
     // A shipped bundle is read from wherever it was installed, which is often
     // a read-only directory, and the engine never checkpoints on close: a
-    // file copied without its `-wal` is a file missing every row.
-    if !database::checkpoint(&connection).map_err(storage_error)? {
-        return Err(BundleError::Storage(
-            "the bundle's WAL checkpoint did not complete".to_string(),
-        ));
-    }
-
-    // Dropped before the header is rewritten: a live connection writes the
-    // header back out as it closes, and would undo it.
-    drop(connection);
+    // file copied without its `-wal` is a file missing every row. The
+    // connection is the last holder of the database once `target` is gone,
+    // so closing it closes the file before its header is rewritten.
     drop(target);
-    database::finalize_for_shipping(out)?;
+    database::make_standalone(connection, out).map_err(BundleError::Storage)?;
 
     Ok(exported)
 }
