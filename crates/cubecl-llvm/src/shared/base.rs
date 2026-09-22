@@ -308,9 +308,11 @@ impl PlironCompiler {
             module,
             &kernel.settings.kernel_name,
             arch,
-            kernel.settings.cube_dim,
-            shared_memory_size,
-            io,
+            crate::amdgpu::codegen::AmdGpuEntry {
+                cube_dim: kernel.settings.cube_dim,
+                shared_memory_size,
+                io,
+            },
         )
         .map_err(|err| {
             generic(format!(

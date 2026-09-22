@@ -2,7 +2,10 @@
 
 use crate::shared::offline_kernels::{keep_largest_kernel, plane_moves_kernel, scale_kernel};
 use crate::target::LlvmTarget;
-use crate::{PlironArtifact, PlironCompiler, PlironOptions, amdgpu::codegen::compile_to_object};
+use crate::{
+    PlironArtifact, PlironCompiler, PlironOptions,
+    amdgpu::codegen::{Assembly, compile_to_object},
+};
 use cubecl_core::Compiler;
 use cubecl_core::ir::{AddressType, amd::GfxArch};
 use cubecl_runtime::kernel::CubeKernel;
@@ -21,7 +24,7 @@ fn asm_of(kernel: impl CubeKernel, arch: &str) -> String {
     else {
         unreachable!("the AMDGPU target produces a code object");
     };
-    compile_to_object(&module.ir, &arch, true)
+    compile_to_object(&module.ir, &arch, Assembly::Keep)
         .unwrap()
         .1
         .unwrap()

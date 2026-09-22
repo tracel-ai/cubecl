@@ -60,14 +60,22 @@ fn features_for(arch: &GfxArch) -> &'static str {
     }
 }
 
+/// Kernel entry point requirements.
+pub struct AmdGpuEntry {
+    /// Units per cube along each axis.
+    pub cube_dim: Dim3,
+    /// Shared memory required per launch, in bytes.
+    pub shared_memory_size: usize,
+    /// Buffer access modes in binding order.
+    pub io: Vec<BufferIOAttr>,
+}
+
 pub fn emit_code_object(
     ctx: &Context,
     module: ModuleOp,
     entrypoint: &str,
     arch: &GfxArch,
-    cube_dim: Dim3,
-    shared_memory_size: usize,
-    io: Vec<BufferIOAttr>,
+    entry: AmdGpuEntry,
 ) -> Result<AmdGpuModule, String> {
     let llvm_ctx = LLVMContext::default();
 
@@ -76,10 +84,9 @@ pub fn emit_code_object(
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
     let module = LlvmModule::parse(&converted.to_string())?;
-    finalize(&module, entrypoint, arch, cube_dim, &io)?;
+    finalize(&module, entrypoint, arch, entry.cube_dim, &entry.io)?;
     let ir = module.print();
-    let want_asm = std::env::var_os("CUBECL_DEBUG_PLIRON").is_some();
-    let (object, asm) = compile(module, arch, want_asm)?;
+    let (object, asm) = compile(module, arch, Assembly::wanted())?;
 
     #[cfg(feature = "pliron-dump")]
     if let Some(dir) = crate::cpu::jit::engine::ir_dump_path(entrypoint) {
@@ -96,9 +103,26 @@ pub fn emit_code_object(
         entrypoint: entrypoint.to_string(),
         ir,
         asm,
-        shared_memory_size,
-        io,
+        shared_memory_size: entry.shared_memory_size,
+        io: entry.io,
     })
+}
+
+/// Whether a compile also emits the assembly, which only a debugging dump reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Assembly {
+    Keep,
+    Skip,
+}
+
+impl Assembly {
+    /// `Keep` when `CUBECL_DEBUG_PLIRON` asks for the dumps.
+    fn wanted() -> Self {
+        match std::env::var_os("CUBECL_DEBUG_PLIRON").is_some() {
+            true => Assembly::Keep,
+            false => Assembly::Skip,
+        }
+    }
 }
 
 /// The metadata pointer `KernargArgs` appends after the buffers.
@@ -177,7 +201,7 @@ fn mark_atomics_device_local(entry: &EntryFunction<'_>) {
 fn compile(
     module: LlvmModule,
     arch: &GfxArch,
-    want_asm: bool,
+    assembly: Assembly,
 ) -> Result<(Vec<u8>, Option<String>), String> {
     init_amdgpu();
 
@@ -196,7 +220,7 @@ fn compile(
     module.run_passes(PASS_PIPELINE, Some(&machine))?;
 
     // Emission consumes a module, so the assembly comes from a copy.
-    let asm = if want_asm {
+    let asm = if assembly == Assembly::Keep {
         let copy = LlvmModule::parse(&module.print())?;
         let bytes = machine.emit(copy, LLVMCodeGenFileType::LLVMAssemblyFile)?;
         Some(String::from_utf8_lossy(&bytes).into_owned())
@@ -214,9 +238,9 @@ fn compile(
 pub(crate) fn compile_to_object(
     ir: &str,
     arch: &GfxArch,
-    want_asm: bool,
+    assembly: Assembly,
 ) -> Result<(Vec<u8>, Option<String>), String> {
-    compile(LlvmModule::parse(ir)?, arch, want_asm)
+    compile(LlvmModule::parse(ir)?, arch, assembly)
 }
 
 /// # Safety
@@ -300,7 +324,7 @@ entry:
         let finalized =
             finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), Dim3::new_1d(64), &[]).unwrap();
         let (object, asm) =
-            compile_to_object(&finalized, &GfxArch::parse("gfx1201"), true).unwrap();
+            compile_to_object(&finalized, &GfxArch::parse("gfx1201"), Assembly::Keep).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");
 
         let asm = asm.unwrap();
@@ -344,7 +368,7 @@ entry:
 "#
             );
             let finalized = finalize_ir(&ir, "k", &arch, Dim3::new_1d(32), &[]).unwrap();
-            let (object, asm) = compile_to_object(&finalized, &arch, true).unwrap();
+            let (object, asm) = compile_to_object(&finalized, &arch, Assembly::Keep).unwrap();
             assert_eq!(&object[..4], b"\x7fELF");
 
             let asm = asm.unwrap();
@@ -386,7 +410,7 @@ exit:
             "the metadata is read-only:\n{finalized}"
         );
 
-        let (_, asm) = compile_to_object(&finalized, &arch, true).unwrap();
+        let (_, asm) = compile_to_object(&finalized, &arch, Assembly::Keep).unwrap();
         let asm = asm.unwrap();
         assert!(
             asm.contains("s_load_b32"),
@@ -412,7 +436,7 @@ entry:
         for name in ["gfx1100", "gfx90a", "gfx1201", "gfx942"] {
             let arch = GfxArch::parse(name);
             let finalized = finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &[]).unwrap();
-            let (_, asm) = compile_to_object(&finalized, &arch, true).unwrap();
+            let (_, asm) = compile_to_object(&finalized, &arch, Assembly::Keep).unwrap();
             let asm = asm.unwrap();
             assert!(asm.contains("global_atomic_add_f32"), "{name}:\n{asm}");
             assert!(!asm.contains("cmpswap"), "{name} has no CAS loop:\n{asm}");
@@ -431,7 +455,7 @@ entry:
         let finalized =
             finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), Dim3::new_1d(64), &[]).unwrap();
         let (object, asm) =
-            compile_to_object(&finalized, &GfxArch::parse("gfx1201"), true).unwrap();
+            compile_to_object(&finalized, &GfxArch::parse("gfx1201"), Assembly::Keep).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");
         assert_eq!(
             u16::from_le_bytes([object[16], object[17]]),
