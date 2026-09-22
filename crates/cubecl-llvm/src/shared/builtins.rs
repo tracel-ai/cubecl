@@ -2,11 +2,11 @@
 //! derived from them the same way on both.
 
 use crate::{
-    cpu::entrypoint::{
+    prelude::*,
+    shared::builtin_values::{
         BuiltinValues, Replacer, absolute_pos, absolute_pos_x, absolute_pos_y, absolute_pos_z,
         constant, cube_count, cube_pos, set_dim_and_cluster_constants, unit_pos,
     },
-    prelude::*,
 };
 use cubecl_core::{ir::dialect::general::ReadBuiltinOp, prelude::*};
 
