@@ -10,26 +10,6 @@ use cubecl_core::Compiler;
 use cubecl_core::ir::{AddressType, amd::GfxArch};
 use cubecl_runtime::kernel::CubeKernel;
 
-/// The assembly `kernel` compiles to for `arch`.
-fn asm_of(kernel: impl CubeKernel, arch: &str) -> String {
-    let arch = GfxArch::parse(arch);
-    let mut compiler = PlironCompiler {
-        target: LlvmTarget::AmdGpu,
-    };
-    let options = PlironOptions {
-        arch: Some(arch.clone()),
-        ..Default::default()
-    };
-    let PlironArtifact::AmdGpuCode(module) = compiler.compile(kernel.define(), &options).unwrap()
-    else {
-        unreachable!("the AMDGPU target produces a code object");
-    };
-    compile_to_object(&module.ir, &arch, Assembly::Keep)
-        .unwrap()
-        .1
-        .unwrap()
-}
-
 #[test]
 fn a_32_bit_kernel_indexes_in_32_bits() {
     let asm = asm_of(scale_kernel(AddressType::U32), "gfx1201");
@@ -85,4 +65,24 @@ fn a_local_array_under_a_constant_loop_is_registers() {
         !asm.contains("scratch_"),
         "the array is in scratch memory:\n{asm}"
     );
+}
+
+/// The assembly `kernel` compiles to for `arch`.
+fn asm_of(kernel: impl CubeKernel, arch: &str) -> String {
+    let arch = GfxArch::parse(arch);
+    let mut compiler = PlironCompiler {
+        target: LlvmTarget::AmdGpu,
+    };
+    let options = PlironOptions {
+        arch: Some(arch.clone()),
+        ..Default::default()
+    };
+    let PlironArtifact::AmdGpuCode(module) = compiler.compile(kernel.define(), &options).unwrap()
+    else {
+        unreachable!("the AMDGPU target produces a code object");
+    };
+    compile_to_object(&module.ir, &arch, Assembly::Keep)
+        .unwrap()
+        .1
+        .unwrap()
 }
