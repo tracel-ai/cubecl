@@ -11,6 +11,7 @@ pub mod intrinsic;
 pub(crate) mod llvm_module;
 #[cfg(feature = "nvptx")]
 pub(crate) mod llvm_options;
+pub mod loop_hints;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub mod lowered_features;
 pub mod lowering;
