@@ -368,14 +368,7 @@ impl DeviceService for CudaServer {
         // compile rather than a slower one.
         let backend = CudaBackend::default();
         if backend == CudaBackend::Llvm {
-            let options = cubecl_llvm::PlironOptions {
-                sm_arch: Some(SmArch::new(arch_version, arch.tensor_cores)),
-                ..Default::default()
-            };
-            cubecl_llvm::PlironCompiler {
-                target: cubecl_llvm::LlvmTarget::Nvptx,
-            }
-            .restrict_features(&options, &mut device_props);
+            cubecl_llvm::shared::lowered_features::restrict_nvptx_features(&mut device_props);
         }
 
         let comp_opts = CudaCompilationOptions {

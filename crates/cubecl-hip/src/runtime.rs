@@ -187,14 +187,10 @@ impl DeviceService for HipServer {
         // Which backend compiles here decides what may be advertised: a feature the selected
         // one cannot honour is a kernel that fails to compile rather than a slower one.
         if HipBackend::default() == HipBackend::Llvm {
-            let options = cubecl_llvm::PlironOptions {
-                arch: Some(gfx.clone()),
-                ..Default::default()
-            };
-            cubecl_llvm::PlironCompiler {
-                target: cubecl_llvm::LlvmTarget::AmdGpu,
-            }
-            .restrict_features(&options, &mut device_props);
+            cubecl_llvm::shared::lowered_features::restrict_amdgpu_features(
+                &mut device_props,
+                gfx.wmma(),
+            );
         }
 
         let comp_opts = HipCompilationOptions {

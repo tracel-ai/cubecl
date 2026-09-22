@@ -1,5 +1,13 @@
-//! What a device advertises, narrowed to what the LLVM backend lowers for it: the rules behind
-//! [`PlironCompiler::restrict_features`](crate::PlironCompiler::restrict_features).
+//! What a device advertises, narrowed to what the LLVM backend lowers for it.
+//!
+//! A GPU runtime's properties come from its C++ backend, which gained each generation's hardware
+//! features as they shipped. The LLVM backend runs ordinary kernels: arithmetic, memory, shared
+//! memory, the plane operations, the two barriers and the matrix instructions it has register
+//! shapes for. Everything else is taken away here rather than left to fail at compile time,
+//! because a consumer picks its algorithm off these properties — cubek's matmul selectors ask for
+//! `mma` before they ask anything else — and an advertisement that cannot be honoured is a launch
+//! that fails rather than one that falls back. The CPU runtime builds its properties from what
+//! this backend lowers, so it has nothing to narrow.
 
 #[cfg(feature = "amdgpu")]
 use cubecl_core::ir::amd::AmdWmma;
@@ -17,10 +25,10 @@ fn is_half_or_single(ty: ElemType) -> bool {
     )
 }
 
-/// Keeps the matrix forms NVPTX has register shapes for, then removes what neither target
+/// Keeps the matrix forms NVPTX has register shapes for, and takes away what neither target
 /// lowers.
 #[cfg(feature = "nvptx")]
-pub(crate) fn restrict_nvptx(props: &mut DeviceProperties) {
+pub fn restrict_nvptx_features(props: &mut DeviceProperties) {
     // Both matrix families are lowered: the cooperative one through `wmma`, the manual one
     // through `mma.sync`. Each is narrowed to the element types its lowering has register
     // shapes for -- `f16` operands throughout, plus the narrow integers on the manual side,
@@ -60,7 +68,7 @@ pub(crate) fn restrict_nvptx(props: &mut DeviceProperties) {
 /// WMMA forms and `bf16` (see `restrict_common`) have none. The plane operations work under
 /// divergence, since they read the active lanes from `exec`, so they are left as advertised.
 #[cfg(feature = "amdgpu")]
-pub(crate) fn restrict_amdgpu(props: &mut DeviceProperties, wmma: Option<AmdWmma>) {
+pub fn restrict_amdgpu_features(props: &mut DeviceProperties, wmma: Option<AmdWmma>) {
     let lowered = |a: ElemType, b: ElemType, cd: ElemType| {
         wmma.is_some() && a == HALF && b == HALF && is_half_or_single(cd)
     };
@@ -124,22 +132,12 @@ fn restrict_common(props: &mut DeviceProperties) {
 #[cfg(all(test, feature = "amdgpu"))]
 mod tests {
     use super::*;
-    use crate::{
-        PlironCompiler, PlironOptions, shared::offline_kernels::device_properties,
-        target::LlvmTarget,
-    };
+    use crate::shared::offline_kernels::device_properties;
     use cubecl_core::ir::{IntKind, amd::GfxArch, features::MmaConfig};
 
     fn restricted_for(arch: &str) -> DeviceProperties {
         let mut props = advertising_every_matrix_form();
-        let options = PlironOptions {
-            arch: Some(GfxArch::parse(arch)),
-            ..Default::default()
-        };
-        PlironCompiler {
-            target: LlvmTarget::AmdGpu,
-        }
-        .restrict_features(&options, &mut props);
+        restrict_amdgpu_features(&mut props, GfxArch::parse(arch).wmma());
         props
     }
 
