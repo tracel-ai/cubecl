@@ -47,18 +47,27 @@ clamp, and now restores the NaN explicitly.
 
 ## Phase 2 — AMDGPU catches up with NVPTX
 
-- [ ] **Annotate buffer parameters on AMDGPU.** Move `annotate_buffer_params` and
+- [x] **Annotate buffer parameters on AMDGPU.** Move `annotate_buffer_params` and
       `reads_atomically` from `nvptx/codegen.rs` into `shared/` and call them from both
       targets. Without `noalias` the AMDGPU backend cannot prove a uniform load is not
       clobbered, so shape and stride reads stay vector loads instead of `s_load`.
-- [ ] **32-bit indices on AMDGPU.** `index_width` follows the address type on NVPTX and is
+- [x] **32-bit indices on AMDGPU.** `index_width` follows the address type on NVPTX and is
       fixed at 64 on AMDGPU; 64-bit integer arithmetic costs two or more VALU instructions.
-- [ ] **`readlane` for a constant-lane broadcast** instead of `ds_bpermute`.
+- [x] ~~**`readlane` for a constant-lane broadcast**~~ — not needed: the backend already
+      rewrites a `ds_bpermute` from a constant lane into `v_readlane`, and a small constant
+      XOR into DPP. `a_constant_lane_moves_without_lds` guards it.
 - [ ] **Metadata in the constant address space** (4), so every metadata read is a scalar load.
 - [ ] **Grid constants on AMDGPU**: scalars and static metadata in the kernarg segment, with
       the HIP launcher packing the same layout the CUDA one does.
-- [ ] **DPP / `ds_swizzle` / `permlanex16`** for shuffles with constant masks (plane
-      reductions).
+- [ ] **DPP / `permlanex16` for the XOR masks the backend does not rewrite** (16 and 32 on
+      wave64, where the plane reductions start). Check the reduction's assembly first; the
+      small masks are already DPP.
+- [ ] **Scalar base + 32-bit offset addressing.** A `U32` kernel still forms each address with
+      a 64-bit shift and add per lane; `global_load v, v_off, s[base]` needs the byte offset
+      known to fit in 32 bits.
+
+Checked offline: `amdgpu/offline_tests.rs` compiles `#[cube]` kernels for AMDGPU without a
+device and asserts on the assembly.
 
 ## Phase 3 — one GPU codegen driver
 
@@ -77,7 +86,8 @@ clamp, and now restores the NaN explicitly.
 - [ ] A HIP `restrict_to_llvm_backend`: no matrix features on CDNA (MFMA is not lowered), no
       i8/fp8 WMMA, and `bf16` only once the LLVM lowering has a type for it.
 - [ ] Exact launch bounds: `nvvm.reqntid` and `reqd_work_group_size` /
-      `uniform-work-group-size` from the compile-time cube dimensions.
+      `uniform-work-group-size` from the compile-time cube dimensions. On AMDGPU a 1D cube
+      still unpacks the y and z work-item ids from `v0` and adds them into every position.
 - [ ] Remove the leftover `println!` in `scalar_alignment`; document NVPTX in the README.
 
 ## Measuring
