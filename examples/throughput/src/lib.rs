@@ -2,11 +2,12 @@ use cubecl::{
     Device,
     ir::{ElemType, FloatKind},
     prelude::*,
-    std::throughput::{measure_memory_curve, measure_peak_throughput},
+    std::throughput::{measure_memory_curve, measure_peak_throughput, roofline_bounds},
     throughput::{
         CmmaDims, ComputeCmmaConfig, MemoryAccess, MemoryCurve, ThroughputError, ThroughputKey,
         ThroughputMode,
     },
+    tune::{Thresholds, Work},
 };
 
 /// Binds the default device of each runtime selected by the enabled cargo features to
@@ -127,6 +128,7 @@ struct Row {
 
 fn report(device: &Device, rows: impl FnOnce(&Client) -> Vec<Row>) {
     let client = device.client();
+    let start = std::time::Instant::now();
 
     println!(
         "Peak throughput — {} / {}",
@@ -145,6 +147,8 @@ fn report(device: &Device, rows: impl FnOnce(&Client) -> Vec<Row>) {
 
         println!("  {:<15}{:<24}{:>18}", row.mode, row.operands, value);
     }
+
+    println!("\n  measured in {:.1} s", start.elapsed().as_secs_f64());
 }
 
 fn compute_direct_rows(client: &Client) -> Vec<Row> {
@@ -520,4 +524,46 @@ fn timed(client: &Client, key: ThroughputKey) -> std::time::Duration {
     let _ = measure_peak_throughput(client, key);
 
     start.elapsed()
+}
+
+/// What one autotune key pays for its bounds, cold and then cached.
+///
+/// [`roofline_bounds`] measures a compute peak, a memory peak at the work's own
+/// footprint, and the launch overhead. Only the memory key carries the
+/// footprint, so a key over a different size pays for one more probe while the
+/// other two answer from the cache.
+pub fn bounds(device: &Device) {
+    let client = device.client();
+    let compute_key = ThroughputKey {
+        mode: ThroughputMode::ComputeDirect {
+            dtype: ElemType::Float(FloatKind::F32),
+        },
+    };
+
+    println!(
+        "Autotune bounds — {} / {}",
+        client.name(),
+        client.properties().identity.name
+    );
+    println!("  {:<28}{:>12}", "", "wall");
+
+    for (label, bytes) in [
+        ("first key", 64 << 20),
+        ("same footprint again", 64 << 20),
+        ("another footprint", 256 << 20),
+        ("a third", 1 << 20),
+    ] {
+        let work = Work {
+            compute_ops: bytes * 4,
+            bytes,
+        };
+
+        let start = std::time::Instant::now();
+        let _ = roofline_bounds(&client, compute_key, work, Thresholds::default());
+
+        println!(
+            "  {label:<28}{:>12}",
+            format!("{:.2} s", start.elapsed().as_secs_f64())
+        );
+    }
 }
