@@ -9,9 +9,9 @@ use cubecl_core::ir::types::{
 };
 
 /// Index width in bits. The GPU targets follow the address type: a kernel whose buffers fit in
-/// 32-bit addressing does its index arithmetic in 32 bits, which on AMDGPU is one VALU or SALU
-/// instruction where 64 bits takes two or more, and on NVPTX half the registers. The CPU uses
-/// 64 bits.
+/// 32-bit addressing does its index arithmetic in 32 bits, which on AMDGPU is one vector or
+/// scalar ALU instruction where 64 bits takes two or more, and on NVPTX half the registers. The
+/// CPU uses 64 bits.
 pub fn index_width(ctx: &Context) -> u32 {
     if !ctx.target().is_gpu() {
         return 64;
@@ -82,12 +82,13 @@ pub fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
     .unwrap_or(ty);
 
     let scalar = scalar.deref(ctx);
-    let scalar = type_cast::<dyn AlignedType>(&*scalar);
-    if scalar.is_none() {
-        println!("{}", ty.disp(ctx));
-    }
-    scalar
-        .expect("load/store value type must implement AlignedType")
+    type_cast::<dyn AlignedType>(&*scalar)
+        .unwrap_or_else(|| {
+            panic!(
+                "load/store value type must implement AlignedType, `{}` does not",
+                ty.disp(ctx)
+            )
+        })
         .align(ctx) as u32
 }
 
