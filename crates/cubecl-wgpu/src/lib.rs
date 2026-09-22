@@ -211,10 +211,13 @@ mod tests_spirv {
 #[allow(unexpected_cfgs)]
 mod tests_msl {
     pub type TestRuntime = crate::WgpuRuntime;
-    use half::f16;
+    use half::{bf16, f16};
 
-    cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
+    cubecl_core::testgen_all!(f32: [f16, bf16, f32], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);
+    cubecl_core::testgen_profiling!();
+    cubecl_core::testgen_profiling_nested!();
+    cubecl_core::testgen_complex_validation!();
 }
