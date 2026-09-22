@@ -8,6 +8,8 @@ pub(crate) mod buffer_params;
 pub mod intrinsic;
 #[cfg(feature = "nvptx")]
 pub(crate) mod llvm_options;
+#[cfg(feature = "nvptx")]
+pub mod lowered_features;
 pub mod lowering;
 pub mod math_library;
 pub mod matrix;
