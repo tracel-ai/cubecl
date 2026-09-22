@@ -187,6 +187,25 @@ impl Driver for Hip {
         Ok(())
     }
 
+    unsafe fn copy_on_device(
+        source: &GpuResource,
+        target: &GpuResource,
+        stream: &Stream,
+    ) -> Result<(), IoError> {
+        debug_assert_eq!(source.size, target.size);
+        // SAFETY: the caller guarantees two live, same-sized, disjoint device
+        // allocations left alone until the stream is synchronized.
+        let status = unsafe {
+            cubecl_hip_sys::hipMemcpyDtoDAsync(
+                target.ptr,
+                source.ptr,
+                source.size as usize,
+                stream.sys,
+            )
+        };
+        Ok(checked("hipMemcpyDtoDAsync", status)?)
+    }
+
     fn launch(
         ctx: &mut HipContext,
         stream: &mut Stream,

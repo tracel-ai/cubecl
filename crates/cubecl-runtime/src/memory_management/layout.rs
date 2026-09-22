@@ -92,6 +92,38 @@ impl MemoryConfiguration {
                 });
                 pools
             }
+            #[cfg(not(exclusive_memory_only))]
+            MemoryConfiguration::Adaptive => {
+                let alignment = properties.alignment;
+
+                vec![
+                    // Allocations smaller than the alignment can't use offsets
+                    // at all (on wgpu at least), as in `SubSlices`.
+                    MemoryPoolOptions {
+                        pool_type: PoolType::ExclusivePages { max_alloc_size: 0 },
+                        dealloc_period: None,
+                    },
+                    // Kernel metadata — shapes, strides, scalars — churns
+                    // thousands of tiny slices. Kept off the adaptive pages so
+                    // they neither fragment them nor count toward their size.
+                    MemoryPoolOptions {
+                        pool_type: PoolType::SlicedPages {
+                            page_size: ADAPTIVE_SMALL_PAGE.next_multiple_of(alignment),
+                            max_slice_size: ADAPTIVE_SMALL_SLICE.next_multiple_of(alignment),
+                            max_pool_size: None,
+                        },
+                        dealloc_period: None,
+                    },
+                    MemoryPoolOptions {
+                        pool_type: PoolType::AdaptivePages {
+                            min_page_size: ADAPTIVE_MIN_PAGE
+                                .min(properties.max_page_size)
+                                .next_multiple_of(alignment),
+                        },
+                        dealloc_period: None,
+                    },
+                ]
+            }
             MemoryConfiguration::ExclusivePages => {
                 // Add all bin sizes. Nb: because of alignment some buckets
                 // end up as the same size, so only want unique ones,
@@ -161,6 +193,17 @@ fn generate_bucket_sizes(
     buckets.dedup();
     buckets
 }
+
+/// The `Adaptive` preset's small-allocation pool: its page size, and the
+/// largest allocation routed to it.
+#[cfg(not(exclusive_memory_only))]
+const ADAPTIVE_SMALL_PAGE: u64 = 8 * 1024 * 1024;
+#[cfg(not(exclusive_memory_only))]
+const ADAPTIVE_SMALL_SLICE: u64 = 64 * 1024;
+/// The `Adaptive` preset's smallest adaptive page, capped by the device's
+/// `max_page_size`.
+#[cfg(not(exclusive_memory_only))]
+const ADAPTIVE_MIN_PAGE: u64 = 64 * 1024 * 1024;
 
 const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
 const BASE_DEALLOC_PERIOD: u64 = 5000;

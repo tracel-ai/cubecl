@@ -15,9 +15,10 @@ use crate::id::KernelId;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::{
     InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
-    MemoryHandle, MemoryReport, MemoryUsage,
+    MemoryHandle, MemoryReport, MemoryUsage, memory_pool::Relocation,
 };
 use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
+use crate::storage::ComputeStorage;
 use crate::stream::ResolvedStreams;
 use alloc::boxed::Box;
 use alloc::vec;
@@ -110,7 +111,69 @@ impl<'a, D: Driver> Command<'a, D> {
         }
         let (stream, failures) = self.streams.current_and_failures();
         stream.device_memory().cleanup(true, failures);
+        self.compact();
+        let (stream, failures) = self.streams.current_and_failures();
         stream.host_memory().cleanup(true, failures);
+    }
+
+    /// Move what is still live on outdated adaptive pages onto pages of the
+    /// current size, so those pages go back to the driver now rather than
+    /// when their longest-lived allocation ends.
+    ///
+    /// Runs after the plain cleanup, so the room it freed is there for the
+    /// new pages. Nothing moves until every copy has landed: a copy that fails
+    /// abandons the whole plan and the allocations stay where they were.
+    fn compact(&mut self) {
+        let stream = self.streams.current();
+        if stream.capturing().is_recording() {
+            return;
+        }
+        let (stream, failures) = self.streams.current_and_failures();
+        let relocations = stream.device_memory().plan_compaction(failures);
+        if relocations.is_empty() {
+            return;
+        }
+
+        let copied = self.copy_relocations(&relocations);
+        let (stream, failures) = self.streams.current_and_failures();
+        match copied {
+            Ok(()) => stream
+                .device_memory()
+                .commit_compaction(relocations, failures),
+            Err(err) => {
+                log::warn!("memory compaction abandoned: {err}");
+                drop(relocations);
+                // The pages reserved as targets are empty again.
+                stream.device_memory().cleanup(true, failures);
+            }
+        }
+    }
+
+    /// Copy every relocation's bytes and wait until they have landed.
+    fn copy_relocations(&mut self, relocations: &[Relocation]) -> Result<(), ServerError> {
+        // Another stream may still read or write an allocation about to move:
+        // everything already enqueued anywhere finishes first.
+        let fences: Vec<_> = self
+            .streams
+            .all()
+            .map(|stream| D::Stream::fence(stream.signal()))
+            .collect();
+        for fence in fences {
+            fence.wait()?;
+        }
+
+        let stream = self.streams.current();
+        for copy in relocations
+            .iter()
+            .filter_map(|relocation| relocation.copy.as_ref())
+        {
+            let source = stream.device_memory().storage().get(&copy.source)?;
+            let target = stream.device_memory().storage().get(&copy.target)?;
+            // SAFETY: both come from live slices of the same size on distinct
+            // pages, and nothing else is enqueued before the fence below.
+            unsafe { D::copy_on_device(&source, &target, stream)? };
+        }
+        D::Stream::fence(stream.signal()).wait()
     }
 
     /// Flush the current stream's drop queue, freeing what the device is

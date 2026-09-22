@@ -74,7 +74,11 @@ pub fn e2m1_bits_to_float<F: Numeric, N: Size>(code: Vector<u32, N>) -> Vector<F
     );
 
     // A magnitude above one is a non-zero exponent, the mantissa bit being all that lies below.
-    let bits = select_many(magnitude.greater_than(&Vector::new(MANTISSA)), normal, subnormal);
+    let bits = select_many(
+        magnitude.greater_than(&Vector::new(MANTISSA)),
+        normal,
+        subnormal,
+    );
 
     // The sign rides as the bit it is rather than negating a magnitude. That is a shift and an
     // or against a compare, a negate and a select — and it is also the only form that reaches

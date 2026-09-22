@@ -108,6 +108,14 @@ pub enum MemoryPoolKind {
         /// The pool's byte cap (`None` grows unbounded).
         max_pool_size: Option<u64>,
     },
+    /// Slices carved from pages sized after the largest allocation served.
+    Adaptive {
+        /// The size new pages are allocated at.
+        page_size: u64,
+        /// Pages held at an older, smaller size, waiting on their last live
+        /// slice before they are returned to the driver.
+        outdated_pages: u64,
+    },
     /// Every allocation is its own device page.
     Exclusive {
         /// The largest allocation the pool accepts.

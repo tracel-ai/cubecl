@@ -1,9 +1,10 @@
 use super::{
     InstallMemoryPoolsError, ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId,
     MemoryAllocationMode, MemoryConfiguration, MemoryReport, MemoryUsage, PERSISTENT_POOL_POS,
-    PoolType,
+    PoolType, UNPOOLED_POOL_POS,
     memory_pool::{
-        DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool,
+        AdaptivePool, DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool,
+        Relocation, SlicedPool,
     },
 };
 use crate::{
@@ -30,6 +31,7 @@ use cubecl_ir::MemoryDeviceProperties;
 // saving the 200 bytes.
 #[allow(clippy::large_enum_variant)]
 enum DynamicPool {
+    Adaptive(AdaptivePool),
     Sliced(SlicedPool),
     Exclusive(ExclusiveMemoryPool),
     Direct(DirectPool),
@@ -38,6 +40,7 @@ enum DynamicPool {
 impl MemoryPool for DynamicPool {
     fn accept(&self, size: u64) -> bool {
         match self {
+            DynamicPool::Adaptive(pool) => pool.accept(size),
             DynamicPool::Sliced(pool) => pool.accept(size),
             DynamicPool::Exclusive(pool) => pool.accept(size),
             DynamicPool::Direct(pool) => pool.accept(size),
@@ -46,6 +49,7 @@ impl MemoryPool for DynamicPool {
 
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
         match self {
+            DynamicPool::Adaptive(m) => m.find(binding),
             DynamicPool::Sliced(m) => m.find(binding),
             DynamicPool::Exclusive(m) => m.find(binding),
             DynamicPool::Direct(m) => m.find(binding),
@@ -54,6 +58,7 @@ impl MemoryPool for DynamicPool {
 
     fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
         match self {
+            DynamicPool::Adaptive(m) => m.find_mut(binding),
             DynamicPool::Sliced(m) => m.find_mut(binding),
             DynamicPool::Exclusive(m) => m.find_mut(binding),
             DynamicPool::Direct(m) => m.find_mut(binding),
@@ -63,6 +68,7 @@ impl MemoryPool for DynamicPool {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn try_reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle> {
         match self {
+            DynamicPool::Adaptive(m) => m.try_reserve(size, failures),
             DynamicPool::Sliced(m) => m.try_reserve(size, failures),
             DynamicPool::Exclusive(m) => m.try_reserve(size, failures),
             DynamicPool::Direct(m) => m.try_reserve(size, failures),
@@ -78,6 +84,7 @@ impl MemoryPool for DynamicPool {
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
+            DynamicPool::Adaptive(m) => m.alloc(storage, size, mapping, failures),
             DynamicPool::Sliced(m) => m.alloc(storage, size, mapping, failures),
             DynamicPool::Exclusive(m) => m.alloc(storage, size, mapping, failures),
             DynamicPool::Direct(m) => m.alloc(storage, size, mapping, failures),
@@ -90,6 +97,7 @@ impl MemoryPool for DynamicPool {
         binding: &ManagedMemoryBinding,
     ) -> Result<(), IoError> {
         match self {
+            DynamicPool::Adaptive(m) => m.materialize(storage, binding),
             DynamicPool::Sliced(m) => m.materialize(storage, binding),
             DynamicPool::Exclusive(m) => m.materialize(storage, binding),
             DynamicPool::Direct(m) => m.materialize(storage, binding),
@@ -98,6 +106,7 @@ impl MemoryPool for DynamicPool {
 
     fn get_memory_usage(&self) -> MemoryUsage {
         match self {
+            DynamicPool::Adaptive(m) => m.get_memory_usage(),
             DynamicPool::Sliced(m) => m.get_memory_usage(),
             DynamicPool::Exclusive(m) => m.get_memory_usage(),
             DynamicPool::Direct(m) => m.get_memory_usage(),
@@ -112,6 +121,7 @@ impl MemoryPool for DynamicPool {
         failures: &mut ErrorGraph,
     ) {
         match self {
+            DynamicPool::Adaptive(m) => m.cleanup(storage, alloc_nr, explicit, failures),
             DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit, failures),
             DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit, failures),
             DynamicPool::Direct(m) => m.cleanup(storage, alloc_nr, explicit, failures),
@@ -127,6 +137,7 @@ impl MemoryPool for DynamicPool {
         failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         match self {
+            DynamicPool::Adaptive(m) => m.bind(reserved, assigned, cursor, failures),
             DynamicPool::Sliced(m) => m.bind(reserved, assigned, cursor, failures),
             DynamicPool::Exclusive(m) => m.bind(reserved, assigned, cursor, failures),
             DynamicPool::Direct(m) => m.bind(reserved, assigned, cursor, failures),
@@ -137,6 +148,7 @@ impl MemoryPool for DynamicPool {
 impl core::fmt::Display for DynamicPool {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            DynamicPool::Adaptive(pool) => write!(f, "{pool}"),
             DynamicPool::Sliced(pool) => write!(f, "{pool}"),
             DynamicPool::Exclusive(pool) => write!(f, "{pool}"),
             DynamicPool::Direct(pool) => write!(f, "{pool}"),
@@ -147,6 +159,7 @@ impl core::fmt::Display for DynamicPool {
 impl DynamicPool {
     fn report(&self) -> super::MemoryPoolReport {
         match self {
+            DynamicPool::Adaptive(m) => m.report(),
             DynamicPool::Sliced(m) => m.report(),
             DynamicPool::Exclusive(m) => m.report(),
             DynamicPool::Direct(m) => m.report(),
@@ -158,6 +171,9 @@ impl DynamicPool {
 pub struct MemoryManagement<Storage> {
     name: String,
     persistent: PersistentPool,
+    /// Allocations made under [`MemoryAllocationMode::Unpooled`]: each its own
+    /// device allocation, returned to the driver on the tick after it is freed.
+    unpooled: DirectPool,
     pools: Vec<DynamicPool>,
     /// Dynamic pools that have already reported hitting their cap, so the
     /// warning stays one per pool per layout rather than one per allocation.
@@ -166,9 +182,11 @@ pub struct MemoryManagement<Storage> {
     storage: Storage,
     alloc_reserve_count: u64,
     mode: MemoryAllocationMode,
-    /// Open persistent windows (see [`mode`](Self::mode)): the effective mode
-    /// stays `Persistent` until every nested window has closed.
-    persistent_windows: u64,
+    /// The mode no window overrides: the configured or provided one.
+    base_mode: MemoryAllocationMode,
+    /// Open allocation windows (see [`mode`](Self::mode)), innermost last,
+    /// each holding the mode it put in force.
+    windows: Vec<MemoryAllocationMode>,
     config: PersistentMemory,
     logger: Arc<ServerLogger>,
     /// State of the active graph capture, if any.
@@ -272,12 +290,15 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 properties.alignment,
                 PERSISTENT_POOL_POS,
             ),
+            // A watermark of zero: every free slice goes back on the next tick.
+            unpooled: DirectPool::new(properties.alignment, UNPOOLED_POOL_POS, Some(0)),
             pools,
             capacity_warned: HashSet::new(),
             storage,
             alloc_reserve_count: 0,
             mode,
-            persistent_windows: 0,
+            base_mode: mode,
+            windows: Vec::new(),
             config,
             logger,
             capture: None,
@@ -394,32 +415,32 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Change the mode of allocation.
     ///
-    /// Persistent windows **nest**: a `Persistent` call opens one, an `Auto`
-    /// call closes one, and the effective mode stays `Persistent` while any
-    /// window is open. Callers routinely nest without knowing it — a module
-    /// load opens a window around the whole load while the parameter machinery
-    /// underneath opens one per parameter — and without the depth, the first
-    /// inner window's exit would flip the rest of the outer window back to
-    /// `Auto`: weights landing in the dynamic pools, which then refuse every
-    /// later rebuild ([`install_pools`](Self::install_pools)) for the model's whole
-    /// life.
+    /// Windows **nest**: a `Persistent` or `Unpooled` call opens one, an
+    /// `Auto` call closes the innermost, and the innermost open window decides
+    /// the effective mode. Callers routinely nest without knowing it — a
+    /// module load opens a persistent window around the whole load while the
+    /// parameter machinery underneath opens one per parameter — and without
+    /// the stack, the first inner window's exit would flip the rest of the
+    /// outer window back to `Auto`: weights landing in the dynamic pools,
+    /// which then refuse every later rebuild
+    /// ([`install_pools`](Self::install_pools)) for the model's whole life.
+    ///
+    /// The persistent-memory config decides what a `Persistent` window puts in
+    /// force (`Disabled` and `Enforced` keep the configured mode); an
+    /// `Unpooled` window is honored whatever the config, since it exists to
+    /// keep a buffer out of every pool.
     pub fn mode(&mut self, mode: MemoryAllocationMode) {
-        // We override the mode based on the cubecl config.
-        let mode = match self.config {
-            PersistentMemory::Enabled | PersistentMemory::SizeMatch => mode,
-            PersistentMemory::Disabled | PersistentMemory::Enforced => return,
-        };
-
         match mode {
-            MemoryAllocationMode::Persistent => self.persistent_windows += 1,
             MemoryAllocationMode::Auto => {
-                self.persistent_windows = self.persistent_windows.saturating_sub(1)
+                self.windows.pop();
             }
+            MemoryAllocationMode::Persistent => self.windows.push(match self.config {
+                PersistentMemory::Enabled | PersistentMemory::SizeMatch => mode,
+                PersistentMemory::Disabled | PersistentMemory::Enforced => self.base_mode,
+            }),
+            MemoryAllocationMode::Unpooled => self.windows.push(mode),
         }
-        let mode = match self.persistent_windows > 0 {
-            true => MemoryAllocationMode::Persistent,
-            false => MemoryAllocationMode::Auto,
-        };
+        let mode = self.windows.last().copied().unwrap_or(self.base_mode);
 
         self.logger.log_memory(
             |level| !matches!(level, MemoryLogLevel::Disabled),
@@ -464,6 +485,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             failures,
         );
 
+        // Unpooled buffers never wait for an explicit cleanup: freed is done.
+        let unpooled = self.unpooled.get_memory_usage();
+        if unpooled.bytes_reserved > unpooled.bytes_in_use {
+            self.unpooled
+                .cleanup(&mut self.storage, self.alloc_reserve_count, true, failures);
+            self.storage.flush();
+        }
+
         for pool in self.pools.iter_mut() {
             pool.cleanup(
                 &mut self.storage,
@@ -500,6 +529,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let slice = if id.location().pool == PERSISTENT_POOL_POS {
             self.persistent.find(binding)?
+        } else if id.location().pool == UNPOOLED_POOL_POS {
+            self.unpooled.find(binding)?
         } else {
             let pool =
                 self.pools
@@ -539,6 +570,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let slice = if id.location().pool == PERSISTENT_POOL_POS {
             self.persistent.find_mut(binding)?
+        } else if id.location().pool == UNPOOLED_POOL_POS {
+            self.unpooled.find_mut(binding)?
         } else {
             let pool = self
                 .pools
@@ -568,10 +601,60 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// ([`get_resource`](Self::get_resource) delegates here), so it is where
     /// a lazily-carved allocation gets its real device backing: the handle
     /// returned always refers to mapped memory.
+    ///
+    /// Under a graph capture, the allocation is also marked immovable: the
+    /// recorded kernel keeps the address resolved here, so compaction must
+    /// never move it.
     pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Result<StorageHandle, IoError> {
         self.materialize(&binding)?;
+        if self.capture.is_some() {
+            let slice = self.find_mut(&binding)?;
+            slice.immovable = true;
+            return Ok(slice.storage.clone());
+        }
         let slice = self.find(&binding)?;
         Ok(slice.storage.clone())
+    }
+
+    /// Plan moving what is still live on outdated adaptive pages onto pages
+    /// of the current size (see [`AdaptivePool`]). Nothing moves yet: the
+    /// caller copies every relocation's bytes on the device, waits for the
+    /// copies, then calls [`commit_compaction`](Self::commit_compaction) —
+    /// or drops the plan, which abandons it with nothing lost.
+    ///
+    /// Empty during a capture, where nothing may move or be freed.
+    pub(crate) fn plan_compaction(&mut self, failures: &mut ErrorGraph) -> Vec<Relocation> {
+        if self.capture.is_some() {
+            return Vec::new();
+        }
+        let mapping = PageMapping::current();
+        let mut relocations = Vec::new();
+        for pool in self.pools.iter_mut() {
+            if let DynamicPool::Adaptive(pool) = pool {
+                relocations.extend(pool.plan_compaction(&mut self.storage, mapping, failures));
+            }
+        }
+        relocations
+    }
+
+    /// Hand every planned allocation over to the slice that now holds its
+    /// bytes, then return the pages that left empty to the driver.
+    pub(crate) fn commit_compaction(
+        &mut self,
+        relocations: Vec<Relocation>,
+        failures: &mut ErrorGraph,
+    ) {
+        let mut relocations = relocations;
+        for (index, pool) in self.pools.iter_mut().enumerate() {
+            if let DynamicPool::Adaptive(pool) = pool {
+                let (ours, rest) = relocations.into_iter().partition(|relocation| {
+                    relocation.target.descriptor().location().pool as usize == index
+                });
+                pool.commit(ours, failures);
+                relocations = rest;
+            }
+        }
+        self.cleanup(true, failures);
     }
 
     /// Install real backing behind `binding` when its allocation was carved
@@ -584,6 +667,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
         match location.pool {
             PERSISTENT_POOL_POS => self.persistent.materialize(&mut self.storage, binding),
+            UNPOOLED_POOL_POS => self.unpooled.materialize(&mut self.storage, binding),
             pool => match self.pools.get_mut(pool as usize) {
                 Some(pool) => pool.materialize(&mut self.storage, binding),
                 None => Ok(()),
@@ -650,6 +734,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.cleanup(false, failures);
 
         let mapping = PageMapping::current();
+
+        if matches!(self.mode, MemoryAllocationMode::Unpooled) {
+            return self
+                .unpooled
+                .alloc(&mut self.storage, size, mapping, failures);
+        }
 
         // In an explicit persistent window the pool always serves the
         // allocation (reusing a freed same-size slice when one exists).
@@ -794,15 +884,17 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Get the current memory usage.
     pub fn memory_usage(&self) -> MemoryUsage {
-        let memory_usage = self.pools.iter().map(|x| x.get_memory_usage()).fold(
-            MemoryUsage {
-                number_allocs: 0,
-                bytes_in_use: 0,
-                bytes_padding: 0,
-                bytes_reserved: 0,
-            },
-            |m1, m2| m1.combine(m2),
-        );
+        let memory_usage = core::iter::once(self.unpooled.get_memory_usage())
+            .chain(self.pools.iter().map(|x| x.get_memory_usage()))
+            .fold(
+                MemoryUsage {
+                    number_allocs: 0,
+                    bytes_in_use: 0,
+                    bytes_padding: 0,
+                    bytes_reserved: 0,
+                },
+                |m1, m2| m1.combine(m2),
+            );
         memory_usage.combine(self.persistent.get_memory_usage())
     }
 
@@ -848,6 +940,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             // the id a capture must track for a bound persistent buffer.
             self.capture_touch(&assigned);
             return self.persistent.bind(reserved, assigned, cursor, failures);
+        }
+        if pool_index == UNPOOLED_POOL_POS as usize {
+            return self.unpooled.bind(reserved, assigned, cursor, failures);
         }
 
         self.pools
@@ -955,9 +1050,9 @@ fn build_pools(
     );
 
     assert!(
-        pool_options.len() < PERSISTENT_POOL_POS as usize,
+        pool_options.len() < UNPOOLED_POOL_POS as usize,
         "at most {} dynamic pools are supported",
-        PERSISTENT_POOL_POS - 1
+        UNPOOLED_POOL_POS - 1
     );
 
     pool_options
@@ -989,6 +1084,9 @@ fn build_pools(
                 PoolType::Direct { reclaim_at } => {
                     DynamicPool::Direct(DirectPool::new(properties.alignment, pool_pos, reclaim_at))
                 }
+                PoolType::AdaptivePages { min_page_size } => DynamicPool::Adaptive(
+                    AdaptivePool::new(min_page_size, properties.alignment, pool_pos, name),
+                ),
             }
         })
         .collect()

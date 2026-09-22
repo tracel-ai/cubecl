@@ -134,18 +134,13 @@ impl MemoryProbe {
     }
 }
 
-/// Reserves a probe's buffers in the persistent pool rather than the dynamic
-/// ones.
+/// Reserves a probe's buffers outside every pool: each is its own device
+/// allocation, returned to the driver once the probe drops it.
 ///
-/// An installed pool layout is sized to a workload, and refuses or caps
-/// allocations the device could host: a probe's gigabyte is no part of what it
-/// was planned for. The persistent pool is exact-fit and uncapped whatever the
-/// layout, so every buffer a probe holds is served, and none of them counts
-/// against the layout's budget or its high-water marks.
-///
-/// Only an explicit [`Client::memory_cleanup`] returns persistent memory to the
-/// device. [`measure_peak_throughput`](crate::throughput::measure_peak_throughput)
-/// runs one, and a caller building a probe kernel directly owes it.
+/// A probe's gigabyte is no part of any workload. Held in a pool it would stay
+/// reserved after the probe, and count toward the statistics an adaptive pool
+/// sizes its pages from or the budget of an installed layout; unpooled, it
+/// exists exactly as long as the probe does.
 ///
 /// # Errors
 ///
@@ -157,8 +152,7 @@ pub fn reserve<const N: usize>(
     client: &Client,
     bytes: [usize; N],
 ) -> Result<[Handle; N], ThroughputError> {
-    let handles =
-        client.memory_persistent_allocation((), |_| bytes.map(|bytes| client.empty(bytes)));
+    let handles = client.memory_unpooled_allocation((), |_| bytes.map(|bytes| client.empty(bytes)));
 
     client
         .check(&handles)

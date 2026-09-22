@@ -51,6 +51,24 @@ pub enum PoolType {
         /// HIP) apply the cap per stream.
         max_pool_size: Option<u64>,
     },
+    /// Slices carved from pages whose size follows the largest allocation the
+    /// pool has served: `largest + 1 MiB`, MiB-rounded, never below
+    /// `min_page_size`.
+    ///
+    /// A page is sized once, when it is allocated. When a larger allocation
+    /// raises the target, every page of the old size becomes *outdated*: it
+    /// serves no new reservation and is returned to the driver as soon as its
+    /// last slice is freed. An explicit cleanup — which is also the retry after
+    /// a failed device allocation — moves what is still live on outdated pages
+    /// onto pages of the current size, so they can be returned at once instead
+    /// of waiting on their longest-lived slice.
+    ///
+    /// Accepts every size: a page is always large enough for what it serves.
+    AdaptivePages {
+        /// The smallest page the pool allocates, so a pool whose largest
+        /// allocation is small still carves pages worth carving.
+        min_page_size: u64,
+    },
 }
 
 /// Options to create a memory pool.
@@ -75,6 +93,12 @@ pub enum MemoryConfiguration {
     /// Default preset for using exclusive pages.
     /// This can be necessary for backends don't support sub-slices.
     ExclusivePages,
+    /// Small allocations in a sliced pool of their own, everything else in one
+    /// [`AdaptivePages`](PoolType::AdaptivePages) pool that sizes its pages
+    /// from the allocations it serves — no layout to measure or install per
+    /// workload.
+    #[cfg(not(exclusive_memory_only))]
+    Adaptive,
     /// Custom settings.
     Custom {
         /// Options for each pool to construct. When allocating, the first
@@ -106,6 +130,11 @@ pub enum MemoryAllocationMode {
     /// Use a persistent memory management strategy, meaning that all allocations are for data that is
     /// likely never going to be freed.
     Persistent,
+    /// Give every allocation its own device allocation, returned to the driver
+    /// once it is freed, outside every pool: for a buffer that exists only for
+    /// one measurement (the memory-bandwidth probe) and must neither stay
+    /// reserved nor shape the pools' sizing.
+    Unpooled,
 }
 
 /// Why installing a dynamic pool layout did not take effect.

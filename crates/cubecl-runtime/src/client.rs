@@ -614,6 +614,38 @@ impl Client {
         output
     }
 
+    /// Run `task` with every allocation it makes given its own device
+    /// allocation outside every pool, returned to the driver once freed, then
+    /// restore the previous mode.
+    ///
+    /// For buffers that exist for one measurement and nothing after it: they
+    /// stay out of the pools' reservations and out of the statistics an
+    /// adaptive pool sizes its pages from.
+    pub fn memory_unpooled_allocation<
+        'a,
+        Re: Send,
+        Input: Send,
+        F: FnOnce(Input) -> Re + Send + 'a,
+    >(
+        &'a self,
+        input: Input,
+        task: F,
+    ) -> Re {
+        let stream_id = StreamId::current();
+
+        self.device.submit(move |server| {
+            server.allocation_mode(MemoryAllocationMode::Unpooled, stream_id);
+        });
+
+        let output = task(input);
+
+        self.device.submit(move |server| {
+            server.allocation_mode(MemoryAllocationMode::Auto, stream_id);
+        });
+
+        output
+    }
+
     /// Write `data` into an existing allocation, in place (same device pointer).
     ///
     /// This is how a captured [`Graph`]'s inputs are refreshed between replays:

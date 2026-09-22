@@ -70,6 +70,36 @@ impl MemoryPage {
         self.mapped
     }
 
+    /// The page's size in bytes.
+    pub fn size(&self) -> u64 {
+        self.storage.size()
+    }
+
+    /// Whether no slice on the page is live.
+    pub fn is_empty(&self) -> bool {
+        self.slices.iter().all(Slice::is_free)
+    }
+
+    /// The live slices compaction may move off this page, by index: every
+    /// one no captured graph has recorded.
+    pub fn movable(&self) -> impl Iterator<Item = usize> + '_ {
+        self.slices
+            .iter()
+            .enumerate()
+            .filter(|(_, slice)| !slice.is_free() && !slice.immovable)
+            .map(|(index, _)| index)
+    }
+
+    /// The slice at `index`.
+    pub fn slice(&self, index: usize) -> &Slice {
+        &self.slices[index]
+    }
+
+    /// The slice at `index`, mutably.
+    pub fn slice_mut(&mut self, index: usize) -> &mut Slice {
+        &mut self.slices[index]
+    }
+
     /// The page-wide storage id (the one every slice on the page shares).
     pub fn storage_id(&self) -> crate::storage::StorageId {
         self.storage.id

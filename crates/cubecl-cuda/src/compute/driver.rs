@@ -175,6 +175,28 @@ impl Driver for Cuda {
         }
     }
 
+    unsafe fn copy_on_device(
+        source: &GpuResource,
+        target: &GpuResource,
+        stream: &Stream,
+    ) -> Result<(), IoError> {
+        debug_assert_eq!(source.size, target.size);
+        // SAFETY: the caller guarantees two live, same-sized, disjoint device
+        // allocations left alone until the stream is synchronized.
+        unsafe {
+            cudarc::driver::result::memcpy_dtod_async(
+                target.ptr,
+                source.ptr,
+                source.size as usize,
+                stream.sys,
+            )
+        }
+        .map_err(|err| IoError::Unknown {
+            description: alloc::format!("memcpy_dtod_async failed: {err}"),
+            backtrace: BackTrace::capture(),
+        })
+    }
+
     fn launch(
         ctx: &mut CudaContext,
         stream: &mut Stream,

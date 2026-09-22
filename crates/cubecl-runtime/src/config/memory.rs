@@ -47,6 +47,10 @@ pub enum MemoryPoolsPreset {
     /// The runtime's `ExclusivePages` preset: one page per allocation, in
     /// exponentially spaced size buckets.
     ExclusivePages,
+    /// The runtime's `Adaptive` preset: small allocations in a sliced pool of
+    /// their own, everything else in one pool whose page size follows the
+    /// largest allocation it has served.
+    Adaptive,
 }
 
 /// One pool entry; mirrors [`MemoryPoolOptions`](crate::memory_management::MemoryPoolOptions)

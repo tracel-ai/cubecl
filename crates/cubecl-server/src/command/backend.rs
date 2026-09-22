@@ -112,7 +112,7 @@ impl<'a> CopyLayout<'a> {
 
 /// The device calls a [`Command`](super::Command) cannot make itself.
 ///
-/// Four, because everything else a command does — deciding what to stage, when
+/// Five, because everything else a command does — deciding what to stage, when
 /// to reclaim, whether a layout needs a 2D copy, when the drop queue may be
 /// flushed — is the same whichever driver is underneath.
 pub trait Driver: Sized {
@@ -178,6 +178,25 @@ pub trait Driver: Sized {
         resource: &DeviceResource<Self>,
         layout: &CopyLayout<'_>,
         data: &[u8],
+        stream: &Self::Stream,
+    ) -> Result<(), IoError>;
+
+    /// Enqueue a copy of `source`'s bytes into `target` on `stream`, both
+    /// device memory of the same size — how compaction moves a live
+    /// allocation.
+    ///
+    /// # Safety
+    ///
+    /// Both resources are live device allocations of the same size that do
+    /// not overlap, and nothing reads `target` or writes `source` until the
+    /// caller synchronizes `stream`.
+    ///
+    /// # Errors
+    ///
+    /// The driver's refusal to copy.
+    unsafe fn copy_on_device(
+        source: &DeviceResource<Self>,
+        target: &DeviceResource<Self>,
         stream: &Self::Stream,
     ) -> Result<(), IoError>;
 

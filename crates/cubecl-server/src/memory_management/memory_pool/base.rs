@@ -187,6 +187,35 @@ pub(crate) struct Slice {
     /// see [`bind`](Self::bind) and the clear calls on every path that drops
     /// a slice.
     pub tainted: Taint,
+    /// Whether a graph capture resolved this allocation, so a recorded kernel
+    /// holds its raw address: compaction must leave it where it is. Cleared
+    /// when the slice takes on a new allocation.
+    pub immovable: bool,
+}
+
+/// A live allocation compaction is moving: `source`'s bytes are copied into
+/// `target`'s, then the allocation's handle is handed over to the target
+/// slice (see [`Slice::hand_over`]). Until that handover the source is
+/// untouched, so dropping a relocation abandons the move with nothing lost —
+/// the target slice is freed with its handle.
+#[derive(Debug)]
+pub struct Relocation {
+    /// The allocation being moved, as its owners hold it.
+    pub allocation: ManagedMemoryHandle,
+    /// The slice reserved to receive it.
+    pub target: ManagedMemoryHandle,
+    /// The bytes to copy, or `None` when the source was carved under a dry run
+    /// and never resolved — there is nothing behind it to copy.
+    pub copy: Option<StorageCopy>,
+}
+
+/// The device copy a [`Relocation`] needs, between two resolved storages.
+#[derive(Debug, Clone)]
+pub struct StorageCopy {
+    /// Where the bytes are now.
+    pub source: StorageHandle,
+    /// Where they go.
+    pub target: StorageHandle,
 }
 
 impl Slice {
@@ -198,6 +227,7 @@ impl Slice {
             cursor: 0,
             mapped: true,
             tainted: Taint::default(),
+            immovable: false,
         }
     }
 
@@ -206,7 +236,29 @@ impl Slice {
     /// hands.
     pub(crate) fn bind(&mut self, handle: ManagedMemoryHandle, failures: &mut ErrorGraph) {
         self.tainted.clear(failures);
+        self.immovable = false;
         self.handle = handle;
+    }
+
+    /// Give this slice's allocation to `target`, which was reserved to
+    /// receive it and already holds a copy of its bytes: the handle, its
+    /// cursor and its taint move, the handle's location is rewritten to the
+    /// target's so every owner resolves there from now on, and this slice is
+    /// left free. Whatever the target's last allocation left tainted is
+    /// released first, as [`bind`](Self::bind) would.
+    pub(crate) fn hand_over(&mut self, target: &mut Slice, failures: &mut ErrorGraph) {
+        target.tainted.clear(failures);
+        let location = target.handle.descriptor().location();
+        let source_location = self.handle.descriptor().location();
+
+        let freed = ManagedMemoryHandle::new();
+        freed.descriptor().update_location(source_location);
+        let allocation = core::mem::replace(&mut self.handle, freed);
+        allocation.descriptor().update_location(location);
+
+        target.handle = allocation;
+        target.cursor = self.cursor;
+        target.tainted = core::mem::take(&mut self.tainted);
     }
 
     /// If the slice is free to be reused.
