@@ -4,7 +4,7 @@ use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
         MemoryPoolKind, MemoryPoolReport, MemoryUsage,
-        memory_pool::{MemoryPage, MemoryPool, PageMapping, Slice},
+        memory_pool::{MemoryPage, MemoryPool, PageMapping, Slice, calculate_padding},
     },
     server::IoError,
     storage::{ComputeStorage, StorageId},
@@ -55,7 +55,8 @@ enum PageSizing {
         /// size is accepted too, as one that leaves little of its page unused.
         near_page_size: bool,
     },
-    /// `largest + 1 MiB`, MiB-rounded, never below `min_page_size`
+    /// `largest + 1 MiB`, MiB-rounded, never below `min_page_size` nor above
+    /// `max_page_size`
     /// ([`PoolType::AdaptivePages`](crate::memory_management::PoolType::AdaptivePages)).
     ///
     /// The statistic is the pool's own: only what is routed here moves it, so
@@ -63,7 +64,12 @@ enum PageSizing {
     /// stream's pool change the page size. Nothing is kept across runs: a
     /// dry-run warmup brings it up to date without materializing an
     /// allocation.
-    FollowsLargest { min_page_size: u64 },
+    FollowsLargest {
+        min_page_size: u64,
+        /// The largest page the device allocates, alignment-rounded down: an
+        /// allocation that does not fit one is not the pool's to serve.
+        max_page_size: u64,
+    },
 }
 
 /// Which pages a release returns to the driver.
@@ -138,12 +144,20 @@ impl SlicedPool {
     }
 
     /// A pool whose page size follows the largest allocation it has served,
-    /// starting from `min_page_size`.
-    pub fn adaptive(min_page_size: u64, alignment: u64, pool_pos: u8) -> Self {
-        let min_page_size = min_page_size.max(alignment).next_multiple_of(alignment);
+    /// starting from `min_page_size` and never past the device's
+    /// `max_page_size`.
+    pub fn adaptive(min_page_size: u64, max_page_size: u64, alignment: u64, pool_pos: u8) -> Self {
+        let max_page_size = (max_page_size / alignment * alignment).max(alignment);
+        let min_page_size = min_page_size
+            .max(alignment)
+            .next_multiple_of(alignment)
+            .min(max_page_size);
         Self::with_sizing(
             min_page_size,
-            PageSizing::FollowsLargest { min_page_size },
+            PageSizing::FollowsLargest {
+                min_page_size,
+                max_page_size,
+            },
             alignment,
             pool_pos,
         )
@@ -199,9 +213,12 @@ impl SlicedPool {
     /// an allocation the device refuses leaves the pool as it was.
     fn page_size_after(&self, size: u64) -> u64 {
         match self.sizing {
-            PageSizing::FollowsLargest { min_page_size } if size > self.largest_alloc => {
-                page_size_for(size, min_page_size, self.alignment).max(self.page_size)
-            }
+            PageSizing::FollowsLargest {
+                min_page_size,
+                max_page_size,
+            } if size > self.largest_alloc => page_size_for(size, self.alignment)
+                .clamp(min_page_size, max_page_size)
+                .max(self.page_size),
             _ => self.page_size,
         }
     }
@@ -451,12 +468,11 @@ impl SlicedPool {
 }
 
 /// The page size an allocation of `size` bytes asks for, when the page size
-/// follows the largest allocation.
-fn page_size_for(size: u64, min_page_size: u64, alignment: u64) -> u64 {
+/// follows the largest allocation: before the pool's floor and ceiling.
+fn page_size_for(size: u64, alignment: u64) -> u64 {
     size.saturating_add(PAGE_SLACK)
         .next_multiple_of(PAGE_GRANULE)
         .next_multiple_of(alignment)
-        .max(min_page_size)
 }
 
 impl MemoryPool for SlicedPool {
@@ -477,8 +493,11 @@ impl MemoryPool for SlicedPool {
                             None => false,
                         })
             }
-            // A page is always large enough for what it serves.
-            PageSizing::FollowsLargest { .. } => true,
+            // A page is sized to what it serves, up to the largest page the
+            // device allocates.
+            PageSizing::FollowsLargest { max_page_size, .. } => {
+                size + calculate_padding(size, self.alignment) <= *max_page_size
+            }
         }
     }
 
@@ -813,6 +832,40 @@ mod tests {
             pool(&memory).page_size,
             11 * MIB,
             "the page size never shrinks"
+        );
+    }
+
+    /// The page size stops at the largest page the device allocates, and an
+    /// allocation no such page fits is no pool's to serve.
+    #[test]
+    fn the_page_size_stops_at_the_devices_largest_page() {
+        const MAX_PAGE: u64 = 16 * MIB;
+        let mut memory = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &MemoryDeviceProperties::new(MAX_PAGE, 32),
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::AdaptivePages {
+                        min_page_size: 4 * MIB,
+                    },
+                    dealloc_period: None,
+                }],
+            },
+            Arc::new(ServerLogger::default()),
+            MemoryManagementOptions::new("adaptive"),
+        );
+
+        let _largest = reserve(&mut memory, MAX_PAGE);
+        assert_eq!(
+            pool(&memory).page_size,
+            MAX_PAGE,
+            "the slack does not push the page past the device's limit"
+        );
+
+        let refused = memory.reserve(MAX_PAGE + 1, &mut ErrorGraph::default());
+        assert!(
+            matches!(refused, Err(IoError::BufferTooBig { .. })),
+            "{refused:?}"
         );
     }
 

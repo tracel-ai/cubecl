@@ -1091,9 +1091,14 @@ fn build_pools(
                 PoolType::Direct { reclaim_at } => {
                     DynamicPool::Direct(DirectPool::new(properties.alignment, pool_pos, reclaim_at))
                 }
-                PoolType::AdaptivePages { min_page_size } => DynamicPool::Sliced(
-                    SlicedPool::adaptive(min_page_size, properties.alignment, pool_pos),
-                ),
+                PoolType::AdaptivePages { min_page_size } => {
+                    DynamicPool::Sliced(SlicedPool::adaptive(
+                        min_page_size,
+                        properties.max_page_size,
+                        properties.alignment,
+                        pool_pos,
+                    ))
+                }
             }
         })
         .collect()
