@@ -67,14 +67,21 @@ impl<'a, D: Driver> Command<'a, D> {
     /// The device allocation `binding` names, resolved on the stream that
     /// created it rather than the current one.
     ///
+    /// While the current stream records a graph, the allocation is pinned
+    /// where it is: the graph replays against the address resolved here, and
+    /// the stream that owns the allocation — the one whose cleanup could move
+    /// it — may not be the one recording.
+    ///
     /// # Errors
     ///
     /// [`IoError::StorageHandleNotFound`] when the binding names no live allocation.
     pub fn resource(&mut self, binding: BufferBinding) -> Result<DeviceResource<D>, IoError> {
-        self.streams
-            .get(&binding.stream)
-            .device_memory()
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+        let recording = self.streams.current().capturing().is_recording();
+        let memory = self.streams.get(&binding.stream).device_memory();
+        if recording {
+            memory.pin_address(&binding.memory);
+        }
+        memory.get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
 
     /// The current stream's device memory usage.
@@ -111,25 +118,30 @@ impl<'a, D: Driver> Command<'a, D> {
         }
         let (stream, failures) = self.streams.current_and_failures();
         stream.device_memory().cleanup(true, failures);
-        self.compact();
+        self.evacuate();
         let (stream, failures) = self.streams.current_and_failures();
         stream.host_memory().cleanup(true, failures);
     }
 
-    /// Move what is still live on outdated adaptive pages onto pages of the
-    /// current size, so those pages go back to the driver now rather than
-    /// when their longest-lived allocation ends.
+    /// Move what is still live on outdated pages onto pages of the current
+    /// size, so those pages go back to the driver now rather than when their
+    /// longest-lived allocation ends.
     ///
     /// Runs after the plain cleanup, so the room it freed is there for the
     /// new pages. Nothing moves until every copy has landed: a copy that fails
     /// abandons the whole plan and the allocations stay where they were.
-    fn compact(&mut self) {
-        let stream = self.streams.current();
-        if stream.capturing().is_recording() {
+    /// Skipped while any stream records a graph: the copies wait on every
+    /// stream, and a host wait on a capturing one invalidates its capture.
+    fn evacuate(&mut self) {
+        if self
+            .streams
+            .all()
+            .any(|stream| stream.capturing().is_recording())
+        {
             return;
         }
         let (stream, failures) = self.streams.current_and_failures();
-        let relocations = stream.device_memory().plan_compaction(failures);
+        let relocations = stream.device_memory().plan_evacuation(failures);
         if relocations.is_empty() {
             return;
         }
@@ -139,9 +151,9 @@ impl<'a, D: Driver> Command<'a, D> {
         match copied {
             Ok(()) => stream
                 .device_memory()
-                .commit_compaction(relocations, failures),
+                .commit_evacuation(relocations, failures),
             Err(err) => {
-                log::warn!("memory compaction abandoned: {err}");
+                log::warn!("evacuating outdated memory pages abandoned: {err}");
                 drop(relocations);
                 // The pages reserved as targets are empty again.
                 stream.device_memory().cleanup(true, failures);
@@ -149,7 +161,9 @@ impl<'a, D: Driver> Command<'a, D> {
         }
     }
 
-    /// Copy every relocation's bytes and wait until they have landed.
+    /// Copy every relocation's bytes and wait until they have landed — also
+    /// when a copy fails, so an abandoned plan never frees a target a copy
+    /// already enqueued is still writing.
     fn copy_relocations(&mut self, relocations: &[Relocation]) -> Result<(), ServerError> {
         // Another stream may still read or write an allocation about to move:
         // everything already enqueued anywhere finishes first.
@@ -163,17 +177,20 @@ impl<'a, D: Driver> Command<'a, D> {
         }
 
         let stream = self.streams.current();
-        for copy in relocations
+        let enqueued = relocations
             .iter()
             .filter_map(|relocation| relocation.copy.as_ref())
-        {
-            let source = stream.device_memory().storage().get(&copy.source)?;
-            let target = stream.device_memory().storage().get(&copy.target)?;
-            // SAFETY: both come from live slices of the same size on distinct
-            // pages, and nothing else is enqueued before the fence below.
-            unsafe { D::copy_on_device(&source, &target, stream)? };
-        }
-        D::Stream::fence(stream.signal()).wait()
+            .try_for_each(|copy| {
+                let source = stream.device_memory().storage().get(&copy.source)?;
+                let target = stream.device_memory().storage().get(&copy.target)?;
+                // SAFETY: both come from live slices of the same size on
+                // distinct pages, and nothing else is enqueued before the
+                // fence below.
+                unsafe { D::copy_on_device(&source, &target, stream) }
+            });
+        let landed = D::Stream::fence(stream.signal()).wait();
+        enqueued?;
+        landed
     }
 
     /// Flush the current stream's drop queue, freeing what the device is

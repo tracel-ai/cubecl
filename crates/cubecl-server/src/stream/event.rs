@@ -177,8 +177,8 @@ impl<'a, B: EventStreamBackend> ResolvedStreams<'a, B> {
     }
 
     /// Every initialized stream; unlike [`get`](Self::get), never creates one.
-    pub fn all(&self) -> impl Iterator<Item = &B::Stream> {
-        self.streams.streams().map(|stream| &stream.stream)
+    pub fn all(&mut self) -> impl Iterator<Item = &mut B::Stream> {
+        self.streams.streams_mut().map(|stream| &mut stream.stream)
     }
 
     /// Get the stream associated to the [current `stream_id`](StreamId).

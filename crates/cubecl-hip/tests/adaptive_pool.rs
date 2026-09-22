@@ -1,5 +1,5 @@
 //! The adaptive pool on the actual device: a grown page size outdates the
-//! pages already held, and an explicit cleanup moves what is live on them —
+//! pages already held, and an explicit cleanup evacuates what is live on them —
 //! bytes included — onto pages of the new size.
 
 use cubecl_hip::HipRuntime;
@@ -10,7 +10,7 @@ use cubecl_server::runtime::Runtime;
 const MIB: usize = 1024 * 1024;
 
 #[test]
-fn compaction_moves_live_bytes_off_outdated_pages() {
+fn evacuation_moves_live_bytes_off_outdated_pages() {
     // The pool records its page size in the active environment: keep this run
     // off a real one, and from starting at what a previous run recorded.
     let root = tempfile::tempdir().unwrap();

@@ -80,7 +80,7 @@ impl MemoryPage {
         self.slices.iter().all(Slice::is_free)
     }
 
-    /// The live slices compaction may move off this page, by index: every
+    /// The live slices evacuation may move off this page, by index: every
     /// one no captured graph has recorded.
     pub fn movable(&self) -> impl Iterator<Item = usize> + '_ {
         self.slices
@@ -209,9 +209,11 @@ impl MemoryPage {
             let handle = slice.handle.clone();
             let storage_old = slice.storage.clone();
 
-            // Updates the current storage utilization.
+            // Updates the current storage utilization. A new allocation owes
+            // nothing to a graph that recorded the last one.
             slice.storage.utilization.size = size;
             slice.padding = padding;
+            slice.immovable = false;
 
             if can_be_split {
                 let new_slice = Slice::new(storage_old.offset_start(effective_size), 0);

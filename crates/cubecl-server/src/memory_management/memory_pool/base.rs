@@ -188,12 +188,12 @@ pub(crate) struct Slice {
     /// a slice.
     pub tainted: Taint,
     /// Whether a graph capture resolved this allocation, so a recorded kernel
-    /// holds its raw address: compaction must leave it where it is. Cleared
+    /// holds its raw address: evacuation must leave it where it is. Cleared
     /// when the slice takes on a new allocation.
     pub immovable: bool,
 }
 
-/// A live allocation compaction is moving: `source`'s bytes are copied into
+/// A live allocation evacuation is moving: `source`'s bytes are copied into
 /// `target`'s, then the allocation's handle is handed over to the target
 /// slice (see [`Slice::hand_over`]). Until that handover the source is
 /// untouched, so dropping a relocation abandons the move with nothing lost —

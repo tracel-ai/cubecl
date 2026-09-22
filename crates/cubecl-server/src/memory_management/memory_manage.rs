@@ -3,8 +3,8 @@ use super::{
     MemoryAllocationMode, MemoryConfiguration, MemoryReport, MemoryUsage, PERSISTENT_POOL_POS,
     PoolType, UNPOOLED_POOL_POS,
     memory_pool::{
-        AdaptivePool, DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool,
-        Relocation, SlicedPool,
+        DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, Relocation,
+        SlicedPool,
     },
 };
 use crate::{
@@ -31,7 +31,6 @@ use cubecl_ir::MemoryDeviceProperties;
 // saving the 200 bytes.
 #[allow(clippy::large_enum_variant)]
 enum DynamicPool {
-    Adaptive(AdaptivePool),
     Sliced(SlicedPool),
     Exclusive(ExclusiveMemoryPool),
     Direct(DirectPool),
@@ -40,7 +39,6 @@ enum DynamicPool {
 impl MemoryPool for DynamicPool {
     fn accept(&self, size: u64) -> bool {
         match self {
-            DynamicPool::Adaptive(pool) => pool.accept(size),
             DynamicPool::Sliced(pool) => pool.accept(size),
             DynamicPool::Exclusive(pool) => pool.accept(size),
             DynamicPool::Direct(pool) => pool.accept(size),
@@ -49,7 +47,6 @@ impl MemoryPool for DynamicPool {
 
     fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
         match self {
-            DynamicPool::Adaptive(m) => m.find(binding),
             DynamicPool::Sliced(m) => m.find(binding),
             DynamicPool::Exclusive(m) => m.find(binding),
             DynamicPool::Direct(m) => m.find(binding),
@@ -58,7 +55,6 @@ impl MemoryPool for DynamicPool {
 
     fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
         match self {
-            DynamicPool::Adaptive(m) => m.find_mut(binding),
             DynamicPool::Sliced(m) => m.find_mut(binding),
             DynamicPool::Exclusive(m) => m.find_mut(binding),
             DynamicPool::Direct(m) => m.find_mut(binding),
@@ -68,7 +64,6 @@ impl MemoryPool for DynamicPool {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn try_reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle> {
         match self {
-            DynamicPool::Adaptive(m) => m.try_reserve(size, failures),
             DynamicPool::Sliced(m) => m.try_reserve(size, failures),
             DynamicPool::Exclusive(m) => m.try_reserve(size, failures),
             DynamicPool::Direct(m) => m.try_reserve(size, failures),
@@ -84,7 +79,6 @@ impl MemoryPool for DynamicPool {
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         match self {
-            DynamicPool::Adaptive(m) => m.alloc(storage, size, mapping, failures),
             DynamicPool::Sliced(m) => m.alloc(storage, size, mapping, failures),
             DynamicPool::Exclusive(m) => m.alloc(storage, size, mapping, failures),
             DynamicPool::Direct(m) => m.alloc(storage, size, mapping, failures),
@@ -97,7 +91,6 @@ impl MemoryPool for DynamicPool {
         binding: &ManagedMemoryBinding,
     ) -> Result<(), IoError> {
         match self {
-            DynamicPool::Adaptive(m) => m.materialize(storage, binding),
             DynamicPool::Sliced(m) => m.materialize(storage, binding),
             DynamicPool::Exclusive(m) => m.materialize(storage, binding),
             DynamicPool::Direct(m) => m.materialize(storage, binding),
@@ -106,7 +99,6 @@ impl MemoryPool for DynamicPool {
 
     fn get_memory_usage(&self) -> MemoryUsage {
         match self {
-            DynamicPool::Adaptive(m) => m.get_memory_usage(),
             DynamicPool::Sliced(m) => m.get_memory_usage(),
             DynamicPool::Exclusive(m) => m.get_memory_usage(),
             DynamicPool::Direct(m) => m.get_memory_usage(),
@@ -121,7 +113,6 @@ impl MemoryPool for DynamicPool {
         failures: &mut ErrorGraph,
     ) {
         match self {
-            DynamicPool::Adaptive(m) => m.cleanup(storage, alloc_nr, explicit, failures),
             DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit, failures),
             DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit, failures),
             DynamicPool::Direct(m) => m.cleanup(storage, alloc_nr, explicit, failures),
@@ -137,7 +128,6 @@ impl MemoryPool for DynamicPool {
         failures: &mut ErrorGraph,
     ) -> Result<(), IoError> {
         match self {
-            DynamicPool::Adaptive(m) => m.bind(reserved, assigned, cursor, failures),
             DynamicPool::Sliced(m) => m.bind(reserved, assigned, cursor, failures),
             DynamicPool::Exclusive(m) => m.bind(reserved, assigned, cursor, failures),
             DynamicPool::Direct(m) => m.bind(reserved, assigned, cursor, failures),
@@ -148,7 +138,6 @@ impl MemoryPool for DynamicPool {
 impl core::fmt::Display for DynamicPool {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            DynamicPool::Adaptive(pool) => write!(f, "{pool}"),
             DynamicPool::Sliced(pool) => write!(f, "{pool}"),
             DynamicPool::Exclusive(pool) => write!(f, "{pool}"),
             DynamicPool::Direct(pool) => write!(f, "{pool}"),
@@ -159,10 +148,36 @@ impl core::fmt::Display for DynamicPool {
 impl DynamicPool {
     fn report(&self) -> super::MemoryPoolReport {
         match self {
-            DynamicPool::Adaptive(m) => m.report(),
             DynamicPool::Sliced(m) => m.report(),
             DynamicPool::Exclusive(m) => m.report(),
             DynamicPool::Direct(m) => m.report(),
+        }
+    }
+}
+
+/// Which pool a slice's location routes to: the two fixed sentinels, or a
+/// dynamic pool by index.
+#[derive(Clone, Copy)]
+enum PoolPosition {
+    Persistent,
+    Unpooled,
+    Dynamic(usize),
+}
+
+impl PoolPosition {
+    fn new(pool: u8) -> Self {
+        match pool {
+            PERSISTENT_POOL_POS => PoolPosition::Persistent,
+            UNPOOLED_POOL_POS => PoolPosition::Unpooled,
+            index => PoolPosition::Dynamic(index as usize),
+        }
+    }
+
+    /// The error for a location naming a dynamic pool the layout does not have.
+    fn missing(index: usize) -> IoError {
+        IoError::NotFound {
+            backtrace: BackTrace::capture(),
+            reason: format!("Memory pool {index} doesn't exist").into(),
         }
     }
 }
@@ -486,10 +501,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         );
 
         // Unpooled buffers never wait for an explicit cleanup: freed is done.
-        let unpooled = self.unpooled.get_memory_usage();
-        if unpooled.bytes_reserved > unpooled.bytes_in_use {
-            self.unpooled
-                .cleanup(&mut self.storage, self.alloc_reserve_count, true, failures);
+        if self.unpooled.reclaim(&mut self.storage, failures) {
             self.storage.flush();
         }
 
@@ -527,20 +539,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             });
         }
 
-        let slice = if id.location().pool == PERSISTENT_POOL_POS {
-            self.persistent.find(binding)?
-        } else if id.location().pool == UNPOOLED_POOL_POS {
-            self.unpooled.find(binding)?
-        } else {
-            let pool =
-                self.pools
-                    .get(id.location().pool as usize)
-                    .ok_or_else(|| IoError::NotFound {
-                        backtrace: BackTrace::capture(),
-                        reason: format!("Pool {} doesn't exist", id.location().pool).into(),
-                    })?;
-
-            pool.find(binding)?
+        let slice = match PoolPosition::new(id.location().pool) {
+            PoolPosition::Persistent => self.persistent.find(binding)?,
+            PoolPosition::Unpooled => self.unpooled.find(binding)?,
+            PoolPosition::Dynamic(index) => self
+                .pools
+                .get(index)
+                .ok_or_else(|| PoolPosition::missing(index))?
+                .find(binding)?,
         };
 
         // A stale location (e.g. a page that was deallocated and whose index a
@@ -568,20 +574,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             });
         }
 
-        let slice = if id.location().pool == PERSISTENT_POOL_POS {
-            self.persistent.find_mut(binding)?
-        } else if id.location().pool == UNPOOLED_POOL_POS {
-            self.unpooled.find_mut(binding)?
-        } else {
-            let pool = self
+        let slice = match PoolPosition::new(id.location().pool) {
+            PoolPosition::Persistent => self.persistent.find_mut(binding)?,
+            PoolPosition::Unpooled => self.unpooled.find_mut(binding)?,
+            PoolPosition::Dynamic(index) => self
                 .pools
-                .get_mut(id.location().pool as usize)
-                .ok_or_else(|| IoError::NotFound {
-                    backtrace: BackTrace::capture(),
-                    reason: format!("Pool {} doesn't exist", id.location().pool).into(),
-                })?;
-
-            pool.find_mut(binding)?
+                .get_mut(index)
+                .ok_or_else(|| PoolPosition::missing(index))?
+                .find_mut(binding)?,
         };
 
         // The same stale-location rule as `find`.
@@ -601,37 +601,38 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// ([`get_resource`](Self::get_resource) delegates here), so it is where
     /// a lazily-carved allocation gets its real device backing: the handle
     /// returned always refers to mapped memory.
-    ///
-    /// Under a graph capture, the allocation is also marked immovable: the
-    /// recorded kernel keeps the address resolved here, so compaction must
-    /// never move it.
     pub fn get_storage(&mut self, binding: ManagedMemoryBinding) -> Result<StorageHandle, IoError> {
         self.materialize(&binding)?;
-        if self.capture.is_some() {
-            let slice = self.find_mut(&binding)?;
-            slice.immovable = true;
-            return Ok(slice.storage.clone());
-        }
         let slice = self.find(&binding)?;
         Ok(slice.storage.clone())
     }
 
-    /// Plan moving what is still live on outdated adaptive pages onto pages
-    /// of the current size (see [`AdaptivePool`]). Nothing moves yet: the
-    /// caller copies every relocation's bytes on the device, waits for the
-    /// copies, then calls [`commit_compaction`](Self::commit_compaction) —
-    /// or drops the plan, which abandons it with nothing lost.
+    /// Keep the allocation behind `binding` where it is until it is freed: a
+    /// graph being recorded resolved it, and replays against the address it
+    /// resolved. Marked by whoever knows a recording is open — the capturing
+    /// stream need not be the one that owns the allocation.
+    pub fn pin_address(&mut self, binding: &ManagedMemoryBinding) {
+        if let Ok(slice) = self.find_mut(binding) {
+            slice.immovable = true;
+        }
+    }
+
+    /// Plan moving what is still live on outdated pages onto pages of the
+    /// current size (see [`SlicedPool::plan_evacuation`]). Nothing moves yet:
+    /// the caller copies every relocation's bytes on the device, waits for the
+    /// copies, then calls [`commit_evacuation`](Self::commit_evacuation) — or
+    /// drops the plan, which abandons it with nothing lost.
     ///
     /// Empty during a capture, where nothing may move or be freed.
-    pub(crate) fn plan_compaction(&mut self, failures: &mut ErrorGraph) -> Vec<Relocation> {
+    pub(crate) fn plan_evacuation(&mut self, failures: &mut ErrorGraph) -> Vec<Relocation> {
         if self.capture.is_some() {
             return Vec::new();
         }
         let mapping = PageMapping::current();
         let mut relocations = Vec::new();
         for pool in self.pools.iter_mut() {
-            if let DynamicPool::Adaptive(pool) = pool {
-                relocations.extend(pool.plan_compaction(&mut self.storage, mapping, failures));
+            if let DynamicPool::Sliced(pool) = pool {
+                relocations.extend(pool.plan_evacuation(&mut self.storage, mapping, failures));
             }
         }
         relocations
@@ -639,19 +640,15 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Hand every planned allocation over to the slice that now holds its
     /// bytes, then return the pages that left empty to the driver.
-    pub(crate) fn commit_compaction(
+    pub(crate) fn commit_evacuation(
         &mut self,
         relocations: Vec<Relocation>,
         failures: &mut ErrorGraph,
     ) {
-        let mut relocations = relocations;
-        for (index, pool) in self.pools.iter_mut().enumerate() {
-            if let DynamicPool::Adaptive(pool) = pool {
-                let (ours, rest) = relocations.into_iter().partition(|relocation| {
-                    relocation.target.descriptor().location().pool as usize == index
-                });
-                pool.commit(ours, failures);
-                relocations = rest;
+        for relocation in relocations {
+            let pool = relocation.target.descriptor().location().pool as usize;
+            if let Some(DynamicPool::Sliced(pool)) = self.pools.get_mut(pool) {
+                pool.commit_evacuation(relocation, failures);
             }
         }
         self.cleanup(true, failures);
@@ -665,10 +662,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         if location.init == 0 {
             return Ok(());
         }
-        match location.pool {
-            PERSISTENT_POOL_POS => self.persistent.materialize(&mut self.storage, binding),
-            UNPOOLED_POOL_POS => self.unpooled.materialize(&mut self.storage, binding),
-            pool => match self.pools.get_mut(pool as usize) {
+        match PoolPosition::new(location.pool) {
+            PoolPosition::Persistent => self.persistent.materialize(&mut self.storage, binding),
+            PoolPosition::Unpooled => self.unpooled.materialize(&mut self.storage, binding),
+            PoolPosition::Dynamic(index) => match self.pools.get_mut(index) {
                 Some(pool) => pool.materialize(&mut self.storage, binding),
                 None => Ok(()),
             },
@@ -933,25 +930,24 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             });
         }
 
-        let pool_index = descriptor.location().pool as usize;
-        if pool_index == PERSISTENT_POOL_POS as usize {
-            // `bind` sets the slice's final identity to `assigned` (replacing the
-            // throwaway reserved handle), so this — not the earlier `reserve` — is
-            // the id a capture must track for a bound persistent buffer.
-            self.capture_touch(&assigned);
-            return self.persistent.bind(reserved, assigned, cursor, failures);
+        match PoolPosition::new(descriptor.location().pool) {
+            PoolPosition::Persistent => {
+                // `bind` sets the slice's final identity to `assigned` (replacing
+                // the throwaway reserved handle), so this — not the earlier
+                // `reserve` — is the id a capture must track for a bound
+                // persistent buffer.
+                self.capture_touch(&assigned);
+                self.persistent.bind(reserved, assigned, cursor, failures)
+            }
+            // A capture forces every allocation persistent, so an unpooled one
+            // is never in a window to touch.
+            PoolPosition::Unpooled => self.unpooled.bind(reserved, assigned, cursor, failures),
+            PoolPosition::Dynamic(index) => self
+                .pools
+                .get_mut(index)
+                .ok_or_else(|| PoolPosition::missing(index))?
+                .bind(reserved, assigned, cursor, failures),
         }
-        if pool_index == UNPOOLED_POOL_POS as usize {
-            return self.unpooled.bind(reserved, assigned, cursor, failures);
-        }
-
-        self.pools
-            .get_mut(pool_index)
-            .map(|p| p.bind(reserved, assigned, cursor, failures))
-            .ok_or_else(|| IoError::NotFound {
-                backtrace: BackTrace::capture(),
-                reason: format!("Memory pool {} doesn't exist", pool_index).into(),
-            })?
     }
 
     /// The failure claiming any byte of `range` in the allocation behind
@@ -1084,8 +1080,8 @@ fn build_pools(
                 PoolType::Direct { reclaim_at } => {
                     DynamicPool::Direct(DirectPool::new(properties.alignment, pool_pos, reclaim_at))
                 }
-                PoolType::AdaptivePages { min_page_size } => DynamicPool::Adaptive(
-                    AdaptivePool::new(min_page_size, properties.alignment, pool_pos, name),
+                PoolType::AdaptivePages { min_page_size } => DynamicPool::Sliced(
+                    SlicedPool::adaptive(min_page_size, properties.alignment, pool_pos, name),
                 ),
             }
         })

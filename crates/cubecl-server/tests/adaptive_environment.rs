@@ -62,7 +62,12 @@ fn a_switch_adopts_the_new_environments_page_size() {
     let _small = memory.reserve(MIB, failures).unwrap();
     assert_eq!(pool(&memory), (4 * MIB, 1));
 
-    // Back to the one that recorded it: a new pool starts there.
+    // Back to the one that recorded it: a new pool starts there, and the live
+    // pool adopts it on its next reservation — without the small allocation
+    // it just served overwriting the record.
     environment::activate("large");
     assert_eq!(pool(&adaptive()), (11 * MIB, 0));
+    let _tick = memory.reserve(MIB, failures).unwrap();
+    assert_eq!(pool(&memory).0, 11 * MIB);
+    assert_eq!(pool(&adaptive()), (11 * MIB, 0), "the record survived");
 }

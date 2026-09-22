@@ -598,20 +598,7 @@ impl Client {
         input: Input,
         task: F,
     ) -> Re {
-        let stream_id = StreamId::current();
-
-        self.device.submit(move |server| {
-            server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
-        });
-
-        // All tasks created on the same stream will have persistent memory.
-        let output = task(input);
-
-        self.device.submit(move |server| {
-            server.allocation_mode(MemoryAllocationMode::Auto, stream_id);
-        });
-
-        output
+        self.allocation_window(MemoryAllocationMode::Persistent, input, task)
     }
 
     /// Run `task` with every allocation it makes given its own device
@@ -631,12 +618,25 @@ impl Client {
         input: Input,
         task: F,
     ) -> Re {
+        self.allocation_window(MemoryAllocationMode::Unpooled, input, task)
+    }
+
+    /// Open a window of `mode` on the current stream around `task`, and close
+    /// it after. Private because `Auto` is what closes a window: the public
+    /// entry points each name a mode that opens one.
+    fn allocation_window<'a, Re: Send, Input: Send, F: FnOnce(Input) -> Re + Send + 'a>(
+        &'a self,
+        mode: MemoryAllocationMode,
+        input: Input,
+        task: F,
+    ) -> Re {
         let stream_id = StreamId::current();
 
         self.device.submit(move |server| {
-            server.allocation_mode(MemoryAllocationMode::Unpooled, stream_id);
+            server.allocation_mode(mode, stream_id);
         });
 
+        // All tasks created on the same stream allocate in this mode.
         let output = task(input);
 
         self.device.submit(move |server| {

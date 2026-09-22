@@ -112,9 +112,9 @@ impl<'a> CopyLayout<'a> {
 
 /// The device calls a [`Command`](super::Command) cannot make itself.
 ///
-/// Five, because everything else a command does — deciding what to stage, when
-/// to reclaim, whether a layout needs a 2D copy, when the drop queue may be
-/// flushed — is the same whichever driver is underneath.
+/// Only these, because everything else a command does — deciding what to
+/// stage, when to reclaim, whether a layout needs a 2D copy, when the drop
+/// queue may be flushed — is the same whichever driver is underneath.
 pub trait Driver: Sized {
     /// The multi-stream backend whose streams this driver drives.
     type Backend: EventStreamBackend<Stream = Self::Stream>;
@@ -182,8 +182,8 @@ pub trait Driver: Sized {
     ) -> Result<(), IoError>;
 
     /// Enqueue a copy of `source`'s bytes into `target` on `stream`, both
-    /// device memory of the same size — how compaction moves a live
-    /// allocation.
+    /// device memory of the same size — how evacuating an outdated page moves
+    /// a live allocation.
     ///
     /// # Safety
     ///
