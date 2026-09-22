@@ -56,12 +56,13 @@ clamp, and now restores the NaN explicitly.
 - [x] ~~**`readlane` for a constant-lane broadcast**~~ — not needed: the backend already
       rewrites a `ds_bpermute` from a constant lane into `v_readlane`, and a small constant
       XOR into DPP. `a_constant_lane_moves_without_lds` guards it.
-- [ ] **Metadata in the constant address space** (4), so every metadata read is a scalar load.
+- [x] ~~**Metadata in the constant address space**~~ — not needed: with the parameters
+      annotated, the metadata reads are already `s_load` (the offline `scale` kernel's length).
 - [ ] **Grid constants on AMDGPU**: scalars and static metadata in the kernarg segment, with
       the HIP launcher packing the same layout the CUDA one does.
-- [ ] **DPP / `permlanex16` for the XOR masks the backend does not rewrite** (16 and 32 on
-      wave64, where the plane reductions start). Check the reduction's assembly first; the
-      small masks are already DPP.
+- [x] ~~**DPP / `permlanex16` for the XOR masks**~~ — the backend already lowers a plane
+      sum's butterfly to DPP, `ds_swizzle` and `v_permlanex16`; the one `ds_bpermute` left is
+      the XOR-32 step on wave64, which no swizzle reaches.
 - [ ] **Scalar base + 32-bit offset addressing.** A `U32` kernel still forms each address with
       a 64-bit shift and add per lane; `global_load v, v_off, s[base]` needs the byte offset
       known to fit in 32 bits.
@@ -76,20 +77,23 @@ device and asserts on the assembly.
       in `nvptx/codegen.rs`, `amdgpu/codegen.rs` and `cpu/jit/engine.rs`.
 - [x] Finalize on the in-memory module: one of the two print/parse round trips per kernel is
       gone; the other is pliron's (see below).
-- [ ] One builtin derivation (`derive_positions` and the pass body) for both targets.
+- [x] One builtin derivation (`derive_positions` and the pass body) for both targets.
 - [x] One word-splitting shuffle helper for both `plane.rs` files.
-- [ ] Cache libdevice like the ROCm device libraries; cache parsed bitcode for both.
+- [x] Cache libdevice like the ROCm device libraries. Each kernel still parses the bitcode it
+      links; caching the parsed module is left.
 
 ## Phase 4 — parity and safety
 
-- [ ] NVPTX plane operations under divergence: `llvm.nvvm.activemask` as the member mask,
-      then advertise `Plane::NonUniformControlFlow`.
+- [x] NVPTX plane operations under divergence: `llvm.nvvm.activemask` as the member mask,
+      then advertise `Plane::NonUniformControlFlow`. `test_plane_diverged_votes` checks the
+      semantics; on Pascal it passes either way (the votes only see active lanes), so
+      `plane_moves_are_native_shuffles` checks the mask in the PTX.
 - [x] A HIP `restrict_to_llvm_backend`: no matrix features on CDNA (MFMA is not lowered), no
       i8/fp8 WMMA, and `bf16` only once the LLVM lowering has a type for it.
 - [x] Exact launch bounds: `nvvm.reqntid` and `reqd_work_group_size` /
-      `uniform-work-group-size` from the compile-time cube dimensions. On AMDGPU a 1D cube
-      still unpacks the y and z work-item ids from `v0` and adds them into every position.
-- [ ] Remove the leftover `println!` in `scalar_alignment`; document NVPTX in the README.
+      `uniform-work-group-size` from the compile-time cube dimensions. A 1D cube no longer
+      reads the y and z ids on either target (`a_1d_cube_*` offline tests).
+- [x] Remove the leftover `println!` in `scalar_alignment`; document NVPTX in the README.
 
 ## NVPTX against CUDA C++
 
