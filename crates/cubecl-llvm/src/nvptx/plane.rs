@@ -2,7 +2,7 @@
 
 use crate::{
     prelude::*,
-    shared::plane::{PlaneLowering, bitcast, call_intrinsic, narrow_from_i32, widen_to_i32},
+    shared::plane::{PlaneLowering, call_intrinsic, route_words},
 };
 
 const LANEID: &str = "llvm.nvvm.read.ptx.sreg.laneid";
@@ -119,30 +119,8 @@ fn shfl(
     let mask = insert_i32_const(ctx, rw, FULL_MASK);
     let clamp = insert_i32_const(ctx, rw, clamp);
 
-    let llvm_ty = cube_type_to_llvm(ctx, value_ty);
-    let bits = value_ty.size_bits(ctx) as u32;
-    let words = bits.div_ceil(32);
-
-    if words == 1 {
-        let as_i32 = widen_to_i32(ctx, rw, value, bits);
-        let args = vec![mask, as_i32, operand, clamp];
-        let routed = call_intrinsic(ctx, rw, name, i32_ty, args);
-        return narrow_from_i32(ctx, rw, routed, bits, llvm_ty);
-    }
-
-    let words_ty = LlvmVectorType::get(ctx, i32_ty, words, VectorTypeKind::Fixed).into();
-    let as_words = bitcast(ctx, rw, value, words_ty);
-
-    let poison = llvm::PoisonOp::new(ctx, words_ty);
-    let mut acc = insert(ctx, rw, &poison);
-    for word in 0..words {
-        let index = insert_i32_const(ctx, rw, word as i32);
-        let extract = llvm::ExtractElementOp::new(ctx, as_words, index);
-        let word_value = insert(ctx, rw, &extract);
-        let args = vec![mask, word_value, operand, clamp];
-        let one = call_intrinsic(ctx, rw, name, i32_ty, args);
-        let op = llvm::InsertElementOp::new(ctx, acc, one, index);
-        acc = insert(ctx, rw, &op);
-    }
-    bitcast(ctx, rw, acc, llvm_ty)
+    route_words(ctx, rw, value, value_ty, |ctx, rw, word| {
+        let args = vec![mask, word, operand, clamp];
+        call_intrinsic(ctx, rw, name, i32_ty, args)
+    })
 }
