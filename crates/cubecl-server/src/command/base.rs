@@ -121,8 +121,10 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// Everything the current stream's device memory holds, pool by pool.
     pub fn memory_report(&mut self) -> StreamMemoryReport {
-        let stream = self.streams.current;
-        self.streams.current().device_memory().memory_report(stream)
+        StreamMemoryReport {
+            stream: self.streams.current,
+            pools: self.streams.current().device_memory().memory_report(),
+        }
     }
 
     /// Release everything the current stream is holding that nothing still
@@ -150,9 +152,7 @@ impl<'a, D: Driver> Command<'a, D> {
         // not pinned by a live graph goes too.
         stream.info_cache().clear_unpinned();
 
-        let (stream, failures) = self.streams.current_and_failures();
-        stream.device_memory().cleanup(Cleanup::Explicit, failures);
-        RelocatingStreams::relocate(self, RelocationReason::Explicit);
+        RelocatingStreams::reclaim(self);
         let (stream, failures) = self.streams.current_and_failures();
         stream.host_memory().cleanup(Cleanup::Explicit, failures);
         Ok(())
@@ -211,7 +211,7 @@ impl<'a, D: Driver> Command<'a, D> {
             // handle whose every downstream use fails.
             Err(err) => {
                 log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
-                self.reclaim(&err);
+                self.make_room(&err);
                 let (stream, failures) = self.streams.current_and_failures();
                 stream
                     .device_memory()
@@ -222,7 +222,7 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// Get back what the reservation that failed with `err` needs: a slot for
     /// a new page size when the arena is full, memory otherwise.
-    fn reclaim(&mut self, err: &IoError) {
+    fn make_room(&mut self, err: &IoError) {
         match err {
             // Only a relocation that may allocate empties the outdated pools
             // whatever room the current pages have.
@@ -595,9 +595,14 @@ impl<D: Driver> RelocatingStreams for Command<'_, D> {
             .sum()
     }
 
-    /// Nothing here: [`StreamCopies`] waits on every stream before its first
+    /// Nothing here: `StreamCopies` waits on every stream before its first
     /// copy, so a relocation with nothing to move waits on none.
     fn finish(&mut self) {}
+
+    fn cleanup_memory(&mut self) {
+        let (stream, failures) = self.streams.current_and_failures();
+        stream.device_memory().cleanup(Cleanup::Explicit, failures);
+    }
 
     fn relocate_memory(&mut self, reason: RelocationReason) {
         // Rare enough to gather the signals as it goes: it waits on the whole

@@ -22,9 +22,8 @@ fn relocation_moves_live_bytes_off_outdated_pages() {
     let large = client.empty(100 * MIB);
     assert_eq!(adaptive(&client), (101 * MIB as u64, 1));
 
-    // Room on the new pool's page for `kept` to move into, on a page the
-    // cleanup cannot simply release.
-    let neighbour = client.empty(4 * MIB);
+    // The cleanup relocates before it releases anything: the page `large`
+    // leaves free is the room `kept` moves into.
     drop(large);
 
     client.memory_cleanup().expect("no stream records a graph");
@@ -40,7 +39,6 @@ fn relocation_moves_live_bytes_off_outdated_pages() {
         &pattern[..],
         "the bytes moved with the allocation"
     );
-    drop(neighbour);
 }
 
 /// The size the adaptive memory carves pages at, and how many pages its
@@ -50,7 +48,7 @@ fn adaptive(client: &cubecl_server::client::Client) -> (u64, u64) {
         .memory_report(MemoryScope::CurrentStream)
         .streams
         .iter()
-        .flat_map(|stream| stream.dynamic.iter())
+        .flat_map(|stream| stream.pools.dynamic.iter())
         .find_map(|pool| match pool.kind {
             MemoryPoolKind::Adaptive {
                 page_size,

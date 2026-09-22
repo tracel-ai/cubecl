@@ -179,11 +179,18 @@ pub struct MemoryReport {
     pub streams: Vec<StreamMemoryReport>,
 }
 
-/// What one stream's memory holds, pool by pool.
+/// What one stream's memory holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StreamMemoryReport {
     /// The stream the memory belongs to.
     pub stream: StreamId,
+    /// Its pools.
+    pub pools: MemoryPoolsReport,
+}
+
+/// What a memory holds, pool by pool.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryPoolsReport {
     /// One entry per dynamic pool, in allocation-routing order, the pools a
     /// growth left behind last.
     pub dynamic: Vec<MemoryPoolReport>,
@@ -206,6 +213,13 @@ impl MemoryReport {
 
 impl StreamMemoryReport {
     /// The usage of this stream's pools together.
+    pub fn usage(&self) -> MemoryUsage {
+        self.pools.usage()
+    }
+}
+
+impl MemoryPoolsReport {
+    /// The usage of every pool together.
     pub fn usage(&self) -> MemoryUsage {
         self.dynamic
             .iter()
@@ -249,9 +263,11 @@ mod tests {
     fn stream(value: u64, bytes: u64) -> StreamMemoryReport {
         StreamMemoryReport {
             stream: StreamId { value },
-            dynamic: vec![pool(bytes)],
-            persistent: pool(bytes),
-            dedicated: pool(bytes),
+            pools: MemoryPoolsReport {
+                dynamic: vec![pool(bytes)],
+                persistent: pool(bytes),
+                dedicated: pool(bytes),
+            },
         }
     }
 

@@ -991,7 +991,7 @@ fn a_dry_run_reserves_without_mapping() {
         report
             .streams
             .iter()
-            .flat_map(|stream| stream.dynamic.iter())
+            .flat_map(|stream| stream.pools.dynamic.iter())
             .find(|pool| pool.largest_alloc == SIZE)
             .expect("some pool served the buffer")
             .clone()

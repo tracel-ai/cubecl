@@ -2,7 +2,7 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
-        ErrorGraph, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
+        ErrorGraph, MemoryConfiguration, MemoryManagement, MemoryManagementOptions, PageUpdate,
     },
     storage::BytesStorage,
 };

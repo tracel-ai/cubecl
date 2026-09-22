@@ -1,8 +1,5 @@
 use cubecl_llvm::PlironOptions;
-use cubecl_server::memory_management::Cleanup;
-use cubecl_server::memory_management::relocation::{
-    HostCopies, RelocatingStreams, RelocationNeed, RelocationReason,
-};
+use cubecl_server::memory_management::relocation::RelocatingStreams;
 
 use crate::{
     CpuCompiler,
@@ -96,14 +93,6 @@ impl CpuServer {
         }
     }
 
-    /// The server's streams, relocating `stream_id`'s memory.
-    fn relocating(&mut self, stream_id: StreamId) -> Relocating<'_> {
-        Relocating {
-            scheduler: &mut self.scheduler,
-            stream_id,
-        }
-    }
-
     fn prepare_bindings(&mut self, bindings: KernelArguments) -> BindingsResource {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
@@ -115,11 +104,13 @@ impl CpuServer {
                     return None;
                 };
                 let stream = self.scheduler.stream(&binding.stream);
-                let resource = stream
-                    .memory_management
-                    .managed_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .unwrap();
-                Some(resource)
+                let memory = binding.memory.clone();
+                let resource = stream.get_resource(binding).unwrap();
+                // No page guard: a relocation runs every queued and running
+                // kernel to completion before anything moves, and a guard
+                // would keep the pages from serving new reservations for as
+                // long as the task is queued.
+                Some(ManagedResource::new(memory, resource, None))
             })
             .collect::<Vec<_>>();
 
@@ -250,7 +241,7 @@ impl Server for CpuServer {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        self.relocating(stream_id).relocate_when_wanted();
+        self.scheduler.relocating(stream_id).relocate_when_wanted();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         // Fatal rather than reported, as on every other backend:
         // `initialize_memory` has no error channel, and an allocation that
@@ -341,14 +332,10 @@ impl Server for CpuServer {
                 // memory.
                 let owner = desc.handle.stream;
                 let stream = server.scheduler.stream(&owner);
-                let buffer = stream
-                    .memory_management
-                    .managed_resource(
-                        desc.handle.memory,
-                        desc.handle.offset_start,
-                        desc.handle.offset_end,
-                    )
-                    .map_err(ServerError::Io)?;
+                let memory = desc.handle.memory.clone();
+                let resource = stream.get_resource(desc.handle).map_err(ServerError::Io)?;
+                // No page guard, as for a launch's bindings.
+                let buffer = ManagedResource::new(memory, resource, None);
                 let task = ScheduleTask::Write { data, buffer };
 
                 server.scheduler.register(stream_id, task, &[owner]);
@@ -361,10 +348,14 @@ impl Server for CpuServer {
         &mut self,
         stream_id: StreamId,
     ) -> cubecl_server::memory_management::StreamMemoryReport {
-        self.scheduler
-            .stream(&stream_id)
-            .memory_management
-            .memory_report(stream_id)
+        cubecl_server::memory_management::StreamMemoryReport {
+            stream: stream_id,
+            pools: self
+                .scheduler
+                .stream(&stream_id)
+                .memory_management
+                .memory_report(),
+        }
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {
@@ -372,12 +363,7 @@ impl Server for CpuServer {
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream
-            .memory_management
-            .cleanup(Cleanup::Explicit, failures);
-        self.relocating(stream_id)
-            .relocate(RelocationReason::Explicit);
+        self.scheduler.relocating(stream_id).reclaim();
         Ok(())
     }
 
@@ -586,45 +572,5 @@ impl ServerStorage for CpuServer {
             binding.offset_start,
             binding.offset_end,
         )?)
-    }
-}
-
-/// The server's streams, as relocating one stream's memory needs them.
-struct Relocating<'a> {
-    scheduler: &'a mut SchedulerMultiStream<ScheduledCpuBackend>,
-    stream_id: StreamId,
-}
-
-impl RelocatingStreams for Relocating<'_> {
-    /// Never: the CPU records no graphs.
-    fn recording(&mut self) -> bool {
-        false
-    }
-
-    fn relocation_need(&mut self) -> RelocationNeed {
-        self.scheduler
-            .stream(&self.stream_id)
-            .memory_management
-            .relocation_need()
-    }
-
-    fn bytes_allocated(&mut self) -> u64 {
-        self.scheduler
-            .streams()
-            .map(|stream| stream.memory_management.bytes_allocated())
-            .sum()
-    }
-
-    /// Run every stream's queued tasks and wait for its kernels: they read
-    /// and write the addresses their buffers resolved to.
-    fn finish(&mut self) {
-        self.scheduler.flush_all();
-    }
-
-    fn relocate_memory(&mut self, reason: RelocationReason) {
-        let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
-        stream
-            .memory_management
-            .relocate(&mut HostCopies, reason, failures);
     }
 }

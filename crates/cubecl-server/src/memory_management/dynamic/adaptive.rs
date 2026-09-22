@@ -8,7 +8,9 @@ use crate::{
     memory_management::{
         DEDICATED_POOL_POS, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle,
         MemoryPoolReport,
-        memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping, SlicedPool},
+        memory_pool::{
+            ExclusiveLayout, ExclusiveMemoryPool, MemoryPool, PageMapping, SlicedLayout, SlicedPool,
+        },
         relocation::{CopyQueue, RelocationNeed, RelocationReason, RelocationTrigger},
     },
     server::IoError,
@@ -74,13 +76,18 @@ impl AdaptiveMemory {
         let alignment = properties.alignment;
         let sizing = PageSizing::new(MIN_PAGE.min(properties.max_page_size), properties);
         let memory = Self {
-            tiny: ExclusiveMemoryPool::new(0, alignment, u64::MAX, TINY_POOL),
-            small: SlicedPool::new(
-                SMALL_PAGE.next_multiple_of(alignment),
-                SMALL_SLICE.next_multiple_of(alignment),
+            tiny: ExclusiveMemoryPool::new(ExclusiveLayout {
+                max_alloc_size: 0,
                 alignment,
-                SMALL_POOL,
-            )
+                dealloc_period: u64::MAX,
+                pool: TINY_POOL,
+            }),
+            small: SlicedPool::new(SlicedLayout {
+                page_size: SMALL_PAGE.next_multiple_of(alignment),
+                max_slice_size: SMALL_SLICE.next_multiple_of(alignment),
+                alignment,
+                pool: SMALL_POOL,
+            })
             // Allocations near its page size belong to the arena, whose
             // pages are sized to what they serve.
             .up_to_max_slice(),
@@ -172,6 +179,11 @@ impl AdaptiveMemory {
     /// Whether a relocation is wanted, before the bytes the device holds are
     /// known (see [`RelocationTrigger::need`]).
     pub fn relocation_need(&self) -> RelocationNeed {
+        // Asked before every allocation: when nothing is outdated, which is
+        // almost always, answer without counting any page.
+        if !self.arena.has_outdated() {
+            return RelocationNeed::Nothing;
+        }
         self.trigger.need(&self.arena.state())
     }
 
@@ -190,13 +202,13 @@ impl AdaptiveMemory {
     ) {
         let relocation = self.arena.plan(reason.room(), storage, failures);
         if relocation.is_empty() {
-            self.trigger.settled(false, &self.arena.state());
+            self.trigger.stalled(&self.arena.state());
             return;
         }
         match relocation.copy(storage, copier) {
             Ok(landed) => {
                 self.arena.commit(landed, storage, failures);
-                self.trigger.settled(true, &self.arena.state());
+                self.trigger.moved();
                 // The pages it emptied go back now, not at the storage's next
                 // flush: a reservation retried after this needs that room.
                 storage.flush();
@@ -205,7 +217,7 @@ impl AdaptiveMemory {
             // as moving nothing, so a device that keeps refusing the copies
             // is not waited on again until the pools change.
             Err(err) => {
-                self.trigger.settled(false, &self.arena.state());
+                self.trigger.stalled(&self.arena.state());
                 log::warn!("relocating allocations off outdated memory pages abandoned: {err}")
             }
         }
@@ -263,7 +275,6 @@ mod tests {
         server::{IoError, ServerError},
         storage::BytesStorage,
     };
-    use cubecl_environment::stream::StreamId;
     use cubecl_environment::sync::Arc;
     use cubecl_ir::MemoryDeviceProperties;
 
@@ -310,7 +321,7 @@ mod tests {
     /// The adaptive pool: the size it carves pages at, every page it holds —
     /// outdated ones included — and how many of those are outdated.
     fn pool(memory: &MemoryManagement<BytesStorage>) -> Pool {
-        let report = memory.memory_report(StreamId::current()).dynamic;
+        let report = memory.memory_report().dynamic;
         let current = report
             .iter()
             .find_map(|pool| match pool.kind {
@@ -366,12 +377,12 @@ mod tests {
     /// for the device one. Answers how many allocations moved.
     fn relocate(memory: &mut MemoryManagement<BytesStorage>) -> usize {
         let failures = &mut ErrorGraph::default();
-        let before = memory.memory_report(StreamId::current()).dynamic.len();
+        let before = memory.memory_report().dynamic.len();
         let mut copies = HostCopies;
         memory.relocate(&mut copies, RelocationReason::Explicit, failures);
         // A pool a relocation emptied is dropped, so the reports it leaves say
         // how many moved off it.
-        before - memory.memory_report(StreamId::current()).dynamic.len()
+        before - memory.memory_report().dynamic.len()
     }
 
     /// A device that refuses every copy, which abandons the relocation.
@@ -699,13 +710,7 @@ mod tests {
             page_of(&large),
             "it shares the current page"
         );
-        assert_eq!(
-            memory
-                .memory_report(StreamId::current())
-                .usage()
-                .bytes_in_use,
-            11 * MIB
-        );
+        assert_eq!(memory.memory_report().usage().bytes_in_use, 11 * MIB);
     }
 
     /// A plan dropped before its commit leaves every allocation where it was.
@@ -817,15 +822,11 @@ mod tests {
         memory.mode(MemoryAllocationMode::Auto);
 
         assert_eq!(
-            memory
-                .memory_report(StreamId::current())
-                .persistent
-                .usage
-                .bytes_in_use,
+            memory.memory_report().persistent.usage.bytes_in_use,
             MIB,
             "closing the dedicated window restores the persistent one"
         );
-        let report = memory.memory_report(StreamId::current());
+        let report = memory.memory_report();
         assert_eq!(report.usage().bytes_reserved, 200 * MIB + MIB);
         assert_eq!(
             (report.dedicated.kind, report.dedicated.pages),
@@ -836,10 +837,7 @@ mod tests {
         drop(probe);
         let _tick = reserve(&mut memory, MIB);
         assert_eq!(
-            memory
-                .memory_report(StreamId::current())
-                .usage()
-                .bytes_reserved,
+            memory.memory_report().usage().bytes_reserved,
             MIB + FLOOR,
             "the probe buffer is gone; the weight and one adaptive page remain"
         );

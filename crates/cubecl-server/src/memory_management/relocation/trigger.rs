@@ -118,10 +118,16 @@ impl RelocationTrigger {
         }
     }
 
-    /// Remember how a relocation went: one that moved nothing is not planned
-    /// again until the pools in `arena` change.
-    pub fn settled(&mut self, moved: bool, arena: &ArenaState) {
-        self.stalled = (!moved).then_some(arena.shape);
+    /// A relocation moved something: the next is planned whenever it is
+    /// wanted.
+    pub fn moved(&mut self) {
+        self.stalled = None;
+    }
+
+    /// A relocation moved nothing: none is planned again until the pools in
+    /// `arena` change.
+    pub fn stalled(&mut self, arena: &ArenaState) {
+        self.stalled = Some(arena.shape);
     }
 }
 
@@ -230,7 +236,7 @@ mod tests {
     fn a_relocation_that_moved_nothing_waits_for_the_pools_to_change() {
         let mut trigger = RelocationTrigger::new(Some(24 * MIB));
         let state = arena(4 * MIB);
-        trigger.settled(false, &state);
+        trigger.stalled(&state);
         assert_eq!(trigger.need(&state), RelocationNeed::Nothing);
 
         let grown = ArenaState {

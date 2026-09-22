@@ -28,7 +28,9 @@ use cubecl_environment::stream::StreamId;
 #[cfg(renderdoc)]
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_server::memory_management::relocation::RelocationReason;
+use cubecl_server::memory_management::Cleanup;
+use cubecl_server::memory_management::relocation::{RelocationNeed, RelocationReason};
+use cubecl_server::stream::scheduler::RelocatableStream;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, ManagedMemoryHandle, SharedMemoryBindings},
@@ -103,6 +105,31 @@ impl StreamMemory for WgpuStream {
 
     fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
         self.mem_manage.written(binding, failures)
+    }
+}
+
+impl RelocatableStream for WgpuStream {
+    fn recording(&self) -> bool {
+        self.capturing.is_recording()
+    }
+
+    fn relocation_need(&self) -> RelocationNeed {
+        self.mem_manage.memory_pool.relocation_need()
+    }
+
+    fn bytes_allocated(&self) -> u64 {
+        self.mem_manage.bytes_allocated()
+    }
+
+    fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
+        let mut copier = WgpuCopies::new(self.device.clone(), self.queue.clone());
+        self.mem_manage
+            .memory_pool
+            .relocate(&mut copier, reason, failures);
+    }
+
+    fn cleanup_memory(&mut self, failures: &mut ErrorGraph) {
+        self.mem_manage.memory_cleanup(Cleanup::Explicit, failures);
     }
 }
 
@@ -554,15 +581,6 @@ impl WgpuStream {
                 None => Ok(()),
             }
         })
-    }
-
-    /// Empty the outdated pools into the current pages.
-    ///
-    /// The caller has submitted every stream's work first: the copies follow
-    /// every launch that could still read what moves.
-    pub(crate) fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
-        let mut copier = WgpuCopies::new(self.device.clone(), self.queue.clone());
-        self.mem_manage.relocate(&mut copier, reason, failures);
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {

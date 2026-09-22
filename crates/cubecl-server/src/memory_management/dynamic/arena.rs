@@ -7,7 +7,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryHandle, MemoryPoolKind, MemoryPoolReport,
-        memory_pool::{MemoryPool, PageMapping, SlicedPool, calculate_padding},
+        memory_pool::{MemoryPool, PageMapping, SlicedLayout, SlicedPool, calculate_padding},
         relocation::{
             ArenaShape, ArenaState, Landed, LiveAllocation, Move, OutdatedPages, Relocation,
             StorageCopy, TargetRoom,
@@ -125,7 +125,12 @@ impl PageSizing {
     fn pool(&self, page_size: u64, index: u8) -> SlicedPool {
         // It takes every size it is handed, so nothing is refused for being
         // larger than a slice of a page it fits.
-        SlicedPool::new(page_size, page_size, self.alignment, index)
+        SlicedPool::new(SlicedLayout {
+            page_size,
+            max_slice_size: page_size,
+            alignment: self.alignment,
+            pool: index,
+        })
     }
 }
 
@@ -164,11 +169,16 @@ impl PoolArena {
         self.slots.get_mut(slot as usize)?.as_mut()
     }
 
+    /// Whether a growth left any pool behind.
+    pub fn has_outdated(&self) -> bool {
+        !self.outdated.is_empty()
+    }
+
     /// What a relocation trigger reads of the arena.
     pub fn state(&self) -> ArenaState {
         ArenaState {
             page_size: self.current().page_size(),
-            has_outdated: !self.outdated.is_empty(),
+            has_outdated: self.has_outdated(),
             full: self.slots.iter().all(Option::is_some),
             shape: ArenaShape {
                 current_pages: self.current().pages_held(),
@@ -205,11 +215,7 @@ impl PoolArena {
     }
 
     /// The pools `source` and `target` name, which are distinct.
-    pub fn pair_mut(
-        &mut self,
-        source: u8,
-        target: u8,
-    ) -> Option<(&mut SlicedPool, &mut SlicedPool)> {
+    fn pair_mut(&mut self, source: u8, target: u8) -> Option<(&mut SlicedPool, &mut SlicedPool)> {
         let first = self.first_index;
         let [source, target] = self
             .slots
@@ -278,11 +284,7 @@ impl PoolArena {
     ///
     /// An outdated pool returns a page the moment it empties, rather than
     /// waiting for the explicit cleanup the current pool waits for.
-    pub fn drain<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        failures: &mut ErrorGraph,
-    ) {
+    fn drain<Storage: ComputeStorage>(&mut self, storage: &mut Storage, failures: &mut ErrorGraph) {
         let slots = &mut self.slots;
         self.outdated.retain(|&slot| {
             let Some(pool) = slots[slot].as_mut() else {
@@ -357,8 +359,7 @@ impl PoolArena {
             allocation, target, ..
         } in landed.into_moves()
         {
-            // Locations are read now, not at planning: a pool that released
-            // pages since may have renumbered them.
+            // The handles carry the locations: a move keeps none of its own.
             let source = allocation.descriptor().location();
             let destination = target.descriptor().location();
             // Only the slices hold the handles once these go.

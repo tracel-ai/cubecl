@@ -1,7 +1,6 @@
 use cubecl_core::server::ServerStorage;
 use cubecl_server::kernel::BufferIOAttr;
 use cubecl_server::kernel::DebugInformation;
-use cubecl_server::memory_management::Cleanup;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
@@ -37,7 +36,7 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_server::memory_management::{
     ManagedMemoryHandle, SharedMemoryBindings, StreamMemoryReport,
-    relocation::{RelocatingStreams, RelocationNeed, RelocationReason},
+    relocation::{RelocatingStreams, RelocationReason},
 };
 use cubecl_server::{
     compiler::CompilationCache,
@@ -196,14 +195,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         }
     }
 
-    /// The server's streams, relocating `stream_id`'s memory.
-    fn relocating(&mut self, stream_id: StreamId) -> Relocating<'_> {
-        Relocating {
-            scheduler: &mut self.scheduler,
-            stream_id,
-        }
-    }
-
     fn prepare_bindings(
         &mut self,
         stream_id: StreamId,
@@ -355,17 +346,16 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
-        // While any stream records, every page keeps its number and its
-        // address: nothing is cleaned up or relocated, so the pages a recording
-        // touched are still the ones it guards when it seals.
-        let mut relocating = self.relocating(stream_id);
+        let mut relocating = self.scheduler.relocating(stream_id);
+        relocating.relocate_when_wanted();
         let any_recording = relocating.recording();
-        if !any_recording {
-            relocating.relocate_when_wanted();
-        }
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         let update = stream.capturing.page_update(any_recording);
-        let reserved = match stream.mem_manage.reserve(size, update, failures) {
+        let reserved = match stream
+            .mem_manage
+            .memory_pool
+            .reserve(size, update, failures)
+        {
             Ok(reserved) => reserved,
             // The recording now misses whatever this memory was for, and
             // `end_capture` reports that: the handle stays unbound, and
@@ -687,10 +677,10 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
     fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport {
         self.scheduler.execute_streams(vec![stream_id]);
-        self.scheduler
-            .stream(&stream_id)
-            .mem_manage
-            .memory_report(stream_id)
+        StreamMemoryReport {
+            stream: stream_id,
+            pools: self.scheduler.stream(&stream_id).mem_manage.memory_report(),
+        }
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {
@@ -699,7 +689,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
-        if self.relocating(stream_id).recording() {
+        if self.scheduler.relocating(stream_id).recording() {
             return Err(ServerError::graph_state(
                 "memory_cleanup: a stream is recording a graph, whose pages keep their numbers \
                  until it seals",
@@ -711,12 +701,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // pinned by a live graph goes too (entries are recreated on their next
         // miss).
         stream.info_cache.clear_unpinned();
-        let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream
-            .mem_manage
-            .memory_cleanup(Cleanup::Explicit, failures);
-        self.relocating(stream_id)
-            .relocate(RelocationReason::Explicit);
+        self.scheduler.relocating(stream_id).reclaim();
         Ok(())
     }
 
@@ -738,7 +723,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
 
         // The pages the recording touches are guarded for the graph's life,
         // and a guarded page is never relocated: empty the outdated pools now.
-        self.relocating(stream_id)
+        self.scheduler
+            .relocating(stream_id)
             .relocate(RelocationReason::Capture);
         Ok(())
     }
@@ -837,6 +823,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
                 self.scheduler
                     .stream(&page.stream)
                     .mem_manage
+                    .memory_pool
                     .guard(page.location)
             })
             .collect();
@@ -944,45 +931,10 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        Ok(stream.mem_manage.managed_resource(binding)?)
-    }
-}
-
-/// The server's streams, as relocating one stream's memory needs them.
-struct Relocating<'a> {
-    scheduler: &'a mut SchedulerMultiStream<ScheduledWgpuBackend>,
-    stream_id: StreamId,
-}
-
-impl RelocatingStreams for Relocating<'_> {
-    fn recording(&mut self) -> bool {
-        self.scheduler
-            .streams()
-            .any(|stream| stream.capturing.is_recording())
-    }
-
-    fn relocation_need(&mut self) -> RelocationNeed {
-        self.scheduler
-            .stream(&self.stream_id)
-            .mem_manage
-            .relocation_need()
-    }
-
-    fn bytes_allocated(&mut self) -> u64 {
-        self.scheduler
-            .streams()
-            .map(|stream| stream.mem_manage.bytes_allocated())
-            .sum()
-    }
-
-    /// Run every stream's queued tasks and submit them: a queued task holds
-    /// the addresses its buffers resolved to. The copier waits for the device.
-    fn finish(&mut self) {
-        self.scheduler.flush_all();
-    }
-
-    fn relocate_memory(&mut self, reason: RelocationReason) {
-        let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
-        stream.relocate(reason, failures);
+        Ok(stream.mem_manage.memory_pool.managed_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        )?)
     }
 }

@@ -4,7 +4,7 @@ use crate::memory_management::Cleanup;
 use crate::{
     memory_management::{
         ErrorGraph, ManagedMemoryHandle, MemoryPoolReport,
-        memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping},
+        memory_pool::{ExclusiveLayout, ExclusiveMemoryPool, MemoryPool, PageMapping},
     },
     server::IoError,
     storage::ComputeStorage,
@@ -44,7 +44,12 @@ impl ExclusivePools {
                 let dealloc_period = (BASE_DEALLOC_PERIOD as f64
                     * (1.0 + size as f64 / DEALLOC_SCALE as f64).round())
                     as u64;
-                ExclusiveMemoryPool::new(size, properties.alignment, dealloc_period, index as u8)
+                ExclusiveMemoryPool::new(ExclusiveLayout {
+                    max_alloc_size: size,
+                    alignment: properties.alignment,
+                    dealloc_period,
+                    pool: index as u8,
+                })
             })
             .collect();
         Self { buckets }

@@ -677,19 +677,15 @@ impl Server for MetalServer {
         stream_id: StreamId,
     ) -> cubecl_server::memory_management::StreamMemoryReport {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        resolved
-            .current()
-            .memory_management
-            .memory_report(stream_id)
+        cubecl_server::memory_management::StreamMemoryReport {
+            stream: stream_id,
+            pools: resolved.current().memory_management.memory_report(),
+        }
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        let (stream, failures) = resolved.current_and_failures();
-        stream
-            .memory_management
-            .cleanup(Cleanup::Explicit, failures);
-        Relocating(&mut resolved).relocate(RelocationReason::Explicit);
+        Relocating(&mut resolved).reclaim();
         Ok(())
     }
 
@@ -728,6 +724,13 @@ impl RelocatingStreams for Relocating<'_, '_> {
         for stream in self.0.all() {
             stream.finish();
         }
+    }
+
+    fn cleanup_memory(&mut self) {
+        let (stream, failures) = self.0.current_and_failures();
+        stream
+            .memory_management
+            .cleanup(Cleanup::Explicit, failures);
     }
 
     fn relocate_memory(&mut self, reason: RelocationReason) {

@@ -27,6 +27,19 @@ pub trait RelocatingStreams {
     /// Move what the relocating stream's memory holds on outdated pages.
     fn relocate_memory(&mut self, reason: RelocationReason);
 
+    /// Give back every page the relocating stream's memory holds and nothing
+    /// needs.
+    fn cleanup_memory(&mut self);
+
+    /// Give back everything the relocating stream's memory holds and nothing
+    /// needs: what the outdated pages still hold moves first, while the
+    /// current pages keep the room it moves into, then every page left empty
+    /// goes back.
+    fn reclaim(&mut self) {
+        self.relocate(RelocationReason::Explicit);
+        self.cleanup_memory();
+    }
+
     /// Relocate when the memory asks for it: while the device still has a
     /// page to spare, or before the pools run out of page sizes.
     fn relocate_when_wanted(&mut self) {

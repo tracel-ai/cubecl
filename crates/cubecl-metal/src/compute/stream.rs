@@ -4,7 +4,6 @@ use cubecl_core::{MemoryConfiguration, server::ServerError};
 use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_server::memory_management::Cleanup;
 use cubecl_server::memory_management::relocation::RelocationReason;
 use cubecl_server::{
     logging::ServerLogger,
@@ -206,8 +205,9 @@ impl MetalStream {
     }
 
     /// Waits on a previously submitted command buffer if total queued ops
-    /// exceed `max_submitted_ops`, then resets the counter and runs memory cleanup.
-    pub fn regulate(&mut self, ops_in_batch: usize, failures: &mut ErrorGraph) {
+    /// exceed `max_submitted_ops`, then resets the counter. The memory is
+    /// cleaned up by its reservations, not here.
+    pub fn regulate(&mut self, ops_in_batch: usize) {
         self.submitted_ops += ops_in_batch;
 
         if self.submitted_ops >= self.max_submitted_ops {
@@ -216,7 +216,6 @@ impl MetalStream {
                 std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
             }
             self.submitted_ops = 0;
-            self.memory_management.cleanup(Cleanup::Periodic, failures);
         }
     }
 }
@@ -388,7 +387,7 @@ impl EventStreamBackend for MetalStreamBackend {
         }
     }
 
-    fn flush(stream: &mut Self::Stream, failures: &mut ErrorGraph) -> Self::Event {
+    fn flush(stream: &mut Self::Stream, _failures: &mut ErrorGraph) -> Self::Event {
         use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder, MTLEvent};
 
         stream.event_counter += 1;
@@ -439,7 +438,7 @@ impl EventStreamBackend for MetalStreamBackend {
         stream.batch_ops = 0;
         stream.batch_bytes = 0;
 
-        stream.regulate(ops_in_batch, failures);
+        stream.regulate(ops_in_batch);
 
         MetalEvent::new(
             stream.shared_event.clone(),

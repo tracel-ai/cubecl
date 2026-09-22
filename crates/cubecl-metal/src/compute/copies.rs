@@ -6,7 +6,10 @@ use cubecl_server::server::{IoError, ServerError};
 use cubecl_server::storage::ComputeStorage;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2_metal::{MTLBlitCommandEncoder, MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue};
+use objc2_metal::{
+    MTLBlitCommandEncoder, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder,
+    MTLCommandQueue,
+};
 
 /// Metal's device-to-device copy: blits encoded on a command buffer of their
 /// own, committed together and waited on outside the stream's dispatch batch.
@@ -78,17 +81,36 @@ impl CopyQueue<MetalStorage> for MetalCopies {
                     copy.source.offset() as usize,
                     target.inner(),
                     copy.target.offset() as usize,
-                    copy.source.size() as usize,
+                    // Blits copy whole words; the slices are padded to the
+                    // device alignment, a multiple of four, so the rounded
+                    // size stays inside both.
+                    copy.source.size().next_multiple_of(4) as usize,
                 );
         }
         Ok(())
     }
 
     fn wait_copies(&mut self) -> Result<(), ServerError> {
-        if let Some(blits) = self.pending.take() {
-            blits.encoder.endEncoding();
-            blits.command_buffer.commit();
-            blits.command_buffer.waitUntilCompleted();
+        let Some(blits) = self.pending.take() else {
+            return Ok(());
+        };
+        blits.encoder.endEncoding();
+        blits.command_buffer.commit();
+        blits.command_buffer.waitUntilCompleted();
+        // A blit that did not land must fail the relocation, never be
+        // committed.
+        if blits.command_buffer.status() == MTLCommandBufferStatus::Error {
+            let reason = match blits.command_buffer.error() {
+                Some(err) => format!(
+                    "Metal refused a relocation copy: {}",
+                    err.localizedDescription()
+                ),
+                None => "Metal refused a relocation copy".to_string(),
+            };
+            return Err(ServerError::Generic {
+                reason,
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
+            });
         }
         Ok(())
     }

@@ -1,27 +1,25 @@
-use crate::compute::copies::WgpuCopies;
 use crate::{WgpuResource, WgpuStorage};
 use cubecl_core::{
     MemoryConfiguration,
     server::{BufferBinding, IoError},
 };
-use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_server::memory_management::relocation::{RelocationNeed, RelocationReason};
 use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
         ErrorGraph, FailureId, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode,
-        MemoryHandle, MemoryLocation, MemoryManagement, MemoryManagementOptions, PageGuard,
+        MemoryHandle, MemoryManagement, MemoryManagementOptions, MemoryPoolsReport,
     },
-    storage::{ComputeStorage, ManagedResource},
+    storage::ComputeStorage,
 };
 use wgpu::BufferUsages;
 
 #[derive(Debug)]
 pub struct WgpuMemManager {
-    memory_pool: MemoryManagement<WgpuStorage>,
+    /// The main pool, which every kernel buffer lives in.
+    pub(crate) memory_pool: MemoryManagement<WgpuStorage>,
     memory_uniforms: MemoryManagement<WgpuStorage>,
     memory_pool_staging: MemoryManagement<WgpuStorage>,
     uniforms: Vec<ManagedMemoryHandle>,
@@ -114,39 +112,11 @@ impl WgpuMemManager {
         self.memory_pool.bind(old, new, 0, failures).unwrap();
     }
 
-    /// Reserve `size` bytes on the main pool — see
-    /// [`MemoryManagement::reserve`].
-    pub(crate) fn reserve(
-        &mut self,
-        size: u64,
-        update: PageUpdate,
-        failures: &mut ErrorGraph,
-    ) -> Result<ManagedMemoryHandle, IoError> {
-        self.memory_pool.reserve(size, update, failures)
-    }
-
-    /// Whether the main pool wants a relocation — see
-    /// [`MemoryManagement::relocation_need`].
-    pub(crate) fn relocation_need(&self) -> RelocationNeed {
-        self.memory_pool.relocation_need()
-    }
-
     /// The bytes every pool of this stream holds from the device.
     pub(crate) fn bytes_allocated(&self) -> u64 {
         self.memory_pool.bytes_allocated()
             + self.memory_uniforms.bytes_allocated()
             + self.memory_pool_staging.bytes_allocated()
-    }
-
-    /// Empty the main pool's outdated pools into its current pages, with
-    /// `copier` carrying the bytes.
-    pub(crate) fn relocate(
-        &mut self,
-        copier: &mut WgpuCopies,
-        reason: RelocationReason,
-        failures: &mut ErrorGraph,
-    ) {
-        self.memory_pool.relocate(copier, reason, failures);
     }
 
     /// The failure carried by the allocation behind `binding`, if any — see
@@ -191,22 +161,6 @@ impl WgpuMemManager {
         Ok((resource, binding))
     }
 
-    /// Keep the main-pool page `location` names as it is while the guard
-    /// lives — see [`MemoryManagement::guard`].
-    pub(crate) fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
-        self.memory_pool.guard(location)
-    }
-
-    /// The main-pool resource behind `binding`, holding a guard on its page —
-    /// see [`MemoryManagement::managed_resource`].
-    pub(crate) fn managed_resource(
-        &mut self,
-        binding: BufferBinding,
-    ) -> Result<ManagedResource<WgpuResource>, IoError> {
-        self.memory_pool
-            .managed_resource(binding.memory, binding.offset_start, binding.offset_end)
-    }
-
     pub(crate) fn get_resource(&mut self, binding: BufferBinding) -> Result<WgpuResource, IoError> {
         self.memory_pool
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
@@ -236,13 +190,17 @@ impl WgpuMemManager {
         (retained, resource)
     }
 
-    /// Everything the main pool holds, for `stream` — see
+    /// Everything this stream's pools hold — see
     /// [`MemoryManagement::memory_report`].
-    pub(crate) fn memory_report(
-        &self,
-        stream: StreamId,
-    ) -> cubecl_server::memory_management::StreamMemoryReport {
-        self.memory_pool.memory_report(stream)
+    pub(crate) fn memory_report(&self) -> MemoryPoolsReport {
+        // The staging and uniform pools are this stream's memory too, and their
+        // bytes count toward the device like the main pool's: they are listed
+        // after its dynamic pools.
+        let mut report = self.memory_pool.memory_report();
+        for aux in [&self.memory_pool_staging, &self.memory_uniforms] {
+            report.dynamic.extend(aux.memory_report().dynamic);
+        }
+        report
     }
 
     pub(crate) fn memory_cleanup(&mut self, cleanup: Cleanup, failures: &mut ErrorGraph) {

@@ -108,7 +108,7 @@ unsafe fn instantiate_recording(
             return Err(ServerError::graph_state(format!(
                 "capture recorded {alloc_nodes} memory node(s): an allocation inside the capture \
                  window makes the graph un-relaunchable, so the capture is rejected (the \
-                 persistent pool should have served this allocation)"
+                 pages held before the capture should have served this allocation)"
             )));
         }
         let mut exec: CUgraphExec = std::ptr::null_mut();
@@ -126,8 +126,8 @@ unsafe fn instantiate_recording(
 /// A captured graph is only replayable if it owns no memory nodes: CUDA
 /// refuses to relaunch a graph whose allocation nodes have not been freed.
 /// Every allocation the capture window needs must therefore be served by the
-/// already-warmed persistent pool — the window growing the pool is precisely
-/// the condition this detects.
+/// pages warmed before it. The server refuses to allocate while recording, so
+/// a memory node here means something went around it.
 ///
 /// # Safety
 ///

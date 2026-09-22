@@ -138,9 +138,9 @@ impl MemoryProbe {
 /// allocation, returned to the driver once the probe drops it.
 ///
 /// A probe's gigabyte is no part of any workload. Held in a pool it would stay
-/// reserved after the probe, and count toward the statistics an adaptive pool
-/// sizes its pages from or the budget of an installed layout; dedicated, it
-/// exists exactly as long as the probe does.
+/// reserved after the probe, and grow the pages an adaptive memory carves
+/// every later allocation from. Dedicated, it exists exactly as long as the
+/// probe does.
 ///
 /// # Errors
 ///

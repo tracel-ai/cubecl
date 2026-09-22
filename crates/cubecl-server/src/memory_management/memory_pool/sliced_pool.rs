@@ -34,17 +34,29 @@ pub struct SlicedPool {
     largest_alloc: u64,
 }
 
+/// What a [`SlicedPool`] carves, and the pool index its slices carry.
+#[derive(Debug, Clone, Copy)]
+pub struct SlicedLayout {
+    /// The size every page is allocated at.
+    pub page_size: u64,
+    /// The largest allocation the pool accepts, capped at the page size.
+    pub max_slice_size: u64,
+    pub alignment: u64,
+    /// The pool index a slice's location carries.
+    pub pool: u8,
+}
+
 impl SlicedPool {
-    /// A pool of `page_size` pages.
-    pub fn new(page_size: u64, max_slice_size: u64, alignment: u64, pool_pos: u8) -> Self {
+    /// A pool carving pages as `layout` says.
+    pub fn new(layout: SlicedLayout) -> Self {
         Self {
             pages: Vec::new(),
             pages_tmp: Vec::new(),
-            page_size,
-            max_slice_size: max_slice_size.min(page_size),
+            page_size: layout.page_size,
+            max_slice_size: layout.max_slice_size.min(layout.page_size),
             near_page_size: true,
-            alignment,
-            location_base: MemoryLocation::new(pool_pos, 0, 0),
+            alignment: layout.alignment,
+            location_base: MemoryLocation::new(layout.pool, 0, 0),
             pages_peak: 0,
             largest_alloc: 0,
         }
@@ -278,9 +290,8 @@ impl MemoryPool for SlicedPool {
         storage: &mut Storage,
         size: u64,
         mapping: PageMapping,
-        failures: &mut ErrorGraph,
+        _failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        let _ = failures;
         self.alloc_page(storage, size, mapping)
     }
 

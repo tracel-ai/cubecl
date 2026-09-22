@@ -9,7 +9,9 @@ use cubecl_core::{
     server::{BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
 };
 use cubecl_environment::stream::StreamId;
-use cubecl_server::memory_management::PageUpdate;
+use cubecl_server::memory_management::relocation::{HostCopies, RelocationNeed, RelocationReason};
+use cubecl_server::memory_management::{Cleanup, PageUpdate};
+use cubecl_server::stream::scheduler::RelocatableStream;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
@@ -51,6 +53,30 @@ impl StreamMemory for CpuStream {
     fn written(&mut self, binding: &BufferBinding, failures: &mut ErrorGraph) {
         self.memory_management
             .written(&binding.memory, binding.range(), failures)
+    }
+}
+
+impl RelocatableStream for CpuStream {
+    /// Never: the CPU records no graphs.
+    fn recording(&self) -> bool {
+        false
+    }
+
+    fn relocation_need(&self) -> RelocationNeed {
+        self.memory_management.relocation_need()
+    }
+
+    fn bytes_allocated(&self) -> u64 {
+        self.memory_management.bytes_allocated()
+    }
+
+    fn relocate(&mut self, reason: RelocationReason, failures: &mut ErrorGraph) {
+        self.memory_management
+            .relocate(&mut HostCopies, reason, failures);
+    }
+
+    fn cleanup_memory(&mut self, failures: &mut ErrorGraph) {
+        self.memory_management.cleanup(Cleanup::Explicit, failures);
     }
 }
 

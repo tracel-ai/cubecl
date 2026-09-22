@@ -69,25 +69,34 @@ struct MemoryPage {
     free_count: u32,
 }
 
+/// What an [`ExclusiveMemoryPool`] serves, and the pool index its pages carry.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ExclusiveLayout {
+    /// The largest allocation the pool accepts, a multiple of the alignment.
+    pub max_alloc_size: u64,
+    pub alignment: u64,
+    /// The allocations an unused page waits through before it is released;
+    /// `u64::MAX` keeps it for good.
+    pub dealloc_period: u64,
+    /// The pool index a page's location carries.
+    pub pool: u8,
+}
+
 impl ExclusiveMemoryPool {
-    pub(crate) fn new(
-        max_alloc_size: u64,
-        alignment: u64,
-        dealloc_period: u64,
-        pool_pos: u8,
-    ) -> Self {
+    /// A pool serving what `layout` says.
+    pub(crate) fn new(layout: ExclusiveLayout) -> Self {
         // Pages should be allocated to be aligned.
-        assert_eq!(max_alloc_size % alignment, 0);
+        assert_eq!(layout.max_alloc_size % layout.alignment, 0);
 
         Self {
             pages: Vec::new(),
             pages_tmp: Vec::new(),
-            alignment,
-            dealloc_period,
+            alignment: layout.alignment,
+            dealloc_period: layout.dealloc_period,
             last_dealloc_check: 0,
-            max_alloc_size,
-            cur_avg_size: max_alloc_size as f64 / 2.0,
-            location_base: MemoryLocation::new(pool_pos, 0, 0),
+            max_alloc_size: layout.max_alloc_size,
+            cur_avg_size: layout.max_alloc_size as f64 / 2.0,
+            location_base: MemoryLocation::new(layout.pool, 0, 0),
             pages_peak: 0,
             largest_alloc: 0,
         }
