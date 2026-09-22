@@ -98,3 +98,46 @@ fn a_64_bit_kernel_indexes_in_64_bits() {
     let asm = asm_of(scale_kernel(AddressType::U64), "gfx1201");
     assert!(asm.contains("_u64"), "a 64-bit bounds check:\n{asm}");
 }
+
+#[cube(launch)]
+fn plane_moves(input: &[f32], output: &mut [f32]) {
+    let value = input[UNIT_POS as usize];
+    let first = plane_broadcast(value, 0u32);
+    let swapped = plane_shuffle_xor(value, 1u32);
+    output[UNIT_POS as usize] = first + swapped;
+}
+
+fn plane_moves_kernel() -> impl CubeKernel {
+    let settings = KernelSettings::new(
+        *CubeDim::new_1d(32),
+        ExecutionMode::Unchecked,
+        AddressType::U32,
+    );
+    plane_moves::PlaneMoves::new(
+        settings,
+        device_properties(32),
+        Arc::new(TargetProperties::default()),
+        BufferCompilationArg { inplace: None },
+        BufferCompilationArg { inplace: None },
+    )
+}
+
+/// Every shuffle is lowered to `ds_bpermute`, and the backend is what turns one with a known
+/// source lane into a register move: `v_readlane` for a broadcast, DPP for a small XOR. A
+/// change that hid the lane from it would put every such move back through LDS.
+#[test]
+fn a_constant_lane_moves_without_lds() {
+    let asm = asm_of(plane_moves_kernel(), "gfx1201");
+    assert!(
+        asm.contains("v_readlane_b32"),
+        "the broadcast is a readlane:\n{asm}"
+    );
+    assert!(
+        asm.contains("quad_perm:[1,0,3,2]"),
+        "the XOR is DPP:\n{asm}"
+    );
+    assert!(
+        !asm.contains("ds_bpermute"),
+        "nothing goes through LDS:\n{asm}"
+    );
+}
