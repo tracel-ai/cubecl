@@ -4,6 +4,7 @@ use crate::amdgpu::{abi::AmdGpuLowering, matrix::CtxWmma};
 use crate::nvptx::{
     abi::NvptxLowering,
     codegen::{MetadataParams, NvptxEntry},
+    ptx_version::PtxVersion,
 };
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 use crate::shared::{plane::CtxPlaneDim, shared_memory::CtxSharedMemory};
@@ -75,6 +76,9 @@ pub struct PlironOptions {
     /// NVPTX architecture, or `None` for other targets.
     #[cfg(feature = "nvptx")]
     pub sm_arch: Option<SmArch>,
+    /// PTX version to emit, or `None` for the oldest the architecture accepts.
+    #[cfg(feature = "nvptx")]
+    pub ptx_version: Option<PtxVersion>,
     /// Pass scalars and static metadata in the kernel parameter block.
     /// The host must use the same layout.
     pub grid_constants: bool,
@@ -233,6 +237,7 @@ impl PlironCompiler {
                 Ok(PlironArtifact::NvptxCode(self.compile_nvptx(
                     kernel,
                     arch,
+                    options.ptx_version,
                     options.grid_constants,
                 )?))
             }
@@ -321,6 +326,7 @@ impl PlironCompiler {
         self,
         kernel: KernelDefinition,
         arch: SmArch,
+        ptx_version: Option<PtxVersion>,
         grid_constants: bool,
     ) -> Result<NvptxModule, CompilationError> {
         let module = kernel.body.state().module;
@@ -351,6 +357,7 @@ impl PlironCompiler {
             module,
             &kernel.settings.kernel_name,
             &arch,
+            ptx_version,
             NvptxEntry {
                 cube_dim: kernel.settings.cube_dim.num_elems(),
                 shared_memory_size,
