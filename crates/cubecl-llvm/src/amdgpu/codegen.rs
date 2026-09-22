@@ -224,7 +224,7 @@ unsafe fn mark_atomics_device_local(
     }
 }
 
-fn compile_to_object(
+pub(super) fn compile_to_object(
     ir: &str,
     arch: &GfxArch,
     want_asm: bool,
