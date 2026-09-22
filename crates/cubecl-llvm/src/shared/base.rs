@@ -308,7 +308,7 @@ impl PlironCompiler {
             module,
             &kernel.settings.kernel_name,
             arch,
-            kernel.settings.cube_dim.num_elems(),
+            kernel.settings.cube_dim,
             shared_memory_size,
             io,
         )
@@ -359,7 +359,7 @@ impl PlironCompiler {
             &arch,
             ptx_version,
             NvptxEntry {
-                cube_dim: kernel.settings.cube_dim.num_elems(),
+                cube_dim: kernel.settings.cube_dim,
                 shared_memory_size,
                 io,
                 metadata,

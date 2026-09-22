@@ -65,3 +65,10 @@ fn a_constant_lane_moves_without_lds() {
         "nothing goes through LDS:\n{asm}"
     );
 }
+
+#[test]
+fn a_1d_cube_ignores_the_y_and_z_work_item_ids() {
+    let asm = asm_of(scale_kernel(AddressType::U32), "gfx1201");
+    // The three ids arrive packed in `v0`, 10 bits each: y at bit 10, z at bit 20.
+    assert!(!asm.contains("v_bfe_u32"), "no id is unpacked:\n{asm}");
+}

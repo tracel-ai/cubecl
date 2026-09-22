@@ -29,6 +29,20 @@ fn ptx_of(kernel: impl CubeKernel, arch: u32) -> String {
 }
 
 #[test]
+fn a_1d_cube_reads_only_the_x_thread_id() {
+    let ptx = ptx_of(scale_kernel(AddressType::U32), 60);
+    assert!(
+        ptx.contains(".reqntid 64, 1, 1"),
+        "exact launch bounds:\n{ptx}"
+    );
+    assert!(ptx.contains("%tid.x"), "{ptx}");
+    assert!(
+        !ptx.contains("%tid.y") && !ptx.contains("%tid.z"),
+        "an axis of one unit is zero, not a register:\n{ptx}"
+    );
+}
+
+#[test]
 fn plane_moves_are_native_shuffles() {
     let ptx = ptx_of(plane_moves_kernel(), 60);
     assert!(ptx.contains("shfl.sync.idx"), "the broadcast:\n{ptx}");

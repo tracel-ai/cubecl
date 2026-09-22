@@ -12,7 +12,7 @@ use crate::{
         AmdGpuModule, buffer_params::annotate_buffer_params, math_library::redirect_intrinsics,
     },
 };
-use cubecl_core::ir::amd::GfxArch;
+use cubecl_core::ir::{amd::GfxArch, settings::Dim3};
 use cubecl_environment::bytes::Bytes;
 use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext, to_llvm_ir};
 use std::{
@@ -58,7 +58,7 @@ pub fn emit_code_object(
     module: ModuleOp,
     entrypoint: &str,
     arch: &GfxArch,
-    cube_dim: u32,
+    cube_dim: Dim3,
     shared_memory_size: usize,
     io: Vec<BufferIOAttr>,
 ) -> Result<AmdGpuModule, String> {
@@ -100,7 +100,7 @@ fn finalize_ir(
     ir: &str,
     entrypoint: &str,
     arch: &GfxArch,
-    cube_dim: u32,
+    cube_dim: Dim3,
     io: &[BufferIOAttr],
 ) -> Result<String, String> {
     use llvm_sys::LLVMModuleFlagBehavior::LLVMModuleFlagBehaviorError;
@@ -114,10 +114,12 @@ fn finalize_ir(
     let name = CString::new(entrypoint)
         .map_err(|_| format!("kernel name '{entrypoint}' contains a NUL"))?;
 
-    let flat_work_group_size = format!("1,{cube_dim}");
+    let flat_work_group_size = format!("1,{}", cube_dim.num_elems());
     let mut attributes = vec![
         ("target-cpu", arch.name()),
         ("amdgpu-flat-work-group-size", &flat_work_group_size),
+        // Every launch is a whole number of cubes.
+        ("uniform-work-group-size", "true"),
     ];
     let features = features_for(arch);
     if !features.is_empty() {
@@ -150,6 +152,7 @@ fn finalize_ir(
             LLVMAddAttributeAtIndex(func, llvm_sys::LLVMAttributeFunctionIndex, attribute);
         }
 
+        require_work_group_size(ctx, func, cube_dim);
         annotate_buffer_params(ctx, func, io, METADATA_PARAMS);
         mark_atomics_device_local(ctx, func);
 
@@ -169,6 +172,33 @@ fn finalize_ir(
         LLVMDisposeModule(module);
         LLVMContextDispose(ctx);
         Ok(finalized)
+    }
+}
+
+/// The cube dimensions are fixed when a kernel compiles, so the work-item ids are bounded by
+/// them exactly: an axis of one unit is always zero, and the backend then neither unpacks its
+/// id nor adds it into a position.
+///
+/// # Safety
+/// `func` must be a live function in `ctx`.
+unsafe fn require_work_group_size(
+    ctx: llvm_sys::prelude::LLVMContextRef,
+    func: llvm_sys::prelude::LLVMValueRef,
+    cube_dim: Dim3,
+) {
+    use llvm_sys::core::{
+        LLVMConstInt, LLVMGetMDKindIDInContext, LLVMGlobalSetMetadata, LLVMInt32TypeInContext,
+        LLVMMDNodeInContext2, LLVMValueAsMetadata,
+    };
+
+    unsafe {
+        let i32_ty = LLVMInt32TypeInContext(ctx);
+        let mut dims = [cube_dim.x, cube_dim.y, cube_dim.z]
+            .map(|dim| LLVMValueAsMetadata(LLVMConstInt(i32_ty, dim as u64, 0)));
+        let node = LLVMMDNodeInContext2(ctx, dims.as_mut_ptr(), dims.len());
+        let name = "reqd_work_group_size";
+        let kind = LLVMGetMDKindIDInContext(ctx, name.as_ptr() as *const _, name.len() as u32);
+        LLVMGlobalSetMetadata(func, kind, node);
     }
 }
 
@@ -447,7 +477,8 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64, &[]).unwrap();
+        let finalized =
+            finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), Dim3::new_1d(64), &[]).unwrap();
         assert!(
             finalized.contains(r#"target triple = "amdgcn-amd-amdhsa""#),
             "{finalized}"
@@ -482,7 +513,8 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64, &[]).unwrap();
+        let finalized =
+            finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), Dim3::new_1d(64), &[]).unwrap();
         let (object, asm) =
             compile_to_object(&finalized, &GfxArch::parse("gfx1201"), true).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");
@@ -527,7 +559,7 @@ entry:
 }}
 "#
             );
-            let finalized = finalize_ir(&ir, "k", &arch, 32, &[]).unwrap();
+            let finalized = finalize_ir(&ir, "k", &arch, Dim3::new_1d(32), &[]).unwrap();
             let (object, asm) = compile_to_object(&finalized, &arch, true).unwrap();
             assert_eq!(&object[..4], b"\x7fELF");
 
@@ -562,7 +594,8 @@ exit:
 }
 "#;
         let arch = GfxArch::parse("gfx1201");
-        let finalized = finalize_ir(ir, "k", &arch, 64, &[BufferIOAttr::WriteOnly]).unwrap();
+        let finalized =
+            finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &[BufferIOAttr::WriteOnly]).unwrap();
         assert!(finalized.contains("noalias"), "{finalized}");
         assert!(
             finalized.contains("readonly"),
@@ -594,7 +627,7 @@ entry:
         // RDNA3 and CDNA2 are the parts that fall back to a CAS loop without the metadata.
         for name in ["gfx1100", "gfx90a", "gfx1201", "gfx942"] {
             let arch = GfxArch::parse(name);
-            let finalized = finalize_ir(ir, "k", &arch, 64, &[]).unwrap();
+            let finalized = finalize_ir(ir, "k", &arch, Dim3::new_1d(64), &[]).unwrap();
             let (_, asm) = compile_to_object(&finalized, &arch, true).unwrap();
             let asm = asm.unwrap();
             assert!(asm.contains("global_atomic_add_f32"), "{name}:\n{asm}");
@@ -611,7 +644,8 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64, &[]).unwrap();
+        let finalized =
+            finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), Dim3::new_1d(64), &[]).unwrap();
         let (object, asm) =
             compile_to_object(&finalized, &GfxArch::parse("gfx1201"), true).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");

@@ -12,7 +12,7 @@ use crate::{
         math_library::redirect_intrinsics,
     },
 };
-use cubecl_core::ir::nvidia::SmArch;
+use cubecl_core::ir::{nvidia::SmArch, settings::Dim3};
 use pliron_llvm::{llvm_sys::core::LLVMContext, to_llvm_ir};
 use std::{
     ffi::{CStr, CString},
@@ -69,8 +69,8 @@ impl MetadataParams {
 
 /// Kernel entry point requirements.
 pub struct NvptxEntry {
-    /// Maximum units per cube.
-    pub cube_dim: u32,
+    /// Units per cube along each axis.
+    pub cube_dim: Dim3,
     /// Shared memory required per launch, in bytes.
     pub shared_memory_size: usize,
     /// Buffer access modes in binding order.
@@ -126,11 +126,14 @@ fn finalize_ir(
         .map_err(|_| format!("kernel name '{entrypoint}' contains a NUL"))?;
 
     let target_cpu = arch.target_cpu();
-    // Launch bounds limit register use for the requested cube size.
-    let max_threads = entry.cube_dim.to_string();
+    // The cube dimensions are fixed when a kernel compiles, so the launch bounds are exact:
+    // they limit register use to what the cube needs, and they bound each `tid` register, so an
+    // axis of one unit reads as zero rather than as a register.
+    let Dim3 { x, y, z } = entry.cube_dim;
+    let threads = format!("{x},{y},{z}");
     let attributes = [
         ("target-cpu", target_cpu.as_str()),
-        ("nvvm.maxntid", max_threads.as_str()),
+        ("nvvm.reqntid", threads.as_str()),
     ];
 
     unsafe {
