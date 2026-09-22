@@ -14,6 +14,44 @@ const DEVICE_LIB_PATH_VARS: [&str; 2] = ["CUBECL_ROCM_DEVICE_LIB_PATH", "HIP_DEV
 const ROCM_ROOT_VARS: [&str; 2] = ["ROCM_PATH", "HIP_PATH"];
 const DEFAULT_ROCM_ROOTS: [&str; 2] = ["/opt/rocm", "/usr"];
 
+/// `LLVM` installs under a `ROCm` root whose clang resource directory holds the bitcode:
+/// upstream `ROCm` (`lib/llvm`, `llvm`) and distribution packages (Fedora's `lib64/rocm/llvm`).
+const LLVM_SUBDIRS: [&str; 4] = ["lib/llvm", "llvm", "lib64/rocm/llvm", "lib/rocm/llvm"];
+
+/// Bitcode directories under a `ROCm` root, the legacy `amdgcn/bitcode` first, then each `LLVM`
+/// install's `lib/clang/<version>/lib/amdgcn/bitcode`, newest clang first.
+fn bitcode_candidates(root: PathBuf) -> Vec<PathBuf> {
+    let mut candidates = vec![root.join("amdgcn").join("bitcode")];
+
+    for llvm in LLVM_SUBDIRS {
+        let Ok(entries) = std::fs::read_dir(root.join(llvm).join("lib").join("clang")) else {
+            continue;
+        };
+        let mut versions: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        versions.sort_by_key(|dir| clang_version(dir));
+        candidates.extend(
+            versions
+                .into_iter()
+                .rev()
+                .map(|dir| dir.join("lib").join("amdgcn").join("bitcode")),
+        );
+    }
+
+    candidates
+}
+
+/// The numeric components of a clang resource directory's name (`20`, `17.0.0`).
+fn clang_version(dir: &std::path::Path) -> Vec<u64> {
+    dir.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| {
+            name.split('.')
+                .map(|part| part.parse().unwrap_or(0))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn bitcode_dir() -> Result<&'static PathBuf, String> {
     static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
@@ -26,7 +64,7 @@ fn bitcode_dir() -> Result<&'static PathBuf, String> {
             .filter_map(std::env::var_os)
             .map(PathBuf::from)
             .chain(DEFAULT_ROCM_ROOTS.iter().map(PathBuf::from))
-            .map(|root| root.join("amdgcn").join("bitcode"));
+            .flat_map(bitcode_candidates);
 
         direct
             .chain(roots)
@@ -36,9 +74,11 @@ fn bitcode_dir() -> Result<&'static PathBuf, String> {
     .ok_or_else(|| {
         format!(
             "no ROCm device libraries found: looked for ocml.bc via {}, and for \
-             amdgcn/bitcode/ocml.bc under {} and {}. \
+             amdgcn/bitcode/ocml.bc and {{{}}}/lib/clang/*/lib/amdgcn/bitcode/ocml.bc \
+             under {} and {}. \
              Set CUBECL_ROCM_DEVICE_LIB_PATH to the directory holding ocml.bc",
             DEVICE_LIB_PATH_VARS.join(", "),
+            LLVM_SUBDIRS.join(","),
             ROCM_ROOT_VARS.join(", "),
             DEFAULT_ROCM_ROOTS.join(", "),
         )
