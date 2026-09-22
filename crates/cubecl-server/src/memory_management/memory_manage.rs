@@ -316,8 +316,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Whether emptying the outdated pools is worth its copies now, and why,
-    /// on a device whose memories hold `allocated` bytes across every stream
-    /// (see [`DynamicMemory::relocation`]).
+    /// on a device whose memories hold `allocated` bytes across every stream:
+    /// only while something is outdated, when the arena is full or the next
+    /// page leaves the device less than another, and not again while the
+    /// pools look as they did when the last relocation moved nothing.
     pub fn relocation(&self, allocated: u64) -> Option<Relocate> {
         self.pools.relocation(allocated)
     }

@@ -211,10 +211,7 @@ impl Driver for Cuda {
         // Collectives run on their own stream, which compute streams only wait
         // on at a collective sync: one still reading or writing an allocation
         // has to finish before the allocation moves.
-        match ctx.comm_stream {
-            Some(comm_stream) => Fence::new(comm_stream).wait_sync(),
-            None => Ok(()),
-        }
+        Fence::new(ctx.comm_stream).wait_sync()
     }
 }
 

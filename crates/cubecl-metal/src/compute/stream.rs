@@ -334,13 +334,6 @@ impl MetalStreamBackend {
             logger,
         }
     }
-
-    /// The layout streams build their main-GPU pools with, and the memory
-    /// properties they are resolved against.
-    pub(crate) fn gpu_pools(&self) -> (MemoryConfiguration, MemoryDeviceProperties) {
-        let config = self.mem_config.clone();
-        (config, self.mem_props.clone())
-    }
 }
 
 impl EventStreamBackend for MetalStreamBackend {
@@ -358,13 +351,10 @@ impl EventStreamBackend for MetalStreamBackend {
 
         let storage = MetalStorage::new(self.device.clone());
 
-        // The main GPU pool honors the programmatic pool override when one was
-        // configured for the device.
-        let (gpu_config, _) = self.gpu_pools();
         let memory_management = MemoryManagement::from_configuration(
             storage,
             &self.mem_props,
-            gpu_config,
+            self.mem_config.clone(),
             self.logger.clone(),
             MemoryManagementOptions::new("Metal GPU Memory"),
         );

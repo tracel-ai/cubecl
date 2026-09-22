@@ -554,9 +554,6 @@ impl CudaServer {
 
         ctx.unsafe_set_current().unwrap();
 
-        let mut ctx = ctx;
-        ctx.comm_stream = Some(crate::compute::stream::create_cuda_stream(stream_priority));
-
         Self {
             ctx,
             device_id,
@@ -579,9 +576,7 @@ impl CudaServer {
 
     /// The stream collectives run on.
     fn comm_stream(&self) -> CUstream {
-        self.ctx
-            .comm_stream
-            .expect("the server sets its context's comm stream on creation")
+        self.ctx.comm_stream
     }
 
     fn command_no_inputs(&mut self, stream_id: StreamId) -> Command<'_> {

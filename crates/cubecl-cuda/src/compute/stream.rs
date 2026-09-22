@@ -130,15 +130,10 @@ impl EventStreamBackend for CudaStreamBackend {
 
         let storage = GpuStorage::new(self.mem_alignment, stream);
 
-        // The main GPU pool honors the programmatic pool override when one was
-        // configured for the device. The pinned pool below is left
-        // alone: the override targets GPU activations, and the other pools
-        // have deliberate configurations that must not be overridden.
-        let (gpu_config, gpu_props) = (self.mem_config.clone(), self.mem_props.clone());
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
-            &gpu_props,
-            gpu_config,
+            &self.mem_props,
+            self.mem_config.clone(),
             self.logger.clone(),
             MemoryManagementOptions::new("Main GPU Memory"),
         );

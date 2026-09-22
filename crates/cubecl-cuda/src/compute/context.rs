@@ -38,10 +38,9 @@ use cubecl_server::compiler::{CompilationCache, compilation_store, store_compile
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
-    /// The stream collectives run on, set by the server that owns it. Kept
-    /// here so a relocation — which reaches the context, not the server — can
-    /// wait on it.
-    pub comm_stream: Option<CUstream>,
+    /// The stream collectives run on. Kept on the context so a relocation —
+    /// which reaches the context, not the server — can wait on it.
+    pub comm_stream: CUstream,
     /// The modules loaded on the device, in front of [`Self::ptx_cache`].
     ///
     /// An environment switch drops these, and nothing unloads the modules they
@@ -105,6 +104,7 @@ impl CudaContext {
         context: *mut CUctx_st,
         arch: CudaArchitecture,
         backend: CudaBackend,
+        comm_stream: CUstream,
     ) -> Self {
         let fingerprint = cache_namespace(&format!("ptx_sm{}", arch.version), backend);
         let ptx_cache = compilation_store("cuda", &fingerprint);
@@ -112,7 +112,7 @@ impl CudaContext {
 
         Self {
             context,
-            comm_stream: None,
+            comm_stream,
             modules: CompilationCache::mirroring(&ptx_cache),
             ptx_cache,
             second_line_ptx_cache,

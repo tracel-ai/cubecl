@@ -228,7 +228,9 @@ impl StreamCapture {
     }
 
     /// Hold `staging` until the window opens, when the stream is preparing a
-    /// capture — see [`primed`](Self::primed).
+    /// capture: a recorded copy keeps its staging for the graph's life, so the
+    /// recorded run needs a slice per copy where the warmup run could reuse
+    /// one, and holding them grows the pool before nothing may be allocated.
     pub fn prime(&mut self, staging: &ManagedMemoryBinding) {
         if matches!(self.state, StreamCaptureState::Prepare { .. }) {
             self.primed.push(staging.clone());
