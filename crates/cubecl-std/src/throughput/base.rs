@@ -35,7 +35,7 @@ pub fn device_throughput<R: Runtime>(
 ///
 /// Native only, panics on WASM
 pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurve {
-    let points = {
+    let (points, probed) = {
         // Every point of a sweep asks for the same pool, so the sweep holds one.
         let _pooled = PooledProbes::enter(client);
 
@@ -44,7 +44,9 @@ pub fn measure_memory_curve(client: &Client, access: MemoryAccess) -> MemoryCurv
         })
     };
 
-    PooledProbes::cleanup_unless_held(client);
+    if probed {
+        PooledProbes::cleanup_unless_held(client);
+    }
 
     MemoryCurve::new(access, points)
 }
@@ -53,18 +55,24 @@ fn sweep(
     client: &Client,
     access: MemoryAccess,
     mode: impl Fn(u64) -> ThroughputMode,
-) -> alloc::vec::Vec<MemoryPoint> {
-    working_set_sweep(working_set_cap(client, access))
+) -> (alloc::vec::Vec<MemoryPoint>, bool) {
+    let mut probed = false;
+
+    let points = working_set_sweep(working_set_cap(client, access))
         .into_iter()
         .filter_map(|bytes| {
             let key = ThroughputKey { mode: mode(bytes) };
+            let (value, ran) = measure(client, key);
+            probed |= ran;
 
             Some(MemoryPoint {
                 bytes,
-                value: measure_peak_throughput(client, key).ok()?,
+                value: value.ok()?,
             })
         })
-        .collect()
+        .collect();
+
+    (points, probed)
 }
 
 /// The largest working set `access` can be probed at: the largest window one
@@ -91,6 +99,21 @@ pub fn measure_peak_throughput(
     client: &Client,
     key: ThroughputKey,
 ) -> Result<ThroughputValue, ThroughputError> {
+    let (value, probed) = measure(client, key);
+
+    if probed {
+        PooledProbes::cleanup_unless_held(client);
+    }
+
+    value
+}
+
+/// The value for `key`, and whether a probe ran for it rather than the cache
+/// answering. Only a probe leaves pools with the allocator.
+fn measure(
+    client: &Client,
+    key: ThroughputKey,
+) -> (Result<ThroughputValue, ThroughputError>, bool) {
     // A throughput probe is a measurement: inside a dry run its launches must
     // still execute, or they would be timed anyway and cache a garbage peak in
     // the device-level throughput store. The guard is read where the launch is
@@ -103,11 +126,7 @@ pub fn measure_peak_throughput(
         probe(client, key)
     });
 
-    if probed {
-        PooledProbes::cleanup_unless_held(client);
-    }
-
-    value
+    (value, probed)
 }
 
 /// Measures `key`, in the fastest shape its probe can be launched in.
