@@ -8,7 +8,9 @@ use crate::{
         printf::lower_printf_to_hostcall,
     },
     prelude::{BufferIOAttr, Context, ModuleOp},
-    shared::{AmdGpuModule, math_library::redirect_intrinsics},
+    shared::{
+        AmdGpuModule, buffer_params::annotate_buffer_params, math_library::redirect_intrinsics,
+    },
 };
 use cubecl_core::ir::amd::GfxArch;
 use cubecl_environment::bytes::Bytes;
@@ -66,7 +68,7 @@ pub fn emit_code_object(
     let llvm_module =
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
-    let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, cube_dim)?;
+    let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, cube_dim, &io)?;
     let want_asm = std::env::var_os("CUBECL_DEBUG_PLIRON").is_some();
 
     let (object, asm) = compile_to_object(&ir, arch, want_asm)?;
@@ -91,11 +93,15 @@ pub fn emit_code_object(
     })
 }
 
+/// The metadata pointer `KernargArgs` appends after the buffers.
+const METADATA_PARAMS: u32 = 1;
+
 fn finalize_ir(
     ir: &str,
     entrypoint: &str,
     arch: &GfxArch,
     cube_dim: u32,
+    io: &[BufferIOAttr],
 ) -> Result<String, String> {
     use llvm_sys::LLVMModuleFlagBehavior::LLVMModuleFlagBehaviorError;
     use llvm_sys::core::{
@@ -144,6 +150,7 @@ fn finalize_ir(
             LLVMAddAttributeAtIndex(func, llvm_sys::LLVMAttributeFunctionIndex, attribute);
         }
 
+        annotate_buffer_params(ctx, func, io, METADATA_PARAMS);
         mark_atomics_device_local(ctx, func);
 
         let version = LLVMConstInt(LLVMInt32TypeInContext(ctx), CODE_OBJECT_VERSION as u64, 0);
@@ -440,7 +447,7 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64).unwrap();
+        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64, &[]).unwrap();
         assert!(
             finalized.contains(r#"target triple = "amdgcn-amd-amdhsa""#),
             "{finalized}"
@@ -475,7 +482,7 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64).unwrap();
+        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64, &[]).unwrap();
         let (object, asm) =
             compile_to_object(&finalized, &GfxArch::parse("gfx1201"), true).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");
@@ -520,7 +527,7 @@ entry:
 }}
 "#
             );
-            let finalized = finalize_ir(&ir, "k", &arch, 32).unwrap();
+            let finalized = finalize_ir(&ir, "k", &arch, 32, &[]).unwrap();
             let (object, asm) = compile_to_object(&finalized, &arch, true).unwrap();
             assert_eq!(&object[..4], b"\x7fELF");
 
@@ -532,6 +539,46 @@ entry:
 
             crate::amdgpu::lld::link_relocatable(&object, "k").unwrap();
         }
+    }
+
+    #[test]
+    fn a_uniform_metadata_read_stays_scalar_across_stores() {
+        // The bound is read on every iteration, after a store through another buffer: only
+        // knowing the two do not alias lets it be hoisted and loaded once, into an SGPR.
+        let ir = r#"
+define void @k(ptr addrspace(1) %out, ptr addrspace(1) %info) {
+entry:
+  br label %loop
+loop:
+  %i = phi i32 [ 0, %entry ], [ %next, %loop ]
+  %len = load i32, ptr addrspace(1) %info, align 4
+  %slot = getelementptr inbounds nuw i32, ptr addrspace(1) %out, i32 %i
+  store i32 %i, ptr addrspace(1) %slot, align 4
+  %next = add nuw i32 %i, 1
+  %more = icmp ult i32 %next, %len
+  br i1 %more, label %loop, label %exit
+exit:
+  ret void
+}
+"#;
+        let arch = GfxArch::parse("gfx1201");
+        let finalized = finalize_ir(ir, "k", &arch, 64, &[BufferIOAttr::WriteOnly]).unwrap();
+        assert!(finalized.contains("noalias"), "{finalized}");
+        assert!(
+            finalized.contains("readonly"),
+            "the metadata is read-only:\n{finalized}"
+        );
+
+        let (_, asm) = compile_to_object(&finalized, &arch, true).unwrap();
+        let asm = asm.unwrap();
+        assert!(
+            asm.contains("s_load_b32"),
+            "the bound is a scalar load:\n{asm}"
+        );
+        assert!(
+            !asm.contains("global_load"),
+            "the bound is not reloaded per iteration:\n{asm}"
+        );
     }
 
     #[test]
@@ -547,7 +594,7 @@ entry:
         // RDNA3 and CDNA2 are the parts that fall back to a CAS loop without the metadata.
         for name in ["gfx1100", "gfx90a", "gfx1201", "gfx942"] {
             let arch = GfxArch::parse(name);
-            let finalized = finalize_ir(ir, "k", &arch, 64).unwrap();
+            let finalized = finalize_ir(ir, "k", &arch, 64, &[]).unwrap();
             let (_, asm) = compile_to_object(&finalized, &arch, true).unwrap();
             let asm = asm.unwrap();
             assert!(asm.contains("global_atomic_add_f32"), "{name}:\n{asm}");
@@ -564,7 +611,7 @@ entry:
   ret void
 }
 "#;
-        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64).unwrap();
+        let finalized = finalize_ir(ir, "k", &GfxArch::parse("gfx1201"), 64, &[]).unwrap();
         let (object, asm) =
             compile_to_object(&finalized, &GfxArch::parse("gfx1201"), true).unwrap();
         assert_eq!(&object[..4], b"\x7fELF");

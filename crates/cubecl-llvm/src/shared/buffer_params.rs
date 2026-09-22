@@ -3,7 +3,7 @@
 use crate::prelude::BufferIOAttr;
 
 /// Marks every pointer parameter `noalias`, and the read-only buffers and the metadata
-/// `readonly`, from the access modes CubeCL recorded. Distinct bindings never overlap, which is
+/// `readonly`, from the recorded access modes. Distinct bindings never overlap, which is
 /// what lets the backend keep a value in a register across a store, and a read-only pointer is
 /// what lets NVPTX load through the non-coherent cache and AMDGPU prove a uniform load is not
 /// clobbered and make it a scalar load.
