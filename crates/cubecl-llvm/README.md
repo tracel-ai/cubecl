@@ -20,7 +20,7 @@ there is no system LLVM to install.
 
 | Module             | What it does                                                                  |
 | ------------------ | ----------------------------------------------------------------------------- |
-| `shared`           | `PlironCompiler`, the `Compiler` impl and the pass pipeline                   |
+| `shared`           | `PlironCompiler`, the `Compiler` impl, the pass pipeline and `restrict_features` |
 | `shared::to_llvm`  | Lowering of each CubeCL operation to the LLVM dialect                         |
 | `shared::polyfill` | Operations with no direct LLVM equivalent: math, complex, `sync_cube`         |
 | `shared::metadata` | The entry-point ABI: the metadata table and the target's argument layout      |
@@ -31,7 +31,9 @@ there is no system LLVM to install.
 | `nvptx`            | The NVPTX target: special registers, `shfl.sync`, `wmma`/`mma.sync`, libdevice |
 | `nvptx::codegen`   | LLVM IR to PTX, at the PTX version the installed driver loads                 |
 | `shared::llvm_module` | The LLVM module and target machine every target parses, optimizes and emits with |
-| `shared::lowered_features` | What each GPU target lowers, which its runtime narrows the device's features to |
+| `shared::lowered_features` | The rules behind `PlironCompiler::restrict_features`: what each GPU target lowers |
+| `shared::builtins` | The launch values each target reads, and every builtin derived from them       |
+| `shared::loop_hints` | What the lowering asks LLVM for on a loop its cost model would decide differently |
 
 The GPU targets reach parts of LLVM that have no C API: the bitcode linker's
 `--only-needed` mode and the command-line option registry (`shared/cpp_shims/`), and for
