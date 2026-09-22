@@ -1,10 +1,8 @@
 use super::{
     DEDICATED_POOL_POS, InstallMemoryPoolsError, ManagedMemoryBinding, ManagedMemoryHandle,
     ManagedMemoryId, MemoryAllocationMode, MemoryConfiguration, MemoryReport, MemoryUsage,
-    PERSISTENT_POOL_POS, PoolType,
-    memory_pool::{
-        DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool,
-    },
+    PERSISTENT_POOL_POS,
+    memory_pool::{DirectPool, MemoryPool, PageMapping, PersistentPool},
 };
 use crate::{
     config::{
@@ -12,7 +10,7 @@ use crate::{
         memory::{MemoryLogLevel, PersistentMemory},
     },
     logging::ServerLogger,
-    memory_management::{BytesFormat, ErrorGraph, FailureId, memory_pool::Slice},
+    memory_management::{BytesFormat, DynamicMemory, ErrorGraph, FailureId, memory_pool::Slice},
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
@@ -27,134 +25,6 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashSet;
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
-
-// These are 288 bytes vs 64 bytes. Adding boxing isn't really worth
-// saving the 200 bytes.
-#[allow(clippy::large_enum_variant)]
-enum DynamicPool {
-    Sliced(SlicedPool),
-    Exclusive(ExclusiveMemoryPool),
-    Direct(DirectPool),
-}
-
-impl MemoryPool for DynamicPool {
-    fn accept(&self, size: u64) -> bool {
-        match self {
-            DynamicPool::Sliced(pool) => pool.accept(size),
-            DynamicPool::Exclusive(pool) => pool.accept(size),
-            DynamicPool::Direct(pool) => pool.accept(size),
-        }
-    }
-
-    fn find(&self, binding: &ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        match self {
-            DynamicPool::Sliced(m) => m.find(binding),
-            DynamicPool::Exclusive(m) => m.find(binding),
-            DynamicPool::Direct(m) => m.find(binding),
-        }
-    }
-
-    fn find_mut(&mut self, binding: &ManagedMemoryBinding) -> Result<&mut Slice, IoError> {
-        match self {
-            DynamicPool::Sliced(m) => m.find_mut(binding),
-            DynamicPool::Exclusive(m) => m.find_mut(binding),
-            DynamicPool::Direct(m) => m.find_mut(binding),
-        }
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
-    fn try_reserve(&mut self, size: u64, failures: &mut ErrorGraph) -> Option<ManagedMemoryHandle> {
-        match self {
-            DynamicPool::Sliced(m) => m.try_reserve(size, failures),
-            DynamicPool::Exclusive(m) => m.try_reserve(size, failures),
-            DynamicPool::Direct(m) => m.try_reserve(size, failures),
-        }
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
-    fn alloc<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: u64,
-        mapping: PageMapping,
-        failures: &mut ErrorGraph,
-    ) -> Result<ManagedMemoryHandle, IoError> {
-        match self {
-            DynamicPool::Sliced(m) => m.alloc(storage, size, mapping, failures),
-            DynamicPool::Exclusive(m) => m.alloc(storage, size, mapping, failures),
-            DynamicPool::Direct(m) => m.alloc(storage, size, mapping, failures),
-        }
-    }
-
-    fn materialize<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        binding: &ManagedMemoryBinding,
-    ) -> Result<(), IoError> {
-        match self {
-            DynamicPool::Sliced(m) => m.materialize(storage, binding),
-            DynamicPool::Exclusive(m) => m.materialize(storage, binding),
-            DynamicPool::Direct(m) => m.materialize(storage, binding),
-        }
-    }
-
-    fn get_memory_usage(&self) -> MemoryUsage {
-        match self {
-            DynamicPool::Sliced(m) => m.get_memory_usage(),
-            DynamicPool::Exclusive(m) => m.get_memory_usage(),
-            DynamicPool::Direct(m) => m.get_memory_usage(),
-        }
-    }
-
-    fn cleanup<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        alloc_nr: u64,
-        explicit: bool,
-        failures: &mut ErrorGraph,
-    ) {
-        match self {
-            DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit, failures),
-            DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit, failures),
-            DynamicPool::Direct(m) => m.cleanup(storage, alloc_nr, explicit, failures),
-        };
-        storage.flush();
-    }
-
-    fn bind(
-        &mut self,
-        reserved: ManagedMemoryHandle,
-        assigned: ManagedMemoryHandle,
-        cursor: u64,
-        failures: &mut ErrorGraph,
-    ) -> Result<(), IoError> {
-        match self {
-            DynamicPool::Sliced(m) => m.bind(reserved, assigned, cursor, failures),
-            DynamicPool::Exclusive(m) => m.bind(reserved, assigned, cursor, failures),
-            DynamicPool::Direct(m) => m.bind(reserved, assigned, cursor, failures),
-        }
-    }
-}
-
-impl core::fmt::Display for DynamicPool {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            DynamicPool::Sliced(pool) => write!(f, "{pool}"),
-            DynamicPool::Exclusive(pool) => write!(f, "{pool}"),
-            DynamicPool::Direct(pool) => write!(f, "{pool}"),
-        }
-    }
-}
-
-impl DynamicPool {
-    fn report(&self) -> super::MemoryPoolReport {
-        match self {
-            DynamicPool::Sliced(m) => m.report(),
-            DynamicPool::Exclusive(m) => m.report(),
-            DynamicPool::Direct(m) => m.report(),
-        }
-    }
-}
 
 /// Which pool a slice's location routes to: the two fixed sentinels, or a
 /// dynamic pool by index.
@@ -190,11 +60,10 @@ pub struct MemoryManagement<Storage> {
     /// Allocations made under [`MemoryAllocationMode::Dedicated`]: each its own
     /// device allocation, returned to the driver on the tick after it is freed.
     dedicated: DirectPool,
-    pools: Vec<DynamicPool>,
+    pools: DynamicMemory,
     /// Dynamic pools that have already reported hitting their cap, so the
     /// warning stays one per pool per layout rather than one per allocation.
     /// Cleared by [`install_pools`](Self::install_pools).
-    capacity_warned: HashSet<usize>,
     storage: Storage,
     alloc_reserve_count: u64,
     mode: MemoryAllocationMode,
@@ -284,7 +153,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         logger: Arc<ServerLogger>,
         options: MemoryManagementOptions,
     ) -> Self {
-        let pools = build_pools(properties, config, &logger, &options.name);
+        let pools = DynamicMemory::new(properties, config, logger.clone(), options.name.clone());
 
         let config = CubeClRuntimeConfig::get().memory.persistent_memory.clone();
 
@@ -309,7 +178,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             // A watermark of zero: every free slice goes back on the next tick.
             dedicated: DirectPool::new(properties.alignment, DEDICATED_POOL_POS, Some(0)),
             pools,
-            capacity_warned: HashSet::new(),
             storage,
             alloc_reserve_count: 0,
             mode,
@@ -354,21 +222,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         // Only the dynamic pools are rebuilt, so only their live slices block
         // (persistent usage — weights of another workload — doesn't).
-        let dynamic_in_use: u64 = self
-            .pools
-            .iter()
-            .map(|pool| pool.get_memory_usage().bytes_in_use)
-            .sum();
+        let dynamic_in_use = self.pools.memory_usage().bytes_in_use;
         if dynamic_in_use > 0 {
             return Err(InstallMemoryPoolsError::PoolsInUse {
                 bytes_in_use: dynamic_in_use,
             });
         }
 
-        self.pools = build_pools(properties, config, &self.logger, &self.name);
-        // A new layout is a new plan, and whether it is short is a fresh
-        // question — every pool gets to report its first spill again.
-        self.capacity_warned.clear();
+        self.pools = DynamicMemory::new(properties, config, self.logger.clone(), self.name.clone());
         Ok(())
     }
 
@@ -506,14 +367,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             self.storage.flush();
         }
 
-        for pool in self.pools.iter_mut() {
-            pool.cleanup(
-                &mut self.storage,
-                self.alloc_reserve_count,
-                explicit,
-                failures,
-            );
-        }
+        self.pools.cleanup(
+            &mut self.storage,
+            self.alloc_reserve_count,
+            explicit,
+            failures,
+        );
 
         // The pools only queue their page deallocations in the storage; an
         // explicit cleanup means "release the memory now", so push them to the
@@ -629,14 +488,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         if self.capture.is_some() {
             return Relocation::new(Vec::new());
         }
-        let mapping = PageMapping::current();
-        let mut moves = Vec::new();
-        for pool in self.pools.iter_mut() {
-            if let DynamicPool::Sliced(pool) = pool {
-                moves.extend(pool.plan_relocation(&mut self.storage, mapping, failures));
-            }
-        }
-        Relocation::new(moves)
+        Relocation::new(self.pools.plan_relocation(&mut self.storage, failures))
     }
 
     /// Hand every allocation of a landed relocation over to the slice that
@@ -645,10 +497,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     #[cfg(multi_threading)]
     pub fn commit_relocation(&mut self, relocation: Landed, failures: &mut ErrorGraph) {
         for relocated in relocation.into_moves() {
-            let pool = relocated.target.descriptor().location().pool as usize;
-            if let Some(DynamicPool::Sliced(pool)) = self.pools.get_mut(pool) {
-                pool.commit_relocation(relocated, failures);
-            }
+            self.pools.commit_relocation(relocated, failures);
         }
         self.cleanup(true, failures);
     }
@@ -801,55 +650,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // the workload. Where the cap is a hard budget rather than a plan,
         // configure no pool behind it — then a full pool still errors, which is
         // what keeps the budget-vs-device-OOM distinction schedulers rely on.
-        let mut capacity_exceeded = None;
-        let mut reserved = None;
-
-        for (index, pool) in self
+        let reserved = self
             .pools
-            .iter_mut()
-            .enumerate()
-            .filter(|(_, pool)| pool.accept(size))
-        {
-            if let Some(slice) = pool.try_reserve(size, failures) {
-                return Ok(slice);
-            }
-
-            match pool.alloc(&mut self.storage, size, mapping, failures) {
-                Ok(handle) => {
-                    reserved = Some(handle);
-                    break;
-                }
-                Err(err @ IoError::PoolCapacityExceeded { .. }) => {
-                    // Loud on purpose: a spill means the cap was under-planned
-                    // (e.g. a workload the dry run never measured), and the
-                    // escape hatch serving it must not hide that. Once per pool
-                    // per layout, though — a workload that runs above its cap
-                    // spills on *every* reservation, and a warning per
-                    // allocation buries the one that mattered. `install_pools`
-                    // clears the latch: a new layout is a new plan to judge.
-                    if self.capacity_warned.insert(index) {
-                        log::warn!(
-                            "[{}] memory pool {index} is at capacity (first hit at an \
-                             allocation of {size} B); spilling to the next accepting pool. \
-                             The measured plan is short for this workload.",
-                            self.name
-                        );
-                    }
-                    capacity_exceeded = Some(err);
-                }
-                // A spill already in hand is the more useful diagnosis: it says
-                // the plan was short, where this one only says the pool behind
-                // it also failed.
-                Err(err) => return Err(capacity_exceeded.unwrap_or(err)),
-            }
-        }
-
-        let Some(reserved) = reserved else {
-            return Err(capacity_exceeded.unwrap_or_else(|| IoError::BufferTooBig {
-                size,
-                backtrace: BackTrace::capture(),
-            }));
-        };
+            .reserve(&mut self.storage, size, mapping, failures)?;
 
         self.logger.log_memory(
             |level| matches!(level, MemoryLogLevel::Full),
@@ -881,7 +684,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Get the current memory usage.
     pub fn memory_usage(&self) -> MemoryUsage {
         let memory_usage = core::iter::once(self.dedicated.get_memory_usage())
-            .chain(self.pools.iter().map(|x| x.get_memory_usage()))
+            .chain(core::iter::once(self.pools.memory_usage()))
             .fold(
                 MemoryUsage {
                     number_allocs: 0,
@@ -901,7 +704,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// marks cover, is on [`MemoryReport`].
     pub fn memory_report(&self) -> MemoryReport {
         MemoryReport {
-            dynamic: self.pools.iter().map(|pool| pool.report()).collect(),
+            dynamic: self.pools.report(),
             persistent: self.persistent.report(),
         }
     }
@@ -1000,9 +803,7 @@ impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
         f.write_fmt(format_args!("\n## Persistent\n\n{}", self.persistent))?;
         f.write_str("\n## Dynamic\n\n")?;
 
-        for pool in self.pools.iter() {
-            f.write_fmt(format_args!("{pool}\n"))?;
-        }
+        f.write_fmt(format_args!("{}", self.pools))?;
         let memory_usage = self.memory_usage();
         f.write_fmt(format_args!("\n## Summary\n\n{memory_usage}"))?;
 
@@ -1022,95 +823,13 @@ impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
     }
 }
 
-/// Build the dynamic pools for `config` — the shared core of
-/// [`MemoryManagement::from_configuration`] and
-/// [`MemoryManagement::install_pools`].
-fn build_pools(
-    properties: &MemoryDeviceProperties,
-    config: MemoryConfiguration,
-    logger: &Arc<ServerLogger>,
-    name: &str,
-) -> Vec<DynamicPool> {
-    let pool_options = config.pool_options(properties);
-
-    logger.log_memory(
-        |level| !matches!(level, MemoryLogLevel::Disabled),
-        || {
-            let mut msg = String::new();
-            for pool in pool_options.iter() {
-                msg += &format!("[{name}] Using memory pool: \n {pool:?}\n");
-            }
-            msg
-        },
-    );
-
-    assert!(
-        pool_options.len() < DEDICATED_POOL_POS as usize,
-        "at most {} dynamic pools are supported",
-        DEDICATED_POOL_POS - 1
-    );
-
-    pool_options
-        .iter()
-        .enumerate()
-        .map(|(pool_pos, pool)| {
-            // An adaptive pool routed after this one serves any size with pages
-            // sized to it, so a near-page-size allocation is better off there
-            // than fragmenting a fixed page it was never sized for.
-            let adaptive_after = pool_options[pool_pos + 1..]
-                .iter()
-                .any(|later| matches!(later.pool_type, PoolType::AdaptivePages { .. }));
-            let pool_pos = pool_pos as u8;
-
-            match pool.pool_type {
-                PoolType::SlicedPages {
-                    page_size,
-                    max_slice_size,
-                    max_pool_size,
-                } => {
-                    let sliced = SlicedPool::new(
-                        page_size,
-                        max_slice_size,
-                        properties.alignment,
-                        pool_pos,
-                        max_pool_size,
-                    );
-                    DynamicPool::Sliced(match adaptive_after {
-                        true => sliced.up_to_max_slice(),
-                        false => sliced,
-                    })
-                }
-                PoolType::ExclusivePages { max_alloc_size } => {
-                    DynamicPool::Exclusive(ExclusiveMemoryPool::new(
-                        max_alloc_size,
-                        properties.alignment,
-                        pool.dealloc_period.unwrap_or(u64::MAX),
-                        pool_pos,
-                    ))
-                }
-                PoolType::Direct { reclaim_at } => {
-                    DynamicPool::Direct(DirectPool::new(properties.alignment, pool_pos, reclaim_at))
-                }
-                PoolType::AdaptivePages { min_page_size } => {
-                    DynamicPool::Sliced(SlicedPool::adaptive(
-                        min_page_size,
-                        properties.max_page_size,
-                        properties.alignment,
-                        pool_pos,
-                    ))
-                }
-            }
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::memory_management::MemoryPoolOptions;
     use crate::{
         config::memory::{MemoryPoolConfig, MemoryPoolsConfig, MemoryPoolsPreset},
-        memory_management::{MemoryManagement, MemoryPoolKind, PoolConfigError},
+        memory_management::{MemoryManagement, MemoryPoolKind, PoolConfigError, PoolType},
         storage::BytesStorage,
     };
     use alloc::vec;

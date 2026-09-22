@@ -87,12 +87,6 @@ impl MemoryPage {
     }
 
     #[cfg(multi_threading)]
-    /// The slice at `index`.
-    pub fn slice(&self, index: usize) -> &Slice {
-        &self.slices[index]
-    }
-
-    #[cfg(multi_threading)]
     /// The slice at `index`, mutably.
     pub fn slice_mut(&mut self, index: usize) -> &mut Slice {
         &mut self.slices[index]

@@ -1,6 +1,7 @@
-//! The adaptive pool on the actual device: a grown page size outdates the
-//! pages already held, and an explicit cleanup relocates what is live on them —
-//! bytes included — onto pages of the new size.
+//! The adaptive memory on the actual device: an allocation the pages held no
+//! longer fit outdates the pool holding them, and an explicit cleanup
+//! relocates what is still live on it — bytes included — into the room the
+//! pool carving allocations already has.
 
 use cubecl_hip::HipRuntime;
 use cubecl_server::config::memory::{MemoryPoolsConfig, MemoryPoolsPreset};
@@ -19,16 +20,22 @@ fn relocation_moves_live_bytes_off_outdated_pages() {
 
     let pattern: Vec<u8> = (0..4 * MIB).map(|i| (i % 251) as u8).collect();
     let kept = client.create_from_slice(&pattern);
-    // Larger than `kept`'s page: the page size grows and that page is outdated.
+    // Larger than `kept`'s page: the pool holding it is outdated, and a pool
+    // carving 101 MiB pages takes over.
     let large = client.empty(100 * MIB);
     assert_eq!(adaptive(&client), (101 * MIB as u64, 1));
+
+    // Room on the new pool's page for `kept` to move into, on a page the
+    // cleanup cannot simply release.
+    let neighbour = client.empty(4 * MIB);
+    drop(large);
 
     client.memory_cleanup();
 
     assert_eq!(
         adaptive(&client),
         (101 * MIB as u64, 0),
-        "the outdated page is gone"
+        "the outdated pool is gone"
     );
     let bytes = client.read_one(kept).unwrap();
     assert_eq!(
@@ -36,10 +43,11 @@ fn relocation_moves_live_bytes_off_outdated_pages() {
         &pattern[..],
         "the bytes moved with the allocation"
     );
-    drop(large);
+    drop(neighbour);
 }
 
-/// The adaptive pool's page size and outdated page count.
+/// The size the adaptive memory carves pages at, and how many pages its
+/// outdated pools still hold.
 fn adaptive(client: &cubecl_server::client::Client) -> (u64, u64) {
     client
         .memory_report()

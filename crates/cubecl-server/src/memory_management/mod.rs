@@ -17,6 +17,10 @@ pub mod drop_queue;
 pub use error_graph::*;
 pub use taint::*;
 
+/// How a stream's dynamic pools are managed.
+mod dynamic;
+pub(crate) use dynamic::*;
+
 /// Dynamic memory management strategy.
 mod memory_manage;
 pub use memory_manage::*;
