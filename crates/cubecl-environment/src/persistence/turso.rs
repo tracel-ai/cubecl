@@ -83,6 +83,8 @@ const SELECT: &str = "SELECT value FROM entries WHERE namespace = ?1 AND key = ?
 
 const SCAN: &str = "SELECT key, value FROM entries WHERE namespace = ?1";
 
+const SCAN_WITH_ORIGIN: &str = "SELECT key, value, origin FROM entries WHERE namespace = ?1";
+
 const PURGE: &str = "DELETE FROM entries WHERE namespace = ?1";
 
 const PURGE_KEY: &str = "DELETE FROM entries WHERE namespace = ?1 AND key = ?2";
@@ -101,6 +103,29 @@ enum DatabaseState {
 /// namespace of an environment shares one.
 static DATABASES: LazyLock<Mutex<HashMap<String, DatabaseState>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// What [`Database::scan_with_origin`] calls per entry: its key, its value, and
+/// where it came from.
+type OriginVisitor<'a> = dyn FnMut(&[u8], &[u8], Origin) + 'a;
+
+/// How a database opened at a path ([`Database::open_at`]) may be used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Access {
+    /// Read and never written: not migrated, not checkpointed, and refused
+    /// unless the file is an environment at this build's [`SCHEMA_VERSION`].
+    /// Safe to point at a file another process is writing, and at one in a
+    /// directory nobody may write.
+    ///
+    /// The engine keeps one database object per file for the whole process,
+    /// configured by the first open: while a read-only handle lives, every
+    /// other open of that file in the process is read-only too. Drop it
+    /// before writing the file.
+    ReadOnly,
+    /// Read and written, and brought to this build's schema on open exactly
+    /// as the active environment's database is: a file of another schema has
+    /// its entries dropped.
+    ReadWrite,
+}
 
 /// Every namespace of the active environment's database at once.
 ///
@@ -148,6 +173,43 @@ impl Database {
                 None
             }
         }
+    }
+
+    /// The environment database file at `path`, whichever environment is
+    /// active: a saved environment, one a build ran in, another process's.
+    ///
+    /// The engine shares one database object per file across the process, so
+    /// opening a file a store of the active environment already has open is
+    /// the same database, not a second writer beside it.
+    #[cfg(native_cache)]
+    pub fn open_at(path: &std::path::Path, access: Access) -> Result<Self, String> {
+        let location = path
+            .to_str()
+            .ok_or_else(|| format!("database path {path:?} is not valid UTF-8"))?
+            .to_string();
+        let database = crate::future::block_on(async {
+            match access {
+                Access::ReadOnly => open_read_only(&location).await,
+                Access::ReadWrite => {
+                    let database = open_database(&location).await.map_err(error)?;
+                    migrate(&database).map_err(error)?;
+                    Ok(database)
+                }
+            }
+        })?;
+        let connection = connect(&database).map_err(error)?;
+
+        Ok(Self {
+            connection: Mutex::new(connection),
+            location,
+        })
+    }
+
+    /// Runs `operation` on the connection, for the table beside the entries
+    /// (a bundle's manifest).
+    #[cfg(native_cache)]
+    pub(crate) fn with_connection<T>(&self, operation: impl FnOnce(&turso::Connection) -> T) -> T {
+        operation(&self.connection.lock())
     }
 
     /// Runs `operation` on the connection, logging a failure under `name`
@@ -270,6 +332,61 @@ impl Database {
         });
     }
 
+    /// Visits every entry of `namespace` with the [`Origin`] it was stored
+    /// under: whether this environment computed it or imported it.
+    pub fn scan_with_origin(&self, namespace: &str, visit: &mut OriginVisitor<'_>) {
+        let _ = self.run("scan", namespace, |connection| {
+            let mut rows = drive(connection.query(SCAN_WITH_ORIGIN, (namespace,)))?;
+            while let Some(row) = drive(rows.next())? {
+                let key: Vec<u8> = row.get(0)?;
+                let value: Vec<u8> = row.get(1)?;
+                let origin: i64 = row.get(2)?;
+                visit(&key, &value, origin_of(origin));
+            }
+            Ok(())
+        });
+    }
+
+    /// Entry count and total size per namespace, for reporting.
+    pub fn summary(&self) -> Vec<NamespaceSummary> {
+        self.run("summarize", "", |connection| summarize(connection))
+            .unwrap_or_default()
+    }
+
+    /// Whether the file was last left [shipped](Self::ship): a rollback-journal
+    /// header, which a writable open turns back into a WAL one.
+    #[cfg(native_cache)]
+    pub fn is_shipped(&self) -> bool {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let mut header = [0u8; 2];
+        std::fs::File::open(&self.location)
+            .and_then(|mut file| {
+                file.seek(SeekFrom::Start(JOURNAL_MODE_BYTES.start))?;
+                file.read_exact(&mut header)
+            })
+            .is_ok_and(|()| header == LEGACY_JOURNAL)
+    }
+
+    /// Folds the WAL into the file and marks it a rollback-journal file, so
+    /// that it stands on its own and opens from a directory nobody may write,
+    /// as an exported bundle does.
+    ///
+    /// Consumes the handle, whose connection has to be closed before the
+    /// header is rewritten. Call it on a file nothing else in the process has
+    /// open: a connection still open to it writes the WAL header back as it
+    /// closes.
+    #[cfg(native_cache)]
+    pub fn ship(self) -> Result<(), String> {
+        let checkpointed = checkpoint(&self.connection.lock()).map_err(error)?;
+        let location = self.location.clone();
+        drop(self);
+        if !checkpointed {
+            return Err(format!("the WAL checkpoint of {location} did not complete"));
+        }
+        finalize_for_shipping(std::path::Path::new(&location)).map_err(|err| err.to_string())
+    }
+
     /// The names of every namespace this database holds.
     pub fn namespaces(&self) -> Vec<String> {
         self.run("summarize", "", |connection| summarize(connection))
@@ -332,6 +449,16 @@ impl TursoStorage {
             database: Database::open()?,
             namespace,
         })
+    }
+
+    /// Binds a storage to `namespace` in `database`, whichever file it was
+    /// opened on: a [`Store`](super::Store) over a saved environment's
+    /// namespace, through [`StoreOptions::storage_with`](super::StoreOptions::storage_with).
+    pub fn new(database: Database, namespace: String) -> Self {
+        Self {
+            database,
+            namespace,
+        }
     }
 }
 
@@ -479,9 +606,10 @@ async fn shared_database(location: &str) -> DatabaseResult {
         // process.
         Err(err @ (turso::Error::Busy(_) | turso::Error::BusySnapshot(_))) => Err(error(err)),
         #[cfg(native_cache)]
-        Err(err) => open_read_only(location, &err.to_string())
-            .await
-            .map(Arc::new),
+        Err(err) => {
+            log::debug!("cubecl cache: {location} is not writable ({err}); opening read-only");
+            open_read_only(location).await.map(Arc::new)
+        }
         #[cfg(not(native_cache))]
         Err(err) => Err(error(err)),
     };
@@ -539,9 +667,7 @@ async fn open_database(location: &str) -> Result<turso::Database, turso::Error> 
 /// need the rebuild [`migrate`] performs, which needs a writable file; the
 /// caller falls back to memory instead.
 #[cfg(native_cache)]
-async fn open_read_only(location: &str, err: &str) -> Result<turso::Database, String> {
-    log::debug!("cubecl cache: {location} is not writable ({err}); opening read-only");
-
+async fn open_read_only(location: &str) -> Result<turso::Database, String> {
     let database = turso::Builder::new_local(location)
         .read_only(true)
         .build()
@@ -709,6 +835,41 @@ pub(crate) fn checkpoint(connection: &turso::Connection) -> Result<bool, turso::
     Ok(!incomplete)
 }
 
+/// The two header bytes that say which journal mode wrote the file, and the
+/// legacy value: a rollback journal, which is what a reader expects of a file
+/// with no `-wal` beside it.
+#[cfg(native_cache)]
+const JOURNAL_MODE_BYTES: core::ops::Range<u64> = 18..20;
+#[cfg(native_cache)]
+const LEGACY_JOURNAL: [u8; 2] = [1, 1];
+
+/// Marks a checkpointed database as a rollback-journal file, so that a reader
+/// which cannot write beside it can still open it.
+///
+/// Turso is WAL-only: `PRAGMA journal_mode = DELETE` reports success and
+/// changes nothing, so a file just checkpointed still carries a WAL header.
+/// `SQLite` takes that header at its word and insists on building the `-shm`
+/// that WAL recovery needs — in a directory it may not write, the open fails
+/// with "attempt to write a readonly database", which is exactly where a
+/// shipped bundle lives.
+///
+/// After [`checkpoint`] has folded and truncated the WAL, the file holds a
+/// complete database and no WAL frames, so these two bytes are the only thing
+/// distinguishing it from one a rollback-journal writer produced. Both
+/// engines read the result: Turso ignores the field and opens its own WAL as
+/// usual, and `SQLite` stops asking for a sidecar.
+///
+/// Call it on a checkpointed file with no connection open to it.
+#[cfg(native_cache)]
+pub(crate) fn finalize_for_shipping(path: &std::path::Path) -> std::io::Result<()> {
+    use std::io::{Seek, SeekFrom, Write};
+
+    let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
+    file.seek(SeekFrom::Start(JOURNAL_MODE_BYTES.start))?;
+    file.write_all(&LEGACY_JOURNAL)?;
+    file.sync_all()
+}
+
 /// How long a statement waits on a lock another process holds before it
 /// reports [`Insertion::Failed`]. Several processes sharing a cache root is
 /// routine; the wait is yield-based, so it costs the browser nothing it
@@ -735,6 +896,15 @@ fn origin_code(origin: Origin) -> i64 {
     match origin {
         Origin::Local => 0,
         Origin::Imported => 1,
+    }
+}
+
+/// The inverse of [`origin_code`]. Only a local entry is `0`; anything else
+/// was written by an import, the one other writer of the column.
+fn origin_of(code: i64) -> Origin {
+    match code {
+        0 => Origin::Local,
+        _ => Origin::Imported,
     }
 }
 
@@ -819,6 +989,110 @@ mod tests {
         assert_eq!(
             meta_get(&connection, SCHEMA_VERSION_KEY).unwrap(),
             Some(SCHEMA_VERSION.to_string())
+        );
+    }
+
+    /// A file opened at its path, whichever environment is active, holds what
+    /// was written to it with where each entry came from; read-only, it is
+    /// read as it is, and shipping it leaves a file a reader opens from where
+    /// it cannot write.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn a_database_opens_at_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("elsewhere.db");
+
+        let written = Database::open_at(&path, Access::ReadWrite).unwrap();
+        assert_eq!(
+            written.insert("kernels", b"local", b"1", Origin::Local),
+            Insertion::Stored
+        );
+        assert_eq!(
+            written.insert("kernels", b"imported", b"22", Origin::Imported),
+            Insertion::Stored
+        );
+        assert!(!written.is_shipped());
+        written.ship().unwrap();
+
+        let read = Database::open_at(&path, Access::ReadOnly).unwrap();
+        assert!(read.is_shipped());
+        let mut entries = Vec::new();
+        read.scan_with_origin("kernels", &mut |key, _, origin| {
+            entries.push((key.to_vec(), origin));
+        });
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            entries,
+            vec![
+                (b"imported".to_vec(), Origin::Imported),
+                (b"local".to_vec(), Origin::Local),
+            ]
+        );
+        assert_eq!(
+            read.summary(),
+            vec![NamespaceSummary {
+                namespace: "kernels".to_string(),
+                entries: 2,
+                bytes: 16,
+            }]
+        );
+    }
+
+    /// Reading a file leaves it as it was: a shipped file read is still
+    /// shipped, and a missing one is not created.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn reading_a_file_leaves_it_as_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shipped.db");
+        let written = Database::open_at(&path, Access::ReadWrite).unwrap();
+        written.insert("kernels", b"key", b"1", Origin::Local);
+        written.ship().unwrap();
+
+        let read = Database::open_at(&path, Access::ReadOnly).unwrap();
+        assert_eq!(
+            read.get("kernels", b"key"),
+            Some(Bytes::from_bytes_vec(vec![b'1']))
+        );
+        drop(read);
+        assert!(
+            Database::open_at(&path, Access::ReadOnly)
+                .unwrap()
+                .is_shipped()
+        );
+
+        let missing = dir.path().join("missing.db");
+        assert!(Database::open_at(&missing, Access::ReadOnly).is_err());
+        assert!(!missing.exists());
+    }
+
+    /// A read-only open never rebuilds what it reads, so it refuses a file it
+    /// would misread: one of another schema, or one that is no environment.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn a_read_only_open_refuses_what_it_would_misread() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let other_schema = dir.path().join("other-schema.db");
+        {
+            let database = block_on(open_database(other_schema.to_str().unwrap())).unwrap();
+            let connection = connect(&database).unwrap();
+            drive(connection.execute(CREATE_META, ())).unwrap();
+            drive(connection.execute(META_SET, (SCHEMA_VERSION_KEY, "999"))).unwrap();
+        }
+        assert!(Database::open_at(&other_schema, Access::ReadOnly).is_err());
+
+        let foreign = dir.path().join("foreign.db");
+        {
+            let database = block_on(open_database(foreign.to_str().unwrap())).unwrap();
+            let connection = connect(&database).unwrap();
+            drive(connection.execute("CREATE TABLE notes (body TEXT)", ())).unwrap();
+        }
+        assert!(Database::open_at(&foreign, Access::ReadOnly).is_err());
+        assert_eq!(
+            tables(foreign.to_str().unwrap()),
+            vec!["notes"],
+            "nothing was created in the file it refused"
         );
     }
 

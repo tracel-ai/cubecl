@@ -158,6 +158,22 @@ impl BundleManifest {
         }
     }
 
+    /// The manifest of the database `database` opened: a bundle's, or
+    /// [`NotABundle`](BundleError::NotABundle) for an environment no export
+    /// wrote.
+    #[cfg(native_cache)]
+    pub fn of(database: &crate::persistence::Database) -> Result<Self, BundleError> {
+        database.with_connection(Self::read)
+    }
+
+    /// Writes this manifest into the database `database` opened, making it a
+    /// bundle [`SqliteBundle`](super::SqliteBundle) reads — or replacing the
+    /// manifest it had.
+    #[cfg(native_cache)]
+    pub fn write_to(&self, database: &crate::persistence::Database) -> Result<(), BundleError> {
+        database.with_connection(|connection| self.write(connection))
+    }
+
     /// Reads and validates the manifest of a bundle database.
     #[cfg(native_cache)]
     pub(super) fn read(connection: &turso::Connection) -> Result<Self, BundleError> {
