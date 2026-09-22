@@ -1,3 +1,4 @@
+use crate::compute::copies::WgpuCopies;
 use crate::{WgpuResource, WgpuStorage};
 use cubecl_core::{
     MemoryConfiguration,
@@ -115,10 +116,20 @@ impl WgpuMemManager {
         size: u64,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        match self.memory_pool.reserve(size, failures) {
-            Ok(handle) => Ok(handle),
-            Err(err) => Err(err),
-        }
+        self.memory_pool.reserve(size, failures)
+    }
+
+    /// Whether the main pool's next page would leave the device with less than
+    /// another to spare, so the outdated pools should be emptied first — see
+    /// [`MemoryManagement::crowded`].
+    pub(crate) fn crowded(&self) -> bool {
+        self.memory_pool.crowded()
+    }
+
+    /// Empty the main pool's outdated pools into the room its current pages
+    /// have, with `copier` carrying the bytes.
+    pub(crate) fn relocate(&mut self, copier: &mut WgpuCopies, failures: &mut ErrorGraph) {
+        self.memory_pool.relocate(copier, failures);
     }
 
     /// The failure carried by the allocation behind `binding`, if any — see

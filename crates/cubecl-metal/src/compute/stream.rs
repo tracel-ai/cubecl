@@ -1,3 +1,4 @@
+use crate::compute::copies::MetalCopies;
 use crate::memory::MetalStorage;
 use cubecl_core::{MemoryConfiguration, server::ServerError};
 use cubecl_environment::stream::StreamId;
@@ -168,6 +169,34 @@ impl MetalStream {
         }
 
         self.active_encoder.as_mut().unwrap()
+    }
+
+    /// Empty the outdated pools into the room the current pages have.
+    ///
+    /// The batch this stream has open is committed and waited for first: the
+    /// blits that move the bytes follow every dispatch that could still read
+    /// them.
+    pub fn relocate(&mut self, failures: &mut ErrorGraph) {
+        use objc2_metal::{MTLCommandBuffer, MTLCommandEncoder};
+
+        if let Some(active) = self.active_encoder.take() {
+            (*active.encoder).endEncoding();
+            install_completion_handler(
+                &active.command_buffer,
+                active.temporaries,
+                None,
+                self.fault.clone(),
+            );
+            (*active.command_buffer).commit();
+            self.last_command_buffer = Some(active.command_buffer);
+        }
+        if let Some(command_buffer) = self.last_command_buffer.take() {
+            (*command_buffer).waitUntilCompleted();
+            std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
+        }
+
+        let mut copier = MetalCopies::new(self.queue.clone());
+        self.memory_management.relocate(&mut copier, failures);
     }
 
     /// Waits on a previously submitted command buffer if total queued ops

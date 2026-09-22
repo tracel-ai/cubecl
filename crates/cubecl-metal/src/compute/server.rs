@@ -197,6 +197,11 @@ impl Server for MetalServer {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         let cursor = resolved.cursor;
         let (stream, failures) = resolved.current_and_failures();
+        // Emptying an outdated pool needs room for the pages it moves into, so
+        // it happens while the device still has a page to spare.
+        if stream.memory_management.crowded() {
+            stream.relocate(failures);
+        }
         let reserved = stream
             .memory_management
             .reserve(size, failures)
@@ -686,6 +691,7 @@ impl Server for MetalServer {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         let (stream, failures) = resolved.current_and_failures();
         stream.memory_management.cleanup(true, failures);
+        stream.relocate(failures);
     }
 
     fn allocation_mode(

@@ -4,6 +4,7 @@ use super::{
     poll::WgpuPoll,
     timings::{QueryProfiler, TimestampQuerySetBudget},
 };
+use crate::compute::copies::WgpuCopies;
 use crate::{
     WgpuResource,
     controller::WgpuAllocController,
@@ -574,7 +575,25 @@ impl WgpuStream {
         size: u64,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
+        // Emptying an outdated pool needs room for the pages it moves into, so
+        // it happens while the device still has a page to spare.
+        if self.mem_manage.crowded() {
+            self.relocate(failures);
+        }
         self.mem_manage.reserve(size, failures)
+    }
+
+    /// Empty the outdated pools into the room the current pages have.
+    ///
+    /// What this stream has queued is submitted first: the copies follow every
+    /// launch that could still read what moves.
+    pub fn relocate(&mut self, failures: &mut ErrorGraph) {
+        if self.capturing.is_recording() {
+            return;
+        }
+        self.submit(failures);
+        let mut copier = WgpuCopies::new(self.device.clone(), self.queue.clone());
+        self.mem_manage.relocate(&mut copier, failures);
     }
 
     pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {

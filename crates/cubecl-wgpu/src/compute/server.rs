@@ -676,6 +676,7 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         stream.info_cache.clear_unpinned();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         stream.mem_manage.memory_cleanup(true, failures);
+        stream.relocate(failures);
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {

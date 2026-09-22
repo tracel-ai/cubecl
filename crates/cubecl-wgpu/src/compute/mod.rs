@@ -1,4 +1,5 @@
 pub(crate) mod controller;
+pub(crate) mod copies;
 
 mod graph;
 mod storage;
