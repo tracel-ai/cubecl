@@ -128,20 +128,25 @@ fn measure(
     {
         let mut probed = false;
         let value = client.measure_throughput(key, || {
-            probed = true;
-
             // A probe sharing the device reports that device's share, not its
             // peak. `Schedule::run_batch` takes it for the candidates already.
             client
                 .exclusive(|| {
-                    // A throughput probe is a measurement: inside a dry run its
-                    // launches must still execute, or they would be timed anyway
-                    // and cache a garbage peak in the device-level throughput
-                    // store. The guard is read where the launch is issued, which
-                    // under `exclusive` is the runner thread.
-                    let _measurement = cubecl_runtime::dry_run::RealRun::new();
+                    // Asked again now the device is held, since the thread that
+                    // held it before may have been measuring this very key: the
+                    // cache is written when a probe ends and nothing marks one
+                    // as running, so the miss above is stale by this point.
+                    client.measure_throughput(key, || {
+                        // A throughput probe is a measurement: inside a dry run
+                        // its launches must still execute, or they would be timed
+                        // anyway and cache a garbage peak in the device-level
+                        // throughput store. The guard is read where the launch is
+                        // issued, which under `exclusive` is the runner thread.
+                        let _measurement = cubecl_runtime::dry_run::RealRun::new();
 
-                    probe(client, key)
+                        probed = true;
+                        probe(client, key)
+                    })
                 })
                 .unwrap_or(Err(ThroughputError::Launch))
         });
