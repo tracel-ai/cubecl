@@ -12,6 +12,8 @@ pub mod lowering;
 pub mod math_library;
 pub mod matrix;
 pub mod metadata;
+#[cfg(all(test, any(feature = "amdgpu", feature = "nvptx")))]
+pub(crate) mod offline_kernels;
 pub mod plane;
 pub mod plane_reduce;
 pub mod polyfill;
