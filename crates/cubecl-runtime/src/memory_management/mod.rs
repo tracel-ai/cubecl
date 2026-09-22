@@ -87,7 +87,7 @@ pub struct MemoryPoolOptions {
 /// High level configuration of memory management.
 #[derive(Clone, Debug)]
 pub enum MemoryConfiguration {
-    /// The default preset, which uses pools that allocate sub slices.
+    /// A ladder of size-bucketed pools that sub-slice large pages.
     #[cfg(not(exclusive_memory_only))]
     SubSlices,
     /// Default preset for using exclusive pages.
@@ -96,7 +96,7 @@ pub enum MemoryConfiguration {
     /// Small allocations in a sliced pool of their own, everything else in one
     /// [`AdaptivePages`](PoolType::AdaptivePages) pool that sizes its pages
     /// from the allocations it serves — no layout to measure or install per
-    /// workload.
+    /// workload. The default where sub-slicing is available.
     #[cfg(not(exclusive_memory_only))]
     Adaptive,
     /// Custom settings.
@@ -116,7 +116,7 @@ impl Default for MemoryConfiguration {
         }
         #[cfg(not(exclusive_memory_only))]
         {
-            MemoryConfiguration::SubSlices
+            MemoryConfiguration::Adaptive
         }
     }
 }
