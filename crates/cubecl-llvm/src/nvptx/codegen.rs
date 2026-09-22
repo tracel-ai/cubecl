@@ -146,11 +146,13 @@ const INFO_PARAM_ALIGN: u32 = 8;
 
 /// Passes the metadata by value: the last parameter, which the entry ABI lowering appended.
 fn mark_info_param_byval(entry: &EntryFunction<'_>, bytes: usize) {
-    let info = entry.param_count() - 1;
-    let declared = entry.add_param_byval(info, bytes as u64)
-        && entry.add_param_attribute(info, "align", INFO_PARAM_ALIGN as u64);
+    let info = entry
+        .last_param()
+        .expect("the entry ABI lowering appended the info parameter");
+    let byval = entry.add_param_byval(info, bytes as u64);
+    let aligned = entry.add_param_attribute(info, "align", INFO_PARAM_ALIGN as u64);
     assert!(
-        declared,
+        byval && aligned,
         "this LLVM has no `byval` or `align` attribute, so the grid-constant parameter cannot \
          be declared"
     );

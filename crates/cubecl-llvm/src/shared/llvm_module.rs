@@ -185,35 +185,46 @@ impl<'m> EntryFunction<'m> {
         unsafe { LLVMCountParams(self.func) }
     }
 
-    pub(crate) fn param_is_pointer(&self, param: u32) -> bool {
-        // SAFETY: the function is live and `param` is below its parameter count.
+    /// The function's parameters, in declaration order.
+    pub(crate) fn params(&self) -> impl DoubleEndedIterator<Item = Param> + use<> {
+        (0..self.param_count()).map(Param)
+    }
+
+    /// The parameter the entry ABI lowering appended last, or `None` for a function with none.
+    #[cfg(feature = "nvptx")]
+    pub(crate) fn last_param(&self) -> Option<Param> {
+        self.params().next_back()
+    }
+
+    pub(crate) fn param_is_pointer(&self, param: Param) -> bool {
+        // SAFETY: the function is live, and a `Param` names one of its parameters.
         unsafe {
-            LLVMGetTypeKind(LLVMTypeOf(LLVMGetParam(self.func, param)))
+            LLVMGetTypeKind(LLVMTypeOf(LLVMGetParam(self.func, param.0)))
                 == LLVMTypeKind::LLVMPointerTypeKind
         }
     }
 
-    /// Adds the enum attribute `name`, with `value`, to parameter `param`. Returns `false` when
-    /// this LLVM has no such attribute.
+    /// Adds the enum attribute `name`, with `value`, to `param`. Returns `false` when this LLVM
+    /// has no such attribute.
     #[must_use]
-    pub(crate) fn add_param_attribute(&self, param: u32, name: &str, value: u64) -> bool {
+    pub(crate) fn add_param_attribute(&self, param: Param, name: &str, value: u64) -> bool {
         let Some(kind) = enum_attribute_kind(name) else {
             return false;
         };
-        // SAFETY: the function belongs to the module's context, and `param` is below its
-        // parameter count.
+        // SAFETY: the function belongs to the module's context, and a `Param` names one of its
+        // parameters.
         unsafe {
             let attribute = LLVMCreateEnumAttribute(self.module.ctx, kind, value);
-            LLVMAddAttributeAtIndex(self.func, attribute_index(param), attribute);
+            LLVMAddAttributeAtIndex(self.func, param.attribute_index(), attribute);
         }
         true
     }
 
     #[cfg(feature = "nvptx")]
-    /// Declares parameter `param` a by-value block of `bytes` bytes. Returns `false` when this
-    /// LLVM has no `byval` attribute.
+    /// Declares `param` a by-value block of `bytes` bytes. Returns `false` when this LLVM has no
+    /// `byval` attribute.
     #[must_use]
-    pub(crate) fn add_param_byval(&self, param: u32, bytes: u64) -> bool {
+    pub(crate) fn add_param_byval(&self, param: Param, bytes: u64) -> bool {
         use llvm_sys::core::{LLVMArrayType2, LLVMCreateTypeAttribute, LLVMInt8TypeInContext};
 
         let Some(byval) = enum_attribute_kind("byval") else {
@@ -223,7 +234,7 @@ impl<'m> EntryFunction<'m> {
         unsafe {
             let block = LLVMArrayType2(LLVMInt8TypeInContext(self.module.ctx), bytes);
             let attribute = LLVMCreateTypeAttribute(self.module.ctx, byval, block);
-            LLVMAddAttributeAtIndex(self.func, attribute_index(param), attribute);
+            LLVMAddAttributeAtIndex(self.func, param.attribute_index(), attribute);
         }
         true
     }
@@ -326,9 +337,29 @@ impl Instruction<'_> {
     }
 }
 
-/// The attribute index of parameter `param`: 0 is the return value, the parameters follow.
-fn attribute_index(param: u32) -> u32 {
-    param + 1
+/// One parameter of an [`EntryFunction`], which is the only thing that hands one out: an index
+/// of its own would name a parameter the function may not have.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+pub(crate) struct Param(u32);
+
+impl Param {
+    /// Its attribute index: 0 is the return value, the parameters follow.
+    fn attribute_index(self) -> u32 {
+        self.0 + 1
+    }
+
+    /// Whether it is at or past `first`, in declaration order.
+    #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+    pub(crate) fn is_at_or_after(self, first: u32) -> bool {
+        self.0 >= first
+    }
+
+    /// Its position in declaration order, to read a parallel list by.
+    #[cfg_attr(not(any(feature = "amdgpu", feature = "nvptx")), allow(dead_code))]
+    pub(crate) fn position(self) -> usize {
+        self.0 as usize
+    }
 }
 
 fn enum_attribute_kind(name: &str) -> Option<u32> {
