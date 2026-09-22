@@ -27,8 +27,8 @@ const PAGE_GRANULE: u64 = 1024 * 1024;
 /// *current* when its size is the pool's page size and *outdated* otherwise —
 /// which only a page size that grows (or is adopted from another environment)
 /// ever produces. Only current pages serve reservations; an outdated page is
-/// returned to the driver once nothing on it is live, or evacuated early by
-/// [`plan_evacuation`](Self::plan_evacuation).
+/// returned to the driver once nothing on it is live, or emptied early by
+/// [`plan_relocation`](Self::plan_relocation).
 pub struct SlicedPool {
     pages: Vec<(MemoryPage, StorageId)>,
     pages_tmp: Vec<(MemoryPage, StorageId)>,
@@ -353,15 +353,15 @@ impl SlicedPool {
     /// Reserve a slice on a current page for every live allocation still on
     /// an outdated one, so those pages can be returned to the driver instead
     /// of waiting on their longest-lived slice. Current pages are left as they
-    /// are: this evacuates outdated pages, it does not pack current ones.
+    /// are: this empties outdated pages, it does not pack current ones.
     ///
     /// Nothing moves yet: the caller copies each [`Relocation`]'s bytes, then
-    /// hands them over with [`commit_evacuation`](Self::commit_evacuation).
+    /// hands them over with [`commit_relocation`](Self::commit_relocation).
     /// Allocations a captured graph recorded stay where they are, and so does
     /// an allocation too big for the current page size (adopted from an
     /// environment that ran a smaller workload). Stops early when no target
     /// can be allocated; what was planned so far is still valid.
-    pub(crate) fn plan_evacuation<Storage: ComputeStorage>(
+    pub(crate) fn plan_relocation<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         mapping: PageMapping,
@@ -420,7 +420,7 @@ impl SlicedPool {
     /// Hand a planned allocation over to its target, once its bytes are
     /// there. The source slice is left free on its outdated page, which the
     /// next cleanup returns to the driver.
-    pub(crate) fn commit_evacuation(&mut self, relocation: Relocation, failures: &mut ErrorGraph) {
+    pub(crate) fn commit_relocation(&mut self, relocation: Relocation, failures: &mut ErrorGraph) {
         let Relocation {
             allocation, target, ..
         } = relocation;
@@ -435,7 +435,7 @@ impl SlicedPool {
         let [(source_page, _), (target_page, _)] = self
             .pages
             .get_disjoint_mut([source.page as usize, destination.page as usize])
-            .expect("an evacuation moves an allocation between two held pages");
+            .expect("a relocation moves an allocation between two held pages");
         source_page
             .slice_mut(source.slice as usize)
             .hand_over(target_page.slice_mut(destination.slice as usize), failures);
@@ -661,7 +661,7 @@ impl Display for SlicedPool {
 /// The largest allocation of a pool whose page size follows it, as the active
 /// environment records it — so a pool created under an environment that
 /// already ran the workload allocates its final pages from the start: no
-/// resize, no outdated page, no evacuation.
+/// resize, no outdated page, no relocation.
 ///
 /// Keyed by the memory manager's name and the pool's position rather than by
 /// device: the largest allocation is decided by the workload's shapes, not by
@@ -852,11 +852,11 @@ mod tests {
         bytes[0]
     }
 
-    /// Run an evacuation the way a command does, with a host copy standing in
+    /// Run a relocation the way a command does, with a host copy standing in
     /// for the device one.
-    fn evacuate(memory: &mut MemoryManagement<BytesStorage>) -> usize {
+    fn relocate(memory: &mut MemoryManagement<BytesStorage>) -> usize {
         let failures = &mut ErrorGraph::default();
-        let relocations = memory.plan_evacuation(failures);
+        let relocations = memory.plan_relocation(failures);
         let moved = relocations.len();
         for copy in relocations
             .iter()
@@ -866,7 +866,7 @@ mod tests {
             let mut target = memory.storage().get(&copy.target).unwrap();
             target.write().copy_from_slice(source.read());
         }
-        memory.commit_evacuation(relocations, failures);
+        memory.commit_relocation(relocations, failures);
         moved
     }
 
@@ -951,12 +951,12 @@ mod tests {
         );
     }
 
-    /// Evacuation moves live allocations off outdated pages with their bytes,
+    /// Relocation moves live allocations off outdated pages with their bytes,
     /// their owners resolve to the new place, and the outdated pages go back.
     #[test]
-    fn evacuation_moves_live_allocations_to_current_pages() {
+    fn relocation_moves_live_allocations_to_current_pages() {
         let mut memory = adaptive(
-            "evacuation_moves_live_allocations_to_current_pages",
+            "relocation_moves_live_allocations_to_current_pages",
             4 * MIB,
         );
 
@@ -972,7 +972,7 @@ mod tests {
             }
         );
 
-        assert_eq!(evacuate(&mut memory), 1);
+        assert_eq!(relocate(&mut memory), 1);
 
         assert_eq!(
             pool(&memory),
@@ -994,15 +994,15 @@ mod tests {
 
     /// A plan dropped before its commit leaves every allocation where it was.
     #[test]
-    fn an_abandoned_evacuation_loses_nothing() {
-        let mut memory = adaptive("an_abandoned_evacuation_loses_nothing", 4 * MIB);
+    fn an_abandoned_relocation_loses_nothing() {
+        let mut memory = adaptive("an_abandoned_relocation_loses_nothing", 4 * MIB);
 
         let kept = reserve(&mut memory, MIB);
         fill(&mut memory, &kept, 3);
         let location = place(&kept);
         let _large = reserve(&mut memory, 10 * MIB);
 
-        let relocations = memory.plan_evacuation(&mut ErrorGraph::default());
+        let relocations = memory.plan_relocation(&mut ErrorGraph::default());
         assert_eq!(relocations.len(), 1);
         drop(relocations);
 
@@ -1013,19 +1013,19 @@ mod tests {
     /// An allocation a graph capture resolved keeps its address: the recorded
     /// kernels replay against it.
     #[test]
-    fn evacuation_leaves_pinned_allocations_in_place() {
-        let mut memory = adaptive("evacuation_leaves_pinned_allocations_in_place", 4 * MIB);
+    fn relocation_leaves_captured_allocations_in_place() {
+        let mut memory = adaptive("relocation_leaves_captured_allocations_in_place", 4 * MIB);
 
         let recorded = reserve(&mut memory, MIB);
         let location = place(&recorded);
-        memory.pin_address(&recorded.clone().binding());
+        memory.mark_captured(&recorded.clone().binding());
 
         let _large = reserve(&mut memory, 10 * MIB);
-        assert_eq!(evacuate(&mut memory), 0);
+        assert_eq!(relocate(&mut memory), 0);
         assert_eq!(place(&recorded), location);
     }
 
-    /// Only what the pool serves counts: persistent and unpooled allocations,
+    /// Only what the pool serves counts: persistent and dedicated allocations,
     /// however large, leave its page size alone.
     #[test]
     fn other_pools_do_not_move_the_statistic() {
@@ -1036,7 +1036,7 @@ mod tests {
         let _weight = reserve(&mut memory, 100 * MIB);
         memory.mode(MemoryAllocationMode::Auto);
 
-        memory.mode(MemoryAllocationMode::Unpooled);
+        memory.mode(MemoryAllocationMode::Dedicated);
         let _probe = reserve(&mut memory, 200 * MIB);
         memory.mode(MemoryAllocationMode::Auto);
 
@@ -1050,14 +1050,14 @@ mod tests {
         );
     }
 
-    /// An unpooled allocation is its own device allocation, returned on the
+    /// A dedicated allocation is its own device allocation, returned on the
     /// tick after it is freed, whatever mode encloses it.
     #[test]
-    fn unpooled_allocations_are_released_once_freed() {
-        let mut memory = adaptive("unpooled_allocations_are_released_once_freed", 4 * MIB);
+    fn dedicated_allocations_are_released_once_freed() {
+        let mut memory = adaptive("dedicated_allocations_are_released_once_freed", 4 * MIB);
 
         memory.mode(MemoryAllocationMode::Persistent);
-        memory.mode(MemoryAllocationMode::Unpooled);
+        memory.mode(MemoryAllocationMode::Dedicated);
         let probe = reserve(&mut memory, 200 * MIB);
         memory.mode(MemoryAllocationMode::Auto);
         let weight = reserve(&mut memory, MIB);
@@ -1066,7 +1066,7 @@ mod tests {
         assert_eq!(
             memory.memory_report().persistent.usage.bytes_in_use,
             MIB,
-            "closing the unpooled window restores the persistent one"
+            "closing the dedicated window restores the persistent one"
         );
         assert_eq!(memory.memory_usage().bytes_reserved, 200 * MIB + MIB);
 
@@ -1109,10 +1109,10 @@ mod tests {
     }
 
     /// A page size adopted from an environment that ran a smaller workload
-    /// can leave a live allocation too big for any current page: evacuation
+    /// can leave a live allocation too big for any current page: relocation
     /// leaves it in place rather than failing to find it a target.
     #[test]
-    fn evacuation_leaves_what_no_current_page_fits() {
+    fn relocation_leaves_what_no_current_page_fits() {
         isolated();
         let failures = &mut ErrorGraph::default();
         let mut storage = BytesStorage::default();
@@ -1120,7 +1120,7 @@ mod tests {
             4 * MIB,
             32,
             0,
-            "evacuation_leaves_what_no_current_page_fits",
+            "relocation_leaves_what_no_current_page_fits",
         );
         let large = pool
             .alloc(&mut storage, 10 * MIB, PageMapping::Eager, failures)
@@ -1130,7 +1130,7 @@ mod tests {
         pool.largest_alloc = 0;
         pool.page_size = 4 * MIB;
 
-        let relocations = pool.plan_evacuation(&mut storage, PageMapping::Eager, failures);
+        let relocations = pool.plan_relocation(&mut storage, PageMapping::Eager, failures);
         assert!(relocations.is_empty());
         assert_eq!(place(&large), (0, 0));
     }
@@ -1142,12 +1142,12 @@ mod tests {
         let mut memory = adaptive("a_reused_slot_owes_nothing_to_an_old_capture", 4 * MIB);
 
         let recorded = reserve(&mut memory, MIB);
-        memory.pin_address(&recorded.clone().binding());
+        memory.mark_captured(&recorded.clone().binding());
         drop(recorded);
         let reused = reserve(&mut memory, MIB);
 
         let _large = reserve(&mut memory, 10 * MIB);
-        assert_eq!(evacuate(&mut memory), 1, "the reused slot moves");
+        assert_eq!(relocate(&mut memory), 1, "the reused slot moves");
         drop(reused);
     }
 }

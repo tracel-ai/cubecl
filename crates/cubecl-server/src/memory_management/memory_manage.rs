@@ -1,7 +1,7 @@
 use super::{
-    InstallMemoryPoolsError, ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId,
-    MemoryAllocationMode, MemoryConfiguration, MemoryReport, MemoryUsage, PERSISTENT_POOL_POS,
-    PoolType, UNPOOLED_POOL_POS,
+    DEDICATED_POOL_POS, InstallMemoryPoolsError, ManagedMemoryBinding, ManagedMemoryHandle,
+    ManagedMemoryId, MemoryAllocationMode, MemoryConfiguration, MemoryReport, MemoryUsage,
+    PERSISTENT_POOL_POS, PoolType,
     memory_pool::{
         DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, Relocation,
         SlicedPool,
@@ -160,7 +160,7 @@ impl DynamicPool {
 #[derive(Clone, Copy)]
 enum PoolPosition {
     Persistent,
-    Unpooled,
+    Dedicated,
     Dynamic(usize),
 }
 
@@ -168,7 +168,7 @@ impl PoolPosition {
     fn new(pool: u8) -> Self {
         match pool {
             PERSISTENT_POOL_POS => PoolPosition::Persistent,
-            UNPOOLED_POOL_POS => PoolPosition::Unpooled,
+            DEDICATED_POOL_POS => PoolPosition::Dedicated,
             index => PoolPosition::Dynamic(index as usize),
         }
     }
@@ -186,9 +186,9 @@ impl PoolPosition {
 pub struct MemoryManagement<Storage> {
     name: String,
     persistent: PersistentPool,
-    /// Allocations made under [`MemoryAllocationMode::Unpooled`]: each its own
+    /// Allocations made under [`MemoryAllocationMode::Dedicated`]: each its own
     /// device allocation, returned to the driver on the tick after it is freed.
-    unpooled: DirectPool,
+    dedicated: DirectPool,
     pools: Vec<DynamicPool>,
     /// Dynamic pools that have already reported hitting their cap, so the
     /// warning stays one per pool per layout rather than one per allocation.
@@ -306,7 +306,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 PERSISTENT_POOL_POS,
             ),
             // A watermark of zero: every free slice goes back on the next tick.
-            unpooled: DirectPool::new(properties.alignment, UNPOOLED_POOL_POS, Some(0)),
+            dedicated: DirectPool::new(properties.alignment, DEDICATED_POOL_POS, Some(0)),
             pools,
             capacity_warned: HashSet::new(),
             storage,
@@ -430,7 +430,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Change the mode of allocation.
     ///
-    /// Windows **nest**: a `Persistent` or `Unpooled` call opens one, an
+    /// Windows **nest**: a `Persistent` or `Dedicated` call opens one, an
     /// `Auto` call closes the innermost, and the innermost open window decides
     /// the effective mode. Callers routinely nest without knowing it — a
     /// module load opens a persistent window around the whole load while the
@@ -441,8 +441,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// ([`install_pools`](Self::install_pools)) for the model's whole life.
     ///
     /// The persistent-memory config decides what a `Persistent` window puts in
-    /// force (`Disabled` and `Enforced` keep the configured mode); an
-    /// `Unpooled` window is honored whatever the config, since it exists to
+    /// force (`Disabled` and `Enforced` keep the configured mode); a
+    /// `Dedicated` window is honored whatever the config, since it exists to
     /// keep a buffer out of every pool.
     pub fn mode(&mut self, mode: MemoryAllocationMode) {
         match mode {
@@ -453,7 +453,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 PersistentMemory::Enabled | PersistentMemory::SizeMatch => mode,
                 PersistentMemory::Disabled | PersistentMemory::Enforced => self.base_mode,
             }),
-            MemoryAllocationMode::Unpooled => self.windows.push(mode),
+            MemoryAllocationMode::Dedicated => self.windows.push(mode),
         }
         let mode = self.windows.last().copied().unwrap_or(self.base_mode);
 
@@ -500,8 +500,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             failures,
         );
 
-        // Unpooled buffers never wait for an explicit cleanup: freed is done.
-        if self.unpooled.reclaim(&mut self.storage, failures) {
+        // Dedicated buffers never wait for an explicit cleanup: freed is done.
+        if self.dedicated.reclaim(&mut self.storage, failures) {
             self.storage.flush();
         }
 
@@ -541,7 +541,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let slice = match PoolPosition::new(id.location().pool) {
             PoolPosition::Persistent => self.persistent.find(binding)?,
-            PoolPosition::Unpooled => self.unpooled.find(binding)?,
+            PoolPosition::Dedicated => self.dedicated.find(binding)?,
             PoolPosition::Dynamic(index) => self
                 .pools
                 .get(index)
@@ -576,7 +576,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let slice = match PoolPosition::new(id.location().pool) {
             PoolPosition::Persistent => self.persistent.find_mut(binding)?,
-            PoolPosition::Unpooled => self.unpooled.find_mut(binding)?,
+            PoolPosition::Dedicated => self.dedicated.find_mut(binding)?,
             PoolPosition::Dynamic(index) => self
                 .pools
                 .get_mut(index)
@@ -611,20 +611,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// graph being recorded resolved it, and replays against the address it
     /// resolved. Marked by whoever knows a recording is open — the capturing
     /// stream need not be the one that owns the allocation.
-    pub fn pin_address(&mut self, binding: &ManagedMemoryBinding) {
+    pub fn mark_captured(&mut self, binding: &ManagedMemoryBinding) {
         if let Ok(slice) = self.find_mut(binding) {
-            slice.immovable = true;
+            slice.captured = true;
         }
     }
 
     /// Plan moving what is still live on outdated pages onto pages of the
-    /// current size (see [`SlicedPool::plan_evacuation`]). Nothing moves yet:
+    /// current size (see [`SlicedPool::plan_relocation`]). Nothing moves yet:
     /// the caller copies every relocation's bytes on the device, waits for the
-    /// copies, then calls [`commit_evacuation`](Self::commit_evacuation) — or
+    /// copies, then calls [`commit_relocation`](Self::commit_relocation) — or
     /// drops the plan, which abandons it with nothing lost.
     ///
     /// Empty during a capture, where nothing may move or be freed.
-    pub(crate) fn plan_evacuation(&mut self, failures: &mut ErrorGraph) -> Vec<Relocation> {
+    pub(crate) fn plan_relocation(&mut self, failures: &mut ErrorGraph) -> Vec<Relocation> {
         if self.capture.is_some() {
             return Vec::new();
         }
@@ -632,7 +632,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         let mut relocations = Vec::new();
         for pool in self.pools.iter_mut() {
             if let DynamicPool::Sliced(pool) = pool {
-                relocations.extend(pool.plan_evacuation(&mut self.storage, mapping, failures));
+                relocations.extend(pool.plan_relocation(&mut self.storage, mapping, failures));
             }
         }
         relocations
@@ -640,7 +640,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Hand every planned allocation over to the slice that now holds its
     /// bytes, then return the pages that left empty to the driver.
-    pub(crate) fn commit_evacuation(
+    pub(crate) fn commit_relocation(
         &mut self,
         relocations: Vec<Relocation>,
         failures: &mut ErrorGraph,
@@ -648,7 +648,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         for relocation in relocations {
             let pool = relocation.target.descriptor().location().pool as usize;
             if let Some(DynamicPool::Sliced(pool)) = self.pools.get_mut(pool) {
-                pool.commit_evacuation(relocation, failures);
+                pool.commit_relocation(relocation, failures);
             }
         }
         self.cleanup(true, failures);
@@ -664,7 +664,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
         match PoolPosition::new(location.pool) {
             PoolPosition::Persistent => self.persistent.materialize(&mut self.storage, binding),
-            PoolPosition::Unpooled => self.unpooled.materialize(&mut self.storage, binding),
+            PoolPosition::Dedicated => self.dedicated.materialize(&mut self.storage, binding),
             PoolPosition::Dynamic(index) => match self.pools.get_mut(index) {
                 Some(pool) => pool.materialize(&mut self.storage, binding),
                 None => Ok(()),
@@ -732,9 +732,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let mapping = PageMapping::current();
 
-        if matches!(self.mode, MemoryAllocationMode::Unpooled) {
+        if matches!(self.mode, MemoryAllocationMode::Dedicated) {
             return self
-                .unpooled
+                .dedicated
                 .alloc(&mut self.storage, size, mapping, failures);
         }
 
@@ -881,7 +881,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Get the current memory usage.
     pub fn memory_usage(&self) -> MemoryUsage {
-        let memory_usage = core::iter::once(self.unpooled.get_memory_usage())
+        let memory_usage = core::iter::once(self.dedicated.get_memory_usage())
             .chain(self.pools.iter().map(|x| x.get_memory_usage()))
             .fold(
                 MemoryUsage {
@@ -939,9 +939,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 self.capture_touch(&assigned);
                 self.persistent.bind(reserved, assigned, cursor, failures)
             }
-            // A capture forces every allocation persistent, so an unpooled one
+            // A capture forces every allocation persistent, so a dedicated one
             // is never in a window to touch.
-            PoolPosition::Unpooled => self.unpooled.bind(reserved, assigned, cursor, failures),
+            PoolPosition::Dedicated => self.dedicated.bind(reserved, assigned, cursor, failures),
             PoolPosition::Dynamic(index) => self
                 .pools
                 .get_mut(index)
@@ -1046,9 +1046,9 @@ fn build_pools(
     );
 
     assert!(
-        pool_options.len() < UNPOOLED_POOL_POS as usize,
+        pool_options.len() < DEDICATED_POOL_POS as usize,
         "at most {} dynamic pools are supported",
-        UNPOOLED_POOL_POS - 1
+        DEDICATED_POOL_POS - 1
     );
 
     pool_options

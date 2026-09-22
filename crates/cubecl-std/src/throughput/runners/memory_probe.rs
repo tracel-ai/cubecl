@@ -139,7 +139,7 @@ impl MemoryProbe {
 ///
 /// A probe's gigabyte is no part of any workload. Held in a pool it would stay
 /// reserved after the probe, and count toward the statistics an adaptive pool
-/// sizes its pages from or the budget of an installed layout; unpooled, it
+/// sizes its pages from or the budget of an installed layout; dedicated, it
 /// exists exactly as long as the probe does.
 ///
 /// # Errors
@@ -152,7 +152,8 @@ pub fn reserve<const N: usize>(
     client: &Client,
     bytes: [usize; N],
 ) -> Result<[Handle; N], ThroughputError> {
-    let handles = client.memory_unpooled_allocation((), |_| bytes.map(|bytes| client.empty(bytes)));
+    let handles =
+        client.memory_dedicated_allocation((), |_| bytes.map(|bytes| client.empty(bytes)));
 
     client
         .check(&handles)

@@ -182,8 +182,8 @@ pub trait Driver: Sized {
     ) -> Result<(), IoError>;
 
     /// Enqueue a copy of `source`'s bytes into `target` on `stream`, both
-    /// device memory of the same size — how evacuating an outdated page moves
-    /// a live allocation.
+    /// device memory of the same size — how a live allocation is relocated
+    /// off an outdated page.
     ///
     /// # Safety
     ///

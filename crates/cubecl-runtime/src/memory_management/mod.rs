@@ -134,7 +134,7 @@ pub enum MemoryAllocationMode {
     /// once it is freed, outside every pool: for a buffer that exists only for
     /// one measurement (the memory-bandwidth probe) and must neither stay
     /// reserved nor shape the pools' sizing.
-    Unpooled,
+    Dedicated,
 }
 
 /// Why installing a dynamic pool layout did not take effect.

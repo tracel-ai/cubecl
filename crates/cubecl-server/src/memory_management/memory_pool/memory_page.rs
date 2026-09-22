@@ -80,13 +80,13 @@ impl MemoryPage {
         self.slices.iter().all(Slice::is_free)
     }
 
-    /// The live slices evacuation may move off this page, by index: every
+    /// The live slices relocation may move off this page, by index: every
     /// one no captured graph has recorded.
     pub fn movable(&self) -> impl Iterator<Item = usize> + '_ {
         self.slices
             .iter()
             .enumerate()
-            .filter(|(_, slice)| !slice.is_free() && !slice.immovable)
+            .filter(|(_, slice)| !slice.is_free() && !slice.captured)
             .map(|(index, _)| index)
     }
 
@@ -213,7 +213,7 @@ impl MemoryPage {
             // nothing to a graph that recorded the last one.
             slice.storage.utilization.size = size;
             slice.padding = padding;
-            slice.immovable = false;
+            slice.captured = false;
 
             if can_be_split {
                 let new_slice = Slice::new(storage_old.offset_start(effective_size), 0);

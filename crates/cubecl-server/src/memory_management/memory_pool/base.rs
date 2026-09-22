@@ -188,12 +188,12 @@ pub(crate) struct Slice {
     /// a slice.
     pub tainted: Taint,
     /// Whether a graph capture resolved this allocation, so a recorded kernel
-    /// holds its raw address: evacuation must leave it where it is. Cleared
+    /// holds its raw address: relocation must leave it where it is. Cleared
     /// when the slice takes on a new allocation.
-    pub immovable: bool,
+    pub captured: bool,
 }
 
-/// A live allocation evacuation is moving: `source`'s bytes are copied into
+/// A live allocation being relocated: `source`'s bytes are copied into
 /// `target`'s, then the allocation's handle is handed over to the target
 /// slice (see [`Slice::hand_over`]). Until that handover the source is
 /// untouched, so dropping a relocation abandons the move with nothing lost —
@@ -227,7 +227,7 @@ impl Slice {
             cursor: 0,
             mapped: true,
             tainted: Taint::default(),
-            immovable: false,
+            captured: false,
         }
     }
 
@@ -236,7 +236,7 @@ impl Slice {
     /// hands.
     pub(crate) fn bind(&mut self, handle: ManagedMemoryHandle, failures: &mut ErrorGraph) {
         self.tainted.clear(failures);
-        self.immovable = false;
+        self.captured = false;
         self.handle = handle;
     }
 

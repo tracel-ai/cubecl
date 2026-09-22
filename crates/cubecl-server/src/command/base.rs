@@ -79,7 +79,7 @@ impl<'a, D: Driver> Command<'a, D> {
         let recording = self.streams.current().capturing().is_recording();
         let memory = self.streams.get(&binding.stream).device_memory();
         if recording {
-            memory.pin_address(&binding.memory);
+            memory.mark_captured(&binding.memory);
         }
         memory.get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
@@ -118,7 +118,7 @@ impl<'a, D: Driver> Command<'a, D> {
         }
         let (stream, failures) = self.streams.current_and_failures();
         stream.device_memory().cleanup(true, failures);
-        self.evacuate();
+        self.relocate();
         let (stream, failures) = self.streams.current_and_failures();
         stream.host_memory().cleanup(true, failures);
     }
@@ -132,7 +132,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// abandons the whole plan and the allocations stay where they were.
     /// Skipped while any stream records a graph: the copies wait on every
     /// stream, and a host wait on a capturing one invalidates its capture.
-    fn evacuate(&mut self) {
+    fn relocate(&mut self) {
         if self
             .streams
             .all()
@@ -141,7 +141,7 @@ impl<'a, D: Driver> Command<'a, D> {
             return;
         }
         let (stream, failures) = self.streams.current_and_failures();
-        let relocations = stream.device_memory().plan_evacuation(failures);
+        let relocations = stream.device_memory().plan_relocation(failures);
         if relocations.is_empty() {
             return;
         }
@@ -151,9 +151,9 @@ impl<'a, D: Driver> Command<'a, D> {
         match copied {
             Ok(()) => stream
                 .device_memory()
-                .commit_evacuation(relocations, failures),
+                .commit_relocation(relocations, failures),
             Err(err) => {
-                log::warn!("evacuating outdated memory pages abandoned: {err}");
+                log::warn!("relocating allocations off outdated memory pages abandoned: {err}");
                 drop(relocations);
                 // The pages reserved as targets are empty again.
                 stream.device_memory().cleanup(true, failures);

@@ -76,7 +76,7 @@ impl core::fmt::Display for PoolConfigError {
             PoolConfigError::TooManyPools { count } => write!(
                 f,
                 "the pool list has {count} entries, exceeding the maximum of {} dynamic pools",
-                UNPOOLED_POOL_POS - 1
+                DEDICATED_POOL_POS - 1
             ),
             PoolConfigError::PresetUnavailable { preset } => {
                 write!(f, "the `{preset}` preset is not available in this build")
@@ -152,7 +152,7 @@ impl MemoryConfiguration {
                 // persistent pool owns the sentinel position, so the list must
                 // stay addressable below it — checked here so the caller gets
                 // the error instead of a panic on the device thread.
-                if entries.len() >= UNPOOLED_POOL_POS as usize {
+                if entries.len() >= DEDICATED_POOL_POS as usize {
                     return Err(PoolConfigError::TooManyPools {
                         count: entries.len(),
                     });
@@ -267,8 +267,8 @@ fn pool_options_from_entry(
 #[doc(hidden)]
 pub const PERSISTENT_POOL_POS: u8 = u8::MAX;
 
-/// The pool position stamped on unpooled allocations
-/// ([`MemoryAllocationMode::Unpooled`](super::MemoryAllocationMode::Unpooled)),
+/// The pool position stamped on dedicated allocations
+/// ([`MemoryAllocationMode::Dedicated`](super::MemoryAllocationMode::Dedicated)),
 /// a fixed sentinel for the same reason as [`PERSISTENT_POOL_POS`].
 #[doc(hidden)]
-pub const UNPOOLED_POOL_POS: u8 = u8::MAX - 1;
+pub const DEDICATED_POOL_POS: u8 = u8::MAX - 1;

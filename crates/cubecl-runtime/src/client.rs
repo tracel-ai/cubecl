@@ -608,7 +608,7 @@ impl Client {
     /// For buffers that exist for one measurement and nothing after it: they
     /// stay out of the pools' reservations and out of the statistics an
     /// adaptive pool sizes its pages from.
-    pub fn memory_unpooled_allocation<
+    pub fn memory_dedicated_allocation<
         'a,
         Re: Send,
         Input: Send,
@@ -618,7 +618,7 @@ impl Client {
         input: Input,
         task: F,
     ) -> Re {
-        self.allocation_window(MemoryAllocationMode::Unpooled, input, task)
+        self.allocation_window(MemoryAllocationMode::Dedicated, input, task)
     }
 
     /// Open a window of `mode` on the current stream around `task`, and close
