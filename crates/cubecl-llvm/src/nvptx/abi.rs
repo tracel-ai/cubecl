@@ -1,9 +1,12 @@
 //! PTX kernel arguments.
 
 use crate::{
-    nvptx::builtins::InsertNvptxBuiltinsPass,
+    nvptx::builtins::NvptxRegisters,
     prelude::*,
-    shared::metadata::{CtxGridConstants, rebuild_func_type},
+    shared::{
+        builtins::InsertGpuBuiltinsPass,
+        metadata::{CtxGridConstants, rebuild_func_type},
+    },
 };
 use cubecl_opt::passes::alloc_shared_memory::AllocateSharedMemoryBlockPass;
 
@@ -67,9 +70,10 @@ impl TargetLowering for NvptxLowering {
     }
 
     fn epilogue(&self, passes: &mut OpPass<FuncOp, Passes>) {
-        passes.add_pass(InsertNvptxBuiltinsPass {
-            plane_dim: self.plane_dim,
-        });
+        passes.add_pass(InsertGpuBuiltinsPass::new(
+            Box::new(NvptxRegisters),
+            self.plane_dim,
+        ));
     }
 
     fn arg_layout(&self) -> Box<dyn EntryArgLayout> {
