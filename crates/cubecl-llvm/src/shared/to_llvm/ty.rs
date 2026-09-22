@@ -1,5 +1,4 @@
 use crate::prelude::*;
-#[cfg(feature = "nvptx")]
 use cubecl_core::ir::AddressType;
 use cubecl_core::ir::types::{
     ArrayType, AtomicType,
@@ -9,17 +8,17 @@ use cubecl_core::ir::types::{
     },
 };
 
-/// Index width in bits. CPU and AMDGPU use 64 bits; NVPTX follows the address type.
+/// Index width in bits. The GPU targets follow the address type: a kernel whose buffers fit in
+/// 32-bit addressing does its index arithmetic in 32 bits, which on AMDGPU is one VALU or SALU
+/// instruction where 64 bits takes two or more, and on NVPTX half the registers. The CPU uses
+/// 64 bits.
 pub fn index_width(ctx: &Context) -> u32 {
-    match ctx.target() {
-        #[cfg(feature = "nvptx")]
-        LlvmTarget::Nvptx => match ctx.address_type() {
-            AddressType::U32 => 32,
-            AddressType::U64 => 64,
-        },
-        #[cfg(feature = "amdgpu")]
-        LlvmTarget::AmdGpu => 64,
-        LlvmTarget::Cpu => 64,
+    if !ctx.target().is_gpu() {
+        return 64;
+    }
+    match ctx.address_type() {
+        AddressType::U32 => 32,
+        AddressType::U64 => 64,
     }
 }
 

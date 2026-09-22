@@ -81,6 +81,19 @@ fn scale_kernel(address_type: AddressType) -> impl CubeKernel {
 }
 
 #[test]
+fn a_32_bit_kernel_indexes_in_32_bits() {
+    let asm = asm_of(scale_kernel(AddressType::U32), "gfx1201");
+    assert!(
+        !asm.contains("s_mul_u64") && !asm.contains("_u64_e32"),
+        "no 64-bit index arithmetic:\n{asm}"
+    );
+    assert!(
+        asm.contains("v_cmpx_gt_u32"),
+        "a 32-bit bounds check:\n{asm}"
+    );
+}
+
+#[test]
 fn a_64_bit_kernel_indexes_in_64_bits() {
     let asm = asm_of(scale_kernel(AddressType::U64), "gfx1201");
     assert!(asm.contains("_u64"), "a 64-bit bounds check:\n{asm}");
