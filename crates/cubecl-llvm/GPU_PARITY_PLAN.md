@@ -17,23 +17,33 @@ Status markers: `[ ]` todo, `[x]` done, `[~]` in progress.
 Changes in `shared/`, so both GPU targets get them at once. Each one is checked against the
 generated PTX on NVIDIA; AMD is checked once, at the end of the phase.
 
-- [ ] **In-bounds GEPs.** `memory.index` lowers to a GEP without no-wrap flags. Clang emits
-      `getelementptr inbounds` for every `ptr[i]`; without it LLVM cannot split
-      `zext(a + b)` into address terms, which costs addressing-mode folding and loop
-      strength reduction. The index is a zero-extended unsigned integer, so the GEP is
+- [x] **In-bounds GEPs.** `memory.index` lowers to a GEP without no-wrap flags. Clang emits
+      `getelementptr inbounds` for every `ptr[i]`; without it LLVM cannot reassociate the
+      address arithmetic or fold constant offsets into the addressing mode. The index is a
+      zero-extended unsigned integer and checked modes clamp it first, so the GEP is
       `inbounds nuw`.
-- [ ] **NaN-ignoring float min/max.** `FMin`/`FMax` lower to `llvm.minimum`/`llvm.maximum`
-      (NaN-propagating). The C++ backends emit `min`/`max` (`fminf`/`fmaxf`), and SPIR-V emits
-      `GLSL.std.450` `FMin`/`FMax`, which are the `minnum`/`maxnum` semantics. `maximum` has
+- [x] **NaN-ignoring float min/max.** `FMin`/`FMax` lower to `llvm.minimum`/`llvm.maximum`
+      (NaN-propagating). The C++ backends emit `min`/`max` (`fminf`/`fmaxf`), the `minnum`/
+      `maxnum` semantics, and SPIR-V's `FMin`/`FMax` leave a NaN undefined. `maximum` has
       no single instruction before sm_80 or before gfx12, so it expands to a max, a NaN test
       and a select in every ReLU, softmax and max-reduce.
-- [ ] **Device-scoped atomics.** Every atomic is `syncscope` system. CUDA's `atomicAdd` is
+- [x] **Device-scoped atomics.** Every atomic is `syncscope` system. CUDA's `atomicAdd` is
       device scope and HIP's is agent scope; system scope is for host-coherent memory, which
       CubeCL buffers are not.
-- [ ] **Transcendental polyfills on the CPU only.** Vector `exp`, `log`, `sin`, `cos` and
+- [x] **Transcendental polyfills on the CPU only.** Vector `exp`, `log`, `sin`, `cos` and
       `tanh` take a polynomial polyfill on every target, while scalars reach libdevice, OCML or
       the hardware (`ex2.approx`, `v_exp_f32`). On a GPU a vector is scalarized anyway, so the
       polyfill is slower and disagrees with the scalar result of the same operation.
+- [x] **Native float atomic add.** LLVM expands `atomicrmw fadd` to a CAS loop on NVPTX
+      unless the function flushes denormals (global `atom.add.f32` flushes them), and on
+      RDNA3 and CDNA2 unless the atomic is known not to touch fine-grained or remote memory.
+      NVRTC's `atomicAdd(float*)` is the native instruction. NVPTX sets
+      `-nvptx-allow-ftz-atomics` once per process; AMDGPU tags every `atomicrmw` with
+      `amdgpu.no.fine.grained.memory`, `amdgpu.no.remote.memory` and, for `fadd`,
+      `amdgpu.ignore.denormal.mode`.
+
+Found along the way: the CPU `exp` polyfill relied on `maximum` carrying a NaN through its
+clamp, and now restores the NaN explicitly.
 
 ## Phase 2 — AMDGPU catches up with NVPTX
 
