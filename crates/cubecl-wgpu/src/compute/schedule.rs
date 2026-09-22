@@ -1,6 +1,7 @@
 use crate::{
-    CompilerInfo, ParamsTransfer, WgpuResource, stream::WgpuStream,
-    timings::TimestampQuerySetBudget,
+    CompilerInfo, ParamsTransfer, WgpuResource,
+    stream::WgpuStream,
+    timings::{TimestampAvailability, TimestampQuerySetBudget},
 };
 use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, pool::LeaseHandle, profile::TimingMethod};
@@ -87,6 +88,7 @@ pub struct WgpuStreamFactory {
     timing_method: TimingMethod,
     /// Per-device budget of live timestamp query sets, shared by every stream it creates.
     timing_budget: Arc<TimestampQuerySetBudget>,
+    timestamp_availability: TimestampAvailability,
     tasks_max: usize,
     logger: Arc<ServerLogger>,
     count: u64,
@@ -110,6 +112,7 @@ impl StreamFactory for WgpuStreamFactory {
             gpu_config,
             self.timing_method,
             self.timing_budget.clone(),
+            self.timestamp_availability,
             self.tasks_max,
             self.logger.clone(),
             self.use_vulkan_compiler,
@@ -146,6 +149,7 @@ impl ScheduledWgpuBackend {
                 memory_config,
                 timing_method,
                 timing_budget,
+                timestamp_availability: TimestampAvailability::new(backend),
                 tasks_max,
                 logger,
                 count: 0,
