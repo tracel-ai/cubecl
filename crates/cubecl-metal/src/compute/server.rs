@@ -687,11 +687,12 @@ impl Server for MetalServer {
         resolved.current().memory_management.memory_report()
     }
 
-    fn memory_cleanup(&mut self, stream_id: StreamId) {
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
         let (stream, failures) = resolved.current_and_failures();
         stream.memory_management.cleanup(true, failures);
         stream.relocate(failures);
+        Ok(())
     }
 
     fn allocation_mode(
@@ -742,11 +743,18 @@ impl ServerStorage for MetalServer {
         let stream = resolved.get(&binding.stream);
 
         let memory = binding.memory.clone();
+        let guard = stream
+            .memory_management
+            .guard(binding.memory.descriptor().location());
         let resource = stream
             .memory_management
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
             .map_err(ServerError::from)?;
 
-        Ok(ManagedResource::new(memory, resource))
+        let resource = ManagedResource::new(memory, resource);
+        Ok(match guard {
+            Some(guard) => resource.guarded(guard),
+            None => resource,
+        })
     }
 }

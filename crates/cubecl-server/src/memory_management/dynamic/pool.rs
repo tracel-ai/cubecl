@@ -2,8 +2,8 @@
 
 use crate::{
     memory_management::{
-        ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryPoolOptions, MemoryPoolReport,
-        MemoryUsage, PoolType,
+        ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation, MemoryPoolOptions,
+        MemoryPoolReport, MemoryUsage, PageGuard, PoolType,
         memory_pool::{ExclusiveMemoryPool, MemoryPool, PageMapping, Slice, SlicedPool},
     },
     server::IoError,
@@ -71,6 +71,13 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.materialize(storage, binding),
             DynamicPool::Exclusive(m) => m.materialize(storage, binding),
+        }
+    }
+
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        match self {
+            DynamicPool::Sliced(m) => m.guard(location),
+            DynamicPool::Exclusive(m) => m.guard(location),
         }
     }
 

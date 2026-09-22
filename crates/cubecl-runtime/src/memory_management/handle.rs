@@ -1,5 +1,8 @@
 use crate::memory_management::MemoryHandle;
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{
+    sync::{Arc, Weak},
+    vec::Vec,
+};
 use core::sync::atomic::{AtomicU64, Ordering};
 
 /// Managed Memory handle
@@ -14,6 +17,14 @@ pub struct ManagedMemoryHandle {
 #[derive(Debug)]
 pub struct ManagedMemoryBinding {
     descriptor: Arc<ManagedMemoryDescriptor>,
+}
+
+/// A [`ManagedMemoryBinding`] that does not keep its memory reserved: what a
+/// record of an allocation holds when holding the allocation itself would
+/// change what the pools may reuse.
+#[derive(Debug, Clone)]
+pub struct WeakMemoryBinding {
+    descriptor: Weak<ManagedMemoryDescriptor>,
 }
 
 /// A list of bindings that are shared across multiple streams.
@@ -242,6 +253,22 @@ impl ManagedMemoryBinding {
     /// allocation lives and never reused by a later one.
     pub fn id(&self) -> ManagedMemoryId {
         self.descriptor.id
+    }
+
+    /// This binding, without keeping its memory reserved.
+    pub fn downgrade(&self) -> WeakMemoryBinding {
+        WeakMemoryBinding {
+            descriptor: Arc::downgrade(&self.descriptor),
+        }
+    }
+}
+
+impl WeakMemoryBinding {
+    /// The binding back, while the memory it names still exists. `None` once
+    /// the slice it named is gone.
+    pub fn upgrade(&self) -> Option<ManagedMemoryBinding> {
+        let descriptor = self.descriptor.upgrade()?;
+        Some(ManagedMemoryBinding { descriptor })
     }
 }
 

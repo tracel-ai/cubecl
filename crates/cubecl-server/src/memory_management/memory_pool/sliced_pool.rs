@@ -1,7 +1,7 @@
 use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
-        MemoryPoolKind, MemoryPoolReport, MemoryUsage,
+        MemoryPoolKind, MemoryPoolReport, MemoryUsage, PageGuard,
         memory_pool::{MemoryPage, MemoryPool, PageMapping, Slice},
     },
     server::IoError,
@@ -119,15 +119,20 @@ impl SlicedPool {
     }
 
     /// Reserve `size` bytes on a page already held, coalescing as it goes.
+    /// A guarded page is left as it is.
     fn reserve_free(
         &mut self,
         size: u64,
         failures: &mut ErrorGraph,
     ) -> Option<ManagedMemoryHandle> {
-        let handle = self.pages.iter_mut().find_map(|(page, _)| {
-            page.coalesce(failures);
-            page.try_reserve(size)
-        });
+        let handle = self
+            .pages
+            .iter_mut()
+            .filter(|(page, _)| !page.is_guarded())
+            .find_map(|(page, _)| {
+                page.coalesce(failures);
+                page.try_reserve(size)
+            });
         if handle.is_some() {
             self.largest_alloc = self.largest_alloc.max(size);
         }
@@ -188,8 +193,8 @@ impl SlicedPool {
         Ok(())
     }
 
-    /// Return every page nothing is live on to the driver, and renumber the
-    /// rest.
+    /// Return every page nothing is live on and nothing guards to the driver,
+    /// and renumber the rest.
     pub(crate) fn release_empty<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
@@ -197,7 +202,7 @@ impl SlicedPool {
     ) {
         for (mut page, id) in self.pages.drain(..) {
             page.coalesce(failures);
-            if page.is_empty() {
+            if page.is_empty() && !page.is_guarded() {
                 // A dropped page takes its slices with it, and any failure a
                 // free slice still carried is released here rather than
                 // leaked. An unmapped page has nothing behind its minted id;
@@ -296,6 +301,11 @@ impl MemoryPool for SlicedPool {
             return Ok(());
         }
         self.map_page(storage, page_index)
+    }
+
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        let (page, _) = self.pages.get(location.page as usize)?;
+        Some(page.guard())
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {

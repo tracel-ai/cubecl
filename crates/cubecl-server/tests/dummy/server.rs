@@ -312,8 +312,9 @@ impl<M: Marker> Server for DummyServer<M> {
         self.memory_management.memory_report()
     }
 
-    fn memory_cleanup(&mut self, _stream_id: StreamId) {
+    fn memory_cleanup(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {
         self.memory_management.cleanup(true, &mut self.failures);
+        Ok(())
     }
 
     fn start_profile(&mut self, _stream_id: StreamId) -> Result<ProfilingToken, ServerError> {

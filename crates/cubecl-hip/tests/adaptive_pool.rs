@@ -13,7 +13,7 @@ const MIB: usize = 1024 * 1024;
 fn relocation_moves_live_bytes_off_outdated_pages() {
     // The adaptive memory is what every device that slices gets.
     let client = HipRuntime::client(&Default::default());
-    client.memory_cleanup();
+    client.memory_cleanup().expect("no stream records a graph");
 
     let pattern: Vec<u8> = (0..4 * MIB).map(|i| (i % 251) as u8).collect();
     let kept = client.create_from_slice(&pattern);
@@ -27,7 +27,7 @@ fn relocation_moves_live_bytes_off_outdated_pages() {
     let neighbour = client.empty(4 * MIB);
     drop(large);
 
-    client.memory_cleanup();
+    client.memory_cleanup().expect("no stream records a graph");
 
     assert_eq!(
         adaptive(&client),

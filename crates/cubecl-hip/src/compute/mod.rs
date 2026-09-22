@@ -18,4 +18,4 @@ pub(crate) type Command<'a> = cubecl_server::command::Command<'a, driver::Hip>;
 pub(crate) type Captures = cubecl_server::command::Captures<driver::Hip>;
 
 /// A capture window on one stream, driven by [`driver::Hip`].
-pub(crate) type Window<'a> = cubecl_server::command::Window<'a, driver::Hip>;
+pub(crate) type Window<'c, 'a> = cubecl_server::command::Window<'c, 'a, driver::Hip>;

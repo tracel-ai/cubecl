@@ -1,10 +1,12 @@
 mod base;
 mod config;
+mod guard;
 mod handle;
 mod layout;
 
 pub use base::*;
 pub use config::*;
+pub use guard::*;
 pub use handle::*;
 pub use layout::*;
 

@@ -364,10 +364,11 @@ impl Server for CpuServer {
         self.scheduler.stream_ids().collect()
     }
 
-    fn memory_cleanup(&mut self, stream_id: StreamId) {
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
         stream.memory_management.cleanup(true, failures);
         stream.memory_management.relocate(&mut CpuCopies, failures);
+        Ok(())
     }
 
     unsafe fn launch(
@@ -571,8 +572,14 @@ impl ServerStorage for CpuServer {
 
         let stream = self.scheduler.stream(&binding.stream);
         let memory = binding.memory.clone();
-        let resource = stream.get_resource(binding)?;
+        let guard = stream
+            .memory_management
+            .guard(binding.memory.descriptor().location());
+        let resource = ManagedResource::new(memory, stream.get_resource(binding)?);
 
-        Ok(ManagedResource::new(memory, resource))
+        Ok(match guard {
+            Some(guard) => resource.guarded(guard),
+            None => resource,
+        })
     }
 }

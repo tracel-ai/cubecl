@@ -1294,8 +1294,7 @@ impl Client {
     }
 
     /// Prepare this client's stream for a graph capture (see
-    /// [`Server::graph_prepare`]) — enable the persistent pool + capture
-    /// recording. Call this **before** the warmup run, then
+    /// [`Server::graph_prepare`]). Call this **before** the warmup run, then
     /// [`start_capture`](Self::start_capture) around the run to record.
     pub fn graph_prepare(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id();
@@ -1314,9 +1313,9 @@ impl Client {
     /// refused, and so is writing to a handle — a recorded graph cannot carry a
     /// host copy, so feed fresh inputs by writing *between* replays instead. A
     /// refused write is reported late, by failing `stop_capture`, rather than
-    /// handing back a graph that silently skips it. Fresh allocation inside the
-    /// window is fatal on a hardware-graph backend and merely wasteful on a
-    /// software-graph one, which is what the warmup run exists to avoid.
+    /// handing back a graph that silently skips it. Nothing is allocated inside
+    /// the window: a request the pools cannot serve from what the warmup run
+    /// left fails the capture, which is what the warmup run exists to avoid.
     ///
     /// Returns an error on backends without graph support.
     pub fn start_capture(&self) -> Result<(), ServerError> {
@@ -1489,12 +1488,20 @@ impl Client {
     ///
     /// Nb: Results will vary on what the memory allocator deems beneficial,
     /// so it's not guaranteed any memory is freed.
-    pub fn memory_cleanup(&self) {
-        self.device.submit(move |server| {
-            for id in server.stream_ids() {
-                server.memory_cleanup(id);
-            }
-        });
+    ///
+    /// # Errors
+    ///
+    /// Refused while a stream records a graph: releasing memory waits on the
+    /// device, and a wait on a stream that records aborts its capture.
+    pub fn memory_cleanup(&self) -> Result<(), ServerError> {
+        self.device
+            .submit_blocking(move |server| {
+                server
+                    .stream_ids()
+                    .into_iter()
+                    .try_for_each(|id| server.memory_cleanup(id))
+            })
+            .unwrap_or_resume()
     }
 
     /// Open a profiling window at the current position of the calling stream.

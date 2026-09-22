@@ -1,6 +1,6 @@
 use super::{
-    DEDICATED_POOL_POS, ManagedMemoryBinding, ManagedMemoryHandle, ManagedMemoryId,
-    MemoryAllocationMode, MemoryConfiguration, MemoryReport, MemoryUsage, PERSISTENT_POOL_POS,
+    DEDICATED_POOL_POS, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode,
+    MemoryConfiguration, MemoryLocation, MemoryReport, MemoryUsage, PERSISTENT_POOL_POS, PageGuard,
     memory_pool::{DirectPool, MemoryPool, PageMapping, PersistentPool},
 };
 use crate::{
@@ -20,7 +20,6 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::ops::Range;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::collections::HashSet;
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
 
@@ -69,39 +68,6 @@ pub struct MemoryManagement<Storage> {
     windows: Vec<MemoryAllocationMode>,
     config: PersistentMemory,
     logger: Arc<ServerLogger>,
-    /// State of the active graph capture, if any.
-    capture: Option<CaptureState>,
-}
-
-/// While a graph capture is active, allocations are forced into the persistent
-/// pool; slices there stay freely reusable during the window (warmup populates
-/// them, the capture run reuses them), and `capture_end` hands the graph exactly
-/// the slices the window touched.
-struct CaptureState {
-    /// The mode to restore at `capture_end`. Mid-capture [`mode`] changes land
-    /// here instead of taking effect, so they can't reroute capture allocations
-    /// away from the persistent pool.
-    restore_mode: MemoryAllocationMode,
-    /// Ids of every persistent slice handed out (reserved or freshly allocated)
-    /// while the window was open — exactly the slices the graph's recorded
-    /// kernels may replay against. `capture_end` retains these and nothing else,
-    /// so a slice the window never touched is not over-retained, and a
-    /// pre-existing slice freed and reused mid-window is still pinned.
-    touched: HashSet<ManagedMemoryId>,
-    /// Whether the warmup (priming) phase is still running, i.e. the capture window has not opened
-    /// yet. While set, every slice handed out is retained in `primed` instead of being recycled.
-    priming: bool,
-    /// Slices retained during priming, released by
-    /// [`capture_priming_end`](MemoryManagement::capture_priming_end).
-    ///
-    /// Warmup exists to leave the pool able to serve the recorded run without allocating — an
-    /// allocation inside the window is recorded as a memory node, and CUDA refuses to relaunch a
-    /// graph holding one. Letting warmup recycle its own slices defeats that: the pool only ever
-    /// grows to a warmup pass's transient *peak*, which depends on how far the host runs ahead of
-    /// the device and can land below what the recorded run asks for. Holding every slice instead
-    /// forces the pool up to the pass's full distinct working set — an upper bound on any peak —
-    /// so once these are released the recorded run cannot ask for a slice the pool lacks.
-    primed: Vec<ManagedMemoryHandle>,
 }
 
 /// The options for creating a new [`MemoryManagement`] instance.
@@ -180,64 +146,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             windows: Vec::new(),
             config,
             logger,
-            capture: None,
-        }
-    }
-
-    /// Begin a graph capture: force every allocation into the persistent pool
-    /// — exact-fit slices with no bucket padding, which is what a graph's
-    /// static shapes want — and start recording which slices the window hands
-    /// out (see [`reserve`](Self::reserve)). Every slice the window touches
-    /// belongs to the graph at [`capture_end`](Self::capture_end); anything it
-    /// never touches (pre-existing live buffers, idle free slices) does not.
-    /// Slices stay reusable *within* the window — warmup populates the pool, then
-    /// the capture run reuses those slices without a fresh device allocation
-    /// (illegal mid-capture). Sets the mode directly, overriding the config gate
-    /// that [`mode`](Self::mode) honors. If a capture is already active, only the
-    /// mode is re-forced — the original capture keeps its touched set and restore
-    /// state.
-    pub fn capture_begin(&mut self) {
-        if self.capture.is_none() {
-            self.capture = Some(CaptureState {
-                restore_mode: self.mode,
-                touched: HashSet::new(),
-                priming: true,
-                primed: Vec::new(),
-            });
-        }
-        self.mode = MemoryAllocationMode::Persistent;
-    }
-
-    /// End the priming phase and release the slices warmup retained, returning them to the pool as
-    /// free. Call immediately before the capture window opens.
-    ///
-    /// After this the pool holds every slice a warmup pass touched, all of them free, so the
-    /// recorded run reuses them instead of growing the pool (see [`CaptureState::primed`]). No-op
-    /// when no capture is active or priming already ended.
-    pub fn capture_priming_end(&mut self) {
-        if let Some(capture) = &mut self.capture {
-            capture.priming = false;
-            // Dropping the handles makes the slices free again; the slices themselves stay in the
-            // pool, which is the point.
-            capture.primed.clear();
-        }
-    }
-
-    /// End a graph capture: restore the previous allocation mode and return a
-    /// retained handle to every persistent slice the window touched — exactly
-    /// the memory the graph's recorded kernels replay against. The caller pins
-    /// these on the graph so the pool never reuses graph memory (which a replay
-    /// would corrupt); dropping the graph drops the handles and releases the
-    /// slices. Slices the window never touched are left alone, so a pre-existing
-    /// live buffer keeps its reuse and in-place (`can_mut`) semantics. Empty if
-    /// no capture was active.
-    pub fn capture_end(&mut self) -> Vec<ManagedMemoryHandle> {
-        match self.capture.take() {
-            Some(capture) => {
-                self.mode = capture.restore_mode;
-                self.persistent.retain_touched(&capture.touched)
-            }
-            None => Vec::new(),
         }
     }
 
@@ -279,13 +187,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
         );
 
-        // A capture owns the effective mode until it ends: changing it now
-        // would route capture allocations away from the persistent pool. Defer
-        // the change to `capture_end`.
-        match &mut self.capture {
-            Some(capture) => capture.restore_mode = mode,
-            None => self.mode = mode,
-        }
+        self.mode = mode;
     }
 
     /// Cleanup allocations in pools that are deemed unnecessary.
@@ -294,16 +196,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             |level| !matches!(level, MemoryLogLevel::Disabled) && explicit,
             || "Manual memory cleanup ...".to_string(),
         );
-
-        // Nothing may be freed during a capture. The persistent window's free
-        // slices are exactly what the capture run reuses (deallocating one
-        // forces a fresh device allocation mid-capture, which faults), and
-        // the storage frees behind the dynamic pools can synchronize the
-        // device (e.g. `hipFree`), which invalidates the capture. Everything
-        // stays queued until the capture ends.
-        if self.capture.is_some() {
-            return;
-        }
 
         self.persistent.cleanup(
             &mut self.storage,
@@ -417,16 +309,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         Ok(slice.storage.clone())
     }
 
-    /// Keep the allocation behind `binding` where it is until it is freed: a
-    /// graph being recorded resolved it, and replays against the address it
-    /// resolved. Marked by whoever knows a recording is open — the capturing
-    /// stream need not be the one that owns the allocation.
-    pub fn mark_captured(&mut self, binding: &ManagedMemoryBinding) {
-        if let Ok(slice) = self.find_mut(binding) {
-            slice.captured = true;
-        }
-    }
-
     /// Whether the pools are close enough to the device's capacity that the
     /// next page they allocate should be paid for by emptying an outdated pool
     /// first (see [`DynamicMemory::crowded`]).
@@ -436,14 +318,18 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Empty what the outdated pools hold into the room the current pages
     /// have, and return the pages that frees.
-    ///
-    /// Nothing moves during a capture, where a recorded kernel replays against
-    /// the address it resolved.
     pub fn relocate(&mut self, copier: &mut dyn CopyQueue<Storage>, failures: &mut ErrorGraph) {
-        if self.capture.is_some() {
-            return;
-        }
         self.pools.relocate(&mut self.storage, copier, failures);
+    }
+
+    /// Keep the page `location` names as it is for as long as the guard lives
+    /// (see [`PageGuard`]). `None` when no pool holds such a page.
+    pub fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        match PoolPosition::new(location.pool) {
+            PoolPosition::Persistent => self.persistent.guard(location),
+            PoolPosition::Dedicated => self.dedicated.guard(location),
+            PoolPosition::Dynamic(index) => self.pools.get_mut(index)?.guard(location),
+        }
     }
 
     /// Install real backing behind `binding` when its allocation was carved
@@ -482,26 +368,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             None => handle,
         };
         self.storage().get(&handle)
-    }
-
-    /// Record a persistent slice as touched by the active capture window, so
-    /// [`capture_end`](Self::capture_end) retains exactly the slices the window
-    /// handed out. A no-op outside a capture.
-    ///
-    /// Called with a slice's **final** identity: from [`reserve`](Self::reserve)
-    /// for a handle used as-is (e.g. pinned staging), and from [`bind`](Self::bind)
-    /// for a buffer whose reserved handle is replaced by an assigned one. A
-    /// reserved id later superseded by `bind` also lands here but harmlessly —
-    /// ids are unique, so it matches no live slice at `capture_end`.
-    fn capture_touch(&mut self, handle: &ManagedMemoryHandle) {
-        if let Some(capture) = &mut self.capture {
-            capture.touched.insert(handle.descriptor().id);
-            if capture.priming {
-                // Retain it so warmup cannot recycle this slice, forcing the pool to grow to the
-                // pass's full working set rather than its transient peak.
-                capture.primed.push(handle.clone());
-            }
-        }
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
@@ -551,7 +417,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     )
                 },
             );
-            self.capture_touch(&val);
             return Ok(val);
         }
 
@@ -569,9 +434,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     )
                 },
             );
-            if let Ok(handle) = &allocated {
-                self.capture_touch(handle);
-            }
             return allocated;
         }
 
@@ -609,6 +471,32 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         );
 
         Ok(reserved)
+    }
+
+    /// Reserve `size` bytes in the room the pools already hold, the way
+    /// [`reserve`](Self::reserve) would route them: no cleanup, no new page,
+    /// nothing moved. `None` when that room cannot serve it.
+    ///
+    /// What a caller that must not reach the driver reserves with — a stream
+    /// recording a graph, where an allocation would become part of the
+    /// recording.
+    pub fn try_reserve(
+        &mut self,
+        size: u64,
+        failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
+        match self.mode {
+            MemoryAllocationMode::Dedicated => self.dedicated.try_reserve(size, failures),
+            MemoryAllocationMode::Persistent => self.persistent.try_reserve(size, failures),
+            MemoryAllocationMode::Auto => {
+                if matches!(self.config, PersistentMemory::SizeMatch)
+                    && let Some(handle) = self.persistent.try_reserve(size, failures)
+                {
+                    return Some(handle);
+                }
+                self.pools.try_reserve(size, failures)
+            }
+        }
     }
 
     /// Fetch the storage used by the memory manager.
@@ -677,16 +565,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
 
         match PoolPosition::new(descriptor.location().pool) {
-            PoolPosition::Persistent => {
-                // `bind` sets the slice's final identity to `assigned` (replacing
-                // the throwaway reserved handle), so this — not the earlier
-                // `reserve` — is the id a capture must track for a bound
-                // persistent buffer.
-                self.capture_touch(&assigned);
-                self.persistent.bind(reserved, assigned, cursor, failures)
-            }
-            // A capture forces every allocation persistent, so a dedicated one
-            // is never in a window to touch.
+            PoolPosition::Persistent => self.persistent.bind(reserved, assigned, cursor, failures),
             PoolPosition::Dedicated => self.dedicated.bind(reserved, assigned, cursor, failures),
             PoolPosition::Dynamic(index) => self
                 .pools
@@ -1343,7 +1222,7 @@ mod tests {
     }
 
     #[test_log::test]
-    fn capture_pins_reused_persistent_slice() {
+    fn a_guarded_allocation_is_never_handed_out_again() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
@@ -1352,265 +1231,37 @@ mod tests {
             options(),
         );
 
-        // First capture allocates a persistent slice, then everything is freed.
-        memory_management.capture_begin();
-        let first = memory_management
+        let recorded = memory_management
             .reserve(1024, &mut ErrorGraph::default())
             .unwrap();
-        drop(first);
-        drop(memory_management.capture_end());
-
-        // A second capture reuses that now-free slice: the reuse must be pinned
-        // even though the slice predates the capture.
-        memory_management.capture_begin();
-        let second = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
-            .unwrap();
-        drop(second);
-        let pins = memory_management.capture_end();
-        assert_eq!(pins.len(), 1, "the reused slice must be retained");
-
-        // While pinned, the pool must not hand the slice to a later allocation.
-        let before = memory_management.memory_usage();
-        let _other = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
-            .unwrap();
-        let after = memory_management.memory_usage();
-        assert!(
-            after.bytes_reserved > before.bytes_reserved,
-            "a pinned slice was handed to a later allocation"
-        );
-    }
-
-    #[test_log::test]
-    fn capture_pins_preexisting_slice_freed_and_reused_midwindow() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        // A persistent slice that is live (in use) when the next window opens.
-        memory_management.capture_begin();
-        let live = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
-            .unwrap();
-        drop(memory_management.capture_end()); // release the pin; `live` still holds the slice.
-
-        // The window opens with `live`'s slice in use, then frees it mid-window
-        // and reuses that exact slice for a window allocation the graph records
-        // against. The old snapshot-of-in-use heuristic excluded it (it was in
-        // use at begin); reservation-tracking pins it because the window touched
-        // it — the whole point of the redesign.
-        memory_management.capture_begin();
-        drop(live);
-        let reused = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
-            .unwrap();
-        drop(reused);
-        let pins = memory_management.capture_end();
-        assert_eq!(
-            pins.len(),
-            1,
-            "a pre-existing slice freed and reused mid-window must be pinned"
-        );
-    }
-
-    #[test_log::test]
-    fn capture_does_not_retain_untouched_free_slices() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        // Leave an idle free slice in the pool from an earlier capture.
-        memory_management.capture_begin();
-        let earlier = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
-            .unwrap();
-        drop(earlier);
-        drop(memory_management.capture_end());
-
-        // A new capture that only ever touches a different size must not retain
-        // that leftover idle slice — reservation-tracking pins exactly what the
-        // window used, so no free-slice cleanup at `capture_begin` is needed.
-        memory_management.capture_begin();
-        let window = memory_management
-            .reserve(2048, &mut ErrorGraph::default())
-            .unwrap();
-        drop(window);
-        let pins = memory_management.capture_end();
-        assert_eq!(
-            pins.len(),
-            1,
-            "only the touched slice is retained, not the idle leftover"
-        );
-    }
-
-    #[test_log::test]
-    fn capture_survives_explicit_cleanup() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        memory_management.capture_begin();
-        let handle = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
-            .unwrap();
-        drop(handle);
-        // An explicit cleanup mid-capture compacts the persistent pool; the
-        // capture must keep its pins through the rebuild.
-        memory_management.cleanup(true, &mut ErrorGraph::default());
-        let pins = memory_management.capture_end();
-        assert_eq!(pins.len(), 1, "pin lost across an explicit cleanup");
-    }
-
-    #[test_log::test]
-    fn capture_begin_is_reentrant() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        memory_management.capture_begin();
-        let first = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
-            .unwrap();
-        // A second begin (defensive: callers arm a capture exactly once) must
-        // not discard the pins or the saved mode of the capture already in flight.
-        memory_management.capture_begin();
-        let second = memory_management
-            .reserve(2048, &mut ErrorGraph::default())
-            .unwrap();
-        drop(first);
-        drop(second);
-        let pins = memory_management.capture_end();
-        assert_eq!(pins.len(), 2, "pins from before the re-entrant begin lost");
-        assert!(
-            memory_management.capture_end().is_empty(),
-            "capture must be fully disarmed"
-        );
-    }
-
-    #[test_log::test]
-    fn capture_leaves_preexisting_buffers_alone() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        // A persistent buffer that predates the capture and stays alive
-        // through it (weights, a graph input created earlier).
-        memory_management.capture_begin();
-        let preexisting = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
-            .unwrap();
-        drop(memory_management.capture_end());
-
-        memory_management.capture_begin();
-        let window = memory_management
-            .reserve(2048, &mut ErrorGraph::default())
-            .unwrap();
-        drop(window);
-        let pins = memory_management.capture_end();
-
-        // Only the window's slice is claimed; the pre-existing buffer keeps a
-        // single user reference, so in-place ops on it keep working.
-        assert_eq!(
-            pins.len(),
-            1,
-            "only the window's slice belongs to the graph"
-        );
-        assert!(
-            preexisting.can_mut(),
-            "a capture must not claim pre-existing live buffers"
-        );
-    }
-
-    /// Warmup must leave the pool holding its full *distinct working set*, not
-    /// its transient peak.
-    ///
-    /// This is the property the whole priming phase exists for. If warmup is
-    /// allowed to recycle its own slices, the pool only ever grows to the peak
-    /// number of slices live *at any one instant* during the pass — and that
-    /// peak depends on how far the host runs ahead of the device, so it can
-    /// land below what the recorded run asks for. The window then has to
-    /// allocate, which a capture records as a memory node, and CUDA refuses to
-    /// relaunch a graph holding one: the first launch succeeds and every replay
-    /// after it fails.
-    ///
-    /// Here warmup reserves the same size three times *sequentially*, so its
-    /// instantaneous peak is one slice while its working set is three. The
-    /// recorded run then holds three at once. Without retention the pool ends
-    /// warmup with one slice and the window allocates two more.
-    #[test_log::test]
-    fn capture_priming_leaves_the_working_set_not_the_peak() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        // Warmup: three sequential reserve/drop cycles. Each drop would hand
-        // the slice straight back to the next reserve if priming did not retain
-        // it, leaving a one-slice pool.
-        memory_management.capture_begin();
-        for _ in 0..3 {
-            let scratch = memory_management
-                .reserve(1024, &mut ErrorGraph::default())
-                .unwrap();
-            drop(scratch);
-        }
-        // Warmup is over: release the retained slices. They stay in the pool,
-        // now free, which is the entire point.
-        memory_management.capture_priming_end();
-        let after_warmup = memory_management.memory_usage();
-
-        // The recorded run holds three slices of that size simultaneously —
-        // more than warmup's instantaneous peak of one. Every one of them must
-        // come from the pool.
-        let recorded: Vec<_> = (0..3)
-            .map(|_| {
-                memory_management
-                    .reserve(1024, &mut ErrorGraph::default())
-                    .unwrap()
-            })
-            .collect();
-        let after_window = memory_management.memory_usage();
-
-        assert_eq!(
-            after_window.bytes_reserved, after_warmup.bytes_reserved,
-            "the capture window grew the pool: warmup left only its transient \
-             peak, so the recorded run had to allocate — which a capture records \
-             as a memory node and makes the graph un-relaunchable"
-        );
-
+        let guard = memory_management
+            .guard(recorded.descriptor().location())
+            .expect("the pool holds the page");
         drop(recorded);
-        drop(memory_management.capture_end());
+
+        // Freed, but guarded: the next allocation of that size needs a page
+        // of its own, and a cleanup leaves the guarded one where it is.
+        let before = memory_management.memory_usage().bytes_reserved;
+        let other = memory_management
+            .reserve(1024, &mut ErrorGraph::default())
+            .unwrap();
+        let after = memory_management.memory_usage().bytes_reserved;
+        assert!(after > before, "the guarded page was handed out again");
+        memory_management.cleanup(true, &mut ErrorGraph::default());
+        assert_eq!(
+            memory_management.memory_usage().bytes_reserved,
+            after,
+            "the guarded page was released"
+        );
+
+        drop(guard);
+        drop(other);
+        memory_management.cleanup(true, &mut ErrorGraph::default());
+        assert_eq!(memory_management.memory_usage().bytes_reserved, 0);
     }
 
-    /// The mechanism behind [`capture_priming_leaves_the_working_set_not_the_peak`]:
-    /// a handle dropped *during* priming must not return its slice to the free
-    /// list, and `capture_priming_end` must give every one of them back.
     #[test_log::test]
-    fn capture_priming_holds_dropped_slices_until_priming_ends() {
+    fn a_guard_leaves_in_place_updates_alone() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
@@ -1619,71 +1270,14 @@ mod tests {
             options(),
         );
 
-        memory_management.capture_begin();
-        let first = memory_management
+        let cache = memory_management
             .reserve(1024, &mut ErrorGraph::default())
             .unwrap();
-        drop(first);
+        let _guard = memory_management.guard(cache.descriptor().location());
 
-        // Still priming: the dropped slice is retained, so this reserve cannot
-        // recycle it and the pool has to grow.
-        let before_second = memory_management.memory_usage();
-        let second = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
-            .unwrap();
-        let after_second = memory_management.memory_usage();
         assert!(
-            after_second.bytes_reserved > before_second.bytes_reserved,
-            "priming must retain a dropped slice instead of recycling it"
-        );
-        drop(second);
-
-        // Priming over: both slices are free again and must now be reused.
-        memory_management.capture_priming_end();
-        let before_reuse = memory_management.memory_usage();
-        let reused = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
-            .unwrap();
-        let after_reuse = memory_management.memory_usage();
-        assert_eq!(
-            after_reuse.bytes_reserved, before_reuse.bytes_reserved,
-            "capture_priming_end must release the retained slices for reuse"
-        );
-
-        drop(reused);
-        drop(memory_management.capture_end());
-    }
-
-    /// A backend that never calls `capture_priming_end` (HIP did not, before the
-    /// call was added to both) must not leak warmup's slices past the capture.
-    #[test_log::test]
-    fn capture_end_releases_primed_slices_when_priming_never_ended() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::ExclusivePages,
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        memory_management.capture_begin();
-        let scratch = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
-            .unwrap();
-        drop(scratch);
-        // The caller let its handle go, but priming is still holding the slice.
-        assert!(
-            memory_management.memory_usage().bytes_in_use > 0,
-            "priming should still be retaining the dropped slice"
-        );
-
-        // No `capture_priming_end` — `capture_end` drops the `CaptureState`,
-        // and with it every handle priming retained.
-        drop(memory_management.capture_end());
-        assert_eq!(
-            memory_management.memory_usage().bytes_in_use,
-            0,
-            "primed slices outlived the capture"
+            cache.can_mut(),
+            "a graph replaying against a buffer must not stop it being updated in place"
         );
     }
 

@@ -248,19 +248,19 @@ impl Server for CudaServer {
 
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
-        Window::on(command.stream()).prepare(stream_id)
+        Window::on(&mut command).prepare(stream_id)
     }
 
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
-        Window::on(command.stream()).begin()
+        Window::on(&mut command).begin()
     }
 
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let id = GraphId::new();
         let instantiated = {
             let mut command = self.command_no_inputs(stream_id);
-            Window::on(command.stream()).instantiate(stream_id, id)
+            Window::on(&mut command).instantiate(stream_id, id)
         };
         match instantiated {
             Ok(graph) => {
@@ -386,7 +386,7 @@ impl Server for CudaServer {
         self.streams.stream_ids().collect()
     }
 
-    fn memory_cleanup(&mut self, stream_id: StreamId) {
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(stream_id);
         command.memory_cleanup()
     }
@@ -1348,8 +1348,13 @@ impl ServerStorage for CudaServer {
         self.streams.ensure_written([&binding].into_iter())?;
         let mut command = self.command(stream_id, [&binding].into_iter());
         let memory = binding.memory.clone();
+        let guard = command.guard(&binding);
         let resource = command.resource(binding)?;
 
-        Ok(ManagedResource::new(memory, resource))
+        let resource = ManagedResource::new(memory, resource);
+        Ok(match guard {
+            Some(guard) => resource.guarded(guard),
+            None => resource,
+        })
     }
 }

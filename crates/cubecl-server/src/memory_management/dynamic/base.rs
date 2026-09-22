@@ -92,6 +92,21 @@ impl DynamicMemory {
         }
     }
 
+    /// Reserve `size` bytes in the room a pool already holds, without growing
+    /// anything. `None` when none has room for it.
+    pub fn try_reserve(
+        &mut self,
+        size: u64,
+        failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
+        match self {
+            DynamicMemory::Exclusive(pools) => {
+                pools.try_reserve(0..pools.len() as u8, size, failures)
+            }
+            DynamicMemory::Adaptive(memory) => memory.try_reserve(size, failures),
+        }
+    }
+
     /// Whether another page would leave the device with less than one to
     /// spare (see [`AdaptiveMemory::crowded`]). Never, where pages are never
     /// outdated: there is nothing a relocation could free.

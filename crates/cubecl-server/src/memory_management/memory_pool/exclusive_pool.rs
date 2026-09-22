@@ -1,6 +1,7 @@
 use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, MemoryLocation, MemoryPoolKind, MemoryPoolReport, MemoryUsage,
+        PageGuard,
     },
     server::IoError,
     storage::{ComputeStorage, StorageUtilization},
@@ -214,6 +215,11 @@ impl MemoryPool for ExclusiveMemoryPool {
         self.largest_alloc = self.largest_alloc.max(size);
 
         Ok(handle)
+    }
+
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        let page = self.pages.get(location.page as usize)?;
+        Some(PageGuard::allocation(page.slice.handle.clone().binding()))
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {

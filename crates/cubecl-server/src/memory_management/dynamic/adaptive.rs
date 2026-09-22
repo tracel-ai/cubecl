@@ -119,6 +119,16 @@ impl AdaptiveMemory {
         self.pools.alloc(routing, storage, size, mapping, failures)
     }
 
+    /// Reserve `size` bytes in the room the pools already hold, without
+    /// growing the pages. `None` when none has room for it.
+    pub fn try_reserve(
+        &mut self,
+        size: u64,
+        failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
+        self.pools.try_reserve(self.routing(), size, failures)
+    }
+
     /// Whether another page of the size allocations are carved at would leave
     /// the device with less than one to spare.
     ///
@@ -804,35 +814,53 @@ mod tests {
         assert_eq!(contents(&mut memory, &kept), 3);
     }
 
-    /// An allocation a graph capture resolved keeps its address: the recorded
-    /// kernels replay against it.
+    /// A guarded page keeps its address: a recorded graph replays against it.
     #[test]
-    fn relocation_leaves_captured_allocations_in_place() {
+    fn relocation_leaves_guarded_pages_in_place() {
         let mut memory = adaptive();
 
         let recorded = reserve(&mut memory, MIB);
         let location = place(&recorded);
-        memory.mark_captured(&recorded.clone().binding());
+        let _guard = memory.guard(recorded.descriptor().location());
 
         let _large = reserve(&mut memory, 10 * MIB);
         assert_eq!(relocate(&mut memory), 0);
         assert_eq!(place(&recorded), location);
     }
 
-    /// A captured allocation keeps its page, so moving the rest of the page
-    /// would copy bytes and free nothing: none of it moves.
+    /// A guard holds the whole page: everything on it stays.
     #[test]
-    fn a_captured_allocation_holds_its_whole_page() {
+    fn a_guard_holds_its_whole_page() {
         let mut memory = adaptive();
 
         let recorded = reserve(&mut memory, MIB);
-        memory.mark_captured(&recorded.clone().binding());
-        let neighbour = reserve(&mut memory, MIB);
+        let neighbour = reserve(&mut memory, MIB / 2);
         let location = place(&neighbour);
+        assert_eq!(page_of(&neighbour), page_of(&recorded));
+        let _guard = memory.guard(recorded.descriptor().location());
 
         let _large = reserve(&mut memory, 10 * MIB);
         assert_eq!(relocate(&mut memory), 0);
         assert_eq!(place(&neighbour), location);
+    }
+
+    /// A guarded page hands out nothing new, even where its memory is free.
+    #[test]
+    fn a_guarded_page_serves_no_new_reservation() {
+        let mut memory = adaptive();
+
+        let recorded = reserve(&mut memory, MIB);
+        let guard = memory.guard(recorded.descriptor().location());
+        drop(recorded);
+
+        let later = reserve(&mut memory, MIB);
+        assert_eq!(
+            pool(&memory).pages,
+            2,
+            "the guarded page stays out of reach"
+        );
+        drop(guard);
+        drop(later);
     }
 
     /// Only what the pool serves counts: persistent and dedicated allocations,
@@ -890,19 +918,16 @@ mod tests {
         drop(weight);
     }
 
-    /// A graph's claim on an address ends with the allocation: the next
-    /// allocation carved in the same slot can move.
+    /// A guard's claim ends with the guard: the page can move again.
     #[test]
-    fn a_reused_slot_owes_nothing_to_an_old_capture() {
+    fn a_dropped_guard_lets_the_page_move() {
         let mut memory = adaptive();
 
         let recorded = reserve(&mut memory, MIB);
-        memory.mark_captured(&recorded.clone().binding());
-        drop(recorded);
-        let reused = reserve(&mut memory, MIB);
+        drop(memory.guard(recorded.descriptor().location()));
 
         let _large = reserve(&mut memory, 10 * MIB);
-        assert_eq!(relocate(&mut memory), 1, "the reused slot moves");
-        drop(reused);
+        assert_eq!(relocate(&mut memory), 1, "the page moves once unguarded");
+        drop(recorded);
     }
 }

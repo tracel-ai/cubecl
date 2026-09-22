@@ -1,5 +1,5 @@
 use super::{ManagedMemoryHandle, MemoryPool, PageMapping, Slice, calculate_padding};
-use crate::memory_management::{BytesFormat, ErrorGraph, MemoryLocation};
+use crate::memory_management::{BytesFormat, ErrorGraph, MemoryLocation, PageGuard};
 use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec::Vec;
@@ -245,6 +245,11 @@ impl MemoryPool for DirectPool {
         }
 
         slice.materialize(storage)
+    }
+
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
+        let slice = self.slices.get(location.slice as usize)?.as_ref()?;
+        Some(PageGuard::allocation(slice.handle.clone().binding()))
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {

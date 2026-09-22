@@ -135,8 +135,7 @@ impl MetadataCachePolicy {
     /// captured. True in [`CacheMode::Capture`]: a graph records the device
     /// pointer of every info buffer its launches touch, so those entries must
     /// not be evicted for the graph's lifetime — even after the cache returns to
-    /// [`CacheMode::Normal`], and even if the buffer lives in the regular
-    /// (non-persistent) pool and so is not otherwise retained by the graph.
+    /// [`CacheMode::Normal`].
     pub fn pins_entries(&self) -> bool {
         matches!(self.mode, CacheMode::Capture)
     }

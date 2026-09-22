@@ -637,25 +637,15 @@ pub trait Server:
     /// unwritten, and surfaces on any read, sync or check of them.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
-    /// Prepare `stream_id` for an upcoming graph capture: route allocations
-    /// into a stable pool and snapshot it, so every buffer allocated between
-    /// here and [`end_capture`](Server::end_capture) can be pinned for
-    /// the graph's lifetime. Call this **before** the warmup run so the capture
-    /// window reuses the slices warmup left in the pool rather than allocating
-    /// its own — which a hardware-graph backend cannot do at all (a device
-    /// malloc inside the capture is illegal there), and which on any backend
-    /// would grow the memory a graph pins beyond what it replays against.
+    /// Prepare `stream_id` for an upcoming graph capture. Call this
+    /// **before** the warmup run: the capture window allocates nothing, so it
+    /// reuses what the warmup run left in the pools, and every page the
+    /// recording touches is guarded for the graph's lifetime.
     ///
-    /// Prefer having kernels already **autotuned before** this call: any
-    /// transient benchmark buffers autotune allocates while the window is armed
-    /// are forced into the persistent pool and pinned to the graph, so a graph
-    /// captured over a cold autotune cache retains more device memory than it
-    /// replays against. Warm the autotune cache first, then `graph_prepare` and
-    /// warm up only to populate the pool.
+    /// Prefer having kernels already **autotuned before** this call, so the
+    /// warmup run allocates what the recorded run asks for and nothing else.
     ///
-    /// A no-op by default (harmless on backends without graph support); a
-    /// backend with graph support enables its persistent pool + capture
-    /// recording.
+    /// A no-op by default (harmless on backends without graph support).
     fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = stream_id;
         Ok(())
@@ -739,7 +729,12 @@ pub trait Server:
     }
 
     /// Ask the server to release memory that it can release.
-    fn memory_cleanup(&mut self, stream_id: StreamId);
+    ///
+    /// # Errors
+    ///
+    /// Refused while a stream records a graph: releasing memory waits on the
+    /// device, and a wait on a stream that records aborts its capture.
+    fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
     /// Enable collecting timestamps.
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError>;
@@ -1140,6 +1135,24 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
+    /// A stream recording a graph asked for memory the pools do not already
+    /// hold.
+    ///
+    /// Nothing reaches the driver while a graph records: the allocation would
+    /// become part of the recording, and a hardware graph holding one cannot
+    /// be relaunched. The warmup before the capture is what leaves the pools
+    /// holding what the recorded run asks for.
+    #[error(
+        "Graph capture needs {size} bytes the memory pools do not hold; warm up with the same workload before capturing\n{backtrace}"
+    )]
+    AllocationWhileRecording {
+        /// The size of the allocation in bytes.
+        size: u64,
+        /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// Strides aren't supported for this copy operation on this runtime
     #[error("the provided strides are not supported for this operation\n{backtrace}")]
     UnsupportedStrides {
@@ -1225,9 +1238,13 @@ impl IoError {
     /// and a second attempt.
     ///
     /// A buffer larger than any page the device can hold is the exception. It
-    /// never fits, so reclaiming would only spend the time.
+    /// never fits, so reclaiming would only spend the time. So is an
+    /// allocation while a graph records, where nothing may be released.
     pub fn may_succeed_after_reclaim(&self) -> bool {
-        !matches!(self, IoError::BufferTooBig { .. })
+        !matches!(
+            self,
+            IoError::BufferTooBig { .. } | IoError::AllocationWhileRecording { .. }
+        )
     }
 }
 

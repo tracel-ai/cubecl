@@ -15,10 +15,11 @@ use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::{
-    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport, MemoryUsage,
+    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport, MemoryUsage, PageGuard,
 };
 use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
 use crate::stream::ResolvedStreams;
+use crate::stream::TouchedPage;
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -65,21 +66,46 @@ impl<'a, D: Driver> Command<'a, D> {
     /// The device allocation `binding` names, resolved on the stream that
     /// created it rather than the current one.
     ///
-    /// While the current stream records a graph, the allocation is pinned
-    /// where it is: the graph replays against the address resolved here, and
-    /// the stream that owns the allocation — the one whose cleanup could move
-    /// it — may not be the one recording.
+    /// While the current stream records a graph, the page the allocation
+    /// sits on is remembered: the graph replays against the address resolved
+    /// here, so it guards that page once it seals.
     ///
     /// # Errors
     ///
     /// [`IoError::StorageHandleNotFound`] when the binding names no live allocation.
     pub fn resource(&mut self, binding: BufferBinding) -> Result<DeviceResource<D>, IoError> {
-        let recording = self.streams.current().capturing().is_recording();
-        let memory = self.streams.get(&binding.stream).device_memory();
-        if recording {
-            memory.mark_captured(&binding.memory);
-        }
-        memory.get_resource(binding.memory, binding.offset_start, binding.offset_end)
+        self.streams
+            .current()
+            .capturing()
+            .touch(binding.stream, binding.memory.descriptor().location());
+        self.streams
+            .get(&binding.stream)
+            .device_memory()
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+    }
+
+    /// A guard on the page behind `binding`, for a resource handed out of the
+    /// server: its raw address must keep naming these bytes for as long as
+    /// the resource is held.
+    pub fn guard(&mut self, binding: &BufferBinding) -> Option<PageGuard> {
+        self.streams
+            .get(&binding.stream)
+            .device_memory()
+            .guard(binding.memory.descriptor().location())
+    }
+
+    /// A guard on every page in `touched`, each looked up in the memory of the
+    /// stream that owns it.
+    pub fn guard_pages(&mut self, touched: &[TouchedPage]) -> Vec<PageGuard> {
+        touched
+            .iter()
+            .filter_map(|page| {
+                self.streams
+                    .get(&page.stream)
+                    .device_memory()
+                    .guard(page.location)
+            })
+            .collect()
     }
 
     /// The current stream's device memory usage.
@@ -94,31 +120,42 @@ impl<'a, D: Driver> Command<'a, D> {
 
     /// Release everything the current stream is holding that nothing still
     /// needs.
-    pub fn memory_cleanup(&mut self) {
+    ///
+    /// # Errors
+    ///
+    /// Refused while any stream records a graph: releasing memory waits on
+    /// the device, and a wait on a stream that records aborts its capture.
+    pub fn memory_cleanup(&mut self) -> Result<(), ServerError> {
+        if self.recording() {
+            return Err(ServerError::graph_state(
+                "memory_cleanup: a stream is recording a graph, and releasing memory waits on the \
+                 device",
+            ));
+        }
         let stream = self.streams.current();
         // Deferred frees sit in the drop queue until a fenced flush, so an
         // explicit cleanup must drain it first or the pools still see those
-        // slices as live. Skipped mid-capture: a host sync aborts the capture,
-        // and the capture path drains the queue itself. The cleanups below stay
-        // safe mid-capture: `cleanup` defers all frees while a capture is
-        // active.
-        if !stream.capturing().is_recording() {
-            let signal = stream.signal();
-            stream.drop_queue().drain(|| D::Stream::fence(signal));
-            // The info cache's buffers are live slices in the dynamic pools;
-            // an explicit cleanup exists to leave those pools empty (e.g. for
-            // a rebuild sized to the next workload), so every entry not pinned
-            // by a live graph goes too. Skipped while recording for the same
-            // reason the drain is: an entry the recording has not touched yet
-            // would come back as a fresh allocation inside the capture window,
-            // which is illegal.
-            stream.info_cache().clear_unpinned();
-        }
+        // slices as live.
+        let signal = stream.signal();
+        stream.drop_queue().drain(|| D::Stream::fence(signal));
+        // The info cache's buffers are live slices in the dynamic pools; an
+        // explicit cleanup exists to leave those pools empty, so every entry
+        // not pinned by a live graph goes too.
+        stream.info_cache().clear_unpinned();
+
         let (stream, failures) = self.streams.current_and_failures();
         stream.device_memory().cleanup(true, failures);
         self.relocate();
         let (stream, failures) = self.streams.current_and_failures();
         stream.host_memory().cleanup(true, failures);
+        Ok(())
+    }
+
+    /// Whether any stream is recording a graph.
+    fn recording(&mut self) -> bool {
+        self.streams
+            .all()
+            .any(|stream| stream.capturing().is_recording())
     }
 
     /// Empty the outdated pools into the room the current pages have, so the
@@ -129,12 +166,8 @@ impl<'a, D: Driver> Command<'a, D> {
     /// into. Skipped while any stream records a graph: the copies wait on
     /// every stream, and a host wait on a capturing one invalidates its
     /// capture.
-    fn relocate(&mut self) {
-        if self
-            .streams
-            .all()
-            .any(|stream| stream.capturing().is_recording())
-        {
+    pub(super) fn relocate(&mut self) {
+        if self.recording() {
             return;
         }
         let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
@@ -173,6 +206,22 @@ impl<'a, D: Driver> Command<'a, D> {
     /// [`IoError::BufferTooBig`] when no device could ever fit it, and
     /// whatever the allocator reports when a reclaim-and-retry still cannot.
     pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+        // Nothing reaches the driver while the stream records a graph: the
+        // allocation would become part of the recording.
+        if self.streams.current().capturing().is_recording() {
+            let (stream, failures) = self.streams.current_and_failures();
+            if let Some(handle) = stream.device_memory().try_reserve(size, failures) {
+                return Ok(handle);
+            }
+            let err = IoError::AllocationWhileRecording {
+                size,
+                backtrace: BackTrace::capture(),
+            };
+            // The recording now misses whatever this memory was for.
+            stream.capturing().fail(err.clone().into());
+            return Err(err);
+        }
+
         // Emptying an outdated pool needs room for the pages it moves into, so
         // it happens while the device still has a page to spare — waiting for
         // it to refuse one would leave the copies nowhere to land.
@@ -189,7 +238,8 @@ impl<'a, D: Driver> Command<'a, D> {
             // never-initialized handle whose every downstream use fails.
             Err(err) => {
                 log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
-                self.memory_cleanup();
+                // Not recording, checked above, so the cleanup is not refused.
+                let _ = self.memory_cleanup();
                 let (stream, failures) = self.streams.current_and_failures();
                 stream.device_memory().reserve(size, failures)
             }
@@ -247,9 +297,15 @@ impl<'a, D: Driver> Command<'a, D> {
             Some(id) => self.streams.get_and_failures(&id),
             None => self.streams.current_and_failures(),
         };
-        let handle = stream.host_memory().reserve(size as u64, failures).ok()?;
+        // A stream recording a graph stages from what the pool holds, and
+        // falls back to the heap rather than allocate.
+        let handle = match stream.capturing().is_recording() {
+            true => stream.host_memory().try_reserve(size as u64, failures)?,
+            false => stream.host_memory().reserve(size as u64, failures).ok()?,
+        };
 
         let binding = MemoryHandle::binding(handle);
+        stream.capturing().prime(&binding);
         let resource = stream
             .host_memory()
             .get_resource(binding.clone(), None, None)

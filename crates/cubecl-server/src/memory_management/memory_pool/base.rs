@@ -1,6 +1,6 @@
 use super::{ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle};
 use crate::{
-    memory_management::{ErrorGraph, MemoryUsage, Taint},
+    memory_management::{ErrorGraph, MemoryLocation, MemoryUsage, PageGuard, Taint},
     server::IoError,
     storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
@@ -155,6 +155,10 @@ pub trait MemoryPool {
     /// Computes the [`MemoryUsage`] for this pool.
     fn get_memory_usage(&self) -> MemoryUsage;
 
+    /// Keep the page `location` names as it is for as long as the guard lives
+    /// (see [`PageGuard`]). `None` when the pool holds no such page.
+    fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard>;
+
     /// Cleanup the memory pool, maybe freeing some memory using the [`ComputeStorage`].
     fn cleanup<Storage: ComputeStorage>(
         &mut self,
@@ -187,10 +191,6 @@ pub(crate) struct Slice {
     /// see [`bind`](Self::bind) and the clear calls on every path that drops
     /// a slice.
     pub tainted: Taint,
-    /// Whether a graph capture resolved this allocation, so a recorded kernel
-    /// holds its raw address: relocation must leave it where it is. Cleared
-    /// when the slice takes on a new allocation.
-    pub captured: bool,
 }
 
 impl Slice {
@@ -202,7 +202,6 @@ impl Slice {
             cursor: 0,
             mapped: true,
             tainted: Taint::default(),
-            captured: false,
         }
     }
 
@@ -211,7 +210,6 @@ impl Slice {
     /// hands.
     pub(crate) fn bind(&mut self, handle: ManagedMemoryHandle, failures: &mut ErrorGraph) {
         self.tainted.clear(failures);
-        self.captured = false;
         self.handle = handle;
     }
 

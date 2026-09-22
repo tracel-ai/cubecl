@@ -1,7 +1,7 @@
 use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
-        MemoryUsage,
+        MemoryUsage, PageGuard,
         memory_pool::{PageMapping, Slice, calculate_padding},
     },
     server::IoError,
@@ -11,7 +11,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
-use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::{backtrace::BackTrace, sync::Arc};
 
 /// A memory page is responsible to reserve [slices](Slice) of data based on a fixed [storage buffer](StorageHandle).
 pub struct MemoryPage {
@@ -32,6 +32,9 @@ pub struct MemoryPage {
     /// write. Everything else about the page (slice offsets, coalescing,
     /// high-water accounting) behaves identically either way.
     mapped: bool,
+    /// Counts the [guards](PageGuard) handed out on the page: it is guarded
+    /// while any of them lives.
+    guards: Arc<()>,
 }
 
 impl MemoryPage {
@@ -53,6 +56,7 @@ impl MemoryPage {
             alignment,
             location_base,
             mapped: matches!(mapping, PageMapping::Eager),
+            guards: Arc::new(()),
         };
 
         let slice = Slice::new(storage, 0);
@@ -68,6 +72,16 @@ impl MemoryPage {
     /// Whether the page's storage id is backed by a real device allocation.
     pub fn is_mapped(&self) -> bool {
         self.mapped
+    }
+
+    /// Keep the page as it is for as long as the guard lives.
+    pub fn guard(&self) -> PageGuard {
+        PageGuard::page(&self.guards)
+    }
+
+    /// Whether a [guard](Self::guard) is keeping the page as it is.
+    pub fn is_guarded(&self) -> bool {
+        Arc::strong_count(&self.guards) > 1
     }
 
     /// The page's size in bytes.
@@ -199,11 +213,9 @@ impl MemoryPage {
             let handle = slice.handle.clone();
             let storage_old = slice.storage.clone();
 
-            // Updates the current storage utilization. A new allocation owes
-            // nothing to a graph that recorded the last one.
+            // Updates the current storage utilization.
             slice.storage.utilization.size = size;
             slice.padding = padding;
-            slice.captured = false;
 
             if can_be_split {
                 let new_slice = Slice::new(storage_old.offset_start(effective_size), 0);

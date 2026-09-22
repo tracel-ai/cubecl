@@ -18,9 +18,9 @@ pub enum OutdatedPage {
     Empty,
     /// Every live allocation on it can move: moving them all frees the page.
     Movable(MovablePage),
-    /// A graph capture recorded an allocation on it, which keeps its address:
-    /// the page stays whatever else moves, so nothing on it is worth moving.
-    Captured,
+    /// A [guard](crate::memory_management::PageGuard) keeps everything on it
+    /// where it is, so nothing on it moves.
+    Guarded,
 }
 
 /// An outdated page whose live allocations can all move.
@@ -50,7 +50,7 @@ impl OutdatedPages {
     /// The pages to empty, in the order to empty them.
     ///
     /// Every movable page, and only those: an empty page needs no move, and a
-    /// captured one is held whatever moves. Cheapest first — the fewest live
+    /// guarded one keeps what it holds. Cheapest first — the fewest live
     /// bytes — so that when the current pages run out of room for targets,
     /// the pages already emptied are as many as that room allowed.
     pub fn plan(self) -> Vec<MovablePage> {
@@ -59,7 +59,7 @@ impl OutdatedPages {
             .into_iter()
             .filter_map(|page| match page {
                 OutdatedPage::Movable(page) => Some(page),
-                OutdatedPage::Empty | OutdatedPage::Captured => None,
+                OutdatedPage::Empty | OutdatedPage::Guarded => None,
             })
             .collect();
         movable.sort_by_key(MovablePage::live_bytes);
@@ -70,15 +70,15 @@ impl OutdatedPages {
 impl OutdatedPage {
     /// What `page` holds.
     pub fn new(page: &MemoryPage) -> Self {
+        if page.is_guarded() {
+            return OutdatedPage::Guarded;
+        }
         let mut live = page.live().peekable();
         if live.peek().is_none() {
             return OutdatedPage::Empty;
         }
         let mut allocations = Vec::new();
         for slice in live {
-            if slice.captured {
-                return OutdatedPage::Captured;
-            }
             allocations.push(LiveAllocation {
                 handle: slice.handle.clone(),
                 size: slice.storage.size(),
@@ -101,8 +101,8 @@ mod tests {
     use alloc::vec;
 
     #[test]
-    fn the_plan_skips_empty_and_captured_pages() {
-        let plan = analysis([OutdatedPage::Empty, OutdatedPage::Captured, movable(&[1])]).plan();
+    fn the_plan_skips_empty_and_guarded_pages() {
+        let plan = analysis([OutdatedPage::Empty, OutdatedPage::Guarded, movable(&[1])]).plan();
         assert_eq!(sizes(&plan), [vec![1]]);
     }
 

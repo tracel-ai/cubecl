@@ -36,7 +36,9 @@ impl PooledProbes {
         let pooled = POOLED_PROBES.lock();
 
         if !Self::held_by(&pooled, client.service_id()) {
-            client.memory_cleanup();
+            // A cleanup refused because a stream records a graph leaves the
+            // memory for the next one; the sweep needs nothing from it.
+            let _ = client.memory_cleanup();
         }
     }
 

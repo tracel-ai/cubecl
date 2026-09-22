@@ -575,6 +575,19 @@ impl WgpuStream {
         size: u64,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
+        // Nothing is allocated while the stream records a graph: the pools
+        // serve the recording from what the warmup run left them.
+        if self.capturing.is_recording() {
+            if let Some(handle) = self.mem_manage.try_reserve(size, failures) {
+                return Ok(handle);
+            }
+            let err = IoError::AllocationWhileRecording {
+                size,
+                backtrace: BackTrace::capture(),
+            };
+            self.capturing.fail(err.clone().into());
+            return Err(err);
+        }
         // Emptying an outdated pool needs room for the pages it moves into, so
         // it happens while the device still has a page to spare.
         if self.mem_manage.crowded() {
@@ -809,8 +822,11 @@ impl WgpuStream {
         self.submission_load
             .regulate(&self.device, self.tasks_count, index);
 
-        // Cleanup allocations and deallocations.
-        self.mem_manage.memory_cleanup(false, failures);
+        // Cleanup allocations and deallocations. Never while recording: the
+        // pages a recording touched keep their numbers until it seals.
+        if !self.capturing.is_recording() {
+            self.mem_manage.memory_cleanup(false, failures);
+        }
         self.mem_manage.release_uniforms();
 
         #[cfg(renderdoc)]
@@ -904,6 +920,10 @@ impl WgpuStream {
             })
         });
 
+        if let CubeCount::Dynamic(binding) = dispatch {
+            self.capturing
+                .touch(binding.stream, binding.memory.descriptor().location());
+        }
         let dispatch = match dispatch.clone() {
             CubeCount::Static(x, y, z) => ReplayDispatch::Static(x, y, z),
             CubeCount::Dynamic(binding) => match self.mem_manage.get_resource(binding) {
