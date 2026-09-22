@@ -193,31 +193,6 @@ pub(crate) struct Slice {
     pub captured: bool,
 }
 
-/// A live allocation being relocated: `source`'s bytes are copied into
-/// `target`'s, then the allocation's handle is handed over to the target
-/// slice (see [`Slice::hand_over`]). Until that handover the source is
-/// untouched, so dropping a relocation abandons the move with nothing lost —
-/// the target slice is freed with its handle.
-#[derive(Debug)]
-pub struct Relocation {
-    /// The allocation being moved, as its owners hold it.
-    pub allocation: ManagedMemoryHandle,
-    /// The slice reserved to receive it.
-    pub target: ManagedMemoryHandle,
-    /// The bytes to copy, or `None` when the source was carved under a dry run
-    /// and never resolved — there is nothing behind it to copy.
-    pub copy: Option<StorageCopy>,
-}
-
-/// The device copy a [`Relocation`] needs, between two resolved storages.
-#[derive(Debug, Clone)]
-pub struct StorageCopy {
-    /// Where the bytes are now.
-    pub source: StorageHandle,
-    /// Where they go.
-    pub target: StorageHandle,
-}
-
 impl Slice {
     pub fn new(storage: StorageHandle, padding: u64) -> Self {
         Self {
@@ -246,6 +221,7 @@ impl Slice {
     /// target's so every owner resolves there from now on, and this slice is
     /// left free. Whatever the target's last allocation left tainted is
     /// released first, as [`bind`](Self::bind) would.
+    #[cfg(multi_threading)]
     pub(crate) fn hand_over(&mut self, target: &mut Slice, failures: &mut ErrorGraph) {
         target.tainted.clear(failures);
         let location = target.handle.descriptor().location();

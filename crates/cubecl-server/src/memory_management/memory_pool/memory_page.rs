@@ -80,6 +80,7 @@ impl MemoryPage {
         self.slices.iter().all(Slice::is_free)
     }
 
+    #[cfg(multi_threading)]
     /// The live slices relocation may move off this page, by index: every
     /// one no captured graph has recorded.
     pub fn movable(&self) -> impl Iterator<Item = usize> + '_ {
@@ -90,11 +91,13 @@ impl MemoryPage {
             .map(|(index, _)| index)
     }
 
+    #[cfg(multi_threading)]
     /// The slice at `index`.
     pub fn slice(&self, index: usize) -> &Slice {
         &self.slices[index]
     }
 
+    #[cfg(multi_threading)]
     /// The slice at `index`, mutably.
     pub fn slice_mut(&mut self, index: usize) -> &mut Slice {
         &mut self.slices[index]

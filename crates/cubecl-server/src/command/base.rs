@@ -10,15 +10,15 @@
 //! and reclaim policy, when the drop queue may be flushed, what a copy stages.
 //! The four calls that are not are [`Driver`](super::Driver)'s.
 
+use super::stream_copies::StreamCopies;
 use super::{CopyLayout, DeviceResource, DeviceStream, Driver, Staging};
 use crate::id::KernelId;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::{
     InstallMemoryPoolsError, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
-    MemoryHandle, MemoryReport, MemoryUsage, memory_pool::Relocation,
+    MemoryHandle, MemoryReport, MemoryUsage,
 };
 use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
-use crate::storage::ComputeStorage;
 use crate::stream::ResolvedStreams;
 use alloc::boxed::Box;
 use alloc::vec;
@@ -128,10 +128,9 @@ impl<'a, D: Driver> Command<'a, D> {
     /// longest-lived allocation ends.
     ///
     /// Runs after the plain cleanup, so the room it freed is there for the
-    /// new pages. Nothing moves until every copy has landed: a copy that fails
-    /// abandons the whole plan and the allocations stay where they were.
-    /// Skipped while any stream records a graph: the copies wait on every
-    /// stream, and a host wait on a capturing one invalidates its capture.
+    /// new pages. Skipped while any stream records a graph: the copies wait on
+    /// every stream, and a host wait on a capturing one invalidates its
+    /// capture.
     fn relocate(&mut self) {
         if self
             .streams
@@ -141,32 +140,29 @@ impl<'a, D: Driver> Command<'a, D> {
             return;
         }
         let (stream, failures) = self.streams.current_and_failures();
-        let relocations = stream.device_memory().plan_relocation(failures);
-        if relocations.is_empty() {
+        let relocation = stream.device_memory().relocation(failures);
+        if relocation.is_empty() {
             return;
         }
 
-        let copied = self.copy_relocations(&relocations);
+        let landed = self
+            .wait_every_stream()
+            .and_then(|()| relocation.copy(&mut StreamCopies::<D>::new(self.streams.current())));
         let (stream, failures) = self.streams.current_and_failures();
-        match copied {
-            Ok(()) => stream
-                .device_memory()
-                .commit_relocation(relocations, failures),
+        match landed {
+            Ok(landed) => stream.device_memory().commit_relocation(landed, failures),
             Err(err) => {
                 log::warn!("relocating allocations off outdated memory pages abandoned: {err}");
-                drop(relocations);
                 // The pages reserved as targets are empty again.
                 stream.device_memory().cleanup(true, failures);
             }
         }
     }
 
-    /// Copy every relocation's bytes and wait until they have landed — also
-    /// when a copy fails, so an abandoned plan never frees a target a copy
-    /// already enqueued is still writing.
-    fn copy_relocations(&mut self, relocations: &[Relocation]) -> Result<(), ServerError> {
-        // Another stream may still read or write an allocation about to move:
-        // everything already enqueued anywhere finishes first.
+    /// Wait until the device is done with everything already enqueued — on
+    /// every stream, and whatever the driver runs outside them: another
+    /// stream may still read or write an allocation about to move.
+    fn wait_every_stream(&mut self) -> Result<(), ServerError> {
         let fences: Vec<_> = self
             .streams
             .all()
@@ -175,23 +171,7 @@ impl<'a, D: Driver> Command<'a, D> {
         for fence in fences {
             fence.wait()?;
         }
-        D::wait_outside_streams(self.ctx)?;
-
-        let stream = self.streams.current();
-        let enqueued = relocations
-            .iter()
-            .filter_map(|relocation| relocation.copy.as_ref())
-            .try_for_each(|copy| {
-                let source = stream.device_memory().storage().get(&copy.source)?;
-                let target = stream.device_memory().storage().get(&copy.target)?;
-                // SAFETY: both come from live slices of the same size on
-                // distinct pages, and nothing else is enqueued before the
-                // fence below.
-                unsafe { D::copy_on_device(&source, &target, stream) }
-            });
-        let landed = D::Stream::fence(stream.signal()).wait();
-        enqueued?;
-        landed
+        D::wait_outside_streams(self.ctx)
     }
 
     /// Flush the current stream's drop queue, freeing what the device is

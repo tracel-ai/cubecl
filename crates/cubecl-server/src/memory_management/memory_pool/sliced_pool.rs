@@ -1,8 +1,10 @@
+#[cfg(multi_threading)]
+use crate::memory_management::relocation::{Move, StorageCopy};
 use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
         MemoryPoolKind, MemoryPoolReport, MemoryUsage,
-        memory_pool::{MemoryPage, MemoryPool, PageMapping, Relocation, Slice, StorageCopy},
+        memory_pool::{MemoryPage, MemoryPool, PageMapping, Slice},
     },
     server::IoError,
     storage::{ComputeStorage, StorageId},
@@ -340,39 +342,41 @@ impl SlicedPool {
     /// of waiting on their longest-lived slice. Current pages are left as they
     /// are: this empties outdated pages, it does not pack current ones.
     ///
-    /// Nothing moves yet: the caller copies each [`Relocation`]'s bytes, then
-    /// hands them over with [`commit_relocation`](Self::commit_relocation).
-    /// Allocations a captured graph recorded stay where they are. Stops early when no target
-    /// can be allocated; what was planned so far is still valid.
+    /// Nothing moves yet: the caller copies each [`Move`]'s bytes, then hands
+    /// them over with [`commit_relocation`](Self::commit_relocation).
+    /// Allocations a captured graph recorded stay where they are. Stops early
+    /// when no target can be allocated; what was planned so far is still valid.
+    #[cfg(multi_threading)]
     pub(crate) fn plan_relocation<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         mapping: PageMapping,
         failures: &mut ErrorGraph,
-    ) -> Vec<Relocation> {
+    ) -> Vec<Move> {
         let moves: Vec<ManagedMemoryHandle> = self
             .outdated()
             .flat_map(|(page, _)| page.movable().map(|index| page.slice(index)))
             .map(|slice| slice.handle.clone())
             .collect();
 
-        let mut relocations = Vec::with_capacity(moves.len());
+        let mut planned = Vec::with_capacity(moves.len());
         for allocation in moves {
             match self.plan_move(storage, mapping, allocation, failures) {
-                Ok(relocation) => relocations.push(relocation),
+                Ok(relocated) => planned.push(relocated),
                 Err(_) => break,
             }
         }
-        relocations
+        planned
     }
 
+    #[cfg(multi_threading)]
     fn plan_move<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
         mapping: PageMapping,
         allocation: ManagedMemoryHandle,
         failures: &mut ErrorGraph,
-    ) -> Result<Relocation, IoError> {
+    ) -> Result<Move, IoError> {
         let source = self.locate(&allocation);
         let size = source.storage.size();
         let source_storage = source.storage.clone();
@@ -392,7 +396,7 @@ impl SlicedPool {
             target: self.locate(&target).storage.clone(),
         });
 
-        Ok(Relocation {
+        Ok(Move {
             allocation,
             target,
             copy,
@@ -402,10 +406,11 @@ impl SlicedPool {
     /// Hand a planned allocation over to its target, once its bytes are
     /// there. The source slice is left free on its outdated page, which the
     /// next cleanup returns to the driver.
-    pub(crate) fn commit_relocation(&mut self, relocation: Relocation, failures: &mut ErrorGraph) {
-        let Relocation {
+    #[cfg(multi_threading)]
+    pub(crate) fn commit_relocation(&mut self, relocated: Move, failures: &mut ErrorGraph) {
+        let Move {
             allocation, target, ..
-        } = relocation;
+        } = relocated;
         // Locations are read now, not at planning: releasing pages since may
         // have renumbered them.
         let source = allocation.descriptor().location();
@@ -423,6 +428,7 @@ impl SlicedPool {
             .hand_over(target_page.slice_mut(destination.slice as usize), failures);
     }
 
+    #[cfg(multi_threading)]
     fn locate(&self, handle: &ManagedMemoryHandle) -> &Slice {
         let location = handle.descriptor().location();
         self.pages[location.page as usize]
@@ -653,7 +659,10 @@ mod tests {
         memory_management::{
             ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
             MemoryManagement, MemoryManagementOptions, MemoryPoolKind, MemoryPoolOptions, PoolType,
+            drop_queue::Fence,
+            relocation::{CopyQueue, StorageCopy},
         },
+        server::{IoError, ServerError},
         storage::{BytesStorage, ComputeStorage},
     };
     use alloc::vec;
@@ -732,21 +741,42 @@ mod tests {
     }
 
     /// Run a relocation the way a command does, with a host copy standing in
-    /// for the device one.
+    /// for the device one. Answers how many allocations moved.
     fn relocate(memory: &mut MemoryManagement<BytesStorage>) -> usize {
         let failures = &mut ErrorGraph::default();
-        let relocations = memory.plan_relocation(failures);
-        let moved = relocations.len();
-        for copy in relocations
-            .iter()
-            .filter_map(|relocation| relocation.copy.as_ref())
-        {
-            let source = memory.storage().get(&copy.source).unwrap();
-            let mut target = memory.storage().get(&copy.target).unwrap();
-            target.write().copy_from_slice(source.read());
-        }
-        memory.commit_relocation(relocations, failures);
+        let relocation = memory.relocation(failures);
+        let moved = relocation.len();
+        let landed = relocation.copy(&mut HostCopies(memory.storage())).unwrap();
+        memory.commit_relocation(landed, failures);
         moved
+    }
+
+    /// Host copies between the storages of a [`BytesStorage`]: done as soon
+    /// as they are enqueued.
+    struct HostCopies<'a>(&'a mut BytesStorage);
+
+    impl CopyQueue for HostCopies<'_> {
+        type Fence = HostFence;
+
+        fn copy(&mut self, copy: &StorageCopy) -> Result<(), IoError> {
+            let source = self.0.get(&copy.source)?;
+            let mut target = self.0.get(&copy.target)?;
+            target.write().copy_from_slice(source.read());
+            Ok(())
+        }
+
+        fn fence(&mut self) -> HostFence {
+            HostFence
+        }
+    }
+
+    /// A host copy has landed by the time it returns.
+    struct HostFence;
+
+    impl Fence for HostFence {
+        fn wait(self) -> Result<(), ServerError> {
+            Ok(())
+        }
     }
 
     /// The page size follows the largest allocation the pool served: a
@@ -899,9 +929,9 @@ mod tests {
         let location = place(&kept);
         let _large = reserve(&mut memory, 10 * MIB);
 
-        let relocations = memory.plan_relocation(&mut ErrorGraph::default());
-        assert_eq!(relocations.len(), 1);
-        drop(relocations);
+        let relocation = memory.relocation(&mut ErrorGraph::default());
+        assert_eq!(relocation.len(), 1);
+        drop(relocation);
 
         assert_eq!(place(&kept), location);
         assert_eq!(contents(&mut memory, &kept), 3);

@@ -3,8 +3,7 @@ use super::{
     ManagedMemoryId, MemoryAllocationMode, MemoryConfiguration, MemoryReport, MemoryUsage,
     PERSISTENT_POOL_POS, PoolType,
     memory_pool::{
-        DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, Relocation,
-        SlicedPool,
+        DirectPool, ExclusiveMemoryPool, MemoryPool, PageMapping, PersistentPool, SlicedPool,
     },
 };
 use crate::{
@@ -18,6 +17,8 @@ use crate::{
     storage::{ComputeStorage, StorageHandle},
 };
 
+#[cfg(multi_threading)]
+use crate::memory_management::relocation::{Landed, Relocation};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -617,38 +618,36 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
     }
 
-    /// Plan moving what is still live on outdated pages onto pages of the
-    /// current size (see [`SlicedPool::plan_relocation`]). Nothing moves yet:
-    /// the caller copies every relocation's bytes on the device, waits for the
-    /// copies, then calls [`commit_relocation`](Self::commit_relocation) — or
-    /// drops the plan, which abandons it with nothing lost.
+    /// Plan moving what is still live on the sliced pools' outdated pages onto
+    /// pages of the current size, reserving a target slice for each. Nothing moves until the returned relocation's copies
+    /// have landed and it is [committed](Self::commit_relocation); dropping it
+    /// abandons it with nothing lost.
     ///
     /// Empty during a capture, where nothing may move or be freed.
-    pub(crate) fn plan_relocation(&mut self, failures: &mut ErrorGraph) -> Vec<Relocation> {
+    #[cfg(multi_threading)]
+    pub fn relocation(&mut self, failures: &mut ErrorGraph) -> Relocation {
         if self.capture.is_some() {
-            return Vec::new();
+            return Relocation::new(Vec::new());
         }
         let mapping = PageMapping::current();
-        let mut relocations = Vec::new();
+        let mut moves = Vec::new();
         for pool in self.pools.iter_mut() {
             if let DynamicPool::Sliced(pool) = pool {
-                relocations.extend(pool.plan_relocation(&mut self.storage, mapping, failures));
+                moves.extend(pool.plan_relocation(&mut self.storage, mapping, failures));
             }
         }
-        relocations
+        Relocation::new(moves)
     }
 
-    /// Hand every planned allocation over to the slice that now holds its
-    /// bytes, then return the pages that left empty to the driver.
-    pub(crate) fn commit_relocation(
-        &mut self,
-        relocations: Vec<Relocation>,
-        failures: &mut ErrorGraph,
-    ) {
-        for relocation in relocations {
-            let pool = relocation.target.descriptor().location().pool as usize;
+    /// Hand every allocation of a landed relocation over to the slice that
+    /// now holds its bytes, then return the pages that left empty to the
+    /// driver.
+    #[cfg(multi_threading)]
+    pub fn commit_relocation(&mut self, relocation: Landed, failures: &mut ErrorGraph) {
+        for relocated in relocation.into_moves() {
+            let pool = relocated.target.descriptor().location().pool as usize;
             if let Some(DynamicPool::Sliced(pool)) = self.pools.get_mut(pool) {
-                pool.commit_relocation(relocation, failures);
+                pool.commit_relocation(relocated, failures);
             }
         }
         self.cleanup(true, failures);
