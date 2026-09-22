@@ -1,6 +1,20 @@
 use crate::prelude::*;
 use cubecl_core::ir::dialect::atomic::*;
 
+/// The scope every atomic synchronizes at: all units of the device, like CUDA's `atomicAdd`
+/// and HIP's agent-scoped atomics. The system scope would also order against the host and
+/// peer devices, which CubeCL buffers are never shared with while a kernel runs, and on the
+/// GPU targets it can select slower, system-coherent instructions.
+fn device_scope(ctx: &Context) -> SyncScopeAttr {
+    match ctx.target() {
+        #[cfg(feature = "amdgpu")]
+        LlvmTarget::AmdGpu => SyncScopeAttr::NamedScope("agent".into()),
+        #[cfg(feature = "nvptx")]
+        LlvmTarget::Nvptx => SyncScopeAttr::NamedScope("device".into()),
+        LlvmTarget::Cpu => SyncScopeAttr::System,
+    }
+}
+
 macro_rules! lower_atomic_rmw {
     ($cube_op:ty => $pred:expr) => {
         #[op_interface_impl]
@@ -15,7 +29,7 @@ macro_rules! lower_atomic_rmw {
                 let val = self.value(ctx);
                 let kind = $pred;
                 let ordering = AtomicOrderingAttr::Monotonic;
-                let sync_scope = SyncScopeAttr::System;
+                let sync_scope = device_scope(ctx);
 
                 let op = llvm::AtomicRmwOp::new(ctx, ptr, val, kind, ordering, sync_scope);
                 rewriter.insert_op(ctx, &op);
@@ -62,7 +76,7 @@ impl ToLLVMDialect for AtomicLoadOp {
         let align = scalar_alignment(ctx, res_cube_ty);
         let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
 
-        let sync_scope = SyncScopeAttr::System;
+        let sync_scope = device_scope(ctx);
         let op = llvm::AtomicLoadOp::new(ctx, ptr, res_ty, ordering, sync_scope);
         op.set_alignment(ctx, align);
         rewriter.insert_op(ctx, &op);
@@ -86,7 +100,7 @@ impl ToLLVMDialect for AtomicStoreOp {
             .unwrap_or_else(|| value.get_type(ctx));
         let align = scalar_alignment(ctx, value_cube_ty);
         let ordering = AtomicOrderingAttr::Monotonic;
-        let sync_scope = SyncScopeAttr::System;
+        let sync_scope = device_scope(ctx);
 
         let store = llvm::AtomicStoreOp::new(ctx, value, ptr, ordering, sync_scope);
         store.set_alignment(ctx, align);
@@ -110,7 +124,7 @@ impl ToLLVMDialect for AtomicCompareExchangeWeakOp {
         let before = AtomicOrderingAttr::Monotonic;
         let after = AtomicOrderingAttr::Monotonic;
 
-        let sync_scope = SyncScopeAttr::System;
+        let sync_scope = device_scope(ctx);
         let op = llvm::AtomicCmpxchgOp::new(ctx, ptr, cmp, new_val, before, after, sync_scope);
         rewriter.insert_op(ctx, &op);
         rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
