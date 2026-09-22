@@ -1,6 +1,7 @@
 mod dummy;
 
 use crate::dummy::{DummyDevice, DummyElementwiseAddition, test_client};
+use cubecl_server::memory_management::MemoryScope;
 
 use cubecl_common::bytes::Bytes;
 use cubecl_common::device::{DeviceId, ServiceId};
@@ -988,8 +989,9 @@ fn a_dry_run_reserves_without_mapping() {
     // predicting it.
     fn arena(report: &cubecl_server::memory_management::MemoryReport) -> MemoryPoolReport {
         report
-            .dynamic
+            .streams
             .iter()
+            .flat_map(|stream| stream.dynamic.iter())
             .find(|pool| pool.largest_alloc == SIZE)
             .expect("some pool served the buffer")
             .clone()
@@ -1008,7 +1010,7 @@ fn a_dry_run_reserves_without_mapping() {
         ]),
     );
 
-    let report = client.memory_report();
+    let report = client.memory_report(MemoryScope::CurrentStream);
     let pool = arena(&report);
     assert_eq!(
         pool.pages_unmapped, pool.pages,
@@ -1019,7 +1021,7 @@ fn a_dry_run_reserves_without_mapping() {
     // Reading is a resolution: the backing appears exactly there.
     let data = client.read_one(out).unwrap();
     assert_eq!(data.len(), SIZE as usize);
-    let report = client.memory_report();
+    let report = client.memory_report(MemoryScope::CurrentStream);
     assert_eq!(
         arena(&report).pages_unmapped,
         0,

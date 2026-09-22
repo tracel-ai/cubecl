@@ -31,7 +31,7 @@ use cubecl_server::{
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryReport},
+    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, StreamMemoryReport},
     server::Server,
     storage::{ComputeStorage, ManagedResource},
     stream::{ExecuteScope, FailureStore, MultiStream, StreamCapture, WriteScoped, failed_writing},
@@ -325,7 +325,7 @@ impl Server for HipServer {
         self.ctx.profiler.abandon(token);
     }
 
-    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport {
+    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport {
         self.command_no_inputs(stream_id).memory_report()
     }
 

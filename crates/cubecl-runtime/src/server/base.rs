@@ -8,7 +8,9 @@ use crate::{
     id::GraphId,
     kernel::CubeKernel,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, MemoryReport},
+    memory_management::{
+        ManagedMemoryHandle, ManagedMemoryId, MemoryAllocationMode, StreamMemoryReport,
+    },
     server::{BufferBinding, KernelResource},
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
@@ -712,7 +714,7 @@ pub trait Server:
     /// each pool's shape, usage, and high-water marks, in allocation-routing
     /// order. The read side of a measured memory plan — see
     /// `MemoryManagement::memory_report` in `cubecl-server`.
-    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport;
+    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport;
 
     /// Stream ids the client should iterate to aggregate across the device.
     ///

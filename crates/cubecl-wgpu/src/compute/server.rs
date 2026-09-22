@@ -36,7 +36,7 @@ use cubecl_ir::MemoryDeviceProperties;
 #[cfg(feature = "spirv")]
 use cubecl_server::compiler::{KernelCacheKey, compilation_store, store_compiled};
 use cubecl_server::memory_management::{
-    ManagedMemoryHandle, MemoryReport, SharedMemoryBindings,
+    ManagedMemoryHandle, SharedMemoryBindings, StreamMemoryReport,
     relocation::{RelocatingStreams, RelocationNeed, RelocationReason},
 };
 use cubecl_server::{
@@ -685,9 +685,12 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         self.scheduler.stream(&stream_id).abandon_profile(token);
     }
 
-    fn memory_report(&mut self, stream_id: StreamId) -> MemoryReport {
+    fn memory_report(&mut self, stream_id: StreamId) -> StreamMemoryReport {
         self.scheduler.execute_streams(vec![stream_id]);
-        self.scheduler.stream(&stream_id).mem_manage.memory_report()
+        self.scheduler
+            .stream(&stream_id)
+            .mem_manage
+            .memory_report(stream_id)
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {

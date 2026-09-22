@@ -675,9 +675,12 @@ impl Server for MetalServer {
     fn memory_report(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_server::memory_management::MemoryReport {
+    ) -> cubecl_server::memory_management::StreamMemoryReport {
         let mut resolved = self.streams.resolve(stream_id, std::iter::empty());
-        resolved.current().memory_management.memory_report()
+        resolved
+            .current()
+            .memory_management
+            .memory_report(stream_id)
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

@@ -4,7 +4,7 @@
 //! pool carving allocations already has.
 
 use cubecl_hip::HipRuntime;
-use cubecl_server::memory_management::MemoryPoolKind;
+use cubecl_server::memory_management::{MemoryPoolKind, MemoryScope};
 use cubecl_server::runtime::Runtime;
 
 const MIB: usize = 1024 * 1024;
@@ -47,9 +47,10 @@ fn relocation_moves_live_bytes_off_outdated_pages() {
 /// outdated pools still hold.
 fn adaptive(client: &cubecl_server::client::Client) -> (u64, u64) {
     client
-        .memory_report()
-        .dynamic
+        .memory_report(MemoryScope::CurrentStream)
+        .streams
         .iter()
+        .flat_map(|stream| stream.dynamic.iter())
         .find_map(|pool| match pool.kind {
             MemoryPoolKind::Adaptive {
                 page_size,

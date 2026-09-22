@@ -3,7 +3,7 @@ use crate::{
     id::{GraphId, KernelId},
     kernel::CubeKernel,
     logging::ProfileLevel,
-    memory_management::{MemoryAllocationMode, MemoryReport, MemoryUsage},
+    memory_management::{MemoryAllocationMode, MemoryReport, MemoryScope},
     server::{
         BufferBinding, Collective, CommunicationId, CopyDescriptor, CubeCount, Handle,
         KernelArguments, KernelResource, MemoryLayout, MemoryLayoutDescriptor,
@@ -1436,40 +1436,28 @@ impl Client {
         self.utilities.target_properties.clone()
     }
 
-    /// Total memory usage across all streams on this client's device.
+    /// Everything the memory of `scope` holds, stream by stream: each pool's
+    /// shape, usage and high-water marks. [`MemoryReport::usage`] sums them.
     ///
-    /// The closure iterates the server's `stream_ids()` and sums each
-    /// stream's [`MemoryReport::usage`], so the result is correct regardless
-    /// of which thread queries it.
-    pub fn memory_usage(&self) -> MemoryUsage {
-        self.device
-            .submit_blocking(move |server| {
-                server
-                    .stream_ids()
-                    .into_iter()
-                    .fold(MemoryUsage::default(), |acc, id| {
-                        acc.combine(server.memory_report(id).usage())
-                    })
-            })
-            .unwrap_or_resume()
-    }
-
-    /// Structured per-pool report of the **calling stream's** main GPU memory:
-    /// each pool's shape, usage, and high-water marks, in allocation-routing
-    /// order.
-    ///
-    /// The read side of a measured memory plan — install a layout with
-    /// the pools it lays out, measure under a
-    /// [`DryRun`](crate::dry_run::DryRun), cap at the observed peaks; the full
-    /// cycle is on [`MemoryReport`].
-    ///
-    /// Unlike [`memory_usage`](Self::memory_usage), which aggregates across
-    /// streams, this reads one stream: pools are per stream, and a plan is
-    /// measured and installed on the stream that runs the workload.
-    pub fn memory_report(&self) -> MemoryReport {
+    /// Pools are per stream: a plan measured for a workload reads
+    /// [`CurrentStream`](MemoryScope::CurrentStream), the stream that runs it,
+    /// and a caller asking how much the device holds reads
+    /// [`Device`](MemoryScope::Device).
+    pub fn memory_report(&self, scope: MemoryScope) -> MemoryReport {
         let stream_id = self.stream_id();
         self.device
-            .submit_blocking(move |server| server.memory_report(stream_id))
+            .submit_blocking(move |server| {
+                let streams = match scope {
+                    MemoryScope::Device => server.stream_ids(),
+                    MemoryScope::CurrentStream => Vec::from([stream_id]),
+                };
+                MemoryReport {
+                    streams: streams
+                        .into_iter()
+                        .map(|id| server.memory_report(id))
+                        .collect(),
+                }
+            })
             .unwrap_or_resume()
     }
 

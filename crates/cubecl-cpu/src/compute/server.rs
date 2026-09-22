@@ -360,11 +360,11 @@ impl Server for CpuServer {
     fn memory_report(
         &mut self,
         stream_id: StreamId,
-    ) -> cubecl_server::memory_management::MemoryReport {
+    ) -> cubecl_server::memory_management::StreamMemoryReport {
         self.scheduler
             .stream(&stream_id)
             .memory_management
-            .memory_report()
+            .memory_report(stream_id)
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {

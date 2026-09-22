@@ -1,5 +1,6 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use cubecl_environment::stream::StreamId;
 
 /// Amount of memory in use by this allocator
 /// and statistics on how much memory is reserved and
@@ -156,15 +157,33 @@ pub struct MemoryPoolReport {
     pub largest_alloc: u64,
 }
 
-/// Everything one `MemoryManagement` (in `cubecl-server`) holds, pool by pool:
-/// the single place its memory is read from. A caller that wants the totals
-/// asks the report for its [`usage`](Self::usage).
+/// Which memory a [`MemoryReport`] covers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryScope {
+    /// Every stream's memory on the device.
+    Device,
+    /// The memory of the stream the client issues on.
+    CurrentStream,
+}
+
+/// Everything the memory of a [`MemoryScope`] holds, stream by stream: the
+/// single place memory is read from. A caller that wants the totals asks for
+/// the [`usage`](Self::usage).
 ///
 /// A tuning pass allocates like anything else, so its scratch counts toward
 /// these marks; warming the tune caches in an earlier pass leaves the peaks of
 /// a measured one to the workload alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryReport {
+    /// One entry per stream the scope covers.
+    pub streams: Vec<StreamMemoryReport>,
+}
+
+/// What one stream's memory holds, pool by pool.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StreamMemoryReport {
+    /// The stream the memory belongs to.
+    pub stream: StreamId,
     /// One entry per dynamic pool, in allocation-routing order, the pools a
     /// growth left behind last.
     pub dynamic: Vec<MemoryPoolReport>,
@@ -175,7 +194,18 @@ pub struct MemoryReport {
 }
 
 impl MemoryReport {
-    /// The usage of every pool together.
+    /// The usage of every pool of every stream together.
+    pub fn usage(&self) -> MemoryUsage {
+        self.streams
+            .iter()
+            .fold(MemoryUsage::default(), |usage, stream| {
+                usage.combine(stream.usage())
+            })
+    }
+}
+
+impl StreamMemoryReport {
+    /// The usage of this stream's pools together.
     pub fn usage(&self) -> MemoryUsage {
         self.dynamic
             .iter()
@@ -193,4 +223,46 @@ pub trait MemoryHandle<Binding>: Clone + core::fmt::Debug {
     fn can_mut(&self) -> bool;
     /// Get the binding associated to the current handle.
     fn binding(self) -> Binding;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    fn pool(bytes_in_use: u64) -> MemoryPoolReport {
+        MemoryPoolReport {
+            kind: MemoryPoolKind::Direct,
+            usage: MemoryUsage {
+                number_allocs: 1,
+                bytes_in_use,
+                bytes_padding: 0,
+                bytes_reserved: bytes_in_use,
+            },
+            pages: 1,
+            pages_peak: 1,
+            pages_unmapped: 0,
+            largest_alloc: bytes_in_use,
+        }
+    }
+
+    fn stream(value: u64, bytes: u64) -> StreamMemoryReport {
+        StreamMemoryReport {
+            stream: StreamId { value },
+            dynamic: vec![pool(bytes)],
+            persistent: pool(bytes),
+            dedicated: pool(bytes),
+        }
+    }
+
+    /// A device report is the sum of its streams, each the sum of its pools.
+    #[test]
+    fn usage_sums_every_pool_of_every_stream() {
+        let report = MemoryReport {
+            streams: vec![stream(0, 1), stream(1, 10)],
+        };
+        assert_eq!(report.streams[0].usage().bytes_in_use, 3);
+        assert_eq!(report.usage().bytes_in_use, 33);
+        assert_eq!(report.usage().number_allocs, 6);
+    }
 }

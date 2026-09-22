@@ -263,6 +263,7 @@ mod tests {
         server::{IoError, ServerError},
         storage::BytesStorage,
     };
+    use cubecl_environment::stream::StreamId;
     use cubecl_environment::sync::Arc;
     use cubecl_ir::MemoryDeviceProperties;
 
@@ -309,7 +310,7 @@ mod tests {
     /// The adaptive pool: the size it carves pages at, every page it holds —
     /// outdated ones included — and how many of those are outdated.
     fn pool(memory: &MemoryManagement<BytesStorage>) -> Pool {
-        let report = memory.memory_report().dynamic;
+        let report = memory.memory_report(StreamId::current()).dynamic;
         let current = report
             .iter()
             .find_map(|pool| match pool.kind {
@@ -365,12 +366,12 @@ mod tests {
     /// for the device one. Answers how many allocations moved.
     fn relocate(memory: &mut MemoryManagement<BytesStorage>) -> usize {
         let failures = &mut ErrorGraph::default();
-        let before = memory.memory_report().dynamic.len();
+        let before = memory.memory_report(StreamId::current()).dynamic.len();
         let mut copies = HostCopies;
         memory.relocate(&mut copies, RelocationReason::Explicit, failures);
         // A pool a relocation emptied is dropped, so the reports it leaves say
         // how many moved off it.
-        before - memory.memory_report().dynamic.len()
+        before - memory.memory_report(StreamId::current()).dynamic.len()
     }
 
     /// A device that refuses every copy, which abandons the relocation.
@@ -698,7 +699,13 @@ mod tests {
             page_of(&large),
             "it shares the current page"
         );
-        assert_eq!(memory.memory_report().usage().bytes_in_use, 11 * MIB);
+        assert_eq!(
+            memory
+                .memory_report(StreamId::current())
+                .usage()
+                .bytes_in_use,
+            11 * MIB
+        );
     }
 
     /// A plan dropped before its commit leaves every allocation where it was.
@@ -810,11 +817,15 @@ mod tests {
         memory.mode(MemoryAllocationMode::Auto);
 
         assert_eq!(
-            memory.memory_report().persistent.usage.bytes_in_use,
+            memory
+                .memory_report(StreamId::current())
+                .persistent
+                .usage
+                .bytes_in_use,
             MIB,
             "closing the dedicated window restores the persistent one"
         );
-        let report = memory.memory_report();
+        let report = memory.memory_report(StreamId::current());
         assert_eq!(report.usage().bytes_reserved, 200 * MIB + MIB);
         assert_eq!(
             (report.dedicated.kind, report.dedicated.pages),
@@ -825,7 +836,10 @@ mod tests {
         drop(probe);
         let _tick = reserve(&mut memory, MIB);
         assert_eq!(
-            memory.memory_report().usage().bytes_reserved,
+            memory
+                .memory_report(StreamId::current())
+                .usage()
+                .bytes_reserved,
             MIB + FLOOR,
             "the probe buffer is gone; the weight and one adaptive page remain"
         );

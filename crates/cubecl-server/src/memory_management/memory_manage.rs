@@ -1,7 +1,7 @@
 use super::{
     DEDICATED_POOL_POS, ManagedMemoryBinding, ManagedMemoryDescriptor, ManagedMemoryHandle,
-    MemoryAllocationMode, MemoryConfiguration, MemoryLocation, MemoryReport, PERSISTENT_POOL_POS,
-    PageGuard,
+    MemoryAllocationMode, MemoryConfiguration, MemoryLocation, PERSISTENT_POOL_POS, PageGuard,
+    StreamMemoryReport,
     memory_pool::{DirectPool, MemoryPool, PageMapping, PersistentPool},
 };
 use crate::{
@@ -21,6 +21,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::ops::Range;
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
 
@@ -551,11 +552,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         &mut self.storage
     }
 
-    /// Everything this memory holds, pool by pool: each pool's shape, usage
-    /// and high-water marks, the dynamic ones in allocation-routing order.
-    /// [`MemoryReport::usage`] sums them.
-    pub fn memory_report(&self) -> MemoryReport {
-        MemoryReport {
+    /// Everything this memory holds, pool by pool, for the `stream` it
+    /// belongs to: each pool's shape, usage and high-water marks, the dynamic
+    /// ones in allocation-routing order. [`StreamMemoryReport::usage`] sums
+    /// them.
+    pub fn memory_report(&self, stream: StreamId) -> StreamMemoryReport {
+        StreamMemoryReport {
+            stream,
             dynamic: self.pools.report(),
             persistent: self.persistent.report(),
             dedicated: self.dedicated.report(),
@@ -565,7 +568,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Print out a report of the current memory usage.
     pub fn print_memory_usage(&self) {
         #[cfg(feature = "std")]
-        log::info!("{}", self.memory_report().usage());
+        log::info!("{}", self.memory_report(StreamId::current()).usage());
     }
 
     /// Binds the given [handle](HandleId) to a [`MemorySlot`].
@@ -658,7 +661,8 @@ impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
         f.write_str("\n## Dynamic\n\n")?;
 
         f.write_fmt(format_args!("{}", self.pools))?;
-        let memory_usage = self.memory_report().usage();
+        // Only the usage is read, so any stream will do for the report.
+        let memory_usage = self.memory_report(StreamId::current()).usage();
         f.write_fmt(format_args!("\n## Summary\n\n{memory_usage}"))?;
 
         Ok(())
@@ -715,7 +719,7 @@ mod tests {
             .unwrap();
 
         let served = memory
-            .memory_report()
+            .memory_report(StreamId::current())
             .dynamic
             .into_iter()
             .find(|pool| pool.largest_alloc == 7 * MIB)
@@ -759,7 +763,7 @@ mod tests {
             options(),
         );
         let handle = memory_management.reserve(100, PageUpdate::Allow, &mut ErrorGraph::default());
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
 
         assert_eq!(usage.bytes_in_use, 100);
         // A metadata-sized allocation is carved from one metadata page.
@@ -768,7 +772,7 @@ mod tests {
         // Drop and re-alloc.
         drop(handle);
         let _handle = memory_management.reserve(100, PageUpdate::Allow, &mut ErrorGraph::default());
-        let usage_new = memory_management.memory_report().usage();
+        let usage_new = memory_management.memory_report(StreamId::current()).usage();
         assert_eq!(usage, usage_new);
     }
 
@@ -850,7 +854,10 @@ mod tests {
             .unwrap();
 
         let binding_b = handle_b.binding();
-        let reserved = memory_management.memory_report().usage().bytes_reserved;
+        let reserved = memory_management
+            .memory_report(StreamId::current())
+            .usage()
+            .bytes_reserved;
         drop(handle_a);
         drop(handle_c);
 
@@ -860,7 +867,11 @@ mod tests {
         assert!(memory_management.get_cursor(binding_b.clone()).is_ok());
         assert!(memory_management.get_storage(binding_b).is_ok());
         assert!(
-            memory_management.memory_report().usage().bytes_reserved < reserved,
+            memory_management
+                .memory_report(StreamId::current())
+                .usage()
+                .bytes_reserved
+                < reserved,
             "the two freed pages must have gone back"
         );
     }
@@ -888,7 +899,7 @@ mod tests {
         let weight = memory_management
             .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
-        let report = memory_management.memory_report();
+        let report = memory_management.memory_report(StreamId::current());
         assert_eq!(
             report.persistent.usage.bytes_in_use, 1024,
             "an allocation inside the outer window is persistent"
@@ -910,7 +921,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             memory_management
-                .memory_report()
+                .memory_report(StreamId::current())
                 .dynamic
                 .iter()
                 .map(|pool| pool.pages_peak)
@@ -938,7 +949,7 @@ mod tests {
         let _new_handle =
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
         // One page, not two: both slices were carved from the same one.
@@ -964,7 +975,7 @@ mod tests {
         let _new_handle =
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
         assert_eq!(usage.number_allocs, 1);
         assert_eq!(usage.bytes_in_use, alloc_size);
         assert_eq!(usage.bytes_reserved, METADATA_PAGE);
@@ -990,7 +1001,7 @@ mod tests {
         let _new_handle =
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
         assert_eq!(usage.bytes_reserved, page_size * 2);
@@ -1011,7 +1022,7 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         let _new_handle =
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
         // Each slice should be aligned to 50 bytes, so 10 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
     }
@@ -1042,7 +1053,7 @@ mod tests {
             "metadata and the workload must not share a pool"
         );
 
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
         // Total memory should be size of all pages, and no more: one metadata
         // page, and one adaptive page grown to the 4 MiB allocation.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
@@ -1073,7 +1084,7 @@ mod tests {
             .reserve(512 * 1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
 
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
         assert_eq!(
             usage.bytes_reserved,
             2 * MIB,
@@ -1103,7 +1114,7 @@ mod tests {
                 )
             })
             .collect();
-        let usage_before = memory_management.memory_report().usage();
+        let usage_before = memory_management.memory_report(StreamId::current()).usage();
         // Deallocate
         drop(handles);
         // Reallocate
@@ -1116,7 +1127,7 @@ mod tests {
                 )
             })
             .collect();
-        let usage_after = memory_management.memory_report().usage();
+        let usage_after = memory_management.memory_report(StreamId::current()).usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
         assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
         // Usage after can actually be _less_ because of defragging.
@@ -1143,7 +1154,7 @@ mod tests {
                     .unwrap()
             })
             .collect();
-        let usage_before = memory_management.memory_report().usage();
+        let usage_before = memory_management.memory_report(StreamId::current()).usage();
         // Deallocate every other allocation
         for i in (0..handles.len()).step_by(2) {
             drop(handles[i].clone());
@@ -1154,7 +1165,7 @@ mod tests {
                 .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
                 .unwrap();
         }
-        let usage_after = memory_management.memory_report().usage();
+        let usage_after = memory_management.memory_report(StreamId::current()).usage();
         // Check that we haven't increased our memory usage significantly
         assert!(usage_after.bytes_reserved <= (usage_before.bytes_reserved as f64 * 1.1) as u64);
     }
@@ -1194,7 +1205,7 @@ mod tests {
         let _new_handle =
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
         assert!(usage.bytes_reserved >= alloc_size * 2);
@@ -1218,7 +1229,7 @@ mod tests {
         let _new_handle =
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
         assert_eq!(usage.number_allocs, 1);
         assert_eq!(usage.bytes_in_use, alloc_size);
         assert!(usage.bytes_reserved >= alloc_size);
@@ -1239,7 +1250,7 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         let _new_handle =
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
         assert!(usage.bytes_reserved >= alloc_size * 2);
@@ -1259,7 +1270,7 @@ mod tests {
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         let _new_handle =
             memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
         // Each slice should be aligned to 50 bytes, so 10 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
     }
@@ -1277,7 +1288,7 @@ mod tests {
         let alloc_sizes = [50, 150, 250, 350];
         let _handles = alloc_sizes
             .map(|s| memory_management.reserve(s, PageUpdate::Allow, &mut ErrorGraph::default()));
-        let usage = memory_management.memory_report().usage();
+        let usage = memory_management.memory_report(StreamId::current()).usage();
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
     }
@@ -1302,15 +1313,24 @@ mod tests {
 
         // Freed, but guarded: the next allocation of that size needs a page
         // of its own, and a cleanup leaves the guarded one where it is.
-        let before = memory_management.memory_report().usage().bytes_reserved;
+        let before = memory_management
+            .memory_report(StreamId::current())
+            .usage()
+            .bytes_reserved;
         let other = memory_management
             .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
-        let after = memory_management.memory_report().usage().bytes_reserved;
+        let after = memory_management
+            .memory_report(StreamId::current())
+            .usage()
+            .bytes_reserved;
         assert!(after > before, "the guarded page was handed out again");
         memory_management.cleanup(Cleanup::Explicit, &mut ErrorGraph::default());
         assert_eq!(
-            memory_management.memory_report().usage().bytes_reserved,
+            memory_management
+                .memory_report(StreamId::current())
+                .usage()
+                .bytes_reserved,
             after,
             "the guarded page was released"
         );
@@ -1318,7 +1338,13 @@ mod tests {
         drop(guard);
         drop(other);
         memory_management.cleanup(Cleanup::Explicit, &mut ErrorGraph::default());
-        assert_eq!(memory_management.memory_report().usage().bytes_reserved, 0);
+        assert_eq!(
+            memory_management
+                .memory_report(StreamId::current())
+                .usage()
+                .bytes_reserved,
+            0
+        );
     }
 
     #[test_log::test]
@@ -1361,7 +1387,7 @@ mod tests {
                 )
             })
             .collect();
-        let usage_before = memory_management.memory_report().usage();
+        let usage_before = memory_management.memory_report(StreamId::current()).usage();
         // Deallocate
         drop(handles);
         // Reallocate
@@ -1374,7 +1400,7 @@ mod tests {
                 )
             })
             .collect();
-        let usage_after = memory_management.memory_report().usage();
+        let usage_after = memory_management.memory_report(StreamId::current()).usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
         assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
         assert_eq!(usage_before.bytes_reserved, usage_after.bytes_reserved);

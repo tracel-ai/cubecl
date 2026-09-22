@@ -304,9 +304,9 @@ impl<M: Marker> Server for DummyServer<M> {
 
     fn memory_report(
         &mut self,
-        _stream_id: StreamId,
-    ) -> cubecl_server::memory_management::MemoryReport {
-        self.memory_management.memory_report()
+        stream_id: StreamId,
+    ) -> cubecl_server::memory_management::StreamMemoryReport {
+        self.memory_management.memory_report(stream_id)
     }
 
     fn memory_cleanup(&mut self, _stream_id: StreamId) -> Result<(), ServerError> {

@@ -17,7 +17,8 @@ use crate::memory_management::Cleanup;
 use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{RelocatingStreams, RelocationNeed, RelocationReason};
 use crate::memory_management::{
-    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport, PageGuard, PageUpdate,
+    ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, PageGuard, PageUpdate,
+    StreamMemoryReport,
 };
 use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
 use crate::storage::ManagedResource;
@@ -118,9 +119,10 @@ impl<'a, D: Driver> Command<'a, D> {
             .collect()
     }
 
-    /// Structured per-pool report of the current stream's device memory.
-    pub fn memory_report(&mut self) -> MemoryReport {
-        self.streams.current().device_memory().memory_report()
+    /// Everything the current stream's device memory holds, pool by pool.
+    pub fn memory_report(&mut self) -> StreamMemoryReport {
+        let stream = self.streams.current;
+        self.streams.current().device_memory().memory_report(stream)
     }
 
     /// Release everything the current stream is holding that nothing still

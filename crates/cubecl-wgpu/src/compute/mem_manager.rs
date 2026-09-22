@@ -4,6 +4,7 @@ use cubecl_core::{
     MemoryConfiguration,
     server::{BufferBinding, IoError},
 };
+use cubecl_environment::stream::StreamId;
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::memory_management::relocation::{RelocationNeed, RelocationReason};
@@ -235,8 +236,13 @@ impl WgpuMemManager {
         (retained, resource)
     }
 
-    pub(crate) fn memory_report(&self) -> cubecl_server::memory_management::MemoryReport {
-        self.memory_pool.memory_report()
+    /// Everything the main pool holds, for `stream` — see
+    /// [`MemoryManagement::memory_report`].
+    pub(crate) fn memory_report(
+        &self,
+        stream: StreamId,
+    ) -> cubecl_server::memory_management::StreamMemoryReport {
+        self.memory_pool.memory_report(stream)
     }
 
     pub(crate) fn memory_cleanup(&mut self, cleanup: Cleanup, failures: &mut ErrorGraph) {
