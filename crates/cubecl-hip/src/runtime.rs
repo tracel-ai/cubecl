@@ -4,7 +4,6 @@ use crate::{
     device::AmdDevice,
 };
 use core::ffi::c_int;
-use cubecl_llvm::shared::lowered_features::LlvmGpuTarget;
 
 use cubecl_common::{
     device::{Device, DeviceService},
@@ -188,7 +187,14 @@ impl DeviceService for HipServer {
         // Which backend compiles here decides what may be advertised: a feature the selected
         // one cannot honour is a kernel that fails to compile rather than a slower one.
         if HipBackend::default() == HipBackend::Llvm {
-            LlvmGpuTarget::AmdGpu { wmma: gfx.wmma() }.restrict(&mut device_props);
+            let options = cubecl_llvm::PlironOptions {
+                arch: Some(gfx.clone()),
+                ..Default::default()
+            };
+            cubecl_llvm::PlironCompiler {
+                target: cubecl_llvm::LlvmTarget::AmdGpu,
+            }
+            .restrict_features(&options, &mut device_props);
         }
 
         let comp_opts = HipCompilationOptions {

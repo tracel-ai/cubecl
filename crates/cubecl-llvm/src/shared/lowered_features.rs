@@ -1,42 +1,11 @@
-//! What a device advertises, narrowed to what the LLVM backend lowers for it.
+//! What a device advertises, narrowed to what the LLVM backend lowers for it: the rules behind
+//! [`PlironCompiler::restrict_features`](crate::PlironCompiler::restrict_features).
 
 #[cfg(feature = "amdgpu")]
 use cubecl_core::ir::amd::AmdWmma;
 use cubecl_core::ir::{ComplexKind, DeviceProperties, ElemType, FloatKind, OpaqueType};
 #[cfg(feature = "nvptx")]
 use cubecl_core::ir::{IntKind, UIntKind};
-
-/// A GPU target, with what its lowering depends on about the device.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LlvmGpuTarget {
-    #[cfg(feature = "nvptx")]
-    Nvptx,
-    /// `wmma` is the device's matrix generation, `None` for a part without WMMA.
-    #[cfg(feature = "amdgpu")]
-    AmdGpu { wmma: Option<AmdWmma> },
-}
-
-impl LlvmGpuTarget {
-    /// Takes away every feature `props` advertises that this target does not lower.
-    ///
-    /// A runtime's properties come from its C++ backend, which gained each generation's
-    /// hardware features as they shipped. The LLVM backend is at the point of running ordinary
-    /// kernels: arithmetic, memory, shared memory, the plane operations, the two barriers and
-    /// the matrix instructions it has register shapes for. Everything else is taken away here
-    /// rather than left to fail at compile time, because a consumer picks its algorithm off
-    /// these properties — cubek's matmul selectors ask for `mma` before they ask anything else
-    /// — and an advertisement that cannot be honoured is a launch that fails rather than one
-    /// that falls back.
-    pub fn restrict(self, props: &mut DeviceProperties) {
-        match self {
-            #[cfg(feature = "nvptx")]
-            LlvmGpuTarget::Nvptx => restrict_nvptx(props),
-            #[cfg(feature = "amdgpu")]
-            LlvmGpuTarget::AmdGpu { wmma } => restrict_amdgpu(props, wmma),
-        }
-        restrict_common(props);
-    }
-}
 
 const HALF: ElemType = ElemType::Float(FloatKind::F16);
 
@@ -48,10 +17,10 @@ fn is_half_or_single(ty: ElemType) -> bool {
     )
 }
 
-/// Keeps the matrix forms NVPTX has register shapes for; `restrict_common` removes what
-/// neither target lowers.
+/// Keeps the matrix forms NVPTX has register shapes for, then removes what neither target
+/// lowers.
 #[cfg(feature = "nvptx")]
-fn restrict_nvptx(props: &mut DeviceProperties) {
+pub(crate) fn restrict_nvptx(props: &mut DeviceProperties) {
     // Both matrix families are lowered: the cooperative one through `wmma`, the manual one
     // through `mma.sync`. Each is narrowed to the element types its lowering has register
     // shapes for -- `f16` operands throughout, plus the narrow integers on the manual side,
@@ -82,13 +51,16 @@ fn restrict_nvptx(props: &mut DeviceProperties) {
     });
     // The manual `mma.sync` family, `ldmatrix` and `stmatrix` are advertised as lowered;
     // `test_cmma_manual` checks them element by element.
+
+    restrict_common(props);
 }
 
-/// The matrix lowering is RDNA's WMMA with `f16` operands: CDNA's MFMA, the integer and fp8
+/// Keeps the matrix forms AMDGPU lowers, then removes what neither target lowers. The matrix
+/// lowering is RDNA's WMMA with `f16` operands: CDNA's MFMA, the integer and fp8
 /// WMMA forms and `bf16` (see `restrict_common`) have none. The plane operations work under
 /// divergence, since they read the active lanes from `exec`, so they are left as advertised.
 #[cfg(feature = "amdgpu")]
-fn restrict_amdgpu(props: &mut DeviceProperties, wmma: Option<AmdWmma>) {
+pub(crate) fn restrict_amdgpu(props: &mut DeviceProperties, wmma: Option<AmdWmma>) {
     let lowered = |a: ElemType, b: ElemType, cd: ElemType| {
         wmma.is_some() && a == HALF && b == HALF && is_half_or_single(cd)
     };
@@ -99,9 +71,11 @@ fn restrict_amdgpu(props: &mut DeviceProperties, wmma: Option<AmdWmma>) {
     matmul
         .mma
         .retain(|config| lowered(config.a_type, config.b_type, config.cd_type));
+
+    restrict_common(props);
 }
 
-/// What neither target lowers.
+/// What neither GPU target lowers.
 fn restrict_common(props: &mut DeviceProperties) {
     // The cube-level matrix API, and the scaled instructions with their `block_scale` operands.
     let matmul = &mut props.features.matmul;
@@ -150,8 +124,24 @@ fn restrict_common(props: &mut DeviceProperties) {
 #[cfg(all(test, feature = "amdgpu"))]
 mod tests {
     use super::*;
-    use crate::shared::offline_kernels::device_properties;
-    use cubecl_core::ir::{IntKind, features::MmaConfig};
+    use crate::{
+        PlironCompiler, PlironOptions, shared::offline_kernels::device_properties,
+        target::LlvmTarget,
+    };
+    use cubecl_core::ir::{IntKind, amd::GfxArch, features::MmaConfig};
+
+    fn restricted_for(arch: &str) -> DeviceProperties {
+        let mut props = advertising_every_matrix_form();
+        let options = PlironOptions {
+            arch: Some(GfxArch::parse(arch)),
+            ..Default::default()
+        };
+        PlironCompiler {
+            target: LlvmTarget::AmdGpu,
+        }
+        .restrict_features(&options, &mut props);
+        props
+    }
 
     fn config(a: ElemType, cd: ElemType) -> MmaConfig {
         MmaConfig {
@@ -180,8 +170,7 @@ mod tests {
 
     #[test]
     fn a_part_without_wmma_advertises_no_matrix_form() {
-        let mut props = advertising_every_matrix_form();
-        LlvmGpuTarget::AmdGpu { wmma: None }.restrict(&mut props);
+        let props = restricted_for("gfx90a");
         assert!(props.features.matmul.cmma.is_empty());
         assert!(props.features.matmul.mma.is_empty());
         assert_eq!(props.hardware.num_tensor_cores, None);
@@ -189,11 +178,7 @@ mod tests {
 
     #[test]
     fn rdna_keeps_the_half_precision_forms_only() {
-        let mut props = advertising_every_matrix_form();
-        LlvmGpuTarget::AmdGpu {
-            wmma: Some(AmdWmma::Rdna4),
-        }
-        .restrict(&mut props);
+        let props = restricted_for("gfx1201");
         for kept in [&props.features.matmul.cmma, &props.features.matmul.mma] {
             assert_eq!(kept.len(), 2, "{kept:?}");
             assert!(kept.iter().all(|config| config.a_type == HALF), "{kept:?}");

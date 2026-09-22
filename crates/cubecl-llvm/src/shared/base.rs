@@ -213,6 +213,34 @@ impl Compiler for PlironCompiler {
 }
 
 impl PlironCompiler {
+    /// Takes away every feature `props` advertises that this compiler does not lower for the
+    /// device `options` describes.
+    ///
+    /// A GPU runtime's properties come from its C++ backend, which gained each generation's
+    /// hardware features as they shipped. The LLVM backend runs ordinary kernels: arithmetic,
+    /// memory, shared memory, the plane operations, the two barriers and the matrix
+    /// instructions it has register shapes for. Everything else is taken away here rather than
+    /// left to fail at compile time, because a consumer picks its algorithm off these
+    /// properties — cubek's matmul selectors ask for `mma` before they ask anything else — and
+    /// an advertisement that cannot be honoured is a launch that fails rather than one that
+    /// falls back. The CPU runtime builds its properties from what this backend lowers, so
+    /// the CPU target leaves them as they are.
+    // Only AMDGPU reads the device from `options`, and without a GPU target nothing reads
+    // `props` either.
+    #[cfg_attr(not(feature = "amdgpu"), allow(unused_variables))]
+    pub fn restrict_features(&self, options: &PlironOptions, props: &mut DeviceProperties) {
+        match self.target {
+            LlvmTarget::Cpu => {}
+            #[cfg(feature = "nvptx")]
+            LlvmTarget::Nvptx => super::lowered_features::restrict_nvptx(props),
+            #[cfg(feature = "amdgpu")]
+            LlvmTarget::AmdGpu => super::lowered_features::restrict_amdgpu(
+                props,
+                options.arch.as_ref().and_then(GfxArch::wmma),
+            ),
+        }
+    }
+
     fn compile_ir(
         self,
         kernel: KernelDefinition,

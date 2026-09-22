@@ -35,7 +35,7 @@ use cubecl_cpp::{
         register_scaled_mma_features, register_wmma_features,
     },
 };
-use cubecl_llvm::{nvptx::ptx_version::PtxVersion, shared::lowered_features::LlvmGpuTarget};
+use cubecl_llvm::nvptx::ptx_version::PtxVersion;
 use cubecl_server::{
     allocator::PitchedMemoryLayoutPolicy, logging::ServerLogger, runtime::Runtime,
 };
@@ -368,7 +368,14 @@ impl DeviceService for CudaServer {
         // compile rather than a slower one.
         let backend = CudaBackend::default();
         if backend == CudaBackend::Llvm {
-            LlvmGpuTarget::Nvptx.restrict(&mut device_props);
+            let options = cubecl_llvm::PlironOptions {
+                sm_arch: Some(SmArch::new(arch_version, arch.tensor_cores)),
+                ..Default::default()
+            };
+            cubecl_llvm::PlironCompiler {
+                target: cubecl_llvm::LlvmTarget::Nvptx,
+            }
+            .restrict_features(&options, &mut device_props);
         }
 
         let comp_opts = CudaCompilationOptions {
