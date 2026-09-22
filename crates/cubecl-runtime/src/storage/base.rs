@@ -120,18 +120,12 @@ pub struct ManagedResource<Resource: Send> {
     resource: Resource,
     /// Keeps the allocation where it is while the resource is held: a raw
     /// address into memory that moved would read someone else's bytes.
-    #[new(default)]
+    /// `None` only where no page holds it.
+    #[allow(unused)]
     guard: Option<PageGuard>,
 }
 
 impl<Resource: Send> ManagedResource<Resource> {
-    /// Keep the page behind the resource where it is for as long as the
-    /// resource lives.
-    pub fn guarded(mut self, guard: PageGuard) -> Self {
-        self.guard = Some(guard);
-        self
-    }
-
     /// access the underlying resource.
     ///
     /// # Note

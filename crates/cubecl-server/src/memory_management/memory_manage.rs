@@ -12,7 +12,7 @@ use crate::{
     logging::ServerLogger,
     memory_management::{BytesFormat, DynamicMemory, ErrorGraph, FailureId, memory_pool::Slice},
     server::IoError,
-    storage::{ComputeStorage, StorageHandle},
+    storage::{ComputeStorage, ManagedResource, StorageHandle},
 };
 
 use crate::memory_management::relocation::{CopyQueue, Relocate};
@@ -349,6 +349,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             PoolPosition::Dedicated => self.dedicated.materialize(&mut self.storage, binding),
             PoolPosition::Dynamic(_) => self.pools.materialize(&mut self.storage, binding),
         }
+    }
+
+    /// The resource behind `binding`, holding the allocation and a guard on
+    /// its page for as long as it lives: what a caller that keeps the raw
+    /// address past this call is handed.
+    pub fn managed_resource(
+        &mut self,
+        binding: ManagedMemoryBinding,
+        offset_start: Option<u64>,
+        offset_end: Option<u64>,
+    ) -> Result<ManagedResource<Storage::Resource>, IoError> {
+        let guard = self.guard(binding.descriptor().location());
+        let resource = self.get_resource(binding.clone(), offset_start, offset_end)?;
+        Ok(ManagedResource::new(binding, resource, guard))
     }
 
     /// Returns the resource from the storage at the specified handle

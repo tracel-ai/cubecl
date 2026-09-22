@@ -943,16 +943,7 @@ impl<C: WgpuCompiler> ServerStorage for WgpuServer<C> {
         }
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&binding.stream);
-        let memory = binding.memory.clone();
-        let guard = stream
-            .mem_manage
-            .guard(binding.memory.descriptor().location());
-        let resource = ManagedResource::new(memory, stream.mem_manage.get_resource(binding)?);
-
-        Ok(match guard {
-            Some(guard) => resource.guarded(guard),
-            None => resource,
-        })
+        Ok(stream.mem_manage.managed_resource(binding)?)
     }
 }
 

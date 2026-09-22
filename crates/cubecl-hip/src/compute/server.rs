@@ -614,14 +614,6 @@ impl ServerStorage for HipServer {
         // whatever was there before.
         self.streams.ensure_written([&binding].into_iter())?;
         let mut command = self.command(stream_id, [&binding].into_iter());
-        let memory = binding.memory.clone();
-        let guard = command.guard(&binding);
-        let resource = command.resource(binding)?;
-
-        let resource = ManagedResource::new(memory, resource);
-        Ok(match guard {
-            Some(guard) => resource.guarded(guard),
-            None => resource,
-        })
+        Ok(command.managed_resource(binding)?)
     }
 }

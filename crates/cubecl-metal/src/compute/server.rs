@@ -781,19 +781,10 @@ impl ServerStorage for MetalServer {
         // Resolve from the binding's origin stream; see `resolve_origin_resource`.
         let stream = resolved.get(&binding.stream);
 
-        let memory = binding.memory.clone();
-        let guard = stream
-            .memory_management
-            .guard(binding.memory.descriptor().location());
-        let resource = stream
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .map_err(ServerError::from)?;
-
-        let resource = ManagedResource::new(memory, resource);
-        Ok(match guard {
-            Some(guard) => resource.guarded(guard),
-            None => resource,
-        })
+        Ok(stream.memory_management.managed_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        )?)
     }
 }

@@ -113,12 +113,11 @@ impl CpuServer {
                     return None;
                 };
                 let stream = self.scheduler.stream(&binding.stream);
-                let memory = binding.memory.clone();
                 let resource = stream
                     .memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .managed_resource(binding.memory, binding.offset_start, binding.offset_end)
                     .unwrap();
-                Some(ManagedResource::new(memory, resource))
+                Some(resource)
             })
             .collect::<Vec<_>>();
 
@@ -339,13 +338,16 @@ impl Server for CpuServer {
                 // work has to land before this write overwrites the same
                 // memory.
                 let owner = desc.handle.stream;
-                let memory = desc.handle.memory.clone();
                 let stream = server.scheduler.stream(&owner);
-                let resource = stream.get_resource(desc.handle).map_err(ServerError::Io)?;
-                let task = ScheduleTask::Write {
-                    data,
-                    buffer: ManagedResource::new(memory, resource),
-                };
+                let buffer = stream
+                    .memory_management
+                    .managed_resource(
+                        desc.handle.memory,
+                        desc.handle.offset_start,
+                        desc.handle.offset_end,
+                    )
+                    .map_err(ServerError::Io)?;
+                let task = ScheduleTask::Write { data, buffer };
 
                 server.scheduler.register(stream_id, task, &[owner]);
                 Ok(())
@@ -583,16 +585,11 @@ impl ServerStorage for CpuServer {
         self.scheduler.execute_streams(streams);
 
         let stream = self.scheduler.stream(&binding.stream);
-        let memory = binding.memory.clone();
-        let guard = stream
-            .memory_management
-            .guard(binding.memory.descriptor().location());
-        let resource = ManagedResource::new(memory, stream.get_resource(binding)?);
-
-        Ok(match guard {
-            Some(guard) => resource.guarded(guard),
-            None => resource,
-        })
+        Ok(stream.memory_management.managed_resource(
+            binding.memory,
+            binding.offset_start,
+            binding.offset_end,
+        )?)
     }
 }
 

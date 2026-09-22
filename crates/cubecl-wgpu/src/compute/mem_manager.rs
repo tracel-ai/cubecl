@@ -14,7 +14,7 @@ use cubecl_server::{
         ErrorGraph, FailureId, ManagedMemoryBinding, ManagedMemoryHandle, MemoryAllocationMode,
         MemoryHandle, MemoryLocation, MemoryManagement, MemoryManagementOptions, PageGuard,
     },
-    storage::ComputeStorage,
+    storage::{ComputeStorage, ManagedResource},
 };
 use wgpu::BufferUsages;
 
@@ -208,6 +208,16 @@ impl WgpuMemManager {
     /// lives — see [`MemoryManagement::guard`].
     pub(crate) fn guard(&mut self, location: MemoryLocation) -> Option<PageGuard> {
         self.memory_pool.guard(location)
+    }
+
+    /// The main-pool resource behind `binding`, holding a guard on its page —
+    /// see [`MemoryManagement::managed_resource`].
+    pub(crate) fn managed_resource(
+        &mut self,
+        binding: BufferBinding,
+    ) -> Result<ManagedResource<WgpuResource>, IoError> {
+        self.memory_pool
+            .managed_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
 
     pub(crate) fn get_resource(&mut self, binding: BufferBinding) -> Result<WgpuResource, IoError> {

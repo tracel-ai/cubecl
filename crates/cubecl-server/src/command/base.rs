@@ -20,6 +20,7 @@ use crate::memory_management::{
     ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport, MemoryUsage, PageGuard,
 };
 use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
+use crate::storage::ManagedResource;
 use crate::stream::ResolvedStreams;
 use crate::stream::TouchedPage;
 use alloc::boxed::Box;
@@ -86,14 +87,21 @@ impl<'a, D: Driver> Command<'a, D> {
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
 
-    /// A guard on the page behind `binding`, for a resource handed out of the
-    /// server: its raw address must keep naming these bytes for as long as
-    /// the resource is held.
-    pub fn guard(&mut self, binding: &BufferBinding) -> Option<PageGuard> {
+    /// The device allocation `binding` names, for a caller outside the server
+    /// that keeps its raw address: it holds the allocation and a guard on its
+    /// page for as long as it lives.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::StorageHandleNotFound`] when the binding names no live allocation.
+    pub fn managed_resource(
+        &mut self,
+        binding: BufferBinding,
+    ) -> Result<ManagedResource<DeviceResource<D>>, IoError> {
         self.streams
             .get(&binding.stream)
             .device_memory()
-            .guard(binding.memory.descriptor().location())
+            .managed_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
 
     /// A guard on every page in `touched`, each looked up in the memory of the
