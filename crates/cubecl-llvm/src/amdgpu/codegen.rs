@@ -9,11 +9,15 @@ use crate::{
     },
     prelude::{BufferIOAttr, Context, ModuleOp},
     shared::{
-        AmdGpuModule, buffer_params::annotate_buffer_params, math_library::redirect_intrinsics,
+        AmdGpuModule,
+        buffer_params::annotate_buffer_params,
+        llvm_module::{LlvmModule, TargetMachine},
+        math_library::redirect_intrinsics,
     },
 };
 use cubecl_core::ir::{amd::GfxArch, settings::Dim3};
 use cubecl_environment::bytes::Bytes;
+use llvm_sys::target_machine::{LLVMCodeGenFileType, LLVMRelocMode};
 use pliron_llvm::{attributes::set_data_layout, llvm_sys::core::LLVMContext, to_llvm_ir};
 use std::{
     ffi::{CStr, CString},
@@ -65,13 +69,14 @@ pub fn emit_code_object(
     let llvm_ctx = LLVMContext::default();
 
     set_data_layout(ctx, module, DATA_LAYOUT.to_string());
-    let llvm_module =
+    let converted =
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
-    let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, cube_dim, &io)?;
+    let module = LlvmModule::parse(&converted.to_string())?;
+    finalize(&module, entrypoint, arch, cube_dim, &io)?;
+    let ir = module.print();
     let want_asm = std::env::var_os("CUBECL_DEBUG_PLIRON").is_some();
-
-    let (object, asm) = compile_to_object(&ir, arch, want_asm)?;
+    let (object, asm) = compile(module, arch, want_asm)?;
 
     #[cfg(feature = "pliron-dump")]
     if let Some(dir) = crate::cpu::jit::engine::ir_dump_path(entrypoint) {
@@ -96,23 +101,20 @@ pub fn emit_code_object(
 /// The metadata pointer `KernargArgs` appends after the buffers.
 const METADATA_PARAMS: u32 = 1;
 
-fn finalize_ir(
-    ir: &str,
+/// Stamps the target, the code object version and the entry point's calling convention and
+/// attributes on `module`.
+fn finalize(
+    module: &LlvmModule,
     entrypoint: &str,
     arch: &GfxArch,
     cube_dim: Dim3,
     io: &[BufferIOAttr],
-) -> Result<String, String> {
+) -> Result<(), String> {
     use llvm_sys::LLVMModuleFlagBehavior::LLVMModuleFlagBehaviorError;
     use llvm_sys::core::{
-        LLVMAddAttributeAtIndex, LLVMAddModuleFlag, LLVMConstInt, LLVMContextDispose,
-        LLVMCreateStringAttribute, LLVMDisposeMessage, LLVMDisposeModule, LLVMGetNamedFunction,
-        LLVMInt32TypeInContext, LLVMPrintModuleToString, LLVMSetFunctionCallConv, LLVMSetTarget,
+        LLVMAddModuleFlag, LLVMConstInt, LLVMInt32TypeInContext, LLVMSetFunctionCallConv,
         LLVMValueAsMetadata,
     };
-
-    let name = CString::new(entrypoint)
-        .map_err(|_| format!("kernel name '{entrypoint}' contains a NUL"))?;
 
     let flat_work_group_size = format!("1,{}", cube_dim.num_elems());
     let mut attributes = vec![
@@ -126,32 +128,14 @@ fn finalize_ir(
         attributes.push(("target-features", features));
     }
 
+    module.set_triple(TRIPLE);
+    let func = module.entry_point(entrypoint)?;
+    let ctx = module.context();
+    // SAFETY: `func` is a function of `module`, whose parameters the entry ABI lowering laid
+    // out as the buffers in binding order followed by the metadata pointer.
     unsafe {
-        let (ctx, module) = parse_ir(ir)?;
-
-        LLVMSetTarget(module, TRIPLE.as_ptr());
-
-        let func = LLVMGetNamedFunction(module, name.as_ptr());
-        if func.is_null() {
-            LLVMDisposeModule(module);
-            LLVMContextDispose(ctx);
-            return Err(format!(
-                "entry point '{entrypoint}' is not defined in the module"
-            ));
-        }
         LLVMSetFunctionCallConv(func, AMDGPU_KERNEL_CC);
-
-        for (key, value) in attributes {
-            let attribute = LLVMCreateStringAttribute(
-                ctx,
-                key.as_ptr() as *const _,
-                key.len() as u32,
-                value.as_ptr() as *const _,
-                value.len() as u32,
-            );
-            LLVMAddAttributeAtIndex(func, llvm_sys::LLVMAttributeFunctionIndex, attribute);
-        }
-
+        module.add_function_attributes(func, &attributes);
         require_work_group_size(ctx, func, cube_dim);
         annotate_buffer_params(ctx, func, io, METADATA_PARAMS);
         mark_atomics_device_local(ctx, func);
@@ -159,20 +143,14 @@ fn finalize_ir(
         let version = LLVMConstInt(LLVMInt32TypeInContext(ctx), CODE_OBJECT_VERSION as u64, 0);
         let key = "amdhsa_code_object_version";
         LLVMAddModuleFlag(
-            module,
+            module.raw(),
             LLVMModuleFlagBehaviorError,
             key.as_ptr() as *const _,
             key.len(),
             LLVMValueAsMetadata(version),
         );
-
-        let c_ir = LLVMPrintModuleToString(module);
-        let finalized = CStr::from_ptr(c_ir).to_string_lossy().into_owned();
-        LLVMDisposeMessage(c_ir);
-        LLVMDisposeModule(module);
-        LLVMContextDispose(ctx);
-        Ok(finalized)
     }
+    Ok(())
 }
 
 /// The cube dimensions are fixed when a kernel compiles, so the work-item ids are bounded by
@@ -254,67 +232,43 @@ unsafe fn mark_atomics_device_local(
     }
 }
 
+/// The relocatable object `module` compiles to, and its assembly when `want_asm` is set.
+fn compile(
+    module: LlvmModule,
+    arch: &GfxArch,
+    want_asm: bool,
+) -> Result<(Vec<u8>, Option<String>), String> {
+    init_amdgpu();
+
+    let features = CString::new(features_for(arch)).expect("static feature string");
+    // AMD code objects require position-independent code.
+    let machine = TargetMachine::new(TRIPLE, arch.name(), &features, LLVMRelocMode::LLVMRelocPIC)?;
+    machine.set_data_layout(&module);
+
+    // SAFETY: the module is live, stamped with the AMDGPU triple and layout.
+    unsafe { lower_to_device_libs(module.raw(), arch)? };
+    module.run_passes(PASS_PIPELINE, Some(&machine))?;
+
+    // Emission consumes a module, so the assembly comes from a copy.
+    let asm = if want_asm {
+        let copy = LlvmModule::parse(&module.print())?;
+        let bytes = machine.emit(copy, LLVMCodeGenFileType::LLVMAssemblyFile)?;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    } else {
+        None
+    };
+    let object = machine.emit(module, LLVMCodeGenFileType::LLVMObjectFile)?;
+    Ok((object, asm))
+}
+
+/// The object and assembly the finalized IR `ir` compiles to, for tests that start from IR.
+#[cfg(test)]
 pub(super) fn compile_to_object(
     ir: &str,
     arch: &GfxArch,
     want_asm: bool,
 ) -> Result<(Vec<u8>, Option<String>), String> {
-    use llvm_sys::core::{LLVMContextDispose, LLVMDisposeMessage, LLVMDisposeModule};
-    use llvm_sys::target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout};
-    use llvm_sys::target_machine::{
-        LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout, LLVMCreateTargetMachine,
-        LLVMDisposeTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
-    };
-
-    init_amdgpu();
-
-    let cpu =
-        CString::new(arch.name()).map_err(|_| format!("arch '{}' contains a NUL", arch.name()))?;
-    let features = CString::new(features_for(arch)).expect("static feature string");
-
-    unsafe {
-        let mut target = std::ptr::null_mut();
-        let mut error = std::ptr::null_mut();
-        if LLVMGetTargetFromTriple(TRIPLE.as_ptr(), &mut target, &mut error) != 0 {
-            let message = CStr::from_ptr(error).to_string_lossy().into_owned();
-            LLVMDisposeMessage(error);
-            return Err(message);
-        }
-
-        // AMD code objects require position-independent code.
-        let tm = LLVMCreateTargetMachine(
-            target,
-            TRIPLE.as_ptr(),
-            cpu.as_ptr(),
-            features.as_ptr(),
-            LLVMCodeGenOptLevel::LLVMCodeGenLevelAggressive,
-            LLVMRelocMode::LLVMRelocPIC,
-            LLVMCodeModel::LLVMCodeModelDefault,
-        );
-        if tm.is_null() {
-            return Err(format!("no target machine for '{}'", arch.name()));
-        }
-
-        let (ctx, module) = match parse_ir(ir) {
-            Ok(parsed) => parsed,
-            Err(err) => {
-                LLVMDisposeTargetMachine(tm);
-                return Err(err);
-            }
-        };
-
-        let layout = LLVMCreateTargetDataLayout(tm);
-        LLVMSetModuleDataLayout(module, layout);
-        LLVMDisposeTargetData(layout);
-
-        let result = lower_to_device_libs(module, arch)
-            .and_then(|()| run_pipeline_and_emit(module, tm, want_asm));
-
-        LLVMDisposeModule(module);
-        LLVMContextDispose(ctx);
-        LLVMDisposeTargetMachine(tm);
-        result
-    }
+    compile(LlvmModule::parse(ir)?, arch, want_asm)
 }
 
 /// # Safety
@@ -336,127 +290,21 @@ unsafe fn lower_to_device_libs(
     }
 }
 
-/// # Safety
-/// `module` and `tm` must be live LLVM handles.
-unsafe fn run_passes(
-    module: llvm_sys::prelude::LLVMModuleRef,
-    tm: llvm_sys::target_machine::LLVMTargetMachineRef,
-    pipeline: &CStr,
-) -> Result<(), String> {
-    use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage};
-    use llvm_sys::transforms::pass_builder::{
-        LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
-    };
-
-    unsafe {
-        let options = LLVMCreatePassBuilderOptions();
-        let err = LLVMRunPasses(module, pipeline.as_ptr(), tm, options);
-        LLVMDisposePassBuilderOptions(options);
-        if !err.is_null() {
-            let c_msg = LLVMGetErrorMessage(err);
-            let msg = CStr::from_ptr(c_msg).to_string_lossy().into_owned();
-            LLVMDisposeErrorMessage(c_msg);
-            return Err(msg);
-        }
-        Ok(())
-    }
-}
-
-/// # Safety
-/// `module` and `tm` must be live LLVM handles.
-unsafe fn run_pipeline_and_emit(
-    module: llvm_sys::prelude::LLVMModuleRef,
-    tm: llvm_sys::target_machine::LLVMTargetMachineRef,
-    want_asm: bool,
-) -> Result<(Vec<u8>, Option<String>), String> {
-    use llvm_sys::core::{LLVMCloneModule, LLVMDisposeModule};
-    use llvm_sys::target_machine::LLVMCodeGenFileType;
-
-    unsafe {
-        run_passes(module, tm, PASS_PIPELINE)?;
-
-        // Emission modifies the module, so each output needs its own copy.
-        let asm = if want_asm {
-            let copy = LLVMCloneModule(module);
-            let bytes = emit(copy, tm, LLVMCodeGenFileType::LLVMAssemblyFile);
-            LLVMDisposeModule(copy);
-            Some(String::from_utf8_lossy(&bytes?).into_owned())
-        } else {
-            None
-        };
-        let object = emit(module, tm, LLVMCodeGenFileType::LLVMObjectFile)?;
-        Ok((object, asm))
-    }
-}
-
-/// # Safety
-/// `module` and `tm` must be live LLVM handles.
-unsafe fn emit(
-    module: llvm_sys::prelude::LLVMModuleRef,
-    tm: llvm_sys::target_machine::LLVMTargetMachineRef,
-    kind: llvm_sys::target_machine::LLVMCodeGenFileType,
-) -> Result<Vec<u8>, String> {
-    use llvm_sys::core::{
-        LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMGetBufferSize, LLVMGetBufferStart,
-    };
-    use llvm_sys::target_machine::LLVMTargetMachineEmitToMemoryBuffer;
-
-    unsafe {
-        let mut buffer = std::ptr::null_mut();
-        let mut error = std::ptr::null_mut();
-        if LLVMTargetMachineEmitToMemoryBuffer(tm, module, kind, &mut error, &mut buffer) != 0 {
-            let message = CStr::from_ptr(error).to_string_lossy().into_owned();
-            LLVMDisposeMessage(error);
-            return Err(message);
-        }
-        let start = LLVMGetBufferStart(buffer) as *const u8;
-        let len = LLVMGetBufferSize(buffer);
-        let bytes = std::slice::from_raw_parts(start, len).to_vec();
-        LLVMDisposeMemoryBuffer(buffer);
-        Ok(bytes)
-    }
-}
-
-/// # Safety
-/// The returned context and module are owned by the caller.
-unsafe fn parse_ir(
-    ir: &str,
-) -> Result<
-    (
-        llvm_sys::prelude::LLVMContextRef,
-        llvm_sys::prelude::LLVMModuleRef,
-    ),
-    String,
-> {
-    use llvm_sys::core::{
-        LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
-        LLVMDisposeMessage,
-    };
-    use llvm_sys::ir_reader::LLVMParseIRInContext2;
-
-    unsafe {
-        let ctx = LLVMContextCreate();
-        let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
-            ir.as_ptr() as *const _,
-            ir.len(),
-            c"kernel".as_ptr(),
-        );
-        let mut module = std::ptr::null_mut();
-        let mut parse_err = std::ptr::null_mut();
-        // `LLVMParseIRInContext2` takes ownership of the buffer, including on failure.
-        if LLVMParseIRInContext2(ctx, buffer, &mut module, &mut parse_err) != 0 {
-            let msg = CStr::from_ptr(parse_err).to_string_lossy().into_owned();
-            LLVMDisposeMessage(parse_err);
-            LLVMContextDispose(ctx);
-            return Err(msg);
-        }
-        Ok((ctx, module))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn finalize_ir(
+        ir: &str,
+        entrypoint: &str,
+        arch: &GfxArch,
+        cube_dim: Dim3,
+        io: &[BufferIOAttr],
+    ) -> Result<String, String> {
+        let module = LlvmModule::parse(ir)?;
+        finalize(&module, entrypoint, arch, cube_dim, io)?;
+        Ok(module.print())
+    }
 
     #[test]
     fn only_the_rdna_parts_ask_for_wave32() {

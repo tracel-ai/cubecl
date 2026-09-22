@@ -2,6 +2,7 @@ use super::data::PlironData;
 use crate::{
     cpu::shared_memory::SharedMemories,
     prelude::{Context, ModuleOp},
+    shared::llvm_module::LlvmModule,
 };
 use cubecl_runtime::kernel::BufferIOAttr;
 use pliron_llvm::{
@@ -13,7 +14,7 @@ use pliron_llvm::{
     to_llvm_ir,
 };
 use std::{
-    ffi::c_void,
+    ffi::{CStr, c_void},
     fmt::Display,
     sync::{Arc, Once},
 };
@@ -138,7 +139,7 @@ pub(crate) fn ir_dump_path(kernel_name: &str) -> Option<std::path::PathBuf> {
 }
 
 /// Optimization pipeline for JIT compilation.
-const PASS_PIPELINE: &str = "default<O3>";
+const PASS_PIPELINE: &CStr = c"default<O3>";
 
 fn optimize(
     module: LLVMModule,
@@ -154,57 +155,7 @@ fn optimize(
 }
 
 fn run_pipeline(ir: &str) -> Result<String, String> {
-    use llvm_sys::core::{
-        LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
-        LLVMDisposeMessage, LLVMDisposeModule, LLVMPrintModuleToString,
-    };
-    use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage};
-    use llvm_sys::ir_reader::LLVMParseIRInContext2;
-    use llvm_sys::transforms::pass_builder::{
-        LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
-    };
-
-    unsafe {
-        let ctx = LLVMContextCreate();
-        let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
-            ir.as_ptr() as *const _,
-            ir.len(),
-            c"kernel".as_ptr(),
-        );
-        let mut module = std::ptr::null_mut();
-        let mut parse_err = std::ptr::null_mut();
-        // `LLVMParseIRInContext2` takes ownership of the buffer, including on failure.
-        if LLVMParseIRInContext2(ctx, buffer, &mut module, &mut parse_err) != 0 {
-            let msg = std::ffi::CStr::from_ptr(parse_err)
-                .to_string_lossy()
-                .into_owned();
-            LLVMDisposeMessage(parse_err);
-            LLVMContextDispose(ctx);
-            return Err(msg);
-        }
-
-        let passes = std::ffi::CString::new(PASS_PIPELINE).expect("static pass string");
-        let options = LLVMCreatePassBuilderOptions();
-        let err = LLVMRunPasses(module, passes.as_ptr(), std::ptr::null_mut(), options);
-        LLVMDisposePassBuilderOptions(options);
-
-        let result = if err.is_null() {
-            let c_ir = LLVMPrintModuleToString(module);
-            let optimized = std::ffi::CStr::from_ptr(c_ir)
-                .to_string_lossy()
-                .into_owned();
-            LLVMDisposeMessage(c_ir);
-            Ok(optimized)
-        } else {
-            let c_msg = LLVMGetErrorMessage(err);
-            let msg = std::ffi::CStr::from_ptr(c_msg)
-                .to_string_lossy()
-                .into_owned();
-            LLVMDisposeErrorMessage(c_msg);
-            Err(msg)
-        };
-        LLVMDisposeModule(module);
-        LLVMContextDispose(ctx);
-        result
-    }
+    let module = LlvmModule::parse(ir)?;
+    module.run_passes(PASS_PIPELINE, None)?;
+    Ok(module.print())
 }

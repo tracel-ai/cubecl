@@ -6,6 +6,7 @@ pub mod branch;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]
 pub(crate) mod buffer_params;
 pub mod intrinsic;
+pub(crate) mod llvm_module;
 #[cfg(feature = "nvptx")]
 pub(crate) mod llvm_options;
 #[cfg(any(feature = "amdgpu", feature = "nvptx"))]

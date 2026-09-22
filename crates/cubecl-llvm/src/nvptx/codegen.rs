@@ -8,16 +8,17 @@ use crate::{
     },
     prelude::{BufferIOAttr, Context, ModuleOp},
     shared::{
-        NvptxModule, buffer_params::annotate_buffer_params, llvm_options::set_llvm_option,
+        NvptxModule,
+        buffer_params::annotate_buffer_params,
+        llvm_module::{LlvmModule, TargetMachine},
+        llvm_options::set_llvm_option,
         math_library::redirect_intrinsics,
     },
 };
 use cubecl_core::ir::{nvidia::SmArch, settings::Dim3};
+use llvm_sys::target_machine::{LLVMCodeGenFileType, LLVMRelocMode};
 use pliron_llvm::{llvm_sys::core::LLVMContext, to_llvm_ir};
-use std::{
-    ffi::{CStr, CString},
-    sync::Once,
-};
+use std::{ffi::CStr, sync::Once};
 
 const TRIPLE: &CStr = c"nvptx64-nvidia-cuda";
 
@@ -88,12 +89,13 @@ pub fn emit_ptx(
     entry: NvptxEntry,
 ) -> Result<NvptxModule, String> {
     let llvm_ctx = LLVMContext::default();
-
-    let llvm_module =
+    let converted =
         to_llvm_ir::convert_module(ctx, &llvm_ctx, module).map_err(|err| err.to_string())?;
 
-    let ir = finalize_ir(&llvm_module.to_string(), entrypoint, arch, &entry)?;
-    let ptx = compile_to_ptx(&ir, arch, ptx_version)?;
+    let module = LlvmModule::parse(&converted.to_string())?;
+    finalize(&module, entrypoint, arch, &entry)?;
+    let ir = module.print();
+    let ptx = compile(module, arch, ptx_version)?;
 
     #[cfg(feature = "pliron-dump")]
     if let Some(dir) = crate::cpu::jit::engine::ir_dump_path(entrypoint) {
@@ -110,20 +112,14 @@ pub fn emit_ptx(
     })
 }
 
-fn finalize_ir(
-    ir: &str,
+/// Stamps the target and the entry point's calling convention and attributes on `module`.
+fn finalize(
+    module: &LlvmModule,
     entrypoint: &str,
     arch: &SmArch,
     entry: &NvptxEntry,
-) -> Result<String, String> {
-    use llvm_sys::core::{
-        LLVMAddAttributeAtIndex, LLVMContextDispose, LLVMCreateStringAttribute, LLVMDisposeMessage,
-        LLVMDisposeModule, LLVMGetNamedFunction, LLVMPrintModuleToString, LLVMSetFunctionCallConv,
-        LLVMSetTarget,
-    };
-
-    let name = CString::new(entrypoint)
-        .map_err(|_| format!("kernel name '{entrypoint}' contains a NUL"))?;
+) -> Result<(), String> {
+    use llvm_sys::core::LLVMSetFunctionCallConv;
 
     let target_cpu = arch.target_cpu();
     // The cube dimensions are fixed when a kernel compiles, so the launch bounds are exact:
@@ -136,44 +132,19 @@ fn finalize_ir(
         ("nvvm.reqntid", threads.as_str()),
     ];
 
+    module.set_triple(TRIPLE);
+    let func = module.entry_point(entrypoint)?;
+    // SAFETY: `func` is a function of `module`, whose parameters the entry ABI lowering laid
+    // out as the buffers in binding order followed by the metadata.
     unsafe {
-        let (ctx, module) = parse_ir(ir)?;
-
-        LLVMSetTarget(module, TRIPLE.as_ptr());
-
-        let func = LLVMGetNamedFunction(module, name.as_ptr());
-        if func.is_null() {
-            LLVMDisposeModule(module);
-            LLVMContextDispose(ctx);
-            return Err(format!(
-                "entry point '{entrypoint}' is not defined in the module"
-            ));
-        }
         LLVMSetFunctionCallConv(func, PTX_KERNEL_CC);
-
-        for (key, value) in attributes {
-            let attribute = LLVMCreateStringAttribute(
-                ctx,
-                key.as_ptr() as *const _,
-                key.len() as u32,
-                value.as_ptr() as *const _,
-                value.len() as u32,
-            );
-            LLVMAddAttributeAtIndex(func, llvm_sys::LLVMAttributeFunctionIndex, attribute);
-        }
-
-        annotate_buffer_params(ctx, func, &entry.io, entry.metadata.count());
+        module.add_function_attributes(func, &attributes);
+        annotate_buffer_params(module.context(), func, &entry.io, entry.metadata.count());
         if let MetadataParams::GridConstant { bytes, .. } = entry.metadata {
-            mark_info_param_byval(ctx, func, bytes);
+            mark_info_param_byval(module.context(), func, bytes);
         }
-
-        let c_ir = LLVMPrintModuleToString(module);
-        let finalized = CStr::from_ptr(c_ir).to_string_lossy().into_owned();
-        LLVMDisposeMessage(c_ir);
-        LLVMDisposeModule(module);
-        LLVMContextDispose(ctx);
-        Ok(finalized)
     }
+    Ok(())
 }
 
 /// Alignment required by the host metadata layout.
@@ -214,71 +185,29 @@ unsafe fn mark_info_param_byval(
 }
 
 /// `ptx_version` is `None` for LLVM's default, the oldest the architecture accepts.
-fn compile_to_ptx(
-    ir: &str,
+fn compile(
+    module: LlvmModule,
     arch: &SmArch,
     ptx_version: Option<PtxVersion>,
 ) -> Result<String, String> {
-    use llvm_sys::core::{LLVMContextDispose, LLVMDisposeMessage, LLVMDisposeModule};
-    use llvm_sys::target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout};
-    use llvm_sys::target_machine::{
-        LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout, LLVMCreateTargetMachine,
-        LLVMDisposeTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
-    };
-
     init_nvptx();
 
-    let target_cpu = arch.target_cpu();
-    let cpu = CString::new(target_cpu.clone())
-        .map_err(|_| format!("arch '{target_cpu}' contains a NUL"))?;
     let features = ptx_version
         .map(PtxVersion::target_feature)
         .unwrap_or_default();
+    let machine = TargetMachine::new(
+        TRIPLE,
+        &arch.target_cpu(),
+        &features,
+        LLVMRelocMode::LLVMRelocDefault,
+    )?;
+    machine.set_data_layout(&module);
 
-    unsafe {
-        let mut target = std::ptr::null_mut();
-        let mut error = std::ptr::null_mut();
-        if LLVMGetTargetFromTriple(TRIPLE.as_ptr(), &mut target, &mut error) != 0 {
-            let message = CStr::from_ptr(error).to_string_lossy().into_owned();
-            LLVMDisposeMessage(error);
-            return Err(message);
-        }
-
-        let tm = LLVMCreateTargetMachine(
-            target,
-            TRIPLE.as_ptr(),
-            cpu.as_ptr(),
-            features.as_ptr(),
-            LLVMCodeGenOptLevel::LLVMCodeGenLevelAggressive,
-            LLVMRelocMode::LLVMRelocDefault,
-            LLVMCodeModel::LLVMCodeModelDefault,
-        );
-        if tm.is_null() {
-            return Err(format!("no target machine for '{target_cpu}'"));
-        }
-
-        let (ctx, module) = match parse_ir(ir) {
-            Ok(parsed) => parsed,
-            Err(err) => {
-                LLVMDisposeTargetMachine(tm);
-                return Err(err);
-            }
-        };
-
-        let layout = LLVMCreateTargetDataLayout(tm);
-        LLVMSetModuleDataLayout(module, layout);
-        LLVMDisposeTargetData(layout);
-
-        let result = lower_to_device_libs(module)
-            .and_then(|()| run_passes(module, tm, PASS_PIPELINE))
-            .and_then(|()| emit_assembly(module, tm))
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
-
-        LLVMDisposeModule(module);
-        LLVMContextDispose(ctx);
-        LLVMDisposeTargetMachine(tm);
-        result
-    }
+    // SAFETY: the module is live for the call.
+    unsafe { lower_to_device_libs(module.raw())? };
+    module.run_passes(PASS_PIPELINE, Some(&machine))?;
+    let bytes = machine.emit(module, LLVMCodeGenFileType::LLVMAssemblyFile)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// # Safety
@@ -293,103 +222,6 @@ unsafe fn lower_to_device_libs(module: llvm_sys::prelude::LLVMModuleRef) -> Resu
     }
 }
 
-/// # Safety
-/// `module` and `tm` must be live LLVM handles.
-unsafe fn run_passes(
-    module: llvm_sys::prelude::LLVMModuleRef,
-    tm: llvm_sys::target_machine::LLVMTargetMachineRef,
-    pipeline: &CStr,
-) -> Result<(), String> {
-    use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage};
-    use llvm_sys::transforms::pass_builder::{
-        LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
-    };
-
-    unsafe {
-        let options = LLVMCreatePassBuilderOptions();
-        let err = LLVMRunPasses(module, pipeline.as_ptr(), tm, options);
-        LLVMDisposePassBuilderOptions(options);
-        if !err.is_null() {
-            let c_msg = LLVMGetErrorMessage(err);
-            let msg = CStr::from_ptr(c_msg).to_string_lossy().into_owned();
-            LLVMDisposeErrorMessage(c_msg);
-            return Err(msg);
-        }
-        Ok(())
-    }
-}
-
-/// # Safety
-/// `module` and `tm` must be live LLVM handles.
-unsafe fn emit_assembly(
-    module: llvm_sys::prelude::LLVMModuleRef,
-    tm: llvm_sys::target_machine::LLVMTargetMachineRef,
-) -> Result<Vec<u8>, String> {
-    use llvm_sys::core::{
-        LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMGetBufferSize, LLVMGetBufferStart,
-    };
-    use llvm_sys::target_machine::{LLVMCodeGenFileType, LLVMTargetMachineEmitToMemoryBuffer};
-
-    unsafe {
-        let mut buffer = std::ptr::null_mut();
-        let mut error = std::ptr::null_mut();
-        if LLVMTargetMachineEmitToMemoryBuffer(
-            tm,
-            module,
-            LLVMCodeGenFileType::LLVMAssemblyFile,
-            &mut error,
-            &mut buffer,
-        ) != 0
-        {
-            let message = CStr::from_ptr(error).to_string_lossy().into_owned();
-            LLVMDisposeMessage(error);
-            return Err(message);
-        }
-        let start = LLVMGetBufferStart(buffer) as *const u8;
-        let len = LLVMGetBufferSize(buffer);
-        let bytes = std::slice::from_raw_parts(start, len).to_vec();
-        LLVMDisposeMemoryBuffer(buffer);
-        Ok(bytes)
-    }
-}
-
-/// # Safety
-/// The returned context and module are owned by the caller.
-unsafe fn parse_ir(
-    ir: &str,
-) -> Result<
-    (
-        llvm_sys::prelude::LLVMContextRef,
-        llvm_sys::prelude::LLVMModuleRef,
-    ),
-    String,
-> {
-    use llvm_sys::core::{
-        LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy,
-        LLVMDisposeMessage,
-    };
-    use llvm_sys::ir_reader::LLVMParseIRInContext2;
-
-    unsafe {
-        let ctx = LLVMContextCreate();
-        let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
-            ir.as_ptr() as *const _,
-            ir.len(),
-            c"kernel".as_ptr(),
-        );
-        let mut module = std::ptr::null_mut();
-        let mut parse_err = std::ptr::null_mut();
-        // `LLVMParseIRInContext2` takes ownership of the buffer, including on failure.
-        if LLVMParseIRInContext2(ctx, buffer, &mut module, &mut parse_err) != 0 {
-            let msg = CStr::from_ptr(parse_err).to_string_lossy().into_owned();
-            LLVMDisposeMessage(parse_err);
-            LLVMContextDispose(ctx);
-            return Err(msg);
-        }
-        Ok((ctx, module))
-    }
-}
-
 /// NUL-terminated PTX for the CUDA driver.
 fn as_c_chars(ptx: &str) -> Vec<std::ffi::c_char> {
     let mut bytes: Vec<std::ffi::c_char> =
@@ -401,6 +233,14 @@ fn as_c_chars(ptx: &str) -> Vec<std::ffi::c_char> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn compile_to_ptx(
+        ir: &str,
+        arch: &SmArch,
+        ptx_version: Option<PtxVersion>,
+    ) -> Result<String, String> {
+        compile(LlvmModule::parse(ir)?, arch, ptx_version)
+    }
 
     #[test]
     fn turing_reaches_its_tensor_core_instructions() {
