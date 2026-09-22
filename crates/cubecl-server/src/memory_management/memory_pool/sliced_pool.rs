@@ -1,5 +1,5 @@
 #[cfg(multi_threading)]
-use crate::memory_management::relocation::{Move, StorageCopy};
+use crate::memory_management::relocation::{MovablePage, Move, OutdatedPages, StorageCopy};
 use crate::{
     memory_management::{
         BytesFormat, ErrorGraph, ManagedMemoryBinding, ManagedMemoryHandle, MemoryLocation,
@@ -337,15 +337,14 @@ impl SlicedPool {
         core::mem::swap(&mut self.pages, &mut self.pages_tmp);
     }
 
-    /// Reserve a slice on a current page for every live allocation still on
-    /// an outdated one, so those pages can be returned to the driver instead
-    /// of waiting on their longest-lived slice. Current pages are left as they
-    /// are: this empties outdated pages, it does not pack current ones.
+    /// Reserve a slice on a current page for every live allocation on the
+    /// outdated pages [the analysis](OutdatedPages::plan) plans to empty, so
+    /// those pages can be returned to the driver instead of waiting on their
+    /// longest-lived slice. Current pages are left as they are: this empties
+    /// outdated pages, it does not pack current ones.
     ///
     /// Nothing moves yet: the caller copies each [`Move`]'s bytes, then hands
     /// them over with [`commit_relocation`](Self::commit_relocation).
-    /// Allocations a captured graph recorded stay where they are. Stops early
-    /// when no target can be allocated; what was planned so far is still valid.
     #[cfg(multi_threading)]
     pub(crate) fn plan_relocation<Storage: ComputeStorage>(
         &mut self,
@@ -353,20 +352,34 @@ impl SlicedPool {
         mapping: PageMapping,
         failures: &mut ErrorGraph,
     ) -> Vec<Move> {
-        let moves: Vec<ManagedMemoryHandle> = self
-            .outdated()
-            .flat_map(|(page, _)| page.movable().map(|index| page.slice(index)))
-            .map(|slice| slice.handle.clone())
-            .collect();
+        let plan = OutdatedPages::new(self.outdated().map(|(page, _)| page)).plan();
 
-        let mut planned = Vec::with_capacity(moves.len());
-        for allocation in moves {
-            match self.plan_move(storage, mapping, allocation, failures) {
-                Ok(relocated) => planned.push(relocated),
-                Err(_) => break,
+        let mut moves = Vec::new();
+        for page in plan {
+            // A page whose allocations do not all find a target keeps none of
+            // them: moving part of what is on it frees nothing. A smaller page
+            // later in the plan may still fit what this one did not.
+            if let Ok(page_moves) = self.plan_page(storage, mapping, page, failures) {
+                moves.extend(page_moves);
             }
         }
-        planned
+        moves
+    }
+
+    /// Reserve a target for every allocation on `page`, or for none: the
+    /// targets reserved before a refusal are freed with their moves.
+    #[cfg(multi_threading)]
+    fn plan_page<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        mapping: PageMapping,
+        page: MovablePage,
+        failures: &mut ErrorGraph,
+    ) -> Result<Vec<Move>, IoError> {
+        page.live
+            .into_iter()
+            .map(|allocation| self.plan_move(storage, mapping, allocation.handle, failures))
+            .collect()
     }
 
     #[cfg(multi_threading)]
@@ -950,6 +963,22 @@ mod tests {
         let _large = reserve(&mut memory, 10 * MIB);
         assert_eq!(relocate(&mut memory), 0);
         assert_eq!(place(&recorded), location);
+    }
+
+    /// A captured allocation keeps its page, so moving the rest of the page
+    /// would copy bytes and free nothing: none of it moves.
+    #[test]
+    fn a_captured_allocation_holds_its_whole_page() {
+        let mut memory = adaptive(4 * MIB);
+
+        let recorded = reserve(&mut memory, MIB);
+        memory.mark_captured(&recorded.clone().binding());
+        let neighbour = reserve(&mut memory, MIB);
+        let location = place(&neighbour);
+
+        let _large = reserve(&mut memory, 10 * MIB);
+        assert_eq!(relocate(&mut memory), 0);
+        assert_eq!(place(&neighbour), location);
     }
 
     /// Only what the pool serves counts: persistent and dedicated allocations,

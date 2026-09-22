@@ -81,14 +81,9 @@ impl MemoryPage {
     }
 
     #[cfg(multi_threading)]
-    /// The live slices relocation may move off this page, by index: every
-    /// one no captured graph has recorded.
-    pub fn movable(&self) -> impl Iterator<Item = usize> + '_ {
-        self.slices
-            .iter()
-            .enumerate()
-            .filter(|(_, slice)| !slice.is_free() && !slice.captured)
-            .map(|(index, _)| index)
+    /// The slices holding a live allocation.
+    pub fn live(&self) -> impl Iterator<Item = &Slice> {
+        self.slices.iter().filter(|slice| !slice.is_free())
     }
 
     #[cfg(multi_threading)]
