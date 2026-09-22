@@ -282,11 +282,17 @@ impl SlicedPool {
         page_size: u64,
         failures: &mut ErrorGraph,
     ) {
-        // Only a page size that moves ever outdates a page; with one that does,
-        // the common case is still that none is.
+        // Only a page size that moves ever outdates a page, and one that stays
+        // outdated can hold a long-lived allocation for the rest of the run:
+        // rebuilding the page list is only worth it once one is empty, not on
+        // every reservation that finds one outdated. Whether a slice is free
+        // needs no coalescing, so the check costs no more than a scan.
         if matches!(release, Release::OutdatedAndEmpty)
             && (matches!(self.sizing, PageSizing::Fixed { .. })
-                || !self.pages.iter().any(|(page, _)| page.size() != page_size))
+                || !self
+                    .pages
+                    .iter()
+                    .any(|(page, _)| release.selects(page, page_size)))
         {
             return;
         }
