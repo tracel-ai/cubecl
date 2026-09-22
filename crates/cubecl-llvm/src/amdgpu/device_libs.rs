@@ -1,13 +1,9 @@
 //! `ROCm` device libraries.
 
-use crate::shared::bitcode::link_bitcode;
+use crate::shared::bitcode::{link_bitcode, read_library};
 use cubecl_core::ir::amd::GfxArch;
 use llvm_sys::prelude::LLVMModuleRef;
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Mutex, OnceLock},
-};
+use std::{path::PathBuf, sync::OnceLock};
 
 /// `CUBECL_ROCM_DEVICE_LIB_PATH` and `HIP_DEVICE_LIB_PATH` override the search paths.
 const DEVICE_LIB_PATH_VARS: [&str; 2] = ["CUBECL_ROCM_DEVICE_LIB_PATH", "HIP_DEVICE_LIB_PATH"];
@@ -46,19 +42,7 @@ fn bitcode_dir() -> Result<&'static PathBuf, String> {
 }
 
 fn device_lib(name: &str) -> Result<&'static [u8], String> {
-    static CACHE: OnceLock<Mutex<HashMap<String, &'static [u8]>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(Mutex::default);
-
-    let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(bitcode) = cache.get(name) {
-        return Ok(bitcode);
-    }
-
-    let path = bitcode_dir()?.join(name);
-    let bitcode = std::fs::read(&path).map_err(|err| format!("{}: {err}", path.display()))?;
-    let bitcode: &'static [u8] = Vec::leak(bitcode);
-    cache.insert(name.to_string(), bitcode);
-    Ok(bitcode)
+    read_library(&bitcode_dir()?.join(name))
 }
 
 /// Device libraries required by a kernel.

@@ -1,7 +1,7 @@
 //! CUDA math library support.
 
 use crate::shared::{
-    bitcode::link_bitcode,
+    bitcode::{link_bitcode, read_library},
     math_library::{FloatWidth, MathLibrary},
 };
 use llvm_sys::prelude::LLVMModuleRef;
@@ -59,9 +59,8 @@ pub unsafe fn link_libdevice(module: LLVMModuleRef) -> Result<(), String> {
          to a toolkit containing nvvm/libdevice/libdevice.10.bc."
             .to_string()
     })?;
-    let bitcode =
-        std::fs::read(&path).map_err(|err| format!("reading {}: {err}", path.display()))?;
+    let bitcode = read_library(&path)?;
     // SAFETY: the caller keeps `module` live.
-    unsafe { link_bitcode(module, &bitcode) }
+    unsafe { link_bitcode(module, bitcode) }
         .map_err(|message| format!("{}: {message}", path.display()))
 }
