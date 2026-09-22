@@ -10,6 +10,7 @@
 use super::CopyQueue;
 use crate::memory_management::ManagedMemoryHandle;
 use crate::server::ServerError;
+use crate::storage::ComputeStorage;
 use crate::storage::StorageHandle;
 use alloc::vec::Vec;
 
@@ -104,13 +105,17 @@ impl Relocation {
     ///
     /// The first copy the device refused, or the fault a wait revealed. The
     /// relocation is abandoned either way.
-    pub fn copy(self, queue: &mut impl CopyQueue) -> Result<Landed, ServerError> {
+    pub fn copy<Storage: ComputeStorage>(
+        self,
+        storage: &mut Storage,
+        queue: &mut dyn CopyQueue<Storage>,
+    ) -> Result<Landed, ServerError> {
         queue.wait_device()?;
         let enqueued = self
             .moves
             .iter()
             .filter_map(|relocated| relocated.copy.as_ref())
-            .try_for_each(|copy| queue.copy(copy));
+            .try_for_each(|copy| queue.copy(storage, copy));
         let landed = queue.wait_copies();
         enqueued?;
         landed?;

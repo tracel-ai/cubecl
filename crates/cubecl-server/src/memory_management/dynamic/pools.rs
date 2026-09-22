@@ -138,6 +138,16 @@ impl Pools {
     }
 
     /// The usage of every pool held.
+    /// The bytes the pools hold from the device, pages that carve allocations
+    /// and pages that are one allocation alike.
+    pub fn bytes_reserved(&self) -> u64 {
+        self.pools
+            .iter()
+            .flatten()
+            .map(|pool| pool.get_memory_usage().bytes_reserved)
+            .sum()
+    }
+
     pub fn memory_usage(&self) -> MemoryUsage {
         self.pools
             .iter()
@@ -167,14 +177,38 @@ impl Pools {
         );
     }
 
-    /// Reserve `size` bytes on the first pool of `routing` that accepts it,
-    /// which is what routing an allocation means.
+    /// Reserve `size` bytes in the room a pool of `routing` already holds.
+    ///
+    /// `None` when none of them has room for it, which is what says the next
+    /// reservation of this size costs a page.
+    pub fn try_reserve(
+        &mut self,
+        routing: impl Iterator<Item = u8>,
+        size: u64,
+        failures: &mut ErrorGraph,
+    ) -> Option<ManagedMemoryHandle> {
+        for index in routing {
+            let Some(pool) = self.pools[index as usize]
+                .as_mut()
+                .filter(|pool| pool.accept(size))
+            else {
+                continue;
+            };
+            if let Some(slice) = pool.try_reserve(size, failures) {
+                return Some(slice);
+            }
+        }
+        None
+    }
+
+    /// Allocate a page for `size` bytes on the first pool of `routing` that
+    /// accepts it, and reserve them on it.
     ///
     /// # Errors
     ///
     /// [`IoError::BufferTooBig`] when no pool accepts the size, and whatever
     /// the device refused when one does.
-    pub fn reserve<Storage: ComputeStorage>(
+    pub fn alloc<Storage: ComputeStorage>(
         &mut self,
         routing: impl Iterator<Item = u8>,
         storage: &mut Storage,
@@ -189,9 +223,6 @@ impl Pools {
             else {
                 continue;
             };
-            if let Some(slice) = pool.try_reserve(size, failures) {
-                return Ok(slice);
-            }
             return pool.alloc(storage, size, mapping, failures);
         }
 

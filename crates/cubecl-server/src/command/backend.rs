@@ -197,7 +197,7 @@ pub trait Driver: Sized {
     unsafe fn copy_on_device(
         source: &DeviceResource<Self>,
         target: &DeviceResource<Self>,
-        stream: &Self::Stream,
+        queue: <Self::Stream as DeviceStream>::Signal,
     ) -> Result<(), IoError>;
 
     /// Wait for device work enqueued outside the command's streams — CUDA's

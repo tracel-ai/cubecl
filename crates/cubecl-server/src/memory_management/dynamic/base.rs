@@ -1,7 +1,7 @@
 //! How a stream's dynamic pools are managed.
 
 use super::{AdaptiveMemory, DynamicPool, Pools};
-use crate::memory_management::relocation::Move;
+use crate::memory_management::relocation::CopyQueue;
 use crate::{
     logging::ServerLogger,
     memory_management::{
@@ -83,9 +83,37 @@ impl DynamicMemory {
         match self {
             DynamicMemory::Exclusive(pools) => {
                 let routing = 0..pools.len() as u8;
-                pools.reserve(routing, storage, size, mapping, failures)
+                if let Some(handle) = pools.try_reserve(routing.clone(), size, failures) {
+                    return Ok(handle);
+                }
+                pools.alloc(routing, storage, size, mapping, failures)
             }
             DynamicMemory::Adaptive(memory) => memory.reserve(storage, size, mapping, failures),
+        }
+    }
+
+    /// Whether another page would leave the device with less than one to
+    /// spare (see [`AdaptiveMemory::crowded`]). Never, where pages are never
+    /// outdated: there is nothing a relocation could free.
+    pub fn crowded(&self) -> bool {
+        match self {
+            DynamicMemory::Exclusive(_) => false,
+            DynamicMemory::Adaptive(memory) => memory.crowded(),
+        }
+    }
+
+    /// Empty what the outdated pools hold into the room the current pages
+    /// have, and return the pages that frees. Nothing to move where pages are
+    /// never outdated.
+    pub fn relocate<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        copier: &mut dyn CopyQueue<Storage>,
+        failures: &mut ErrorGraph,
+    ) {
+        match self {
+            DynamicMemory::Exclusive(_) => {}
+            DynamicMemory::Adaptive(memory) => memory.relocate(storage, copier, failures),
         }
     }
 
@@ -119,28 +147,6 @@ impl DynamicMemory {
         match self {
             DynamicMemory::Exclusive(pools) => pools.report(0..pools.len() as u8),
             DynamicMemory::Adaptive(memory) => memory.report(),
-        }
-    }
-
-    /// Reserve a target for every allocation left on an outdated pool's pages
-    /// (see [`AdaptiveMemory::plan_relocation`]). Nothing to move where pages
-    /// are never outdated.
-    pub fn plan_relocation<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        failures: &mut ErrorGraph,
-    ) -> Vec<Move> {
-        match self {
-            DynamicMemory::Exclusive(_) => Vec::new(),
-            DynamicMemory::Adaptive(memory) => memory.plan_relocation(storage, failures),
-        }
-    }
-
-    /// Hand a planned allocation over to its target, once its bytes are there.
-    pub fn commit_relocation(&mut self, relocated: Move, failures: &mut ErrorGraph) {
-        match self {
-            DynamicMemory::Exclusive(_) => {}
-            DynamicMemory::Adaptive(memory) => memory.commit_relocation(relocated, failures),
         }
     }
 }

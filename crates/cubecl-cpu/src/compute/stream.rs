@@ -1,3 +1,4 @@
+use super::copies::CpuCopies;
 use crate::compute::{
     alloc_controller::CpuAllocController, schedule::ScheduleTask, threadpool::Threadpool,
 };
@@ -187,6 +188,11 @@ impl CpuStream {
         size: u64,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
+        // Emptying an outdated pool needs room for the pages it moves into,
+        // so it happens while the device still has a page to spare.
+        if self.memory_management.crowded() {
+            self.memory_management.relocate(&mut CpuCopies, failures);
+        }
         self.memory_management.reserve(size, failures)
     }
 

@@ -3,7 +3,7 @@
 use super::{DynamicPool, Pools};
 use crate::memory_management::{
     memory_pool::MemoryPool,
-    relocation::{Move, OutdatedPages, StorageCopy},
+    relocation::{CopyQueue, Move, OutdatedPages, PlannerId, Relocation, StorageCopy},
 };
 use crate::{
     logging::ServerLogger,
@@ -36,6 +36,10 @@ const PAGE_GRANULE: u64 = 1024 * 1024;
 /// dropped once it holds none — and a pool of the new size takes over.
 pub struct AdaptiveMemory {
     pools: Pools,
+    /// What the device holds in total, where it says.
+    max_memory: Option<u64>,
+    /// What a relocation this one planned is stamped with.
+    planner: PlannerId,
     /// The pools every workload uses whatever it allocates, first in routing
     /// order: slots `0..fixed`.
     fixed: u8,
@@ -76,6 +80,8 @@ impl AdaptiveMemory {
 
         Self {
             pools: Pools::new(properties, &options, true, logger, name),
+            max_memory: properties.max_memory(),
+            planner: PlannerId::new(),
             fixed: current,
             growth: Growth::new(min_page_size, properties, current),
         }
@@ -96,7 +102,7 @@ impl AdaptiveMemory {
     ///
     /// # Errors
     ///
-    /// As [`Pools::reserve`].
+    /// As [`Pools::alloc`].
     pub fn reserve<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
@@ -105,9 +111,58 @@ impl AdaptiveMemory {
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
         self.grow_for(storage, size, failures);
+
+        if let Some(handle) = self.pools.try_reserve(self.routing(), size, failures) {
+            return Ok(handle);
+        }
         let routing = self.routing();
-        self.pools
-            .reserve(routing, storage, size, mapping, failures)
+        self.pools.alloc(routing, storage, size, mapping, failures)
+    }
+
+    /// Whether another page of the size allocations are carved at would leave
+    /// the device with less than one to spare.
+    ///
+    /// What says a relocation is worth its copies *now*: the pages an outdated
+    /// pool holds are the room the next one needs, and once the device has
+    /// refused a page there is nowhere left to copy an allocation to. Read
+    /// against what this memory management holds, so a runtime with a pool per
+    /// stream reads its own other streams as headroom it does not have, which
+    /// makes the answer early rather than wrong.
+    pub fn crowded(&self) -> bool {
+        let Some(max_memory) = self.max_memory else {
+            return false;
+        };
+        let page_size = self.current_page_size();
+        self.pools.bytes_reserved() + page_size > max_memory.saturating_sub(page_size)
+    }
+
+    /// Empty every outdated pool the current pages have room for, and return
+    /// the pages that frees.
+    ///
+    /// A plan whose copies fail is abandoned: every allocation stays where it
+    /// was, and the targets it reserved are freed.
+    pub fn relocate<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        copier: &mut dyn CopyQueue<Storage>,
+        failures: &mut ErrorGraph,
+    ) {
+        let relocation = Relocation::new(self.planner, self.plan_relocation(storage, failures));
+        if relocation.is_empty() {
+            return;
+        }
+        match relocation.copy(storage, copier) {
+            Ok(landed) => {
+                for relocated in landed.into_moves(self.planner) {
+                    self.commit_relocation(relocated, failures);
+                }
+                self.drain_outdated(storage, failures);
+            }
+            // Dropping the plan gave every target it reserved back.
+            Err(err) => {
+                log::warn!("relocating allocations off outdated memory pages abandoned: {err}")
+            }
+        }
     }
 
     /// Release what the pools no longer need, and drop every outdated pool
@@ -160,6 +215,14 @@ impl AdaptiveMemory {
                 Some(DynamicPool::Sliced(pool)) => Some(pool),
                 _ => None,
             })
+    }
+
+    /// The size allocations are carved at.
+    fn current_page_size(&self) -> u64 {
+        match self.pools.get(self.growth.current as usize) {
+            Some(DynamicPool::Sliced(pool)) => pool.page_size(),
+            _ => 0,
+        }
     }
 
     /// Put a pool whose pages fit `size` in front of the reservations when the
@@ -388,6 +451,17 @@ mod tests {
     /// A memory manager laid out by the `Adaptive` preset. Every size these
     /// tests reserve is past the metadata pool's largest slice, so the pool
     /// that grows is the one serving them.
+    /// A memory management on a device that holds `max_memory` bytes.
+    fn adaptive_on_device(max_memory: u64) -> MemoryManagement<BytesStorage> {
+        MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &PROPERTIES.with_max_memory(max_memory),
+            MemoryConfiguration::Adaptive,
+            Arc::new(ServerLogger::default()),
+            MemoryManagementOptions::new("adaptive"),
+        )
+    }
+
     fn adaptive() -> MemoryManagement<BytesStorage> {
         MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -463,33 +537,87 @@ mod tests {
     /// for the device one. Answers how many allocations moved.
     fn relocate(memory: &mut MemoryManagement<BytesStorage>) -> usize {
         let failures = &mut ErrorGraph::default();
-        let relocation = memory.plan_relocation(failures);
-        let moved = relocation.len();
-        let landed = relocation.copy(&mut HostCopies(memory.storage())).unwrap();
-        memory.commit_relocation(landed, failures);
-        moved
+        let before = memory.memory_report().dynamic.len();
+        let mut copies = HostCopies;
+        memory.relocate(&mut copies, failures);
+        // A pool a relocation emptied is dropped, so the reports it leaves say
+        // how many moved off it.
+        before - memory.memory_report().dynamic.len()
     }
 
-    /// Host copies between the storages of a [`BytesStorage`]: done as soon
-    /// as they are enqueued.
-    struct HostCopies<'a>(&'a mut BytesStorage);
+    /// A device that refuses every copy, which abandons the relocation.
+    struct RefusedCopies;
 
-    impl CopyQueue for HostCopies<'_> {
+    impl CopyQueue<BytesStorage> for RefusedCopies {
         fn wait_device(&mut self) -> Result<(), ServerError> {
             Ok(())
         }
 
-        fn copy(&mut self, copy: &StorageCopy) -> Result<(), IoError> {
-            let source = self.0.get(&copy.source)?;
-            let mut target = self.0.get(&copy.target)?;
+        fn copy(
+            &mut self,
+            _storage: &mut BytesStorage,
+            _copy: &StorageCopy,
+        ) -> Result<(), IoError> {
+            Err(IoError::Unknown {
+                description: "refused".into(),
+                backtrace: Default::default(),
+            })
+        }
+
+        fn wait_copies(&mut self) -> Result<(), ServerError> {
+            Ok(())
+        }
+    }
+
+    /// Host copies between the storages of a [`BytesStorage`]: done as soon as
+    /// they are enqueued.
+    struct HostCopies;
+
+    impl CopyQueue<BytesStorage> for HostCopies {
+        fn wait_device(&mut self) -> Result<(), ServerError> {
+            Ok(())
+        }
+
+        fn copy(&mut self, storage: &mut BytesStorage, copy: &StorageCopy) -> Result<(), IoError> {
+            let source = storage.get(&copy.source)?;
+            let mut target = storage.get(&copy.target)?;
             target.write().copy_from_slice(source.read());
             Ok(())
         }
 
-        /// A host copy has landed by the time it returns.
         fn wait_copies(&mut self) -> Result<(), ServerError> {
             Ok(())
         }
+    }
+
+    /// A device with room to spare says nothing; one whose next page would
+    /// leave it less than another page asks for the outdated pools to be
+    /// emptied first, which is the last moment a relocation has somewhere to
+    /// copy to.
+    #[test]
+    fn a_crowded_device_asks_for_a_relocation_before_its_next_page() {
+        const MAX_MEMORY: u64 = 24 * MIB;
+        let mut memory = adaptive_on_device(MAX_MEMORY);
+
+        let kept = reserve(&mut memory, MIB);
+        assert!(!memory.crowded(), "one 2 MiB page of 24 MiB");
+
+        // 13 MiB held over two pools, and the next page is 11 MiB.
+        let _large = reserve(&mut memory, 10 * MIB);
+        assert!(memory.crowded());
+
+        let mut copies = HostCopies;
+        memory.relocate(&mut copies, &mut ErrorGraph::default());
+        assert_eq!(
+            pool(&memory),
+            Pool {
+                page_size: 11 * MIB,
+                pages: 1,
+                outdated: 0
+            },
+            "the outdated pool was emptied into the room the current page has"
+        );
+        assert_eq!(page_of(&kept), page_of(&_large));
     }
 
     /// The page size follows the largest allocation the pool served: a
@@ -669,9 +797,8 @@ mod tests {
         let location = place(&kept);
         let _large = reserve(&mut memory, 10 * MIB);
 
-        let relocation = memory.plan_relocation(&mut ErrorGraph::default());
-        assert_eq!(relocation.len(), 1);
-        drop(relocation);
+        let mut refused = RefusedCopies;
+        memory.relocate(&mut refused, &mut ErrorGraph::default());
 
         assert_eq!(place(&kept), location);
         assert_eq!(contents(&mut memory, &kept), 3);

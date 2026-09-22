@@ -121,12 +121,12 @@ impl<'a, D: Driver> Command<'a, D> {
         stream.host_memory().cleanup(true, failures);
     }
 
-    /// Move what is still live on outdated pages onto pages of the current
-    /// size, so those pages go back to the driver now rather than when their
+    /// Empty the outdated pools into the room the current pages have, so the
+    /// pages that frees go back to the driver now rather than when their
     /// longest-lived allocation ends.
     ///
-    /// Runs after the plain cleanup, so the room it freed is there for the
-    /// new pages. Skipped while any stream records a graph: the copies wait on
+    /// Runs after the plain cleanup, so the room it freed is there to move
+    /// into. Skipped while any stream records a graph: the copies wait on
     /// every stream, and a host wait on a capturing one invalidates its
     /// capture.
     fn relocate(&mut self) {
@@ -137,21 +137,11 @@ impl<'a, D: Driver> Command<'a, D> {
         {
             return;
         }
+        let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
+        let queue = self.streams.current().signal();
+        let mut copier = StreamCopies::<D>::new(signals, queue, self.ctx);
         let (stream, failures) = self.streams.current_and_failures();
-        let relocation = stream.device_memory().plan_relocation(failures);
-        if relocation.is_empty() {
-            return;
-        }
-
-        let landed = relocation.copy(&mut StreamCopies::<D>::new(&mut self.streams, self.ctx));
-        let (stream, failures) = self.streams.current_and_failures();
-        match landed {
-            Ok(landed) => stream.device_memory().commit_relocation(landed, failures),
-            // Dropping the plan gave every target it reserved back.
-            Err(err) => {
-                log::warn!("relocating allocations off outdated memory pages abandoned: {err}")
-            }
-        }
+        stream.device_memory().relocate(&mut copier, failures);
     }
 
     /// Flush the current stream's drop queue, freeing what the device is
@@ -183,6 +173,13 @@ impl<'a, D: Driver> Command<'a, D> {
     /// [`IoError::BufferTooBig`] when no device could ever fit it, and
     /// whatever the allocator reports when a reclaim-and-retry still cannot.
     pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
+        // Emptying an outdated pool needs room for the pages it moves into, so
+        // it happens while the device still has a page to spare — waiting for
+        // it to refuse one would leave the copies nowhere to land.
+        if self.streams.current().device_memory().crowded() {
+            self.relocate();
+        }
+
         let (stream, failures) = self.streams.current_and_failures();
         match stream.device_memory().reserve(size, failures) {
             Ok(handle) => Ok(handle),

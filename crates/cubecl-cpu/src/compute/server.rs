@@ -1,3 +1,4 @@
+use crate::compute::copies::CpuCopies;
 use cubecl_llvm::PlironOptions;
 
 use crate::{
@@ -365,7 +366,8 @@ impl Server for CpuServer {
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        stream.memory_management.cleanup(true, failures)
+        stream.memory_management.cleanup(true, failures);
+        stream.memory_management.relocate(&mut CpuCopies, failures);
     }
 
     unsafe fn launch(

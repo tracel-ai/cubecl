@@ -178,7 +178,7 @@ impl Driver for Cuda {
     unsafe fn copy_on_device(
         source: &GpuResource,
         target: &GpuResource,
-        stream: &Stream,
+        queue: <Stream as DeviceStream>::Signal,
     ) -> Result<(), IoError> {
         debug_assert_eq!(source.size, target.size);
         // SAFETY: the caller guarantees two live, same-sized, disjoint device
@@ -188,7 +188,7 @@ impl Driver for Cuda {
                 target.ptr,
                 source.ptr,
                 source.size as usize,
-                stream.sys,
+                queue,
             )
         }
         .map_err(|err| IoError::Unknown {

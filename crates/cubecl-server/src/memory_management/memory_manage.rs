@@ -14,7 +14,7 @@ use crate::{
     storage::{ComputeStorage, StorageHandle},
 };
 
-use crate::memory_management::relocation::{Landed, PlannerId, Relocation};
+use crate::memory_management::relocation::CopyQueue;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -59,9 +59,6 @@ pub struct MemoryManagement<Storage> {
     /// device allocation, returned to the driver on the tick after it is freed.
     dedicated: DirectPool,
     pools: DynamicMemory,
-    /// What a relocation this one planned is stamped with, so no other
-    /// commits it.
-    planner: PlannerId,
     storage: Storage,
     alloc_reserve_count: u64,
     mode: MemoryAllocationMode,
@@ -168,7 +165,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         Self {
             name: options.name,
-            planner: PlannerId::new(),
             persistent: PersistentPool::new(
                 properties.max_page_size,
                 properties.alignment,
@@ -431,32 +427,23 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
     }
 
-    /// Plan moving what is still live on the sliced pools' outdated pages onto
-    /// pages of the current size, reserving a target slice for each.
-    ///
-    /// Nothing moves until the returned relocation's copies have landed and it
-    /// is [committed](Self::commit_relocation); dropping it abandons it with
-    /// nothing lost.
-    ///
-    /// Empty during a capture, where nothing may move or be freed.
-    pub fn plan_relocation(&mut self, failures: &mut ErrorGraph) -> Relocation {
-        if self.capture.is_some() {
-            return Relocation::new(self.planner, Vec::new());
-        }
-        Relocation::new(
-            self.planner,
-            self.pools.plan_relocation(&mut self.storage, failures),
-        )
+    /// Whether the pools are close enough to the device's capacity that the
+    /// next page they allocate should be paid for by emptying an outdated pool
+    /// first (see [`DynamicMemory::crowded`]).
+    pub fn crowded(&self) -> bool {
+        self.pools.crowded()
     }
 
-    /// Hand every allocation of a landed relocation over to the slice that
-    /// now holds its bytes, then return the pages that left empty to the
-    /// driver.
-    pub fn commit_relocation(&mut self, relocation: Landed, failures: &mut ErrorGraph) {
-        for relocated in relocation.into_moves(self.planner) {
-            self.pools.commit_relocation(relocated, failures);
+    /// Empty what the outdated pools hold into the room the current pages
+    /// have, and return the pages that frees.
+    ///
+    /// Nothing moves during a capture, where a recorded kernel replays against
+    /// the address it resolved.
+    pub fn relocate(&mut self, copier: &mut dyn CopyQueue<Storage>, failures: &mut ErrorGraph) {
+        if self.capture.is_some() {
+            return;
         }
-        self.cleanup(true, failures);
+        self.pools.relocate(&mut self.storage, copier, failures);
     }
 
     /// Install real backing behind `binding` when its allocation was carved
