@@ -2,7 +2,9 @@
 
 use super::StorageCopy;
 use crate::server::{IoError, ServerError};
-use crate::storage::{BytesStorage, ComputeStorage};
+#[cfg(feature = "storage-bytes")]
+use crate::storage::BytesStorage;
+use crate::storage::ComputeStorage;
 
 /// Where a relocation's bytes are copied, and what it waits on.
 ///
@@ -45,9 +47,11 @@ pub trait CopyQueue<Storage: ComputeStorage> {
 ///
 /// Waits on nothing: whoever runs work against the memory waits for it before
 /// handing the relocation over.
+#[cfg(feature = "storage-bytes")]
 #[derive(Debug, Default)]
 pub struct HostCopies;
 
+#[cfg(feature = "storage-bytes")]
 impl CopyQueue<BytesStorage> for HostCopies {
     fn wait_device(&mut self) -> Result<(), ServerError> {
         Ok(())

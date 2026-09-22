@@ -19,7 +19,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    server::{BufferBinding, IoError, ProfileError, ProfilingToken, ServerError},
+    server::{BufferBinding, ProfileError, ProfilingToken, ServerError},
     zspace::Shape,
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -554,30 +554,6 @@ impl WgpuStream {
                 None => Ok(()),
             }
         })
-    }
-
-    /// Allocates a new empty buffer using the main memory pool.
-    pub fn empty(
-        &mut self,
-        size: u64,
-        failures: &mut ErrorGraph,
-    ) -> Result<ManagedMemoryHandle, IoError> {
-        // Nothing is allocated while the stream records a graph: the pools
-        // serve the recording from what the warmup run left them.
-        if self.capturing.is_recording() {
-            if let Some(handle) = self.mem_manage.try_reserve(size, failures) {
-                return Ok(handle);
-            }
-            let err = IoError::AllocationWhileRecording {
-                size,
-                backtrace: BackTrace::capture(),
-            };
-            self.capturing.fail(err.clone().into());
-            return Err(err);
-        }
-        // Never releases a page: the server cleans up before reserving, and
-        // only while no stream records.
-        self.mem_manage.reserve_keeping_pages(size, failures)
     }
 
     /// Empty the outdated pools into the current pages.

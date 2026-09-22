@@ -10,7 +10,7 @@ use cubecl_ir::{
     metadata::Info,
     settings::{Dim3, ExecutionMode, KernelSettings},
 };
-use cubecl_server::memory_management::Cleanup;
+use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::server::ServerStorage;
 use cubecl_server::{
     allocator::ContiguousMemoryLayoutPolicy,
@@ -129,7 +129,7 @@ impl<M: Marker> Server for DummyServer<M> {
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, _stream_id: StreamId) {
         let reserved = self
             .memory_management
-            .reserve(size, &mut self.failures)
+            .reserve(size, PageUpdate::Allow, &mut self.failures)
             .unwrap();
         self.memory_management
             .bind(reserved, memory.clone(), 0, &mut self.failures)

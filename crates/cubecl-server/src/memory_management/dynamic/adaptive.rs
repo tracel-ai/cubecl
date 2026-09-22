@@ -291,7 +291,7 @@ mod tests {
         logging::ServerLogger,
         memory_management::{
             ErrorGraph, ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration,
-            MemoryManagement, MemoryManagementOptions, MemoryPoolKind,
+            MemoryManagement, MemoryManagementOptions, MemoryPoolKind, PageUpdate,
             relocation::{CopyQueue, HostCopies, Relocate, StorageCopy},
         },
         server::{IoError, ServerError},
@@ -362,7 +362,9 @@ mod tests {
     }
 
     fn reserve(memory: &mut MemoryManagement<BytesStorage>, size: u64) -> ManagedMemoryHandle {
-        memory.reserve(size, &mut ErrorGraph::default()).unwrap()
+        memory
+            .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
+            .unwrap()
     }
 
     /// Where an allocation sits: its pool, page and slice.
@@ -525,11 +527,11 @@ mod tests {
         assert_eq!(relocation(&memory), Some(Relocate::MemoryPressure));
     }
 
-    /// A reservation that keeps its pages releases nothing, even an outdated
-    /// page that emptied: while a graph records, the pages it touched must
-    /// keep their numbers and addresses until it seals.
+    /// An add-only reservation releases nothing, even an outdated page that
+    /// emptied: while a graph records, the pages it touched must keep their
+    /// numbers and addresses until it seals.
     #[test]
-    fn a_reservation_keeping_pages_releases_nothing() {
+    fn an_add_only_reservation_releases_nothing() {
         let mut memory = adaptive();
 
         let first = reserve(&mut memory, MIB);
@@ -537,7 +539,7 @@ mod tests {
         drop(first);
 
         let _kept = memory
-            .reserve_keeping_pages(MIB, &mut ErrorGraph::default())
+            .reserve(MIB, PageUpdate::AddOnly, &mut ErrorGraph::default())
             .unwrap();
         assert_eq!(pool(&memory).outdated, 1, "the emptied page is still held");
 
@@ -589,7 +591,7 @@ mod tests {
             "the slack does not push the page past the device's limit"
         );
 
-        let refused = memory.reserve(MAX_PAGE + 1, &mut ErrorGraph::default());
+        let refused = memory.reserve(MAX_PAGE + 1, PageUpdate::Allow, &mut ErrorGraph::default());
         assert!(
             matches!(refused, Err(IoError::BufferTooBig { .. })),
             "{refused:?}"
@@ -604,7 +606,7 @@ mod tests {
         let mut memory = adaptive();
         let _small = reserve(&mut memory, MIB);
 
-        let refused = memory.reserve(1 << 50, &mut ErrorGraph::default());
+        let refused = memory.reserve(1 << 50, PageUpdate::Allow, &mut ErrorGraph::default());
         assert!(
             matches!(refused, Err(IoError::BufferTooBig { .. })),
             "{refused:?}"
@@ -674,6 +676,25 @@ mod tests {
                 outdated: 0
             }
         );
+    }
+
+    /// A reservation that may not update the pages serves only from the room
+    /// they hold, and says so when that room is not enough.
+    #[test]
+    fn a_forbidden_page_update_serves_only_the_room_held() {
+        let mut memory = adaptive();
+        let first = reserve(&mut memory, MIB);
+        drop(first);
+
+        let _held = memory
+            .reserve(MIB, PageUpdate::Forbidden, &mut ErrorGraph::default())
+            .expect("the page held has room for it");
+        let refused = memory.reserve(4 * MIB, PageUpdate::Forbidden, &mut ErrorGraph::default());
+        assert!(
+            matches!(refused, Err(IoError::PageUpdateForbidden { .. })),
+            "{refused:?}"
+        );
+        assert_eq!(pool(&memory).pages, 1, "no page was added");
     }
 
     /// Relocation moves live allocations off outdated pages with their bytes,

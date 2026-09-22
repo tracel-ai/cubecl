@@ -51,6 +51,19 @@ impl PoolPosition {
     }
 }
 
+/// What a reservation may do to the pages the memory holds to find room.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageUpdate {
+    /// Anything: the periodic cleanup runs first and may release or renumber
+    /// pages, and a page is allocated when no room is held.
+    Allow,
+    /// Only add: no page is released or renumbered, so every page keeps its
+    /// number and its address, but a page is allocated when no room is held.
+    AddOnly,
+    /// Nothing: only room the pages already hold.
+    Forbidden,
+}
+
 /// Why a cleanup runs, which decides how much it gives back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cleanup {
@@ -385,31 +398,46 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.storage().get(&handle)
     }
 
-    /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
+    /// Reserve `size` bytes, changing the pages held only as far as `update`
+    /// allows.
+    ///
+    /// # Errors
+    ///
+    /// [`IoError::PageUpdateForbidden`] when `update` forbids a new page and
+    /// the room held cannot serve it, and whatever the pools or the device
+    /// refused otherwise.
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     pub fn reserve(
         &mut self,
         size: u64,
+        update: PageUpdate,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        // Drive the pools' periodic deallocation. Each pool gates itself on
-        // its own `dealloc_period` (pools without one no-op), so this is a few
-        // comparisons per reservation — without it, pages freed long ago are
-        // never returned to the driver until an explicit cleanup, which on
-        // long-running processes lets every stream's pools grow monotonically.
-        self.cleanup(Cleanup::Periodic, failures);
-        self.reserve_keeping_pages(size, failures)
+        match update {
+            PageUpdate::Allow => {
+                // Drive the pools' periodic deallocation. Each pool gates
+                // itself on its own `dealloc_period` (pools without one no-op),
+                // so this is a few comparisons per reservation — without it,
+                // pages freed long ago are never returned to the driver until
+                // an explicit cleanup, which on long-running processes lets
+                // every stream's pools grow monotonically.
+                self.cleanup(Cleanup::Periodic, failures);
+                self.reserve_adding(size, failures)
+            }
+            PageUpdate::AddOnly => self.reserve_adding(size, failures),
+            PageUpdate::Forbidden => {
+                self.reserve_held(size, failures)
+                    .ok_or_else(|| IoError::PageUpdateForbidden {
+                        size,
+                        backtrace: BackTrace::capture(),
+                    })
+            }
+        }
     }
 
-    /// [`reserve`](Self::reserve), without the periodic cleanup that runs
-    /// first: no page is released or renumbered, so every page keeps the
-    /// address and the number it had.
-    ///
-    /// For a caller that needs the pages to stay put — a server while any
-    /// stream records a graph, whose touched pages it guards once it seals.
-    /// That caller runs [`cleanup`](Self::cleanup) itself when they may move.
-    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
-    pub fn reserve_keeping_pages(
+    /// Reserve `size` bytes, allocating a page when the room held has none,
+    /// without releasing or renumbering any page.
+    fn reserve_adding(
         &mut self,
         size: u64,
         failures: &mut ErrorGraph,
@@ -496,13 +524,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Reserve `size` bytes in the room the pools already hold, the way
-    /// [`reserve`](Self::reserve) would route them: no cleanup, no new page,
-    /// nothing moved. `None` when that room cannot serve it.
-    ///
-    /// What a caller that must not reach the driver reserves with — a stream
-    /// recording a graph, where an allocation would become part of the
-    /// recording.
-    pub fn try_reserve(
+    /// [`reserve_adding`](Self::reserve_adding) would route them: no cleanup,
+    /// no new page, nothing moved. `None` when that room cannot serve it.
+    fn reserve_held(
         &mut self,
         size: u64,
         failures: &mut ErrorGraph,
@@ -711,7 +735,9 @@ mod tests {
             Arc::new(ServerLogger::default()),
             options(),
         );
-        let _near = memory.reserve(7 * MIB, &mut ErrorGraph::default()).unwrap();
+        let _near = memory
+            .reserve(7 * MIB, PageUpdate::Allow, &mut ErrorGraph::default())
+            .unwrap();
 
         let served = memory
             .memory_report()
@@ -738,7 +764,7 @@ mod tests {
             options(),
         );
         let handle = memory_management
-            .reserve(10, &mut ErrorGraph::default())
+            .reserve(10, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
@@ -757,7 +783,7 @@ mod tests {
             Arc::new(ServerLogger::default()),
             options(),
         );
-        let handle = memory_management.reserve(100, &mut ErrorGraph::default());
+        let handle = memory_management.reserve(100, PageUpdate::Allow, &mut ErrorGraph::default());
         let usage = memory_management.memory_usage();
 
         assert_eq!(usage.bytes_in_use, 100);
@@ -766,7 +792,7 @@ mod tests {
 
         // Drop and re-alloc.
         drop(handle);
-        let _handle = memory_management.reserve(100, &mut ErrorGraph::default());
+        let _handle = memory_management.reserve(100, PageUpdate::Allow, &mut ErrorGraph::default());
         let usage_new = memory_management.memory_usage();
         assert_eq!(usage, usage_new);
     }
@@ -785,7 +811,7 @@ mod tests {
         // Even with a live page at index 0, a never-initialized descriptor must
         // not resolve to it.
         let _live = memory_management
-            .reserve(512, &mut ErrorGraph::default())
+            .reserve(512, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
 
         let binding = ManagedMemoryHandle::new().binding();
@@ -807,7 +833,7 @@ mod tests {
         );
 
         let reserved = memory_management
-            .reserve(512, &mut ErrorGraph::default())
+            .reserve(512, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         let stale = reserved.clone();
         let assigned = ManagedMemoryHandle::new();
@@ -839,13 +865,13 @@ mod tests {
         );
 
         let handle_a = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
+            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         let handle_b = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
+            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         let handle_c = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
+            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
 
         let binding_b = handle_b.binding();
@@ -885,7 +911,7 @@ mod tests {
 
         // Still inside the load's window: the allocation must be persistent.
         let weight = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
+            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         let report = memory_management.memory_report();
         assert_eq!(
@@ -905,7 +931,7 @@ mod tests {
         // The outer window closes; ordinary allocations are dynamic again.
         memory_management.mode(MemoryAllocationMode::Auto);
         let _transient = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
+            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         assert_eq!(
             memory_management
@@ -932,8 +958,10 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
-        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _new_handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
@@ -955,9 +983,11 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         drop(_handle);
-        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _new_handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 1);
@@ -980,8 +1010,10 @@ mod tests {
         // one does not fit beside the first, so the pool has to grow a page.
         let page_size = 2 * MIB;
         let alloc_size = page_size / 4 * 3;
-        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
-        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _new_handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
@@ -1000,8 +1032,10 @@ mod tests {
             options(),
         );
         let alloc_size = 40;
-        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
-        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _new_handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         let usage = memory_management.memory_usage();
         // Each slice should be aligned to 50 bytes, so 10 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
@@ -1023,7 +1057,7 @@ mod tests {
         let alloc_sizes = [4096, 4 * MIB];
         let handles = alloc_sizes.map(|size| {
             memory_management
-                .reserve(size, &mut ErrorGraph::default())
+                .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
                 .unwrap()
         });
 
@@ -1056,12 +1090,12 @@ mod tests {
 
         // A "small seq" allocation, then freed.
         let small = memory_management
-            .reserve(128 * 1024, &mut ErrorGraph::default())
+            .reserve(128 * 1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         drop(small);
         // A "large seq" allocation must reuse the same arena page.
         let large = memory_management
-            .reserve(512 * 1024, &mut ErrorGraph::default())
+            .reserve(512 * 1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
 
         let usage = memory_management.memory_usage();
@@ -1086,14 +1120,26 @@ mod tests {
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), &mut ErrorGraph::default()))
+            .map(|i| {
+                memory_management.reserve(
+                    1000 * (i + 1),
+                    PageUpdate::Allow,
+                    &mut ErrorGraph::default(),
+                )
+            })
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), &mut ErrorGraph::default()))
+            .map(|i| {
+                memory_management.reserve(
+                    1000 * (i + 1),
+                    PageUpdate::Allow,
+                    &mut ErrorGraph::default(),
+                )
+            })
             .collect();
         let usage_after = memory_management.memory_usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
@@ -1118,7 +1164,7 @@ mod tests {
             .iter()
             .map(|&size| {
                 memory_management
-                    .reserve(size, &mut ErrorGraph::default())
+                    .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
                     .unwrap()
             })
             .collect();
@@ -1130,7 +1176,7 @@ mod tests {
         // Reallocate similar sizes
         for &size in &sizes[0..sizes.len() / 2] {
             memory_management
-                .reserve(size, &mut ErrorGraph::default())
+                .reserve(size, PageUpdate::Allow, &mut ErrorGraph::default())
                 .unwrap();
         }
         let usage_after = memory_management.memory_usage();
@@ -1149,7 +1195,7 @@ mod tests {
             options(),
         );
         let handle = memory_management
-            .reserve(10, &mut ErrorGraph::default())
+            .reserve(10, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
@@ -1168,8 +1214,10 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
-        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _new_handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
@@ -1189,9 +1237,11 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         drop(_handle);
-        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _new_handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 1);
@@ -1210,8 +1260,10 @@ mod tests {
         );
 
         let alloc_size = 768;
-        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
-        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _new_handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
@@ -1228,8 +1280,10 @@ mod tests {
             options(),
         );
         let alloc_size = 40;
-        let _handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
-        let _new_handle = memory_management.reserve(alloc_size, &mut ErrorGraph::default());
+        let _handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
+        let _new_handle =
+            memory_management.reserve(alloc_size, PageUpdate::Allow, &mut ErrorGraph::default());
         let usage = memory_management.memory_usage();
         // Each slice should be aligned to 50 bytes, so 10 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
@@ -1246,8 +1300,8 @@ mod tests {
         );
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
-        let _handles =
-            alloc_sizes.map(|s| memory_management.reserve(s, &mut ErrorGraph::default()));
+        let _handles = alloc_sizes
+            .map(|s| memory_management.reserve(s, PageUpdate::Allow, &mut ErrorGraph::default()));
         let usage = memory_management.memory_usage();
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
@@ -1264,7 +1318,7 @@ mod tests {
         );
 
         let recorded = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
+            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         let guard = memory_management
             .guard(recorded.descriptor().location())
@@ -1275,7 +1329,7 @@ mod tests {
         // of its own, and a cleanup leaves the guarded one where it is.
         let before = memory_management.memory_usage().bytes_reserved;
         let other = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
+            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         let after = memory_management.memory_usage().bytes_reserved;
         assert!(after > before, "the guarded page was handed out again");
@@ -1303,7 +1357,7 @@ mod tests {
         );
 
         let cache = memory_management
-            .reserve(1024, &mut ErrorGraph::default())
+            .reserve(1024, PageUpdate::Allow, &mut ErrorGraph::default())
             .unwrap();
         let _guard = memory_management.guard(cache.descriptor().location());
 
@@ -1324,14 +1378,26 @@ mod tests {
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), &mut ErrorGraph::default()))
+            .map(|i| {
+                memory_management.reserve(
+                    1000 * (i + 1),
+                    PageUpdate::Allow,
+                    &mut ErrorGraph::default(),
+                )
+            })
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), &mut ErrorGraph::default()))
+            .map(|i| {
+                memory_management.reserve(
+                    1000 * (i + 1),
+                    PageUpdate::Allow,
+                    &mut ErrorGraph::default(),
+                )
+            })
             .collect();
         let usage_after = memory_management.memory_usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);

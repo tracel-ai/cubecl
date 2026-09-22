@@ -1135,17 +1135,17 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
-    /// A stream recording a graph asked for memory the pools do not already
-    /// hold.
+    /// No room for the allocation in the pages the memory holds, and the
+    /// reservation was not allowed to add one.
     ///
-    /// Nothing reaches the driver while a graph records: the allocation would
+    /// A stream recording a graph reserves this way: an allocation would
     /// become part of the recording, and a hardware graph holding one cannot
-    /// be relaunched. The warmup before the capture is what leaves the pools
+    /// be relaunched. The warmup before a capture is what leaves the pools
     /// holding what the recorded run asks for.
     #[error(
-        "Graph capture needs {size} bytes the memory pools do not hold; warm up with the same workload before capturing\n{backtrace}"
+        "No room for {size} bytes in the memory held, and no page may be added (a graph capture is recording: warm up with the same workload first)\n{backtrace}"
     )]
-    AllocationWhileRecording {
+    PageUpdateForbidden {
         /// The size of the allocation in bytes.
         size: u64,
         /// The captured backtrace.
@@ -1260,7 +1260,7 @@ impl IoError {
     pub fn may_succeed_after_reclaim(&self) -> bool {
         !matches!(
             self,
-            IoError::BufferTooBig { .. } | IoError::AllocationWhileRecording { .. }
+            IoError::BufferTooBig { .. } | IoError::PageUpdateForbidden { .. }
         )
     }
 }

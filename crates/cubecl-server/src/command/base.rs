@@ -18,6 +18,7 @@ use crate::memory_management::drop_queue::Fence;
 use crate::memory_management::relocation::{Relocate, RelocatingStreams};
 use crate::memory_management::{
     ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle, MemoryReport, MemoryUsage, PageGuard,
+    PageUpdate,
 };
 use crate::server::{BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ServerError};
 use crate::storage::ManagedResource;
@@ -190,36 +191,25 @@ impl<'a, D: Driver> Command<'a, D> {
     /// [`IoError::BufferTooBig`] when no device could ever fit it, and
     /// whatever the allocator reports when a reclaim-and-retry still cannot.
     pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
-        // Nothing reaches the driver while the stream records a graph: the
-        // allocation would become part of the recording.
-        if self.streams.current().capturing().is_recording() {
-            let (stream, failures) = self.streams.current_and_failures();
-            if let Some(handle) = stream.device_memory().try_reserve(size, failures) {
-                return Ok(handle);
-            }
-            let err = IoError::AllocationWhileRecording {
-                size,
-                backtrace: BackTrace::capture(),
-            };
-            // The recording now misses whatever this memory was for.
-            stream.capturing().fail(err.clone().into());
-            return Err(err);
+        let any_recording = self.recording();
+        let update = self
+            .streams
+            .current()
+            .capturing()
+            .page_update(any_recording);
+        if update == PageUpdate::Allow {
+            self.relocate_when_wanted();
         }
-
-        // While any stream records, every page keeps its number and its
-        // address: nothing is cleaned up or relocated, so the pages the
-        // recording touched are still the ones it guards when it seals.
-        if self.recording() {
-            let (stream, failures) = self.streams.current_and_failures();
-            return stream.device_memory().reserve_keeping_pages(size, failures);
-        }
-
-        self.relocate_when_wanted();
 
         let (stream, failures) = self.streams.current_and_failures();
-        match stream.device_memory().reserve(size, failures) {
+        match stream.device_memory().reserve(size, update, failures) {
             Ok(handle) => Ok(handle),
-            Err(err) if !err.may_succeed_after_reclaim() => Err(err),
+            // The recording now misses whatever this memory was for.
+            Err(err @ IoError::PageUpdateForbidden { .. }) => {
+                stream.capturing().fail(err.clone().into());
+                Err(err)
+            }
+            Err(err) if update != PageUpdate::Allow || !err.may_succeed_after_reclaim() => Err(err),
             // Reclaim and retry once; only a failure after that is reported.
             // Without the retry a transient peak becomes a never-initialized
             // handle whose every downstream use fails.
@@ -227,7 +217,9 @@ impl<'a, D: Driver> Command<'a, D> {
                 log::warn!("device allocation of {size} B failed ({err}); reclaiming and retrying");
                 self.reclaim(&err);
                 let (stream, failures) = self.streams.current_and_failures();
-                stream.device_memory().reserve(size, failures)
+                stream
+                    .device_memory()
+                    .reserve(size, PageUpdate::Allow, failures)
             }
         }
     }
@@ -260,7 +252,7 @@ impl<'a, D: Driver> Command<'a, D> {
             // The recording already failed on it, and `stop_capture` reports
             // that: the handle stays unbound, and whatever uses it belongs to
             // a recording that will not seal.
-            Err(IoError::AllocationWhileRecording { .. }) => return,
+            Err(IoError::PageUpdateForbidden { .. }) => return,
             Err(err) => panic!("failed to reserve {size} bytes of device memory: {err}"),
         };
         self.bind(reserved, memory)
@@ -314,24 +306,18 @@ impl<'a, D: Driver> Command<'a, D> {
     /// `size` bytes of pinned host memory, or `None` when the pool cannot
     /// serve it.
     fn reserve_pinned(&mut self, size: usize, origin: Option<StreamId>) -> Option<Bytes> {
-        let recording = self.recording();
+        let any_recording = self.recording();
         let (stream, failures) = match origin {
             Some(id) => self.streams.get_and_failures(&id),
             None => self.streams.current_and_failures(),
         };
         // A stream recording a graph stages from what the pool holds, and
-        // falls back to the heap rather than allocate; while another stream
-        // records, nothing is released.
-        let handle = if stream.capturing().is_recording() {
-            stream.host_memory().try_reserve(size as u64, failures)?
-        } else if recording {
-            stream
-                .host_memory()
-                .reserve_keeping_pages(size as u64, failures)
-                .ok()?
-        } else {
-            stream.host_memory().reserve(size as u64, failures).ok()?
-        };
+        // falls back to the heap rather than allocate.
+        let update = stream.capturing().page_update(any_recording);
+        let handle = stream
+            .host_memory()
+            .reserve(size as u64, update, failures)
+            .ok()?;
 
         let binding = MemoryHandle::binding(handle);
         stream.capturing().prime(&binding);

@@ -6,8 +6,8 @@ use cubecl_core::{
 };
 use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_server::memory_management::Cleanup;
 use cubecl_server::memory_management::relocation::Relocate;
+use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
@@ -113,14 +113,15 @@ impl WgpuMemManager {
         self.memory_pool.bind(old, new, 0, failures).unwrap();
     }
 
-    /// Reserve `size` bytes on the main pool without cleaning it up first —
-    /// see [`MemoryManagement::reserve_keeping_pages`].
-    pub(crate) fn reserve_keeping_pages(
+    /// Reserve `size` bytes on the main pool — see
+    /// [`MemoryManagement::reserve`].
+    pub(crate) fn reserve(
         &mut self,
         size: u64,
+        update: PageUpdate,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        self.memory_pool.reserve_keeping_pages(size, failures)
+        self.memory_pool.reserve(size, update, failures)
     }
 
     /// Whether the main pool has anything outdated a relocation could move
@@ -184,7 +185,9 @@ impl WgpuMemManager {
         &mut self,
         size: u64,
     ) -> Result<(WgpuResource, ManagedMemoryBinding), IoError> {
-        let handle = self.memory_pool_staging.reserve(size, &mut self.aux)?;
+        let handle = self
+            .memory_pool_staging
+            .reserve(size, PageUpdate::Allow, &mut self.aux)?;
         let binding = MemoryHandle::binding(handle);
         let resource = self
             .memory_pool_staging
@@ -192,16 +195,6 @@ impl WgpuMemManager {
             .unwrap();
 
         Ok((resource, binding))
-    }
-
-    /// Reserve `size` bytes in the room the main pool already holds — see
-    /// [`MemoryManagement::try_reserve`].
-    pub(crate) fn try_reserve(
-        &mut self,
-        size: u64,
-        failures: &mut ErrorGraph,
-    ) -> Option<ManagedMemoryHandle> {
-        self.memory_pool.try_reserve(size, failures)
     }
 
     /// Keep the main-pool page `location` names as it is while the guard
@@ -232,7 +225,7 @@ impl WgpuMemManager {
     pub(crate) fn reserve_uniform(&mut self, size: u64) -> (ManagedMemoryHandle, WgpuResource) {
         let slice = self
             .memory_uniforms
-            .reserve(size, &mut self.aux)
+            .reserve(size, PageUpdate::Allow, &mut self.aux)
             .expect("Must have enough memory for a uniform");
         // Keep track of this uniform until it is released.
         self.uniforms.push(slice.clone());

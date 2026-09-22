@@ -9,6 +9,7 @@ use cubecl_core::{
     server::{BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError},
 };
 use cubecl_environment::stream::StreamId;
+use cubecl_server::memory_management::PageUpdate;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{
@@ -187,7 +188,8 @@ impl CpuStream {
         size: u64,
         failures: &mut ErrorGraph,
     ) -> Result<ManagedMemoryHandle, IoError> {
-        self.memory_management.reserve(size, failures)
+        self.memory_management
+            .reserve(size, PageUpdate::Allow, failures)
     }
 
     /// Maps handles to their corresponding buffers.

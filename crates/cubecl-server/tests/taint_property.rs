@@ -30,7 +30,7 @@ use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::id::KernelId;
 use cubecl_server::logging::ServerLogger;
-use cubecl_server::memory_management::Cleanup;
+use cubecl_server::memory_management::{Cleanup, PageUpdate};
 use cubecl_server::memory_management::{
     ErrorGraph, FailureId, MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
 };
@@ -239,10 +239,14 @@ impl Harness {
 
         let device = &mut self.device;
         let stream = device.pool.get_mut(&id);
-        let reserved = match stream.memory.reserve(size, device.failures.graph_mut()) {
-            Ok(reserved) => reserved,
-            Err(err) => panic!("the harness never outgrows its pools: {err}"),
-        };
+        let reserved =
+            match stream
+                .memory
+                .reserve(size, PageUpdate::Allow, device.failures.graph_mut())
+            {
+                Ok(reserved) => reserved,
+                Err(err) => panic!("the harness never outgrows its pools: {err}"),
+            };
         stream
             .memory
             .bind(

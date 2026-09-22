@@ -359,20 +359,21 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         // address: nothing is cleaned up or relocated, so the pages a recording
         // touched are still the ones it guards when it seals.
         let mut relocating = self.relocating(stream_id);
-        if !relocating.recording() {
+        let any_recording = relocating.recording();
+        if !any_recording {
             relocating.relocate_when_wanted();
-            let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-            stream
-                .mem_manage
-                .memory_cleanup(Cleanup::Periodic, failures);
         }
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        let reserved = match stream.empty(size, failures) {
+        let update = stream.capturing.page_update(any_recording);
+        let reserved = match stream.mem_manage.reserve(size, update, failures) {
             Ok(reserved) => reserved,
-            // The recording already failed on it, and `end_capture` reports
-            // that: the handle stays unbound, and whatever uses it belongs to
-            // a recording that will not seal.
-            Err(IoError::AllocationWhileRecording { .. }) => return,
+            // The recording now misses whatever this memory was for, and
+            // `end_capture` reports that: the handle stays unbound, and
+            // whatever uses it belongs to a recording that will not seal.
+            Err(err @ IoError::PageUpdateForbidden { .. }) => {
+                stream.capturing.fail(err.into());
+                return;
+            }
             Err(err) => panic!("failed to reserve {size} bytes of device memory: {err}"),
         };
         stream.mem_manage.bind(reserved, memory, failures);

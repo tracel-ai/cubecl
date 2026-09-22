@@ -1,7 +1,7 @@
 //! The stream-side graph-capture lifecycle, shared by every backend with
 //! graph support (see [`Server::graph_prepare`](crate::server::Server::graph_prepare)).
 
-use crate::memory_management::{ManagedMemoryBinding, MemoryLocation};
+use crate::memory_management::{ManagedMemoryBinding, MemoryLocation, PageUpdate};
 use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::format;
@@ -226,6 +226,21 @@ impl StreamCapture {
         touched.sort_unstable();
         touched.dedup();
         touched
+    }
+
+    /// What this stream's reservations may do to the pages held, while
+    /// `any_recording` says whether some stream records a graph.
+    ///
+    /// A recording stream allocates nothing: an allocation would become part
+    /// of the recording. While any stream records, no page is released or
+    /// renumbered, so the pages a recording touched are still the ones it
+    /// guards when it seals.
+    pub fn page_update(&self, any_recording: bool) -> PageUpdate {
+        match (self.is_recording(), any_recording) {
+            (true, _) => PageUpdate::Forbidden,
+            (false, true) => PageUpdate::AddOnly,
+            (false, false) => PageUpdate::Allow,
+        }
     }
 
     /// Hold `staging` until the window opens, when the stream is preparing a

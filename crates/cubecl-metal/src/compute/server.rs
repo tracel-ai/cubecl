@@ -19,6 +19,7 @@ use cubecl_core::{
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_server::memory_management::Cleanup;
+use cubecl_server::memory_management::PageUpdate;
 use cubecl_server::{
     dry_run::LaunchMode,
     kernel::CubeKernel,
@@ -204,7 +205,7 @@ impl Server for MetalServer {
         let (stream, failures) = resolved.current_and_failures();
         let reserved = stream
             .memory_management
-            .reserve(size, failures)
+            .reserve(size, PageUpdate::Allow, failures)
             .expect("Failed to reserve memory");
         stream
             .memory_management
