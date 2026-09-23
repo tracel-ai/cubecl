@@ -569,31 +569,6 @@ impl CudaContext {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::cache_namespace;
-    use crate::compiler::CudaBackend;
-    use cubecl_llvm::nvptx::ptx_version::PtxVersion;
-
-    /// See [`super::cache_namespace`] for why this must hold.
-    #[test]
-    fn cache_namespace_separates_backends() {
-        assert_ne!(
-            cache_namespace("ptx_sm86", CudaBackend::Cpp, None),
-            cache_namespace("ptx_sm86", CudaBackend::Llvm, None),
-        );
-    }
-
-    /// See [`super::cache_namespace`] for why this must hold.
-    #[test]
-    fn cache_namespace_separates_the_llvm_backends_ptx_versions() {
-        assert_ne!(
-            cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12080)),
-            cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12090)),
-        );
-    }
-}
-
 /// Writes the PTX for `kernel_id` under the directory named by `CUBECL_CUDA_DUMP_PTX`, if that
 /// variable is set.
 ///
@@ -621,4 +596,29 @@ fn dump_ptx(kernel_id: &KernelId, ptx: &[c_char]) {
     // SAFETY: the PTX handed to the driver is a null-terminated C string.
     let text = unsafe { CStr::from_ptr(ptx.as_ptr()) };
     let _ = std::fs::write(dir.join(format!("{name}.ptx")), text.to_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cache_namespace;
+    use crate::compiler::CudaBackend;
+    use cubecl_llvm::nvptx::ptx_version::PtxVersion;
+
+    /// See [`super::cache_namespace`] for why this must hold.
+    #[test]
+    fn cache_namespace_separates_backends() {
+        assert_ne!(
+            cache_namespace("ptx_sm86", CudaBackend::Cpp, None),
+            cache_namespace("ptx_sm86", CudaBackend::Llvm, None),
+        );
+    }
+
+    /// See [`super::cache_namespace`] for why this must hold.
+    #[test]
+    fn cache_namespace_separates_the_llvm_backends_ptx_versions() {
+        assert_ne!(
+            cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12080)),
+            cache_namespace("ptx_sm86", CudaBackend::Llvm, PtxVersion::for_driver(12090)),
+        );
+    }
 }

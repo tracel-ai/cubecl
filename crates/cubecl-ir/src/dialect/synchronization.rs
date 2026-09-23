@@ -6,7 +6,7 @@ use pliron::{
     opts::dce::SideEffects,
 };
 
-use crate::{CanMaterialize, NoMemoryEffect, interfaces::Synchronizes, prelude::*};
+use crate::{CanMaterialize, interfaces::Synchronizes, prelude::*};
 
 /// Scope that the synchronization should apply to. This is a *minimum*, when fine-grained control
 /// is not available it should synchronize at the smallest scope that includes this scope
@@ -35,7 +35,7 @@ pub struct SyncScopeAttr(pub SyncScope);
 
 #[cube_op(name = "sync.sync")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_traits(CanMaterialize)]
 pub struct SyncOp {
     pub scope: SyncScopeAttr,
 }
@@ -62,5 +62,5 @@ impl SideEffects for SyncOp {
 /// It does not synchronize the actual threads, and is typically called only by the TMA leader.
 #[cube_op(name = "sync.sync_async_proxy")]
 #[result_ty(none)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
+#[op_traits(CanMaterialize)]
 pub struct SyncAsyncProxyOp {}
