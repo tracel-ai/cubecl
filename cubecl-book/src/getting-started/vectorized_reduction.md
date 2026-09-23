@@ -19,7 +19,11 @@ can be vectorized. For more information on vectorization in CubeCL, you can refe
 To apply vectorization to the reduction problem, we will modify our reduction kernel to process
 multiple elements at once. This means that instead of summing one element at a time, we will sum
 multiple elements with vectorization, which can lead to substantial performance gains. The number of
-elements processed at a time is the vector size. The kernel reads `&Tensor<Vector<F, N>>` and writes scalar results to `&mut Tensor<F>`. Pass `VECTOR_SIZE` as the launch argument for `N`; `TensorArg` shapes and strides remain measured in scalar elements. These examples use row lengths divisible by the vector size. Divide both the row length and row offset by that size when indexing the input, then use `acc.vector_sum()` to sum the accumulator's lanes into one scalar per row.
+elements processed at a time is the vector size. The kernel reads `&Tensor<Vector<F, N>>` and writes
+scalar results to `&mut Tensor<F>`. Pass `VECTOR_SIZE` as the launch argument for `N`; `TensorArg`
+shapes and strides remain measured in scalar elements. These examples use row lengths divisible by
+the vector size. Divide both the row length and row offset by that size when indexing the input,
+then use `acc.vector_sum()` to sum the accumulator's lanes into one scalar per row.
 
 ```rust,ignore
 {{#include src/bin/v5-gpu.rs:implementation}}
