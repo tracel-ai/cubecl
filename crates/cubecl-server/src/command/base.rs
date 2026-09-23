@@ -183,12 +183,7 @@ impl<'a, D: Driver> Command<'a, D> {
     /// [`IoError::BufferTooBig`] when no device could ever fit it, and
     /// whatever the allocator reports when a reclaim-and-retry still cannot.
     pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
-        let any_recording = self.recording();
-        let update = self
-            .streams
-            .current()
-            .capturing()
-            .page_update(any_recording);
+        let update = self.streams.current().capturing().page_update();
         if update == PageUpdate::Allow {
             self.relocate_when_wanted();
         }
@@ -298,14 +293,13 @@ impl<'a, D: Driver> Command<'a, D> {
     /// `size` bytes of pinned host memory, or `None` when the pool cannot
     /// serve it.
     fn reserve_pinned(&mut self, size: usize, origin: Option<StreamId>) -> Option<Bytes> {
-        let any_recording = self.recording();
         let (stream, failures) = match origin {
             Some(id) => self.streams.get_and_failures(&id),
             None => self.streams.current_and_failures(),
         };
         // A stream recording a graph stages from what the pool holds, and
         // falls back to the heap rather than allocate.
-        let update = stream.capturing().page_update(any_recording);
+        let update = stream.capturing().page_update();
         let handle = stream
             .host_memory()
             .reserve(size as u64, update, failures)
@@ -575,9 +569,7 @@ impl<'a, D: Driver> Command<'a, D> {
 
 impl<D: Driver> RelocatingStreams for Command<'_, D> {
     fn recording(&mut self) -> bool {
-        self.streams
-            .all()
-            .any(|stream| stream.capturing().is_recording())
+        self.streams.current().capturing().any_recording()
     }
 
     fn has_outdated(&mut self) -> bool {
@@ -605,12 +597,35 @@ impl<D: Driver> RelocatingStreams for Command<'_, D> {
     }
 
     fn relocate_memory(&mut self, reason: RelocationReason) {
+        let current = self.streams.current;
+        self.relocate_stream(current, reason);
+    }
+
+    fn device_has_outdated(&mut self) -> bool {
+        self.streams
+            .all()
+            .any(|stream| stream.device_memory().has_outdated())
+    }
+
+    fn relocate_device_memory(&mut self, reason: RelocationReason) {
+        for stream_id in self.streams.stream_ids() {
+            if self.streams.get(&stream_id).device_memory().has_outdated() {
+                self.relocate_stream(stream_id, reason);
+            }
+        }
+    }
+}
+
+impl<D: Driver> Command<'_, D> {
+    /// Move what `stream_id`'s memory holds on outdated pages, with the copies
+    /// queued on that stream.
+    fn relocate_stream(&mut self, stream_id: StreamId, reason: RelocationReason) {
         // Rare enough to gather the signals as it goes: it waits on the whole
         // device anyway.
         let signals: Vec<_> = self.streams.all().map(|stream| stream.signal()).collect();
-        let queue = self.streams.current().signal();
+        let queue = self.streams.get(&stream_id).signal();
         let mut copier = StreamCopies::<D>::new(signals, queue, self.ctx);
-        let (stream, failures) = self.streams.current_and_failures();
+        let (stream, failures) = self.streams.get_and_failures(&stream_id);
         stream
             .device_memory()
             .relocate(&mut copier, reason, failures);

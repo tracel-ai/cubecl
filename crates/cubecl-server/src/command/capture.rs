@@ -220,16 +220,16 @@ impl<'c, 'a, D: GraphDriver> Window<'c, 'a, D> {
 
     /// Start the warmup run, before the window opens.
     ///
-    /// The outdated pools are emptied first: every page the recording touches
-    /// is guarded for the graph's life, and a guarded page can no longer be
-    /// relocated off.
+    /// The outdated pools of every stream are emptied first: the recording may
+    /// touch memory any stream owns, every page it touches is guarded for the
+    /// graph's life, and a guarded page can no longer be relocated off.
     ///
     /// # Errors
     ///
     /// The stream's refusal, when it is not in a state a window can open from.
     pub fn prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         self.stream().capturing().prepare(stream_id)?;
-        RelocatingStreams::relocate(self.command, RelocationReason::Capture);
+        RelocatingStreams::relocate_device(self.command, RelocationReason::Capture);
         Ok(())
     }
 

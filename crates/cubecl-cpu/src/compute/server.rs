@@ -112,7 +112,7 @@ impl CpuServer {
                 // long as the task is queued. A read-back outlives its task,
                 // and its binding is what keeps the allocation in place: a
                 // relocation leaves a page with a bound allocation as it is.
-                Some(ManagedResource::new(memory, resource, None))
+                Some(ManagedResource::new(memory, resource))
             })
             .collect::<Vec<_>>();
 
@@ -337,7 +337,7 @@ impl Server for CpuServer {
                 let memory = desc.handle.memory.clone();
                 let resource = stream.get_resource(desc.handle).map_err(ServerError::Io)?;
                 // No page guard, as for a launch's bindings.
-                let buffer = ManagedResource::new(memory, resource, None);
+                let buffer = ManagedResource::new(memory, resource);
                 let task = ScheduleTask::Write { data, buffer };
 
                 server.scheduler.register(stream_id, task, &[owner]);

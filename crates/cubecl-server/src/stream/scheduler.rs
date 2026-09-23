@@ -158,7 +158,7 @@ where
     B::Stream: RelocatableStream,
 {
     fn recording(&mut self) -> bool {
-        self.scheduler.streams().any(RelocatableStream::recording)
+        self.scheduler.stream(&self.stream_id).recording()
     }
 
     fn has_outdated(&mut self) -> bool {
@@ -188,6 +188,22 @@ where
     fn cleanup_memory(&mut self) {
         let (stream, failures) = self.scheduler.stream_and_failures(&self.stream_id);
         stream.cleanup_memory(failures);
+    }
+
+    fn device_has_outdated(&mut self) -> bool {
+        self.scheduler
+            .streams()
+            .any(RelocatableStream::has_outdated)
+    }
+
+    fn relocate_device_memory(&mut self, reason: RelocationReason) {
+        let stream_ids: Vec<_> = self.scheduler.stream_ids().collect();
+        for stream_id in stream_ids {
+            let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
+            if stream.has_outdated() {
+                stream.relocate(reason, failures);
+            }
+        }
     }
 }
 

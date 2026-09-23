@@ -9,7 +9,7 @@ use crate::server::ServerError;
 /// streams share one way to finish their work (a scheduler, say) supplies per
 /// stream, leaving the rest of [`RelocatingStreams`] to that shared way.
 pub trait RelocatableStream {
-    /// Whether the stream is recording a graph.
+    /// Whether any stream of the device records a graph.
     fn recording(&self) -> bool;
 
     /// Whether a growth left pages behind in the stream's memory.
@@ -57,6 +57,12 @@ pub trait RelocatingStreams {
 
     /// Move what the relocating stream's memory holds on outdated pages.
     fn relocate_memory(&mut self, reason: RelocationReason);
+
+    /// Whether a growth left pages behind in any stream's memory.
+    fn device_has_outdated(&mut self) -> bool;
+
+    /// Move what every stream's memory holds on outdated pages.
+    fn relocate_device_memory(&mut self, reason: RelocationReason);
 
     /// Give back every page the relocating stream's memory holds and nothing
     /// needs.
@@ -118,5 +124,19 @@ pub trait RelocatingStreams {
         }
         self.finish();
         self.relocate_memory(reason);
+    }
+
+    /// Relocate every stream's memory for `reason`, unless a graph records or
+    /// nothing is outdated anywhere.
+    ///
+    /// What a capture does before its warmup: a recording may touch memory
+    /// any stream owns, and every page it touches is guarded for the graph's
+    /// life, where no relocation can empty it.
+    fn relocate_device(&mut self, reason: RelocationReason) {
+        if self.recording() || !self.device_has_outdated() {
+            return;
+        }
+        self.finish();
+        self.relocate_device_memory(reason);
     }
 }

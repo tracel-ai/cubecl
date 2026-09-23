@@ -4,11 +4,14 @@ use alloc::sync::Arc;
 /// Keeps a page as it is for as long as it lives: nothing new is carved from
 /// it, it is never released, and relocation leaves everything on it in place.
 ///
-/// What a graph holds on the memory it replays against, and what a resolved
-/// resource holds on the memory it points into: both keep raw addresses, so
-/// the bytes behind them must neither move nor be handed to another
-/// allocation. The allocations on the page keep their handles untouched, so
-/// one can still be updated in place while the page is guarded.
+/// What a graph holds on the memory it replays against. A graph keeps raw
+/// addresses but no bindings, so the bytes behind them must neither move nor
+/// be handed to another allocation. The allocations on the page keep their
+/// handles untouched, so one can still be updated in place while the page is
+/// guarded.
+///
+/// A resolved resource needs no guard: the binding it holds keeps its own
+/// allocation in place, and leaves the rest of the page to other allocations.
 #[derive(Debug, Clone)]
 pub struct PageGuard {
     _hold: Hold,

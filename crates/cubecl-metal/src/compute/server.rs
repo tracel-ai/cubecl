@@ -741,6 +741,21 @@ impl RelocatingStreams for Relocating<'_, '_> {
         let (stream, failures) = self.0.current_and_failures();
         stream.relocate(reason, failures);
     }
+
+    fn device_has_outdated(&mut self) -> bool {
+        self.0
+            .all()
+            .any(|stream| stream.memory_management.has_outdated())
+    }
+
+    fn relocate_device_memory(&mut self, reason: RelocationReason) {
+        for stream_id in self.0.stream_ids() {
+            let (stream, failures) = self.0.get_and_failures(&stream_id);
+            if stream.memory_management.has_outdated() {
+                stream.relocate(reason, failures);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -16,7 +16,7 @@ use cubecl_server::{
         drop_queue,
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{EventStreamBackend, StreamCapture, StreamMemory},
+    stream::{DeviceRecording, EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -65,6 +65,10 @@ pub struct CudaStreamBackend {
     mem_alignment: usize,
     logger: Arc<ServerLogger>,
     priority: StreamPriority,
+    /// The device's count of recording streams, shared by every stream this
+    /// creates.
+    #[new(default)]
+    recording: DeviceRecording,
 }
 
 /// Create a non-blocking CUDA stream, applying the requested priority hint.
@@ -156,7 +160,7 @@ impl EventStreamBackend for CudaStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             drop_queue: Default::default(),
-            capturing: StreamCapture::default(),
+            capturing: StreamCapture::new(self.recording.clone()),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
         }
     }

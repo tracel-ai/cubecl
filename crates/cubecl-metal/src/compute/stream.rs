@@ -186,12 +186,23 @@ impl MetalStream {
                 self.fault.clone(),
             );
             (*active.command_buffer).commit();
+            // As a flush does: an open profile measures the dispatches this
+            // buffer carries.
+            if self.batch_ops > 0
+                && let Some(buffers) = self.profiling.as_mut()
+            {
+                buffers.push(active.command_buffer.clone());
+            }
             self.last_command_buffer = Some(active.command_buffer);
         }
+        self.batch_ops = 0;
+        self.batch_bytes = 0;
         if let Some(command_buffer) = self.last_command_buffer.take() {
             (*command_buffer).waitUntilCompleted();
             std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
         }
+        // Everything submitted has run, so nothing is left to regulate.
+        self.submitted_ops = 0;
     }
 
     /// Empty the outdated pools into the current pages.

@@ -244,14 +244,14 @@ impl MemoryPoolsReport {
     }
 }
 
-/// A [`MemoryReport`] as the environment records it: a snapshot of one
-/// stream's pools at a moment the caller named, written by
+/// A [`MemoryReport`] as the environment records it: a snapshot of every
+/// stream's memory on the device at a moment the caller named, written by
 /// [`Client::record_memory`](crate::client::Client::record_memory).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MemoryRecord {
     /// What the caller was doing: `model loaded`, `after the dry run`.
     pub label: alloc::string::String,
-    /// The pools at that moment.
+    /// The device's memory at that moment, stream by stream.
     pub report: MemoryReport,
 }
 

@@ -470,6 +470,6 @@ impl<M: Marker> ServerStorage for DummyServer<M> {
             binding.offset_end,
         )?;
 
-        Ok(ManagedResource::new(binding.memory, resource, None))
+        Ok(ManagedResource::new(binding.memory, resource))
     }
 }

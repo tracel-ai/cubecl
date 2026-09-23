@@ -1,8 +1,4 @@
-use crate::{
-    memory_management::{ManagedMemoryBinding, PageGuard},
-    server::IoError,
-    storage_id_type,
-};
+use crate::{memory_management::ManagedMemoryBinding, server::IoError, storage_id_type};
 use core::fmt::Debug;
 
 // This ID is used to map a handle to its actual data.
@@ -112,17 +108,13 @@ pub trait ComputeStorage: Send {
 /// Access to the underlying resource.
 #[derive(new, Debug)]
 pub struct ManagedResource<Resource: Send> {
-    // This handle is here just to keep the underlying allocation alive.
-    // If the underlying allocation becomes invalid, someone else might
-    // allocate into this resource which could lead to bad behaviour.
+    /// Keeps the allocation alive and in place while the resource is held:
+    /// a bound allocation is never freed, handed out again or relocated, so
+    /// the raw address the resource carries stays valid. The rest of its page
+    /// keeps serving other allocations.
     #[allow(unused)]
     binding: ManagedMemoryBinding,
     resource: Resource,
-    /// Keeps the allocation where it is while the resource is held: a raw
-    /// address into memory that moved would read someone else's bytes.
-    /// `None` only where no page holds it.
-    #[allow(unused)]
-    guard: Option<PageGuard>,
 }
 
 impl<Resource: Send> ManagedResource<Resource> {

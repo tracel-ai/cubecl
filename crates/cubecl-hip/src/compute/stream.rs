@@ -19,7 +19,7 @@ use cubecl_server::{
         drop_queue::{self, FlushingPolicy, PendingDropQueue},
     },
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{EventStreamBackend, StreamCapture, StreamMemory},
+    stream::{DeviceRecording, EventStreamBackend, StreamCapture, StreamMemory},
 };
 use std::sync::Arc;
 
@@ -72,6 +72,10 @@ pub struct HipStreamBackend {
     mem_alignment: usize,
     is_integrated: bool,
     logger: Arc<ServerLogger>,
+    /// The device's count of recording streams, shared by every stream this
+    /// creates.
+    #[new(default)]
+    recording: DeviceRecording,
 }
 
 impl EventStreamBackend for HipStreamBackend {
@@ -120,7 +124,7 @@ impl EventStreamBackend for HipStreamBackend {
             sys: stream,
             memory_management_gpu,
             memory_management_cpu,
-            capturing: StreamCapture::default(),
+            capturing: StreamCapture::new(self.recording.clone()),
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
                 max_bytes_count: match self.is_integrated {

@@ -10,7 +10,7 @@ use cubecl_ir::MemoryDeviceProperties;
 use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, SharedMemoryBindings},
-    stream::{StreamFactory, scheduler::SchedulerStreamBackend},
+    stream::{DeviceRecording, StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
 /// Defines tasks that can be scheduled on a WGPU stream.
@@ -91,6 +91,9 @@ pub struct WgpuStreamFactory {
     logger: Arc<ServerLogger>,
     count: u64,
     use_vulkan_compiler: bool,
+    /// The device's count of recording streams, shared by every stream this
+    /// creates.
+    recording: DeviceRecording,
 }
 
 impl StreamFactory for WgpuStreamFactory {
@@ -110,6 +113,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.tasks_max,
             self.logger.clone(),
             self.use_vulkan_compiler,
+            self.recording.clone(),
         )
     }
 }
@@ -146,6 +150,7 @@ impl ScheduledWgpuBackend {
                 logger,
                 count: 0,
                 use_vulkan_compiler,
+                recording: DeviceRecording::default(),
             },
         }
     }

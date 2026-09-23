@@ -36,7 +36,7 @@ use cubecl_server::{
     logging::ServerLogger,
     memory_management::{ErrorGraph, FailureId, ManagedMemoryHandle, SharedMemoryBindings},
     metadata_cache::{MetadataCachePolicy, MetadataInfoCache},
-    stream::{StreamCapture, StreamMemory},
+    stream::{DeviceRecording, StreamCapture, StreamMemory},
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -116,7 +116,7 @@ impl StreamMemory for WgpuStream {
 
 impl RelocatableStream for WgpuStream {
     fn recording(&self) -> bool {
-        self.capturing.is_recording()
+        self.capturing.any_recording()
     }
 
     fn has_outdated(&self) -> bool {
@@ -161,6 +161,7 @@ impl WgpuStream {
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
+        recording: DeviceRecording,
     ) -> Self {
         // Device timing needs a counter sample buffer per query set, capped per device on
         // Metal. Reserve a budget slot up front (lock-free); if none is free, fall back to
@@ -221,7 +222,7 @@ impl WgpuStream {
             // entry pins a whole page (512 × 32 KiB ≈ 16 MiB worst case) —
             // unlike CUDA/HIP where an entry is a small dynamic-pool slice.
             info_cache: MetadataInfoCache::new(MetadataCachePolicy::new(512, 2048)),
-            capturing: StreamCapture::default(),
+            capturing: StreamCapture::new(recording),
             recording: GraphRecording::default(),
         }
     }

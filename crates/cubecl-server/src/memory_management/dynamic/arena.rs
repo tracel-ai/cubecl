@@ -179,7 +179,8 @@ impl PoolArena {
         ArenaState {
             page_size: self.current().page_size(),
             has_outdated: self.has_outdated(),
-            full: self.slots.iter().all(Option::is_some),
+            // Only the current pool and the outdated ones hold a slot.
+            full: self.outdated.len() + 1 == ARENA_SLOTS,
             shape: ArenaShape {
                 current_pages: self.current().pages_held(),
                 outdated_pools: self.outdated.len(),

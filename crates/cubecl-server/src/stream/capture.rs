@@ -5,7 +5,9 @@ use crate::memory_management::{ManagedMemoryBinding, MemoryLocation, PageUpdate}
 use crate::metadata_cache::CacheMode;
 use crate::server::{BufferBinding, ServerError, WeakBufferBinding};
 use alloc::format;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use cubecl_common::bytes::Bytes;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::stream::StreamId;
@@ -150,6 +152,27 @@ impl CaptureEnd {
     }
 }
 
+/// How many streams of a device record a graph right now, shared by the
+/// [`StreamCapture`] of every one of them: whether any does is one read
+/// rather than a walk over the streams.
+#[derive(Debug, Clone, Default)]
+pub struct DeviceRecording(Arc<AtomicUsize>);
+
+impl DeviceRecording {
+    /// Whether any stream of the device records a graph.
+    pub fn any(&self) -> bool {
+        self.0.load(Ordering::Acquire) > 0
+    }
+
+    fn enter(&self) {
+        self.0.fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn leave(&self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// The graph capture of one pooled backend stream: where it sits in the
 /// lifecycle, and the memory its recorded launches were given.
 ///
@@ -168,6 +191,9 @@ impl CaptureEnd {
 #[derive(Debug, Default)]
 pub struct StreamCapture {
     state: StreamCaptureState,
+    /// The device's count of recording streams, which this stream is part of
+    /// while it records.
+    device: DeviceRecording,
     /// What the recorded launches write, kept without holding their memory:
     /// a held binding keeps its slice from being reused, and the recording
     /// has to reuse memory exactly as the warmup run did.
@@ -198,6 +224,25 @@ pub struct StreamCapture {
 }
 
 impl StreamCapture {
+    /// The capture of one stream of the device `device` counts the recording
+    /// streams of.
+    pub fn new(device: DeviceRecording) -> Self {
+        Self {
+            state: StreamCaptureState::default(),
+            device,
+            recorded: Vec::new(),
+            touched: Vec::new(),
+            primed: Vec::new(),
+            retained_host: Vec::new(),
+            failed: None,
+        }
+    }
+
+    /// Whether any stream of the device records a graph, this one included.
+    pub fn any_recording(&self) -> bool {
+        self.device.any()
+    }
+
     /// Remember the memory a launch was given, when the stream is recording.
     ///
     /// A no-op outside a window, where a launch that fails taints its own
@@ -228,15 +273,14 @@ impl StreamCapture {
         touched
     }
 
-    /// What this stream's reservations may do to the pages held, while
-    /// `any_recording` says whether some stream records a graph.
+    /// What this stream's reservations may do to the pages held.
     ///
     /// A recording stream allocates nothing: an allocation would become part
-    /// of the recording. While any stream records, no page is released or
-    /// renumbered, so the pages a recording touched are still the ones it
-    /// guards when it seals.
-    pub fn page_update(&self, any_recording: bool) -> PageUpdate {
-        match (self.is_recording(), any_recording) {
+    /// of the recording. While any stream of the device records, no page is
+    /// released or renumbered, so the pages a recording touched are still the
+    /// ones it guards when it seals.
+    pub fn page_update(&self) -> PageUpdate {
+        match (self.is_recording(), self.any_recording()) {
             (true, _) => PageUpdate::Forbidden,
             (false, true) => PageUpdate::AddOnly,
             (false, false) => PageUpdate::Allow,
@@ -365,6 +409,7 @@ impl StreamCapture {
     /// recorded run to reuse.
     pub fn begin(&mut self) -> Result<(), ServerError> {
         self.state.begin()?;
+        self.device.enter();
         self.primed.clear();
         Ok(())
     }
@@ -377,12 +422,17 @@ impl StreamCapture {
     ///
     /// Fails when no capture is recording, leaving the state untouched.
     pub fn end(&mut self, caller: StreamId) -> Result<CaptureEnd, ServerError> {
-        self.state.end(caller)
+        let end = self.state.end(caller)?;
+        self.device.leave();
+        Ok(end)
     }
 
     /// Give up a prepared capture that never opened, restoring the stream to
     /// no-capture. Whatever it had recorded or retained goes with it.
     pub fn abort(&mut self) {
+        if self.state.is_recording() {
+            self.device.leave();
+        }
         self.state.abort();
         self.clear();
     }
@@ -393,6 +443,14 @@ impl StreamCapture {
         self.primed.clear();
         self.retained_host.clear();
         self.failed = None;
+    }
+}
+
+impl Drop for StreamCapture {
+    fn drop(&mut self) {
+        if self.state.is_recording() {
+            self.device.leave();
+        }
     }
 }
 
@@ -899,6 +957,43 @@ mod tests {
         assert_eq!(
             StreamCaptureState::Capture { owner: OWNER }.cache_mode(),
             CacheMode::Capture
+        );
+    }
+
+    /// Every stream of a device sees a window one of them opens, and the
+    /// window leaves the count however it closes: sealed, aborted, or with
+    /// its stream dropped.
+    #[test]
+    fn a_recording_is_seen_device_wide() {
+        let device = DeviceRecording::default();
+        let mut recording = StreamCapture::new(device.clone());
+        let neighbour = StreamCapture::new(device.clone());
+        let recording_now =
+            |capture: &StreamCapture| (capture.page_update(), capture.any_recording());
+
+        recording.prepare(OWNER).unwrap();
+        assert!(!neighbour.any_recording(), "a warmup records nothing");
+        recording.begin().unwrap();
+        assert_eq!(recording_now(&recording), (PageUpdate::Forbidden, true));
+        assert_eq!(recording_now(&neighbour), (PageUpdate::AddOnly, true));
+        recording.end(OWNER).unwrap();
+        assert_eq!(recording_now(&neighbour), (PageUpdate::Allow, false));
+
+        recording.prepare(OWNER).unwrap();
+        recording.begin().unwrap();
+        recording.abort();
+        assert!(!device.any(), "an aborted window leaves the count");
+
+        recording.prepare(OWNER).unwrap();
+        recording.abort();
+        assert!(!device.any(), "aborting a warmup leaves the count alone");
+
+        recording.prepare(OWNER).unwrap();
+        recording.begin().unwrap();
+        drop(recording);
+        assert!(
+            !device.any(),
+            "a stream dropped while recording leaves the count"
         );
     }
 }

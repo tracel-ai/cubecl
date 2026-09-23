@@ -361,18 +361,18 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
     }
 
-    /// The resource behind `binding`, holding the allocation and a guard on
-    /// its page for as long as it lives: what a caller that keeps the raw
-    /// address past this call is handed.
+    /// The resource behind `binding`, holding the allocation's binding for as
+    /// long as it lives: what a caller that keeps the raw address past this
+    /// call is handed. The binding keeps the allocation in place, and leaves
+    /// the rest of its page to other allocations.
     pub fn managed_resource(
         &mut self,
         binding: ManagedMemoryBinding,
         offset_start: Option<u64>,
         offset_end: Option<u64>,
     ) -> Result<ManagedResource<Storage::Resource>, IoError> {
-        let guard = self.guard(binding.descriptor().location());
         let resource = self.get_resource(binding.clone(), offset_start, offset_end)?;
-        Ok(ManagedResource::new(binding, resource, guard))
+        Ok(ManagedResource::new(binding, resource))
     }
 
     /// Returns the resource from the storage at the specified handle

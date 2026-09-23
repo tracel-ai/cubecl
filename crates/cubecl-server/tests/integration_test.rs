@@ -1423,7 +1423,7 @@ fn a_memory_snapshot_is_recorded_under_its_label() {
     assert_eq!(snapshots[0].record.label, "model loaded");
     assert_eq!(
         snapshots[0].record.report,
-        client.memory_report(MemoryScope::CurrentStream)
+        client.memory_report(MemoryScope::Device)
     );
 }
 

@@ -1463,16 +1463,16 @@ impl Client {
             .unwrap_or_resume()
     }
 
-    /// Write a snapshot of the calling stream's [memory
-    /// report](Self::memory_report) to the environment's records, under
-    /// `label`. Nothing is read when the environment records nothing.
+    /// Write a snapshot of the device's [memory report](Self::memory_report),
+    /// every stream of it, to the environment's records under `label`.
+    /// Nothing is read when the environment records nothing.
     pub fn record_memory(&self, label: &str) {
         if !cubecl_environment::records::enabled() {
             return;
         }
         let record = crate::memory_management::MemoryRecord {
             label: label.into(),
-            report: self.memory_report(MemoryScope::CurrentStream),
+            report: self.memory_report(MemoryScope::Device),
         };
         cubecl_environment::records::write(
             cubecl_environment::records::RecordEffect::Observed,

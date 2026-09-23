@@ -358,9 +358,8 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
         let mut relocating = self.scheduler.relocating(stream_id);
         relocating.relocate_when_wanted();
-        let any_recording = relocating.recording();
         let (stream, failures) = self.scheduler.stream_and_failures(&stream_id);
-        let update = stream.capturing.page_update(any_recording);
+        let update = stream.capturing.page_update();
         let reserved = match stream.memory.reserve(size, update, failures) {
             Ok(reserved) => reserved,
             // The recording now misses whatever this memory was for, and
@@ -723,10 +722,11 @@ impl<C: WgpuCompiler> Server for WgpuServer<C> {
         stream.capturing.prepare(stream_id)?;
 
         // The pages the recording touches are guarded for the graph's life,
-        // and a guarded page is never relocated: empty the outdated pools now.
+        // and a guarded page is never relocated: empty every stream's outdated
+        // pools now, since the recording may touch memory any stream owns.
         self.scheduler
             .relocating(stream_id)
-            .relocate(RelocationReason::Capture);
+            .relocate_device(RelocationReason::Capture);
         Ok(())
     }
 
