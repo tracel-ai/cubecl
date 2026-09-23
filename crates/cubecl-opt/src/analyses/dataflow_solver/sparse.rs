@@ -9,6 +9,8 @@ use cubecl_ir::{
     },
     prelude::*,
 };
+use derive_more::Deref;
+use derive_new::new;
 use pliron::{
     basic_block::BasicBlock,
     linked_list::ContainsLinkedList,
@@ -24,12 +26,15 @@ use crate::analyses::dataflow_solver::{
 
 use super::{DataflowAnalysis, ProgramPoint};
 
+#[derive(Deref, new)]
 pub struct SparseForward<T: SparseForwardDataflowAnalysis> {
+    #[deref]
     inner: T,
+    #[new(default)]
     symbol_table: RefCell<SymbolTableCollection>,
 }
 
-impl<T: SparseForwardDataflowAnalysis> Default for SparseForward<T> {
+impl<T: SparseForwardDataflowAnalysis + Default> Default for SparseForward<T> {
     fn default() -> Self {
         Self {
             inner: Default::default(),
@@ -473,8 +478,9 @@ impl<T: SparseForwardDataflowAnalysis + 'static> DataflowAnalysis for SparseForw
 }
 
 pub trait LatticeValue: Default + PartialEq + Printable + Sized + 'static {
-    fn join(&self, rhs: &Self) -> Self;
-    fn meet(&self, _rhs: &Self) -> Option<Self> {
+    fn join(this: &SparseLattice<Self>, rhs: &Self) -> Self;
+    fn meet(this: &SparseLattice<Self>, rhs: &Self) -> Option<Self> {
+        let _ = (this, rhs);
         None
     }
 }
@@ -498,32 +504,35 @@ impl<T: LatticeValue> Printable for SparseLattice<T> {
 }
 
 impl<T: LatticeValue> SparseLattice<T> {
-    pub fn join(&mut self, rhs: &T) -> ChangeResult {
-        let new_value = self.value.join(rhs);
-        if new_value == self.value {
+    pub fn set(&mut self, value: T) -> ChangeResult {
+        if value == self.value {
             ChangeResult::Unchanged
         } else {
-            self.value = new_value;
+            self.value = value;
             ChangeResult::Changed
         }
     }
 
+    pub fn join(&mut self, rhs: &T) -> ChangeResult {
+        let new_value = T::join(self, rhs);
+        self.set(new_value)
+    }
+
     pub fn meet(&mut self, rhs: &T) -> ChangeResult {
-        let Some(new_value) = self.value.meet(rhs) else {
+        let Some(new_value) = T::meet(self, rhs) else {
             return ChangeResult::Unchanged;
         };
-        if new_value == self.value {
-            ChangeResult::Unchanged
-        } else {
-            self.value = new_value;
-            ChangeResult::Changed
-        }
+        self.set(new_value)
     }
 
     pub fn use_def_subscribe<A: 'static>(&self) {
         self.use_def_subscribers
             .borrow_mut()
             .insert(TypeId::of::<A>());
+    }
+
+    pub fn anchor(&self) -> Value {
+        self.anchor
     }
 
     pub fn value(&self) -> &T {
@@ -563,7 +572,7 @@ impl<T: LatticeValue> AnalysisState for SparseLattice<T> {
     }
 }
 
-pub trait SparseForwardDataflowAnalysis: Default + Sized + 'static {
+pub trait SparseForwardDataflowAnalysis: Sized + 'static {
     type LatticeValue: LatticeValue;
 
     /// Verify analysis can be run on the solver. Should be used to verify required analyses are

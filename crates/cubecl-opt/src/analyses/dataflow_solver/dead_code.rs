@@ -21,9 +21,11 @@ use pliron::{
     basic_block::BasicBlock,
     dyn_clone,
     graph::{ControlFlowGraph, HasLabel},
+    indented_block,
     linked_list::ContainsLinkedList,
+    operation::OpDbg,
     opts::constants::BranchOpFoldInterface,
-    printable::Printable,
+    printable::{Printable, indented_nl},
     symbol_table::SymbolTableCollection,
     utils::table::{ISet, SmallSet},
 };
@@ -200,26 +202,36 @@ impl Printable for PredecessorState {
     fn fmt(
         &self,
         ctx: &Context,
-        _state: &pliron::printable::State,
+        state: &pliron::printable::State,
         f: &mut core::fmt::Formatter<'_>,
     ) -> core::fmt::Result {
-        write!(
-            f,
-            "{}: PredecessorState(all_known: {}, known_predecessors: [{}], successor_inputs: {{{}}})",
-            self.anchor.disp(ctx),
-            self.all_known,
-            self.known_predecessors
-                .iter()
-                .map(|it| it.disp(ctx).to_string())
-                .join(", "),
-            self.successor_inputs
-                .iter()
-                .map(|(op, values)| {
-                    let values = values.iter().map(|it| it.disp(ctx).to_string()).join(", ");
-                    alloc::format!("{}: [{}]", op.disp(ctx), values)
-                })
-                .join(", ")
-        )
+        write!(f, "{}: PredecessorState(", self.anchor.disp(ctx))?;
+        indented_block!(state, {
+            write!(f, "{}", indented_nl(state))?;
+            write!(f, "all_known: {},", self.all_known)?;
+            write!(f, "{}", indented_nl(state))?;
+            write!(
+                f,
+                "known_predecessors: [{}],",
+                self.known_predecessors
+                    .iter()
+                    .map(|&op| OpDbg { op, ctx })
+                    .join(", "),
+            )?;
+            write!(f, "{}", indented_nl(state))?;
+            write!(
+                f,
+                "successor_inputs: {{{}}}",
+                self.successor_inputs
+                    .iter()
+                    .map(|(&op, values)| {
+                        let values = values.iter().map(|it| it.disp(ctx).to_string()).join(", ");
+                        alloc::format!("{}: [{}]", OpDbg { op, ctx }, values)
+                    })
+                    .join(", ")
+            )?;
+        });
+        write!(f, "{})", indented_nl(state))
     }
 }
 

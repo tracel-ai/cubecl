@@ -33,8 +33,8 @@ impl Printable for StrictUniformity {
 }
 
 impl LatticeValue for StrictUniformity {
-    fn join(&self, rhs: &Self) -> Self {
-        Self(self.0.min(rhs.0))
+    fn join(this: &SparseLattice<Self>, rhs: &Self) -> Self {
+        Self(this.value().0.min(rhs.0))
     }
 }
 
@@ -53,8 +53,8 @@ impl Printable for DynamicUniformity {
 }
 
 impl LatticeValue for DynamicUniformity {
-    fn join(&self, rhs: &Self) -> Self {
-        Self(self.0.min(rhs.0))
+    fn join(this: &SparseLattice<Self>, rhs: &Self) -> Self {
+        Self(this.value().0.min(rhs.0))
     }
 }
 

@@ -17,6 +17,7 @@ use pliron::{
     linked_list::{ContainsLinkedList, LinkedList},
     operation::OpDbg,
     printable::Printable,
+    value::DefiningEntity,
     verify_err_noloc,
 };
 
@@ -28,6 +29,7 @@ pub mod dead_code;
 pub mod dense;
 pub mod sccp;
 pub mod sparse;
+pub mod value_numbering;
 pub mod value_uniformity;
 
 pub type SmallPtrVec<T> = SmallVec<[T; 8]>;
@@ -49,6 +51,8 @@ impl BitOrAssign for ChangeResult {
 /// Nested module to ensure none of the unsafe abstractions leave this scope.
 mod solver {
     use core::cell::{Ref, RefMut};
+
+    use pliron::{indented_block, printable::indented_nl};
 
     use super::*;
 
@@ -118,6 +122,8 @@ mod solver {
         worklist: RefCell<VecDeque<SolverWorkItem>>,
         anchor_hash: FixedState,
         analysis_states: RefCell<AnalysisStates>,
+        /// Non-solver analyses
+        analysis_cache: RefCell<AnalysisManager>,
         config: SolverConfig,
     }
 
@@ -128,6 +134,7 @@ mod solver {
                 worklist: Default::default(),
                 anchor_hash: Default::default(),
                 analysis_states: Default::default(),
+                analysis_cache: RefCell::new(AnalysisManager::default()),
                 config,
             }
         }
@@ -198,6 +205,18 @@ mod solver {
                 _ty: PhantomData,
             })
         }
+
+        pub fn states_of_type<T: AnalysisState>(&self) -> Vec<ReadRef<'_, T>> {
+            let states = self.analysis_states.borrow();
+            states
+                .values()
+                .flat_map(|it| it.get(&TypeId::of::<T>()))
+                .map(|state| ReadRef {
+                    value: state.clone(),
+                    _ty: PhantomData,
+                })
+                .collect()
+        }
     }
 
     impl DataflowSolver {
@@ -261,6 +280,10 @@ mod solver {
             Ok(())
         }
 
+        pub fn analyses(&self) -> RefMut<'_, AnalysisManager> {
+            self.analysis_cache.borrow_mut()
+        }
+
         pub fn enqueue(&self, work_item: SolverWorkItem) {
             self.worklist.borrow_mut().push_back(work_item);
         }
@@ -292,21 +315,26 @@ mod solver {
         fn fmt(
             &self,
             ctx: &Context,
-            _state: &pliron::printable::State,
+            state: &pliron::printable::State,
             f: &mut core::fmt::Formatter<'_>,
         ) -> core::fmt::Result {
-            writeln!(f, "DataflowSolver {{")?;
-            let states = self.analysis_states.borrow();
-            let mut entries = states
-                .values()
-                .flat_map(|states| states.iter())
-                .collect::<Vec<_>>();
-            entries.sort_by_key(|it| it.0);
+            state.set_indent_width(4);
+            write!(f, "DataflowSolver {{")?;
+            indented_block!(state, {
+                let states = self.analysis_states.borrow();
+                let mut entries = states
+                    .values()
+                    .flat_map(|states| states.iter())
+                    .collect::<Vec<_>>();
+                entries.sort_by_key(|it| it.0);
 
-            for (_, state) in entries {
-                writeln!(f, "    {},", state.borrow().disp(ctx))?;
-            }
-            writeln!(f, "}}")
+                for (_, entry) in entries {
+                    write!(f, "{}", indented_nl(state))?;
+                    entry.borrow().fmt(ctx, state, f)?;
+                }
+            });
+
+            writeln!(f, "{}}}", indented_nl(state))
         }
     }
 }
@@ -378,6 +406,13 @@ impl ProgramPoint {
 
     pub fn at_block_end(_ctx: &Context, block: Ptr<BasicBlock>) -> ProgramPoint {
         ProgramPoint::EndOfBlock(block)
+    }
+
+    pub fn after_value(ctx: &Context, value: Value) -> ProgramPoint {
+        match value.defining_entity() {
+            DefiningEntity::Op(op) => ProgramPoint::after_op(ctx, op),
+            DefiningEntity::Block(block) => ProgramPoint::at_block_start(ctx, block),
+        }
     }
 
     pub fn next_op(&self, _ctx: &Context) -> Option<Ptr<Operation>> {

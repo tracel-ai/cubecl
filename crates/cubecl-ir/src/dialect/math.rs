@@ -11,11 +11,12 @@ use pliron::{
 };
 
 use crate::{
-    CanMaterialize, ConstantValue, NoMemoryEffect, NoSideEffects, PropagatesUniformity, Pure,
+    CanMaterialize, Commutative, ConstantValue, NoMemoryEffect, NoSideEffects,
+    PropagatesUniformity, Pure,
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttrExt},
     dialect::{pure_binop, pure_unop},
     interfaces::{
-        TriviallyUnrollable, TypedExt,
+        Expression, ExpressionCanonicalize, ExpressionValue, TriviallyUnrollable, TypedExt,
         side_effects::{ConditionallySpeculatable, Speculatability},
     },
     prelude::*,
@@ -232,6 +233,7 @@ fn pred_result_ty(ctx: &Context, input: &Value) -> TypeHandle {
 }
 
 pure_binop!("math.i_add", IAddOp);
+Commutative!(IAddOp);
 const_eval!(IAddOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_add(rhs),
 });
@@ -247,6 +249,7 @@ simplify!(IAddOp, {
 });
 
 pure_binop!("math.f_add", FAddOp);
+Commutative!(FAddOp);
 const_eval!(FAddOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs + rhs
 });
@@ -262,6 +265,7 @@ simplify!(FAddOp, {
 });
 
 pure_binop!("math.saturating_s_add", SaturatingSAddOp);
+Commutative!(SaturatingSAddOp);
 const_eval!(SaturatingSAddOp, {
     [IntegerAttr(i8, i16, i32, i64)]: |lhs, rhs| lhs.saturating_add(rhs)
 });
@@ -277,6 +281,7 @@ simplify!(SaturatingSAddOp, {
 });
 
 pure_binop!("math.saturating_u_add", SaturatingUAddOp);
+Commutative!(SaturatingUAddOp);
 const_eval!(SaturatingUAddOp, {
     [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.saturating_add(rhs)
 });
@@ -354,6 +359,7 @@ simplify!(SaturatingUSubOp, {
 });
 
 pure_binop!("math.i_mul", IMulOp);
+Commutative!(IMulOp);
 const_eval!(IMulOp, {
     [IndexAttr, IntegerAttr(i8, i16, i32, i64), IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_mul(rhs),
     // 0 * x -> 0; x * 0 -> 0
@@ -378,6 +384,7 @@ simplify!(IMulOp, {
 });
 
 pure_binop!("math.f_mul", FMulOp);
+Commutative!(FMulOp);
 const_eval!(FMulOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs * rhs,
     // 0 * x -> 0; x * 0 -> 0
@@ -531,11 +538,13 @@ pub struct PowiOp {
 // TODO const_eval
 
 pure_binop!("math.hypot", HypotOp);
+Commutative!(HypotOp);
 const_eval!(HypotOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs.hypot(rhs),
 });
 
 pure_binop!("math.rhypot", RhypotOp);
+Commutative!(RhypotOp);
 const_eval!(RhypotOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs.hypot(rhs).recip(),
 });
@@ -689,6 +698,7 @@ const_eval!(FModFloorOp, {
 });
 
 pure_binop!("math.s_mul_hi", SMulHiOp);
+Commutative!(SMulHiOp);
 const_eval!(SMulHiOp, {
     IntegerAttr(i64): |lhs, rhs| ((lhs as i128 * rhs as i128) >> 64) as i64,
     IntegerAttr(i32): |lhs, rhs| ((lhs as i64 * rhs as i64) >> 32) as i32,
@@ -710,6 +720,7 @@ simplify!(SMulHiOp, {
 });
 
 pure_binop!("math.u_mul_hi", UMulHiOp);
+Commutative!(UMulHiOp);
 const_eval!(UMulHiOp, {
     IndexAttr: |lhs, rhs| ((lhs as u128 * rhs as u128) >> 64) as usize,
     IntegerAttr(u64): |lhs, rhs| ((lhs as u128 * rhs as u128) >> 64) as u64,
@@ -763,6 +774,25 @@ const_eval!(FmaOp, {
     FloatAttr(f16, bf16, f32, f64): |a, b, c| a * b + c,
 });
 
+#[op_interface_impl]
+impl ExpressionCanonicalize for FmaOp {
+    fn canonical_expression(
+        &self,
+        ctx: &Context,
+        mut operands: Vec<ExpressionValue>,
+    ) -> Expression {
+        if operands[0] > operands[1] {
+            operands.swap(0, 1)
+        }
+        Expression::new(
+            self.result_type(ctx),
+            Self::get_opid_static(),
+            operands,
+            Default::default(),
+        )
+    }
+}
+
 /// Dot product of four packed signed 8-bit integers, plus an `i32` accumulator.
 #[cube_op(name = "math.dp4a")]
 #[result_ty(same_as = a)]
@@ -776,6 +806,25 @@ pub struct Dp4aOp {
 const_eval!(Dp4aOp, {
     IntegerAttr(i32): |a, b, c| dp4a_const(a, b, c),
 });
+
+#[op_interface_impl]
+impl ExpressionCanonicalize for Dp4aOp {
+    fn canonical_expression(
+        &self,
+        ctx: &Context,
+        mut operands: Vec<ExpressionValue>,
+    ) -> Expression {
+        if operands[0] > operands[1] {
+            operands.swap(0, 1)
+        }
+        Expression::new(
+            self.result_type(ctx),
+            Self::get_opid_static(),
+            operands,
+            Default::default(),
+        )
+    }
+}
 
 fn dp4a_const(a: i32, b: i32, c: i32) -> i32 {
     let byte = |value: i32, shift: u32| ((value as u32 >> shift) as u8) as i8 as i32;

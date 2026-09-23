@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{cell::RefMut, fmt};
 
 use alloc::{
     collections::VecDeque,
@@ -9,6 +9,7 @@ use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
     dialect::RegionPtrExt,
     interfaces::{
+        control_flow::CallableOpInterface,
         memory_slot::{
             MemorySSAContext, MemorySSARegionOpInterface, MemoryValue, RegionMemoryPhiInputs,
             RegionMemoryValue,
@@ -598,6 +599,28 @@ impl MemorySSA {
             nodes: Default::default(),
             analysis_stack: AliasAnalysisStack::default(),
         }
+    }
+
+    pub fn get_for_nearest_root<'a>(
+        ctx: &Context,
+        analyses: &'a mut AnalysisManager,
+        op: Ptr<Operation>,
+    ) -> Result<RefMut<'a, Self>> {
+        let root = find_memory_ssa_root(ctx, op).expect("Not contained in a callable");
+        analyses.get_analysis_mut(root, ctx)
+    }
+}
+
+/// Given an `op`, finds the corresponding `MemorySSA` root. `MemorySSA` is an intra-prodcedural
+/// analysis, so we look for the nearest [`CallableOpInterface`]
+pub fn find_memory_ssa_root(ctx: &Context, op: Ptr<Operation>) -> Option<Ptr<Operation>> {
+    let mut cur = op;
+    loop {
+        if cur.impls::<dyn CallableOpInterface>(ctx) {
+            return Some(cur);
+        }
+        let parent_op = cur.deref(ctx).get_parent_op(ctx)?;
+        cur = parent_op;
     }
 }
 

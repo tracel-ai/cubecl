@@ -202,7 +202,13 @@ impl Analysis for GlobalVisibility {
                                 MemoryEffect::ReadAllInSpace(_)
                                 | MemoryEffect::WriteAllInSpace(_) => {}
                                 MemoryEffect::Opaque => {
-                                    unreachable!("Opaque should not exist in memory effects")
+                                    // Untracked op in a nested region, should normally be treated
+                                    // conservatively but this is a rare case where we can be
+                                    // optimistic relatively safely. All backends will reject
+                                    // invalid visibility during compilation/validation, so a
+                                    // skipped op that actually reads/writes should be caught.
+                                    // Otherwise we would catch things like barriers as writes to
+                                    // all buffers.
                                 }
                             }
                         }

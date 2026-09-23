@@ -24,9 +24,11 @@ impl Printable for ConstantValue {
         f: &mut core::fmt::Formatter<'_>,
     ) -> core::fmt::Result {
         match self {
-            ConstantValue::Uninitialized => f.write_str("Uninitialized"),
-            ConstantValue::Initialized(attr) => write!(f, "Constant({})", attr.disp(ctx)),
-            ConstantValue::Unknown => f.write_str("Unknown"),
+            ConstantValue::Uninitialized => f.write_str("ConstantValue::Uninitialized"),
+            ConstantValue::Initialized(attr) => {
+                write!(f, "ConstantValue::Constant({})", attr.disp(ctx))
+            }
+            ConstantValue::Unknown => f.write_str("ConstantValue::Unknown"),
         }
     }
 }
@@ -41,8 +43,8 @@ impl ConstantValue {
 }
 
 impl LatticeValue for ConstantValue {
-    fn join(&self, rhs: &Self) -> Self {
-        match (self, rhs) {
+    fn join(this: &SparseLattice<Self>, rhs: &Self) -> Self {
+        match (this.value(), rhs) {
             (ConstantValue::Uninitialized, rhs) => rhs.clone(),
             (lhs, ConstantValue::Uninitialized) => lhs.clone(),
             (lhs, rhs) if lhs == rhs => lhs.clone(),

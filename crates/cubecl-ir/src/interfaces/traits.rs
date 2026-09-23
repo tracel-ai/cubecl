@@ -188,6 +188,31 @@ macro_rules! NoSideEffects {
     };
 }
 
+#[macro_export]
+macro_rules! Commutative {
+    ($ty: ty) => {
+        #[::pliron::derive::op_interface_impl]
+        impl $crate::interfaces::ExpressionCanonicalize for $ty {
+            fn canonical_expression(
+                &self,
+                ctx: &pliron::context::Context,
+                mut operands: alloc::vec::Vec<$crate::interfaces::ExpressionValue>,
+            ) -> $crate::interfaces::Expression {
+                operands.sort();
+                $crate::interfaces::Expression::new(
+                    self.result_type(ctx),
+                    <$ty>::get_opid_static(),
+                    operands,
+                    self.get_operation()
+                        .deref(ctx)
+                        .attributes
+                        .clone_skip_outlined(ctx),
+                )
+            }
+        }
+    };
+}
+
 dict_key!(
     /// Key for symbol visibility attribute when the operation defines a symbol visibility.
     ATTR_KEY_SYM_VISIBILITY,

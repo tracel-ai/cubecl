@@ -1,15 +1,23 @@
+use core::fmt::{self, Debug};
+
 use crate::{
     CanMaterialize, ConstantValue, ElemType,
     dialect::synchronization::SyncScope,
+    interfaces::memory_slot::MemoryValue,
     prelude::*,
     types::{AtomicType, PointerType, VectorType, scalar::*},
 };
+use alloc::string::ToString;
+use derive_new::new;
+use itertools::Itertools;
 use pliron::{
     alloc::vec::Vec,
     attribute::{AttrObj, AttributeDict},
     builtin::{attr_interfaces::TypedAttrInterface, ops::ConstantOp, types::IntegerType},
     context::Context,
     derive::{op_interface, type_interface},
+    op::OpId,
+    printable::{self, Printable},
     r#type::{TypeHandle, type_cast},
     utils::apint::APInt,
     value::Use,
@@ -257,6 +265,64 @@ pub trait SimplifyInterface {
 pub trait CanonicalizeInterface {
     verify_op_succ!();
     fn canonicalize(&self, ctx: &mut Context, rewriter: &mut MatchRewriter) -> Result<()>;
+}
+
+#[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExpressionValue(u64);
+
+impl Printable for ExpressionValue {
+    fn fmt(&self, _: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "e{}", self.0)
+    }
+}
+
+#[derive(new, Clone, PartialEq, Eq, Hash)]
+pub struct Expression {
+    pub result_type: TypeHandle,
+    #[new(default)]
+    pub result_idx: usize,
+    pub op_id: OpId,
+    pub operands: Vec<ExpressionValue>,
+    pub attributes: AttributeDict,
+    #[new(default)]
+    pub mem_value: Option<MemoryValue>,
+}
+
+impl Printable for Expression {
+    fn fmt(&self, ctx: &Context, _: &printable::State, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut opds = self.operands.iter().map(|it| it.disp(ctx).to_string());
+        write!(
+            f,
+            "result{} = {} ({}{}) {} : {}",
+            self.result_idx,
+            self.op_id,
+            opds.join(", "),
+            self.mem_value
+                .map(|it| alloc::format!(", {it}"))
+                .unwrap_or_default(),
+            self.attributes.disp(ctx),
+            self.result_type.disp(ctx)
+        )
+    }
+}
+
+impl Debug for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Expression")
+            .field("result_type", &self.result_type)
+            .field("result_idx", &self.result_idx)
+            .field("op_id", &self.op_id.to_string())
+            .field("operands", &self.operands)
+            .field("attributes", &self.attributes)
+            .field("mem_value", &self.mem_value)
+            .finish()
+    }
+}
+
+#[op_interface]
+pub trait ExpressionCanonicalize: OneResultInterface {
+    verify_op_succ!();
+    fn canonical_expression(&self, ctx: &Context, operands: Vec<ExpressionValue>) -> Expression;
 }
 
 #[attr_interface]

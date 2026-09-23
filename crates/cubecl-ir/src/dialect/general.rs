@@ -13,8 +13,8 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    Builtin, CanMaterialize, ConstantValue, HasSideEffects, NoMemoryEffect, PropagatesUniformity,
-    Pure,
+    Builtin, CanMaterialize, Commutative, ConstantValue, HasSideEffects, NoMemoryEffect,
+    PropagatesUniformity, Pure,
     attributes::{BoolAttr, IndexAttr},
     dialect::{
         math::{index_attr, int_attr},
@@ -63,6 +63,7 @@ impl AliasingOp for CopyOp {
 pub struct PoisonOp {}
 
 pure_binop!("cube.bool_and", BoolAndOp);
+Commutative!(BoolAndOp);
 const_eval!(BoolAndOp, {
     BoolAttr: |lhs, rhs| lhs && rhs,
     // false && x -> false
@@ -95,6 +96,7 @@ simplify!(BoolAndOp, {
 });
 
 pure_binop!("cube.bool_or", BoolOrOp);
+Commutative!(BoolOrOp);
 const_eval!(BoolOrOp, {
     BoolAttr: |lhs, rhs| lhs || rhs,
     // true || x -> true

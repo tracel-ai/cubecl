@@ -45,7 +45,7 @@ impl ExpressionKey {
     pub fn new(ctx: &Context, op: Ptr<Operation>, mem_value: Option<MemoryValue>) -> Self {
         let op_id = op.dyn_op(ctx).get_opid();
         let operands = op.operands(ctx);
-        let attributes = op.deref(ctx).attributes.clone();
+        let attributes = op.deref(ctx).attributes.clone_skip_outlined(ctx);
         let result_types = op.deref(ctx).result_types().collect();
         Self {
             op_id,
